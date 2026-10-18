@@ -5,18 +5,20 @@
 //! walk is kept while what it read reads the same:
 //!
 //! - each source and each path that resolved its imports (package
-//!   manifests, the paths tried), the design files and the root included
-//!   (the root even when it does not read), by its stamp (length,
-//!   modification and change times, device and inode). A stamp that moved
-//!   on the same file is read again and its digest compared (equal, the
-//!   stamp is kept); another file at the path, or one come or gone, walks
-//!   again, whatever its bytes, since equal bytes elsewhere resolve
-//!   otherwise;
-//! - what decides which of those files are a package's ([`owned`]): each
+//!   manifests, the paths tried), the design files, the root and `app.json`
+//!   (which picks the design) included, there or not, by its stamp
+//!   (length, modification and change times, device and inode) and where
+//!   it leads. A stamp that moved on the same file is read again and its
+//!   digest compared (equal, the stamp is kept); another file at the path,
+//!   one come or gone, or the path leading elsewhere walks again, whatever
+//!   its bytes, since equal bytes elsewhere resolve otherwise;
+//! - what decides which of those files are a package's and the identity
+//!   its params are named by ([`owned`], `sources::home`): each
 //!   `node_modules` entry (an `@scope`'s too) and where it leads, and each
-//!   `package.json` above a source inside the app, there or not;
-//! - a walk that did not load whole, or a file modified once it began, is
-//!   used once and walked again.
+//!   `package.json` a source's identity looks for, there or not; their
+//!   digests are in the key;
+//! - a walk that did not load whole, or with a file changed once it began
+//!   (its change time, which no copy keeps), is used once and walked again.
 //!
 //! It is checked once per request.
 //!
@@ -50,6 +52,7 @@ fn read(path: &Path) -> String {
 struct Read {
     path: PathBuf,
     stamp: Option<Stamp>,
+    target: Option<PathBuf>,
     digest: String,
     design: bool,
 }
@@ -102,12 +105,16 @@ impl Walk {
         out
     }
 
+    /// The `package.json` files a source's identity looks for, as
+    /// `sources::home` does: each directory above it short of the app's
+    /// directory and those above that.
     fn manifests(dir: &Path, files: &[Read]) -> Vec<(PathBuf, Option<String>)> {
         let app = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
         let mut out: Vec<(PathBuf, Option<String>)> = Vec::new();
-        for f in files {
-            for d in f.path.ancestors().skip(1) {
-                if !d.starts_with(&app) || d == app {
+        for f in files.iter().filter(|f| !f.design) {
+            let path = f.target.as_deref().unwrap_or(&f.path);
+            for d in path.ancestors().skip(1) {
+                if app.starts_with(d) {
                     break;
                 }
                 let manifest = d.join("package.json");
@@ -127,6 +134,9 @@ impl Walk {
             return false;
         }
         for f in &mut self.files {
+            if f.path.canonicalize().ok() != f.target {
+                return false;
+            }
             let now = stamp(&f.path);
             if now == f.stamp {
                 continue;
@@ -146,6 +156,14 @@ impl Walk {
 }
 
 impl Server {
+    /// Check the walk again within this request (a write found a file
+    /// moved since its snapshot).
+    pub(super) fn recheck(&self) {
+        if let Some(w) = self.graph.borrow_mut().as_mut() {
+            w.checked = 0;
+        }
+    }
+
     /// The app's Contract sources ([`Walk`]), walked again only when what
     /// the last walk read reads otherwise; checked once per request.
     pub(super) fn walk(&self) -> std::cell::Ref<'_, Walk> {
@@ -163,7 +181,9 @@ impl Server {
             let root = self.dir.join("app.contract");
             let began = SystemTime::now();
             let graph = contract::source_graph(&root);
-            let mut paths: Vec<&PathBuf> = std::iter::once(&root)
+            let manifest = self.dir.join("app.json");
+            let mut paths: Vec<&PathBuf> = [&root, &manifest]
+                .into_iter()
                 .chain(graph.sources.iter().map(|s| &s.path))
                 .chain(&graph.consulted)
                 .collect();
@@ -174,6 +194,7 @@ impl Server {
                 .map(|p| Read {
                     path: p.clone(),
                     stamp: stamp(p),
+                    target: p.canonicalize().ok(),
                     digest: read(p),
                     design: p.extension().is_some_and(|e| e == "tamber"),
                 })
@@ -186,10 +207,26 @@ impl Server {
                 into.push_str(&f.digest);
                 into.push('\n');
             }
-            let moved = files.iter().any(|f| f.stamp.is_some_and(|s| s.1 >= began));
+            let manifests = Walk::manifests(&self.dir, &files);
+            for (path, d) in &manifests {
+                key.push_str(&path.to_string_lossy());
+                key.push('\0');
+                key.push_str(d.as_deref().unwrap_or(""));
+                key.push('\n');
+            }
+            // A change time is the kernel's own clock, which no copy or
+            // rename keeps: one since the walk began is a file it may have
+            // read as it was before.
+            let began = began
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default();
+            let since = |(s, n): (i64, i64)| {
+                (s, n) >= (began.as_secs() as i64, i64::from(began.subsec_nanos()))
+            };
+            let moved = files.iter().any(|f| f.stamp.is_some_and(|s| since(s.2)));
             *self.graph.borrow_mut() = Some(Walk {
                 modules: Walk::modules(&self.dir),
-                manifests: Walk::manifests(&self.dir, &files),
+                manifests,
                 files,
                 key,
                 design,

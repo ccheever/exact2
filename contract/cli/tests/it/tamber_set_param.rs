@@ -567,7 +567,7 @@ fn the_walk_follows_the_design_a_manifest_and_a_late_root() {
     assert!(files(&mut s).get("app.contract").is_none(), "no root yet");
     std::fs::write(
         dir.join("vendor/p/index.contract"),
-        "component Badge\n  view\n    text \"b\"\n",
+        "component Badge\n  params\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    text \"b\" padding=\"param.gap\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -585,11 +585,20 @@ fn the_walk_follows_the_design_a_manifest_and_a_late_root() {
     assert_eq!(inset(&mut s), "8px");
     std::fs::write(dir.join("app.tamber"), card("12px")).unwrap();
     assert_eq!(inset(&mut s), "12px", "the design's default");
+    let gap = |s: &mut Serve| {
+        s.ask(json!({"method": "resolve", "token": "Badge.gap"}))["ok"]["token"].clone()
+    };
+    assert_eq!(gap(&mut s), "vendor/p/index.contract#Badge.gap");
     std::fs::write(dir.join("vendor/p/package.json"), "{\"name\": \"p\"}").unwrap();
     let now = files(&mut s);
     assert!(
         now.get("vendor/p/index.contract").is_none(),
         "a package's now: {now}"
+    );
+    assert_eq!(
+        gap(&mut s),
+        "p/index.contract#Badge.gap",
+        "named by its package now"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

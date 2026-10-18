@@ -380,6 +380,9 @@ impl Server {
                 key.push_str(&t.name.value);
                 key.push('\n');
             }
+            // A native component's params, kept by their declaration, and
+            // what their defaults read.
+            key.push_str(&format!("{:?}\n", design.components));
         }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
@@ -1324,6 +1327,7 @@ impl Server {
                     self.stop(format!("withdrawing the journal: {e}"));
                 }
                 clean(&renames);
+                self.recheck();
                 let files = self
                     .snapshot()
                     .map(|s| files_json(&s))
