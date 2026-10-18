@@ -726,8 +726,28 @@ for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest
   );
 }, 60000);
 
+for (const consumer of ['shortcuts', 'gpu', 'trace', 'reorder']) browserTest(`flowed keys reach page ${consumer} capture once`, async () => {
+  const results = await inChrome(flowKeyFixture, undefined, {
+    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+  }, true);
+  for (const { runtime, nested, pageCaptures } of results) {
+    for (const { kind, connected, type, unflowed, first, repeat } of pageCaptures.filter(c => c.kind === consumer)) {
+      expect({ runtime, nested, connected, type, first }).toEqual({ runtime, nested, connected, type,
+        first: { calls: kind === 'trace' || kind === 'reorder' ? 1 : 0, capture: type === 'keydown' ? 1 : 0, bubble: 1, prevented: kind === 'trace' || kind === 'reorder' } });
+      expect(first).toEqual(unflowed);
+      expect(repeat.calls).toBe(1);
+      if (kind === 'shortcuts') expect(repeat.capture).toBe(0); // the now-available shortcut consumes the next dispatch
+    }
+  }
+}, 60000);
+
 async function flowKeyFixture() {
   const { createTextFlow } = await import('/textflow-glue.js');
+  const { createInputHandlers } = await import('/input-glue.js');
+  const { createFrameSampler } = await import('/frames.js');
+  const { groupController } = await import('/group-glue.js');
+  const gpuSource = await fetch('/gpu-glue.js').then(r => r.text());
+  const gpuListen = gpuSource.slice(gpuSource.indexOf('function listen('), gpuSource.indexOf('function agent('));
   const { on, onKey, Hosts, act, sig, W, Before, After } = await import('/rt.js');
   const glue = await fetch('/glue.js').then(r => r.text());
   const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
@@ -747,15 +767,19 @@ async function flowKeyFixture() {
     for (const [kind, handler] of Object.entries(handlers)) on(el, kind, key => handler(key, Hosts), onKey);
   };
   const root = document.getElementById('root'), results = [];
+  createInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true,
+    inertAncestor: () => false, dispatch() {} });
+  let traces = 0;
+  createFrameSampler({ origin: () => 0, log() {}, gather: () => { traces++; return new Promise(() => {}); }, covers: [], target: 'js' });
   for (const [runtime, bind] of [['wasm', bindWasm], ['js', bindJs]]) for (const nested of [false, true]) {
     const views = new Map(), heard = [], writes = sig(0), bubbles = sig(0);
-    let commitAt = null;
+    let commitAt = null, pageCapture = null;
     const write = act(() => W(writes, writes() + 1)), count = act(() => W(bubbles, bubbles() + 1));
     const commitAtSite = site => { if (commitAt === site) write(); };
     root.innerHTML = '<div style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="#story" tabindex="0">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
     const parent = root.firstElementChild, paragraph = parent.firstElementChild, original = paragraph.firstElementChild, ball = parent.lastElementChild;
     bind(parent, {
-      keycapture(key, api) { heard.push('column'); commitAtSite('column'); if (key === 'x') api.stopPropagation(); if (key === 'z') api.preventDefault(); },
+      keycapture(key, api) { heard.push('column'); pageCapture?.(); commitAtSite('column'); if (key === 'x') api.stopPropagation(); if (key === 'z') api.preventDefault(); },
       key() { heard.push('column-bubble'); if (commitAt) count(); }, keyup() { heard.push('column-up'); if (commitAt) count(); },
     });
     if (nested) {
@@ -831,7 +855,74 @@ async function flowKeyFixture() {
         }
       } finally { Before.splice(Before.indexOf(before), 1); After.splice(After.indexOf(after), 1); }
     }
-    results.push({ runtime, nested, events: original.exactFlowEvents, unflowed, flowed, redispatch, commits, retainedCopies });
+    // Real page consumers see the source before the ancestor makes a shortcut or GPU control available.
+    // The copy must still reach the authored run and the page's bubble listeners.
+    commitAt = null;
+    const pageCaptures = [], button = document.createElement('button'), host = document.createElement('div');
+    button.textContent = 'Shortcut'; root.append(button, host);
+    host.innerHTML = '<canvas></canvas><button data-action="jump">Jump</button>';
+    const entry = { host, el: host.firstElementChild, id: 1, view: 1 }, controls = [];
+    new Function('entry', 'controls', `
+      const live = () => entry, recoveringDevice = null, exact = { now: () => 0 };
+      const inertAncestor = () => false, messages = () => {}, schedule = () => {};
+      const gpu = { gpu_input: (_, json) => { controls.push(JSON.parse(json)); return true; } };
+      ${gpuListen}
+      listen(entry);
+    `)(entry, controls);
+    const owner = { node: host.lastElementChild, name: 'jump', left: 0, top: 0 };
+    const batch = { ops: [{ op: 'children' }] }, before = () => flow.beforeBatch(batch), after = () => flow.afterBatch(batch);
+    Before.push(before); After.push(after);
+    parent.addEventListener('keyup', () => pageCapture?.(), true);
+    let clicks = 0, pageBubbles = 0;
+    button.addEventListener('click', () => clicks++);
+    const bubbled = () => pageBubbles++;
+    for (const type of ['keydown', 'keyup']) document.addEventListener(type, bubbled);
+    try {
+      for (const kind of ['shortcuts', 'gpu', 'trace', 'reorder']) for (const connected of [false, true]) {
+        for (const type of kind === 'gpu' ? ['keydown', 'keyup'] : ['keydown']) {
+          let steps = 0;
+          const group = groupController({ views: new Map([[1, root]]), root, now: () => 0, ready: () => true, inert: () => false,
+            collections: { reorderContact() {}, reorderMapping: () => ({ revision: 1 }), retainInteraction: () => 1, releaseRetainedInteraction() {}, releaseInteraction() {} },
+            request: ({ op }) => { if (op === 'reorder-step') steps++; return { accepted: true, token: 1 }; }, applyBatch() {} });
+          const grip = document.createElement('div'); root.append(grip);
+          group.bind({ el: grip, list: 1 }, { group: 'test', keys: true });
+          if (kind === 'reorder') grip.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+          button.removeAttribute('aria-keyshortcuts'); entry.controls.clear(); entry.controlKeys.clear();
+          pageCapture = () => {
+            if (connected) write();
+            if (kind === 'shortcuts') button.setAttribute('aria-keyshortcuts', 'b');
+            if (kind === 'gpu') (type === 'keydown' ? entry.controls : entry.controlKeys).set(type === 'keydown' ? 1 : 'Space', owner);
+          };
+          const calls = () => kind === 'shortcuts' ? clicks : kind === 'gpu' ? controls.filter(c => c.t === 'control').length : kind === 'trace' ? traces : steps;
+          const event = new KeyboardEvent(type, { key: kind === 'shortcuts' ? 'b' : kind === 'gpu' ? ' ' : kind === 'trace' ? 'T' : 'ArrowDown',
+            code: kind === 'gpu' ? 'Space' : kind === 'trace' ? 'KeyT' : 'KeyB', altKey: kind === 'trace', shiftKey: kind === 'trace', bubbles: true, cancelable: true });
+          let retained;
+          const deliver = (at, e) => {
+            heard.length = 0; pageBubbles = 0;
+            const count = calls(); at.dispatchEvent(e);
+            return { calls: calls() - count, capture: heard.filter(h => h === 'capture').length, bubble: pageBubbles, prevented: e.defaultPrevented };
+          };
+          flow.beforeBatch(batch);
+          const unflowed = deliver(original, new KeyboardEvent(type, event));
+          button.removeAttribute('aria-keyshortcuts'); entry.controls.clear(); entry.controlKeys.clear();
+          flow.afterBatch(batch); await flow.settle();
+          const target = paragraph.querySelector('[data-flow-fragment] a');
+          original.addEventListener(type, e => { retained = e; }, { once: true });
+          const first = deliver(target, event);
+          if (retained === event || original.isConnected !== connected) throw Error('page capture fixture must forward to the expected original');
+          pageCapture = null;
+          flow.beforeBatch(batch); // redispatch the retained copy on the live authored tree
+          const repeat = retained ? deliver(original, retained) : null;
+          pageCaptures.push({ kind, connected, type, unflowed, first, repeat });
+          group.reset(); grip.remove(); flow.afterBatch(batch);
+        }
+      }
+    } finally {
+      pageCapture = null; entry.unlisten(); button.remove(); host.remove();
+      for (const type of ['keydown', 'keyup']) document.removeEventListener(type, bubbled);
+      Before.splice(Before.indexOf(before), 1); After.splice(After.indexOf(after), 1);
+    }
+    results.push({ runtime, nested, events: original.exactFlowEvents, unflowed, flowed, redispatch, commits, retainedCopies, pageCaptures });
     flow.dispose();
   }
   return results;

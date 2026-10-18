@@ -618,6 +618,7 @@ function listen(entry) {
   };
   // A pointer-owned control may coexist with a focused editor outside this canvas.
   const pressedKey = (event, down) => {
+    if (event.exactFlowCapture) return;
     if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || !["Space", "Enter", "NumpadEnter"].includes(event.code)) return;
     cancelRemoved(); entry.resampleHeld();
     const owner = controlKeys.get(event.code) ?? (down ? controls.values().next().value : null);
