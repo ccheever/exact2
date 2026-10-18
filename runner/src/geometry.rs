@@ -271,6 +271,7 @@ impl Scrolled {
 /// geometry carries none of it (LLP 1047 D3).
 #[derive(Clone, Copy)]
 pub struct GeometryLinks {
+    range_frame: fn(&Kernel, &Scrolled, ViewId, f64, f64) -> GeometryAnswer,
     frame: fn(&Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     measure: fn(&mut Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     point: fn(&Kernel, &Scrolled, f64, f64) -> Option<ViewId>,
@@ -295,6 +296,7 @@ impl GeometryLinks {
         shown: fn(&Kernel, &Scrolled, ViewId, bool) -> bool,
     ) -> GeometryLinks {
         GeometryLinks {
+            range_frame: kernel_range_frame,
             frame,
             measure,
             point,
@@ -303,6 +305,15 @@ impl GeometryLinks {
             ahead: measure_ahead,
             read,
         }
+    }
+
+    /// Use the host editor's source-range geometry in viewport coordinates.
+    pub const fn with_range_frame(
+        mut self,
+        range_frame: fn(&Kernel, &Scrolled, ViewId, f64, f64) -> GeometryAnswer,
+    ) -> Self {
+        self.range_frame = range_frame;
+        self
     }
 
     /// Every `measure` in an action's `code`, answered before it runs, by
@@ -713,7 +724,11 @@ fn read(env: &GeometryEnv<'_>, plan: &Plan, f: Stdlib, args: &[Value]) -> Option
         let start = args.get(1)?.as_number()?;
         let end = args.get(2)?.as_number()?;
         let answer = view_of(env.kernel, id).map_or(GeometryAnswer::UNAVAILABLE, |view| {
-            kernel_range_frame(env.kernel, env.scrolled, view, start, end)
+            if !start.is_finite() || !end.is_finite() || start < 0. || start > end {
+                GeometryAnswer::UNAVAILABLE
+            } else {
+                (env.links.range_frame)(env.kernel, env.scrolled, view, start, end)
+            }
         });
         return Some(answer.value());
     }
