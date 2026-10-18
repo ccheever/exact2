@@ -1,3 +1,4 @@
+import { updateEverythingView } from '../sidebar/update-everything';
 import { legacySidebarSnapshot } from '../sidebar/legacy-sidebar-view';
 import { timelineReadsNeeded } from '../timeline/timeline-prepare';
 import { projectCloneBlock } from '../shell/project-clones-live';
@@ -174,6 +175,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),
     ...threadErrorView(client, requestPresentation(client)),
     composer: composerSnapshot(client, now),
+    updateEverything: updateEverythingView(client, now),
     serverUpdate: serverUpdateView(client), // server-update-notices.ts: the offline timers' episodes, the details dot, the update confirmation
     look: look(client),
     ...tableMenuSnapshot(client), // a table's Copy popup over every layer
