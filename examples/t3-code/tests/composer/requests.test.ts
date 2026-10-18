@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { snapshot, transcriptPresentation } from '../../src/client/presentation';
+import { noteComposerTyping, releaseHeldRequests } from '../../src/composer/composer-typing-guard';
 import { pendingRequests, requestPresentation, requestActivity, resolveAnswer } from '../../src/composer/requests';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
@@ -194,5 +195,48 @@ describe('request rows in the work log', () => {
     const live = transcriptPresentation(client).filter(message => message.kind === 'live');
     expect(live).toHaveLength(1);
     expect(live[0]).toMatchObject({ title: 'Allow the fixture?', icon: 'message-circle', live: true });
+  });
+});
+
+
+describe('requests arriving while typing', () => {
+  test('the draft stays editable until idle or blur releases a newly arriving question', async () => {
+    const { client, command, projectionOf } = harness({});
+    requestPresentation(client);
+    noteComposerTyping(client, true);
+    Object.assign(projectionOf(), input([question('scope')]));
+    expect(requestPresentation(client).requestMode).toBe('');
+    await command('draft', '', 'Finish this thought');
+    expect(client.local.drafts[client.draftKey]).toBe('Finish this thought');
+    expect(client.answers['r1::scope']).toBeUndefined();
+    noteComposerTyping(client, false);
+    expect(requestPresentation(client).requestMode).toBe('question');
+    expect(client.local.drafts[client.draftKey]).toBe('Finish this thought');
+  });
+  test('approvals also wait, a send releases them, and existing requests do not get hidden', () => {
+    const { client, projectionOf } = harness({});
+    requestPresentation(client);
+    noteComposerTyping(client, true);
+    projectionOf().runtimeRequests = [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }];
+    expect(requestPresentation(client).requestMode).toBe('');
+    releaseHeldRequests(client);
+    expect(requestPresentation(client).requestMode).toBe('approval');
+    noteComposerTyping(client, true);
+    expect(requestPresentation(client).requestMode).toBe('approval');
+    client.threadId = 't2';
+    expect(requestPresentation(client).requestMode).toBe('approval');
+  });
+  test('a stale single-choice press cannot advance a different question or a newly opened request', async () => {
+    const { client, command, committed, projectionOf } = harness(input([question('scope'), question('format')]));
+    await command('pick-option', 'r1::scope', 'Session');
+    expect(requestPresentation(client).questions[0]?.id).toBe('r1::format');
+    expect((await command('pick-option', 'r1::scope', 'Workspace')).message).toBe('That question is no longer active.');
+    expect(requestPresentation(client).questions[0]?.id).toBe('r1::format');
+    Object.assign(projectionOf(), input([question('scope')]));
+    (projectionOf().runtimeRequests as Obj[])[0]!.id = 'r2';
+    (projectionOf().turnItems as Obj[])[0]!.requestId = 'r2';
+    await command('pick-option', 'r1::format', 'Session');
+    expect(requestPresentation(client).questions[0]?.id).toBe('r2::scope');
+    expect(committed).toEqual([]);
   });
 });

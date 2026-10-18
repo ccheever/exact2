@@ -129,7 +129,7 @@ describe('a closed network access dialog stays closed on every Settings page', (
 });
 
 describe('a learned route is written to its own environment’s transport', () => {
-  const A = 'http://100.81.1.2:16503', LAN_ROUTE = 'http://192.168.1.10:16503';
+  const A = 'http://10.0.0.1:16503', LAN_ROUTE = 'http://192.168.1.10:16503';
   const route = (origin: string) => ({ id: origin, origin, kind: '', learned: false, credential: origin });
   function store(saved: Obj[], stopped = '') {
     const calls: Obj[] = [];
@@ -147,15 +147,15 @@ describe('a learned route is written to its own environment’s transport', () =
     return { native, calls };
   }
   const savedRoutesOf = (saved: Obj[], environmentId: string) => (saved.find(item => item.environmentId === environmentId)!.routes as Obj[]).map(item => item.id);
-  const reported = { directEndpoints: [{ kind: 'lan', httpBaseUrl: `${LAN_ROUTE}/` }, { kind: 'tailnet', httpBaseUrl: `${A}/` }] };
+  const reported = { directEndpoints: [{ kind: 'lan', httpBaseUrl: `${LAN_ROUTE}/` }, { kind: 'lan', httpBaseUrl: `${A}/` }] };
 
-  it('the focused environment: to the focused transport, the LAN address ahead of the tailnet route in use, borrowing its token', async () => {
+  it('the focused environment: to the focused transport, the learned LAN address after the paired LAN route in use, borrowing its token', async () => {
     const saved: Obj[] = [{ origin: A, environmentId: 'env-a', label: 'Desk', routes: [route(A)] }];
     const { native, calls } = store(saved);
     await learnRoutes(native, { entries: new Map(), saved }, { environmentId: 'env-a', connection: 'connected', config: reported });
     const write = calls.find(call => call.op === 'setRoutes')!;
     expect(write.fleet).toBeUndefined();
-    expect((write.routes as Obj[]).map(item => [item.id, item.credential, item.learned])).toEqual([[`learned:env-a:${LAN_ROUTE}@${A}`, A, true], [A, A, false]]);
+    expect((write.routes as Obj[]).map(item => [item.id, item.credential, item.learned])).toEqual([[A, A, false], [`learned:env-a:${LAN_ROUTE}@${A}`, A, true]]);
   });
 
   it('a background environment: to its fleet transport, which checks the learned route at once', async () => {
@@ -166,11 +166,11 @@ describe('a learned route is written to its own environment’s transport', () =
     await learnRoutes(native, { entries, saved }, { environmentId: '', connection: 'disconnected' });
     const write = calls.find(call => call.op === 'setRoutes')!;
     expect(write.fleet).toBe(key);
-    expect((write.routes as Obj[]).map(item => item.id)).toEqual([`learned:env-b:${LAN_ROUTE}@${A}`, A]);
+    expect((write.routes as Obj[]).map(item => item.id)).toEqual([A, `learned:env-b:${LAN_ROUTE}@${A}`]);
   });
 
   it('one background environment whose transport stopped since the pass read it does not keep the next from learning', async () => {
-    const B = 'http://100.81.1.3:16503';
+    const B = 'http://10.0.0.2:16503';
     const saved: Obj[] = [{ origin: A, environmentId: 'env-b', label: 'Studio', routes: [route(A)] }, { origin: B, environmentId: 'env-c', label: 'Lab', routes: [route(B)] }];
     const keyB = `${A}\nenv-b`, keyC = `${B}\nenv-c`;
     const { native, calls } = store(saved, keyB);
@@ -181,7 +181,7 @@ describe('a learned route is written to its own environment’s transport', () =
     const fleet = { entries, saved };
     await learnRoutes(native, fleet, { environmentId: '', connection: 'disconnected' });
     expect(calls.filter(call => call.op === 'setRoutes').map(call => call.fleet)).toEqual([keyB, keyC]);
-    expect(savedRoutesOf(fleet.saved, 'env-c')).toEqual(['learned:env-c:http://192.168.1.11:16503@' + B, B]);
+    expect(savedRoutesOf(fleet.saved, 'env-c')).toEqual([B, 'learned:env-c:http://192.168.1.11:16503@' + B]);
     expect(savedRoutesOf(fleet.saved, 'env-b')).toEqual([A]);
   });
 });

@@ -1,16 +1,18 @@
-// One environment, several routes: the route walk and the better-route check (T3 Code 1e2ecbd975,
-// MIT, see LICENSE-T3: packages/client-runtime/src/connection/driver.ts connectOverRoutes and
-// checkRoute, supervisor.ts checkBetterRoutes; commits 979ca66ced and 745c225f92). The app
+// One environment, several routes: the route walk and the better-route check (T3 Code 9c161462c9,
+// MIT, see LICENSE-T3: packages/client-runtime/src/connection/driver.ts connectOverRoutes,
+// preflight and checkRoute, supervisor.ts checkBetterRoutes). The app
 // (connection-routes.ts) owns the route model and writes each environment's ordered routes to the
 // catalog; one session walks them, beside the reconnect ladder.
 //
 // An SSH route's origin is its tunnel's loopback address, so its kind comes from the stored
 // `kind`. A learned plain-HTTP LAN or tailnet address is checked and walked like any direct route and
 // reads the token of the route it was learned over (`credential`); the token goes out only after the
-// address answered as this environment. Checks run in the answer that connects (it may fetch); the
+// address answered as this environment, and never over plain HTTP it was not paired over
+// (connection-routes.ts sendsTokenInClear: such a route is left out of the walk and the checks). Checks run in the answer that connects (it may fetch); the
 // 60 s cadence is the transport's tick.
 import { TransportFailure, letGoAbort, origin as parseOrigin, path, trimmed } from './transport-wire';
 import type { Catalog, Entry } from './transport-catalog';
+import { sendsCredentialInClear, type ConnectionRoute } from '../connections/connection-routes';
 
 export interface HttpReply { status: number; text: string }
 /** `maxBytes`: the reply's ceiling (default 1 MiB); each request may overlap the others (exact2's independent HTTP). */
@@ -23,7 +25,7 @@ export function json(reply: HttpReply): unknown {
   try { return JSON.parse(reply.text) as unknown; } catch { return undefined; }
 }
 
-export interface WalkRoute { id: string; origin: string; kind: string; learned: boolean; credential: string }
+export interface WalkRoute { id: string; origin: string; kind: string; learned: boolean; credential: string; authorization?: 't3-connect'; network?: 'tailscale' }
 const str = (value: unknown) => typeof value === 'string' ? value : '';
 /** Direct routes have a cheap unauthenticated check; SSH and T3 Connect do not. */
 export const direct = (route: WalkRoute) => route.kind !== 'ssh' && route.kind !== 'relay';
@@ -31,7 +33,15 @@ export const direct = (route: WalkRoute) => route.kind !== 'ssh' && route.kind !
 export function walkRoute(raw: Record<string, unknown>): WalkRoute | null {
   const id = str(raw.id), routeOrigin = str(raw.origin);
   if (!id || !routeOrigin) return null;
-  return { id, origin: routeOrigin, kind: str(raw.kind), learned: raw.learned === true, credential: str(raw.credential) || routeOrigin };
+  return { id, origin: routeOrigin, kind: str(raw.kind), learned: raw.learned === true, credential: str(raw.credential) || routeOrigin,
+    ...(raw.authorization === 't3-connect' ? { authorization: 't3-connect' as const } : {}), ...(raw.network === 'tailscale' ? { network: 'tailscale' as const } : {}) };
+}
+const modelRoute = (route: WalkRoute): ConnectionRoute => ({ id: route.id, origin: route.origin, kind: route.kind, learned: route.learned,
+  ...(route.authorization ? { authorization: route.authorization } : {}), ...(route.network ? { network: route.network } : {}) });
+/** usableRoutes: the routes a connect may use; none sends a paired token over plain HTTP it wasn't paired over. */
+export function usable(routes: readonly WalkRoute[]): WalkRoute[] {
+  const model = routes.map(modelRoute);
+  return routes.filter((route, index) => !sendsCredentialInClear(model, model[index]!, route.credential));
 }
 export function homeRoute(origin: string): WalkRoute {
   const text = trimmed(origin);
@@ -108,7 +118,7 @@ export class RouteState {
     this.reload(catalog);
     this.walkEpoch++; this.walking = true; this.cursor = 0; this.silent = []; this.silentCursor = 0;
     this.current = null; this.transient = null; this.blocked = null;
-    this.order = [...this.routes];
+    this.order = usable(this.routes);
     const wanted = this.preferred;
     const at = wanted ? this.order.findIndex(route => route.id === wanted) : -1;
     if (at > 0) this.order.unshift(...this.order.splice(at, 1));
@@ -204,7 +214,8 @@ export class RouteState {
     this.reload(catalog);
     const current = this.activeIndex;
     if (this.checking || current <= 0) return null;
-    const better = this.routes.slice(0, current).filter(route => direct(route) && (this.cooldowns.get(route.id) ?? 0) <= now);
+    const allowed = new Set(usable(this.routes));
+    const better = this.routes.slice(0, current).filter(route => direct(route) && allowed.has(route) && (this.cooldowns.get(route.id) ?? 0) <= now);
     if (!better.length) return null;
     this.checking = true;
     const active = this.activeId;

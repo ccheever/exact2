@@ -19,6 +19,7 @@ exact-data = { path = "../../../data" }
 exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }
 markdown-parse = { path = "../../../apps/markdown/parse" }
+unicode-general-category = "1.1.0"
 
 [build-dependencies]
 exact-bake = { path = "../../../bake" }

@@ -56,7 +56,7 @@ export const lifecycleIcon = (key: string) => key === 'draft' ? 'git-pull-reques
 type Pr = { number: number; url: string; title: string; state: string; isDraft: boolean; provider: string };
 /** prStatusIndicator(pr, provider).tooltip: "PR #72 - Open: Title". */
 export function statusTooltip(pr: Pr): string { return `${shortName(pr.provider)} #${pr.number} - ${STATE_LABEL[lifecycle(pr.state, pr.isDraft)]}: ${pr.title}`; }
-function snapshotPr(link: Obj): Pr | null {
+export function snapshotPr(link: Obj): Pr | null {
   const snapshot = snapshotOf(link);
   return snapshot ? { number: num(link.number), url: str(link.url), title: str(snapshot.title), state: str(snapshot.state, 'open'), isDraft: snapshot.isDraft === true, provider: providerOfUrl(str(link.url)) } : null;
 }

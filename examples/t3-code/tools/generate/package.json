@@ -13,6 +13,7 @@
     "mermaid": "11.17.2",
     "morphicons": "1.7.1",
     "oniguruma-parser": "0.12.2",
-    "oniguruma-to-es": "4.3.6"
+    "oniguruma-to-es": "4.3.6",
+    "unbash": "5.0.0"
   }
 }

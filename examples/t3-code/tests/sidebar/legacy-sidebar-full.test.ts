@@ -328,7 +328,7 @@ describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () 
       { kind: 'image', id: '22222222-2222-4222-8222-222222222222', name: 'shot.png', sizeBytes: 64 }, { kind: 'unsupported-image', name: 'raw.tiff', sizeBytes: 9 }];
     native.later = (original => async (request: unknown) => obj(request).op === 'rowDropTake' ? (ops.push(obj(request)), { ok: true, generation: Number(obj(request).generation ?? 0), value: { files: staged } }) : original(request))(native.later.bind(native));
     expect(await takeRowDrops(client, native)).toBe(true);
-    expect(opsOf(ops, 'rowDropTake')[0]).toMatchObject({ keys: ['fleet:local:thread-2'] });
+    expect(opsOf(ops, 'rowDropTake')[0]).toMatchObject({ keys: ['fleet:local:thread-2'], imageMaxEdge: 2000 });
     expect(draftFiles(client.local).map(file => [file.name, file.draftKey])).toEqual([['notes.txt', 'local:thread-2']]);
     expect(client.local.snapshotDrafts['local:thread-2']?.map(image => image.name)).toEqual(['shot.png']);
     expect(opsOf(ops, 'editorInsert')[0]).toMatchObject({ owner: client.snapshotOwner });
@@ -627,7 +627,7 @@ describe('a row\'s hover and focus as the host reports them (LegacyThread, Legac
     expect(run.view.inside).toBe(false);
     expect(run.view.revealed).toBe(false); // its time, not Archive
     const view = readFileSync(appPath('legacy-sidebar.contract'), 'utf8');
-    expect(view.match(/dblclick=nested /g) ?? []).toHaveLength(2); // the pull request and the port: no rename under them
+    expect(view.match(/dblclick=nested /g) ?? []).toHaveLength(3); // the pull request, port and terminal: no rename under them
   });
 });
 

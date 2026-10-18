@@ -10,10 +10,10 @@
 // Sources: T3 Code (MIT, see LICENSE-T3)
 // apps/web/src/components/onboarding/{FirstRunGate,WelcomeWizard}.tsx,
 // onboarding/{firstRun.logic,providerReadiness.logic,projectImport.logic}.ts,
-// components/settings/{providerStatus,CodexSetupSection.logic}.ts.
+// components/settings/{providerStatus,CodexSetupSection.logic}.ts (9c161462c9).
 import { arr, obj, str, num, applyShell, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
-import { environmentSources } from '../connections/connections';
+import { environmentSources, welcomeComputerStatus } from '../connections/connections';
 import { fleet, EnvironmentFleet } from '../connections/settings-b-fleet';
 import { look } from '../appearance/settings-appearance-look';
 import { pagesPrefs } from './pages-prefs';
@@ -206,6 +206,15 @@ setChatGptCreatedHandler((host, instanceId, displayName) => {
 
 // ── Projects (projectImport.logic.ts) ──────────────────────────────────────
 
+/** projectImport.logic.ts splitOnboardingProjectPath: parent truncates before the checkout name, on either platform. */
+export function splitOnboardingProjectPath(path: string): { name: string; parent: string } {
+  if (/^[A-Za-z]:[\\/]+$/.test(path) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+[\\/]*$/.test(path)) return { name: path, parent: '' };
+  const trimmed = path.replace(/[\\/]+$/, '');
+  const separator = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  if (!trimmed) return { name: path, parent: '' };
+  return separator < 0 ? { name: trimmed, parent: '' } : { name: trimmed.slice(separator + 1), parent: trimmed.slice(0, separator + 1) };
+}
+
 const RECENT_WINDOW = 30 * 24 * 60 * 60 * 1000;
 /** partitionOnboardingProjects: every candidate is offered; recent busy repositories start selected. */
 export function recentCandidates(candidates: Candidate[], now: number): Set<string> {
@@ -240,8 +249,8 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   const view = {
     show: false, step: input.step === 'agents' || input.step === 'import' ? input.step : 'connect',
     computers: [] as { key: string; environmentId: string; label: string; url: string; status: string; selected: boolean }[],
-    ready: false, machines: [] as { key: string; label: string; agents: AgentRow[]; chatgpt: boolean; terminal: ReturnType<OnboardingTerminal['view']> & { font: string; fontSize: number; light: string; dark: string } }[],
-    scanning: false, scanError: '', candidates: [] as { key: string; title: string; path: string; detail: string; selected: boolean }[],
+    ready: false, skipped: '', machines: [] as { key: string; label: string; agents: AgentRow[]; chatgpt: boolean; terminal: ReturnType<OnboardingTerminal['view']> & { font: string; fontSize: number; light: string; dark: string } }[],
+    scanning: false, scanError: '', candidates: [] as { key: string; title: string; path: string; parent: string; detail: string; selected: boolean }[],
     candidateCount: 0, selectedCount: 0, selectionLabel: '', truncated: false, importLabel: 'Import 0 projects', importing: false, emptyScan: false,
     commandCopied: state.copied,
   };
@@ -284,10 +293,13 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   }
   const selected = state.selection ?? new Set(sources.map(source => source.key));
   view.computers = sources.map(source => ({ key: source.key, environmentId: source.environmentId, label: source.label, url: `${source.origin.replace(/\/+$/, '')}/`,
-    status: source.phase === 'connected' ? 'Connected' : 'Connecting…', selected: selected.has(source.key) }));
-  view.ready = view.computers.some(computer => computer.selected) && view.computers.filter(computer => computer.selected).every(computer => computer.status === 'Connected');
+    status: welcomeComputerStatus(source.enabled, source.phase), selected: selected.has(source.key) }));
+  const selectedSources = sources.filter(source => selected.has(source.key));
+  view.ready = selectedSources.some(source => source.enabled && source.phase === 'connected') && !selectedSources.some(source => source.enabled && source.phase === 'connecting');
+  const skipped = selectedSources.filter(source => !source.enabled || !['connected', 'connecting'].includes(source.phase));
+  view.skipped = skipped.length ? `Not connected, so setup skips ${skipped.map(source => source.label).join(', ')}. You can set ${skipped.length === 1 ? 'it' : 'them'} up later from Settings.` : '';
   if (view.step === 'connect') return view;
-  const setup = sources.filter(source => state.setup.includes(source.key));
+  const setup = sources.filter(source => state.setup.includes(source.key) && source.enabled && source.phase === 'connected');
   const mounted: { host: CodexHost; native: Native; ids: string[] }[] = [];
   view.machines = setup.map(source => {
     const agents = Object.keys(source.config).length ? agentRows(source.config) : [];
@@ -327,7 +339,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   const scan = state.scan;
   const picked = state.picked ?? recentCandidates(scan.candidates, state.now);
   view.scanning = scan.loading; view.scanError = scan.error; view.truncated = scan.truncated;
-  view.candidates = scan.candidates.map(candidate => ({ key: candidate.key, title: candidate.title, path: candidate.path, selected: picked.has(candidate.key),
+  view.candidates = scan.candidates.map(candidate => ({ key: candidate.key, title: candidate.title, path: splitOnboardingProjectPath(candidate.path).name, parent: splitOnboardingProjectPath(candidate.path).parent, selected: picked.has(candidate.key),
     detail: [`${candidate.threadCount} ${candidate.threadCount === 1 ? 'thread' : 'threads'}`, relative(candidate.lastActiveAt, state.now), candidate.alreadyImported ? 'Imported' : ''].filter(Boolean).join(' · ') }));
   view.candidateCount = view.candidates.length;
   view.selectedCount = view.candidates.filter(candidate => candidate.selected).length;
@@ -380,7 +392,11 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
     return '';
   }
   // startSetup: the chosen computers, in the order the list shows them.
-  if (op === 'setup') { state.setup = [...(state.selection ?? state.auto)]; state.scan = null; state.picked = null; return ''; }
+  if (op === 'setup') {
+    const selected = state.selection ?? state.auto;
+    state.setup = environmentSources(client, fleet.saved, fleet.entries).filter(source => selected.has(source.key) && source.enabled && source.phase === 'connected').map(source => source.key);
+    state.scan = null; state.picked = null; return '';
+  }
   if (op === 'pick' || op === 'pick-all' || op === 'pick-none') {
     const candidates = state.scan?.candidates ?? [];
     const current = new Set(state.picked ?? recentCandidates(candidates, state.now));
