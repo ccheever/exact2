@@ -761,7 +761,8 @@ until it has, and the driver asks again.
   soft particles do, over the attachments the live frame draws into: the HDR
   image, or a direct frame's target, with the direct frame's format, blending and
   resolve (its colour and depth kept between the two passes in attachments of the
-  look frame's own, so the live frame's stay transient). build.rs assembles every quad module, validates it with naga, and
+  look frame's own, released at the next live frame, so the live frame's stay
+  transient). build.rs assembles every quad module, validates it with naga, and
   reflects the probe variants' counter group, from which the renderer takes its
   layout, binding numbers and entry points. Limits, each a gap or a stated
   meaning, not an approximation: GL has no fragment storage writes, and a scene

@@ -147,8 +147,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         // This frame's quads and translucent order first: the split below
         // follows the soft particles actually drawn.
         if self.probe.is_none() {
-            // No look frame's state outlives it, even one whose encode failed.
+            // No look frame's state outlives it, even one whose encode failed,
+            // nor its retained direct attachments (a phone's are tens of MB).
             self.quads.disarm();
+            self.look_direct = None;
         }
         self.quads.observed = self.probe.is_some().then(Vec::new);
         if let Some(probe) = &mut self.probe {
