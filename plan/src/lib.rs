@@ -27,6 +27,8 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod entry;
+pub use entry::entry_identifier;
 pub mod shared;
 pub mod strings;
 pub mod value;

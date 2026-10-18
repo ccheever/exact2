@@ -32,6 +32,10 @@
 
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
+// Share the filename rule without linking the plan VM into the update store.
+#[path = "../../plan/src/entry.rs"]
+mod entry;
+use entry::entry_identifier;
 
 /// The SHA-256 of `bytes`, lowercase hex — payload integrity as LLP 1023 D2
 /// defines it. Bundle identity instead hashes [`canonical_bytes`].
@@ -318,11 +322,7 @@ impl Envelope {
                 .as_object()
                 .ok_or("the envelope's plans must be a map")?;
             for (kind, value) in map {
-                if !kind.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
-                    || !kind
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
-                {
+                if !entry_identifier(kind) {
                     return Err(format!("invalid snapshot entry kind {kind:?}"));
                 }
                 let name = format!("plans/{kind}.plan");

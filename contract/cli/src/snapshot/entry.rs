@@ -1,7 +1,7 @@
 //! Compile a widget's reachable component tree with a typed, replaceable
 //! props slot. No request, timer or handler enters this plan.
 
-use super::{check, refusal, visit_nodes};
+use super::{check, referenced_styles, refusal, visit_nodes};
 use crate::{manifest::Widget, CompileError, Manifest};
 use contract_syntax::{Attr, Binding, Expr, File, Node, Span, TypeExpr};
 use exact_plan::Plan;
@@ -133,24 +133,8 @@ fn compile_file(
     file.timelines.clear();
     // Styles and functions may be shared with the app; only declarations the
     // entry reaches are checked, so an unrelated app animation is harmless.
-    let mut styles = HashSet::new();
-    for c in &file.components {
-        visit_nodes(&c.view, &mut |n| {
-            if let Node::Element { attrs, .. } = n {
-                for a in attrs.iter().filter(|a| a.name == "class") {
-                    match &a.value {
-                        Expr::Ident(name, _) => {
-                            styles.insert(name.clone());
-                        }
-                        Expr::Str(names, _) => {
-                            styles.extend(names.split_whitespace().map(str::to_owned))
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        });
-    }
+    let styles = referenced_styles(&file)?;
+    check(&file, &styles)?;
     file.styles.retain(|s| styles.contains(&s.name));
     // No handler is admitted. Its unreferenced body must not retain helpers.
     for c in &mut file.components {
@@ -194,17 +178,9 @@ fn compile_file(
         });
     }
     let mut fonts = HashSet::new();
-    let mut dynamic_font = false;
     let mut font_attrs = |attrs: &[Attr]| {
         for a in attrs.iter().filter(|a| a.name == "font-family") {
-            match &a.value {
-                Expr::Str(stack, _) => fonts.extend(
-                    stack
-                        .split(',')
-                        .map(|n| n.trim().trim_matches(['\"', '\'']).to_string()),
-                ),
-                _ => dynamic_font = true,
-            }
+            literal_fonts(&a.value, &mut fonts);
         }
     };
     for c in &file.components {
@@ -217,10 +193,7 @@ fn compile_file(
     for s in &file.styles {
         font_attrs(&s.attrs);
     }
-    if !dynamic_font {
-        file.fonts.retain(|f| fonts.contains(&f.name));
-    }
-    check(&file)?;
+    file.fonts.retain(|f| fonts.contains(&f.name));
     let mut wrapper = contract_syntax::parse("component Snapshot\n  view\n    view\n")
         .expect("wrapper")
         .components
@@ -340,4 +313,24 @@ fn preview(v: &Value, ty: &TypeExpr, file: &File, depth: usize) -> Result<Expr, 
             span,
         ),
     })
+}
+
+fn literal_fonts(e: &Expr, fonts: &mut HashSet<String>) {
+    match e {
+        Expr::Str(stack, _) => fonts.extend(
+            stack
+                .split(',')
+                .map(|n| n.trim().trim_matches(['"', '\'']).to_string()),
+        ),
+        Expr::Ternary(_, yes, no, _) => {
+            literal_fonts(yes, fonts);
+            literal_fonts(no, fonts);
+        }
+        Expr::Match { some, none, .. } => {
+            literal_fonts(some, fonts);
+            literal_fonts(none, fonts);
+        }
+        Expr::Let { body, .. } => literal_fonts(body, fonts),
+        _ => {}
+    }
 }

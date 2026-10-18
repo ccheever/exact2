@@ -59,6 +59,17 @@ fn entry_shares_route_urls_and_only_reachable_types_and_helpers() {
     );
     let plan = compile(&src, &widget()).unwrap();
     assert_eq!(plan.nodes.len(), 2);
+    assert_eq!(plan.slots.len(), 2);
+    let props = plan
+        .slots
+        .iter()
+        .position(|s| plan.str(s.name) == "snapshot_props")
+        .unwrap();
+    assert_ne!(plan.router.unwrap().0 as usize, props);
+    assert_eq!(
+        plan.str(plan.slots[plan.router.unwrap().0 as usize].name),
+        "nav"
+    );
     assert!(plan.resources.is_empty() && plan.actions.is_empty());
     assert!(plan.strings.iter().any(|s| s == "Shared"));
     for name in ["Unused", "appOnly", "app-only-helper", "appPages"] {
@@ -96,13 +107,6 @@ fn refusals_name_an_edit_including_shared_styles_and_functions() {
             "",
             "snapshot-clock",
             "progress",
-        ),
-        (
-            "    text nowMs.toString()",
-            "",
-            "  state nowMs = 42\n",
-            "snapshot-clock",
-            "time",
         ),
         (
             "    button press=open\n      text title",
@@ -194,8 +198,8 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
 
 #[test]
 fn manifest_entries_do_not_change_the_app_plan() {
-    let dir = std::env::temp_dir().join(format!("exact-snapshot-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let temp = TempDir::new();
+    let dir = &temp.0;
     let path = dir.join("app.contract");
     std::fs::write(&path, source("    text title", "", "")).unwrap();
     let mut json = json!({"app":{"id":"test.snapshot","name":"Test"}});
@@ -208,7 +212,6 @@ fn manifest_entries_do_not_change_the_app_plan() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries["next-trains"].plan.app_id, "test.snapshot");
     assert_eq!(before, crate::compile_path(&path).unwrap().encode());
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -217,14 +220,136 @@ fn caltrain_entry_reaches_only_its_departure_card() {
     let manifest = Manifest::read(&app).unwrap();
     let entries = compile_widgets(&app, &manifest).unwrap();
     let entry = &entries["next-trains"].plan;
-    assert_eq!(entry.nodes.len(), 5);
+    assert!(entry.strings.iter().any(|s| s == "Mountain View"));
+    for app_only in ["board-north", "seededEpoch", "change-station", "Caltrain"] {
+        assert!(!entry.strings.iter().any(|s| s == app_only), "{app_only}");
+    }
     assert_eq!(entry.resources.len(), 0);
     assert_eq!(entry.actions.len(), 0);
     assert_eq!(entry.slots.len(), 1);
-    println!(
-        "Caltrain widget: {} bytes, {} nodes, {} slots",
-        entry.encode().len(),
-        entry.nodes.len(),
-        entry.slots.len()
+}
+
+struct TempDir(std::path::PathBuf);
+impl TempDir {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "exact-snapshot-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+}
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn schema_admission_names_real_props_and_styles() {
+    for name in column("styles", "field") {
+        assert!(StyleId::from_name(&name).is_some(), "{name}");
+    }
+    for name in column("props", "name") {
+        assert!(PropId::from_name(&name).is_some(), "{name}");
+    }
+    assert!(admits_prop(PropId::AccessibilityElementsHidden));
+    assert!(!admits_prop(PropId::NativeViewModuleName));
+}
+
+#[test]
+fn constants_accessibility_and_conditional_classes_are_admitted() {
+    let src = source(
+        "    column
+      text nowMs.toString() class=(nowMs > 0 ? Emph : Plain) aria-description=\"Clock label\" aria-level=2 lang=\"en\" title=\"Label\" aria-live=\"polite\"
+      image \"symbol:sf/train\" aria-hidden=true",
+        "style Emph
+  color=\"red\"
+style Plain
+  color=\"blue\"
+style Unused
+  filter=\"blur(2px)\"",
+        "  state nowMs = 42\n",
     );
+    let plan = compile(&src, &widget()).unwrap();
+    assert!(plan.strings.iter().any(|s| s == "Clock label"));
+    let bad = src.replace("color=\"blue\"", "filter=\"blur(2px)\"");
+    assert!(compile(&bad, &widget())
+        .unwrap_err()
+        .iter()
+        .any(|e| e.id == "snapshot-row"));
+    let bad = src.replace("class=(nowMs > 0 ? Emph : Plain)", "class=\"Emph\"");
+    assert!(compile(&bad, &widget())
+        .unwrap_err()
+        .iter()
+        .any(|e| e.id == "snapshot-class"));
+}
+
+#[test]
+fn images_are_local_and_clock_reads_are_refused_even_on_live_leaves() {
+    for image in [
+        "\"assets/train.png\"",
+        "\"app:/widgets/train.png\"",
+        "\"symbol:sf/train\"",
+        "`app:/widgets/${title}.png`",
+    ] {
+        compile(&source(&format!("    image {image}"), "", ""), &widget()).unwrap();
+    }
+    for image in [
+        "\"https://example.com/a.png\"",
+        "\"http://example.com/a.png\"",
+        "\"//example.com/a.png\"",
+        "title",
+    ] {
+        let errors =
+            compile(&source(&format!("    image {image}"), "", ""), &widget()).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == "snapshot-request" && e.message.contains("refresh must download")),
+            "{errors:?}"
+        );
+    }
+    for tag in ["text", "time", "progress"] {
+        let errors = compile(
+            &source(&format!("    {tag} value=performanceNow()"), "", ""),
+            &widget(),
+        )
+        .unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.id == "snapshot-clock"),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
+fn fonts_keep_only_reachable_literal_families() {
+    let temp = TempDir::new();
+    std::fs::create_dir(temp.0.join("assets")).unwrap();
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/fixtures/fonts/assets/DejaVuSans.ttf"),
+        temp.0.join("assets/font.ttf"),
+    )
+    .unwrap();
+    let manifest = Manifest {
+        id: "test.fonts".into(),
+        name: "Test".into(),
+        declared: true,
+        json: json!({"widgets":[{"kind":"next-trains","component":"Card","props":"Props","refresh":"refreshCard","families":["systemSmall"],"preview":{"title":"system-ui"}}]}),
+    };
+    let fonts = "font \"A\" = \"assets/font.ttf\"\nfont \"B\" = \"assets/font.ttf\"\nfont \"Unused\" = \"assets/missing.ttf\"";
+    for (family, count) in [("(title == \"a\" ? \"A\" : \"B\")", 2), ("title", 0)] {
+        std::fs::write(
+            temp.0.join("app.contract"),
+            source(&format!("    text title font-family={family}"), fonts, ""),
+        )
+        .unwrap();
+        let entries = compile_widgets(&temp.0, &manifest).unwrap();
+        assert_eq!(entries["next-trains"].plan.faces.len(), count);
+    }
 }

@@ -16,7 +16,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { copyStaticTreeIfPresent, webEnvelope } from '../host/web/serve.mjs';
+import { copyStaticTreeIfPresent, webEnvelope, publicFileCards, listAssets, readStaticFile, readDevGeneration, retainDevGeneration } from '../host/web/serve.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
 import { appdropPlan, renderAppdrop, writeLink } from './deploy-appdrop.mjs';
 import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
@@ -1011,3 +1011,20 @@ async function rejects(action, matches) {
   result('entry plans index the signed asset cards in the same stream',
     JSON.stringify(head.plans.trains) === JSON.stringify(head.assets[0]) && head.plan.sha256 === bundle.plan.sha256);
 }
+
+
+test('snapshot plans are public files and authenticated dev generation assets', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-public-plans-'));
+  try {
+    const body = Buffer.from('snapshot'), name = 'plans/card.plan';
+    mkdirSync(join(dir, 'plans'));
+    writeFileSync(join(dir, name), body);
+    const files = await publicFileCards(dir);
+    if (!files.some(file => file.name === name && file.bytes === body.length)) throw new Error('entry absent from public cards');
+    if (readStaticFile(dir, '/' + name)?.body.toString() !== 'snapshot') throw new Error('entry not served');
+    const epoch = 'b'.repeat(32), assets = listAssets(dir), cache = join(dir, 'cache');
+    const envelope = Buffer.from(JSON.stringify({dev:{epoch,seq:1},assets}));
+    retainDevGeneration(cache, epoch, 1, new Map([[name, body], ['exact.json', envelope]]));
+    if (readDevGeneration(cache, `/__dev/generation/${epoch}/1/${name}`)?.body.toString() !== 'snapshot') throw new Error('entry absent from dev generation');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});

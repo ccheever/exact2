@@ -263,10 +263,6 @@
         }
       }
     },
-    "live_activities": {
-      "description": "Reserved for stage 2. The bake refuses this key until then.",
-      "type": "array"
-    },
     "protocol_handlers": {
       "type": "array",
       "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",

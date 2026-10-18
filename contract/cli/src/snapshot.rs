@@ -9,28 +9,38 @@ pub use entry::{compile, compile_widgets, Entry};
 use crate::CompileError;
 use contract_lower::tags::{attr_valued, AttrTarget};
 use contract_syntax::{Attr, Expr, File, Node, Span, TemplatePart};
-use exact_kernel::StyleId;
+use exact_kernel::{PropId, StyleId};
 use std::{collections::HashSet, sync::OnceLock};
+
+fn column(table: &str, name: &str) -> HashSet<String> {
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../../kernel/tables/schema.json"))
+            .expect("schema JSON");
+    schema[table]
+        .as_array()
+        .expect("schema rows")
+        .iter()
+        .filter_map(|row| {
+            let mark = row["snapshot"].as_str()?;
+            assert_eq!(mark, "admit", "unknown snapshot admission");
+            Some(row[name].as_str().expect("row name").to_string())
+        })
+        .collect()
+}
 
 /// Whether the snapshot driver admits a style row.
 pub fn admits(row: StyleId) -> bool {
     static COLUMN: OnceLock<HashSet<String>> = OnceLock::new();
     COLUMN
-        .get_or_init(|| {
-            let schema: serde_json::Value =
-                serde_json::from_str(include_str!("../../../kernel/tables/schema.json"))
-                    .expect("schema JSON");
-            schema["styles"]
-                .as_array()
-                .expect("styles")
-                .iter()
-                .filter_map(|r| {
-                    let mark = r["snapshot"].as_str()?;
-                    assert_eq!(mark, "admit", "unknown snapshot admission");
-                    Some(r["field"].as_str().expect("field").to_string())
-                })
-                .collect()
-        })
+        .get_or_init(|| column("styles", "field"))
+        .contains(row.name())
+}
+
+/// Whether the snapshot driver admits a prop row.
+pub fn admits_prop(row: PropId) -> bool {
+    static COLUMN: OnceLock<HashSet<String>> = OnceLock::new();
+    COLUMN
+        .get_or_init(|| column("props", "name"))
         .contains(row.name())
 }
 
@@ -66,36 +76,15 @@ fn visit_nodes(nodes: &[Node], f: &mut impl FnMut(&Node)) {
     }
 }
 
-fn now_like(name: &str) -> bool {
-    matches!(
-        name.replace('_', "").to_ascii_lowercase().as_str(),
-        "now"
-            | "nowms"
-            | "nowseconds"
-            | "nowepoch"
-            | "clock"
-            | "clockms"
-            | "currenttime"
-            | "currenttimestamp"
-    )
-}
-
-fn expression(e: &Expr, time: bool, file: &File, depth: usize, errors: &mut Vec<CompileError>) {
+fn expression(e: &Expr, file: &File, depth: usize, errors: &mut Vec<CompileError>) {
+    // Bound traversal through helpers; the type checker diagnoses recursion.
     if depth > 64 {
         return;
-    } // The type checker diagnoses recursive functions.
-    let clock = match e {
-        Expr::Ident(n, _) | Expr::Member(_, n, _) => now_like(n),
-        Expr::Call(n, _, _) => matches!(
-            n.as_str(),
-            "performanceNow" | "exactTime" | "now" | "Date.now"
-        ),
-        _ => false,
-    };
-    if clock && !time {
-        errors.push(refusal("snapshot-clock", "a snapshot cannot read the clock; replace the calculation with `time datetime=departure.at` or `progress` over an interval", e.span()));
     }
-    let mut recurse = |child: &Expr| expression(child, time, file, depth + 1, errors);
+    if matches!(e, Expr::Call(name, _, _) if name == "performanceNow") {
+        errors.push(refusal("snapshot-clock", "a snapshot cannot read the clock; pass an instant from refresh to `time datetime=departure.at` or `progress` over an interval", e.span()));
+    }
+    let mut recurse = |child: &Expr| expression(child, file, depth + 1, errors);
     match e {
         Expr::Call(name, args, _) => {
             for a in args {
@@ -156,11 +145,16 @@ fn literal_choices(e: &Expr, allowed: &[&str]) -> bool {
 fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
     for a in attrs {
         let fail = |id, edit: &str| refusal(id, format!("`{}` on `{tag}`: {edit}", a.name), a.span);
-        if a.name.contains(':') || a.name == "hatch" {
+        if a.name == "hatch" {
             errors.push(fail("snapshot-interactive", "a snapshot has no live interaction or native hatch; remove this attribute and use a link to open the app"));
             continue;
         }
-        match attr_valued(&a.name, &a.value) {
+        let target = if a.name == "title" && tag != "head" {
+            Some(AttrTarget::Prop(PropId::Title))
+        } else {
+            attr_valued(&a.name, &a.value)
+        };
+        match target {
             Some(AttrTarget::Handler(_)) => errors.push(fail("snapshot-handler", "a snapshot handler cannot navigate or take input; make it a `link href=…` (button and toggle intents are stage 2)")),
             Some(AttrTarget::Styles(rows)) => {
                 for row in rows {
@@ -182,7 +176,7 @@ fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
             }
             Some(AttrTarget::Surface | AttrTarget::MediaMetadata) => errors.push(fail("snapshot-request", "render only supplied props; move this work into the refresh function and use an image")),
             Some(AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p))
-                if !matches!(p.name(), "text" | "src" | "href" | "alt" | "testId" | "id" | "accessibilityLabel" | "accessibilityRole" | "accessibilityHidden" | "datetime" | "format" | "value" | "max" | "start" | "end") => {
+                if !admits_prop(p) => {
                 errors.push(fail("snapshot-prop", "this prop requires a running host; remove it from the entry"));
             }
             _ => {}
@@ -190,7 +184,7 @@ fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
     }
 }
 
-fn check(file: &File) -> Result<(), Vec<CompileError>> {
+fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
     for c in &file.components {
         for t in &c.tasks {
@@ -203,7 +197,7 @@ fn check(file: &File) -> Result<(), Vec<CompileError>> {
             errors.push(refusal("snapshot-effect", "a snapshot render is read-only; move mutations, sequences and persisted writes into the refresh function", c.span));
         }
         for b in c.states.iter().chain(&c.derives).chain(&c.provides) {
-            expression(&b.expr, false, file, 0, &mut errors);
+            expression(&b.expr, file, 0, &mut errors);
         }
         visit_nodes(&c.view, &mut |n| match n {
             Node::Element {
@@ -240,38 +234,110 @@ fn check(file: &File) -> Result<(), Vec<CompileError>> {
                     errors.push(refusal(id, format!("`{tag}` has no snapshot drawing; replace it with boxes, text, an image or a link"), *span));
                 }
                 attrs(tag, a, &mut errors);
+                if tag == "image" {
+                    if let Some(src) = a
+                        .iter()
+                        .find(|a| a.name == "src")
+                        .map(|a| &a.value)
+                        .or(positional.first())
+                    {
+                        if !local_image(src) {
+                            errors.push(refusal("snapshot-request", "a snapshot image cannot fetch; the refresh must download it into the app group, then use an `app:/` path, a bundle-relative path, or a `symbol:` source", src.span()));
+                        }
+                    }
+                }
+                for class in a.iter().filter(|a| a.name == "class") {
+                    if let Expr::Ternary(cond, _, _, _) = &class.value {
+                        expression(cond, file, 0, &mut errors);
+                    }
+                }
                 for e in positional
                     .iter()
                     .chain(a.iter().filter(|a| a.name != "class").map(|a| &a.value))
                 {
-                    expression(
-                        e,
-                        matches!(tag.as_str(), "time" | "progress"),
-                        file,
-                        0,
-                        &mut errors,
-                    );
+                    expression(e, file, 0, &mut errors);
                 }
             }
             Node::Use { args, .. } => {
                 for a in args {
-                    expression(&a.value, false, file, 0, &mut errors);
+                    expression(&a.value, file, 0, &mut errors);
                 }
             }
-            Node::When { cond, .. } => expression(cond, false, file, 0, &mut errors),
+            Node::When { cond, .. } => expression(cond, file, 0, &mut errors),
             Node::Each { list, key, .. } => {
-                expression(list, false, file, 0, &mut errors);
-                expression(key, false, file, 0, &mut errors);
+                expression(list, file, 0, &mut errors);
+                expression(key, file, 0, &mut errors);
             }
-            Node::Match { subject, .. } => expression(subject, false, file, 0, &mut errors),
+            Node::Match { subject, .. } => expression(subject, file, 0, &mut errors),
             _ => {}
         });
     }
-    for s in &file.styles {
+    for s in file.styles.iter().filter(|s| styles.contains(&s.name)) {
         attrs(&format!("style {}", s.name), &s.attrs, &mut errors);
     }
     if errors.is_empty() {
         Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn local_image(e: &Expr) -> bool {
+    fn path(s: &str) -> bool {
+        if let Some(symbol) = s.strip_prefix("symbol:") {
+            return !symbol.is_empty();
+        }
+        let s = s.strip_prefix("app:/").unwrap_or(s);
+        !s.is_empty()
+            && !s.starts_with('/')
+            && !s.contains([':', '\\'])
+            && !s.split('/').any(|part| part == "..")
+    }
+    match e {
+        Expr::Str(s, _) => path(s),
+        Expr::Ternary(_, yes, no, _) => local_image(yes) && local_image(no),
+        // A fixed local prefix cannot turn into a network scheme when props change.
+        Expr::Template(parts, _) => {
+            matches!(parts.first(), Some(TemplatePart::Text(prefix)) if prefix.ends_with('/') && path(prefix))
+        }
+        _ => false,
+    }
+}
+
+fn referenced_styles(file: &File) -> Result<HashSet<String>, Vec<CompileError>> {
+    let mut styles = HashSet::new();
+    let mut errors = Vec::new();
+    for component in &file.components {
+        visit_nodes(&component.view, &mut |node| {
+            let Node::Element { attrs, .. } = node else {
+                return;
+            };
+            for attr in attrs.iter().filter(|a| a.name == "class") {
+                match &attr.value {
+                    Expr::Ident(name, _) => {
+                        styles.insert(name.clone());
+                    }
+                    Expr::Ternary(_, yes, no, _) => match (&**yes, &**no) {
+                        (Expr::Ident(a, _), Expr::Ident(b, _)) => {
+                            styles.extend([a.clone(), b.clone()]);
+                        }
+                        _ => errors.push(refusal(
+                            "snapshot-class",
+                            "choose named styles with `class=(condition ? A : B)`",
+                            attr.span,
+                        )),
+                    },
+                    _ => errors.push(refusal(
+                        "snapshot-class",
+                        "write a style name or `class=(condition ? A : B)`",
+                        attr.span,
+                    )),
+                }
+            }
+        });
+    }
+    if errors.is_empty() {
+        Ok(styles)
     } else {
         Err(errors)
     }

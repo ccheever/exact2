@@ -175,12 +175,14 @@
     {
       "id": 0,
       "name": "text",
+      "snapshot": "admit",
       "kind": "str",
       "measure": true
     },
     {
       "id": 1,
       "name": "imageSource",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -192,6 +194,7 @@
     {
       "id": 3,
       "name": "accessibilityLabel",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -217,6 +220,7 @@
     {
       "id": 9,
       "name": "lang",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -227,11 +231,13 @@
     {
       "id": 11,
       "name": "testId",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 12,
       "name": "nativeId",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -242,6 +248,7 @@
     {
       "id": 14,
       "name": "href",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -257,6 +264,7 @@
     {
       "id": 17,
       "name": "value",
+      "snapshot": "admit",
       "kind": "str",
       "measure": true
     },
@@ -278,61 +286,73 @@
     {
       "id": 21,
       "name": "accessibilityRole",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 22,
       "name": "accessibilityHint",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 23,
       "name": "accessibilityValueText",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 24,
       "name": "accessibilityChecked",
+      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 25,
       "name": "accessibilitySelected",
+      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 26,
       "name": "accessibilityExpanded",
+      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 27,
       "name": "accessibilityDisabled",
+      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 28,
       "name": "accessibilityLive",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 29,
       "name": "accessibilityBusy",
+      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 30,
       "name": "accessibilityHeadingLevel",
+      "snapshot": "admit",
       "kind": "int"
     },
     {
       "id": 31,
       "name": "accessibilityElementsHidden",
+      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 32,
       "name": "accessibilityModal",
+      "snapshot": "admit",
       "kind": "bool",
       "_comment": "@ref LLP 1080.003: ARIA `aria-modal`: while true, assistive technology reaches only this element's subtree among its siblings (iOS `accessibilityViewIsModal` while exposed; the web's `aria-modal`, which ARIA honours on a `dialog` or `alertdialog` role; macOS deferred)."
     },
@@ -380,6 +400,7 @@
     {
       "id": 42,
       "name": "src",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -390,6 +411,7 @@
     {
       "id": 44,
       "name": "id",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -410,6 +432,7 @@
     {
       "id": 48,
       "name": "accessibilityKeyShortcuts",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -535,6 +558,7 @@
     {
       "id": 73,
       "name": "accessibilityOrientation",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -598,6 +622,7 @@
     {
       "id": 221,
       "name": "accessibilityControls",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1075.003 §3.7: aria-controls, the HTML id of the element a control controls; a tab names its tabpanel."
     },
@@ -621,17 +646,20 @@
     {
       "id": 224,
       "name": "accessibilityPressed",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-pressed` on a button: a toggle button's state, `true`, `false` or `mixed`; absent (or any other word), the button is no toggle. A bool expression is written as `true`/`false`."
     },
     {
       "id": 81,
       "name": "accessibilityPosInSet",
+      "snapshot": "admit",
       "kind": "int"
     },
     {
       "id": 82,
       "name": "accessibilitySetSize",
+      "snapshot": "admit",
       "kind": "int"
     },
     {
@@ -1279,6 +1307,7 @@
     {
       "id": 212,
       "name": "max",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1069.001 D1: HTML's `max`, as `min`."
     },
@@ -1348,30 +1377,35 @@
     {
       "id": 231,
       "name": "accessibilityInvalid",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-invalid` (x2apps onboarding F22): `true`, `false`, `grammar` or `spelling`; a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXInvalid`; UIKit has no such property, so iOS exposes none."
     },
     {
       "id": 232,
       "name": "accessibilityDescribedBy",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-describedby`: the HTML ids, space-separated, of the elements whose text describes this one (accname's description), after `aria-description`'s words. AppKit's `AXHelp`, UIKit's `accessibilityHint`."
     },
     {
       "id": 233,
       "name": "accessibilityRequired",
+      "snapshot": "admit",
       "kind": "bool",
       "_comment": "ARIA `aria-required` (x2apps onboarding F22): a field the form needs filled. AppKit's `AXRequired`; UIKit has no such property, so iOS exposes none."
     },
     {
       "id": 234,
       "name": "accessibilityHasPopup",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-haspopup` (x2apps spreadsheet F20): `false`, `true`, `menu`, `listbox`, `tree`, `grid` or `dialog`; a bool expression is written as `true`/`false`. AppKit serves Chromium's `AXHasPopup` and `AXPopupValue`; UIKit has no such property, so iOS exposes none."
     },
     {
       "id": 235,
       "name": "accessibilityLabelledBy",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-labelledby` (x2apps ledger2 Rough 3): the HTML ids, space-separated, of the elements whose text names this one; accname takes it before `aria-label`. AppKit's `AXTitle`/`accessibilityLabel`, UIKit's `accessibilityLabel`."
     },
@@ -1384,6 +1418,7 @@
     {
       "id": 237,
       "name": "title",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
     },
@@ -1402,6 +1437,7 @@
     {
       "id": 240,
       "name": "accessibilityCurrent",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-current` (Depot feedback, 2026-10-05): `page`, `step`, `location`, `date`, `time`, `true` or `false`, the current item of a set (a navigation link, a wizard's step); a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXARIACurrent`; UIKit has no such property, so iOS exposes none."
     },
@@ -1492,18 +1528,21 @@
     {
       "id": 256,
       "name": "accessibilityValueNow",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuenow`, a range role's current value (`progressbar`, `slider`, `meter`, `scrollbar`, `spinbutton`), a number as HTML writes it. With `aria-valuemin` and `aria-valuemax` (ARIA's defaults 0 and 100) it is the value each platform's accessibility hears: the DOM's attribute, UIKit's `accessibilityValue` as a percentage, AppKit's value with its minimum and maximum. `aria-valuetext` (`accessibilityValueText`) is spoken instead where it is set."
     },
     {
       "id": 257,
       "name": "accessibilityValueMin",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemin`, as `accessibilityValueNow`."
     },
     {
       "id": 258,
       "name": "accessibilityValueMax",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemax`, as `accessibilityValueNow`."
     },
@@ -1552,6 +1591,7 @@
     {
       "id": 267,
       "name": "accessibilityAtomic",
+      "snapshot": "admit",
       "kind": "bool",
       "_comment": "@ref LLP 1116.018 D3: WAI-ARIA's `aria-atomic`, whether a live region is announced whole. The web hosts write it; the Apple and Linux hosts announce a live region's whole text already, so `true` holds there and `false` is announced whole too (a declared deviation)."
     },
