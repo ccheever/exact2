@@ -1425,6 +1425,7 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 
 mod colors;
 mod registry;
+mod snapshot;
 #[cfg(test)]
 use registry::REFUSAL;
 pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};

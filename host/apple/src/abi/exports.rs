@@ -293,6 +293,17 @@ macro_rules! host {
             }, |n| n)
         }
 
+        /// Snapshot bytes, kind and optional props JSON, concatenated in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| b.boot_entry(plan, kind, props, ($new)(), hooks, width, height), |n| n)
+        }
+        /// Refresh the entry's declared source; returns a JSON timeline or an error.
+        #[no_mangle]
+        pub extern "C" fn exact_entry_timeline(rt: u32, now: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.entry_timeline(now), |n| n)
+        }
+
         /// Prepare one session, optionally using a composition-owned generation.
         #[no_mangle]
         pub extern "C" fn exact_prepare_plan(rt: u32, token: u64, len: usize, width: f32, height: f32) -> u32 {

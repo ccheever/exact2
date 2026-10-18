@@ -51,6 +51,7 @@ pub use canvas2d::{
 mod carry;
 mod checkpoint;
 mod collection;
+mod snapshot;
 mod source;
 mod tabs;
 pub use source::{

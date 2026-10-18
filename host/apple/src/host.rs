@@ -96,6 +96,8 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "snapshot.rs"]
+pub(crate) mod snapshot;
 pub(crate) use scale::LaunchLayout;
 #[cfg(test)]
 #[path = "spacing_tests.rs"]
@@ -246,6 +248,7 @@ pub struct Host<D: DataSource> {
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
     Static(&'static [u8]),
+    Snapshot(&'a [u8], &'a str, Option<&'a [u8]>),
 }
 
 impl PlanBytes<'_> {
@@ -253,6 +256,7 @@ impl PlanBytes<'_> {
         match self {
             PlanBytes::Copied(bytes) => Plan::decode(bytes),
             PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+            PlanBytes::Snapshot(bytes, kind, _) => Plan::decode_snapshot(bytes, kind),
         }
     }
 }
@@ -416,6 +420,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
+        let entry_props = match plan_bytes {
+            PlanBytes::Snapshot(_, _, Some(bytes)) => {
+                Some(snapshot::props(&plan, bytes).map_err(HostError::Layout)?)
+            }
+            _ => None,
+        };
+        let carried = entry_props.as_ref().or(carried);
         // Before anything is built from it (LLP 1047.001 D5).
         if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
             return Err(HostError::Unlinked(names));
