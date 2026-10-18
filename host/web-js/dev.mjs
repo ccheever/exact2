@@ -32,6 +32,8 @@ const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
 
 let building = null; // the build in flight, stopped with the server
+/** Stop the build in flight and what it runs (its own process group). */
+const stopBuild = (signal = 'SIGTERM') => { if (!building) return; try { process.kill(-building.pid, signal); } catch { building.kill(signal); } };
 
 /** The Contract packages a build read (LLP 1091 D10), outside the app and
  * its skipped `node_modules`: the dev loop watches them too. */
@@ -61,21 +63,27 @@ function mapDesignSource(app, dir) {
  * target/ (as the wasm build stages); resolves to null or the build's
  * errors (what the JS target refused, or a compile error). `keep(design,
  * logic)`, when it says so, keeps the build in `dist` (a value-only design
- * edit, LLP 1121 stage 4: the page takes a batch instead). */
-function build(app, dist, keep = () => false, compiler = null) {
+ * edit, LLP 1121 stage 4: the page takes a batch instead). `superseded()`,
+ * when it says so as the build ends (an input moved since it began, or it
+ * was stopped for one), leaves `dist` as it was and resolves
+ * `{superseded}`: what it read is older than the files. */
+function build(app, dist, keep = () => false, compiler = null, superseded = () => false) {
   const stage = resolve(app.target, 'web-js-dev-stage');
   rmSync(stage, { recursive: true, force: true });
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
     const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none', '--dev'],
-      { cwd: root, env: compiler ? { ...process.env, EXACT_WEB_COMPILER: compiler } : process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      { cwd: root, env: compiler ? { ...process.env, EXACT_WEB_COMPILER: compiler } : process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let log = '';
     child.stdout.on('data', (d) => { log += d; });
     child.stderr.on('data', (d) => { log += d; });
-    child.on('exit', (code) => {
+    // EXACT_DEV_BUILD_HOLD_MS (a test's): the build's end taken that much later, as a slow one ends.
+    const hold = Number(process.env.EXACT_DEV_BUILD_HOLD_MS) || 0;
+    child.on('exit', (code) => setTimeout(() => {
       building = null;
       const packages = devPackages(stage);
+      if (superseded()) { rmSync(stage, { recursive: true, force: true }); return done({ superseded: true, packages }); }
       // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
       const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
       if (types) console.log(types);
@@ -87,7 +95,7 @@ function build(app, dist, keep = () => false, compiler = null) {
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       replaceBuild(stage, dist);
       done({ error: null, logic, packages, design, designSource, warnings: compilerWarnings(log) });
-    });
+    }, hold));
   });
 }
 
@@ -330,10 +338,23 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // LLP 1121 stage 6) builds when its value moves.
   const sameShape = (from, next) => from && next && from.shape === next.shape && from.structure === next.structure && from.tokens.length === next.tokens.length
     && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent) && (!t.inline || same(t, from.tokens[i])));
-  // A fast batch is checked by the full build after it (`verifying`): the
+  // A fast batch is checked by the full build after it (its verifying build): the
   // design's module inputs and its compile; a value-only edit during that
-  // build is sent at once and checked again after (`fastSeq`).
-  let designing = false, verifying = false, fastSeq = 0, stopping = false;
+  // build is sent at once and checked after it.
+  let designing = false, stopping = false;
+  // Input changes seen, counted: a build that began before the last one
+  // read older files, and is set aside (`superseded`), never published.
+  // An edit stops the build in flight, once in a burst and only while it
+  // is young (under 2 s, and under half the last build's time): one past
+  // that finishes, set aside, so sustained edits never starve a build.
+  let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false;
+  const stopYoungBuild = () => {
+    const age = Date.now() - buildBegan;
+    if (!building || stopped || age >= 2000 || (lastBuildMs && age >= lastBuildMs / 2)) return;
+    stopped = true;
+    console.log(`edit → the build in flight stopped after ${age} ms (aborted): an input moved`);
+    stopBuild();
+  };
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
@@ -359,7 +380,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // any build's input.
     const file = designPath(app.dir);
     const fast = designOnly && design && designs.every((path) => path === file);
-    if (designing || (building && !(verifying && fast))) { again = true; return; }
+    // A value-only edit reads its design and sends its batch whatever builds
+    // meanwhile (that build is set aside); any other waits for it.
+    if (designing || (building && !fast)) { again = true; return; }
     // Kept until a build lands: a failed one's edits are the next build's too.
     const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
@@ -384,8 +407,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
           push(batch);
           tamber?.channel.broadcast(batch);
         }
-        fastSeq++;
-        // A check already under way is done again after it.
+        // A check already under way is set aside, and done again after it.
         if (building) { again = true; return; }
       }
     }
@@ -405,28 +427,23 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // What a full build reads from disk is what changed since it began.
     since = t;
     backendSeen = backendOf();
-    verifying = fast;
-    const seqAtStart = fastSeq, hadError = error;
+    const hadError = error, began = inputs;
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
-    built = await build(app, dist, keep, compiler);
-    verifying = false;
-    // A value-only edit was sent while this built: what it built is behind
-    // the pages, so it changes nothing and builds again.
-    if (fast && fastSeq !== seqAtStart) {
+    buildBegan = Date.now();
+    built = await build(app, dist, keep, compiler, () => inputs !== began);
+    if (!built.superseded) { stopped = false; lastBuildMs = Date.now() - buildBegan; }
+    // An input moved while it built (a value-only edit's batch included):
+    // what it read is behind the files, and nothing of it is published (not
+    // dist, which a fresh page loads, nor the design or a reload). The
+    // edits it took are the next build's, with those since.
+    if (built.superseded) {
+      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: an input moved while it built`);
       watchPackages(built.packages);
-      // What it put in dist is published, though: new module code reloads
-      // the pages, which take the design from the snapshot.
-      if (!built.error && !built.kept) {
-        keepPageMap();
-        logicRevision = built.logic;
-        pending.set(++seq, at);
-        push({ reload: seq, revision: logicRevision });
-      }
-      edited.add(file);
-      again = false;
-      rebuild();
+      for (const p of pendingEdits) edited.add(p);
+      for (const p of pendingAppeared) appeared.add(p);
+      if (!timer) { again = false; rebuild(); }
       return;
     }
     error = built.error;
@@ -533,6 +550,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (!timer) saved = Date.now();
     const path = resolve(base, String(name ?? ''));
     edited.add(path);
+    // A build in flight read older files: set aside, and stopped while young.
+    inputs++;
+    stopYoungBuild();
     // Made since the last build began (a temporary), not an input it had:
     // only such a file gone again edited nothing.
     try { if (statSync(path).birthtimeMs >= since) appeared.add(path); } catch { /* gone */ }
@@ -899,7 +919,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   };
   const stop = async () => {
     stopping = true;
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); stopGroup(patcher.child); residentChild?.kill('SIGTERM'); server.close();
+    for (const w of watchers) w.close(); stopBuild('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); stopGroup(patcher.child); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.
     await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
