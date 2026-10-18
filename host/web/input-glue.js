@@ -461,24 +461,32 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   // In the page: under `root`, through any shadow root's host.
   const inPage = (el) => { while (el && !root.contains(el)) el = el.getRootNode?.().host; return !!el; };
-  // The focused node's `:focus-visible` as it was last seen: a look's edge is its flip, not focus moving.
+  const canHover = matchMedia("(hover: hover)");
+  // The focused node's `:focus-visible` as last seen: a focus look's edge is its flipping. (`:hover` can't be read
+  // so: a browser moves it for the style it computes next, so an edge is the pointer crossing a node's border.)
   const focusSeen = new WeakMap();
-  // A mouse event after its pointer event (the same edge) is the same edge.
-  let edge = null;
+  // The last edge a pointer event crossed: its compatibility mouse event is the same edge (a mouse event alone,
+  // Firefox's for a scroll under a still pointer, isn't).
+  let pointerEdge = null;
+  const deepFocus = () => { let el = document.activeElement; while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement; return el; };
+  { const el = deepFocus(); if (el instanceof Element) focusSeen.set(el, el.matches(":focus-visible")); }
+  const focusLook = (el) => el instanceof Element && inPage(el) && !el.matches(DISABLED) && looks(el, document.getElementById("exact-looks")).includes("focus-visible");
   const lookEdges = (e) => {
-    if (e.type.startsWith("mouse") && edge?.over === e.type.endsWith("over") && edge.target === e.target && edge.related === e.relatedTarget) return;
     const sheet = document.getElementById("exact-looks"), els = [];
     if (e.type === "focusin" || e.type === "focusout") {
-      // `:focus-visible` is the focused node's own (inside a shadow root too), moving into a descendant included.
+      // `:focus-visible` is the focused node's own (inside a shadow root too). Coming in, it had none.
       const el = e.composedPath()[0];
       if (!(el instanceof Element) || !inPage(el)) return;
-      const was = focusSeen.get(el) ?? false, now = e.type === "focusin" && el.matches(":focus-visible");
+      const was = e.type === "focusin" ? false : focusSeen.get(el) ?? false, now = e.type === "focusin" && el.matches(":focus-visible");
       focusSeen.set(el, now);
-      if (was !== now && !el.matches(DISABLED) && looks(el, sheet).includes("focus-visible")) els.push(el);
+      if (was !== now && focusLook(el)) els.push(el);
     } else {
-      if (e.type.startsWith("pointer")) { edge = { over: e.type === "pointerover", target: e.target, related: e.relatedTarget }; queueMicrotask(() => { edge = null; }); }
-      // A hover look holds only where the pointer can hover (looks.rs's media query), on an enabled node.
-      if (!matchMedia("(hover: hover)").matches) return;
+      const over = e.type.endsWith("over");
+      if (e.type.startsWith("pointer")) pointerEdge = { over, target: e.target, related: e.relatedTarget };
+      else if (pointerEdge?.over === over && pointerEdge.target === e.target && pointerEdge.related === e.relatedTarget) return;
+      // A hover look holds only where the pointer can hover (looks.rs's media query), on an enabled node; entering or
+      // leaving it, not moving within it.
+      if (!canHover.matches) return;
       for (let el = e.target; el instanceof Element && root.contains(el); el = el.parentElement) {
         if (el.contains(e.relatedTarget)) break;
         if (!el.matches(DISABLED) && looks(el, sheet).includes(":hover")) els.push(el);
@@ -488,14 +496,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   for (const type of ["pointerover", "pointerout", "mouseover", "mouseout", "focusin", "focusout"]) root.addEventListener(type, lookEdges, true);
   // A key turning `:focus-visible` on for the node already focused (a click, then a key): Blink and WebKit move it
-  // before the key comes, others in its default action, so it is looked at now and in the frame's style change.
-  root.addEventListener("keydown", () => {
-    let el = document.activeElement;
-    while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
-    if (!(el instanceof Element) || !inPage(el) || focusSeen.get(el) || el.matches(DISABLED) || !looks(el, document.getElementById("exact-looks")).includes("focus-visible")) return;
-    const turned = () => { if (focusSeen.get(el) || !el.matches(":focus-visible") || !el.matches(":focus")) return false; focusSeen.set(el, true); stillThrough([el]); return true; };
-    if (!turned()) requestAnimationFrame(turned);
-  }, true);
+  // before the key comes, others in its default action, so it is looked at now and in the frame's style change (at
+  // the window's capture, before a shortcut can take the key).
+  const keyTurned = () => {
+    const el = deepFocus();
+    if (!focusLook(el) || focusSeen.get(el) || !el.matches(":focus-visible")) return false;
+    focusSeen.set(el, true);
+    stillThrough([el]);
+    return true;
+  };
+  addEventListener("keydown", () => { if (focusLook(deepFocus()) && !keyTurned()) requestAnimationFrame(keyTurned); }, true);
   const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;

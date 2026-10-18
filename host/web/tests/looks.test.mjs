@@ -84,8 +84,10 @@ check('a look snaps through an authored transition, entering and leaving; a base
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const at = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
     const mouse = (type, [x, y]) => call('Input.dispatchMouseEvent', { type, x, y, button: 'none', buttons: 0, clickCount: 1 });
-    // What shows right after the edge, and the transitions it started there (none: it snapped).
-    const shows = (id) => evaluate(`(e => { const s = getComputedStyle(e); return [s.backgroundColor, Number(s.opacity).toFixed(2), e.getAnimations().filter(a => a.transitionProperty).length]; })(document.getElementById('${id}'))`).then(([bg, o, n]) => n ? [bg, o, `${n} transitions`] : [bg, o]);
+    // What shows right after the edge, and the transitions that started on the node since the last look (none: it
+    // snapped; a transition started and cancelled still counts, by its transitionrun).
+    await evaluate(`window.runs = new Map(); document.addEventListener('transitionrun', e => runs.set(e.target.id, (runs.get(e.target.id) ?? 0) + 1), true)`);
+    const shows = (id) => evaluate(`new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => { const e = document.getElementById('${id}'), s = getComputedStyle(e), n = runs.get('${id}') ?? 0; runs.delete('${id}'); r([s.backgroundColor, Number(s.opacity).toFixed(2), n]); })))`).then(([bg, o, n]) => n ? [bg, o, `${n} transitions`] : [bg, o]);
     const away = await at('away');
     for (const id of ['eased', 'eased-js']) {
       await mouse('mouseMoved', await at(id));
@@ -125,12 +127,13 @@ check('a look snaps through an authored transition, entering and leaving; a base
     await evaluate(`document.getElementById('focused').blur()`);
     await mouse('mouseMoved', away);
     expect(await evaluate('window.snapped')).toBe(0);
-    // A focus look: focus coming and going, at once.
+    // A focus look: focus coming and going, at once. (Focusing reads style before its focus events come, so a
+    // transition can start there and be ended at once: what shows, not whether one ran, is the check.)
     await evaluate(`document.getElementById('focused').focus({ focusVisible: true })`);
     expect(await evaluate(`document.getElementById('focused').matches(':focus-visible')`)).toBe(true);
-    expect(await shows('focused')).toEqual(['rgb(0, 255, 255)', '1.00']);
+    expect((await shows('focused')).slice(0, 2)).toEqual(['rgb(0, 255, 255)', '1.00']);
     await evaluate(`document.getElementById('focused').blur()`);
-    expect(await shows('focused')).toEqual(['rgb(255, 255, 255)', '1.00']);
+    expect((await shows('focused')).slice(0, 2)).toEqual(['rgb(255, 255, 255)', '1.00']);
     // A held state's edges (stage 8 E's hold) are held still the same way: hover, and a keyboard's focus look.
     await evaluate(`exact.hold(document.getElementById('eased-js'), 'hover', () => {})`);
     expect(await shows('eased-js')).toEqual(['rgb(255, 255, 0)', '0.80']);

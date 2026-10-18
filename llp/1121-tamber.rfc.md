@@ -3908,9 +3908,12 @@ D8 says a look snaps; on both web targets a look is a page rule (`looks::rules`)
   look's node's own `:focus-visible` turning on or off, inside a shadow root too, not a pointer's
   focus) takes that one style change with its transitions off (`data-exact-snap`, set before any
   style is read, which the press paint's observer doesn't watch; one forced style for every such
-  node). A key that turns `:focus-visible` on for
-  the node already focused (a click, then a key) is held still too: Blink and WebKit move it before
-  the key comes, others in its default action. A base change eases as authored. The JS target loads
+  node). Focusing reads style before its focus events come, so a focus look's transition can start
+  there and is ended at once by the same still change: what shows is the look, with no frame of the
+  transition. A key that turns `:focus-visible` on for
+  the node already focused (a click, then a key) is held still too, at the window's capture before a
+  shortcut can take the key: Blink and WebKit move it before the key comes, others in its default
+  action. A base change eases as authored. The JS target loads
   the input piece for a node with a look, as for a key shortcut (after first paint).
 - **Deviation (theme2's 19:55 (b)):** a transition of that node's running across the edge, on any
   property, ends there (CSS can't hold one property still). QUEUE only if seen in practice.
