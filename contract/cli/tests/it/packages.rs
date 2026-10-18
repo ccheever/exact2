@@ -523,6 +523,63 @@ fn a_summary_card_in_a_grouped_section_is_named() {
     assert_eq!(warned(&above), Vec::<u32>::new());
 }
 
+/// `StatBar`'s label and value share a line where both fit and the value
+/// goes under the label where they do not, as UIKit's value cell stacks
+/// them at the accessibility sizes: the label is never cut ("F" for Friday,
+/// water-tracker at the largest text size).
+#[test]
+fn a_stat_bar_puts_its_value_under_its_label_when_both_do_not_fit() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("content-stat-wrap");
+    let root = dir.write(
+        "app.contract",
+        r#"use StatBar from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=400
+      column testId="wide" width=400
+        StatBar(label="Friday", value="800 ml", fraction=0.5, tint=none)
+      column testId="narrow" width=120
+        StatBar(label="Wednesday", value="800 ml", fraction=0.5, tint=none)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(400.0, 400.0))
+        .unwrap();
+    let k = r.kernel();
+    let texts = |t: &str| -> Vec<exact_kernel::NodeRef<'_>> {
+        under(k, at(k, t))
+            .into_iter()
+            .filter(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text).is_some())
+            .collect()
+    };
+    let wide = texts("wide");
+    let (label, value) = (wide[0].frame, wide[1].frame);
+    assert_eq!(label.y, value.y, "one line: {label:?} {value:?}");
+    assert_eq!(value.x + value.width, 400.0, "the value at the far edge");
+    let narrow = texts("narrow");
+    let (label, value) = (&narrow[0], &narrow[1]);
+    assert_eq!(label.props.str(PropId::Text), Some("Wednesday"));
+    assert!(
+        value.frame.y >= label.frame.y + label.frame.height,
+        "the value under the label: {:?} {:?}",
+        label.frame,
+        value.frame
+    );
+    assert_eq!(value.frame.x, 0.0, "at the line's start");
+}
+
 /// LLP 1116.001 D2: `RingProgress` is a ring around its value, one
 /// progress bar to a reader, and a state is a second colour: short of the
 /// goal the accent, a goal met the system green, done against not done
