@@ -79,12 +79,12 @@ final class T3RowDrop {
     /// picked one (images to PNG drafts, other files within `fileLimit` into staged/); the rest stay queued.
     func take(_ request: [String: Any]) -> [String: Any] {
         let keys = Set(request["keys"] as? [String] ?? [])
-        let fileLimit = request["fileLimit"] as? Int ?? 0
+        let fileLimit = request["fileLimit"] as? Int ?? 0, imageMaxEdge = request["imageMaxEdge"] as? Int ?? 0
         let generation = request["generation"] as? Int ?? 0
         let matched = pending.filter { keys.contains($0.key) }
         guard !matched.isEmpty else { return ["ok": true, "generation": generation, "value": ["files": []]] }
         pending.removeAll { keys.contains($0.key) }
-        let files = matched.flatMap(\.urls).prefix(100).map { attach.stage($0, fileLimit: fileLimit) }
+        let files = matched.flatMap(\.urls).prefix(100).map { attach.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
         changed("t3.status")
         return ["ok": true, "generation": generation, "value": ["files": Array(files)]]
     }

@@ -144,7 +144,8 @@ server to come back on the new version and shares that state with Settings › C
   thread with a banner, Copy ID and two local rows; `composer-feedback.ts`). Both long
   writes are detached requests whose reply joins the inbox (`composer-replies.ts`). The composer overlays the transcript, which keeps a
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
-  the context strip's workspace control is the desktop Select.
+  the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
+  2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
 - Requests: approvals, single/multiple-choice and free-text questions.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
