@@ -3458,6 +3458,7 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - The press paint re-reads what's beneath when a sheet or the root changes under a hold (a look's rule, the theme, the JS target's modes).
   - `-exact-press-opacity-to` is refused in a `style` block, not suggested for a typo, and not described by `contract vocab`.
   - `uses` lists a token a `:hover` or `:focus-visible` row reads, at its node, with its state.
+  - theme2's 07:06 question: a node's own `:active` where it has no `press` (nor `href`) never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged.
   - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
 - **The JS target** (`host/web-js`):
   - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.

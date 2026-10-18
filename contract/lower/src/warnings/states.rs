@@ -1,8 +1,9 @@
 //! `lower-state-dead` (LLP 1121 D8, stage 8 A; theme2's ruling (a)): a
 //! node's own `:disabled` part where it writes no `disabled`, or its own
 //! `:checked` where it writes none of `checked`, `aria-checked`,
-//! `aria-selected` and `aria-pressed`: the state never holds, so its rows
-//! never show. A bound expression counts as written. A class's part is not
+//! `aria-selected` and `aria-pressed`, or its own `:active` where it has no
+//! `press` (and is no link, `href`), which the host's press needs (theme2's
+//! 07:06 question): the state never holds, so its rows never show. A bound expression counts as written. A class's part is not
 //! judged: a shared style's `:disabled` on a node that is never disabled is
 //! the ordinary case.
 
@@ -10,16 +11,17 @@ use crate::LowerError;
 use contract_syntax::state::state_of;
 use contract_syntax::Node;
 
-/// What each runner-known state reads.
-const READS: [(&str, &[&str]); 2] = [
+/// What each state reads.
+const READS: [(&str, &[&str]); 3] = [
     ("disabled", &["disabled"]),
     (
         "checked",
         &["checked", "aria-checked", "aria-selected", "aria-pressed"],
     ),
+    ("active", &["press", "href"]),
 ];
 
-/// Every node's own runner-known state part that its node never meets.
+/// Every node's own state part that its node never meets.
 pub(super) fn dead(view: &[Node], out: &mut Vec<LowerError>) {
     let mut stack: Vec<&Node> = view.iter().collect();
     while let Some(node) = stack.pop() {
