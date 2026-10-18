@@ -224,7 +224,21 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private var heldX = 0f
     private var heldY = 0f
     private var heldTool = 0
-    private val held = Runnable { Exact.touched = android.os.SystemClock.uptimeMillis(); forward(4, heldX, heldY, heldTool, -1L) }
+    private val held = Runnable {
+        Exact.touched = android.os.SystemClock.uptimeMillis(); forward(4, heldX, heldY, heldTool, -1L)
+        // A long press a node took (its context menu) presses nothing when it lifts, a module's button included:
+        // exact2's count of them, asked behind the long press, says whether this one was taken.
+        if (moduleTap != 0 || moduleAwaiting > 0) {
+            val serial = moduleSerial
+            moduleAwaiting++
+            ask(heldX, heldY) { words ->
+                if (serial != moduleSerial) return@ask
+                val at = 3 + 11 * words.getOrElse(1) { 0 }
+                if (words.getOrElse(at + 7) { moduleLongPresses } != moduleLongPresses) moduleTap = 0
+                answered()
+            }
+        }
+    }
     private fun hold(e: MotionEvent?) {
         removeCallbacks(held)
         if (e == null) return
@@ -232,11 +246,67 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         postDelayed(held, android.view.ViewConfiguration.getLongPressTimeout().toLong())
     }
 
+    private var moduleTap = 0
+    private var moduleSlot = 0
+    private var moduleGeneration = 0
+    /** exact2's answers this contact still waits for: its down's, then a long press's. */
+    private var moduleAwaiting = 0
+    private var moduleLongPresses = 0
+    private var moduleReleased: MotionEvent? = null
+    private var moduleSerial = 0
+    private var moduleX = 0f
+    private var moduleY = 0f
+    private var moduleDownX = 0f
+    private var moduleDownY = 0f
+
+    private fun forgetModuleTap(replayRelease: Boolean = false) {
+        moduleTap = 0; moduleAwaiting = 0; moduleSerial++
+        moduleReleased?.let { release ->
+            moduleReleased = null
+            forward(if (replayRelease) 1 else 3, release.x, release.y, release.getToolType(0), -1L)
+            release.recycle()
+        }
+    }
+
+    private fun releaseModuleTap(e: MotionEvent) {
+        val clicked = moduleTap != 0 && natives?.click(moduleTap, moduleSlot, moduleGeneration, moduleX, moduleY) == true
+        forgetModuleTap()
+        forward(if (clicked) 3 else 1, e.x, e.y, e.getToolType(0), -1L)
+    }
+
+    private fun answered() {
+        if (--moduleAwaiting > 0) return
+        moduleReleased?.let { release ->
+            moduleReleased = null
+            releaseModuleTap(release)
+            release.recycle()
+        }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
-        if (started && scrolling.touch(e)) { hold(null); return true }
         val down = e.actionMasked == MotionEvent.ACTION_DOWN
+        if (down) {
+            // A new contact cannot borrow the previous contact's delayed hit answer.
+            forgetModuleTap(replayRelease = true)
+            moduleDownX = e.x; moduleDownY = e.y
+        }
+        // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
+        if (started && scrolling.touch(e)) { forgetModuleTap(); hold(null); return true }
+        if (e.actionMasked == MotionEvent.ACTION_MOVE && (Math.abs(e.x - moduleDownX) > slop || Math.abs(e.y - moduleDownY) > slop)) {
+            forgetModuleTap()
+        }
+        if (e.actionMasked == MotionEvent.ACTION_UP && (moduleAwaiting > 0 || moduleTap != 0)) {
+            hold(null)
+            Exact.touched = e.eventTime
+            if (moduleAwaiting > 0) {
+                // As Fields does, keep a completed contact until exact2 identifies its target.
+                moduleReleased = MotionEvent.obtain(e)
+            } else releaseModuleTap(e)
+            return true
+        }
+        if (e.actionMasked == MotionEvent.ACTION_CANCEL || e.actionMasked == MotionEvent.ACTION_UP ||
+            e.actionMasked == MotionEvent.ACTION_POINTER_DOWN || e.actionMasked == MotionEvent.ACTION_POINTER_UP) forgetModuleTap()
         // A touch in a hosted text field's box is held for the field, and is the field's own once exact2 says the
         // field is what is under it ([Fields], LLP 1115.001 D8): exact2 hears of the focus, not of the touch.
         val hosted = fields
@@ -255,7 +325,21 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         }
         if (action == 1) Exact.touched = e.eventTime
         forward(action, e.x, e.y, e.getToolType(0), -1L)
-        if (down && started) under(e.x, e.y) {}
+        if (down && started) {
+            val serial = moduleSerial
+            moduleAwaiting = 1
+            under(e.x, e.y) { words ->
+                if (serial != moduleSerial) return@under
+                val at = 3 + 11 * words.getOrElse(1) { 0 }
+                if (words.size >= at + 8) {
+                    moduleTap = words[at]
+                    moduleX = Float.fromBits(words[at + 1]); moduleY = Float.fromBits(words[at + 2])
+                    moduleSlot = words[at + 5]; moduleGeneration = words[at + 6]
+                    moduleLongPresses = words[at + 7]
+                }
+                answered()
+            }
+        }
         return true
     }
 
@@ -264,9 +348,13 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
      * the answer, after the scrolling has it. */
     private fun under(x: Float, y: Float, then: (IntArray) -> Unit) {
         val serial = scrolling.serial
+        ask(x, y) { scrolling.under(serial, it); then(it) }
+    }
+
+    /** [Native.under], on exact2's thread when it has one, behind what was sent to it before. */
+    private fun ask(x: Float, y: Float, then: (IntArray) -> Unit) {
         val o = owner
-        if (o != null) o.under(x, y) { scrolling.under(serial, it); then(it) }
-        else { val u = Native.under(x, y); scrolling.under(serial, u); then(u) }
+        if (o != null) o.under(x, y, then) else then(Native.under(x, y))
     }
 
     /** Whether the touch that is down is a hosted field's that asked to keep it ([Fields.keeps]): no scroll takes it. */
@@ -407,6 +495,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** wait=N: a release waits N ms for exact2's answer (Exact.WAIT_MS by default), to compare. */
     private val releaseWait = (context as Activity).intent.getStringExtra("wait")?.toLongOrNull() ?: Exact.WAIT_MS
     override fun onDetachedFromWindow() {
+        forgetModuleTap()
         warmer.destroy()
         worker.shutdown()
         wakes?.close()
