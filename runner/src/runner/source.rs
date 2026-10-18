@@ -259,6 +259,24 @@ impl Target {
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
+    /// Prepare a disposable, read-only snapshot refresh before activation.
+    /// Bytecode and its receipt come from the app's pinned generation, never
+    /// from a separately selected update (LLP 1126.000 WP5).
+    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
+        if module.is_some() {
+            return Err(DataError::Unavailable(
+                "this source accepts no snapshot bytecode".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Successful storage effects since the last host commit. A host may
+    /// invalidate another process's read snapshot; no data crosses this ping.
+    fn take_storage_changed(&mut self) -> bool {
+        false
+    }
+
     /// Session that may use document handles minted by this host.
     fn set_document_owner(&mut self, owner: u64) {
         let _ = owner;

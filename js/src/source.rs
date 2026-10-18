@@ -3,6 +3,30 @@
 use super::*;
 
 impl DataSource for Module {
+    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
+        if self.is_loaded() {
+            return Err(DataError::Unavailable(
+                "prepare snapshot before activation".into(),
+            ));
+        }
+        let (receipt, bytes) = module.ok_or_else(|| {
+            DataError::Unavailable("widget generation lacks TypeScript bytecode".into())
+        })?;
+        let admitted = Paired::module(receipt, bytes, &self.app_id, &self.grants)
+            .map_err(DataError::Unavailable)?;
+        self.bytecode = admitted.bytecode.clone();
+        self.revision = Default::default();
+        self.snapshot = true;
+        self.native_factory = None;
+        self.native_slot = Default::default();
+        self.storage_wait = std::time::Duration::from_millis(900);
+        Ok(())
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        std::mem::take(&mut self.host.storage_changed)
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.document_owner = owner;
     }

@@ -227,6 +227,19 @@ impl<D: DataSource> Swappable<D> {
 }
 
 impl<D: DataSource> DataSource for Swappable<D> {
+    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
+        self.embedded
+            .as_mut()
+            .ok_or_else(|| DataError::Unavailable("snapshot needs the embedded cohort".into()))?
+            .prepare_snapshot(module)
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        self.embedded
+            .as_mut()
+            .is_some_and(DataSource::take_storage_changed)
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         if let Some(embedded) = &mut self.embedded {
             embedded.set_document_owner(owner);

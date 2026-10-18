@@ -28,7 +28,31 @@ impl Paired {
         expected_app: &str,
         expected_grants: &str,
     ) -> Result<Self, String> {
-        if receipt.len() > 1 << 20 || plan.len() > 32 << 20 || bytecode.len() > 32 << 20 {
+        let module = Self::module(receipt, bytecode, expected_app, expected_grants)?;
+        let meta: Value = serde_json::from_str(receipt).map_err(|e| e.to_string())?;
+        let card = &meta["plan"];
+        if plan.len() > 32 << 20
+            || card["file"] != "app.plan"
+            || card["bytes"].as_u64() != Some(plan.len() as u64)
+            || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(plan)))
+        {
+            return Err("module candidate plan does not match its receipt".into());
+        }
+        let plan = Plan::decode(plan).map_err(|e| format!("candidate plan: {e:?}"))?;
+        if plan.app_id != expected_app {
+            return Err("candidate plan and module name different apps".into());
+        }
+        Ok(Self { plan, module })
+    }
+    /// Admit bytecode from an already pinned widget generation without decoding
+    /// the running app's plan. The generation pairs all its entry plans (D8).
+    pub(crate) fn module(
+        receipt: &str,
+        bytecode: Vec<u8>,
+        expected_app: &str,
+        expected_grants: &str,
+    ) -> Result<Module, String> {
+        if receipt.len() > 1 << 20 || bytecode.len() > 32 << 20 {
             return Err("module candidate exceeds its size limit".into());
         }
         let meta: Value = serde_json::from_str(receipt).map_err(|e| e.to_string())?;
@@ -53,27 +77,14 @@ impl Paired {
                 "module candidate changes the client's admitted grants; rebuild the client".into(),
             );
         }
-        for (key, name, bytes) in [
-            ("plan", "app.plan", plan),
-            ("module", "app.hbc", &bytecode[..]),
-        ] {
-            let card = &meta[key];
-            let digest = format!("{:x}", Sha256::digest(bytes));
-            if card["file"].as_str() != Some(name)
-                || card["bytes"].as_u64() != Some(bytes.len() as u64)
-                || card["sha256"].as_str() != Some(&digest)
-            {
-                return Err(format!("module candidate {key} does not match its receipt"));
-            }
+        let card = &meta["module"];
+        if card["file"] != "app.hbc"
+            || card["bytes"].as_u64() != Some(bytecode.len() as u64)
+            || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(&bytecode)))
+        {
+            return Err("module candidate module does not match its receipt".into());
         }
-        let plan = Plan::decode(plan).map_err(|e| format!("candidate plan: {e:?}"))?;
-        if plan.app_id != expected_app {
-            return Err("candidate plan and module name different apps".into());
-        }
-        Ok(Self {
-            plan,
-            module: Module::new(bytecode, expected_app, expected_grants),
-        })
+        Ok(Module::new(bytecode, expected_app, expected_grants))
     }
 }
 

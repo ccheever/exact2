@@ -376,7 +376,7 @@ uint32_t exact_boot(ExactRuntime rt, float width, float height);
 /* Snapshot-only boot: concatenated plan bytes, UTF-8 kind and optional props JSON.
  * Pure boot reads no store or secrets. Timeline refresh is the only data step. */
 uint32_t exact_boot_entry(ExactRuntime rt, size_t plan, size_t kind, size_t props, float width, float height);
-uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms);
+uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, size_t receipt, size_t module);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);

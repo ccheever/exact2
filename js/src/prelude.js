@@ -105,7 +105,6 @@
     fixed(global, name, function () {});
   });
   fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
-
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
   // format getter or formatToParts method; explicit timestamps still use
@@ -518,7 +517,7 @@
   var background = { id: 0, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, background: true };
   // The module's storage operations that landed and failed, and the last
   // failure's line (`state.background`, LLP 1097 D8).
-  var storageCounts = { done: 0, failed: 0, last: null };
+  var storageCounts = { writes: 0, done: 0, failed: 0, last: null };
   // Set before the first answer, never after: an app cannot turn it on.
   global.__exact_main_thread = function () { if (initializing) moving = true; };
   // Where a completion's count lives: the call that issued it, or the
@@ -933,6 +932,7 @@
         unstore(at);
         if (ok) {
           storageCounts.done++;
+          if (/^(writeFile|atomicWriteFile|appendFile|mkdir|rm|rename|copyFile|execute|transaction)$/.test(method)) storageCounts.writes++;
           try { resolve(convert ? convert(value) : value); } catch (e) { reject(e); }
           return;
         }
@@ -1416,7 +1416,7 @@
     checkpoint();
     currentCall = null;
     return JSON.stringify({ head: headOwner() === background, queued: queue.length, inFlight: head ? 1 : 0,
-      done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
+      writes: storageCounts.writes, done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
   };
   // An overlay (`overlay(source, args, answer, writes)`): what a resource
   // shows while writes affect it, called synchronously with no answer current. It has

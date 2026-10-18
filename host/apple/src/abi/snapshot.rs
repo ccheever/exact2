@@ -79,11 +79,34 @@ impl<D: DataSource> Bridge<D> {
     }
     /// Query the declared refresh source in the already booted entry.
     pub fn entry_timeline(&mut self, now: f64) -> u32 {
+        self.entry_timeline_module(now, 0, 0)
+    }
+    /// The pinned generation's receipt and HBC, concatenated in the input.
+    pub fn entry_timeline_module(&mut self, now: f64, receipt: usize, module: usize) -> u32 {
+        if receipt > 1 << 20
+            || module > 32 << 20
+            || receipt + module > self.input.len()
+            || (receipt == 0) != (module == 0)
+        {
+            return self
+                .emit(serde_json::json!({"error":"invalid snapshot module lengths"}).to_string());
+        }
+        let bytes = self.input[..receipt + module].to_vec();
+        let Ok(text) = std::str::from_utf8(&bytes[..receipt]) else {
+            return self
+                .emit(serde_json::json!({"error":"invalid snapshot module receipt"}).to_string());
+        };
         let result = self
             .host
             .as_mut()
             .ok_or_else(|| "not booted".to_owned())
-            .and_then(|host| host.entry_timeline(now, self.links.io));
+            .and_then(|host| {
+                host.entry_timeline(
+                    now,
+                    self.links.io,
+                    (receipt > 0).then(|| (text, bytes[receipt..].to_vec())),
+                )
+            });
         self.emit(match result {
             Ok(json) => json,
             Err(e) => serde_json::json!({"error":e}).to_string(),

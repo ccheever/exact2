@@ -12,6 +12,7 @@ use serde_json::Value as Json;
 /// What the prelude last said about its background work.
 #[derive(Default)]
 pub(crate) struct Background {
+    writes: u64,
     /// The operation in flight is the background's.
     head: bool,
     /// A round is out: the host holds its ticket.
@@ -46,6 +47,9 @@ impl Module {
             return;
         };
         let num = |k: &str| json.get(k).and_then(Json::as_u64).unwrap_or(0);
+        let writes = num("writes");
+        self.host.storage_changed |= writes != self.background.writes;
+        self.background.writes = writes;
         self.background.head = json.get("head") == Some(&Json::Bool(true));
         self.background.state = BackgroundState {
             queued: num("queued"),

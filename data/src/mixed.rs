@@ -522,6 +522,15 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
 }
 
 impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
+    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
+        self.javascript.prepare_snapshot(module)?;
+        self.rust.prepare_snapshot(None)
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        self.javascript.take_storage_changed() | self.rust.take_storage_changed()
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.javascript.set_document_owner(owner);
         self.rust.set_document_owner(owner);

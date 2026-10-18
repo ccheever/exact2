@@ -811,3 +811,35 @@ mod tests {
         assert!(!file.exists());
     }
 }
+
+/// Stage 1 has one writer: the app. Publish only a counter and a Darwin ping;
+/// another process re-reads the store, never a payload in the notification.
+#[allow(unsafe_code)]
+pub(crate) fn widget_changed(app: &str) {
+    let Some(root) = group_root(app) else {
+        return;
+    };
+    let current = root.join("widget-store-generation");
+    let value = std::fs::read_to_string(&current)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0)
+        .saturating_add(1);
+    let temporary = root.join(format!(".widget-store-{}", std::process::id()));
+    if std::fs::write(&temporary, value.to_string())
+        .and_then(|_| std::fs::rename(&temporary, &current))
+        .is_err()
+    {
+        return;
+    }
+    #[cfg(target_vendor = "apple")]
+    if let Ok(name) = std::ffi::CString::new(format!("{app}.widget-store")) {
+        unsafe extern "C" {
+            fn notify_post(name: *const std::ffi::c_char) -> u32;
+        }
+        // libnotify copies the name; the notification carries no account data.
+        unsafe {
+            notify_post(name.as_ptr());
+        }
+    }
+}

@@ -74,12 +74,14 @@ impl Session {
 
     /// Activate app directories after the native module has received their
     /// paths, but before storage is materialized in JavaScript.
-    pub fn configure(&self, paths: &Directories) -> Result<(), String> {
+    pub fn configure(&self, paths: &Directories, read_only: bool) -> Result<(), String> {
         for path in [&paths.data, &paths.cache, &paths.temporary] {
             if !path.is_absolute() {
                 return Err("app storage roots must be absolute".into());
             }
-            std::fs::create_dir_all(path).map_err(|e| format!("app storage: {e}"))?;
+            if !read_only {
+                std::fs::create_dir_all(path).map_err(|e| format!("app storage: {e}"))?;
+            }
         }
         self.context
             .set_app_directories(

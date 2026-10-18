@@ -244,9 +244,10 @@ package final class Runtime {
         }
         return islands(batch)
     }
-    package func entryTimeline(at now: Double) -> Data {
+    package func entryTimeline(at now: Double, receipt: Data = Data(), module: Data = Data()) -> Data {
         on(busy: Data()) {
-            let count = exact_entry_timeline(rt, now)
+            _ = write(receipt + module)
+            let count = exact_entry_timeline(rt, now, receipt.count, module.count)
             return Data(bytes: exact_out(rt), count: Int(count))
         }
     }

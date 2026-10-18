@@ -16,6 +16,7 @@ public enum WidgetContainer {
         guard let root, let appID else { return }
         setenv("EXACT_APP_GROUP_ROOT", root.path, 1)
         setenv("EXACT_APP_GROUP_APP", appID, 1)
+        if Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil { _ = storeObserver }
     }
     public static var updateBase: URL? { root?.appendingPathComponent("Library/Application Support", isDirectory: true) }
     private static var compatibility: String {
@@ -37,6 +38,20 @@ public enum WidgetContainer {
         return generation
     }
     private static let publisher = DispatchQueue(label: "exact.widget-generation", qos: .utility)
+    private static var storeGeneration = ""
+    private static let storeObserver: Void = {
+        guard let appID else { return }
+        let name = appID + ".widget-store"
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            publisher.async {
+                guard let root, let next = try? String(contentsOf: root.appendingPathComponent("widget-store-generation"), encoding: .utf8), next != storeGeneration else { return }
+                storeGeneration = next
+                #if EXACT_WIDGETS
+                WidgetCenter.shared.reloadAllTimelines()
+                #endif
+            }
+        }, name as CFString, nil, .deliverImmediately)
+    }()
     /// The serial publisher preserves acceptance order and keeps asset copying
     /// off the app's first-frame path.
     package static func publishAfterFirstPixel(_ assets: AssetResolver) {

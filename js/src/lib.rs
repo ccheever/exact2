@@ -213,12 +213,14 @@ struct HostState {
     /// Delivering between answers (a background round, a let-go call's
     /// steps): there is no store, and storage is not refused as at bake.
     between_answers: bool,
+    storage_changed: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
 /// engine that runs it once loaded.
 pub struct Module {
     bytecode: Arc<[u8]>,
+    snapshot: bool,
     app_id: String,
     grants: String,
     revision: std::sync::OnceLock<String>, // the bytecode's SHA-256, when first asked
@@ -303,6 +305,7 @@ impl Module {
         let module = Module {
             revision: std::sync::OnceLock::new(),
             bytecode: bytecode.into(),
+            snapshot: false,
             app_id: app_id.into(),
             grants,
             engine: None,
@@ -506,6 +509,16 @@ impl Module {
 
     fn load_engine_with_prelude(&mut self, prelude: &'static [u8]) -> Result<Watched, String> {
         let io = exact_runner::io_grants(&self.grants);
+        // Stage 1 permits file reads, not file/SQLite writes or document handles.
+        // Identity still checks the full baked grants; only endowment narrows.
+        let io = if self.snapshot {
+            io.lines()
+                .filter(|line| line.starts_with("fs.read app:/"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            io
+        };
         self.host.documents = storage::reaches_documents(&io);
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
@@ -565,7 +578,7 @@ impl Module {
             self.storage
                 .as_ref()
                 .expect("Context was created")
-                .configure(paths)?;
+                .configure(paths, self.snapshot)?;
         }
         if self.directories.is_some() || (self.host.documents && !self.host.baking) {
             engine.install_storage()?;
@@ -601,7 +614,9 @@ impl Module {
         // A dev restart or a reload replaces the module: what it started
         // and did not await is finished first, within a second (LLP 1097
         // D10). A worker's answers waited for theirs.
-        self.finish_background(std::time::Duration::from_secs(1));
+        if !self.snapshot {
+            self.finish_background(std::time::Duration::from_secs(1));
+        }
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());
         }

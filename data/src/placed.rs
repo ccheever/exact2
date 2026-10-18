@@ -174,6 +174,7 @@ pub struct Placed<D> {
     next: u64,
     validation: bool,
     logs: Vec<String>,
+    storage_changed: Arc<std::sync::atomic::AtomicBool>,
     /// The sources the journal said don't overlay on the owner thread.
     told_overlay: std::collections::BTreeSet<String>,
 }
@@ -202,6 +203,7 @@ impl<D: DataSource + 'static> Placed<D> {
 
     fn with_spawn(source: D, placement: Placement, spawn: Spawn<D>) -> Self {
         Self {
+            storage_changed: Default::default(),
             app_id: source.app_id().to_string(),
             grants: source.grants().to_string(),
             revision: source.revision().map(str::to_string),
@@ -321,6 +323,7 @@ impl<D: DataSource + 'static> Placed<D> {
     fn spawn_owner(&mut self, obtain: Obtain<D>) -> Result<(), DataError> {
         let (jobs, rx) = channel::<Job>();
         let grants = self.grants.clone();
+        let storage_changed = self.storage_changed.clone();
         std::thread::Builder::new()
             .name("exact-owner".into())
             .spawn(move || {
@@ -359,6 +362,9 @@ impl<D: DataSource + 'static> Placed<D> {
                             turn(source, &mut local, target, &name, &args, outcome)
                         }),
                     };
+                    if source.as_mut().is_ok_and(|s| s.take_storage_changed()) {
+                        storage_changed.store(true, std::sync::atomic::Ordering::Release);
+                    }
                     let logs = source.as_mut().map(|s| s.take_logs()).unwrap_or_default();
                     reply.send(envelope::encode(result, &mut local, logs));
                 }
@@ -432,6 +438,25 @@ fn turn<D: DataSource>(
 }
 
 impl<D: DataSource + 'static> DataSource for Placed<D> {
+    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
+        self.here()?.prepare_snapshot(module)?;
+        // The headless invocation already has an owner. Keep its disposable
+        // source there, including its interrupt and read-only storage policy.
+        self.placement = Placement::Main;
+        self.interrupt = self.here()?.interrupt();
+        Ok(())
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        let owner = self
+            .storage_changed
+            .swap(false, std::sync::atomic::Ordering::AcqRel);
+        self.inner
+            .as_mut()
+            .is_some_and(DataSource::take_storage_changed)
+            || owner
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         if let Some(inner) = &mut self.inner {
             inner.set_document_owner(owner);

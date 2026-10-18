@@ -305,8 +305,8 @@ macro_rules! host {
         }
         /// Refresh the entry's declared source; returns a JSON timeline or an error.
         #[no_mangle]
-        pub extern "C" fn exact_entry_timeline(rt: u32, now: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.entry_timeline(now), |n| n)
+        pub extern "C" fn exact_entry_timeline(rt: u32, now: f64, receipt: usize, module: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.entry_timeline_module(now, receipt, module), |n| n)
         }
 
         /// Prepare one session, optionally using a composition-owned generation.

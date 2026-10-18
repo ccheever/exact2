@@ -782,6 +782,7 @@ impl<D: DataSource> Host<D> {
     /// the app is otherwise unaffected, as a web app is when `setItem`
     /// throws: the next launch will not remember.
     fn persist(&mut self) {
+        let mut changed = self.runner.data().take_storage_changed();
         for line in self.kept_failures() {
             self.runner.log(line);
         }
@@ -791,7 +792,12 @@ impl<D: DataSource> Host<D> {
             };
             if let Err(e) = secrets.write(&w) {
                 self.runner.log(format!("store {} failed: {e}", w.name));
+            } else {
+                changed = true;
             }
+        }
+        if changed {
+            crate::store::widget_changed(self.runner.data_ref().app_id());
         }
     }
 

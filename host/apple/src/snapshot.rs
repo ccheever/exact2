@@ -59,23 +59,115 @@ impl<D: exact_runner::DataSource> crate::Host<D> {
         &mut self,
         now: f64,
         io: Option<crate::link::IoLinks>,
+        module: Option<(&str, Vec<u8>)>,
     ) -> Result<String, String> {
+        use std::time::{Duration, Instant};
         if self.runner.plan().snapshot_entry.is_empty() {
             return Err("not a snapshot entry".into());
         }
-        let data = self.runner.data_ref();
-        let snapshot = if let Some(io) = io {
-            let endowed = (io.endow)(data.grants(), data.app_id(), false);
+        // Leave 100 ms below D8's one-second line for completion and teardown.
+        let deadline = Instant::now() + Duration::from_millis(900);
+        let data = self.runner.data();
+        data.prepare_snapshot(module)
+            .map_err(|e| format!("snapshot module: {e:?}"))?;
+        let app = data.app_id().to_owned();
+        let grants = data.grants().to_owned();
+        let roots = crate::picker::app_dirs(&app)
+            .map_err(|e| format!("snapshot storage: {e:?}"))?
+            .map(|(roots, _)| roots);
+        if let Some([data_root, cache, temporary]) = roots.clone() {
+            data.configure_storage(data_root, cache, temporary)
+                .map_err(|e| format!("snapshot storage: {e:?}"))?;
+        }
+        let interrupt = data.interrupt();
+        let (cancel, wait) = std::sync::mpsc::channel();
+        let watchdog = interrupt.map(|interrupt| {
+            std::thread::spawn(move || {
+                if wait
+                    .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                    .is_err()
+                {
+                    interrupt.trigger();
+                }
+            })
+        });
+        let result = (|| {
+            let endowed = io
+                .map(|io| (io.endow)(&grants, &app, false))
+                .unwrap_or_else(crate::store::Endowed::none);
             if let Some(error) = endowed.unbound {
                 return Err(format!("{error}; every request is refused"));
             }
-            (io.snapshot)(endowed.bindings.as_ref(), data.app_id())
-        } else {
-            // A pure query can still return props. No I/O request can run, and
-            // the runner's linked grant validator refuses store access.
-            self.log("this build links no I/O; every request is refused");
-            Vec::new()
-        };
-        self.runner.snapshot_timeline(now, snapshot)
+            let snapshot = io
+                .map(|io| (io.snapshot)(endowed.bindings.as_ref(), &app))
+                .unwrap_or_default();
+            let wake = Box::new(std::thread::current());
+            #[allow(unsafe_code)]
+            extern "C" fn notify(ctx: *mut std::ffi::c_void) {
+                // Executor retirement fences callbacks before the box is freed.
+                unsafe { &*(ctx as *const std::thread::Thread) }.unpark();
+            }
+            let mut executor = None;
+            let mut bindings = endowed.bindings;
+            let result =
+                self.runner
+                    .snapshot_timeline(now, snapshot, deadline, |mut request, work| {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            return Err("widget refresh timed out".into());
+                        }
+                        let io = io.ok_or("this build links no I/O; every request is refused")?;
+                        let executor = executor.get_or_insert_with(|| {
+                            let executor = (io.start)(
+                                bindings.take(),
+                                &grants,
+                                Some((
+                                    notify,
+                                    (&*wake as *const std::thread::Thread).cast_mut().cast(),
+                                )),
+                            );
+                            if let Some(roots) = roots.clone() {
+                                executor.set_app_roots(roots);
+                            }
+                            executor
+                        });
+                        if request.continuation.is_none() {
+                            let ms = remaining.as_millis().max(1).min(u32::MAX as u128) as u32;
+                            request.timeout_ms =
+                                Some(request.timeout_ms.map_or(ms, |own| own.min(ms)));
+                        }
+                        executor
+                            .run(
+                                exact_runner::RequestOut {
+                                    ticket: 1,
+                                    target: "widget refresh".into(),
+                                    request,
+                                    forced: false,
+                                },
+                                work,
+                            )
+                            .map_err(str::to_owned)?;
+                        loop {
+                            executor.begin_pump();
+                            if let Some((_, outcome, _)) = executor.drain().into_iter().next() {
+                                return Ok(outcome);
+                            }
+                            let remaining = deadline.saturating_duration_since(Instant::now());
+                            if remaining.is_zero() {
+                                executor.forget(&|_| false);
+                                return Err("widget refresh timed out".into());
+                            }
+                            std::thread::park_timeout(remaining);
+                        }
+                    });
+            drop(executor);
+            drop(wake);
+            result
+        })();
+        let _ = cancel.send(());
+        if let Some(watchdog) = watchdog {
+            let _ = watchdog.join();
+        }
+        result
     }
 }
