@@ -313,6 +313,90 @@ test('hourly Usage activity cannot borrow positive daily-only buckets',()=>{
     expect(hourly.chart[0]?.bands.every(band=>band.height===0)).toBe(true);
   }
 });
+test('Usage Totals keep six metric-independent cells and average only active selected periods',()=>{
+  const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:3}],
+    buckets:[
+      {provider:'codex',model:'qa',day:'2026-10-06',hourStart:'2026-10-06T23:00:00.000Z',costUsd:2,cacheSavingsUsd:2,records:4,unpricedRecords:1,
+        totals:{uncachedInputTokens:1000,cachedInputTokens:1000,cacheCreationTokens:200,outputTokens:300,reasoningTokens:120}},
+      {provider:'codex',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T00:00:00.000Z',costUsd:1,cacheSavingsUsd:2,records:2,unpricedRecords:1,
+        totals:{uncachedInputTokens:0,cachedInputTokens:500,cacheCreationTokens:100,outputTokens:100,reasoningTokens:40}},
+      {provider:'codex',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T01:00:00.000Z',costUsd:1,cacheSavingsUsd:2,records:2,unpricedRecords:0,
+        totals:{uncachedInputTokens:0,cachedInputTokens:500,cacheCreationTokens:200,outputTokens:100,reasoningTokens:40}},
+      {provider:'codex',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T02:00:00.000Z',costUsd:0,totals:{}},
+    ]};
+  const before=JSON.stringify(summary),sources=[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}];
+  const merged=mergeUsage(sources.map(source=>({id:source.id,label:source.label,summary:source.summary})));
+  expect([merged.totalTokens,merged.outputTokens,merged.reasoningTokens,merged.records]).toEqual([4000,500,200,8]);
+  expect(merged.daily.filter(period=>period.totalTokens>0)).toHaveLength(2);
+  expect(merged.hourly.filter(period=>period.totalTokens>0)).toHaveLength(3);
+  for(const resolution of ['day','hour'] as const)for(const metric of ['cost','tokens','cost']){
+    const data=mobileUsagePresentation({tab:'usage',window:{sinceDay:'2026-10-06',untilDay:'2026-10-07',timeZone:'UTC',resolution,
+      sinceTime:'2026-10-06T12:00:00.000Z',untilTime:'2026-10-07T12:00:00.000Z'},metric,now,presentations:new Map(),external:false,sources},false);
+    expect(data.totals).toEqual([
+      {id:'tokens',label:'Processed tokens',value:'4K',detail:resolution==='hour'?'1.33K per active hour':'2K per active day'},
+      {id:'cache-savings',label:'Cache savings',value:'$6.00',detail:'1.5x the raw cost'},
+      {id:'cache-read',label:'Cached input',value:'2K',detail:'66.7% of observed input'},
+      {id:'input',label:'Uncached input',value:'1K',detail:'500 cache writes'},
+      {id:'output',label:'Output',value:'500',detail:'incl. 200 reasoning'},
+      {id:'unpriced',label:'Unpriced',value:'25.0%',detail:'of records, excluded from cost'},
+    ]);
+    expect(data.total).toBe(metric==='cost'?'$4.00':'4K');expect(data.headlineDetail).toBe(metric==='cost'?'* if billed at full API rate':'Across 3 sessions');
+    expect(data.chartHasActivity).toBe(true);expect(data.chartLegend.map(item=>item.id)).toEqual(['codex']);
+    expect(data.providers[0]?.value).toBe(data.total);expect(data.models[0]?.value).toBe(data.total);
+    expect(data.hasCost).toBe(true);expect(data.costByType.map(item=>[item.id,item.weight])).toEqual([['other',4]]);
+    expect(data.costBySpeed).toEqual([]);expect(JSON.stringify(summary)).toBe(before);
+  }
+});
+test('Usage Totals handle zero observed input and nonpositive cost without changing cache-write tokens',()=>{
+  for(const costUsd of [0,-1])for(const metric of ['cost','tokens']){
+    const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'}}],
+      buckets:[{provider:'codex',model:'qa',day:'2026-10-07',costUsd,cacheSavingsUsd:2,records:0,unpricedRecords:0,totals:{cacheCreationTokens:20}}]};
+    const data=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(7,now),metric,now,presentations:new Map(),external:false,
+      sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+    expect(data.totals.map(item=>[item.label,item.value,item.detail])).toEqual([
+      ['Processed tokens','20','20 per active day'],['Cache savings','$2.00','vs full input rates'],
+      ['Cached input','0','0.0% of observed input'],['Uncached input','0','20 cache writes'],
+      ['Output','0','incl. 0 reasoning'],['Unpriced','0.0%','of records, excluded from cost'],
+    ]);
+  }
+});
+test('Usage Totals exclude duplicate, unowned and future reasoning without double-counting output',()=>{
+  const source={status:'ok',fingerprint:{provider:'codex',hostId:'shared',resolvedHomePath:'/qa'},distinctSessions:2};
+  const bucket={provider:'codex',sourcePath:'/qa',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T01:00:00.000Z',costUsd:1,records:2,unpricedRecords:1,
+    totals:{uncachedInputTokens:20,outputTokens:80,reasoningTokens:30}};
+  const owned:Obj={contractVersion:6,readAt:'2026-10-07T02:00:00Z',sources:[source],buckets:[bucket,
+    {...bucket,sourcePath:'/unowned',totals:{outputTokens:900,reasoningTokens:900}},
+    {...bucket,provider:'claude',totals:{outputTokens:900,reasoningTokens:900}}]};
+  const duplicate:Obj={contractVersion:6,readAt:'2026-10-07T01:00:00Z',sources:[source],buckets:[{...bucket,totals:{outputTokens:900,reasoningTokens:900}}]};
+  const future:Obj={...owned,contractVersion:7,readAt:'2026-10-07T03:00:00Z'};
+  const environments=[{id:'old',label:'Old',summary:duplicate},{id:'qa',label:'QA',summary:owned},{id:'future',label:'Future',summary:future}],before=JSON.stringify(environments);
+  const merged=mergeUsage(environments);
+  expect([merged.totalTokens,merged.outputTokens,merged.reasoningTokens,merged.records,merged.sessions]).toEqual([100,80,30,2,2]);
+  expect(merged.duplicates).toEqual(['Old: /qa']);expect(merged.mismatches).toEqual([{environment:'Future',direction:'clientBehind'}]);
+  for(const metric of ['cost','tokens']){
+    const data=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(7,now),metric,now,presentations:new Map(),external:false,
+      sources:environments.map(item=>({...item,connected:true,error:'',canRead:true,canWrite:false,canManage:false,config:{}}))},false);
+    expect(data.totals[0]).toMatchObject({value:'100',detail:'100 per active day'});
+    expect(data.totals[4]).toMatchObject({value:'80',detail:'incl. 30 reasoning'});
+    expect(data.totals[5]).toMatchObject({value:'50.0%',detail:'of records, excluded from cost'});
+    expect(data.providers.map(item=>item.id)).toEqual(['codex']);expect(data.models.map(item=>item.id)).toEqual(['["codex","qa"]']);
+  }
+  expect(JSON.stringify(environments)).toBe(before);
+});
+test('Usage Totals keep zero average and reasoning for inactive, absent and incompatible summaries',()=>{
+  const compatible:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1}],buckets:[]};
+  for(const resolution of ['day','hour'] as const)for(const summary of [compatible,{...compatible,contractVersion:7}]){
+    const data=mobileUsagePresentation({tab:'usage',window:{sinceDay:'2026-10-06',untilDay:'2026-10-07',timeZone:'UTC',resolution,
+      sinceTime:'2026-10-06T12:00:00.000Z',untilTime:'2026-10-07T12:00:00.000Z'},metric:'tokens',now,presentations:new Map(),external:false,
+      sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+    expect(data.hasUsage).toBe(summary.contractVersion===6);expect(data.totals.map(item=>item.value)).toEqual(['0','$0.00','0','0','0','0.0%']);
+    expect(data.totals[0]?.detail).toBe(`0 per active ${resolution==='hour'?'hour':'day'}`);
+    expect(data.totals[1]?.detail).toBe('vs full input rates');expect(data.totals[4]?.detail).toBe('incl. 0 reasoning');
+  }
+  const empty=mobileUsagePresentation(null,false);
+  expect(empty.hasUsage).toBe(false);expect(empty.totals.map(item=>item.value)).toEqual(['0','$0.00','0','0','0','0.0%']);
+});
+
 test('Usage Cost bars retain raw dollar weights, neutral colors and premium across metrics',()=>{
   const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1}],
     buckets:[{provider:'claude',model:'qa',day:'2026-10-07',costUsd:10,records:1,unpricedRecords:0,totals:{uncachedInputTokens:100},

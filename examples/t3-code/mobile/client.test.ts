@@ -191,7 +191,7 @@ describe('pinned shared sources', () => {
     const copies = names.map(name => {
       const local = readFileSync(join(directory, name), 'utf8').split('\n');
       expect(local[0]).toContain('GAP 001');
-      const pin = name === 'pages-usage.ts' ? '4ca539ce7206f332c3d912789bca10a5e6268ee3'
+      const pin = name === 'pages-usage.ts' ? 'c65b209d587e246d05f2fd6fd67fd12d1d6fa5a0'
         : name === 'word-diff.ts' ? '633320b410683cc88018c8f66bc908177fffd0f4'
         : name === 'timeline-t3tools.ts' ? 'eefa4fe3744d6c4e0dc5c9f0a84bdfb9d3961ba4'
         : name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
@@ -206,7 +206,7 @@ describe('pinned shared sources', () => {
       else if (name !== 'pages-usage.ts') expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
-    const objects = copies.map(copy => `${copy.pin}:examples/t3-code/${copy.name === 'pages-usage.ts' ? 'mobile/shared/' : ''}${copy.name}`);
+    const objects = copies.map(copy => copy.name === 'pages-usage.ts' ? copy.pin : `${copy.pin}:examples/t3-code/${copy.name}`);
     objects.push('db560228e1cb2ad00c9cbff76ed8d22a05438249:examples/t3-code/composer-editor.ts');
     const result = Bun.spawnSync(['git', 'cat-file', '--batch'], {
       cwd: directory, stdin: new TextEncoder().encode(objects.join('\n') + '\n'),
