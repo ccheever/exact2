@@ -1,6 +1,7 @@
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
+import { shellCommand } from '../highlight/shell-command';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
 import { runnableShellCommands } from '../terminal/terminal-integrations';
 import { runTerminalCommand } from '../terminal/terminal-drawer-view';
@@ -318,8 +319,10 @@ function forkable(client: T3Client, row: Obj, item: Obj): boolean {
 interface PresentContext { client: T3Client; root: string; view: ViewState; subagents: Obj[]; providers: Obj[]; format: string; preparing: boolean; detailsOpen: boolean; threads: Obj[] }
 /** A changing one-line label keyed by its text, so the row redraws it instead of reusing the old string. */
 const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u0000${label}`, label, body: '', icon: '', output: '', result: '', failed: false, timestamp: '' });
-const entryCode = (entries: WorkEntry[]): InspectorCode[] => entries.flatMap(entry => {
+const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => entries.flatMap(entry => {
   if (entry.questionAnswer) return [questionHistory(entry.id, entry.questionAnswer)];
+  if (entry.itemType === 'command_execution' && turnItemIsOpen(client, entry.id)) return [{ id: entry.id, code: '', icon: 'shell',
+    tokens: shellCommand(str(entry.item.input)).map((token, index) => ({ id: String(index), ...token })) }];
   return [];
 });
 
@@ -347,14 +350,14 @@ function present(row: Row, context: PresentContext): Message {
       runId: row.runId, continues: row.continues === true, activities: [{ ...keyedLabel(row, row.summary), ...(row.toolIcon ? toolActivityIconSources(context.client, { toolIcon: row.toolIcon }) : {}) }] };
     case 'details': {
       const activities = row.entries.map(entry => activity(entry, root, context.client));
-      return { ...base, kind: 'details', activities, continues: row.continues === true, code: entryCode(row.entries) };
+      return { ...base, kind: 'details', activities, continues: row.continues === true, code: entryCode(row.entries, context.client) };
     }
     case 'entry': {
       const single = row.entries.length === 1 ? row.entries[0]! : null;
       const card = single?.itemType === 'notification' ? notificationSubagent(single.item, context.subagents, single.createdAt, shortTime(single.createdAt, context.format), context.providers) : null;
       if (card) return { ...base, kind: 'subagent', title: card.label, activities: [card], runId: single!.runId };
       const activities = row.entries.map(entry => activity(entry, root, context.client, row.entries.length === 1 ? row.label : undefined));
-      return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries) };
+      return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries, context.client) };
     }
     case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Cut off by a steer', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
     case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize', activities: [keyedLabel(row, row.label)] };
@@ -367,7 +370,7 @@ function present(row: Row, context: PresentContext): Message {
     }
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
       sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
-    case 'event': return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers }) };
+    case 'event': return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs) }) };
     case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
       actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };
     case 'message': {

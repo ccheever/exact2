@@ -1,8 +1,12 @@
 // Lifecycle rows adapted from T3 Code (MIT, see LICENSE-T3):
 // apps/web/src/components/chat/V2LifecycleRow.tsx (interrupts, handoffs,
-// forks and subagents) and TimelineSystemDivider.tsx.
-import { obj, str, type Activity, type Message, type Obj } from '../client/domain';
+// forks and subagents; HandoffRow and HandoffEndpoint at 9c161462c9),
+// TimelineSystemDivider.tsx, packages/client-runtime/src/handoff.ts
+// (resolveHandoffEndpoints) and ProviderInstanceIcon.tsx (providerTextColor).
+import { arr, obj, str, type Activity, type Message, type Obj } from '../client/domain';
+import { triggerModelName } from '../composer/composer-controls-model';
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
+import { instanceDisplayName } from '../sidebar/subagent-card';
 import { instanceInitials } from '../usage/usage-pooled-view';
 import { formatElapsedSeconds, subagentElapsedMs, workActive } from './timeline-work-rows';
 
@@ -21,9 +25,61 @@ export function subagentTitle(title: string): string {
 function plainDetail(text: string): string {
   return text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/`/g, '').replace(/^[ \t]*[-*][ \t]+/gm, '').replace(/\s+/g, ' ').trim();
 }
-/** What a subagent card reads beside its item: the parent's subagent records and the server's providers. */
-export interface SubagentContext { agents: Obj[]; providers: Obj[] }
+/** What a lifecycle row reads beside its item: the parent's subagent records, the server's providers and the thread's runs. */
+export interface SubagentContext { agents: Obj[]; providers: Obj[]; runs?: Obj[] }
 const NO_CONTEXT: SubagentContext = { agents: [], providers: [] };
+
+interface HandoffEndpoint { instanceId: string; model?: string | undefined }
+
+/** resolveHandoffEndpoints: each side's provider instance and the model it ran, from the item or the thread's runs. */
+export function handoffEndpoints(item: Obj, runs: Obj[]): { from: HandoffEndpoint[]; to: HandoffEndpoint } {
+  const handoffRun = item.runId == null ? undefined : runs.find(run => run.id === item.runId);
+  const toInstance = str(item.toProviderInstanceId);
+  const toModel = typeof item.toModel === 'string' ? item.toModel
+    : handoffRun !== undefined && handoffRun.providerInstanceId === toInstance ? str(obj(handoffRun.modelSelection).model) || undefined : undefined;
+  const selections = arr(item.fromModelSelections);
+  const from = selections.length > 0
+    ? selections.map(selection => ({ instanceId: str(selection.instanceId), model: typeof selection.model === 'string' ? selection.model : undefined }))
+    : (Array.isArray(item.fromProviderInstanceIds) ? item.fromProviderInstanceIds : []).map(value => str(value)).map(instanceId => ({
+      instanceId, model: latestRunModelBefore(runs, instanceId, typeof handoffRun?.ordinal === 'number' ? handoffRun.ordinal : undefined) }));
+  return { from, to: { instanceId: toInstance, model: toModel } };
+}
+
+function latestRunModelBefore(runs: Obj[], instanceId: string, beforeOrdinal: number | undefined): string | undefined {
+  let latest: Obj | undefined;
+  for (const run of runs) {
+    if (run.providerInstanceId !== instanceId) continue;
+    const ordinal = Number(run.ordinal);
+    if (beforeOrdinal !== undefined && ordinal >= beforeOrdinal) continue;
+    if (latest === undefined || ordinal > Number(latest.ordinal)) latest = run;
+  }
+  const model = obj(latest?.modelSelection).model;
+  return typeof model === 'string' ? model : undefined;
+}
+
+/** providerTextColor: the driver's icon fill (light, dark), or none where the label keeps the divider's colour. */
+const PROVIDER_TEXT_COLOR: Record<string, [string, string]> = {
+  codex: ['#000000', '#ffffff'], claudeAgent: ['#d97757', '#d97757'], antigravity: ['#5b87bf', '#5b87bf'],
+  acpRegistry: ['#000000', '#FFFFFF'], cursor: ['#26251E', '#EDECEC'], grok: ['#0F0F0F', '#F5F5F5'],
+  muse: ['#0081fb', '#0081fb'], opencode: ['#211E1E', '#F1ECEC'], pi: ['#0F0F0F', '#F5F5F5'],
+};
+
+/**
+ * HandoffEndpoint: the provider's icon (`detail` the driver, `initials`, `driverIcon`) and the model's trigger name, else the
+ * reported model, else the instance's name, in the provider's colour (`iconLight`, `iconDark`); `result` is its tooltip.
+ */
+export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], index: number): Activity {
+  const entry = providers.find(provider => provider.instanceId === endpoint.instanceId);
+  const model = endpoint.model?.trim();
+  const providerModel = model ? arr(entry?.models).find(candidate => candidate.slug === model) : undefined;
+  const displayName = entry ? instanceDisplayName(entry) : endpoint.instanceId;
+  const label = providerModel !== undefined ? triggerModelName(providerModel) : model ? model : displayName;
+  const driver = str(entry?.driver) || endpoint.instanceId;
+  const [light, dark] = PROVIDER_TEXT_COLOR[driver] ?? ['', ''];
+  return { id: `${index}:${endpoint.instanceId}:${endpoint.model ?? ''}`, label, body: '', icon: '', output: '', result: `${displayName} · ${label}`,
+    failed: false, timestamp: '', detail: driver, iconLight: light, iconDark: dark, initials: instanceInitials(displayName),
+    driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(entry?.iconUrl) || undefined }) ?? '' };
+}
 
 /**
  * One subagent (SubagentTimelineLink): title, status (Queued … Stopped), its last progress or result
@@ -54,9 +110,16 @@ export function eventRow(item: Obj, group: Obj[], row: Obj, context: SubagentCon
   const type = str(item.type);
   switch (type) {
     case 'run_interrupt_result': return { kind: 'event', title: 'Run interrupted', detail: str(item.message), tone: 'danger', icon: 'x', runId: str(item.runId) };
-    case 'handoff': return { kind: 'event', title: 'Context handoff', tone: item.status === 'failed' ? 'danger' : 'neutral', icon: 'arrow-right-left',
-      detail: `${(Array.isArray(item.fromProviderInstanceIds) ? item.fromProviderInstanceIds : []).map(value => str(value)).join(', ')} → ${str(item.toProviderInstanceId)}`,
-      runId: str(item.runId) };
+    // HandoffRow: the endpoints (from…, then to) draw beside the label; `detail` is their text for the row's accessible name.
+    case 'handoff': {
+      const { from, to } = handoffEndpoints(item, context.runs ?? []);
+      // `status` places each endpoint ("from" before the arrow, "to" after it); a "from" endpoint before another one trails a comma (`answer`).
+      const endpoints = [...from, to].map((endpoint, index) => ({ ...handoffEndpoint(endpoint, context.providers, index),
+        status: index < from.length ? 'from' : 'to', answer: index < from.length - 1 ? ',' : '' }));
+      return { kind: 'handoff', title: 'Context handoff', tone: item.status === 'failed' ? 'danger' : 'neutral', icon: 'arrow-right-left', activities: endpoints,
+        detail: `${endpoints.slice(0, from.length).map(endpoint => endpoint.label).join(', ')}${from.length ? ' → ' : ''}${endpoints[from.length]!.label}`,
+        runId: str(item.runId) };
+    }
     case 'fork': {
       const source = obj(item.source), run = source.type === 'run';
       return { kind: 'fork', body: run ? 'Forked from conversation' : 'Conversation fork', actionLabel: run ? 'Open source conversation' : 'Open fork',
