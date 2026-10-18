@@ -136,7 +136,7 @@ describe('environment routes', () => {
     expect(saved).toEqual(before);
   });
 
-  test('a second address joins by kind, and learned routes borrow the route in use', async () => {
+  test('a second address joins by kind, and a loopback-paired token never learns plain HTTP LAN routes', async () => {
     const tail = 'https://desk.tail1.ts.net';
     const saved: Obj[] = [{ origin: tail, environmentId: 'env-a', label: 'Desk', routes: [route(tail), route(A)] }];
     const { native } = store(saved);
@@ -144,7 +144,7 @@ describe('environment routes', () => {
     expect((saved[0]!.routes as Obj[]).map(item => item.id)).toEqual([A, tail], 'loopback goes ahead of tailnet');
     const fleet = { entries: new Map(), saved };
     await learnRoutes(native, fleet, { environmentId: 'env-a', connection: 'connected', config: { directEndpoints: [{ kind: 'lan', httpBaseUrl: 'http://192.168.1.10:16120' }] } });
-    expect((saved[0]!.routes as Obj[]).map(item => [item.id, item.credential])).toEqual([[A, A], [`learned:env-a:http://192.168.1.10:16120@${A}`, A], [tail, tail]]);
+    expect((saved[0]!.routes as Obj[]).map(item => [item.id, item.credential])).toEqual([[A, A], [tail, tail]]);
   });
 
   test('Add route pairs the same machine, and a different machine is refused', async () => {

@@ -37,3 +37,11 @@ describe('bitbucket credentials', () => {
     await expect(bitbucketCommand(client, native, 'env2', { action: 'remove' }, () => {})).rejects.toThrow('That environment is no longer selected.');
   });
 });
+
+test('new host credentials retain the other hosts and their redacted settings secrets', async () => {
+  const github = { hosts: {}, tokens: { 'github.com': 'redacted' } }, requests: [string, Obj][] = [];
+  const settings = { sourceControlHosts: { github, bitbucket: { accessToken: '', email: 'old@example.com', apiToken: 'redacted' } } };
+  const client = { environmentId: 'env1', config: {}, restAccess: () => ({ request: async (method: string, payload: Obj) => { requests.push([method, payload]); return method === 'server.getSettings' ? settings : settings; } }) } as unknown as T3Client;
+  await bitbucketCommand(client, { available: true } as Native, 'env1', { action: 'save', method: 'api-token', emailEdited: 'true', email: 'new@example.com', apiToken: '' }, () => {});
+  expect(requests.at(-1)).toEqual(['server.updateSettings', { patch: { sourceControlHosts: { github, bitbucket: { accessToken: '', email: 'new@example.com', apiToken: 'redacted' } } } }]);
+});

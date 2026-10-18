@@ -3,12 +3,13 @@
 // accepts) under `pages`: the Usage page's metric and period
 // (usagePagePreferences), the Pull Requests list controls
 // (pullRequestListPreferences), the first-run flag (ClientSettings
-// onboardingCompletedAt) and the last chosen merge method (uiStateStore). The client writes the file after every command.
+// onboardingCompletedAt), the last chosen merge method (uiStateStore) and the pull request conversation's
+// comment filter. The client writes the file after every command.
 import { obj, str, num, type Obj } from '../client/domain';
 import { storedCompletion } from './onboarding-time';
 
 export type UsagePrefs = { metric: string; windowDays: number };
-export type PagesPrefs = { usage: UsagePrefs | null; pullRequests: Obj | null; onboardingCompletedAt: string; mergeMethod?: string; prFileTree?: boolean };
+export type PagesPrefs = { usage: UsagePrefs | null; pullRequests: Obj | null; onboardingCompletedAt: string; mergeMethod?: string; prFileTree?: boolean; commentFilter?: { bots: boolean; resolved: boolean } };
 type Holder = { local: object };
 
 const emptyPrefs = (): PagesPrefs => ({ usage: null, pullRequests: null, onboardingCompletedAt: '' });
@@ -31,5 +32,8 @@ export function adoptPagesPrefs(next: object, saved: Obj): void {
   if (value.mergeMethod === 'merge' || value.mergeMethod === 'squash' || value.mergeMethod === 'rebase') prefs.mergeMethod = value.mergeMethod;
   // The Code tab's file tree, open or not (t3code.pullRequestFileTreeOpen).
   if (value.prFileTree === true) prefs.prFileTree = true;
+  // The pull request conversation's filter (t3code:pull-request-comment-filter:v1).
+  const filter = obj(value.commentFilter);
+  if (typeof filter.bots === 'boolean' && typeof filter.resolved === 'boolean') prefs.commentFilter = { bots: filter.bots, resolved: filter.resolved };
   (next as { pages?: PagesPrefs }).pages = prefs;
 }

@@ -1,7 +1,11 @@
 // The previewAutomation hosts, one per connected environment (MIT reference, see LICENSE-T3,
-// T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewAutomationHosts.tsx, usePreviewSession.ts,
+// T3 Code 9c161462c9: apps/web/src/components/preview/PreviewAutomationHosts.tsx, usePreviewSession.ts,
 // previewAutomationRequestConsumer.ts; packages/contracts/src/rpc.ts `previewAutomation.connect`, `.respond`,
 // `.focusHost`, `subscribePreviewEvents`).
+//
+// A server that reports the `serverBrowser` capability runs the agent's browser itself and has no
+// previewAutomation RPCs (9c161462c9, ac8e9453ca): its link subscribes to preview events only, so no
+// request reaches this client's web views. Agent control on such a server is not ported.
 //
 // The streams are the transport's subscriptions, drained by
 // client.ts into `previewStreamEvent`: a request joins this client's queue, a preview event updates the thread's
@@ -41,14 +45,18 @@ export type Link = {
   call: (request: Obj) => Promise<Obj>;
   /** One request identifier from the connection's module (`ids`). */
   id: () => Promise<string>;
+  /** The server runs the agent's browser itself (`environment.capabilities.serverBrowser`). */
+  serverBrowser: boolean;
 };
+const runsServerBrowser = (config: Obj | undefined) => obj(obj(obj(config).environment).capabilities).serverBrowser === true;
 export const focusedLink = (client: T3Client, native: Native): Link => ({
   owner: client, environmentId: client.environmentId, generation: client.generation, environmentUrl: client.origin, fleet: null,
   call: request => client.restAccess(native).call(request),
   id: async () => (await client.ids(native, 1))[0] ?? '',
+  serverBrowser: runsServerBrowser(client.config),
 });
 export function fleetLink(entry: FleetEntry, native: Native): Link {
-  return { owner: entry, environmentId: entry.environmentId, generation: entry.generation, environmentUrl: entry.origin, fleet: entry.key,
+  return { owner: entry, environmentId: entry.environmentId, generation: entry.generation, environmentUrl: entry.origin, fleet: entry.key, serverBrowser: runsServerBrowser(entry.config),
     call: async request => {
       const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { ...request, generation: entry.generation });
       if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
@@ -235,6 +243,7 @@ export async function automationPrepare(client: T3Client, native: Native): Promi
       }
       if (!host.clientId) continue;
       await subscribe(link, host.events, PREVIEW_EVENTS_KEY, 'subscribePreviewEvents', {});
+      if (link.serverBrowser) continue;
       await subscribe(link, host.automation, PREVIEW_AUTOMATION_KEY, 'previewAutomation.connect',
         { clientId: host.clientId, environmentId: link.environmentId, supportedOperations: [...PREVIEW_AUTOMATION_OPERATIONS] });
       await serveAutomation(client, native, link);
@@ -255,6 +264,7 @@ async function listOn(client: T3Client, native: Native, link: Link, ref: ScopedT
 
 /** Each queued request's plan, to the module once (a data source has no clock: the module keeps the request's time). */
 export async function serveAutomation(client: T3Client, native: Native, link: Link = focusedLink(client, native)): Promise<void> {
+  if (link.serverBrowser) return;
   const host = automationHost(link.owner, link.generation);
   for (const pending of [...host.queue]) {
     if (pending.sending) continue;
@@ -286,6 +296,7 @@ export async function serveAutomation(client: T3Client, native: Native, link: Li
 
 /** The host's focus and its live tabs (PreviewAutomationHost's focus effect), whenever they change. */
 export async function reportAutomationFocus(client: T3Client, link: Link): Promise<void> {
+  if (link.serverBrowser) return;
   const host = automationHost(link.owner, link.generation), connectionId = host.consumer.activeConnectionId;
   if (!connectionId) return;
   const tabs = obj(obj(client.presentation).browserTabs), liveTabs: Array<{ threadId: string; tabId: string; visible: boolean }> = [], focused = windowFocused(client);

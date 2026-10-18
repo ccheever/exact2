@@ -110,7 +110,7 @@ test('price rows: mapping drops the own price, a self mapping is refused, cleari
 });
 
 function client(settings: Obj): T3Client {
-  return { environmentId: 'env', connection: 'connected', ready: true, scopes: ['orchestration:read', 'orchestration:operate'],
+  return { environmentId: 'env', connection: 'connected', ready: true, scopes: ['orchestration:read', 'orchestration:operate', 'settings:write'],
     config: { environment: { label: 'Mac', capabilities: { usagePriceOverrides: true, usageModelAliases: true } }, settings } } as unknown as T3Client;
 }
 
