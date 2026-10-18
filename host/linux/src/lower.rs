@@ -315,7 +315,16 @@ impl<D: DataSource> Host<D> {
                 })
             })
         };
-        for play in self.engine.animation_plays(node_u64(key)) {
+        // An animation the engine samples (a look's or a press's opacity over
+        // it, `playable`) is in the recording and the layer's base already:
+        // never a reader track too, beside a transition a sibling lowered.
+        let sampled = self.engine.node_sampled(node_u64(key));
+        for play in self
+            .engine
+            .animation_plays(node_u64(key))
+            .into_iter()
+            .filter(|_| !sampled)
+        {
             let a = &play.animation;
             for p in a.keyframes.properties() {
                 let (underlying, axes): (Value, &[(u32, usize)]) = match p {

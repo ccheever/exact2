@@ -543,6 +543,9 @@ pub struct Painter {
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The background the last box painted shows, its states' over its own,
+    /// which its `background-clip: text` fills with (`text_clip`).
+    clipped: Option<(ViewId, [u8; 4])>,
     /// Each hosted text field's content box in its own border box (x, y,
     /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
     pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
@@ -654,6 +657,7 @@ impl Painter {
             flatten: None,
             ringless: None,
             feedback: (None, None),
+            clipped: None,
             field_content: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
@@ -1072,6 +1076,7 @@ impl Painter {
         let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
             .presented(&shown.colors)
             .states(node, &shown, self.dark);
+        self.clipped = Some((node.id, paint.background));
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));

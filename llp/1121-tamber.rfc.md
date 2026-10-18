@@ -3517,8 +3517,6 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - `looks.rs`'s dictionary test. `PressPaintTests` and `PressFeedback*Tests` are unchanged.
 
 
-
-
 ### Stage 8, commit B3: Linux, and Android through it (draft for theme2)
 
 - **The absolute press opacity** (`press.rs`, `press::present`). After the hover and focus looks' opacity, the press moves `shown.opacity` toward `press_opacity_to` by its progress. `press_opacity` keeps the share. `press_opacity_to` counts as pressed paint (`paints`), so a list row's wash stands aside.
@@ -3548,7 +3546,6 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - A `background-clip: text` background shows the states' colour.
   - A look painted or taken off, and a focus with a look, take the full painter rather than flow damage.
   - Not done (nit): an inset border's shading of a look's side colour.
-
 - **Android** replays the display list Linux records, so it needs no Kotlin change. Android forwards no mouse hover, so it shows none.
 - **Tests:** `presenter/looks_tests.rs`:
   - the hover at once with its 0.8;

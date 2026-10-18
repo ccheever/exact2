@@ -113,6 +113,10 @@ impl<D: DataSource> Presenter<D> {
             )
             .copied()
             .collect();
+        // A look painted or taken off is no flow damage's small region.
+        if !moved.is_empty() {
+            self.host.flow_damage.repaint();
+        }
         for id in moved {
             if let Some(node) = self.host.kernel().node(id) {
                 let key = node.key;

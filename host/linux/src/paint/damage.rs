@@ -91,6 +91,8 @@ impl Painter {
             // optimization. Also retire a caret painted in the previous frame.
             || self.damage.caret
             || focus.is_some_and(|id| host.kernel().node(id).is_some_and(|n| n.node_type == NodeType::TextInput))
+            // A focus's look (LLP 1121 D8) paints beyond its node's region.
+            || focus.is_some_and(|id| host.kernel().node(id).is_some_and(|n| !n.looks().is_empty()))
             || host.content_region().is_some()
             || pixels.width() != (viewport.0 * self.scale).round() as u32
             || pixels.height() != (viewport.1 * self.scale).round() as u32

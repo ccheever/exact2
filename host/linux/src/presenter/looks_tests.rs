@@ -1,5 +1,6 @@
-//! LLP 1121 D8 on the Linux host (and so on Android's, which paints what
-//! this records): `:active` is the press paint, eased on the press's curve,
+//! LLP 1121 D8 on the Linux host's CPU painter (Android's Canvas reader
+//! replays what it records; its layers are not exercised here): `:active` is
+//! the press paint, eased on the press's curve,
 //! its opacity an absolute target from what shows; a `:hover` look shows at
 //! once while a mouse hovers the node (or a child of it), its opacity in
 //! place of the node's, under the press's paint; a disabled node takes none.
@@ -20,6 +21,9 @@ const APP: &str = r##"component App
           border-color = "#ff0000"
           opacity = 0.8
         text "c" testId="child"
+      box press=go background-color="#00ff00" width=300 height=40 testId="focused"
+        :focus-visible
+          background-color = "#ff00ff"
       box background-color="#00ff00" width=300 height=40 testId="clears"
         :hover
           background-color = "unset"
@@ -174,4 +178,22 @@ fn a_looks_clear_is_the_initial_value() {
     assert_eq!(pixel(&mut p, at.0, at.1), [0, 255, 0]);
     p.pointer_move(at.0, at.1, 0.).unwrap();
     assert_eq!(pixel(&mut p, at.0, at.1), [255, 255, 255]);
+}
+
+/// A `:focus-visible` look shows where the focus's ring would: after a
+/// mouse's press, not a finger's.
+#[test]
+fn a_focus_look_shows_with_the_ring() {
+    let mut p = boot();
+    let f = rect(&mut p, "focused");
+    let at = (f.0 + 20., f.1 + 20.);
+    p.pointer_down(at.0, at.1, 0.).unwrap();
+    p.pointer_up(at.0, at.1, 10.).unwrap();
+    p.pointer_move(390., 390., 20.).unwrap();
+    p.clock(200.);
+    assert_eq!(
+        pixel(&mut p, at.0, at.1),
+        [255, 0, 255],
+        "a mouse's focus shows its ring, and the look"
+    );
 }

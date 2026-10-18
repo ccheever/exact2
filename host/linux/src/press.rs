@@ -52,11 +52,26 @@ pub(crate) fn paints_over(node: &exact_kernel::NodeRef<'_>, property: Property) 
         Property::Color => (&[PressColor], TextColor),
         _ => return false,
     };
+    // A look's `currentcolor` (a colour row set with no value, or a side it
+    // clears) reads the node's colour as that moves too.
+    let current = |l: &exact_kernel::StyleProps| {
+        let sides = [
+            (BorderColorTop, l.border_color_top),
+            (BorderColorRight, l.border_color_right),
+            (BorderColorBottom, l.border_color_bottom),
+            (BorderColorLeft, l.border_color_left),
+        ];
+        (l.mask.has(BackgroundColor) && l.background_color.is_none())
+            || sides
+                .iter()
+                .any(|(id, c)| l.mask.union(l.written).has(*id) && c.is_none())
+    };
     rows.iter().any(|r| node.style.mask.has(*r))
         || node
             .looks()
             .iter()
             .any(|(_, l)| l.mask.union(l.written).has(row))
+        || property == Property::Color && node.looks().iter().any(|(_, l)| current(l))
 }
 
 /// Whether a press on `node` shows anything of its own: a scale or the
