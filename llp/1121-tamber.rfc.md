@@ -2946,9 +2946,10 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 - **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are its manifest's
   (`.shells/app.json` first, as the build reads it, else `app.json`) `host`, `deploy.store` and
   `deploy.binaries` keys, and its target crates (`android/`, `linux/`, `web/`, theme2's ruling); an app with no manifest is checked for none. The source graph names each
-  icon's SVG, so a watcher rebuilds on its edit. Apple's draw an `sf` (their hosts draw no path yet, so an SVG is no
-  source there: a known limit, narrowing D10's "svg fallback", accepted by theme2; QUEUE "Apple
-  hosts draw icon paths"); any other a template SVG; the web also a file that is no template, as written. Else `tamber-icon-missing: <icon> has no source
+  icon's SVG, so a watcher rebuilds on its edit. Every target draws a template SVG (Apple's too since stage 9 A,
+  where no `sf` is given: the limit stage 6 F had, an SVG no source on Apple, is gone), Apple's an `sf`, and the web
+  also a file that is no template, as written; a multicolour (non-template) SVG needs an `sf` for Apple, which draws
+  no SVG file (theme2's 17:03 (a); QUEUE: rasterise it into the asset catalog). Else `tamber-icon-missing: <icon> has no source
   for <target>`, or `tamber-icon-svg` naming why the file is no one-colour shape and the target.
 - **The source form:** a literal `symbol:icon.reply` is written as
   `symbol:icon|<sf>|<view_box>|<path>|<svg>`, which hosts read (`exact_kernel::Icon`,
@@ -2969,7 +2970,8 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 ### Stage 6, commit F3: hosts draw icons (D10)
 
 - **One reading:** every host reads a symbol through the kernel: `apple_symbol_name` (Apple's SF
-  Symbol, an icon's `sf` included) and `symbol_path` (`SymbolPath`: a role's path, stroked or
+  Symbol, an icon's `sf` included; Apple drew only that until stage 9 A, which draws an icon with no `sf` from its
+  path) and `symbol_path` (`SymbolPath`: a role's path, stroked or
   filled even-odd in 24 units; an icon's paths under its viewBox, each filled nonzero; or `sf/` a
   role's Apple name, which draws that role).
 - **Linux and Android's reader** (`paint/svg.rs`, `presenter/top/look.rs`) draw the path scaled by
@@ -3870,3 +3872,16 @@ Stage 7 C's operations (approved, then deferred until `set-row`), `contract/cli/
   commented header and its comments; the hint only for an unread param.
 - **History:** a `params` line is code, as the template row that reads it is (QUEUE): its revert
   needs that row.
+
+### Stage 9, commit A1: Apple draws icon paths (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 ruling and its conditions). No plan or schema change: the path is the plan's already, and `symbolPath` is Apple's own native prop.
+
+- **Rust** (`host/apple/src/icon_path.rs`): an icon with no `sf` and a template path sends `symbolPath`, the kernel's parse (`svg::parse_d`, quadratics and arcs already cubics) as absolute `M`/`L`/`C`/`Z` commands, the SVG's paths together, and `symbolViewBox` (`paragraph.rs` `props_for`, priced in `content_region.rs`). An `sf` wins: nothing is sent.
+- **Swift** (`IconPath.swift`): the commands as a `CGPath`, fitted into an em square in its aspect (xMidYMid meet, as Linux's `fitted`), filled nonzero, as a template image. Page images (`NodeViewIOS.updateSymbol`, `NodeSymbolMac`) show it where no SF Symbol is named, with no "unknown symbol role" log.
+  - Its tint (D10): `-exact-tint-color` where written (the accent where it names one), else the node's `color`. Path icons only: SF Symbols keep their tint as before (17:03).
+  - Its measure is an em square, as the kernel already measures a name Apple has no glyph for.
+- **The lint** (`icons.rs`): a template SVG is a source for Apple targets; a non-template one needs an `sf` there, the message saying so.
+- **Docs**: D10's per-target note and stage 6 F's §10 note (the symbols recipe, at its byte cap, already says an icon token draws everywhere). QUEUE: "Apple hosts draw icon paths" closed; a non-template SVG's rasterising into the asset catalog added.
+- **Tests**: `icon_path.rs` (an svg-only icon's commands, a quadratic and an arc as cubics, two paths; none with an `sf`, for a non-template file, for a role); `tamber_icons.rs` (an svg-only icon builds for ios; a multicolour file is refused naming the SF Symbol); `IconPathTests` (Mac and iOS: the path drawn as an em-square template image, tinted by its tint, else its colour, tinted again by a new tint; an `sf` icon still its symbol; the path's fit).
+
