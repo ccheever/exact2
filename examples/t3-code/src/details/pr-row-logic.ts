@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // The pure half of the details card's pull request row (MIT
 // reference, see LICENSE-T3, upstream f90b77d809):
 // - components/pullRequest/pullRequestDetail.logic.ts: allowedPullRequestMergeMethods,
@@ -263,17 +264,11 @@ export function preparePayload(detail: Obj, mode: 'worktree' | 'local' = 'worktr
 }
 
 // ── The row's trailing action (ThreadDetailsPrRow trailingAction) ──
-/**
- * The action segment's measured width (13pt medium label, 10pt insets, the transparent 1pt border
- * and, for the hand-offs, the 12pt arrow 10pt after the label), so the checks popover can land
- * end-aligned with its trigger (popovers here anchor at their invoker's bottom-left).
- */
-const ACTION_WIDTH: Record<string, number> = { Resolve: 92.3, Fix: 61.8, 'Preparing...': 116.2, Ready: 60.4, 'Marking...': 84.1, Merge: 61.3, 'Merging...': 84.9 };
-export type TrailingAction = { action: string; label: string; tooltip: string; destructive: boolean; suffix: boolean; width: number };
+export type TrailingAction = { action: string; label: string; tooltip: string; destructive: boolean; suffix: boolean };
 export function trailingAction(action: string, input: { handoff: string; actionPending: boolean; method: MergeMethod }): TrailingAction | null {
   const make = (label: string, pendingLabel: string, pending: boolean, tooltip: string, destructive: boolean, suffix: boolean): TrailingAction => {
     const shown = pending ? pendingLabel : label;
-    return { action, label: shown, tooltip, destructive, suffix, width: ACTION_WIDTH[shown] ?? 61.3 };
+    return { action, label: shown, tooltip, destructive, suffix };
   };
   if (action === 'resolve') return make('Resolve', 'Preparing...', input.handoff === 'conflicts', 'Check the branch out and resolve the conflicts in a new thread', true, true);
   if (action === 'ready') return make('Ready', 'Marking...', input.actionPending, 'Mark this pull request as ready for review', false, false);
