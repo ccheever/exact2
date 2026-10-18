@@ -48,6 +48,9 @@ impl<G: Game> Sim<G> {
         if let Some(reason) = self.assets_unready() {
             return Err(DataError::new(reason));
         }
+        self.world
+            .set_seen
+            .set(self.edits_admitted || self.world.set_seen.get());
         let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
         for e in &mut queue {

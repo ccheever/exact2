@@ -137,6 +137,14 @@ fn only_admitted_edits_poison_pins_and_clean_restore_cannot_clear_them() {
     assert!(sim.edits_admitted);
     sim.bind(&[Value::Bool(true)], None).unwrap();
     assert!(sim.world.set_seen.get());
+    let clean_world = Sim::<Editable>::new(EditOptions::default())
+        .unwrap()
+        .world()
+        .save();
+    sim.world_mut().load(&clean_world).unwrap();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}"))).is_err()
+    );
     sim.restore(&clean).unwrap();
     assert!(sim.world.set_seen.get());
     assert!(

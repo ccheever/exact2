@@ -9,7 +9,7 @@ impl<G: Game> Sim<G> {
     /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
     pub fn assert_pin(&self, pins: &str) {
         assert!(
-            !self.world.set_seen.get(),
+            !self.edits_admitted && !self.world.set_seen.get(),
             "pin refused: run contains a set development edit"
         );
         let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());

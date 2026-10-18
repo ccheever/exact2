@@ -25,6 +25,12 @@ pub struct Beacon {
     /// Whether act has lit this beacon.
     pub lit: bool,
 }
+/// A beacon activation delivered to presentation on the following tick.
+#[derive(Default, exact_game::Event)]
+pub struct BeaconLit {
+    /// The activated beacon's stable entity reference.
+    pub target: exact_game::Entity,
+}
 /// Logic behind `canvas surface=world(seed=seed, paused=paused)`.
 pub struct Greybox;
 /// Typed canvas arguments bound by field name.
@@ -49,6 +55,9 @@ impl Game for Greybox {
             .button("act", &["KeyE", "Enter"])
             .button("jump", &["Space"])
             .stick("move", Stick::wasd().or_arrows())
+    }
+    fn register(world: &mut World, _: &std::collections::BTreeMap<&str, exact_game::Value>) {
+        world.register_event::<BeaconLit>();
     }
     fn setup(world: &mut World, args: &Self::Args) {
         world.reseed(args.seed);
@@ -182,8 +191,11 @@ impl Game for Greybox {
                 world.get_mut::<Glow>(entity).unwrap().0.to(now, 1.0, 0.5);
 
                 world.log("beacon-1 lit");
-                world.play("chime").at(entity).start();
+                world.emit_event(BeaconLit { target: entity });
             }
+        }
+        for event in input.events::<BeaconLit>() {
+            world.play("chime").at(event.target).start();
         }
         world.publish_record(&Hud {
             beacons: world.count::<Beacon>(|b| b.lit),
