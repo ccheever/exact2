@@ -4,6 +4,7 @@ import { mobileOutboxRecoveryDraftPrepare as prepare, mobileOutboxRecoveryDraftA
   mobileOutboxRecoveryDraftRollback as rollback, mobileOutboxRecoveryDraftCapture as capture,
   mobileOutboxRecoveryDraftApplyChoices as applyChoices } from './mobile-outbox-recovery-draft';
 import { mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileCacheAdoptThreadPresentation } from './mobile-client-cache-sync';
 import { mobileDraftAttachmentIds } from './draft-attachment-order';
 import { draftFiles, setDraftFiles } from './shared/composer-editor-files';
 import { obj, type Obj } from './shared/domain';
@@ -93,10 +94,22 @@ test('partial recovered settings wait for real thread defaults and apply once wi
   f.client.threadId = 'thread'; applyChoices(f.client); expect(f.client.local.composerControls.staged['env:thread']).toBeUndefined();
   await f.client.persist(f.storage); const cold = await fixture(f.disk());
   Object.assign(cold.client, { threadId: 'thread', providerId: 'actual', modelId: 'current', modelOptions: [{ id: 'reasoning', value: 'high' }], runtimeMode: 'auto', interactionMode: 'plan' });
-  applyChoices(cold.client); expect(cold.client.local.composerControls.staged['env:thread']).toEqual({ providerId: 'actual', modelId: 'current',
-    options: [{ id: 'reasoning', value: 'high' }], runtimeMode: 'full-access', interactionMode: 'plan' });
+  applyChoices(cold.client); expect(cold.client.local.composerControls.staged['env:thread']).toEqual({ runtimeMode: 'full-access' });
+  expect([cold.client.modelId, cold.client.runtimeMode, cold.client.interactionMode]).toEqual(['current', 'full-access', 'plan']);
+  mobileCacheAdoptThreadPresentation(cold.client, { sequence: 2, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null, projection: { thread: { id: 'thread',
+    projectId: 'project', modelSelection: { instanceId: 'actual', model: 'remote' }, runtimeMode: 'auto', interactionMode: 'default' } } });
+  expect([cold.client.modelId, cold.client.modelOptions, cold.client.runtimeMode, cold.client.interactionMode]).toEqual(['remote', [], 'full-access', 'default']);
   cold.client.runtimeMode = 'auto'; cold.client.local.composerControls.staged['env:thread']!.runtimeMode = 'auto'; applyChoices(cold.client);
   expect(cold.client.runtimeMode).toBe('auto');
+});
+test('a recovered runtime joins an existing explicit model choice without filling other fields', async () => {
+  const f = await fixture(), input = record(); input.runtimeMode = 'full-access';
+  expect(adopt(f.client, prepare(f.client, input, 'accepted-edits'))).toBe(true);
+  Object.assign(f.client, { threadId: 'thread', providerId: 'actual', modelId: 'current', runtimeMode: 'auto', interactionMode: 'plan' });
+  f.client.local.composerControls.staged['env:thread'] = { providerId: 'actual', modelId: 'explicit', options: [] };
+  applyChoices(f.client);
+  expect(f.client.local.composerControls.staged['env:thread']).toEqual({ providerId: 'actual', modelId: 'explicit', options: [], runtimeMode: 'full-access' });
+  expect([f.client.modelId, f.client.runtimeMode, f.client.interactionMode]).toEqual(['explicit', 'full-access', 'plan']);
 });
 test('foreign destination stamp and malformed target context leave all real owners untouched', async () => {
   const f = await fixture(), input = record(), change = prepare(f.client, input, 'rejected'); expect(adopt(f.client, change)).toBe(true);

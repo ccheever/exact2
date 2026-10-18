@@ -1,6 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/composer-controls.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Mobile 365aa87982: only New Task writes the sticky model; an existing thread keeps per-model options.
+// Mobile 365aa87982: a started thread keeps only its edited model and modes until Send (use-composer-drafts).
 // Composer selection, follow-up dispatch and primary-action state (lane
 // composer-controls), adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // apps/web/src/composerDraftStore.ts (sticky model memory, applyStickyState),
@@ -12,8 +13,9 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError, activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
 
-/** Next-turn choices made in a started thread while a turn runs (the reference keeps them in the draft). */
-export type StagedSelection = { providerId: string; modelId: string; options: Obj[]; runtimeMode: string; interactionMode: string };
+/** A started thread's own model and mode choices (the reference keeps them in its draft). The model group is
+ * all or nothing; a field never chosen is absent and follows the thread. */
+export type StagedSelection = { providerId?: string; modelId?: string; options?: Obj[]; runtimeMode?: string; interactionMode?: string };
 export type ComposerControlsPrefs = {
   stickyProvider: string;
   stickyByProvider: Record<string, { model: string; options: Obj[] }>;
@@ -45,10 +47,13 @@ export function decodeComposerControls(saved: unknown): ComposerControlsPrefs {
     for (const [model, entry] of Object.entries(obj(models)).slice(0, 128)) remembered[model] = options(entry);
     next.stickyOptionsByModel[id] = remembered;
   }
-  for (const [key, entry] of Object.entries(obj(value.staged)).slice(0, 200)) {
-    const staged = obj(entry);
-    if (str(staged.providerId) && str(staged.modelId)) next.staged[key] = { providerId: str(staged.providerId), modelId: str(staged.modelId),
-      options: options(staged.options), runtimeMode: str(staged.runtimeMode, 'approval-required'), interactionMode: str(staged.interactionMode, 'default') };
+  for (const [key, entry] of Object.entries(obj(value.staged))) {
+    const saved = obj(entry), staged: StagedSelection = {};
+    if (str(saved.providerId) && str(saved.modelId) && Array.isArray(saved.options))
+      Object.assign(staged, { providerId: str(saved.providerId), modelId: str(saved.modelId), options: options(saved.options) });
+    if (str(saved.runtimeMode)) staged.runtimeMode = str(saved.runtimeMode);
+    if (str(saved.interactionMode)) staged.interactionMode = str(saved.interactionMode);
+    if (Object.keys(staged).length) next.staged[key] = staged;
   }
   for (const [key, at] of Object.entries(obj(value.wokeSeen)).slice(-500)) if (typeof at === 'string') next.wokeSeen[key] = at;
   for (const [key, entry] of Object.entries(obj(value.contexts)).slice(-200)) {
@@ -98,31 +103,23 @@ export function applySticky(client: T3Client): void {
   if (fallback) { client.providerId = id; client.modelId = str(fallback.slug); client.modelOptions = []; }
 }
 
-// ── Next-turn staging in started threads ───────────────────────────────────
+// ── A started thread's own choices ─────────────────────────────────────────
 
-/** A started thread stages its next-turn choices while a turn runs, or once a staged choice exists. */
-export function stagesChanges(client: T3Client): boolean {
-  return !!client.threadId && (!!activeRun(client.projection) || !!prefs(client).staged[client.draftKey]);
-}
-export function stage(client: T3Client, change: Partial<StagedSelection>): void {
+/** updateComposerDraftSettings: write only the edited fields. A choice equal to the thread's stays explicit. */
+export function stage(client: T3Client, change: StagedSelection): void {
   const state = prefs(client);
-  const current = state.staged[client.draftKey] ?? { providerId: client.providerId, modelId: client.modelId,
-    options: client.modelOptions.map(option => ({ ...option })), runtimeMode: client.runtimeMode, interactionMode: client.interactionMode };
-  const next = { ...current, ...change };
-  const thread = obj(client.projection.thread), selection = obj(thread.modelSelection);
-  const same = next.providerId === str(selection.instanceId) && next.modelId === str(selection.model)
-    && JSON.stringify(next.options) === JSON.stringify(arr(selection.options)) && next.runtimeMode === str(thread.runtimeMode, 'approval-required')
-    && next.interactionMode === str(thread.interactionMode, 'default');
-  if (same) delete state.staged[client.draftKey]; else state.staged[client.draftKey] = next;
-  client.providerId = next.providerId; client.modelId = next.modelId; client.modelOptions = next.options.map(option => ({ ...option }));
-  client.runtimeMode = next.runtimeMode; client.interactionMode = next.interactionMode;
+  state.staged[client.draftKey] = { ...state.staged[client.draftKey], ...change };
+  applyStaged(client);
 }
-/** After the thread's own selection is read, a staged choice still owns the composer. */
+/** After the thread's own selection is read, each chosen field still owns the composer (`draft.x ?? thread.x`). */
 export function applyStaged(client: T3Client): void {
   const staged = prefs(client).staged[client.draftKey];
   if (!staged) return;
-  client.providerId = staged.providerId; client.modelId = staged.modelId; client.modelOptions = staged.options.map(option => ({ ...option }));
-  client.runtimeMode = staged.runtimeMode; client.interactionMode = staged.interactionMode;
+  if (staged.providerId && staged.modelId && staged.options) {
+    client.providerId = staged.providerId; client.modelId = staged.modelId; client.modelOptions = staged.options.map(option => ({ ...option }));
+  }
+  if (staged.runtimeMode) client.runtimeMode = staged.runtimeMode;
+  if (staged.interactionMode) client.interactionMode = staged.interactionMode;
 }
 export function stagedFor(client: T3Client, key = client.draftKey): StagedSelection | undefined { return prefs(client).staged[key]; }
 export function clearStaged(client: T3Client, key: string): void { delete prefs(client).staged[key]; }

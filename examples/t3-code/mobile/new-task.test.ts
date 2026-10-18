@@ -725,9 +725,10 @@ test('existing-thread Save and option changes keep the New Task sticky pick whil
   await settings('open'); await settings('pick', 'claude', 'sonnet'); await settings('option', 'effort', 'high');
   expect(await settings('save')).toMatchObject({ closed: true, message: '' });
   await settings('open'); expect((await settings('option', 'effort', 'medium')).message).toBe(''); await settings('cancel');
-  const high = [{ id: 'effort', value: 'high' }], medium = [{ id: 'effort', value: 'medium' }];
-  expect({ dispatched: dispatched(), sticky: sticky(f.client), memory: f.client.local.composerControls.stickyOptionsByModel.claude?.sonnet })
-    .toEqual({ dispatched: [{ instanceId: 'claude', model: 'sonnet', options: high }, { instanceId: 'claude', model: 'sonnet', options: medium }],
+  const medium = [{ id: 'effort', value: 'medium' }];
+  expect({ dispatched: dispatched(), thread: f.client.local.composerControls.staged[f.client.draftKey], sticky: sticky(f.client),
+    memory: f.client.local.composerControls.stickyOptionsByModel.claude?.sonnet })
+    .toEqual({ dispatched: [], thread: { providerId: 'claude', modelId: 'sonnet', options: medium },
       sticky: { provider: 'codex', choice: { model: 'gpt-b', options: [] } }, memory: medium });
   // Back in New Task, the default is the earlier New Task pick; a later pick of the thread model brings back its options.
   f.client.threadId = ''; f.client.thread = null;

@@ -7,6 +7,8 @@ import { mobileComposerSettings, mobileComposerSettingsAction } from './composer
 import { mobileNewTask, mobileNewTaskAction, mobileNewTaskPrepare } from './new-task';
 import { EnvironmentFleet, type FleetEntry } from './shared/settings-b-fleet';
 import { draftContext, patchDraftContext } from './shared/composer-controls-branch';
+import { mobileCacheAdoptThreadPresentation } from './mobile-client-cache-sync';
+import type { ThreadState } from './shared/domain';
 
 const options = [{ id: 'effort', label: 'Reasoning effort', type: 'select', currentValue: 'medium', promptInjectedValues: ['ultrathink'],
   options: [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }, { id: 'ultracode', label: 'Ultracode' }, { id: 'ultrathink', label: 'Ultrathink' }] }];
@@ -107,13 +109,16 @@ describe('mobile staged model/settings ownership', () => {
     expect(mobileComposerSettings('', '', false, f.client).options[0]?.value).toBe('High');
     await settings(f, 'cancel'); expect(f.client.modelId).toBe('a'); expect(f.calls.some(call => call.op === 'request')).toBe(false);
   });
-  test('Save applies model and all options through one shared selection command', async () => {
+  test('idle existing-thread Save keeps the model and all options as the thread draft setting without a command', async () => {
     const f = fixture(); f.client.threadId = 'thread'; f.client.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
       projection: { thread: { id: 'thread', projectId: 'p', modelSelection: { instanceId: 'provider', model: 'a' } }, runs: [], turnItems: [] } };
+    const sticky = JSON.stringify([f.client.local.composerControls.stickyProvider, f.client.local.composerControls.stickyByProvider]);
     await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b'); await settings(f, 'option', 'effort', 'high');
     expect(await settings(f, 'save')).toMatchObject({ closed: true, message: '' });
-    const writes = f.calls.filter(call => call.method === 'orchestration.dispatchCommand');
-    expect(writes).toHaveLength(1); expect(obj(writes[0]?.payload)).toMatchObject({ type: 'thread.model-selection.set', modelSelection: { instanceId: 'provider', model: 'b', options: [{ id: 'effort', value: 'high' }] } });
+    expect(f.calls.filter(call => String(call.method).startsWith('orchestration.'))).toEqual([]);
+    expect(f.client.local.composerControls.staged['env:thread']).toEqual({ providerId: 'provider', modelId: 'b', options: [{ id: 'effort', value: 'high' }] });
+    expect([f.client.modelId, f.client.modelOptions]).toEqual(['b', [{ id: 'effort', value: 'high' }]]);
+    expect(JSON.stringify([f.client.local.composerControls.stickyProvider, f.client.local.composerControls.stickyByProvider])).toBe(sticky);
   });
   test('catalog removal, permission loss and external selection changes refuse Save', async () => {
     const f = fixture(); await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
@@ -289,7 +294,7 @@ describe('staged mobile model option memory', () => {
     await restored.load({ fs: { ...f.storage.fs, readFile: async () => bytes.buffer } });
     expect(restored.local.composerControls.stickyOptionsByModel.provider?.b).toEqual(high);
   });
-  test('a later Save commits exactly the option remembered before Cancel in one model write', async () => {
+  test('a later Save stores exactly the option remembered before Cancel as the thread draft setting', async () => {
     const f = memoryFixture(); f.client.threadId = 'thread';
     f.client.local.drafts[f.client.draftKey] = 'Keep the draft';
     f.client.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
@@ -301,9 +306,8 @@ describe('staged mobile model option memory', () => {
     expect(f.client.local.composerControls.stickyOptionsByModel.provider?.a).toEqual([{ id: 'keep', value: true }]);
     await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
     expect(await settings(f, 'save')).toMatchObject({ closed: true, message: '' });
-    expect(f.calls.filter(call => call.method === 'orchestration.dispatchCommand').map(call => call.payload))
-      .toEqual([{ type: 'thread.model-selection.set', commandId: expect.any(String), threadId: 'thread',
-        modelSelection: { instanceId: 'provider', model: 'b', options: high } }]);
+    expect(f.calls.filter(call => String(call.method).startsWith('orchestration.'))).toEqual([]);
+    expect(f.client.local.composerControls.staged['env:thread']).toEqual({ providerId: 'provider', modelId: 'b', options: high });
     expect(f.client.draft).toBe('Keep the draft');
     const controls = f.client.local.composerControls;
     expect({ sticky: JSON.stringify({ provider: controls.stickyProvider, choices: controls.stickyByProvider }), memory: controls.stickyOptionsByModel.provider?.b })
@@ -395,4 +399,122 @@ describe('staged mobile model option memory', () => {
       expect(obj(obj(obj(f.saved()?.composerControls).stickyOptionsByModel).provider).b).toEqual([{ id: 'effort', value: 'medium' }]);
     });
   }
+});
+
+describe('idle existing-thread settings stay local thread draft settings until Send', () => {
+  const high = [{ id: 'effort', value: 'high' }];
+  const orchestration = (f: ReturnType<typeof fixture>) => f.calls.filter(call => String(call.method).startsWith('orchestration.'));
+  const state = (model: string, thread: Obj = {}): ThreadState => ({ sequence: 2, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
+    projection: { thread: { id: 'thread', projectId: 'p', modelSelection: { instanceId: 'provider', model }, runtimeMode: 'approval-required',
+      interactionMode: 'default', ...thread }, runs: [], turnItems: [] } });
+  function threadFixture(model = 'a') {
+    const f = fixture(), writes: Obj[] = [];
+    f.client.threadId = 'thread'; f.client.thread = state(model); f.client.modelId = model;
+    f.storage.fs.atomicWriteFile = async (_path, bytes) => { writes.push(obj(JSON.parse(new TextDecoder().decode(bytes)))); };
+    return { ...f, writes };
+  }
+  const staged = (f: ReturnType<typeof threadFixture>) => f.client.local.composerControls.staged['env:thread'];
+  const remote = (f: ReturnType<typeof threadFixture>, next: ThreadState) => { f.client.thread = next; mobileCacheAdoptThreadPresentation(f.client, next); };
+  async function cold(f: ReturnType<typeof threadFixture>, document: Obj = obj(f.writes.at(-1))) {
+    const client = new T3Client(), bytes = new TextEncoder().encode(JSON.stringify(document));
+    await client.load({ fs: { ...f.storage.fs, readFile: async () => bytes.buffer } });
+    Object.assign(client, { environmentId: 'env', projectId: 'p', threadId: 'thread' });
+    return client;
+  }
+  test('Save, an applied option and each mode issue no orchestration command and store only the edited fields', async () => {
+    const save = threadFixture();
+    await settings(save, 'open'); await settings(save, 'pick', 'provider', 'b'); await settings(save, 'option', 'effort', 'high');
+    expect(await settings(save, 'save')).toMatchObject({ closed: true, message: '' });
+    expect(staged(save)).toEqual({ providerId: 'provider', modelId: 'b', options: high });
+    const option = threadFixture('b');
+    expect((await settings(option, 'option', 'effort', 'high')).message).toBe('');
+    expect(staged(option)).toEqual({ providerId: 'provider', modelId: 'b', options: high });
+    const runtime = threadFixture();
+    expect((await settings(runtime, 'runtime', '', 'full-access')).message).toBe('');
+    expect(staged(runtime)).toEqual({ runtimeMode: 'full-access' });
+    const interaction = threadFixture();
+    expect((await interaction.client.command('interaction', '', 'plan', 0, interaction.native, interaction.storage)).message).toBe('');
+    expect(staged(interaction)).toEqual({ interactionMode: 'plan' });
+    expect([save.client.modelId, option.client.modelOptions, runtime.client.runtimeMode, interaction.client.interactionMode]).toEqual(['b', high, 'full-access', 'plan']);
+    for (const f of [save, option, runtime, interaction]) {
+      expect(orchestration(f)).toEqual([]);
+      expect(obj(obj(f.writes.at(-1)?.composerControls).staged)['env:thread']).toEqual(staged(f));
+    }
+  });
+  test('a saved thread model survives a cold load through the production cache presentation', async () => {
+    const f = threadFixture();
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b'); await settings(f, 'option', 'effort', 'high'); await settings(f, 'save');
+    const restored = await cold(f); mobileCacheAdoptThreadPresentation(restored, state('a'));
+    expect([restored.providerId, restored.modelId, restored.modelOptions, restored.runtimeMode, restored.interactionMode])
+      .toEqual(['provider', 'b', high, 'approval-required', 'default']);
+  });
+  test('a runtime-only choice follows a remote model change, while an explicit model does not', async () => {
+    const runtime = threadFixture(); await settings(runtime, 'runtime', '', 'full-access');
+    remote(runtime, state('c'));
+    expect([runtime.client.modelId, runtime.client.runtimeMode]).toEqual(['c', 'full-access']);
+    const model = threadFixture();
+    await settings(model, 'open'); await settings(model, 'pick', 'provider', 'b'); await settings(model, 'save');
+    remote(model, state('c', { runtimeMode: 'full-access' }));
+    expect([model.client.modelId, model.client.runtimeMode]).toEqual(['b', 'full-access']);
+    expect([orchestration(runtime), orchestration(model)]).toEqual([[], []]);
+  });
+  test('an explicit pick equal to the server model stays the thread choice after a remote change', async () => {
+    const f = threadFixture();
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b'); await settings(f, 'save');
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'a');
+    expect(await settings(f, 'save')).toMatchObject({ closed: true, message: '' });
+    expect(staged(f)).toEqual({ providerId: 'provider', modelId: 'a', options: [] });
+    remote(f, state('c')); expect(f.client.modelId).toBe('a'); expect(orchestration(f)).toEqual([]);
+  });
+  test('Cancel, read-only, a provider that requires a new thread and a locked provider leave settings untouched', async () => {
+    const cancel = threadFixture();
+    await settings(cancel, 'open'); await settings(cancel, 'pick', 'provider', 'b'); await settings(cancel, 'option', 'effort', 'high');
+    expect(await settings(cancel, 'cancel')).toMatchObject({ closed: true });
+    const readOnly = threadFixture(); readOnly.client.scopes = [];
+    expect((await settings(readOnly, 'runtime', '', 'full-access')).message).toContain('writable');
+    expect((await readOnly.client.command('model', 'b', 'provider', 0, readOnly.native, readOnly.storage)).message).not.toBe('');
+    expect((await readOnly.client.command('interaction', '', 'plan', 0, readOnly.native, readOnly.storage)).message).not.toBe('');
+    const fresh = threadFixture('b'); obj((fresh.client.config.providers as Obj[])[0]).requiresNewThreadForModelChange = true;
+    await settings(fresh, 'open'); expect((await settings(fresh, 'pick', 'provider', 'a')).message).toContain('new thread');
+    expect((await fresh.client.command('model', 'a', 'provider', 0, fresh.native, fresh.storage)).message).toContain('new thread');
+    expect((await fresh.client.command('model-option', 'effort', 'high', 0, fresh.native, fresh.storage)).message).toContain('new thread');
+    const locked = threadFixture(), started = state('a');
+    locked.client.thread = { ...started, projection: { ...started.projection, runs: [{ id: 'run', status: 'completed', ordinal: 1, completedAt: '2026-10-18T00:00:00Z' }] } };
+    await settings(locked, 'open'); expect((await settings(locked, 'pick', 'other', 'remote')).message).toContain('current provider');
+    expect((await locked.client.command('provider', 'other', '', 0, locked.native, locked.storage)).message).toContain('current provider');
+    for (const [f, model] of [[cancel, 'a'], [readOnly, 'a'], [fresh, 'b'], [locked, 'a']] as const) {
+      expect(f.client.local.composerControls.staged).toEqual({}); expect(orchestration(f)).toEqual([]);
+      expect([f.client.providerId, f.client.modelId, f.client.modelOptions, f.client.runtimeMode]).toEqual(['provider', model, [], 'approval-required']);
+    }
+  });
+  test('a provider switch keeps the runtime choice absent and resets only interaction for a provider without Plan', async () => {
+    const f = threadFixture(); f.client.thread = state('a', { interactionMode: 'plan' }); f.client.interactionMode = 'plan';
+    Object.assign(obj((f.client.config.providers as Obj[])[1]), { supportedRuntimeModes: ['full-access'], showInteractionModeToggle: false });
+    await settings(f, 'open'); await settings(f, 'pick', 'other', 'remote');
+    expect(mobileComposerSettings('', '', false, f.client).runtimes.find(row => row.selected)?.id).toBe('full-access');
+    expect(await settings(f, 'save')).toMatchObject({ closed: true, message: '' });
+    expect(staged(f)).toEqual({ providerId: 'other', modelId: 'remote', options: [], interactionMode: 'default' });
+    expect([f.client.providerId, f.client.runtimeMode, f.client.interactionMode]).toEqual(['other', 'approval-required', 'default']);
+    expect(orchestration(f)).toEqual([]);
+  });
+  test('New Task Save still moves an unsupported runtime to the new provider first supported mode', async () => {
+    const f = fixture(); Object.assign(obj((f.client.config.providers as Obj[])[1]), { supportedRuntimeModes: ['full-access'] });
+    await settings(f, 'open'); await settings(f, 'pick', 'other', 'remote');
+    expect(await settings(f, 'save')).toMatchObject({ closed: true, message: '' });
+    expect([f.client.providerId, f.client.modelId, f.client.runtimeMode, f.client.local.composerControls.stickyProvider]).toEqual(['other', 'remote', 'full-access', 'other']);
+    expect(f.client.local.composerControls.staged).toEqual({}); expect(f.calls.filter(call => String(call.method).startsWith('orchestration.'))).toEqual([]);
+  });
+  test('more than 200 explicit thread settings survive real persistence and decoding', async () => {
+    const f = threadFixture(), entries: Record<string, Obj> = {};
+    for (let n = 0; n < 250; n++) entries[`env:thread-${n}`] = n % 2 ? { runtimeMode: 'full-access' } : { providerId: 'provider', modelId: 'b', options: high };
+    Object.assign(f.client.local.composerControls.staged, entries);
+    expect((await settings(f, 'runtime', '', 'full-access')).message).toBe('');
+    const document = obj(f.writes.at(-1)), saved = obj(obj(document.composerControls).staged);
+    Object.assign(saved, { 'env:half': { providerId: 'provider', runtimeMode: 'auto' }, 'env:no-options': { providerId: 'provider', modelId: 'b' },
+      'env:empty': {}, 'env:invalid': { interactionMode: 7 } });
+    const restored = await cold(f, document);
+    expect(restored.local.composerControls.staged).toEqual({ ...entries, 'env:thread': { runtimeMode: 'full-access' }, 'env:half': { runtimeMode: 'auto' } });
+    await restored.persist(f.storage);
+    expect(Object.keys(obj(obj(f.writes.at(-1)?.composerControls).staged))).toHaveLength(252);
+  });
 });
