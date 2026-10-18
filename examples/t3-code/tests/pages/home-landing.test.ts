@@ -3,7 +3,8 @@
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Obj, Shell } from '../../src/client/domain';
-import { EnvironmentFleet, type FleetEntry, type FleetPhase } from '../../src/connections/settings-b-fleet';
+import { EnvironmentFleet, fleet, type FleetEntry, type FleetPhase } from '../../src/connections/settings-b-fleet';
+import { Backend, storage } from '../support/client-fixture';
 import { welcomeLocal } from '../../src/pages/pages-welcome';
 import { backgroundShellsBootstrapped, homeTarget, homeWaiting, landHome, openHome, scopedProjectsByActivity, settleHome } from '../../src/pages/home-landing';
 
@@ -66,7 +67,10 @@ describe('the launch landing', () => {
     expect(landHome(client, () => 'fallback', fleetOf(entry('remote', remoteShell)))).toBe('');
     expect(client).toMatchObject({ homePending: false, homeMove: { environmentId: 'remote', projectId: 'r' } });
     expect(homeWaiting({ ...client, projectId: '' })).toBe(true);
+    // Until settleHome moves there, nothing lands in the focused environment.
+    expect(landHome(client, () => 'fallback', fleetOf(entry('remote', remoteShell)))).toBe('');
     // After the landing, a project that went away falls back to the focused environment's own rule.
+    client.homeMove = null;
     expect(landHome(client, () => 'fallback', fleetOf(entry('remote', remoteShell)))).toBe('fallback');
   });
   test('a focused pick lands at once; a thread already open ends the landing', () => {
@@ -117,6 +121,32 @@ describe('the launch landing', () => {
     local.environmentId = 'local'; local.shell = focusedShell; local.projectId = 'a'; local.threadId = 't1';
     await openHome(local, nativeLog([]), focusedShell, fleetOf());
     expect(local).toMatchObject({ environmentId: 'local', projectId: 'b', threadId: '' });
+  });
+});
+
+describe('a relaunch focused on an environment whose project is not the most recent', () => {
+  // A relaunch reconnects the environment of the last focus (relaunch-reconnect.ts); the landing's pick may be another one's.
+  test('the shell events of the same refresh keep the pick, and settleHome moves to that environment\'s draft', async () => {
+    const native = new Backend(), disk = storage(), client = new T3Client();
+    // The Backend refuses `environments`, so the refresh's fleet sync keeps exactly this entry.
+    const others = new Map(fleet.entries), remote = entry('remote', remoteShell);
+    fleet.entries.clear(); fleet.entries.set(remote.key, remote);
+    try {
+      // The focused shell's completion marker is drained after the synchronize's landing picked, before settleHome.
+      await client.refresh(native, disk.files);
+      // The move: the focused session connects to the remote environment with its project's draft as the selection.
+      // (The Backend answers that connect with its own environment's status, so the client itself stays.)
+      expect(native.calls.filter(call => call.op === 'connect').map(call => call.origin)).toEqual(['http://remote']);
+      expect(client.local.selections.remote).toEqual({ projectId: 'r', threadId: '' });
+      expect(client).toMatchObject({ projectId: '', threadId: '', homePending: false, homeMove: null });
+    } finally { fleet.entries.clear(); for (const [key, value] of others) fleet.entries.set(key, value); }
+  });
+  test('a focus change before the move drops it', () => {
+    const client = new T3Client();
+    client.environmentId = 'local'; client.generation = 1; client.homePending = false;
+    client.homeMove = { environmentId: 'remote', projectId: 'r' };
+    client.adoptStatus({ state: 'connected', origin: 'http://other', environmentId: 'other', message: '' }, 2);
+    expect(client).toMatchObject({ environmentId: 'other', homeMove: null });
   });
 });
 
