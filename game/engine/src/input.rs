@@ -8,7 +8,7 @@ pub(crate) use contexts::seed;
 pub use contexts::{Binding, Bindings, InputContexts};
 pub(crate) use pad::pad_index;
 pub use pad::{Curve, Pad, PadState, MAX_PADS, PAD_BUTTONS};
-pub use triggers::InputGestures;
+pub use triggers::InputState;
 use triggers::{Trigger, TriggerState};
 
 /// Canvas regions used by discoverable touch controls (coordinates in points).
@@ -532,11 +532,14 @@ pub struct Input {
     // Connected pads, by index.
     pads: Vec<PadState>,
     // Timers and states of trigger actions mid-gesture, by action name, and
-    // the latched actions: a working copy of the world's InputGestures.
+    // the latched actions: with contexts and bindings, a working copy of the
+    // world's InputState.
     #[data(skip)]
     triggers: Vec<TriggerState>,
-    // The InputContexts and Bindings resources as of the tick's start.
+    // The InputContexts and Bindings resources as last applied (also in InputState).
+    #[data(skip)]
     contexts: Vec<String>,
+    #[data(skip)]
     bindings: Vec<Binding>,
     // Actions that read up until their binding lifts: rebound or newly in context while held.
     #[data(skip)]
@@ -852,8 +855,6 @@ impl Input {
         self.pointer = saved.pointer;
         self.contacts = saved.contacts;
         self.pads = saved.pads;
-        self.contexts = saved.contexts;
-        self.bindings = saved.bindings;
         self.clear_edges();
     }
     /// Held state changes; trigger timers start at `at_us`; no edges remain.

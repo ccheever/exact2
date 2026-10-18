@@ -457,13 +457,16 @@ impl Game for Rest {
     const ID: &'static str = "input-rest";
     type Args = ();
     fn actions() -> Actions {
-        Actions::new().hold("sprint", &["ShiftLeft"], 0.2)
+        Actions::new()
+            .hold("sprint", &["ShiftLeft"], 0.2)
+            // Longer than settle's backoff covers in its sixteen rounds (about 23 s).
+            .hold("charge", &["KeyC"], 30.)
     }
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Sprints::default());
     }
     fn tick(w: &mut World, input: &Input, _: &()) {
-        if input.pressed("sprint") {
+        if input.pressed("sprint") || input.pressed("charge") {
             w.resource_mut::<Sprints>().0 += 1;
         }
     }
@@ -501,6 +504,58 @@ fn a_pending_hold_keeps_the_world_unsettled_and_is_hashed() {
     assert_eq!(early.world().tick(), late.world().tick());
     assert_ne!(early.world().hash(), late.world().hash());
     assert_eq!(early.world().hash(), pending(105.).world().hash());
+
+    // A hold settle's backoff alone would not reach: settling aims at its tick.
+    let mut sim = started(Sim::<Rest>::new(()).unwrap());
+    at(&mut sim, 105.);
+    sim.key_down("KeyC");
+    assert!(sim.settle());
+    assert_eq!(sim.world().resource::<Sprints>().0, 1);
+    // It fires in tick 1806 (30.105 s); the settle after its edge takes a few rounds more.
+    let tick = sim.world().tick();
+    assert!((1807..1900).contains(&tick), "settled at {tick}");
+}
+
+/// A rebinding applied next tick is pending world state (I1): two worlds with
+/// the same keys, the same Bindings and empty queues, one of which rebound
+/// this tick, differ in hash, and a restore releases it as the original does.
+#[test]
+fn a_pending_rebind_is_hashed_and_restores() {
+    let world = |rebind_at: f64| {
+        let mut sim = pads();
+        if rebind_at < 105. {
+            at(&mut sim, rebind_at);
+            sim.post("bind jump KeyX");
+        }
+        at(&mut sim, 105.);
+        sim.key_down("Space");
+        sim.key_down("KeyX");
+        if rebind_at > 105. {
+            at(&mut sim, rebind_at);
+            sim.post("bind jump KeyX");
+        }
+        at(&mut sim, 170.);
+        sim
+    };
+    // B rebound at 50 ms, before either key; A at 150 ms (tick 9), so tick 10 applies it.
+    let (mut a, b) = (world(150.), world(50.));
+    assert_eq!(a.world().tick(), b.world().tick());
+    assert_eq!(seen(&a), ["6 jump+"]);
+    assert_eq!(seen(&a), seen(&b));
+    assert_eq!(
+        a.world().resource::<Bindings>().actions,
+        b.world().resource::<Bindings>().actions
+    );
+    assert_ne!(a.world().hash(), b.world().hash());
+    let mut restored = Sim::<Pads>::new(()).unwrap();
+    restored.restore(&a.save().unwrap()).unwrap();
+    restored.advance(0., Clock::Seekable);
+    at(&mut restored, 30.);
+    at(&mut a, 200.);
+    for sim in [&a, &restored] {
+        assert!(seen(sim).contains(&"10 jump-".into()), "{:?}", seen(sim));
+    }
+    assert_eq!(a.world().hash(), restored.world().hash());
 }
 
 #[test]
@@ -570,4 +625,7 @@ fn the_pad_pushed_furthest_steers() {
     // Opposite sticks do not cancel: pad 0 at full deflection wins.
     assert_eq!(run(&[(0, 1.), (1, -0.5)]), run(&[(0, 1.)]));
     assert_eq!(run(&[(0, -0.5), (1, 1.)]), run(&[(0, 1.)]));
+    // Pushed equally far, the lower index steers.
+    assert_eq!(run(&[(0, 1.), (1, -1.)]), run(&[(0, 1.)]));
+    assert_eq!(run(&[(0, -1.), (1, 1.)]), run(&[(0, -1.)]));
 }

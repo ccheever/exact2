@@ -309,7 +309,7 @@ impl World {
         self.register_resource::<crate::Shadows>()
             .register_resource::<crate::InputContexts>()
             .register_resource::<crate::Bindings>()
-            .register_resource::<crate::InputGestures>();
+            .register_resource::<crate::InputState>();
         self.register::<Transform>()
             .register::<Parent>()
             .register::<Mesh>()

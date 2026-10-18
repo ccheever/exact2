@@ -206,25 +206,25 @@ impl<G: Game> Sim<G> {
         } else {
             self.input.apply(event, at_us);
         }
-        self.store_gestures();
+        self.store_applied();
     }
-    /// Write input's gestures back to the world, where they are hashed, when
-    /// they changed. An unused world never gains the resource.
-    pub(super) fn store_gestures(&mut self) {
-        let gestures = self.input.gestures();
+    /// Write input's applied state back to the world, where it is hashed, when
+    /// it changed. An unused world never gains the resource.
+    pub(super) fn store_applied(&mut self) {
+        let applied = self.input.applied();
         let stored = self
             .world
-            .try_resource::<crate::InputGestures>()
+            .try_resource::<crate::InputState>()
             .map(|g| g.clone());
-        if stored.as_ref() != Some(&gestures) && (stored.is_some() || !gestures.is_empty()) {
-            self.world.insert_resource(gestures);
+        if stored.as_ref() != Some(&applied) && (stored.is_some() || !applied.is_empty()) {
+            self.world.insert_resource(applied);
         }
     }
     /// Mature holds and let windows lapse up to a tick's end (in µs × HZ).
     pub(super) fn mature_input(&mut self, end: u128) {
         self.input
             .mature(|due| (due.max(0) as u128) * (G::HZ as u128) < end);
-        self.store_gestures();
+        self.store_applied();
     }
     /// Bring the world's input contexts and bindings into input at a tick's start.
     pub(super) fn sync_input(&mut self) {
@@ -241,7 +241,7 @@ impl<G: Game> Sim<G> {
         for line in self.input.sync(&contexts, &bindings) {
             self.world.log(line);
         }
-        self.store_gestures();
+        self.store_applied();
     }
 }
 impl<G: Game> Sim<G> {

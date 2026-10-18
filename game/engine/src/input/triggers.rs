@@ -33,19 +33,25 @@ impl TriggerState {
         self.at_us.is_some() || self.on
     }
 }
-/// Trigger gestures in progress and latched actions: what the coming ticks'
-/// edges depend on beyond the keys held, so they are world state, saved and
-/// hashed (LLP 1128 I1). Input works on a copy the simulation writes back
-/// after each change; a world whose triggers and latches were never used
-/// has no such resource.
+/// What the coming ticks' edges depend on beyond the keys held: trigger
+/// gestures in progress, latched actions, and the contexts and bindings input
+/// last applied, which the next tick compares with the world's to release or
+/// latch. So it is world state, saved and hashed (LLP 1128 I1). Input works
+/// on a copy the simulation writes back after each change; a world that never
+/// used a trigger, a context or a rebinding has no such resource.
 #[derive(Clone, Debug, Default, PartialEq, Resource)]
-pub struct InputGestures {
+pub struct InputState {
     triggers: Vec<TriggerState>,
     latched: Vec<String>,
+    contexts: Vec<String>,
+    bindings: Vec<super::Binding>,
 }
-impl InputGestures {
+impl InputState {
     pub(crate) fn is_empty(&self) -> bool {
-        self.triggers.is_empty() && self.latched.is_empty()
+        self.triggers.is_empty()
+            && self.latched.is_empty()
+            && self.contexts.is_empty()
+            && self.bindings.is_empty()
     }
 }
 pub(super) fn window(seconds: f32) -> i64 {
@@ -179,15 +185,19 @@ impl Input {
     pub(super) fn reset_trigger(&mut self, name: &str) {
         self.triggers.retain(|t| t.action != name);
     }
-    pub(crate) fn gestures(&self) -> InputGestures {
-        InputGestures {
+    pub(crate) fn applied(&self) -> InputState {
+        InputState {
             triggers: self.triggers.clone(),
             latched: self.latched.clone(),
+            contexts: self.contexts.clone(),
+            bindings: self.bindings.clone(),
         }
     }
-    pub(crate) fn load_gestures(&mut self, gestures: InputGestures) {
-        self.triggers = gestures.triggers;
-        self.latched = gestures.latched;
+    pub(crate) fn load_applied(&mut self, state: InputState) {
+        self.triggers = state.triggers;
+        self.latched = state.latched;
+        self.contexts = state.contexts;
+        self.bindings = state.bindings;
     }
     /// The earliest world microsecond at which a pending gesture changes on
     /// its own (a hold matures; a tap or a first press lapses), for settling.
@@ -206,7 +216,7 @@ impl Input {
             })
             .min()
     }
-    pub(crate) fn validate_gestures(&self, saved: &InputGestures) -> Result<(), String> {
+    pub(crate) fn validate_applied(&self, saved: &InputState) -> Result<(), String> {
         if saved
             .triggers
             .windows(2)

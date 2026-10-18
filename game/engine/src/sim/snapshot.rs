@@ -140,13 +140,13 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("restore refused: EXSIM v8 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
         input.restore_dynamic(s.input);
-        // Gestures in progress are world state; input works on their copy.
-        let gestures = validated
-            .try_resource::<crate::InputGestures>()
+        // What input applied and has in progress is world state; input works on its copy.
+        let applied = validated
+            .try_resource::<crate::InputState>()
             .map(|g| g.clone())
             .unwrap_or_default();
-        input.validate_gestures(&gestures).map_err(DataError::new)?;
-        input.load_gestures(gestures);
+        input.validate_applied(&applied).map_err(DataError::new)?;
+        input.load_applied(applied);
         let mut next =
             Self::from_world(bound, validated, input, s.queue.into()).map_err(DataError::new)?;
         next.world.assets = self.world.assets.clone();

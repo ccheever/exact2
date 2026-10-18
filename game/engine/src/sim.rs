@@ -1319,10 +1319,17 @@ impl<G: Game> Sim<G> {
         let tick_us = |tick: u64| {
             i64::try_from((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)).unwrap_or(i64::MAX)
         };
-        let deadline = self
-            .world
-            .settle_tick()
-            .filter(|tick| *tick > self.world.tick());
+        // A pending trigger's tick (it fires before that tick's end) is a
+        // deadline as the world's own are: settling goes straight to it.
+        let trigger = self
+            .input
+            .next_deadline()
+            .map(|(due, _)| (due.max(0) as u128 * G::HZ as u128 / 1_000_000) as u64 + 1);
+        let deadline = [self.world.settle_tick(), trigger]
+            .into_iter()
+            .flatten()
+            .filter(|tick| *tick > self.world.tick())
+            .min();
         let delay = self.settle_delay.get();
         let mut next = deadline.map_or(self.world_us.saturating_add(delay as i64 * 1000), tick_us);
         if let Some(event) = self.queue.front() {
@@ -1330,12 +1337,6 @@ impl<G: Game> Sim<G> {
             let tick =
                 (self.projected(event).max(0) as u128 * G::HZ as u128 / 1_000_000) as u64 + 1;
             next = next.min(tick_us(tick));
-        }
-        if let Some((due, _)) = self.input.next_deadline() {
-            // The deadline's own tick: it fires before that tick's end.
-            next = next.min(tick_us(
-                (due.max(0) as u128 * G::HZ as u128 / 1_000_000) as u64 + 1,
-            ));
         }
         next = next.max(tick_us(self.world.tick() + 1));
         if settle {
