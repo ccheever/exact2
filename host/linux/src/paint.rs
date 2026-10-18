@@ -904,12 +904,7 @@ impl Painter {
             .any(|p| !p.fragments().is_empty())
             .then(|| pixmap.clone());
         self.damage.dark = self.dark;
-        self.damage.caret = scene.focus.is_some_and(|id| {
-            scene
-                .kernel
-                .node(id)
-                .is_some_and(|n| n.node_type == NodeType::TextInput)
-        });
+        self.damage.focus_ink = damage::field_focus_ink(scene.kernel, scene.focus);
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
