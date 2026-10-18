@@ -423,3 +423,21 @@ test('proof summaries record both identities from the completed bake', async () 
     expect(receipt.inputs).toBe(buildInputHash('linux', target, '0', 'release').update(after.all).digest('hex'));
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 15000);
+
+test('ignored lane diagnostics do not invalidate a proof; lane app sources still do', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'proof-lane-')), app = resolve(root, 'game/games/sample');
+  try {
+    writeFixtureFile(root, 'engine.rs', 'pub fn tick() {}');
+    writeFixtureFile(app, 'logic/src/lib.rs', 'pub fn game() {}');
+    writeFixtureFile(root, '.lane/build.log', 'first');
+    const read = proofInputReader(root, app), before = read();
+    writeFixtureFile(root, '.lane/new.log', 'second');
+    expect(read().authored).toBe(before.authored);
+    const laneApp = resolve(root, '.lane/probe');
+    writeFixtureFile(laneApp, 'logic/src/lib.rs', 'before');
+    const laneRead = proofInputReader(root, laneApp);
+    laneRead();
+    writeFixtureFile(laneApp, 'logic/src/lib.rs', 'after');
+    expect(() => laneRead()).toThrow('authored proof inputs changed');
+  } finally { rmSync(root, {recursive:true, force:true}); }
+});
