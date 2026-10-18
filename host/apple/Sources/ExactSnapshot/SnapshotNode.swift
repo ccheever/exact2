@@ -39,25 +39,15 @@ struct SnapshotNodeView: View {
             .overlay { paint.border(in: bounds) }
             .modifier(PathClip(path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
-            .modifier(Privacy(sensitive: privacy))
+            .modifier(Privacy(public: publicContent && !environment.placeholder))
             .modifier(Semantics(node: node))
             .modifier(Linked(url: link))
     }
 
-    /// `data-privacy` (the node's `dataset`, D8): a widget's content is
-    /// account content unless a node says `public`, so it stays while the
-    /// Lock Screen redacts the rest; a Live Activity's is not, so a node
-    /// says `private` to be redacted on a locked phone. The placeholder
-    /// carries neither (a `privacySensitive` modifier makes its subtree
-    /// ignore placeholder redaction).
-    private var privacy: Bool? {
-        guard !environment.placeholder else { return nil }
-        switch SnapshotData.words(node)["privacy"] {
-        case "public": return false
-        case "private": return true
-        default: return nil
-        }
-    }
+    /// `data-privacy="public"` (the node's `dataset`): not account content,
+    /// so it stays while the Lock Screen redacts the rest (D8), in a widget
+    /// and in a Live Activity alike.
+    private var publicContent: Bool { SnapshotData.words(node)["privacy"] == "public" }
 
     @ViewBuilder
     private var content: some View {
@@ -102,9 +92,9 @@ private struct PathClip: ViewModifier {
 }
 
 private struct Privacy: ViewModifier {
-    let sensitive: Bool?
+    let `public`: Bool
     func body(content: Content) -> some View {
-        if let sensitive { content.privacySensitive(sensitive) } else { content }
+        if `public` { content.privacySensitive(false) } else { content }
     }
 }
 
