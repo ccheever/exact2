@@ -667,8 +667,8 @@ replay preserves those recorded ticks, including transactions still pending at e
 
 Web dev clients swap tables under the running world, preserving its tick. Native Apple
 dev clients apply a whole generation and restart the world on table delivery. For table
-games, Rust saves rebuild the primary module and validate the current table files before
-publishing the new declarations; the validator never follows an unselected side module.
+games, successful Rust saves rebuild the primary module and restart the web world,
+validating the current table files before publishing the new declarations; the validator never follows an unselected side module.
 
 Animation order is explicit: `animation::step` → apply root motion → query sockets.
 `SocketFollow` attaches to a joint without changing the saved local transform.
