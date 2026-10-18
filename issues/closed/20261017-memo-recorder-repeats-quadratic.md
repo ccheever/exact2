@@ -5,7 +5,7 @@
 **Systems:** vendor/taffy (EXACT PATCH 29), kernel layout
 **Author:** Claude (Opus 5.5) for Daehyeon Mun
 **Date:** 2026-10-17
-**Related:** issues/20261016-markdown-on-macos-table-columns-do.md
+**Related:** issues/closed/20261016-markdown-on-macos-table-columns-do.md
 
 ## Problem
 
