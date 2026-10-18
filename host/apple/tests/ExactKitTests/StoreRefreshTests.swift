@@ -121,19 +121,23 @@ final class StoreRefreshTests: XCTestCase {
         try tap(writer, "wait")
         try Data(String(peerCounter + 2).utf8).write(to: counter, options: .atomic)
         var timerBatch: Batch?
+        let refreshing = ExactEnv.wall()
+        // The long task's timer is armed by the refresh: 20 s after it, not the short one's.
+        let rearmed = { (at: Double?) in at.map { $0 != due && $0 >= refreshing + 20000 } ?? false }
         readers[0].runtime.observeBatch = { _, batch in
-            if timerBatch == nil, (batch.timerDueMs ?? 0) >= 20000 { timerBatch = batch }
+            if timerBatch == nil, rearmed(batch.timerDueMs) { timerBatch = batch }
         }
         defer { readers[0].runtime.observeBatch = nil }
         expected = expectation(description: "a timer-only store commit reaches apply")
         NotificationCenter.default.post(name: foreground, object: nil)
         wait(for: [try XCTUnwrap(expected)], timeout: 5)
         expected = nil
+        let refreshed = ExactEnv.wall()
         let landed = try XCTUnwrap(timerBatch)
         XCTAssertTrue(landed.ops.isEmpty, "this commit changes only the timer")
-        XCTAssertGreaterThan(try XCTUnwrap(landed.timerDueMs), 20000)
+        XCTAssertTrue((refreshing + 20000...refreshed + 20000).contains(try XCTUnwrap(landed.timerDueMs)))
         XCTAssertEqual(readers[0].timerDue, landed.timerDueMs)
-        XCTAssertGreaterThan(try XCTUnwrap(readers[1].timerDue), 20000)
+        XCTAssertTrue(rearmed(readers[1].timerDue), "the sibling's long task is armed too")
 
     }
 

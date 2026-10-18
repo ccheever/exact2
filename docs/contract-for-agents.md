@@ -2134,7 +2134,7 @@ a loop from mutations: a `then` cannot send its own mutation
 instead.
 
 `performanceNow()` is the runner's clock in milliseconds since this launch of the app (it
-restarts at 0 on every launch; the driver's clock under the agent, from 0), as the web's
+restarts at 0 on every launch, and a window opened later reads the same clock; the driver's clock under the agent, from 0), as the web's
 `performance.now()`, not a date: a deadline of `performanceNow() + ms` sent to a server is
 in 1970, and one stored is meaningless after a relaunch. Anything stored or sent takes
 `time.epochAtZero + performanceNow()` ([timer recipe](recipes/timer-that-survives-relaunch.md)). For the date, read the reserved
