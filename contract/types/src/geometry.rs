@@ -39,6 +39,7 @@ pub(super) fn check_call(
     if !matches!(
         f,
         Stdlib::Frame
+            | Stdlib::RangeFrame
             | Stdlib::Measure
             | Stdlib::ElementFromPoint
             | Stdlib::ElementsFromPoint
