@@ -53,6 +53,7 @@ final class WidgetGalleryTests: XCTestCase {
         let png = directory.appendingPathComponent("entry.png")
         let image = read("screenshot", path: png.path)
         XCTAssertNil(image["error"])
+        XCTAssertEqual(image["epoch"] as? UInt64, preview.session.agentFacts()["epoch"] as? UInt64)
         XCTAssertEqual(image["w"] as? CGFloat, 338); XCTAssertEqual(image["h"] as? CGFloat, 158)
         XCTAssertGreaterThan(try Data(contentsOf: png).count, 100)
         session.clock = 600_000

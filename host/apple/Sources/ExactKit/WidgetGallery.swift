@@ -244,8 +244,6 @@ enum WidgetGallery {
                 }
                 let preview = agent.widgetPreview!
                 var result: [String: Any] = ["widget": ["entry": variant.entry, "family": variant.family, "mode": variant.mode, "scheme": variant.scheme, "size": variant.size]]
-                let facts = preview.session.agentFacts()
-                for name in ["clock", "epoch", "incarnation"] { result[name] = facts[name] }
                 switch op {
                 case "tree":
                     let snapshot = try preview.session.snapshot()
@@ -277,6 +275,8 @@ enum WidgetGallery {
                     result["rendering"] = "in-process WidgetKit container stand-in"
                 default: break
                 }
+                let facts = preview.session.agentFacts()
+                for name in ["clock", "epoch", "incarnation"] { result[name] = facts[name] }
                 return result
             } catch { return ["error": String(describing: error)] }
         }
