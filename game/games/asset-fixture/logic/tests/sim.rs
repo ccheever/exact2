@@ -28,6 +28,7 @@ fn proof_endpoint_pin() {
         };
         assert!((actual - expected).abs() < 0.0001, "{name}: {actual}");
     }
+    sim.assert_pin(include_str!("../../pins.json"));
     sim.run(1000.);
     assert_eq!(sim.world().tick(), 60);
     sim.assert_pin(include_str!("../../pins.json"));

@@ -58,6 +58,9 @@ pub struct ThemedRow {
 #[derive(Debug, Default)]
 pub struct ThemeIndex {
     rows: std::collections::HashMap<(ViewId, u16), ThemedRow>,
+    /// Each node's state looks that read a token (LLP 1121 D8): what a
+    /// token's new value resolves again, as `rows` are.
+    pub(super) looks: std::collections::HashMap<ViewId, super::looks::Looks>,
     /// The window's app tuple (`setMode`), which a visit starts in.
     pub window: u32,
     /// The window's tuple moved since a visit last started: the next one
@@ -86,6 +89,12 @@ impl ThemeIndex {
     /// Forget the views `live` says are gone.
     pub(super) fn retain(&mut self, live: &impl Fn(ViewId) -> bool) {
         self.rows.retain(|(view, _), _| live(*view));
+        self.looks.retain(|view, _| live(*view));
+    }
+
+    /// Each node's state looks that read a token, by view.
+    pub fn looks(&self) -> impl Iterator<Item = (ViewId, &super::looks::Looks)> + '_ {
+        self.looks.iter().map(|(view, l)| (*view, l))
     }
 
     /// Every themed row, in no order.

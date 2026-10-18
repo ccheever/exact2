@@ -592,3 +592,35 @@ pub(crate) fn longhands(name: &str) -> Vec<String> {
         },
     }
 }
+
+/// Project an authored style into the same rows and expressions lowering binds.
+/// Compiler profiles use this to check shorthand values without a second CSS parser.
+pub fn style_values(name: &str, value: &Expr) -> Result<Vec<(StyleId, Expr)>, LowerError> {
+    match tags::attr_valued(name, value) {
+        Some(tags::AttrTarget::Styles(rows)) => {
+            let split = if rows.len() > 1 {
+                super::values::sides(name, value)?
+            } else {
+                None
+            };
+            Ok(rows
+                .iter()
+                .enumerate()
+                .map(|(i, row)| {
+                    (
+                        *row,
+                        split
+                            .as_ref()
+                            .map_or_else(|| value.clone(), |v| v[i].clone()),
+                    )
+                })
+                .collect())
+        }
+        Some(tags::AttrTarget::Shorthand) => super::shorthands::rows(name)
+            .iter()
+            .enumerate()
+            .map(|(i, row)| Ok((*row, super::shorthands::component(value, name, i)?)))
+            .collect(),
+        _ => Ok(Vec::new()),
+    }
+}

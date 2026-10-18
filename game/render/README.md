@@ -566,7 +566,8 @@ are resolved to linear view depth with the split undone, so they are correct for
 both layers; SSAO skips viewmodel pixels and never samples them as occluders.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
-frame, back-to-front in camera depth, using retained tick poses and local centers.
+frame: world transparency first, view-model transparency last, each back-to-front
+in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
 own materials are multiplied by entity base colour and have entity emission added:
 one model serves every team colour or mutation look. `NodeMaterials` adds a tint and
@@ -922,10 +923,21 @@ agent geometry even at noninteger heights on a 2× display. Integer display scal
 keep texels on whole device pixels; fractional display scales can give uneven
 physical widths with nearest sampling.
 
-Opaque primitive/model rendering is unchanged. Opaque and masked sprites write
+Primitives with `Material.color[3]` in the half-open range `(0.0..1.0)` join this same sorted quad arena: each
+triangle is one instance (the quad's second triangle is degenerate), compatible
+with untextured straight-alpha particles. One halo and a hundred share one draw;
+triangles still cost derivation, upload and sorting. Their look is flat
+hemisphere/directional diffuse light plus emission and fog; PBR, local-light
+shadows and procedural grids stay on opaque primitives. They depth-test without
+depth writes or refraction and cast no shadows. `Material::alpha(a)` takes [0, 1].
+Ring, torus and cone geometry also works on the opaque path. See the
+[halo recipe](../recipes/halo.md).
+
+Opaque and masked sprites write
 depth; the ordered translucent pass follows the sky, depth-tests and does not
-write depth. Ordering is descending view depth, ascending layer and entity slot,
-then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
+write depth. World transparency draws first and view-model transparency last.
+Within each group, ordering is descending view depth, ascending layer and entity
+slot, then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
 shadows. Soft circular particles choose additive or straight-alpha blending;
 sprites share `.tex` samplers and choose opaque, mask or straight-alpha blend.
 Billboard extents use scale magnitudes to preserve front-facing winding; texture
@@ -968,7 +980,7 @@ geometry/material/winding batches. Repeated handles share one CPU model, one GPU
 upload and one draw group; preparation reuses its content digest across frames.
 `MeshData.colors` is optional linear RGBA. Both model and primitive vertex paths
 multiply the material base colour; model alpha also multiplies vertex alpha,
-including masked shadows. Primitive materials remain opaque. The packed public
+including masked shadows. Primitive materials outside that alpha range remain opaque, including the negative-alpha grid sentinel. The packed public
 `Vertex` is 48 bytes including colour, with white in built-in shapes; skin weights
 retain their separate 32-byte stride. The asset fixture constructs a seeded coloured
 heightfield and three shared rocks in setup, with no runtime texture generator.

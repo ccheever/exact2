@@ -28,7 +28,7 @@ async function bridge() {
     exact_grants: grantOrigins(() => instance.exports.memory), exact_js: { call: unexpected },
     exact_rust: { load: unexpected, call: unexpected, read: unexpected, drop: unexpected },
     exact_data: { random: unexpected, agent_seed: unexpected }, exact_clock: { now: unexpected },
-    exact_geometry: { read: unexpected, point: unexpected, points: unexpected, shown: unexpected },
+    exact_geometry: { range: unexpected, read: unexpected, point: unexpected, points: unexpected, shown: unexpected },
   });
   const w = instance.exports;
   const input = bytes => { const ptr = w.exact_in(bytes.length); new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes); return bytes.length; };

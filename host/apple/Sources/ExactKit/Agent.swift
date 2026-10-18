@@ -24,6 +24,9 @@ public final class Agent {
     /// The held contact on a `pan` node, recognized (LLP 1057 §10.6).
     var panContact: AgentPan?
     #endif
+    #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+    var widgetPreview: WidgetPreview?
+    #endif
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
@@ -172,6 +175,21 @@ public final class Agent {
         if session.state == .destroyed {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
             return
+        }
+        if req["widget"] != nil {
+            #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+            if op != "clock" {
+                Agent.reply(WidgetGallery.answer(op, request: req, agent: self))
+                return
+            }
+            #else
+            #if os(iOS)
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --ios --widget-gallery"])
+            #else
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --widget-gallery"])
+            #endif
+            return
+            #endif
         }
         guard session.canvases.waitUntilReady() else {
             Agent.reply(["error": "canvas creation is still in flight"])

@@ -74,13 +74,21 @@ fn bake(args: &[String]) -> Result<(), String> {
     plan.app_id.clone_from(&app);
     let encoded = plan.encode();
     let receipt = serde_json::json!({"version":1,"kind":"rust","abi":exact_logic::ABI,"appId":app,"grants":grants,"target":"wasm32-unknown-unknown","executor":"wasm","plan":card("app.plan",&encoded),"module":card("app.module.wasm",&bytes)});
-    let mut source = exact_logic::Swappable::wasm(Admitted { app, grants })
-        .replacement(&encoded, &receipt.to_string(), bytes)
+    let fresh = || {
+        let mut source = exact_logic::Swappable::wasm(Admitted {
+            app: app.clone(),
+            grants: grants.clone(),
+        })
+        .replacement(&encoded, &receipt.to_string(), bytes.clone())
         .map_err(|e| format!("module admission: {e:?}"))?;
-    source
-        .activate()
-        .map_err(|e| format!("module activation: {e:?}"))?;
-    let baked = contract::bake(plan, source)
+        source
+            .activate()
+            .map_err(|e| format!("module activation: {e:?}"))?;
+        Ok::<_, String>(source)
+    };
+    let entries =
+        contract::snapshot::entries(Path::new(&args[0]).parent().unwrap_or(Path::new(".")))?;
+    let baked = contract::snapshot::bake_app(&entries, plan, fresh()?, fresh()?)
         .map_err(|e| {
             map.as_ref().map_or_else(
                 || format!("bake: {e:?}"),
@@ -94,6 +102,10 @@ fn bake(args: &[String]) -> Result<(), String> {
         std::fs::write(format!("{}.map.json", args[3]), map.json(&baked))
             .map_err(|e| e.to_string())?;
     }
+    contract::snapshot::write_entries(
+        &entries,
+        Path::new(&args[3]).parent().unwrap_or(Path::new(".")),
+    )?;
     std::fs::write(&args[3], baked).map_err(|e| e.to_string())
 }
 fn serve() -> Result<(), String> {

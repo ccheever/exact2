@@ -40,6 +40,18 @@ test('layout joins a bare reason only to the matching plan site on every carrier
   }
 });
 
+test('an `:active` row lowered to the press paint carries its part and where it is written (LLP 1121 D8)', () => {
+  const digest = 'c'.repeat(64), reader = sourceMapReader(null);
+  const part = { file: '/app/app.contract', line: 6, col: 9, end_col: 20 };
+  reader.add({ digest, nodes: [{ file: '/app/app.contract', line: 4, col: 5, end_col: 11, component: 'App', chain: [],
+    bindings: [{ row: 'press_background_color', origin: 'own', state: 'active', at: part }, { row: 'background_color', origin: 'own' }] }] });
+  const node = { id: 1, type: 'Pressable', site: 0, planDigest: digest, props: {}, style: {
+    press_background_color: { value: '#00f', source: 'authored' }, background_color: { value: '#fff', source: 'authored' } } };
+  reader.attach(node);
+  expect(node.style.press_background_color).toMatchObject({ origin: 'own', state: 'active', at: part });
+  expect(node.style.background_color.state).toBeUndefined();
+});
+
 test('malformed bare metadata cannot supply a reason', () => {
   const digest = 'a'.repeat(64), reader = sourceMapReader(null);
   const at = { file: '/app/app.contract', line: 4, col: 5, end_col: 11, component: 'App', chain: [], bindings: [] };

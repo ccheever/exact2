@@ -282,7 +282,7 @@ impl Em<'_> {
         .then(|| self.uses.constant("$cm", || style::color_map(plan)));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
-        let writes: Vec<(String, String, Option<String>)> = match id {
+        let mut writes: Vec<(String, String, Option<String>)> = match id {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
@@ -365,11 +365,15 @@ impl Em<'_> {
             }
             // @ref LLP 1061 D7 — the pressed paint: the custom properties
             // input-glue.js reads from the element's own style (css.rs).
-            StyleId::PressOpacity | StyleId::PressBackgroundColor | StyleId::PressColor => {
+            StyleId::PressOpacity
+            | StyleId::PressOpacityTo
+            | StyleId::PressBackgroundColor
+            | StyleId::PressColor => {
                 let press = self.uses.rt("pressFeedback");
                 let _ = write!(self.out, "{press}();");
                 let name = match id {
                     StyleId::PressOpacity => "--exact-press-opacity",
+                    StyleId::PressOpacityTo => "--exact-press-opacity-to",
                     StyleId::PressBackgroundColor => "--exact-press-background-color",
                     _ => "--exact-press-color",
                 };
@@ -503,6 +507,23 @@ impl Em<'_> {
                 })
                 .collect(),
         };
+        if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
+            let normal = self.uses.rt("normal");
+            writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
+                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
+            ))));
+        }
+        if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
+            let normal = self.uses.rt("normal");
+            writes.push((
+                "justify-self".into(),
+                String::new(),
+                Some(format!(
+                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"auto\":{:?}",
+                    style::PROGRESS_JUSTIFY
+                )),
+            ));
+        }
         // A longhand bound beside a bound `font` shorthand: where it says
         // nothing, the shorthand's style's (above), as the kernel has it.
         let writes = if matches!(id, StyleId::FontWeight | StyleId::LineHeight)
@@ -581,6 +602,16 @@ impl Em<'_> {
             .map(|b| plan.binding(b))
             .find(|b| b.kind == BindingKind::Prop && b.id == PropId::Markup as u16);
         if element == "textarea" {
+            if row
+                .bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16)
+            {
+                self.editor = true;
+                let decorate = self.uses.rt("decoratedEditor");
+                let _ = write!(self.out, "{decorate}({e});");
+            }
             match markup.map(|b| style::literal(plan, plan.code(b.expr))) {
                 Some(Some(v)) if v.as_str() == Some("markdown") => {
                     self.editor = true;
@@ -722,6 +753,7 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-press-haptic:",
             // The pressed paint (LLP 1061 D7), read the same way.
             "--exact-press-opacity:",
+            "--exact-press-opacity-to:",
             "--exact-press-background-color:",
             "--exact-press-color:",
             // A fitted text's (LLP 1116.001 D1.4), which navigation.js finds by it.

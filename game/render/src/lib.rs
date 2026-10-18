@@ -42,6 +42,8 @@ mod ssao;
 mod surface;
 mod timing;
 mod trace;
+#[cfg(test)]
+mod translucent_tests;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.
@@ -578,5 +580,5 @@ mod visibility_tests;
 
 /// Baked here so this crate's build-script environment edge owns the policy.
 pub fn development_edits_allowed() -> bool {
-    !matches!(option_env!("EXACT_UPDATE_TRUST"), Some("production"))
+    env!("EXACT_UPDATE_TRUST") != "production"
 }

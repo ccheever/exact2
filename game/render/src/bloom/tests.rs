@@ -64,7 +64,7 @@ fn read(gpu: &Gpu, texture: &wgpu::Texture) -> Vec<u16> {
 }
 
 #[test]
-fn tiled_bright_matches_fragment_at_edges_odd_sizes_and_nonfinite_inputs() {
+fn bright_matches_its_reference_at_edges_odd_sizes_and_nonfinite_inputs() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
@@ -160,25 +160,13 @@ fn tiled_bright_matches_fragment_at_edges_odd_sizes_and_nonfinite_inputs() {
         let expected = texture(&gpu, size);
         let actual_view = actual.create_view(&Default::default());
         let expected_view = expected.create_view(&Default::default());
-        let destination = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bloom test destination"),
-            layout: &pipelines.bright_target_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&actual_view),
-            }],
-        });
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&pipelines.bright);
-            pass.set_bind_group(0, &targets.source, &[0]);
-            pass.set_bind_group(1, &destination, &[]);
-            pass.dispatch_workgroups(size.0.div_ceil(8), size.1.div_ceil(8), 1);
-        }
-        {
+        for (view, pipeline) in [
+            (&actual_view, &pipelines.bright),
+            (&expected_view, &reference),
+        ] {
             let attachments = [Some(wgpu::RenderPassColorAttachment {
-                view: &expected_view,
+                view,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -190,7 +178,7 @@ fn tiled_bright_matches_fragment_at_edges_odd_sizes_and_nonfinite_inputs() {
                 color_attachments: &attachments,
                 ..Default::default()
             });
-            pass.set_pipeline(&reference);
+            pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &targets.source, &[0]);
             pass.draw(0..3, 0..1);
         }

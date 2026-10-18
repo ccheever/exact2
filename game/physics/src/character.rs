@@ -149,8 +149,15 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
     );
     pose.position += math::vec3(movement.translation);
     c.grounded = movement.grounded;
-    c.velocity.x = movement.translation.x / world.dt();
-    c.velocity.z = movement.translation.z / world.dt();
+    // The realized horizontal velocity, never faster than the one asked for: a
+    // push out of an overlap moves the capsule but is not its speed. Otherwise
+    // a capsule standing in a collider carries the push into its next move and
+    // shuttles in and out every other tick.
+    let realized =
+        exact_game::Vec2::new(movement.translation.x, movement.translation.z) / world.dt();
+    let flat = realized.clamp_length_max(exact_game::Vec2::new(velocity.x, velocity.z).length());
+    c.velocity.x = flat.x;
+    c.velocity.z = flat.y;
     if c.grounded && c.velocity.y < 0.0 {
         c.velocity.y = 0.0;
     }

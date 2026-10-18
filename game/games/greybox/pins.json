@@ -1,20 +1,19 @@
 {
   "ticks": {
-    "0": "0xa28d39d25aa334b7",
-    "90": "0x1dd0b2c4abc3cc01",
-    "98": "0x3e39671242e6ac85"
+    "0": "0x41e6f7a7fbccc126",
+    "90": "0x4d892b02503223cb"
   },
   "saves": {
-    "continuation": "687c9d130a350b6b7f9023de61d6b6fb2fc419970028ca8b97717255e0e12bda"
+    "continuation": "2dd2b8bc170a421c00b26ccacb50267a2bdefef415caf18e41704ccfca697ec8"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "27323bef2d19d50f47ef29c3b455a5337c54e185bb69bdbafddc96316f04aa87",
-  "sourceInputs": "a5ae1d676a22fdf77479cbaec6f2cf7fca359768ab24edb366ec63f21a1c0db4",
+  "inputs": "e1870174dbbd1698806e1b94948e97927254c4925a6fd7f19ccc0d286046d191",
+  "sourceInputs": "cf781f443a99e095535b43bba017a575144fee9589255ee78c66f8af2b328903",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "8cd7a1a4db2fe780d22803ff3df6fbfa99d6c0bc",
-  "reason": "Consume hashed BeaconLit events on the next tick, snapshot its registered queue, and version saves as EXGAME v5"
+  "at": "5c8a02687d1ab16b975ec43fc36fa1cc31e81fc4",
+  "reason": "2e49129cb: EXSIM v7 changes the save header version byte"
 }

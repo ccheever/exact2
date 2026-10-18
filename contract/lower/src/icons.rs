@@ -282,6 +282,11 @@ pub(crate) fn computed() {
     USED.with(|u| u.borrow_mut().1 = true);
 }
 
+/// The targets the app ships, as the last design's lowering read them.
+pub(crate) fn shipped() -> Vec<Target> {
+    ICONS.with(|i| i.borrow().1.clone())
+}
+
 /// The targets the app ships that are not Apple's, which draw no SF Symbol.
 pub(crate) fn non_apple_targets() -> Vec<Target> {
     ICONS.with(|i| {

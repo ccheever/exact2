@@ -13,6 +13,7 @@ import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
@@ -30,7 +31,7 @@ const PUBLIC_FILES = new Set([
 // `/gpu/`: each declared GPU module's wasm and its glue (LLP 1009 D6).
 // `/stages/`: the core's staged capabilities, named by digest (LLP 1047.000).
 // `/modules/`: the app's native-module web executor (LLP 1024 D3), page code.
-const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/'];
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/', '/plans/', '/activities/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
@@ -384,25 +385,44 @@ export function staticFile(dist, pathname) {
   // A complete current build is authoritative even when it lacks an optional
   // route (notably GPU files). Consult previous only while the current root
   // itself is absent; otherwise two apps' artifacts could be mixed.
-  let root;
-  try { root = realpathSync(dist); }
-  catch {
-    try { root = realpathSync(`${dist}.previous`); }
-    catch { return null; }
+  // Asked again, three times at most, as buildTreeFile asks.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const was = buildRoot(dist);
+    if (!was) continue;
+    const { root } = was;
+    try {
+      const inside = path => {
+        const child = relative(root, path);
+        return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+      };
+      const path = resolve(root, '.' + route);
+      if (!inside(path)) return null;
+      const real = realpathSync(path);
+      // Reject both a symlink file and a file reached through a symlink dir
+      // (asked again only if the build moved meanwhile).
+      if (real !== path || !inside(real) || !statSync(real).isFile()) { if (stillBuild(dist, was)) return null; continue; }
+      return { path: real, route };
+    } catch { if (stillBuild(dist, was)) return null; }
   }
-  try {
-    const inside = path => {
-      const child = relative(root, path);
-      return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
-    };
-    const path = resolve(root, '.' + route);
-    if (!inside(path)) return null;
-    const real = realpathSync(path);
-    // Reject both a symlink file and a file reached through a symlink dir.
-    if (real !== path || !inside(real) || !statSync(real).isFile()) return null;
-    return { path: real, route };
-  } catch { return null; }
+  return null;
 }
+
+const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
+const identity = (path) => statSync(path, { bigint: true });
+/** The real path of the build at `dist` (of `.previous` while dist is absent
+ * between two renames), or null to ask again: a build put in place as it was
+ * looked up can resolve to where the old tree has just gone, so the path must
+ * be dist itself (the same file, however its name is spelt). */
+function buildRoot(dist) {
+  let root;
+  try { root = realpathSync(dist); } catch {
+    try { root = realpathSync(`${dist}.previous`); return { root, at: identity(root) }; } catch { return null; }
+  }
+  try { const at = identity(root); return sameFile(at, identity(dist)) ? { root, at } : null; } catch { return null; }
+}
+/** Whether the build looked up as `was` is still the one there (a refusal
+ * then stands; else the build moved meanwhile, and it is asked again). */
+const stillBuild = (dist, was) => { const now = buildRoot(dist); return !!now && now.root === was.root && sameFile(now.at, was.at); };
 
 /** Resolve and read together, retrying when a build rename moved the path
  * between those operations. The opened response is wholly old or wholly
@@ -446,8 +466,9 @@ function* staticRead(dist, pathname) {
     if (published !== undefined) return published;
   } catch { return null; } // a malformed pointer or unsafe path never falls back to stale files
   for (let attempt = 0; attempt < 4; attempt++) {
+    // (staticFile asks again itself while a build is put in place.)
     const found = staticFile(dist, pathname);
-    if (!found) continue;
+    if (!found) return null;
     try {
       const bytes = (yield { op: 'get', root: dirname(found.path), path: basename(found.path) });
       if (bytes !== null) return { ...found, body: Buffer.from(bytes, 'base64') };
@@ -598,12 +619,64 @@ export function replaceBuild(stage, dist) {
     }
   }
   try {
+    // Before `.previous` goes: it may be the only tree left by a swap that
+    // was killed between its renames.
+    if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
+    // No dist (that swap's state): the stage in place first, then `.previous` gone.
+    if (!existsSync(dist)) { renameSync(stage, dist); rmSync(`${dist}.previous`, { recursive: true, force: true }); return; }
     rmSync(`${dist}.previous`, { recursive: true, force: true });
-    if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
+    // One step where the system has one: dist is the new tree from one
+    // instant to the next, never absent, and the old tree is left at the
+    // stage's path. Else two renames, between which a reader falls back to
+    // `.previous`.
+    if (realDirectory(dist) && exchangeDirectories(stage, dist)) { rmSync(stage, { recursive: true, force: true }); return; }
+    renameSync(dist, `${dist}.previous`);
     try { renameSync(stage, dist); }
     catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
     rmSync(`${dist}.previous`, { recursive: true, force: true });
   } finally { rmSync(lock, { force: true }); }
+}
+
+const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
+let exchangeCall, exchangeSaid = false;
+/** Whether builds are put in place in one step in directory `dir` (a
+ * test's question): two directories made there and exchanged. */
+export function directoryExchange(dir) {
+  const a = resolve(dir, '.exchange-a'), b = resolve(dir, '.exchange-b');
+  try { mkdirSync(a); mkdirSync(b); writeFileSync(resolve(a, 'a'), ''); return exchangeDirectories(a, b) && existsSync(resolve(b, 'a')); }
+  finally { rmSync(a, { recursive: true, force: true }); rmSync(b, { recursive: true, force: true }); }
+}
+/** Exchange directories `a` and `b` in one step (macOS `renamex_np`
+ * RENAME_SWAP, Linux `renameat2` RENAME_EXCHANGE): whether it was done.
+ * Not where the system has none (another OS, a filesystem without it, a
+ * runtime with no FFI), said once; the caller then renames twice. */
+function exchangeDirectories(a, b) {
+  if (exchangeCall === undefined) {
+    exchangeCall = null;
+    // EXACT_DIRECTORY_EXCHANGE=0 (a test's): the two renames.
+    if (process.env.EXACT_DIRECTORY_EXCHANGE !== '0') try {
+      const { dlopen, FFIType } = import.meta.require('bun:ffi');
+      // A NUL-ended path, passed as the buffer itself (alive through the call).
+      const path = (p) => Buffer.from(`${p}\0`);
+      if (process.platform === 'darwin') {
+        const { symbols } = dlopen('/usr/lib/libSystem.B.dylib', { renamex_np: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i32 } });
+        exchangeCall = (x, y) => symbols.renamex_np(path(x), path(y), 2) === 0;
+      } else if (process.platform === 'linux') {
+        // glibc's wrapper (2.28 on), else the system call by its number.
+        try {
+          const { symbols } = dlopen('libc.so.6', { renameat2: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 } });
+          exchangeCall = (x, y) => symbols.renameat2(-100, path(x), -100, path(y), 2) === 0;
+        } catch {
+          const number = { x64: 316, arm64: 276 }[process.arch];
+          const { symbols } = dlopen('libc.so.6', { syscall: { args: [FFIType.i64, FFIType.i64, FFIType.ptr, FFIType.i64, FFIType.ptr, FFIType.u64], returns: FFIType.i64 } });
+          if (number) exchangeCall = (x, y) => Number(symbols.syscall(number, -100, path(x), -100, path(y), 2)) === 0;
+        }
+      }
+    } catch { exchangeCall = null; }
+  }
+  const done = exchangeCall?.(a, b) ?? false;
+  if (!done && !exchangeSaid) { exchangeSaid = true; console.log(`${b}: not exchanged in one step (no exchange here, or refused on this volume), so put in place by two renames`); }
+  return done;
 }
 
 /** Whether the build at `dist` is the JS target's. */
@@ -620,12 +693,19 @@ export function buildTreeFile(dist, pathname, accept = '') {
   // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
   // and the install pages and their data (LLP 1030.003 D6a).
   if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
-  let root;
-  try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
-  const prefix = root.endsWith(sep) ? root : root + sep;
-  for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
-    const file = resolve(root, '.' + route);
-    try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
+  // Asked again, three times at most: a build put in place as it was looked up
+  // moves the tree it resolved away under it (its files then resolve to
+  // where the old tree went).
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const was = buildRoot(dist);
+    if (!was) continue;
+    const { root } = was, prefix = root.endsWith(sep) ? root : root + sep;
+    for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
+      const file = resolve(root, '.' + route);
+      try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
+    }
+    // None there: asked again only if the build moved meanwhile.
+    if (stillBuild(dist, was)) return null;
   }
   return null;
 }
@@ -638,9 +718,29 @@ export function serveBuildTree(dist, req, res) {
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
 
-/** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
-export function listAssets(dir, rust = false) {
-  const out = [];
+const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];
+
+/** Capture every bundle asset tree through the owned filesystem reader. */
+export function captureAssets(dir, rust = false) {
+  const files = new Map();
+  for (const tree of assetTrees(rust)) {
+    const captured = filesystem({ op: 'tree', root: resolve(dir, tree), optionalRoot: true }) ?? {};
+    for (const [relative, encoded] of Object.entries(captured)) files.set(`${tree}/${relative}`, Buffer.from(encoded, 'base64'));
+  }
+  return files;
+}
+
+/** Static builds and dev generations authenticate the same captured bytes. */
+export function assetCards(files) {
+  return [...files].map(([name, bytes]) => ({ name, url: `./${name}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }))
+    .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Every file under assets/, deck/, shaders/ and plans/, sorted by name.
+ * Read and digested here, one file at a time: a build of a large asset tree
+ * must not pass every byte through the filesystem reader's reply. */
+export function listAssets(dir, rust = false, extraTrees = []) {
+  const files = [];
   const walk = (sub) => {
     const abs = resolve(dir, sub);
     if (!existsSync(abs)) return;
@@ -649,12 +749,35 @@ export function listAssets(dir, rust = false) {
       if (entry.isDirectory()) walk(rel);
       else if (entry.isFile()) {
         const bytes = readFileSync(resolve(dir, rel));
-        out.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
+        files.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
       }
     }
   };
-  for (const tree of ['assets', 'deck', 'shaders', ...(rust ? ['rust'] : [])]) walk(tree);
-  return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+  for (const tree of [...assetTrees(rust), ...extraTrees]) walk(tree);
+  return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Named snapshot plans share the asset roster's authenticated bytes. */
+export function entryPlans(assets) {
+  const plans = Object.fromEntries(assets.flatMap(card => {
+    const kind = /^plans\/([A-Za-z][A-Za-z0-9_-]*)\.plan$/.exec(card.name)?.[1];
+    return kind ? [[kind, card]] : [];
+  }));
+  return Object.keys(plans).length ? { plans } : {};
+}
+
+/** A dev generation's identity (LLP 1007 §6): the SHA-256 of the canonical
+ * JSON of its plan, asset, module and Rust cards, each by its name, digest
+ * and length, assets in UTF-8 order, as a client checks it (host/web/dev.js
+ * `fetchGeneration`), never by its url (an asset card captured from disk
+ * carries one). */
+export function devGenerationDigest(plan, assets, module = null, rust = null) {
+  const card = ({ bytes, sha256 }) => ({ bytes, sha256 });
+  return createHash('sha256').update(canonicalBytes({
+    plan: card(plan), assets: assets.map(({ name, sha256, bytes }) => ({ name, sha256, bytes })).sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
+    ...(module ? { module: Object.fromEntries(Object.entries(module).map(([key, value]) => [key, card(value)])) } : {}),
+    ...(rust ? { rust: Object.fromEntries(Object.entries(rust).map(([kind, v]) => [kind, { module: card(v.module), receipt: card(v.receipt), ...(kind !== 'wasm' ? { target: v.target } : {}) }])) } : {}),
+  })).digest('hex');
 }
 
 /** The one web envelope producer for static builds and the live dev overlay.
@@ -670,6 +793,7 @@ export function webEnvelope(app, bytes, assets, live = {}) {
     plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
       formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
     assets,
+    ...entryPlans(assets),
     ...live,
   };
 }

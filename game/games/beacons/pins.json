@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0x678050877109b354",
-    "90": "0x56d7b1520ecf2871"
+    "0": "0xeea76e80d36d39df",
+    "90": "0x284b31db4a5cb036"
   },
   "saves": {
-    "continuation": "b1789afc4b212d1ae0c596d8071ce9f7159efa18e2832ac79e7cf7eda096c47f"
+    "continuation": "eb6c4b1096e2423b98d817501e5e632e383f2cc6e91be3eda446e15c380cbd56"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fd7f4f9da33341fc9a9806d23a4e92a5552fc06245d619f8e6597bd5583ab61c",
+  "inputs": "1fe9d429b928cf277c89741a0ce00dbf37a9fd82a1fbbaf3e83b960cc950e006",
+  "sourceInputs": "3f8a5dbd63c75b1099c62000fe5274fd8bc3c0a1d085549f68ae75262172cefe",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "5fa1939ad12fb729d88f82514aabaaad6a635fd7",
+  "reason": "RFC 1127.002 D2 adds rings and translucent halos to Beacons (on main's 07170a2db baseline)"
 }

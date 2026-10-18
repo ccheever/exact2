@@ -333,7 +333,7 @@ function savedFields(bytes, magic, fields) {
   if (!bytes.subarray(0, magic.length).equals(Buffer.from(magic, 'binary'))) fail('unsupported format');
   if (bytes.length > 2 * 1024 ** 3) fail('load size limit');
   let pos = magic.length;
-  const names = [], utf8 = new TextDecoder('utf-8', {fatal:true});
+  const names = [], utf8 = new TextDecoder('utf-8', {fatal:true, ignoreBOM:true});
   const take = n => {
     if (!Number.isSafeInteger(n) || n < 0 || n > bytes.length - pos) fail('truncated value');
     const part = bytes.subarray(pos, pos += n); return part;
@@ -481,7 +481,7 @@ export function facilityReport(replies) {
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`, root = resolve(import.meta.dir, '..')) {
   const gamePrefix = file.startsWith(appPrefix) ? appPrefix : file.startsWith('game/') ? 'game/' : null;
   const gameParts = gamePrefix === null ? [] : file.slice(gamePrefix.length).split('/').slice(0, -1);
-  return (/^(issues|\.claude|\.lane)\//.test(file) && !file.startsWith(appPrefix))
+  return (/^(issues|\.claude)\//.test(file) && !file.startsWith(appPrefix))
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
     || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
@@ -495,24 +495,33 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || gameParts.some((part, i) => ['tests', 'examples'].includes(part)
       && existsSync(resolve(root, gamePrefix, ...gameParts.slice(0, i), 'Cargo.toml')));
 }
-export function proofInputFiles(root, app, inventory) {
+export function proofInputFiles(root, app, inventory, ignoredDirectories = new Set()) {
   const top = inventory ? {status:0, stdout:root} : spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
   const repository = top.status === 0 ? top.stdout.trim() : root;
   const files = inventory ?? spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
-  const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+  const walk = (dir, prefix = '') => ignoredDirectories.has(resolve(dir)) ? [] : readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
     if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','dist-windows','artifacts'].includes(entry.name))) return [];
     const path = prefix + entry.name;
     return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
   });
   // Fleet exports have no Git index; external games are outside exact2's index.
-  // Always include the app's own inputs, even when its defaults are gitignored.
+  // Git-ignored files are outputs or private apparatus, never authored inputs.
   const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
+  const excluded = new Set();
+  for (const cwd of new Set([repository, app])) {
+    const ignored = spawnSync('git', ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], {cwd, encoding:'utf8'});
+    if (ignored.status === 0) for (const file of ignored.stdout.split('\0').filter(Boolean)) {
+      if (file.endsWith('/')) ignoredDirectories.add(resolve(cwd, file));
+      else excluded.add(relative(repository, resolve(cwd, file)).replaceAll('\\', '/'));
+    }
+  }
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
   const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
-  return [...new Set(sources)].sort().filter(file =>
+  return [...new Set(sources)].sort().filter(file => !excluded.has(file) &&
+    ![...ignoredDirectories].some(dir => resolve(repository, file).startsWith(dir + '/')) &&
     !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }
-// Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and
+// Clean tracked bytes are identified by Git blobs. Dirty app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
 // Nanosecond timestamps and inode identity catch edits restored before the next scan.
 const statKey = path => { const s=statSync(path, {bigint:true}); return [s.dev,s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':'); };
@@ -532,19 +541,16 @@ export function proofInputs(root, app, cachePath) {
   const manifest = resolve(app, '.baked-assets.json');
   const generated = new Set(existsSync(manifest)
     ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
-  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
+  const ignoredDirectories = new Set();
+  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories);
   // File stats miss sources created, consumed and removed between scans. Walk
   // shared and app source directories, including empty ones, to retain edits.
   const directories = new Set();
   const sourceDirectories = dir => {
-    if (!existsSync(dir) || directories.has(dir)) return;
+    if (!existsSync(dir) || directories.has(dir) || ignoredDirectories.has(resolve(dir))) return;
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
     if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
     directories.add(dir);
-    // The app root also contains the generated manifest. All its entry changes
-    // require a rerun, as do entry changes inside the generated asset tree.
-    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
-    state.push([file, statKey(dir)]);
     for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
       if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
   };
@@ -579,6 +585,24 @@ export function proofInputs(root, app, cachePath) {
   // The repository walk excludes other apps at their shared parent, and an
   // external app may be outside root. Always scan this app's whole input tree.
   sourceDirectories(resolve(app));
+  // A Git-ignored directory can contain tracked sources. New untracked entries
+  // there are ignored too; only its identity and the tracked files' full stats
+  // matter. Other directories retain timestamps to catch transient sources.
+  const ignoredMixed = new Set();
+  for (const cwd of new Set([resolve(root), resolve(app)])) {
+    const paths = [...directories].filter(dir => dir === cwd || dir.startsWith(cwd + '/'));
+    const ignored = spawnSync('git', ['check-ignore', '--no-index', '-z', '--stdin'], {
+      cwd, input:paths.map(dir => dir + '/').join('\0') + '\0', encoding:'utf8',
+    });
+    if (ignored.status === 0) for (const path of ignored.stdout.split('\0').filter(Boolean)) ignoredMixed.add(resolve(path));
+  }
+  for (const dir of directories) {
+    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
+    // Generated manifest/asset entry changes still require a rerun.
+    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
+    const key = statKey(dir);
+    state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
+  }
   groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
 }

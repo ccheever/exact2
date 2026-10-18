@@ -1,3 +1,26 @@
+# Authored grid alignment, with sized and intrinsic spinners, survives re-entry.
+tap align-start
+tap block
+tap grid
+tap align-center
+tap block
+tap grid
+tap absolute
+tap in-flow
+tap align-normal
+# Start in grid; revisit block between each layout and return from absolute.
+tap block
+tap grid
+tap block
+tap flex-row
+tap block
+tap flex-column
+tap block
+tap absolute
+tap in-flow
+tap grid
+tap absolute
+tap in-flow
 # A control's value, as a choice sets it; then two taps whose targets start
 # out of view, scrolled into it first.
 type pick Beta

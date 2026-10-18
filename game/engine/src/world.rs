@@ -708,6 +708,10 @@ impl World {
         let (s, i) = (self.storage::<C>()?, e.index as usize);
         s.get_mut(i, &self.leases, at)
             .unwrap_or_else(|_| self.refuse(s.row_conflict(i, true, &self.leases, at)))
+            .map(|mut row| {
+                row.owner = Some((self, e));
+                row
+            })
     }
     /// Copy one row out, refusing only a live exclusive lease on it.
     pub(crate) fn copied_at<C: Component + Copy>(&self, e: Entity, at: At) -> Option<C> {
@@ -1481,3 +1485,7 @@ mod required_tests {
 pub(crate) mod edit;
 #[cfg(test)]
 mod edit_tests;
+mod handle;
+
+mod builders;
+pub use builders::{PropBuilder, SpriteBuilder};

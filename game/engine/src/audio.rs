@@ -337,6 +337,7 @@ impl Voice {
     }
 }
 /// Finite voices and their saved identity allocator.
+/// audio::step expires voices; play/stop/fade author changes explicitly in tick.
 #[derive(Default, Clone)]
 pub struct Voices {
     /// Currently playing voices.
@@ -370,6 +371,7 @@ impl Data for Voices {
     }
 }
 /// A sound attached to an entity; looping belongs to its definition.
+/// audio::step applies its playback intent after game logic.
 #[derive(Component, Clone)]
 pub struct AudioSource {
     /// Sound definition name.
@@ -405,6 +407,7 @@ impl AudioSource {
 /// A stable handle returned by `Play::start`.
 pub type VoiceId = u64;
 /// Saved master gain and source journal baseline.
+/// audio::step updates the baseline; the audio executor reads the gain.
 #[derive(Resource, Clone)]
 pub struct Audio {
     /// Linear master gain, default 1; games can set this from a live argument.
@@ -507,7 +510,7 @@ pub fn fade(world: &mut World, id: VoiceId, seconds: f32) {
         ));
     }
 }
-/// The ears. `step` refuses extra listeners, keeping the lowest entity index.
+/// The ears. audio::step refuses extra listeners, keeping the lowest entity index.
 #[derive(Component, Default, Clone)]
 pub struct AudioListener;
 

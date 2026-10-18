@@ -18,10 +18,13 @@
 #![deny(missing_docs)]
 
 mod actions;
+mod activities;
+pub use activities::option_type as activity_option_type;
 mod bounds;
 mod calls;
 mod checks;
 mod component;
+mod decorations;
 mod enums;
 mod failure;
 mod geometry;
@@ -1150,6 +1153,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);
+    decorations::declare(&mut shapes);
     failure::declare(&mut shapes);
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
@@ -1352,13 +1356,11 @@ fn check_with_sites(
             expanded,
         })
     } else {
-        Err(prefer_call_sites(
-            sink.errors,
-            children,
-            file,
-            &types,
-            &expanded,
-        ))
+        let mut errors = prefer_call_sites(sink.errors, children, file, &types, &expanded);
+        for e in &mut errors {
+            records::nominal(e, &types.shapes, file);
+        }
+        Err(errors)
     }
 }
 

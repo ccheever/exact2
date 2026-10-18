@@ -523,6 +523,156 @@ fn a_summary_card_in_a_grouped_section_is_named() {
     assert_eq!(warned(&above), Vec::<u32>::new());
 }
 
+/// `StatBar`'s label and value share a line where both fit and the value
+/// goes under the label where they do not, as UIKit's value cell stacks
+/// them at the accessibility sizes: the label is never cut ("F" for Friday,
+/// water-tracker at the largest text size).
+#[test]
+fn a_stat_bar_puts_its_value_under_its_label_when_both_do_not_fit() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("content-stat-wrap");
+    let root = dir.write(
+        "app.contract",
+        r#"use StatBar from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=400
+      column testId="wide" width=400
+        StatBar(label="Friday", value="800 ml", fraction=0.5, tint=none)
+      column testId="narrow" width=120
+        StatBar(label="Wednesday", value="800 ml", fraction=0.5, tint=none)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(400.0, 400.0))
+        .unwrap();
+    let k = r.kernel();
+    let texts = |t: &str| -> Vec<exact_kernel::NodeRef<'_>> {
+        under(k, at(k, t))
+            .into_iter()
+            .filter(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text).is_some())
+            .collect()
+    };
+    let wide = texts("wide");
+    let (label, value) = (wide[0].frame, wide[1].frame);
+    assert_eq!(label.y, value.y, "one line: {label:?} {value:?}");
+    assert_eq!(value.x + value.width, 400.0, "the value at the far edge");
+    let narrow = texts("narrow");
+    let (label, value) = (&narrow[0], &narrow[1]);
+    assert_eq!(label.props.str(PropId::Text), Some("Wednesday"));
+    assert!(
+        value.frame.y >= label.frame.y + label.frame.height,
+        "the value under the label: {:?} {:?}",
+        label.frame,
+        value.frame
+    );
+    assert_eq!(value.frame.x, 0.0, "at the line's start");
+}
+
+/// `RowText`'s value trails its title and detail where they fit on one line
+/// and goes under them where they do not, both wrapping, as UIKit's value
+/// cell stacks its text and secondary text at the accessibility sizes: at
+/// the largest text size a long value squeezed the title to nothing beside
+/// it and ran past the row.
+#[test]
+fn row_text_puts_its_value_under_its_title_when_both_do_not_fit() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("content-row-wrap");
+    let root = dir.write(
+        "app.contract",
+        r#"use RowText from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=800
+      column testId="short" width=400
+        RowText(title="Oat milk", detail="2 in stock", value=some("$3.50"))
+      column testId="long" width=400
+        RowText(title="Oat milk", detail="2 in stock", value=some("Saturday, October 17, 2026 at 7:30 PM"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    // The box of the title and detail, the value beside it in one parent, and that parent.
+    let parts = |t: &str| {
+        let all = under(k, at(k, t));
+        let text = |s: &str| {
+            all.iter()
+                .find(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text) == Some(s))
+                .copied()
+                .unwrap()
+        };
+        let (title, value) = (
+            text("Oat milk"),
+            all.iter()
+                .rev()
+                .find(|n| n.node_type == NodeType::Text)
+                .copied()
+                .unwrap(),
+        );
+        let parent = |id: u32| {
+            all.iter()
+                .find(|n| n.children().contains(&id))
+                .copied()
+                .unwrap()
+        };
+        let lines = parent(title.id);
+        (
+            title.frame,
+            lines.frame,
+            value.frame,
+            parent(value.id).frame,
+        )
+    };
+    let (title, lines, value, row) = parts("short");
+    assert!(
+        value.y < lines.y + lines.height,
+        "beside: {lines:?} {value:?}"
+    );
+    assert_eq!(
+        value.x + value.width,
+        row.width,
+        "the value at the far edge"
+    );
+    assert!(title.width > 0.0);
+    let (title, lines, value, row) = parts("long");
+    assert!(
+        title.width >= 8.0 * 8.0,
+        "the title keeps its words: {title:?}"
+    );
+    assert!(
+        value.y >= lines.y + lines.height && value.x == 0.0,
+        "the value under the title and detail: {lines:?} {value:?}"
+    );
+    assert!(
+        value.width <= row.width,
+        "it wraps in the row: {value:?} {row:?}"
+    );
+}
+
 /// LLP 1116.001 D2: `RingProgress` is a ring around its value, one
 /// progress bar to a reader, and a state is a second colour: short of the
 /// goal the accent, a goal met the system green, done against not done
@@ -833,11 +983,89 @@ component App
     assert_eq!(tile("Quito").style.text_color, named("-exact-label"));
 }
 
+/// A poll's options as a grouped list's rows (polls): each
+/// tile is the list's own cell, the vote its checkmark accessory rather than
+/// a drawn card inset in the row, and a closed poll's vote (`"chosen"`)
+/// keeps its checkmark while the rest dim; told tiles do not press.
+#[test]
+fn exact_content_answer_tiles_are_a_grouped_lists_cells() {
+    use exact_kernel::{Accessory, Offer, PropId};
+    let dir = Dir::new("content-answer-rows");
+    let root = dir.write(
+        "app.contract",
+        r#"use AnswerTile from "exact:content"
+component App
+  state mine = "Sushi"
+  state closed = false
+  action vote(o: string)
+    mine = o
+  action close
+    closed = true
+  view
+    column testId="root" width=400 height=900
+      list testId="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+        section
+          for o in ["Tacos", "Sushi"] key=o
+            AnswerTile(label=o, status=(mine == o ? (closed ? "chosen" : "selected") : closed ? "dimmed" : "idle"), press=vote(o), testId=o)
+        section
+          button press=close testId="close"
+            text "Close Poll"
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let rows = |r: &mut exact_runner::Runner<NoData>| {
+        let k = r.kernel_mut();
+        let top = at(k, "root");
+        k.compute_layout(top, Offer::definite(400.0, 900.0))
+            .unwrap();
+        let list = k.grouped_list(at(k, "list")).unwrap();
+        list.sections[0]
+            .rows
+            .iter()
+            .map(|row| (row.title.clone(), row.custom, row.accessory, row.disabled))
+            .collect::<Vec<_>>()
+    };
+    let title = |t: &str| Some(t.to_string());
+    assert_eq!(
+        rows(&mut r),
+        [
+            (title("Tacos"), false, Accessory::None, false),
+            (title("Sushi"), false, Accessory::Checkmark, false),
+        ]
+    );
+    let close = at(r.kernel(), "close");
+    r.dispatch(close, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        rows(&mut r),
+        [
+            (title("Tacos"), false, Accessory::None, true),
+            (title("Sushi"), false, Accessory::Checkmark, true),
+        ]
+    );
+    let k = r.kernel();
+    assert_eq!(
+        k.node(at(k, "Sushi"))
+            .unwrap()
+            .props
+            .str(PropId::AccessibilityLabel),
+        Some("Sushi, selected")
+    );
+}
+
 /// LLP 1116.004 D9: a status is a `Badge`, not coloured text: its label in a
 /// capsule that keeps its own size at the start of a column and centred in a
 /// row, never stretched; its ink legible on its fill in either scheme (dark
-/// on a system hue, white on indigo, the platform's own on the accent and on
-/// the neutral grey); and a reader hears its text.
+/// on a light system hue, white on the others, the platform's own on the
+/// accent and on the neutral grey); and a reader hears its text.
 #[test]
 fn exact_content_draws_a_status_badge() {
     use exact_kernel::style::roles::role;
@@ -856,6 +1084,7 @@ component App
         Badge(label="Full", tint=some("-exact-system-orange"))
         Badge(label="New", tint=some("AccentColor"))
         Badge(label="Indigo", tint=some("-exact-system-indigo"))
+        Badge(label="Closed", tint=some("-exact-system-red"))
 "#,
     );
     let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
@@ -910,7 +1139,7 @@ component App
         .iter()
         .map(|(_, t)| t.props.str(PropId::Text).unwrap())
         .collect();
-    assert_eq!(words, ["Full", "New", "Indigo"]);
+    assert_eq!(words, ["Full", "New", "Indigo", "Closed"]);
     for (c, _) in &row {
         assert!(
             c.frame.height < 40.0 && c.frame.y > 0.0,
@@ -918,14 +1147,21 @@ component App
             c.frame
         );
     }
-    let (full, new, indigo) = (&row[0], &row[1], &row[2]);
+    let (full, new) = (&row[0], &row[1]);
     assert_eq!(
         full.0.color_scheme_dark(),
         Some(false),
         "dark ink on orange"
     );
     assert_eq!(full.1.style.text_color, named("-exact-label"));
-    assert_eq!(indigo.0.color_scheme_dark(), Some(true), "white on indigo");
+    // White on a hue white reads on, as UIKit's filled button and badge: the
+    // label's ink in the dark scheme, the fill in the page's own.
+    for (c, t) in &row[2..] {
+        let word = t.props.str(PropId::Text);
+        assert_eq!(c.color_scheme_dark(), None, "{word:?}");
+        assert_eq!(t.color_scheme_dark(), Some(true), "{word:?}");
+        assert_eq!(t.style.text_color, named("-exact-label"));
+    }
     // LLP 1116.007 D3.10: the accent is a tint, not a fill under white ink (1.4:1 on
     // yellow, 3.5:1 on the system blue, against a caption's 4.5:1): the accent at 16% on a
     // layer under the label, which keeps its own ink, so it reads on every accent.

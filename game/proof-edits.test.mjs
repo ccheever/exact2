@@ -70,6 +70,7 @@ test('pinSave inspects captured saves after argument restart cancels the live qu
         ['  set\u0085player Tuning.speed 8  ', true],
         ['set player Tuning.speed.extra 8', false],
         ['set difficulty hard', false],
+        ['\uFEFFset player Tuning.speed 8', false],
         ['set player Tuning.speed   ', false],
       ]) {
         const path = join(dir, 'message.world'), bytes = Buffer.from(text);

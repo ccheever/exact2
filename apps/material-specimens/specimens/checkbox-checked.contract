@@ -1,0 +1,4 @@
+component App
+  view
+    column padding=16 align-items="flex-start"
+      input type="checkbox" checked=true aria-label="Done" testId="specimen"

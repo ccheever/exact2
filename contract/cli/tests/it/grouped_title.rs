@@ -110,3 +110,32 @@ fn a_button_holding_the_title_is_the_title_and_the_later_text_its_value() {
         "the value is the secondary label"
     );
 }
+
+/// A row of columns its author sized (`flex=1` each, event-rsvp's counts
+/// over captions, round 21) is laid out as CSS lays it: no column is
+/// squeezed under its caption's width, so no caption runs into the next.
+#[test]
+fn columns_the_author_sized_keep_their_words_width() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row padding-top=14 padding-bottom=14\n      column flex=1 align-items=\"center\" testId=\"c0\"\n        text \"1\"\n        text \"Going\" testId=\"t0\"\n      column flex=1 align-items=\"center\" testId=\"c1\"\n        text \"1\"\n        text \"Maybe\" testId=\"t1\"\n      column flex=1 align-items=\"center\" testId=\"c2\"\n        text \"0\"\n        text \"Can’t go\" testId=\"t2\"";
+    for root in [17.0f32, 53.0] {
+        let mut r = boot(body);
+        r.set_root_font_size(root.into()).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        for (column, caption) in [("c0", "t0"), ("c1", "t1"), ("c2", "t2")] {
+            let (c, t) = (frame(column), frame(caption));
+            assert!(
+                c.width >= t.width - 0.5,
+                "{root}: {column} keeps {caption}'s width: {c:?} {t:?}"
+            );
+        }
+        for (a, b) in [("c0", "c1"), ("c1", "c2")] {
+            let (a, b) = (frame(a), frame(b));
+            assert!(a.x + a.width <= b.x + 0.5, "{root}: {a:?} {b:?}");
+        }
+    }
+}

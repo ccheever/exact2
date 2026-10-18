@@ -7,7 +7,7 @@
 // poll within the hosts' limits and keeps an answer until it is
 // acknowledged; a report's fields typed, and its body read safely.
 import { expect, test } from 'bun:test';
-import { buildChannel, relayChannel, serveCommands, serveReport } from './tamber-builds.mjs';
+import { buildChannel, relayChannel, serveCommands, serveReport, streamFrame, BEHIND } from './tamber-builds.mjs';
 
 const stream = channel => {
   const frames = [];
@@ -208,6 +208,31 @@ test('a poll\'s answer is kept until acknowledged: a lost response loses no comm
   expect(channel.poll(nonce, 2)).toEqual({ seq: 3, frames: [] });
 });
 
+test('a long poll (`wait`) is held until a frame comes, or its wait passes; a newer one answers the older at once', async () => {
+  const channel = buildChannel();
+  const { nonce } = channel.openPolled();
+  register(channel, nonce, 'linux-1', 'linux');
+  // Its pin frame is queued: answered at once.
+  const first = await channel.waitPoll(nonce, 0, 4000);
+  expect(first.frames).toEqual([{ kind: 'pin', revision: 0, pin: null }]);
+  // Nothing queued: held until the pin comes.
+  const t0 = Date.now();
+  const held = channel.waitPoll(nonce, first.seq, 4000);
+  setTimeout(() => channel.pin('tool', 'linux-1', { scheme: 'dark' }), 30);
+  const second = await held;
+  expect(second.frames).toEqual([{ kind: 'pin', revision: 1, pin: { scheme: 'dark' } }]);
+  expect(Date.now() - t0).toBeLessThan(1000);
+  // Its wait passes: an answer with no frames.
+  expect((await channel.waitPoll(nonce, second.seq, 40)).frames).toEqual([]);
+  // One held per stream: a newer poll answers the older now.
+  const older = channel.waitPoll(nonce, 3, 4000);
+  const newer = channel.waitPoll(nonce, 3, 50);
+  expect((await older).frames).toEqual([]);
+  await newer;
+  // Its stream gone: null at once.
+  expect(await channel.waitPoll('none', 0, 4000)).toBe(null);
+});
+
 test('a polled queue is bounded: one pin queued, live frames collapsed into a notice', () => {
   const channel = buildChannel();
   const { nonce } = channel.openPolled();
@@ -352,12 +377,17 @@ test('the resident loop relays the main loop\'s commands onto its own stream', a
   const channel = buildChannel();
   // The first answer with frames is lost on the way (the connection reset
   // after the server answered): the relay asks again and loses nothing.
-  let lost = false;
-  const main = createServer((req, res) => {
+  // Each poll is a long one (`wait`), held until a frame comes.
+  let lost = false, waits = 0;
+  const main = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
+    if (url.searchParams.has('wait')) waits++;
     if (!lost && url.pathname === '/__dev/commands') {
-      const answer = channel.poll(url.searchParams.get('nonce'), url.searchParams.get('ack'));
+      const answer = await channel.waitPoll(url.searchParams.get('nonce'), url.searchParams.get('ack'), url.searchParams.get('wait'));
       if (answer?.frames.length) { lost = true; res.destroy(); return; }
+      res.writeHead(answer ? 200 : 404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(answer));
+      return;
     }
     serveCommands(channel, url, res);
   });
@@ -372,12 +402,15 @@ test('the resident loop relays the main loop\'s commands onto its own stream', a
   await until(() => frames.at(-1)?.revision === 1);
   // (A pin replaced before it was polled is not sent: only the latest is.)
   expect(lost).toBe(true);
+  expect(waits).toBeGreaterThan(0);
   expect(frames.at(-1)).toEqual({ kind: 'pin', revision: 1, pin: { scheme: 'light' } });
   // The main loop forgets the nonce: the relay ends the device's stream.
   channel.poll('x');
   for (const b of channel.list()) expect(b.id).toBe('ios-sim');
   const realNow = Date.now;
   Date.now = () => realNow() + 60_000;
+  // Swept then: the poll held there is answered with the stream gone.
+  channel.poll('x');
   try { await until(() => ended); } finally { Date.now = realNow; }
   expect(ended).toBe(true);
   relayed.close();
@@ -465,4 +498,201 @@ test('a build says the digest of the plan it runs, on registering and in its sta
   expect(channel.list()[0].planDigest).toBe('1'.repeat(64));
   report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest: '2'.repeat(64) });
   expect(channel.list()[0].planDigest).toBe('2'.repeat(64));
+});
+
+test('a scrub frame collapsed or over the bound keeps its mark in the notice (*1.11*)', () => {
+  const channel = buildChannel();
+  const { nonce } = channel.openPolled();
+  register(channel, nonce, 'linux-1', 'linux');
+  channel.poll(nonce);
+  const frame = i => ({ kind: 'tamber-batch', structure: 's', base: `d${i}`, design: `d${i + 1}`, tokens: [{ name: 't', value: 'x'.repeat(40_000), slices: [] }], scrub: { id: 'scrub-1', rev: i + 1, run: 'r' } });
+  channel.broadcast(frame(0));
+  const [f] = channel.poll(nonce, 1).frames.filter(f => f.kind === 'tamber-batch');
+  expect(f.tokens).toEqual([]);
+  expect(f.scrub).toEqual({ id: 'scrub-1', rev: 1, run: 'r' });
+});
+
+test('a stream behind takes no frames until it drains, then the latest design\'s notice', () => {
+  const written = [];
+  let drain = null;
+  const res = { writableLength: 0, write: t => written.push(t), once: (e, f) => { if (e === 'drain') drain = f; } };
+  streamFrame(res, '{"n":1}', () => ({ n: 'latest' }));
+  res.writableLength = BEHIND + 1;
+  streamFrame(res, '{"n":2}', () => ({ n: 'latest' }));
+  streamFrame(res, '{"n":3}', () => ({ n: 'latest' }));
+  expect(written).toEqual(['data: {"n":1}\n\n']);
+  res.writableLength = 0;
+  drain();
+  expect(written).toEqual(['data: {"n":1}\n\n', 'data: {"n":"latest"}\n\n']);
+  streamFrame(res, '{"n":4}', () => null);
+  expect(written.at(-1)).toBe('data: {"n":4}\n\n');
+});
+
+// LLP 1122 D8, LLP 1121 stage 8 E (*1.11*): a hold, one a build and its
+// client's, sent as a command frame; refused where it is malformed and told
+// where the build holds no state; its build's `held` reports go to every
+// client; a build that lets it go (real input) is not held any more; replayed
+// on a reconnect under the same plan, at the one corresponding site under a
+// new plan (a rebuild on the same stream), else cleared with a diagnostic;
+// let go when its client goes.
+test('a hold is one a build, its client\'s, replayed only through one corresponding site', () => {
+  const events = [];
+  const moves = new Map([[`${'1'.repeat(64)}>${'2'.repeat(64)}:3`, 5]]);
+  const channel = buildChannel({ send: e => events.push(e), correspond: (from, to, site) => moves.get(`${from}>${to}:${site}`) ?? null });
+  const a = stream(channel), b = stream(channel);
+  const plan = (n) => n.repeat(64);
+  const web = () => channel.list().find(b => b.id === 'web-1');
+  report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], planDigest: plan('1') });
+  register(channel, b.nonce, 'term-1', 'terminal');
+  // Refused: malformed; told: a build that holds no state.
+  expect(channel.hold('tool', 'web-1', { site: 3, instance: [], state: 'pressed' }).error).toContain('state');
+  expect(channel.hold('tool', 'web-1', { site: -1, instance: [], state: 'active' }).error).toContain('site');
+  expect(channel.hold('tool', 'term-1', { site: 3, instance: [], state: 'active' }).unsupported).toContain('holds no state');
+  const held = channel.hold('tool', 'web-1', { site: 3, instance: [[0, 1]], state: 'active' }, plan('1'));
+  expect(a.frames.at(-1)).toEqual({ kind: 'hold', revision: held.revision, hold: { site: 3, instance: [[0, 1]], state: 'active' }, plan: plan('1') });
+  // A new one replaces it.
+  const hover = channel.hold('other', 'web-1', { site: 3, instance: [[0, 1]], state: 'hover' }, plan('1'));
+  expect(channel.list()[0].hold).toEqual({ site: 3, instance: [[0, 1]], state: 'hover' });
+  expect(channel.owners()).toContain('other');
+  // Its build reports it applied, to every client.
+  expect(report(channel, { nonce: a.nonce, kind: 'held', state: 'hover', revision: hover.revision }).status).toBe(204);
+  expect(events.at(-1)).toEqual({ event: 'held', build: 'web-1', state: 'hover', reason: null });
+  // A reconnect under the same plan: replayed as it is.
+  a.close();
+  const a2 = stream(channel);
+  report(channel, { nonce: a2.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], planDigest: plan('1') });
+  // (At a new revision: the host's `replaced` of the one before is old news.)
+  const replayed = a2.frames.at(-1);
+  expect(replayed).toEqual({ kind: 'hold', revision: replayed.revision, hold: { site: 3, instance: [[0, 1]], state: 'hover' }, plan: plan('1') });
+  expect(replayed.revision).toBeGreaterThan(hover.revision);
+  expect(report(channel, { nonce: a2.nonce, kind: 'held', state: null, reason: 'replaced', revision: hover.revision }).status).toBe(204);
+  expect(web().hold).toEqual({ site: 3, instance: [[0, 1]], state: 'hover' });
+  // A rebuild on the same stream (a new planDigest): the one site that corresponds.
+  report(channel, { nonce: a2.nonce, kind: 'status', planDigest: plan('2'), revision: 0 });
+  const moved = a2.frames.at(-1);
+  expect(moved).toEqual({ kind: 'hold', revision: moved.revision, hold: { site: 5, instance: [[0, 1]], state: 'hover' }, plan: plan('2') });
+  expect(moved.revision).toBeGreaterThan(replayed.revision);
+  // Another rebuild with no single corresponding site: cleared, said so,
+  // and the build told to let it go.
+  report(channel, { nonce: a2.nonce, kind: 'status', planDigest: plan('3'), revision: 0 });
+  expect(events.find(e => e.event === 'hold-cleared')).toMatchObject({ build: 'web-1', client: 'other' });
+  expect(a2.frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
+  expect(web().hold).toBe(null);
+  // A late report of the hold that was cleared cannot bring it back.
+  expect(report(channel, { nonce: a2.nonce, kind: 'held', state: 'hover', revision: moved.revision }).status).toBe(204);
+  expect(web().held).toBe(null);
+  // Real input lets it go: not held any more, nor replayed.
+  const again = channel.hold('tool', 'web-1', { site: 5, instance: [], state: 'active' }, plan('3'));
+  report(channel, { nonce: a2.nonce, kind: 'held', state: null, reason: 'input', revision: again.revision });
+  expect(events.at(-1)).toEqual({ event: 'held', build: 'web-1', state: null, reason: 'input' });
+  expect(web().hold).toBe(null);
+  // The client goes: its hold is let go.
+  channel.hold('tool', 'web-1', { site: 5, instance: [], state: 'focus-visible' }, plan('3'));
+  channel.clear('tool');
+  expect(a2.frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
+  // A registration with no hold says so: a page that kept one lets it go.
+  const a3 = stream(channel);
+  report(channel, { nonce: a3.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], planDigest: plan('3') });
+  expect(a3.frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
+  // A hold refused is its frame's, to the client that owns it alone, and ends it; an old one's is old news.
+  const iffy = channel.hold('tool', 'web-1', { site: 5, instance: [], state: 'hover' }, plan('3'));
+  expect(events.at(-1)).toMatchObject({ event: 'builds' });
+  report(channel, { nonce: a3.nonce, kind: 'unsupported', what: 'hold', detail: 'no hover', revision: iffy.revision - 1 });
+  expect(events.at(-1)).toMatchObject({ event: 'builds' });
+  report(channel, { nonce: a3.nonce, kind: 'unsupported', what: 'hold', detail: 'no hover', revision: iffy.revision });
+  expect(events.findLast(e => e.event === 'unsupported')).toEqual({ event: 'unsupported', build: 'web-1', what: 'hold', detail: 'no hover', only: 'tool' });
+  expect(web().unsupported).toBe(null);
+  expect(web().hold).toBe(null);
+  expect(web().held).toBe(null);
+  // A let-go closes its revision: a late applied report of it applies nothing.
+  const closed = channel.hold('tool', 'web-1', { site: 5, instance: [], state: 'active' }, plan('3'));
+  report(channel, { nonce: a3.nonce, kind: 'held', state: null, reason: 'input', revision: closed.revision });
+  expect(report(channel, { nonce: a3.nonce, kind: 'held', state: 'active', revision: closed.revision }).status).toBe(204);
+  expect(web().held).toEqual({ state: null, reason: 'input' });
+  // Held before the build named a plan: the first plan it names is the one held under, not another.
+  const a4 = stream(channel);
+  report(channel, { nonce: a4.nonce, kind: 'register', id: 'web-2', host: 'web', capabilities: ['hold'] });
+  channel.hold('tool', 'web-2', { site: 3, instance: [], state: 'hover' });
+  const sent = a4.frames.length;
+  report(channel, { nonce: a4.nonce, kind: 'status', planDigest: plan('1'), revision: 0 });
+  expect(a4.frames.length).toBe(sent);
+  report(channel, { nonce: a4.nonce, kind: 'status', planDigest: plan('2'), revision: 0 });
+  expect(a4.frames.at(-1)).toMatchObject({ kind: 'hold', hold: { site: 5, state: 'hover' } });
+  // A held report's fields are typed, its revision named.
+  expect(report(channel, { nonce: a3.nonce, kind: 'held', state: 'pressed', revision: iffy.revision }).status).toBe(400);
+  expect(report(channel, { nonce: a3.nonce, kind: 'held', state: null, reason: 'gone' }).status).toBe(400);
+});
+
+/** A clock a test moves: `timers` for the channel, `tick(ms)` runs what falls due. */
+const clock = () => {
+  let now = 0, next = 1;
+  const due = new Map();
+  return {
+    timers: { set: (fn, ms) => { const id = next++; due.set(id, { at: now + ms, fn }); return { id, unref() {} }; }, clear: (h) => { if (h) due.delete(h.id); } },
+    tick(ms) { now += ms; for (const [id, t] of [...due].sort((p, q) => p[1].at - q[1].at)) if (t.at <= now && due.has(id)) { due.delete(id); t.fn(); } },
+    waiting: () => due.size,
+  };
+};
+
+test('a status that moves only the design is told 150 ms after the first waiting, the latest; any other change, or any other report, at once', () => {
+  const events = [], time = clock();
+  const channel = buildChannel({ send: e => events.push(e), timers: time.timers });
+  const a = stream(channel);
+  register(channel, a.nonce, 'mac-1', 'macos');
+  const status = (extra) => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', contrast: 'no-preference', mode: { a: 'x', b: 'y' }, rootFontSize: 16, revision: 0, ...extra });
+  const told = () => events.filter(e => e.event === 'build-status').map(e => e.build.design);
+  status({ design: 'd0' });
+  expect(told()).toEqual(['d0']);
+  // A scrub's frames, each a status: none told before 150 ms from the first
+  // waiting (a mode's axes in another order are the same facts), the later
+  // ones not restarting the wait...
+  status({ design: 'd1' });
+  time.tick(40); status({ design: 'd2', mode: { b: 'y', a: 'x' } });
+  time.tick(40); status({ design: 'd3' });
+  time.tick(69);
+  expect(told()).toEqual(['d0']);
+  expect(channel.list()[0].design).toBe('d3');
+  // ...then the latest, once, at 150 ms.
+  time.tick(1);
+  expect(told()).toEqual(['d0', 'd3']);
+  // Sustained frames 16 ms apart for 600 ms: one told 150 ms after each
+  // first waiting, the latest each time (the next wait starts at the next frame).
+  for (let t = 0; t < 600; t++) { if (t % 16 === 0) status({ design: `s${t}` }); time.tick(1); }
+  expect(told().slice(2)).toEqual(['s144', 's304', 's464']);
+  time.tick(150);
+  expect(told().at(-1)).toBe('s592');
+  // Another fact moving is told at once, with the design as it is then.
+  status({ design: 'd6' });
+  status({ design: 'd7', scheme: 'dark' });
+  expect(told().at(-1)).toBe('d7');
+  expect(time.waiting()).toBe(0);
+  // Any other report (a selection, a refusal) is about the design it runs: told first.
+  status({ design: 'd8', scheme: 'dark' });
+  report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'pin.contrast' });
+  expect(events.slice(-2).map(e => [e.event, e.build?.design ?? e.what])).toEqual([['build-status', 'd8'], ['unsupported', 'pin.contrast']]);
+  expect(time.waiting()).toBe(0);
+});
+
+test("a design waiting when its build registers again or goes is never told; the new registration's first status is", () => {
+  const events = [], time = clock();
+  const channel = buildChannel({ send: e => events.push(e), timers: time.timers });
+  const a = stream(channel);
+  register(channel, a.nonce, 'mac-1', 'macos');
+  const status = (design) => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', contrast: 'no-preference', mode: null, rootFontSize: 16, revision: 0, design });
+  const told = () => events.filter(e => e.event === 'build-status').map(e => e.build.design);
+  status('d0'); status('d1');
+  expect([told(), time.waiting()]).toEqual([['d0'], 1]);
+  // A reload on its stream: the wait forgotten; its first status (same
+  // facts as the last told, another design) told at once.
+  register(channel, a.nonce, 'mac-1', 'macos');
+  expect(time.waiting()).toBe(0);
+  status('r0');
+  expect(told()).toEqual(['d0', 'r0']);
+  time.tick(200);
+  expect(told()).toEqual(['d0', 'r0']);
+  // Gone while one waits: nothing told for it after.
+  status('r1');
+  a.close();
+  time.tick(200);
+  expect(told()).toEqual(['d0', 'r0']);
 });

@@ -49,6 +49,35 @@ impl SourceMap {
         self.sources.relocate(moves)
     }
 
+    /// Whether the source as compiled says `w` where it says it was
+    /// written: its name at its place, then `=`. A row the compiler
+    /// composed or renamed (an animation's longhands, a symbol's tint, a
+    /// grouped field's `flex` made `flex-grow`) keeps another attribute's
+    /// span and says nowhere (LLP 1122 D6, fail closed). `lines` keeps
+    /// each source's line starts.
+    fn written_there(
+        &self,
+        lines: &mut std::collections::HashMap<u32, Vec<usize>>,
+        w: &contract_lower::Written,
+    ) -> bool {
+        let id = w.span.source_id;
+        let Some(text) = self.sources.texts.get(id as usize) else {
+            return false;
+        };
+        let starts = lines.entry(id).or_insert_with(|| {
+            std::iter::once(0)
+                .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+                .collect()
+        });
+        let Some(&start) = starts.get((w.span.line as usize).wrapping_sub(1)) else {
+            return false;
+        };
+        let line = text[start..].split('\n').next().unwrap_or("");
+        line.get((w.span.col as usize).wrapping_sub(1)..)
+            .and_then(|rest| rest.strip_prefix(w.name.as_str()))
+            .is_some_and(|rest| rest.trim_start_matches(' ').starts_with('='))
+    }
+
     fn at(&self, out: &mut Vec<u8>, span: Span) {
         out.extend_from_slice(b"\"file\":");
         quote(out, &self.sources.path(span).to_string_lossy());
@@ -180,6 +209,7 @@ impl SourceMap {
         // Serialize directly: no second tree of JSON objects proportional to
         // all nodes and repeated call chains on the edit-to-plan path.
         let mut out = Vec::with_capacity(self.sites.nodes.len() * 256);
+        let mut lines = std::collections::HashMap::new();
         out.extend_from_slice(b"{\"digest\":");
         quote(&mut out, &plan_digest(plan_bytes));
         out.extend_from_slice(b",\"nodes\":[");
@@ -224,6 +254,26 @@ impl SourceMap {
                 quote(&mut out, row.name());
                 out.extend_from_slice(b",\"origin\":");
                 quote(&mut out, &origin.label());
+                // The attribute it came from (LLP 1122 D6), `set-row`'s
+                // address, and its name as written (a shorthand's for an
+                // expansion: `padding` for `padding_top`).
+                if let Some(w) = origin
+                    .written()
+                    .filter(|w| self.written_there(&mut lines, w))
+                {
+                    out.extend_from_slice(b",\"at\":{");
+                    self.at(&mut out, w.span);
+                    out.extend_from_slice(b"},\"attr\":");
+                    quote(&mut out, &w.name);
+                }
+                // A state part's row: its state and where it is written (LLP 1121 D8).
+                if let contract_lower::Origin::State { state, span, .. } = origin {
+                    out.extend_from_slice(b",\"state\":");
+                    quote(&mut out, state);
+                    out.extend_from_slice(b",\"at\":{");
+                    self.at(&mut out, *span);
+                    out.push(b'}');
+                }
                 out.push(b'}');
             }
             out.extend_from_slice(b"]}");

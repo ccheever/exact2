@@ -354,6 +354,7 @@ component Shelf
                         input type="number"
                           value=draftPages
                           input=editPages
+                          submit=save
                           placeholder="Optional"
                           aria-label="Pages"
                           inputmode="numeric"
@@ -763,3 +764,17 @@ component Stars
     row gap=2 role="img" aria-label=`Rated ${value} of 5` testId=tid
       for n in [1, 2, 3, 4, 5] key = n
         image (n <= value ? "symbol:star-fill" : "symbol:star") font="-exact-caption2"
+
+shape ShelfWidgetProps
+  count: number
+  latest: string
+
+component ShelfWidget
+  props
+    count: number
+    latest: string
+  view
+    column gap=8
+      text "On your shelf" role="heading" aria-level=2
+      text `${count}` font-variant-numeric="tabular-nums"
+      text latest line-clamp=2

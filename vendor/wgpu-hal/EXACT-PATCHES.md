@@ -249,6 +249,21 @@ lost. The semaphores a texture still holds are now left to it and logged; the
 texture's drop makes no Vulkan call, so a few handles of a lost device are
 never destroyed.
 
+## 13. Every lasting framebuffer is the device's (Vulkan)
+
+`src/vulkan/mod.rs`, `src/vulkan/device.rs`, `src/vulkan/command.rs`,
+`src/vulkan/adapter.rs`. Patch 6 kept framebuffers of swapchain views on the
+device; every other render pass still made a `VkFramebuffer` each frame, since
+the command encoder's cache is emptied whenever the encoder is reset. On a
+Galaxy Note 9 (Adreno 630) drawing Castle Town with 150 players, creating them
+was 4% of the presenting thread (`vkCreateFramebuffer`, about 0.6 ms a frame).
+Now a render pass whose attachments are all views (not the encoder's temporary
+slice views) uses the device's framebuffer (`DeviceShared::framebuffers`),
+made once per pass key; destroying a view destroys the framebuffers that draw
+into it (`forget_view`), as wgpu-core destroys a view only after the
+submissions that used it have finished. Nothing a caller can observe changes
+but the count of framebuffers made. Upstreamable.
+
 ## Updating
 
 Take the new archive whole, reapply the marked places (`git diff` against the

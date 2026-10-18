@@ -15,6 +15,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
 };
+
 #[cfg(target_os = "android")]
 #[path = "surfaces/android.rs"]
 mod android;
@@ -28,14 +29,15 @@ pub use android::{buffer_frame, window_ready};
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
-mod digest;
 mod pixels;
 mod shaders;
 #[cfg(windows)]
 mod window;
+
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
 type Text = unsafe extern "C" fn(u32, *const u8, usize) -> u32;
+
 struct Abi {
     // Symbols never outlive this library; unload TLS before dlclose.
     library: Library,
@@ -47,6 +49,7 @@ struct Abi {
     symbols: std::cell::RefCell<std::collections::HashMap<&'static [u8], usize>>,
 }
 const NO_IDENTITY: &str = "GPU module has no baked identity";
+
 /// Whether a module is not there at all: no baked identity, or no file where
 /// it would be. Any other failure (the directory unknown, the file unreadable)
 /// is a module that is there and refuses.
@@ -310,6 +313,8 @@ fn artifact_of(compat: &Value, name: &str) -> String {
         .map(|(module, _)| module.clone())
         .unwrap_or_default()
 }
+mod digest;
+
 fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<(), String> {
     let card = gpu_card(compat, artifact);
     let refuse = |reason: &str| format!("GPU module {}: {reason}", path.display());
@@ -322,12 +327,12 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
         }
     }
     let receipt;
-    let raw = card["receipt"] == true
+    let development = card["receipt"] == true
         && card["trust"] == "development"
         // No-delivery apps omit trust from the cohort; their baked GPU card
         // still records the explicit development build trust.
         && (compat["inputs"]["trust"].is_null() || compat["inputs"]["trust"] == "development");
-    let identity = if raw {
+    let identity = if development {
         let bytes = std::fs::read(format!("{}.proof.json", path.display()))
             .map_err(|e| refuse(&format!("completed GPU receipt: {e}")))?;
         receipt = serde_json::from_slice::<Value>(&bytes).map_err(|e| refuse(&e.to_string()))?;
@@ -343,7 +348,7 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
     };
     if identity.as_str()
         != Some(
-            digest::file_digest(path, raw)
+            digest::file(path, !development)
                 .map_err(|e| refuse(&e))?
                 .as_str(),
         )

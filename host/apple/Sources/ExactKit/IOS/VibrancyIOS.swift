@@ -43,13 +43,18 @@ extension NodeView {
         let holders = [self, materialView?.contentView].compactMap { $0 }
         let strays = holders.filter { $0 !== target }.flatMap(\.subviews).compactMap { $0 as? NodeView }
         if !strays.isEmpty { GlassGroups.moving(in: self) { for child in strays { target.addSubview(child) } } }
+        // No record is a view holding its own children, unhosted, as every
+        // view starts; one is kept only from the first that differs, so most
+        // views carry no associated object.
         let last = objc_getAssociatedObject(self, &Self.containerSlot) as? WeakView
-        let moved = !strays.isEmpty || (last != nil && last?.view !== target)
+        let moved = !strays.isEmpty || (last == nil ? target !== self : last?.view !== target)
         // A glass group keeps `container` while the material starts or stops
         // hosting it, so the hosting itself is watched too.
         let hosts = blurHostsChildren
-        let flipped = last != nil && last?.hosts != hosts
-        objc_setAssociatedObject(self, &Self.containerSlot, WeakView(target, hosts: hosts), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        let flipped = (last?.hosts ?? false) != hosts
+        if last != nil || target !== self || hosts {
+            objc_setAssociatedObject(self, &Self.containerSlot, WeakView(target, hosts: hosts), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
         if moved { presenter?.flats.containerChanged(id) }
         if moved || flipped { vibrancyUnsettled = true }
     }

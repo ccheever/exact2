@@ -18,7 +18,9 @@
 pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
+pub(crate) mod decorations;
 mod fallback;
+pub(crate) mod field;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
@@ -509,7 +511,7 @@ pub struct GlyphRun {
     pub coords: std::sync::Arc<[i16]>,
     /// The face's file and collection index, when it was loaded from one.
     pub file: Option<(std::sync::Arc<str>, u32)>,
-    /// The weight shaped with (the `wght` a variable face is set to).
+    /// The requested CSS weight; a declared face may pin a different `wght`.
     pub weight: u16,
     /// Points.
     pub size: f32,
@@ -575,6 +577,11 @@ impl TextEngine {
     /// a browser gets from `fc-match sans-serif`.
     pub fn new() -> TextEngine {
         Self::with_catalog(catalog::Catalog::new())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_font_files(paths: &[&Path], sans: &str) -> Self {
+        Self::with_catalog(catalog::Catalog::from_files(paths, sans))
     }
 
     fn with_catalog(catalog: catalog::Catalog) -> Self {
@@ -1117,6 +1124,33 @@ impl TextMeasurer for Measurer {
         crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
     }
 
+    fn decorated_field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+        decorations: exact_kernel::text::DecoratedField<'_>,
+    ) -> Option<TextMetrics> {
+        if crate::fields::hosting().is_some() {
+            return self.field_text(kind, request);
+        }
+        let source = request
+            .runs
+            .iter()
+            .map(|run| run.text.as_ref())
+            .collect::<String>();
+        let decorations = decorations::FieldDecorations::read(
+            decorations.record,
+            decorations.styles,
+            decorations.root_font_size,
+            decorations.display_scale,
+        )
+        .ok()?;
+        let spec = decorations
+            .project(Spec::from_request(request), &source)
+            .spec;
+        Some(self.0.borrow_mut().measure(&spec, request.width))
+    }
+
     fn set_language(&mut self, language: &str) {
         let mut engine = self.0.borrow_mut();
         let catalog = engine.catalog.borrow();
@@ -1272,3 +1306,6 @@ mod balance_tests;
 #[cfg(test)]
 #[path = "text/live_time_tests.rs"]
 mod live_time_tests;
+
+#[cfg(test)]
+mod variable_face_tests;

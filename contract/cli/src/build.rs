@@ -2,22 +2,27 @@
 
 use std::{io::Write, path::Path, process::ExitCode};
 
-const USAGE: &str =
-    "usage: contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)]";
+const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map)]";
 
 struct Options<'a> {
     input: &'a str,
     output: Option<&'a str>,
     json: bool,
+    errors_only: bool,
     map: bool,
+    /// A widget entry's kind (LLP 1126 D2): its plan instead of the app's,
+    /// compiled as the bake compiles it from `app.json` beside the input.
+    entry: Option<&'a str>,
 }
 
 fn options(args: &[String]) -> Option<Options<'_>> {
-    let (mut input, mut output, mut json, mut map) = (None, None, false, false);
+    let (mut input, mut output, mut json, mut map, mut entry) = (None, None, false, false, None);
+    let mut errors_only = false;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--json" if !json => json = true,
+            "--errors-only" if !errors_only => errors_only = true,
             "--map" if !map => map = true,
             "-o" if output.is_none() => {
                 output = Some(args.next()?.as_str());
@@ -25,19 +30,74 @@ fn options(args: &[String]) -> Option<Options<'_>> {
                     return None;
                 }
             }
+            "--entry" if entry.is_none() => {
+                entry = Some(args.next()?.as_str());
+                if entry?.starts_with('-') {
+                    return None;
+                }
+            }
             name if !name.starts_with('-') && input.is_none() => input = Some(name),
             _ => return None,
         }
     }
-    if map && output.is_none() {
+    // An entry plan has no source map yet: `--map` with `--entry` is refused.
+    if (map || entry.is_some()) && output.is_none() || (map && entry.is_some()) {
         return None;
     }
     Some(Options {
         input: input?,
         output,
         json,
+        errors_only,
         map,
+        entry,
     })
+}
+
+/// `--entry`: the named widget's plan, from `app.json` beside the input.
+fn build_entry(input: &str, kind: &str, output: &str, json: bool) -> ExitCode {
+    let dir = Path::new(input)
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let manifest = match contract::Manifest::read(dir) {
+        Ok(manifest) => manifest,
+        Err(message) => {
+            return report(
+                &error("contract-build-manifest", message, Some(input)),
+                json,
+                1,
+            )
+        }
+    };
+    let entries = match contract::snapshot::compile_entries(dir, &manifest) {
+        Ok(entries) => entries,
+        Err(errors) => return report_all(&errors, &[], json, 1),
+    };
+    let Some(entry) = entries.get(kind) else {
+        let message = format!(
+            "app.json declares no widget `{kind}`; its kinds are {:?}",
+            entries.keys().collect::<Vec<_>>()
+        );
+        return report(
+            &error("contract-build-entry", message, Some(input)),
+            json,
+            1,
+        );
+    };
+    let bytes = entry.plan.encode();
+    if let Err(error) = write_output(output, &bytes) {
+        return report(&error, json, 1);
+    }
+    if json {
+        return report_all(&[], &[], true, 0);
+    }
+    println!(
+        "{input}: entry {kind}, {} nodes, {} bytes",
+        entry.plan.nodes.len(),
+        bytes.len()
+    );
+    ExitCode::SUCCESS
 }
 
 fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileError {
@@ -83,7 +143,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         input,
         output,
         json,
+        errors_only,
         map,
+        entry,
     }) = options(args)
     else {
         return report(
@@ -92,6 +154,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             2,
         );
     };
+    if let (Some(kind), Some(output)) = (entry, output) {
+        return build_entry(input, kind, output, json);
+    }
     // The map is always built: it prices each component for the summary.
     let want_map = map;
     // A game's surface arguments are checked apart: against a declaration
@@ -109,24 +174,47 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .collect(),
     };
     refused.extend(crate::ambient::check(Path::new(input)));
-    if let Ok(warnings) = contract::resource_clock_warnings(Path::new(input)) {
-        for finding in warnings {
+    let clocks = contract::resource_clock_warnings(Path::new(input)).unwrap_or_default();
+    if !json && !errors_only {
+        for finding in &clocks {
             eprintln!("warning: {finding}");
         }
     }
     // Warnings never fail the build; they follow its refusals (LLP 1116 D6).
-    let (compiled, warnings) = contract::compile_path_all_warned(Path::new(input), true);
+    let (compiled, mut warnings) = contract::compile_path_all_warned(Path::new(input), true);
     if let Ok(s) = &surfaces {
-        if s.newer.is_some() {
+        if s.newer.is_some() && !json && !errors_only {
             crate::surface_warnings(s);
         }
+    }
+    // Under `--json` the advice above joins the array's warnings: stdout is
+    // one JSON value and stderr stays empty.
+    if json {
+        let stale = surfaces.as_ref().ok().filter(|s| s.newer.is_some());
+        warnings.extend(
+            clocks
+                .into_iter()
+                .chain(stale.map(|s| s.findings.clone()).unwrap_or_default())
+                .map(|e| contract::CompileError {
+                    pass: "warning",
+                    ..e
+                }),
+        );
+    }
+    if errors_only {
+        warnings.clear();
     }
     let (plan, map) = match compiled {
         Ok(_) if !refused.is_empty() => return report_all(&refused, &warnings, json, 1),
         Ok(compiled) => compiled,
         Err(mut errors) => {
             errors.extend(refused);
-            errors.truncate(contract::MAX_DIAGNOSTICS);
+            if !errors
+                .iter()
+                .any(|e| contract_syntax::migrate::is_retired(&e.id))
+            {
+                errors.truncate(contract::MAX_DIAGNOSTICS);
+            }
             return report_all(&errors, &warnings, json, 1);
         }
     };
@@ -144,7 +232,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             if let Err(error) = write_output(&declaration, types.as_bytes()) {
                 return report(&error, json, 1);
             }
-            eprintln!("{declaration}: regenerated, since a source's signature changed (the types app.ts imports)");
+            if !json {
+                eprintln!("{declaration}: regenerated, since a source's signature changed (the types app.ts imports)");
+            }
         }
     }
     let bytes = plan.encode();
@@ -218,4 +308,25 @@ fn write_output(path: &str, bytes: &[u8]) -> Result<(), contract::CompileError> 
         let _ = std::fs::remove_file(&temporary);
     }
     result.map_err(refusal)
+}
+
+#[cfg(test)]
+mod options_tests {
+    use super::options;
+
+    #[test]
+    fn an_entry_takes_an_output_and_no_map() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(options(&args(&["a.contract", "--entry", "card", "-o", "card.plan"])).is_some());
+        assert!(options(&args(&["a.contract", "--entry", "card"])).is_none());
+        assert!(options(&args(&[
+            "a.contract",
+            "--entry",
+            "card",
+            "--map",
+            "-o",
+            "card.plan"
+        ]))
+        .is_none());
+    }
 }

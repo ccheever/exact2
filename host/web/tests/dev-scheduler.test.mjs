@@ -608,3 +608,29 @@ test('the resident module watcher follows backend selection without other local 
     await new Promise(r=>setTimeout(r,250));assert.equal(changes,before);
   }finally{watcher?.close();rmSync(dir,{recursive:true,force:true});}
 },15000);
+
+
+test('Contract generations replace producer-owned plans and activity schemas while retaining static assets', () => {
+  const start = source.indexOf('  const module = currentModule ? moduleCards');
+  const end = source.indexOf('  assets.sort(', start);
+  const select = new Function('currentModule', 'currentRust', 'current', 'reuseCurrentAssets', 'captureAssets', 'assetCards', `
+    const files = new Map(), planBytes = Buffer.from('plan'), app = {id:'test.activity'}, dist = 'unused';
+    const moduleCards = () => null, rustCards = () => null;
+    ${source.slice(source.indexOf('const isEntryFile ='), source.indexOf('function captureGeneration('))}
+    ${source.slice(start, end)}
+    return {files, assets};
+  `);
+  const cards = files => [...files].map(([name, body]) => ({name, bytes:body.length, sha256:createHash('sha256').update(body).digest('hex')}));
+  const before = new Map([['plans/train.plan', Buffer.from('old plan')], ['activities/train.schema.json', Buffer.from('old shape')], ['activities/removed.d.ts', Buffer.from('removed')], ['assets/icon.png', Buffer.from('icon')]]);
+  const after = new Map([['plans/train.plan', Buffer.from('new plan')], ['activities/train.schema.json', Buffer.from('new shape')], ['activities/train.d.ts', Buffer.from('new type')]]);
+  for (const reuse of [false, true]) for (const typescript of [false, true]) {
+    const next = select(typescript ? after : null, typescript ? before : after, {files:before, envelope:{assets:cards(before)}}, reuse, () => before, cards);
+    assert.equal(next.files.get('activities/train.schema.json').toString(), 'new shape');
+    assert.equal(next.files.get('plans/train.plan').toString(), 'new plan');
+    assert.equal(next.files.get('activities/train.d.ts').toString(), 'new type');
+    assert.equal(next.files.get('assets/icon.png').toString(), 'icon');
+    assert.equal(next.files.has('activities/removed.d.ts'), false);
+    assert.deepEqual(next.assets.map(c => c.name).sort(), ['activities/train.d.ts', 'activities/train.schema.json', 'assets/icon.png', 'plans/train.plan']);
+    for (const card of next.assets) assert.equal(card.sha256, createHash('sha256').update(next.files.get(card.name)).digest('hex'));
+  }
+});

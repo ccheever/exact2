@@ -28,7 +28,8 @@
 // Each of those screens is read again at the largest text size (iOS: the simulator's; the web: iOS's body as the root font
 // size, at the phone's width), and what spills there (past the screen's edge, squeezed to no width, overlapping) is reported
 // with a remedy that keeps the text's size, counted in the last line and never failing the run (LLP 1116.019 D2, LLP
-// 1116.020 D4, `largestText`).
+// 1116.020 D4, `largestText`); the web also runs the tests again at that size and reads screens they only pass through
+// (`largeTour`).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
@@ -431,17 +432,28 @@ const NOTE_ADVICE = '  a saved value must survive a reload; a game or a draft in
 /** A line of the journal or the host's output that says the host refused what the app asked (LLP 1116.010 D5), with the
  * journal's `t=N` and the host's `app: exact: ` taken off. A refusal the app's own rule makes when a person tries (a
  * dismissal its `closedby` refuses, a Back its control disables) and a connection a `fail fetch` refused are the app's design. */
-export function refusalsOf({ lines = [], host = [] } = {}) {
-  const found = [];
-  for (const raw of [...lines, ...host]) {
-    const line = String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
+export function refusalsOf({ lines = [], host = [] } = {}, expected = []) {
+  const found = [], journal = new Map(), accepted = new Map();
+  for (const line of expected) accepted.set(line,(accepted.get(line) ?? 0)+1);
+  const normalized = raw => String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
+  const collect = line => {
     if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused/i.test(line) && !found.includes(line)) found.push(line);
+  };
+  for (const raw of lines) {
+    const line=normalized(raw), count=accepted.get(String(raw)) ?? 0;
+    journal.set(line,(journal.get(line) ?? 0)+1);
+    if (count) accepted.set(String(raw),count-1); else collect(line);
+  }
+  // A native host can also print its journal; that mirror is one event.
+  for (const raw of host) {
+    const line=normalized(raw), mirrors=journal.get(line) ?? 0;
+    if (mirrors) journal.set(line,mirrors-1); else collect(line);
   }
   return found;
 }
 
 /** A session's refusals so far (`refusalsOf` its `logs`). */
-const refusalsIn = async (s) => refusalsOf(await s.logs().catch(() => ({})));
+const refusalsIn = async (s, expected = []) => refusalsOf(await s.logs().catch(() => ({})), expected);
 
 /** The end screen reloaded where it stands (the test's `reload` step, run on the session; the web only), and what it
  * showed before and after compared (`judgeReload`): `finding` when a saved value came back different (`savedChanges`),
@@ -495,11 +507,17 @@ export const LARGEST = 'accessibility-extra-extra-extra-large', LARGEST_PX = 53;
 const LARGE_KINDS = new Set(['overflow', 'clipped', 'overlap', 'squeezed']), PAGES = 6;
 const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
 /** The remedy for a finding at the largest size: never a smaller or fixed font. A text in a list's row (`inRow`) is cut by
- * the row, which wrapping does not change: UIKit's cells truncate a label or grow taller with it. */
+ * the row, which wrapping the row does not change: at the accessibility sizes UIKit's cells wrap a label, hyphenate a word
+ * longer than the line and grow taller, never truncating it (`UIListContentConfiguration`, iOS 27), so a `line-clamp`
+ * there reads as a tell (round 22's book-club and contacts took one from this remedy). */
 export function largeRemedy(f, { inRow = false } = {}) {
-  if (f.kind === 'clipped' && inRow && !f.detail?.edge) return 'ask for an ellipsis (`line-clamp="1"`, or more lines), as a cell truncates its label, or let the row grow taller with its text (no px height on the row or what it holds)';
+  if (f.kind === 'clipped' && inRow && !f.detail?.edge) {
+    const wide = (f.detail?.need ?? f.detail?.cut ?? [0])[0] > 0;
+    return `${wide ? 'let a word longer than its line break between syllables (`hyphens="auto"`) and ' : 'let '}the row grow taller with its text, as a cell does at this size (no px height on the row or what it holds; no \`line-clamp\`, which cuts what a cell shows whole)`;
+  }
   if (f.kind === 'clipped') return f.detail?.edge ? 'let the page scroll there (a scroll with flex=1 min-height=0)'
-    : f.detail?.need ? 'let its box grow with its text: no px width or height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
+    : f.detail?.need?.[0] > 0 ? `give it room (no px width on its box), or ${WRAP}; a word longer than any line breaks between syllables with \`hyphens="auto"\``
+    : f.detail?.need ? 'let its box grow with its text: no px height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
   if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
   return WRAP;
 }
@@ -605,7 +623,7 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
   if (host === 'ios') scaledEnd(runs, t.size);
-  const refusals = await refusalsIn(s);
+  const refusals = await refusalsIn(s, t.expectedRefusals);
   const reloaded = await reloadEnd(s, t, persisted);
   const large = await largestText(s, t.name);
   // A web test runs on a page origin of its own (agent-test.mjs `launch`), and what it stored is that origin's: the relaunch opens it.
@@ -624,6 +642,43 @@ async function tests(host, app, shots) {
     const r = await runTests({ host, file, app: app.name, atEnd: testEnd(host, shots, persisted), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
     return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures, end, store, shots }) => ({ name, failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })) };
   } catch (e) { return { error: e.message }; }
+}
+
+/** The web's tour of the screens the tests pass through, at the largest text size: the tests run again on the phone's
+ * width, and after an input that shows a testId no screen of the tour has shown yet (its digits aside: a row's id that
+ * holds a date or a count is the same row), the screen is read as `largestText` reads one. A screen only passed through
+ * (a flashcard's Again and Got it, shown once the card turns) is no test's end, and its overflow went unreported
+ * (flashcards, round 22). What the tests assert is not judged here. At most LARGE_TOUR_SCREENS screens, so a run
+ * reports the same ones each time, and no more than LARGE_TOUR_MS. The `largestText` results, each screen named by the
+ * line of the test it followed. On round 22's flashcards, notes and book-club (12 to 26 s without it) it added 1 to 11 s,
+ * 6 on average; most on an app with its own server, whose tour runs after the rest. */
+const LARGE_TOUR_SCREENS = 12, LARGE_TOUR_MS = 40_000;
+const kindOf = (id) => String(id).replace(/\d+/g, '#');
+async function largeTour(app) {
+  const file = resolve(app.dir, 'app.test.contract');
+  if (!existsSync(file)) return [];
+  const { runTests } = await import('./agent-test.mjs');
+  const shown = new Set(), read = [], started = Date.now();
+  const atStep = async (s, { name, line }) => {
+    if (read.length >= LARGE_TOUR_SCREENS || Date.now() - started > LARGE_TOUR_MS) return 'done';
+    const tree = await s.op({ op: 'tree' }).catch(() => null);
+    const ids = (tree?.nodes ?? []).filter((n) => !n.inactive && n.props?.testId != null).map((n) => kindOf(n.props.testId));
+    if (ids.every((id) => shown.has(id))) return;
+    for (const id of ids) shown.add(id);
+    const r = await largestText(s, `line ${line} of ${quoted(name, 24)}`);
+    if (r && !r.error) read.push(r);
+  };
+  try { await runTests({ host: 'web', file, app: app.name, size: WEB_SIZES[0], storage: 'verify-tour', atStep }); }
+  catch { /* the tests' own run says what does not compile */ }
+  return read;
+}
+
+/** The tour's screens with only what the screens verify visits did not say: a line is the same with its box and digits
+ * aside (another run's row ids hold another date). */
+export function tourNews(visited, toured) {
+  const key = (line) => line.replace(BOX, '').replace(/\d+/g, '#');
+  const said = new Set(visited.flatMap((l) => l.lines ?? []).map(key));
+  return toured.map((l) => ({ ...l, lines: l.lines.filter((line) => !said.has(key(line))) }));
 }
 
 /** One launch at `size` (null: the device's own) on a fresh scratch store: the app's data landed and its
@@ -759,7 +814,7 @@ export function groups(text) {
 
 const BOX = /\s*\[-?\d+,-?\d+ \d+×\d+\]/g;
 const sizeOf = (r) => r.size.join('x'), schemeOf = (r) => r.asked ?? r.scheme, screenOf = (r) => r.screen ?? FIRST;
-const screenName = (screen) => (screen === FIRST || screen === RELAUNCH ? screen : quoted(screen, 28));
+const screenName = (screen) => (screen === FIRST || screen === RELAUNCH || screen.startsWith('line ') ? screen : quoted(screen, 28));
 /** The findings of every screen, launch and scheme, each once: a line found at several (its box aside, which a width
  * moves) is shown once, tagged with the screens it was on unless it was on all, and with the widths and schemes of
  * those screens it was at unless it was at all. */
@@ -877,7 +932,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const read = large.filter((l) => !l.error), shown = distinctFindings(read.map((l) => ({ ...l, scheme: 'light' })));
     const root = [...new Set(read.map((l) => l.rootFontSize).filter(Boolean))].join(', ');
     const size = host === 'ios' ? `${LARGEST}${root ? `, body ${root} pt` : ''}` : `root font size ${root || LARGEST_PX} px at ${WEB_SIZES[0].join('x')}, iOS's body at its largest`;
-    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...shown.slice(0, SHOWN));
+    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (the app's own layout: give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...shown.slice(0, SHOWN));
     largeCount = shown.length;
     if (shown.length > SHOWN) out.push(`  … and ${shown.length - SHOWN} more (verify --json lists them all)`);
     for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
@@ -949,7 +1004,7 @@ async function main(argv) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, firsts, relaunched = null, results = [], running = null, serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
+  let tested, firsts, relaunched = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
   const compiling = compilerWarningsOf(app);
   if (owned) {
     try { running = await startServer(app.dir, server, 'verify'); }
@@ -959,7 +1014,7 @@ async function main(argv) {
   try {
     // An app with a server opens its first screen before the tests write to it: an empty database's.
     if (running) { firsts = host === 'web' ? await Promise.all(WEB_SIZES.map(launch)) : [await launch(null, 0)]; tested = await tests(host, app, shots); }
-    else if (host === 'web') [tested, ...firsts] = await Promise.all([tests(host, app, shots), ...WEB_SIZES.map(launch)]);
+    else if (host === 'web') [tested, toured, ...firsts] = await Promise.all([tests(host, app, shots), largeTour(app), ...WEB_SIZES.map(launch)]);
     else { tested = await tests(host, app, shots); firsts = [await launch(null, 0)]; }
     results = tested?.results ?? [];
     const fresh = firsts.find((runs) => runs.seen)?.seen ?? null;
@@ -978,6 +1033,8 @@ async function main(argv) {
         return relaunch(host, app, chosen, against, shots);
       })().catch((e) => ({ test: chosen.name, error: e.message }));
     }
+    // An app's own server holds what the tests wrote by now: the tour, which writes again, goes last.
+    if (running && host === 'web') toured = await largeTour(app);
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
@@ -1010,7 +1067,8 @@ async function main(argv) {
   refusedAt(RELAUNCH, relaunched?.refusals);
   const refusedList = [...refused].map(([line, where]) => ({ line, where }));
   const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
-  const large = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
+  const visited = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
+  const large = [...visited, ...tourNews(visited, toured)];
   const fixed = await fixedType(app.dir, host);
   const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');

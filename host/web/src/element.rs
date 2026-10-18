@@ -109,6 +109,7 @@ fn lays_out_as_block(b: &NodeFacts<'_>) -> bool {
 /// [`folds`] for a node of `kernel`, as its tree stands.
 pub(super) fn folded(kernel: &Kernel, node: &NodeRef<'_>, handled: bool) -> bool {
     node.node_type == NodeType::Text
+        && node.looks().is_empty() // a look paints its own box (LLP 1121 D8)
         && node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
             let outer = p.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
             folds(
@@ -132,6 +133,7 @@ pub(super) fn holds_folded(
     children.len() == 1
         && kernel.node(children[0]).is_some_and(|c| {
             c.node_type == NodeType::Text
+                && c.looks().is_empty()
                 && folds(
                     &c.facts(),
                     &node.facts(),
@@ -907,6 +909,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::MenuPlacement | PropId::MenuRemove => continue,
             PropId::Text => "text",
             PropId::Markup => "markup",
+            PropId::Decorations => "data-decorations",
+            PropId::DecorationStyles => "data-decoration-styles",
             PropId::TestId => "data-testid",
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.
@@ -1179,7 +1183,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // marked, as a switch and a date field are above: `appearance="none"`
     // hands the box to the author. And a row the author wrote where the
     // sheet would draw over an inherited or implied one (D2's bit) is named:
-    // a spinner's own `color`, a grouped list's own ground.
+    // a spinner's own `color`, a grouped list's own ground, and a button's
+    // fill, which hovers in its own ink (LLP 1129 D1; a fill computed at run
+    // time is not seen here).
     use exact_kernel::{ControlKind, StyleId};
     let kind = ControlKind::of(node.node_type, node.props);
     if node.style.appearance == exact_kernel::Appearance::Auto
@@ -1195,6 +1201,13 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let said = match kind {
         Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
         _ if node.props.get(PropId::ListStyle).is_some() => {
+            Some((StyleId::BackgroundColor, "background-color"))
+        }
+        _ if element(node) == "button"
+            && node.node_type == NodeType::Pressable
+            && (node.style.background_color)
+                .is_some_and(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0) =>
+        {
             Some((StyleId::BackgroundColor, "background-color"))
         }
         _ => None,
@@ -1432,8 +1445,8 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         super::layers::with_isolation(css, self.layers.isolated(node.id))
     }
 
-    /// A box's CSS and its text children's again when it or its children
-    /// moved: whether a text folds into it (LLP 1007.001).
+    /// Refresh child dependencies: text folds (LLP 1007.001), button metrics
+    /// and a progress's width in block flow.
     pub(super) fn refold(&mut self, id: exact_kernel::ViewId, batch: &mut crate::batch::Batch) {
         let kernel = self.runner.kernel();
         let children = kernel.node(id).map(|n| n.children()).unwrap_or_default();
@@ -1451,7 +1464,10 @@ impl<D: exact_runner::DataSource> super::Host<D> {
             let Some(node) = kernel.node(child) else {
                 continue;
             };
-            if child != id && !matches!(node.node_type, NodeType::Text | NodeType::Pressable) {
+            if child != id
+                && !matches!(node.node_type, NodeType::Text | NodeType::Pressable)
+                && !is_progress(&node.facts())
+            {
                 continue;
             }
             let css = self.view_css(&node);
@@ -1462,7 +1478,6 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         }
     }
 }
-
 #[cfg(test)]
 #[path = "element_tests.rs"]
 mod dataset_tests;

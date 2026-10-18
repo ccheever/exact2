@@ -105,7 +105,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
     let tree = match page.runner.document_tree() {
         Ok(tree) => tree,
         Err(why) => {
-            println!("render {location}: with a kernel ({why})");
+            crate::log(format_args!("render {location}: with a kernel ({why})"));
             retire(page, data);
             return Ok(None);
         }

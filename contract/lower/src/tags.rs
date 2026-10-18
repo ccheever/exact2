@@ -388,6 +388,17 @@ pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarg
     }
     attr(name)
 }
+/// The style rows an attribute writes: its own, a shorthand's longhands,
+/// none for a prop or a handler.
+pub fn rows(a: &contract_syntax::Attr) -> Vec<StyleId> {
+    match attr_valued(&a.name, &a.value) {
+        Some(AttrTarget::Styles(ids)) => ids.to_vec(),
+        Some(AttrTarget::Shorthand) => crate::shorthands::rows(&a.name).to_vec(),
+        Some(AttrTarget::Flex) => vec![StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis],
+        _ => Vec::new(),
+    }
+}
+
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     if let Some(target) = crate::style_names::lookup(name) {
@@ -420,6 +431,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // the six actions by `setActionHandler`'s names, and the seconds a
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
+        "decorations" => AttrTarget::Prop(PropId::Decorations),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
         "seekforward" => AttrTarget::Handler("seekforward"),
         "seekto" => AttrTarget::Handler("seekto"),
@@ -839,7 +851,12 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
-        "fit" | "objectFit" => "object-fit",
+        "fit" | "objectFit" | "resizeMode" => "object-fit",
+        // React Native's names for CSS's text rows.
+        "numberOfLines" => "line-clamp",
+        "ellipsizeMode" => "text-overflow",
+        "textTransform" => "text-transform",
+        "fontVariant" => "font-variant-numeric",
         // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
         "adjustsFontSizeToFitWidth"
         | "adjustsFontSizeToFit"
@@ -984,6 +1001,8 @@ pub const HEAD_FIELDS: &[&str] = &[
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
     similar(name, |candidate| match attr(candidate) {
+        // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+        _ if candidate == crate::states::PRESS_OPACITY_TO => false,
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
         Some(_) => !style_only,
         None => false,

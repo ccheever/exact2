@@ -42,6 +42,36 @@ pub enum Op {
     SetChildren { id: ViewId, children: Vec<ViewId> },
     /// Register `id` as a layout root. Roots have no parent.
     AttachRoot { id: ViewId },
+    /// Replace `id`'s state looks (LLP 1121 D8): each a state
+    /// ([`LOOK_HOVER`], [`LOOK_FOCUS_VISIBLE`]; ascending, each once) and a
+    /// patch of [`look_rows`] only, resolved as a static row is. Empty
+    /// clears them. `:active` is no look: it lowers to the press paint.
+    SetLooks {
+        id: ViewId,
+        looks: Vec<(u8, StyleProps)>,
+    },
+}
+
+/// A look's state: `:hover`.
+pub const LOOK_HOVER: u8 = 1;
+/// A look's state: `:focus-visible`.
+pub const LOOK_FOCUS_VISIBLE: u8 = 2;
+
+/// The rows a state look may set (LLP 1121 D8, stage 8 A's lowering).
+pub fn look_rows() -> StyleMask {
+    let mut mask = StyleMask::EMPTY;
+    for id in [
+        crate::StyleId::BackgroundColor,
+        crate::StyleId::BorderColorTop,
+        crate::StyleId::BorderColorRight,
+        crate::StyleId::BorderColorBottom,
+        crate::StyleId::BorderColorLeft,
+        crate::StyleId::Opacity,
+        crate::StyleId::BoxShadow,
+    ] {
+        mask.set(id);
+    }
+    mask
 }
 
 impl Op {
@@ -56,6 +86,7 @@ impl Op {
             Op::ClearStyle { .. } => OpCode::ClearStyle,
             Op::SetChildren { .. } => OpCode::SetChildren,
             Op::AttachRoot { .. } => OpCode::AttachRoot,
+            Op::SetLooks { .. } => OpCode::SetLooks,
         }
     }
 
@@ -69,7 +100,8 @@ impl Op {
             | Op::SetStyle { id, .. }
             | Op::ClearStyle { id, .. }
             | Op::SetChildren { id, .. }
-            | Op::AttachRoot { id } => *id,
+            | Op::AttachRoot { id }
+            | Op::SetLooks { id, .. } => *id,
         }
     }
 
@@ -98,6 +130,13 @@ impl Op {
                 w.u32(children.len() as u32);
                 for child in children {
                     w.u32(*child);
+                }
+            }
+            Op::SetLooks { looks, .. } => {
+                w.u8(looks.len() as u8);
+                for (state, patch) in looks {
+                    w.u8(*state);
+                    patch.encode_patch(w);
                 }
             }
         }
@@ -170,6 +209,24 @@ impl Op {
                 Op::SetChildren { id, children }
             }
             OpCode::AttachRoot => Op::AttachRoot { id },
+            OpCode::SetLooks => {
+                let count = r.u8()?;
+                if count > 2 {
+                    return Err(DecodeError::TooManyLooks(count));
+                }
+                let mut looks = Vec::with_capacity(count as usize);
+                for _ in 0..count {
+                    let state = r.u8()?;
+                    // Ascending, each once: one encoding of one set.
+                    if !(LOOK_HOVER..=LOOK_FOCUS_VISIBLE).contains(&state)
+                        || looks.last().is_some_and(|(s, _)| *s >= state)
+                    {
+                        return Err(DecodeError::LookState(state));
+                    }
+                    looks.push((state, StyleProps::decode_patch(r)?));
+                }
+                Op::SetLooks { id, looks }
+            }
         };
         if !r.is_empty() {
             return Err(DecodeError::TrailingPayload {
@@ -194,6 +251,36 @@ mod tests {
         let decoded =
             Op::decode_payload(op.opcode(), op.target(), &mut Reader::new(&bytes)).unwrap();
         assert_eq!(decoded, op);
+    }
+
+    #[test]
+    fn set_looks_round_trips_and_refuses_a_state_twice_or_out_of_order() {
+        let mut active = StyleProps::default();
+        active.opacity = 0.5;
+        active.mask.set(StyleId::Opacity);
+        let hover = active.clone();
+        round_trip(Op::SetLooks {
+            id: 7,
+            looks: vec![(LOOK_HOVER, active.clone()), (LOOK_FOCUS_VISIBLE, hover)],
+        });
+        round_trip(Op::SetLooks {
+            id: 7,
+            looks: vec![],
+        });
+        for looks in [
+            vec![
+                (LOOK_FOCUS_VISIBLE, active.clone()),
+                (LOOK_HOVER, active.clone()),
+            ],
+            vec![(LOOK_HOVER, active.clone()), (LOOK_HOVER, active.clone())],
+            vec![(0, active.clone())],
+            vec![(3, active.clone())],
+        ] {
+            let mut w = Writer::new();
+            Op::SetLooks { id: 7, looks }.encode_payload(&mut w);
+            let bytes = w.into_vec();
+            assert!(Op::decode_payload(OpCode::SetLooks, 7, &mut Reader::new(&bytes)).is_err());
+        }
     }
 
     #[test]

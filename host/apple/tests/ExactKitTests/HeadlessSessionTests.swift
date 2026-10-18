@@ -3,6 +3,15 @@ import ExactCore
 import CExact
 
 final class HeadlessSessionTests: XCTestCase {
+    func testFactsKeepEpochWhileOffsetFollowsTheVirtualInstantAcrossDST() throws {
+        let epoch = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-08T09:30:00Z"))
+        let zone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let before = SessionFacts(displayScale: 1, preferences: [], date: epoch, timeZone: zone)
+        let after = SessionFacts(displayScale: 1, preferences: [], date: epoch.addingTimeInterval(3600), clock: 3_600_000, timeZone: zone)
+        XCTAssertEqual(before.utcOffset, -480)
+        XCTAssertEqual(after.utcOffset, -420)
+        XCTAssertEqual(after.epochAtZero, before.epochAtZero)
+    }
     func testPlanLayoutsWithoutAView() throws {
         let plan = try fixturePlan("HEADLESS")
         let session = try HeadlessSession(plan: plan, size: CGSize(width: 200, height: 400),
@@ -86,6 +95,32 @@ final class HeadlessSessionTests: XCTestCase {
         XCTAssertFalse(kept.hasSuffix(" "))
         XCTAssertLessThanOrEqual(tight.width, 90.5)
         XCTAssertEqual(tight.segments.map(\.text).joined(), tight.text)
+        // The kept text is what Core Text's truncation kept: the longest
+        // prefix of the broken text that fits the line's width with the
+        // token (a truncated run still reports the whole run's string range).
+        let font = try XCTUnwrap(node("clamped-tight").runs.first?.font)
+        func width(_ text: String) -> CGFloat {
+            let attributed = NSAttributedString(string: text, attributes: [kCTFontAttributeName as NSAttributedString.Key: font])
+            return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(attributed), nil, nil, nil))
+        }
+        let broken = "fox jumps over the lazy dog"
+        XCTAssertLessThanOrEqual(width(kept + "…"), tight.width + 0.5, "the kept prefix fits with the token")
+        var longer = kept
+        for ch in broken.dropFirst(kept.count) { longer.append(ch); if ch != " " { break } }
+        XCTAssertGreaterThan(width(longer + "…"), tight.width + 0.5, "one more character would not: \(longer)")
+        // A clamp through a ligature (`ffi`, `fi`): the kept glyph covers every
+        // character it drew, so the text never ends between an f and its i.
+        let ligature = try XCTUnwrap(node("clamped-ligature").lines.first)
+        XCTAssertTrue(ligature.text.hasSuffix("…"))
+        let keptLigature = String(ligature.text.dropLast())
+        XCTAssertTrue("efficiency efficiency".hasPrefix(keptLigature), keptLigature)
+        let rest = "efficiency efficiency".dropFirst(keptLigature.count)
+        XCTAssertFalse(keptLigature.hasSuffix("f") && (rest.hasPrefix("i") || rest.hasPrefix("f")), "cut inside a ligature: \(keptLigature)|\(rest)")
+        XCTAssertLessThanOrEqual(width(keptLigature + "…"), ligature.width + 0.5)
+        // A trailing ligature before the token keeps every character when the
+        // line already fits: "The staff…", not "The staf…".
+        let ff = try XCTUnwrap(node("clamped-ff").lines.first)
+        XCTAssertEqual(ff.text, "The staff…")
         let hyphen = try XCTUnwrap(node("hyphen").lines.first)
         XCTAssertEqual(hyphen.range, NSRange(location: 0, length: 3))
         XCTAssertEqual(hyphen.text, "ab-")
@@ -113,8 +148,9 @@ final class HeadlessSessionTests: XCTestCase {
         defer { accepted.close() }
         accepted.core.text.refusedMarkdown = 999
         XCTAssertNoThrow(try accepted.resize(to: CGSize(width: 200, height: 450)), "each turn clears the previous refusal")
+        // An app's plan is no entry: the decoder refuses it by its header (LLP 1126 D2).
         XCTAssertThrowsError(try HeadlessSession(plan: plan, entry: "widget", size: CGSize(width: 200, height: 400))) { error in
-            XCTAssertTrue(String(describing: error).contains("exact_boot_entry"))
+            XCTAssertTrue(String(describing: error).contains("WrongEntry"), String(describing: error))
         }
     }
 

@@ -109,18 +109,21 @@ final class TextField: UITextField {
     }
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         owner?.presenter?.supersedePress() // composed text, as typed text
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     override func insertText(_ text: String) {
         owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
     }
     override func deleteBackward() {
         owner?.presenter?.supersedePress()
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
@@ -157,12 +160,14 @@ package final class TextArea: UITextView {
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         owner?.presenter?.supersedePress() // composed text, as typed text
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     package override func insertText(_ text: String) {
         owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here;
         // the command's own native insertion bypasses through `applying`.
@@ -175,6 +180,7 @@ package final class TextArea: UITextView {
 
     package override func deleteBackward() {
         owner?.presenter?.supersedePress()
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go, a deletion that changes nothing included (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
         } else { super.deleteBackward() }
@@ -398,7 +404,7 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-        f.textColor = color("text_color", SystemColor.canvasText)
+        f.textColor = fieldInk
         f.tintColor = isNativeTextControl ? caretColor ?? channels("accent_color").map { TextEngine.color($0) } : caretColor
         if isNativeTextControl {
             f.typingAttributes[.kern] = number("letter_spacing")

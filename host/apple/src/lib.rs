@@ -37,6 +37,7 @@
 
 pub mod abi;
 pub mod app_module;
+pub mod baked;
 pub mod batch;
 mod button;
 pub mod calc;
@@ -54,11 +55,13 @@ pub mod geometry;
 pub mod gradient;
 pub mod host;
 pub mod link;
+mod looks;
 pub mod markup;
 pub mod material;
 pub mod measure;
 pub mod pan_velocity;
 pub mod picker;
+mod plan_bytes;
 pub mod raster;
 mod raster_exports;
 pub mod store;

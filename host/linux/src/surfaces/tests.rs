@@ -258,6 +258,23 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
     }
     assert!(Abi::open_path(&path, &Value::Null, "").is_err());
     drop(Abi::open_path(&path, &compat, "").unwrap());
+    let mut development = compat.clone();
+    development["embedded"]["gpu"]["trust"] = json!("development");
+    development["embedded"]["gpu"]["receipt"] = json!(true);
+    let receipt = format!("{}.proof.json", path.display());
+    std::fs::write(
+        &receipt,
+        json!({"inputs":"a".repeat(64),
+        "artifact":digest::bytes_digest(&std::fs::read(&path).unwrap(), false)})
+        .to_string(),
+    )
+    .unwrap();
+    verify_module(&path, &development, "").unwrap();
+    verify_module(&path, &compat, "").unwrap();
+    development["embedded"]["gpu"]["receipt"] = json!(false);
+    development["embedded"]["gpu"]["sha256"] = json!("wrong digest");
+    assert!(verify_module(&path, &development, "").is_err());
+
     // A digest-authenticated old child ABI must refuse before any call.
     let source = path.with_file_name("probe.c");
     let old = std::fs::read_to_string(&source)
@@ -266,7 +283,8 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
     std::fs::write(&source, old).unwrap();
     compile_fixture(&source, &path);
     let mut old_compat = compat.clone();
-    old_compat["embedded"]["gpu"]["sha256"] = digest::file_digest(&path, false).unwrap().into();
+    old_compat["embedded"]["gpu"]["sha256"] =
+        digest::bytes_digest(&std::fs::read(&path).unwrap(), true).into();
     let error = Abi::open_path(&path, &old_compat, "")
         .err()
         .expect("old ABI refused");

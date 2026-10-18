@@ -39,7 +39,9 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     {
         return Err(DataError::Unavailable("unsafe app storage identity".into()));
     }
-    let home = std::env::var_os("HOME")
+    let home = crate::store::group_root(app_id)
+        .map(|p| p.into_os_string())
+        .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
@@ -184,7 +186,7 @@ pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
 }
 
-fn roots() -> [PathBuf; 3] {
+pub(super) fn roots() -> [PathBuf; 3] {
     let mut held = ROOTS.lock().unwrap_or_else(|e| e.into_inner());
     held.get_or_insert_with(|| {
         let base = std::env::temp_dir().join(format!("exact-agent-{}", std::process::id()));

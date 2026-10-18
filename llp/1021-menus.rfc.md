@@ -543,17 +543,30 @@ agent's taps need no host activation here. `ChooserMacTests` is the
 evidence; `<dialog>` stays the session's modal top layer on macOS.
 
 **Flip fallbacks (Charlie, 2026-10-08; implementation slice: Codex,
-2026-10-13).** This amends D2's unconditional clamp and §5's no-flip scope.
+2026-10-13; `flip-start` and the overflow shift: Claude, 2026-10-18).** This amends D2's unconditional clamp and §5's no-flip scope.
 Invoker popovers may name ordered CSS `position-try-fallbacks`: try the base
 area, then each fallback against the viewport; keep the current option when
 none fits (the base on a fresh opening).
 The author chooses the list. There is no unconditional clamp on an edge-aligned
 area. CSS's `anchor-center` still shifts a centred axis into the viewport.
 The margin box decides fit, and flips exchange the corresponding margins.
+When no option fits, the box is shifted into its overflow limit rect, the
+containing block together with the area it was given (CSS Anchor Positioning
+§4.1, CSS Box Alignment §4.4.1.2). A popover with no authored position is the
+UA's `position: fixed`, held in the window. An authored position computes to
+absolute in the top layer; its containing block is the page's scrollable one,
+which grows toward the end edges, so only the page's start edges hold it (top,
+and left, or right in a right-to-left document). Chrome 155 does both. A native
+menu's launch point is not shifted: AppKit fits the menu on screen.
 See [CSS Anchor Positioning §6.1 and §6.5](https://drafts.csswg.org/css-anchor-position-1/#position-try-fallbacks).
 
-The first slice implements `none`, `flip-block`, `flip-inline` and their
-combinations in a comma-separated list, on the web and painted Apple layers.
+The implementation admits `none`, `flip-block`, `flip-inline`, `flip-start`
+and their combinations in a comma-separated list, on the web and painted Apple
+layers. An attempt's flips apply in the order written, since `flip-start`
+(mirroring across the diagonal from the start-start corner, so top and left
+exchange places, as do bottom and right, in area and margins; top and right in
+a right-to-left document) does not commute with the others. CSS's `flip-start` also exchanges `width` and `height`; the native
+layers place the laid-out size, which agrees when the two are equal.
 These native layers use horizontal writing mode; physical top/bottom/left/right
 areas include the opposite-side spans and corners. An authored fallback row on
 a non-menu macOS popover selects the painted layer so AppKit cannot replace
@@ -562,8 +575,8 @@ switches presentation without closing the popover or losing its focused control
 and text selection. Native menus and confirmations retain
 the platform's placement. A fitting choice survives resize and invoker movement;
 changing the area, fallback list, margins or size clears it. An overflowing choice tries the list
-again, preserving the current option if none fits. `flip-start`, logical areas,
-area-dependent sizing,
+again, preserving the current option if none fits. Logical areas, `flip-x`,
+`flip-y`, area-dependent sizing,
 nonzero insets and non-default self-alignment, full scroll-offset bookkeeping,
 and general Linux popover presentation remain outside this slice. `anchor-name`,
 `position-anchor`, named `@position-try` rules and `position-visibility` are

@@ -222,5 +222,31 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(v.press.to, 0.9)
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.6, accuracy: 1e-6)
     }
+
+    /// LLP 1115 D4, LLP 1121 D9: a platform field's text is its own colour,
+    /// its own press's included, else FieldText: an inherited colour and an
+    /// ancestor's press colour never tint it.
+    func testAFieldsInkIsItsOwnOrItsOwnPressNeverAnAncestors() throws {
+        let (p, v) = try fixture(["press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "input", "props": ["value": "Inherits"], "style": ["text_color": white]],
+            ["op": "create", "id": 5, "kind": "input", "props": ["value": "Own press"], "handlers": ["press"], "style": ["text_color": white, "press_color": green]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 40.0, "w": 200.0, "h": 30.0],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 70.0, "w": 200.0, "h": 30.0],
+        ]))
+        let field = try XCTUnwrap(p.views[4]), own = try XCTUnwrap(p.views[5])
+        let rgba = { (c: CGColor) in (c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components ?? []).map { Double(($0 * 255).rounded()) } }
+        let fieldText = rgba(ThemeRoles.color("FieldText", in: field, or: SystemColor.canvasText).cgColor)
+        XCTAssertFalse(field.showsOwnTextColor)
+        XCTAssertEqual(rgba(field.fieldInk.cgColor), fieldText, "an inherited colour is not the field's")
+        v.pressed = true
+        XCTAssertFalse(field.showsOwnTextColor, "an ancestor's press lends its colour")
+        XCTAssertEqual(rgba(field.fieldInk.cgColor), fieldText)
+        v.pressed = false
+        own.pressed = true
+        XCTAssertTrue(own.showsOwnTextColor, "its own press's colour is its own")
+        XCTAssertEqual(rgba(own.fieldInk.cgColor), green)
+    }
 }
 #endif

@@ -22,9 +22,8 @@ const char *test_shader_calls(void) { return shader_calls; }
     );
     std::fs::write(&source, text).unwrap();
     super::super::tests::compile_fixture(&source, &path);
-    compat["embedded"]["gpu"]["sha256"] = super::super::digest::file_digest(&path, false)
-        .unwrap()
-        .into();
+    compat["embedded"]["gpu"]["sha256"] =
+        super::super::digest::bytes_digest(&std::fs::read(&path).unwrap(), true).into();
     compat["inputs"]["gpuSurfaces"] = json!([{"name":"a"},{"name":"b"}]);
     (path, compat)
 }

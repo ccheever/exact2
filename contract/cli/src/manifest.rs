@@ -5,6 +5,11 @@
 
 use std::path::Path;
 
+mod widgets;
+pub use widgets::Widget;
+mod activities;
+pub use activities::Activity;
+
 /// The app manifest (`app.json`, LLP 1030 D2; 1030.000 D7) as the bake
 /// reads it — the JSON, and the identity every platform derives from it.
 /// An app without one gets the defaults `scripts/app.mjs` gives it.
@@ -166,12 +171,15 @@ impl Manifest {
             .and_then(|v| v.as_str())
             .ok_or_else(|| format!("{}: `app.name` is required", path.display()))?
             .to_string();
-        Ok(Manifest {
+        let manifest = Manifest {
             json,
             id,
             name,
             declared: true,
-        })
+        };
+        manifest.widgets()?;
+        manifest.live_activities()?;
+        Ok(manifest)
     }
 
     /// `host.<platform>` as an object (empty when absent).

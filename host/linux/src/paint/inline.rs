@@ -101,6 +101,23 @@ pub(super) fn presented_color(
     }
 }
 
+/// [`presented_color`] where the node's `color` stops at it (a platform
+/// field's start, LLP 1104 D4): only its own motion and its own press.
+pub(super) fn own_presented_color(
+    walk: &super::Walk<'_, '_>,
+    node: &NodeRef<'_>,
+    dark: bool,
+) -> Option<[u8; 4]> {
+    let presented = (walk.scene.presented)(node.id);
+    let moving = presented.colors.color(exact_motion::Property::Color);
+    if node.style.mask.has(StyleId::PressColor) && presented.press_paint > 0.0 {
+        let own = moving.unwrap_or_else(|| rgba(node.text_color().resolve(dark)));
+        let ink = rgba(node.style.press_color.resolve(dark));
+        return Some(super::presented::press_mix(own, ink, presented.press_paint));
+    }
+    moving
+}
+
 fn moving_color(walk: &super::Walk<'_, '_>, node: &NodeRef<'_>) -> Option<[u8; 4]> {
     // The node's own animation first; else whoever it inherits `color` from.
     if node
