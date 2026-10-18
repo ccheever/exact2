@@ -270,7 +270,7 @@ component SettingsUsage
             for notice in data.notices key=notice.id
               text notice.text color=colors.muted font-size=roles.footnote.size
           if data.hasUsage
-            column background-color=colors.grouped border-radius=24 padding=14 gap=14
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=14
               column gap=1.75
                 text data.headlineLabel color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=400
                 text data.headlineValue color=colors.foreground font-size=31.5 line-height="35px" font-weight=700 font-variant-numeric="tabular-nums"
@@ -295,7 +295,7 @@ component SettingsUsage
           if data.hasProviders
             column gap=7
               SettingsSectionLabel(title="Providers", colors=colors, roles=roles)
-              column background-color=colors.grouped border-radius=24 overflow="hidden"
+              column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
                 for provider, index in data.providers key=provider.id
                   if index == data.cursorInsertAt
                     UsageCursorRows(items=data.cursor, bordered=(index > 0), colors=colors, roles=roles, command=command)
@@ -316,7 +316,7 @@ component SettingsUsage
             if data.hasCost
               column gap=7
                 SettingsSectionLabel(title="Cost", colors=colors, roles=roles)
-                column background-color=colors.grouped border-radius=24 overflow="hidden"
+                column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
                   UsageCostBar(label="By type", segments=data.costByType, aside="", dark=dark, colors=colors, roles=roles)
                   if data.costBySpeed.length > 0
                     view border-top-width=1 border-top-style="solid" border-top-color=colors.borderSubtle
@@ -324,7 +324,7 @@ component SettingsUsage
             if data.models.length > 0
               column gap=7
                 SettingsSectionLabel(title="By model", colors=colors, roles=roles)
-                column background-color=colors.grouped border-radius=24 overflow="hidden"
+                column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
                   for model, index in data.models key=model.id
                     row padding=14 gap=10.5 align-items="center" border-top-width=(index > 0 ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
                       view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color=(dark ? model.dark : model.light)
@@ -369,7 +369,7 @@ component UsageCursorLimits
         row align-items="center" gap=7 padding-left=3.5 padding-right=3.5
           ProviderIcon(driver="cursor", size=18, dark=dark, iconUrl="")
           text "Cursor" color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
-        column align-items="flex-start" gap=10.5 border-radius=24 background-color=colors.grouped padding=14
+        column align-items="flex-start" gap=10.5 border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped padding=14
           text "Requires access to your Cursor login in macOS Keychain." color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
           row flex-wrap="wrap" gap=7
             for item in items key=item.id
@@ -407,7 +407,7 @@ component UsageValues
   view
     column gap=7
       SettingsSectionLabel(title=title, colors=colors, roles=roles)
-      row flex-wrap="wrap" background-color=colors.grouped border-radius=24 overflow="hidden"
+      row flex-wrap="wrap" background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
         for item in items key=item.id
           column width="50%" box-sizing="border-box" flex-shrink=0 padding=14 gap=1.75
             text item.label color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
