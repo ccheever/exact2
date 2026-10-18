@@ -778,6 +778,7 @@ export async function lookPicture(s, path, target, view = {}) {
   if (reply.unavailable) throw Object.assign(new Error(`look ${target}: ${reply.unavailable}`), { reply, unavailable: reply.unavailable });
   if (reply.error || typeof reply.data !== 'string') throw Object.assign(new Error(`look ${target}: ${reply.error ?? 'no pixels in the reply'}`), { reply });
   writeFileSync(resolve(path), encodePng({ width: reply.width, height: reply.height, data: Buffer.from(reply.data, 'base64') }));
-  const { tick, hash, w, h, look } = reply, from = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'resolution'));
-  return { screenshot: resolve(path), w, h, tick, hash, look, ...(Object.keys(from).length ? { view: from } : {}) };
+  const { tick, hash, w, h, look, bounds } = reply, from = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'resolution'));
+  // `bounds`: the scene's centre and radius an orbit or plan view was drawn within.
+  return { screenshot: resolve(path), w, h, tick, hash, look, ...(bounds ? { bounds } : {}), ...(Object.keys(from).length ? { view: from } : {}) };
 }
