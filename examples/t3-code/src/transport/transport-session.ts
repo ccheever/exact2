@@ -405,6 +405,8 @@ export class Session {
       if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
       this.token = str(grant.access_token); this.routes.tokenOwner = trimmed(this.origin);
       this.hooks.catalog.saveToken(this.token, this.origin, environment);
+      // Pairing a saved machine that was switched off turns it back on (a new one is saved on).
+      this.hooks.catalog.setEnabled(environment, true);
       this.privateValues = [];
     }
     const auth = obj(await this.http('/api/auth/session', { epoch }));
@@ -976,6 +978,8 @@ export class Session {
     if (primaryId && primaryId === environment) return this.ok({ origin: target, environmentId: environment, label: str(descriptor.label), primary: true });
     this.hooks.catalog.saveToken(str(grant.access_token), target, environment);
     this.hooks.catalog.remember(target, descriptor, this.hooks.wall(this.hooks.now()));
+    // A pairing is an explicit request to connect: a switched-off machine paired again is turned back on (onboarding.ts registerPairingConnection).
+    this.hooks.catalog.setEnabled(environment, true);
     return this.ok({ origin: target, environmentId: environment, label: str(descriptor.label) });
   }
 

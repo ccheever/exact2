@@ -13,7 +13,7 @@
 // components/settings/{providerStatus,CodexSetupSection.logic}.ts.
 import { arr, obj, str, num, applyShell, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
-import { environmentSources } from '../connections/connections';
+import { environmentSources, welcomeComputerStatus } from '../connections/connections';
 import { fleet, EnvironmentFleet } from '../connections/settings-b-fleet';
 import { look } from '../appearance/settings-appearance-look';
 import { pagesPrefs } from './pages-prefs';
@@ -284,7 +284,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   }
   const selected = state.selection ?? new Set(sources.map(source => source.key));
   view.computers = sources.map(source => ({ key: source.key, environmentId: source.environmentId, label: source.label, url: `${source.origin.replace(/\/+$/, '')}/`,
-    status: source.phase === 'connected' ? 'Connected' : 'Connecting…', selected: selected.has(source.key) }));
+    status: welcomeComputerStatus(source.enabled, source.phase), selected: selected.has(source.key) }));
   view.ready = view.computers.some(computer => computer.selected) && view.computers.filter(computer => computer.selected).every(computer => computer.status === 'Connected');
   if (view.step === 'connect') return view;
   const setup = sources.filter(source => state.setup.includes(source.key));
