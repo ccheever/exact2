@@ -447,9 +447,11 @@ extension CanvasesHost {
         case "logs":
             var world: [[String: Any]] = []
             for id in entries.keys.sorted() {
-                guard let e = live(id), let journal = agent(id, ["op": "logs", "since": e.logCursor]), journal["error"] == nil,
+                guard let e = live(id) else { continue }
+                let since = (request["all"] as? Bool) == true ? 0 : e.logCursor
+                guard let journal = agent(id, ["op": "logs", "since": since]), journal["error"] == nil,
                       let from = journal["from"] as? Int, let next = journal["next"] as? Int, let lines = journal["lines"] as? [Any] else { continue }
-                world.append(["canvas": id, "from": from, "next": next, "lines": lines, "dropped": max(0, from - e.logCursor)])
+                world.append(["canvas": id, "from": from, "next": next, "lines": lines, "dropped": max(0, from - since)])
                 e.logCursor = next
             }
             world.append(contentsOf: restoreJournal); restoreJournal.removeAll()

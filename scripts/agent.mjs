@@ -755,7 +755,6 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
               return r;
             }
             if (r.reason) return r; // the host's own why (a contact only UIKit could arbitrate), no contact held
-
           }
           // A held contact needs a touch that stays down across requests;
           // XCTest's public touches each press and lift (LLP 1080.000 D3).
@@ -917,9 +916,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** Every slot, derive, and resource by name, as typed JSON. */
     state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
-    async logs() {
-      const r = await s.op({ op: 'logs', since: s.logCursor });
-      const dropped = Math.max(0, r.from - s.logCursor);
+    async logs({all = false} = {}) {
+      const since = all ? 0 : s.logCursor;
+      const r = await s.op({ op: 'logs', since, ...(all ? {all:true} : {}) });
+      const dropped = Math.max(0, r.from - since);
       s.logCursor = r.next;
       // What the driver did that the journal could not keep (a test's `reload` waiting for storage, LLP 1097 D9).
       const notes = s.notes?.splice(0) ?? [];
@@ -1419,7 +1419,7 @@ export async function main(argv, injected = {}) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
         case 'state': r = await stateOp(s, args); break;
         case 'reload': if (args.length) throw new MalformedOperation('reload takes no arguments'); r = await reloadWeb(s); break;
-        case 'logs': r = await s.logs(); break;
+        case 'logs': if (args.some(a => a !== '--all')) throw new MalformedOperation('logs [--all]'); r = await s.logs({all: args.includes('--all')}); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
         case 'screenshot':
           if (args.includes('compare')) r = await compareScreenshot(s, args);

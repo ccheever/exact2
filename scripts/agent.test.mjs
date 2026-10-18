@@ -482,3 +482,14 @@ test('compare on a capture: nodes where the window has them, its safe area not s
     assert.match(m.text, /capture: not in the capture, as windows of their own: NSPopover/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('logs --all requests the retained journal after a delta read', async () => {
+  const calls = [], lines = ['first', 'second'];
+  const carrier = {host:'web', browser:'chrome', hostLines:[], launchFacts:launchFacts({}), reset() {},
+    async ask(req) { calls.push(req); return {from:req.since, next:lines.length, lines:lines.slice(req.since)}; }};
+  const s = await open({reuse:carrier});
+  assert.deepEqual((await s.logs()).lines, lines);
+  assert.deepEqual((await s.logs()).lines, []);
+  assert.deepEqual((await s.logs({all:true})).lines, lines);
+  assert.deepEqual(calls.filter(c=>c.op==='logs').map(c=>[c.since, c.all ?? false]), [[0,false],[2,false],[0,true]]);
+});

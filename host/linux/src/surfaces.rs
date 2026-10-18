@@ -1372,7 +1372,7 @@ impl<D: DataSource> Presenter<D> {
             };
         }
         if q["op"] == "logs" {
-            q["since"] = c.since.into();
+            q["since"] = if q["all"] == true { 0 } else { c.since }.into();
         }
         let mut r = abi.agent(c.id, &q);
         if q["op"] == "logs" {
@@ -1469,7 +1469,7 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
             Some("state") => r["world"] = self.worlds(json!({"op":"state"})).into(),
-            Some("logs") => r["world"] = self.worlds(json!({"op":"logs"})).into(),
+            Some("logs") => r["world"] = self.worlds(json!({"op":"logs","all":q["all"]})).into(),
             Some("screenshot")
                 if self.surfaces.canvases.values().any(|canvas| {
                     self.surfaces

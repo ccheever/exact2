@@ -473,7 +473,9 @@ For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact direct
 `dist/`. `state world:*` reads entities a page at a time (512 by default):
 `state world:* from 512 limit 2000` reads the next ones, and the reply carries
 `total` and `next`; `under world:player` narrows it. `state world:* resources` adds
-every resource's value. In a proof, `session.world('world').snapshot({all:true})`
+every resource's value. `logs` reads only new journal lines; `logs --all` reads
+all retained lines (the journal holds 4,096), reporting any dropped prefix.
+In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 
