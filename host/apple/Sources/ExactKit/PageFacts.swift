@@ -123,7 +123,7 @@ package enum PageFacts {
     /// the preferred content size category. macOS: `NSFont.systemFontSize`,
     /// 13. tvOS keeps CSS's 16 scaled by the category until its own pass
     /// (its body style is 29 points, read at ten feet).
-    static var rootFontSize: Double {
+    package static var rootFontSize: Double {
         if let pinnedRootFontSize { return pinnedRootFontSize }
         if substituted, let size = agent.rootFontSize { return size }
         #if os(macOS)
@@ -152,7 +152,7 @@ package enum PageFacts {
     /// is one device pixel of it, so it is told to the kernel as the root
     /// font size is. Under the agent it is still the display's, which is the
     /// simulator's or the Mac's own, unless the drive names one.
-    static func displayScale(_ view: PlatformView?) -> Double {
+    package static func displayScale(_ view: PlatformView?) -> Double {
         if let agentDisplayScale { return agentDisplayScale }
         #if os(macOS)
         return Double(max(1, view?.window?.backingScaleFactor ?? 1))

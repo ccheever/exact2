@@ -217,6 +217,7 @@ extension NodeView {
 }
 
 extension NodeView {
+    package var fieldInk: NSColor { color("text_color", SystemColor.canvasText) }
     /// Whether the author wrote the style row `key` on this node (it is false of a value the node only
     /// inherits and of a row the compiler implied), as iOS reads it.
     func wrote(_ key: String) -> Bool {
