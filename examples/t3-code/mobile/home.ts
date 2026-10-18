@@ -294,5 +294,5 @@ export function mobileHome(now: number, options: HomeOptions = {}, client: T3Cli
   const anyContent = anyThreads || projectHomeDrafts(options.drafts ?? []).length > 0 || (options.pendingTasks?.length ?? 0) > 0 || (options.pendingEditors?.length ?? 0) > 0;
   const empty = anyContent ? null : mobileHomeEmpty(catalog, sources.reduce((sum, source) => sum + source.shell.projects.length, 0));
   return { ...projection, emptyTitle: empty?.title ?? projection.emptyTitle, emptyDetail: empty?.detail ?? projection.emptyDetail,
-    loading: empty?.loading ?? false, addEnvironment: !anyContent && !catalog.hasReadyEnvironment, hasAnyThreads: anyThreads };
+    loading: empty?.loading ?? false, addEnvironment: !anyContent && !catalog.hasReadyEnvironment, hasAnyThreads: anyThreads, fullPageEmpty: !anyContent };
 }
