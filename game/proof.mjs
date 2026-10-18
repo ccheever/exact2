@@ -1,3 +1,4 @@
+import {refusalMessage} from '../scripts/agent-keys.mjs';
 import {proofInputFiles, proofInputExcluded} from './inputs.mjs';
 export {proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
@@ -14,6 +15,8 @@ import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
 export function formatProofError(error) {
+  const refusal = refusalMessage(error?.reply);
+  if (refusal && !process.env.EXACT_AGENT_DEBUG && !process.argv.includes('--json')) return refusal;
   const message = String(error), stack = error?.stack;
   const rendered = typeof stack === 'string' && stack.length
     ? stack.includes(message) ? stack : `${message}\n${stack}`

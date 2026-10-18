@@ -16,6 +16,8 @@ import { inertAncestor } from "./navigation.js";
 const artifact = new URL(import.meta.url).searchParams.get("artifact");
 const stem = artifact ?? "gpu";
 let gpu;
+let trapped;
+const refusal = (message, subsystem = "gpu") => ({error:String(message), refused:{host:"web", subsystem, message:String(message)}});
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const HOST_WORK_LIMIT = 16 * 1024 * 1024;
 const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
@@ -458,10 +460,10 @@ function ensure(entry) {
   try {
     create(entry, gpu, entry.carry);
     if (!entry.restoreError && !entry.pendingRestore) delete entry.carry;
-    restorePending(entry);
+    restorePending(entry); delete entry.refused;
   } catch (error) {
     if (entry.id) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
-    entry.id = 0;
+    entry.id = 0; entry.refused = refusal(error, "canvas");
     throw error;
   }
   attach(entry);
@@ -697,7 +699,10 @@ function agent(view, request) {
   const entry = live(view);
   if (!entry) return null;
   const { w, h, s } = size(entry.host);
-  const reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, ...(exact.now ? { now: exact.now() } : {}), width: w, height: h, scale: s }));
+  if (trapped) return trapped;
+  let reply;
+  try { reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, ...(exact.now ? { now: exact.now() } : {}), width: w, height: h, scale: s })); }
+  catch (error) { console.error(error); trapped = refusal(error); return trapped; }
   messages(entry);
   schedule();
   if (!reply) return null;
@@ -707,7 +712,7 @@ function agent(view, request) {
     if (request.op === "state" && Array.isArray(value.entities)) { editsAdmitted ||= value.developmentEdits === true; value.sessionDevelopmentEdits = editsAdmitted; }
     if (value.world) { editsAdmitted ||= value.world.developmentEdits === true; value.world.sessionDevelopmentEdits = editsAdmitted; }
     if (request.op === "state" && value.world && entry.restoreError) value.world.restoreError = entry.restoreError;
-    return value;
+    return value.error ? {...value, ...refusal(value.error)} : value;
   } catch (error) { console.error(`exact gpu: view ${view}:`, error); return null; }
 }
 function worlds(request) {
@@ -772,7 +777,7 @@ const api = {
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
   handle(request, ask, tagged) {
     const entry = live(request.id);
-    if (!entry) return { error: `view ${request.id} has no world` };
+    if (!entry) return surfaces.get(request.id)?.refused ?? refusal(`view ${request.id} has no world`, "canvas");
     if (request.op === "tap" && request.contact !== undefined) {
       entry.resampleHeld?.();
       const owner = entry.controls?.get(request.contact);
@@ -788,10 +793,10 @@ const api = {
     }
     if (request.op === "screenshot" && request.form === "save") {
       let bytes;
-      try { bytes = gpu.gpu_carry(entry.id); } catch (error) { return {error: `save refused: ${error}`}; }
+      try { bytes = gpu.gpu_carry(entry.id); } catch (error) { return refusal(`save refused: ${error}`, "assets"); }
       if (bytes === undefined) {
         const state = agent(request.id, {op:"state"})?.world;
-        return {error: state?.assets?.length ? `save refused: ${JSON.stringify(state.assets)}` : `canvas ${entry.name} carries no state`, assets:state?.assets};
+        return {...refusal(state?.assets?.length ? `save refused: ${JSON.stringify(state.assets)}` : `canvas ${entry.name} carries no state`, "assets"), assets:state?.assets};
       }
       worldSize(bytes);
       const state = agent(request.id, { op: "state" });
@@ -812,6 +817,7 @@ const api = {
   decorate(request, reply) {
     if (reply?.then) return reply.then((r) => api.decorate(request, r));
     if (!reply || reply.error) return reply;
+    if (request.op !== "logs") { const failed = [...surfaces.values()].find(e => e.refused); if (failed) return failed.refused; }
     if (api.answers(request)) return restoreReply(reply);
     if (request.op === "tree") for (const node of reply.nodes ?? []) {
       const summary = agent(node.id, { op: "tree", summary: true });
@@ -824,6 +830,7 @@ const api = {
     }
     if (request.op === "logs") {
       const world = [];
+      if (trapped) world.push({lines:[trapped.refused.message], refused:trapped.refused});
       for (const [canvas, entry] of surfaces) {
         const since = request.all ? 0 : entry.logCursor;
         const journal = agent(canvas, { op: "logs", since });

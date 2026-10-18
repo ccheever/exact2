@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync} from 'node:fs';
 import {dirname, relative, resolve} from 'node:path';
@@ -10,9 +11,15 @@ export function writeJSON(path, value) {
   renameSync(temp, path);
 }
 export function inventory(sdk, app) {
+  const git = args => spawnSync('git', args, {cwd:sdk, encoding:'utf8', maxBuffer:32*1024*1024});
+  const listed = git(['ls-files','-s','-z']), status = git(['status','--porcelain=v1','-z','--untracked-files=no','--no-renames']);
+  const blobs = new Map((listed.stdout ?? '').split('\0').flatMap(row => { const match = /^\d+ ([a-f0-9]+) 0\t(.*)$/s.exec(row); return match ? [[match[2],match[1]]] : []; }));
+  const dirty = new Set((status.stdout ?? '').split('\0').filter(row => row && row[1] !== ' ').map(row => row.slice(3)));
   return Object.fromEntries(proofInputFiles(sdk, app).map(file => {
     const path = resolve(sdk, file), own = relative(app, path);
-    return [!own.startsWith('../') ? `app/${own}` : `sdk/${file}`, digest(readFileSync(path))];
+    let hash = listed.status === 0 && status.status === 0 && !dirty.has(file) ? blobs.get(file) : null;
+    if (!hash) { const bytes = readFileSync(path); hash = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); }
+    return [!own.startsWith('../') ? `app/${own}` : `sdk/${file}`, hash];
   }).sort(([a],[b]) => a.localeCompare(b)));
 }
 export function assertInventory(before, after) {
@@ -48,6 +55,10 @@ export function snapshot(sdk, app, root) {
   const programs = proofFiles(app), files = new Set([...Object.keys(inputs).filter(key => key.startsWith('app/')).map(key => key.slice(4)), ...programs, 'pins.json']);
   for (const file of ['.gitignore','rust-toolchain.toml']) if (existsSync(resolve(app,file))) files.add(file);
   for (const file of files) copyInput(app, src, file);
+  const initialized = spawnSync('git', ['init','-q',src], {encoding:'utf8'});
+  if (initialized.status !== 0) throw new Error(`snapshot Git initialization failed: ${initialized.stderr}`);
+  const tracked = spawnSync('git', ['add','.'], {cwd:src, encoding:'utf8'});
+  if (tracked.status !== 0) throw new Error(`snapshot input tracking failed: ${tracked.stderr}`);
   assertInventory(inputs, inventory(sdk, app));
   const copied = Object.fromEntries([...files].sort().map(file => [file, digest(readFileSync(resolve(src,file)))]));
   return {src, inputs, copied, digest:digest(JSON.stringify(inputs)), program:Object.fromEntries(programs.map(file => [file,digest(readFileSync(resolve(app,file)))]))};

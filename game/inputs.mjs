@@ -53,13 +53,13 @@ export function proofInputFiles(root, app, inventory, ignoredDirectories = new S
   for (const cwd of new Set([repository, app])) {
     const ignored = spawnSync('git', ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], {cwd, encoding:'utf8'});
     if (ignored.status === 0) for (const file of ignored.stdout.split('\0').filter(Boolean)) {
-      if (file.endsWith('/')) ignoredDirectories.add(resolve(cwd, file));
+      if (file.endsWith('/')) { if (resolve(cwd,file) !== resolve(app)) ignoredDirectories.add(resolve(cwd, file)); }
       else excluded.add(relative(repository, resolve(cwd, file)).replaceAll('\\', '/'));
     }
   }
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
   const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
   return [...new Set(sources)].sort().filter(file => !excluded.has(file) &&
-    ![...ignoredDirectories].some(dir => resolve(repository, file).startsWith(dir + '/')) &&
+    ![...ignoredDirectories].some(dir => resolve(repository, file).startsWith(dir + '/') && (!resolve(repository,file).startsWith(resolve(app) + '/') || dir.startsWith(resolve(app) + '/'))) &&
     !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }

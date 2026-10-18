@@ -2,7 +2,7 @@ import {spawnSync} from 'node:child_process';
 import {test, expect} from 'bun:test';
 import {mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {snapshot, validateSnapshot, reusableLeg, digest, writeJSON} from './proof-snapshot.mjs';
+import {inventory, snapshot, validateSnapshot, reusableLeg, digest, writeJSON} from './proof-snapshot.mjs';
 
 test('snapshots isolate edits; continuation names changed inputs and corrupt receipts', () => {
   mkdirSync(resolve(import.meta.dir, '../target'), {recursive:true});
@@ -14,6 +14,7 @@ test('snapshots isolate edits; continuation names changed inputs and corrupt rec
     write('logic/src/lib.rs', 'original'); write('proof.mjs', 'export const proof = 1;');
     write('pins.json', '{}'); write('tools/probe.mjs', 'probe');
     const run = snapshot(sdk, app, root);
+    expect(inventory(sdk, run.src)['app/logic/src/lib.rs']).toBe(run.inputs['app/logic/src/lib.rs']);
     write('tools/probe.mjs', 'edited probe');
     validateSnapshot(run, sdk, app);
     write('logic/src/lib.rs', 'edited during leg');

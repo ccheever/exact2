@@ -530,6 +530,12 @@ In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 
+Linux GPU loading and surface/asset refusals, and web GPU/surface refusals, carry
+`{refused:{host,subsystem,message}}`. The driver prints the host and subsystem first;
+`EXACT_AGENT_DEBUG=1` or `--json` includes its stack. Browser console diagnostics
+remain available through `logs --all` after a wasm trap, including the panic hook's
+message. This does not make a trapped world usable again; reload it before driving.
+
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
 `layout`, `snapshot` and `save`. A held key is released on the same carrier even
 when advancing time fails. `open({fresh:true, world:'run.world'})` opens a new
