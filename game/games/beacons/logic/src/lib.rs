@@ -94,6 +94,22 @@ impl Game for Beacons {
                     Beacon::default(),
                 ),
             );
+            w.spawn_named(
+                format!("ring-{}", i + 1),
+                (
+                    Transform::at(x, 0.205, z),
+                    Mesh::ring(0.72, 0.9),
+                    Material::glow([0.12, 0.55, 0.6]),
+                ),
+            );
+            w.spawn_named(
+                format!("halo-{}", i + 1),
+                (
+                    Transform::at(x, 1.0, z),
+                    Mesh::sphere(0.7),
+                    Material::glow([0.12, 0.55, 0.6]).alpha(0.12),
+                ),
+            );
         }
         w.publish("lit", 0);
         w.publish("near", "");
