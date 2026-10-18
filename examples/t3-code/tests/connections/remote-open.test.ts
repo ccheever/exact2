@@ -58,8 +58,14 @@ describe('buildRemoteOpenUrl', () => {
     expect(buildRemoteOpenUrl({ editor: 'zed', host: 'sol', absolutePath: 'C:\\Users\\theo' })).toBe('zed://ssh/sol/Users/theo');
     expect(buildRemoteOpenUrl({ editor: 'zed', host: 'sol', absolutePath: '/C:/project' })).toBe('zed://ssh/sol/C%3A/project');
   });
+  test('builds a Toolbox ssh deep link for JetBrains IDEs', () => {
+    expect(buildRemoteOpenUrl({ editor: 'pycharm', host: 'sol.tail1234.ts.net', absolutePath: '/home/theo/code/my repo' }))
+      .toBe('jetbrains://gateway/ssh/environment?h=sol.tail1234.ts.net&launchIde=true&ideHint=PY&projectHint=%2Fhome%2Ftheo%2Fcode%2Fmy+repo');
+    expect(buildRemoteOpenUrl({ editor: 'idea', host: 'sol', absolutePath: 'C:\\Users\\theo' }))
+      .toBe('jetbrains://gateway/ssh/environment?h=sol&launchIde=true&ideHint=IU&projectHint=C%3A%2FUsers%2Ftheo');
+  });
   test('returns undefined for editors without remote support', () => {
-    expect(buildRemoteOpenUrl({ editor: 'idea', host: 'sol', absolutePath: '/tmp/x' })).toBe(undefined);
+    expect(buildRemoteOpenUrl({ editor: 'kiro', host: 'sol', absolutePath: '/tmp/x' })).toBe(undefined);
   });
 });
 
@@ -72,11 +78,17 @@ describe('parseSafeExternalUrl', () => {
   test("opens Zed's ssh deep link", () => {
     expect([parseSafeExternalUrl('zed://ssh/example.com/home/user/project'), parseSafeExternalUrl('zed://ssh/example.com/')]).toEqual(['zed://ssh/example.com/home/user/project', 'zed://ssh/example.com/']);
   });
+  test('opens the JetBrains Toolbox ssh deep link', () => {
+    const url = 'jetbrains://gateway/ssh/environment?h=example.com&launchIde=true&ideHint=IU&projectHint=%2Fhome%2Fuser%2Fproject';
+    expect(parseSafeExternalUrl(url)).toBe(url);
+  });
   test('does not open editor URLs that mix up link shapes', () => {
-    expect([parseSafeExternalUrl('zed://extension/attacker'), parseSafeExternalUrl('vscode://ssh/example.com/home/user/project')]).toEqual([null, null]);
+    expect(['zed://extension/attacker', 'vscode://ssh/example.com/home/user/project', 'jetbrains://idea/navigate/reference?project=x&path=y',
+      'jetbrains://gateway/ssh/environment?launchIde=true', 'jetbrains://gateway/com.example.provider/connect?h=x'].map(parseSafeExternalUrl)).toEqual([null, null, null, null, null]);
   });
   test('does not open remote editor URLs with userinfo', () => {
-    expect(['vscode://user@vscode-remote/ssh-remote+example.com/home/user/project', 'vscode://:secret@vscode-remote/ssh-remote+example.com/home/user/project', 'zed://ssh/user@example.com/home/user/project'].map(parseSafeExternalUrl)).toEqual([null, null, null]);
+    expect(['vscode://user@vscode-remote/ssh-remote+example.com/home/user/project', 'vscode://:secret@vscode-remote/ssh-remote+example.com/home/user/project', 'zed://ssh/user@example.com/home/user/project',
+      'jetbrains://user@gateway/ssh/environment?h=example.com'].map(parseSafeExternalUrl)).toEqual([null, null, null, null]);
   });
   test('does not open unsafe external URLs', () => { expect(parseSafeExternalUrl('file:///etc/passwd')).toBe(null); });
   test('does not open non-remote editor URLs', () => { expect(parseSafeExternalUrl('vscode://ms-python.python/some-command?argument=attacker')).toBe(null); });
@@ -127,8 +139,9 @@ describe('picker visibility and editors', () => {
     expect(canUseMarkdownFileShellActions(null, 'local-exec', true)).toBe(false);
   });
   test('lists only remote-capable editors that resolve', async () => {
-    expect(REMOTE_CAPABLE_EDITOR_IDS).toEqual(['cursor', 'vscode', 'vscode-insiders', 'vscodium', 'zed']);
-    expect(remoteEditorsFrom(['zed', 'idea', 'cursor', 7])).toEqual(['zed', 'cursor']);
+    expect(REMOTE_CAPABLE_EDITOR_IDS).toEqual(['cursor', 'vscode', 'vscode-insiders', 'vscodium', 'zed', 'idea', 'aqua', 'clion', 'datagrip', 'dataspell', 'goland',
+      'phpstorm', 'pycharm', 'rider', 'rubymine', 'rustrover', 'webstorm']);
+    expect(remoteEditorsFrom(['zed', 'idea', 'trae', 'cursor', 7])).toEqual(['zed', 'idea', 'cursor']);
     const { native, calls } = fakeNative(() => ({ editors: ['cursor', 'zed'] }));
     expect(await remoteCapableEditors(native)).toEqual(['cursor', 'zed']);
     expect(await remoteCapableEditors(native)).toEqual(['cursor', 'zed']);
@@ -136,7 +149,7 @@ describe('picker visibility and editors', () => {
   });
   test('falls back to VS Code when none resolve', async () => {
     expect(remoteEditorsFrom([])).toEqual(['vscode']);
-    expect(remoteEditorsFrom(['idea'])).toEqual(['vscode']);
+    expect(remoteEditorsFrom(['trae'])).toEqual(['vscode']);
     expect(await remoteCapableEditors(fakeNative(() => ({ editors: [] })).native)).toEqual(['vscode']);
   });
   test('adding an SSH alias before the first picker preserves previously saved tunnels', async () => {

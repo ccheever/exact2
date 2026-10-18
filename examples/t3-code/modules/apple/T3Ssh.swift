@@ -404,17 +404,45 @@ final class T3Ssh: @unchecked Sendable {
         return arguments[index + 1].split(separator: ":").first.flatMap { Int($0) }
     }
 
-    static func portFree(_ port: Int) -> Bool {
-        let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard socket >= 0 else { return false }
-        defer { close(socket) }
+    static func loopbackAddress(_ port: Int) -> sockaddr_in {
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = in_port_t(UInt16(port).bigEndian)
         address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        return address
+    }
+
+    /// sshHelper.ts pick-port: the port binds on loopback and nothing answers there. macOS lets the bind
+    /// succeed while another process listens on *:<port>, so the connect check is needed too.
+    static func portFree(_ port: Int) -> Bool { canBind(port) && !answersOnLoopback(port) }
+
+    static func canBind(_ port: Int) -> Bool {
+        let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard socket >= 0 else { return false }
+        defer { close(socket) }
+        var address = loopbackAddress(port)
         let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
         return bound == 0
+    }
+
+    /// A connection to 127.0.0.1:<port> is accepted, or still pending after `timeout` (both count as taken).
+    static func answersOnLoopback(_ port: Int, timeout: TimeInterval = 1) -> Bool {
+        let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard socket >= 0 else { return false }
+        defer { close(socket) }
+        _ = fcntl(socket, F_SETFL, fcntl(socket, F_GETFL) | O_NONBLOCK)
+        var address = loopbackAddress(port)
+        let result = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+        if result == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+        var descriptor = pollfd(fd: socket, events: Int16(POLLOUT), revents: 0)
+        let ready = poll(&descriptor, 1, Int32(timeout * 1000))
+        if ready == 0 { return true }
+        var failure: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        guard ready > 0, getsockopt(socket, SOL_SOCKET, SO_ERROR, &failure, &length) == 0 else { return false }
+        return failure == 0
     }
 
     static func httpReady(_ port: Int, timeout: TimeInterval) -> Bool {
@@ -460,8 +488,10 @@ final class T3Ssh: @unchecked Sendable {
     }
 
     // The remote side: reuse the default server (its userdata/server-runtime.json names a live
-    // loopback port) or start `t3 serve` on the first free port from 3773, then print
-    // {"remotePort","serverKind"} (tunnel.ts REMOTE_LAUNCH_SCRIPT, without the archive installer).
+    // loopback port), wait for a server this script started that is still running, or start
+    // `t3 serve` on the first port from 3773 that nothing answers on, then print
+    // {"remotePort","serverKind"} (tunnel.ts REMOTE_LAUNCH_SCRIPT at 9c161462c9, without the archive
+    // installer; the arguments arrive as "$1", so no value is substituted into the script).
     static let launchScript = #"""
 set -eu
 STATE_DIR="$HOME/.t3/ssh-launch/${1:-default}"
@@ -474,6 +504,24 @@ probe() {
   if command -v wget >/dev/null 2>&1; then wget -q -O /dev/null -T 1 "http://127.0.0.1:$1/"; return $?; fi
   return 1
 }
+# Anything that accepts or holds a loopback connection takes the port, HTTP or not (curl's 7 is a
+# refused connection; a timeout counts as taken).
+answers() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -s -o /dev/null -m 1 "http://127.0.0.1:$1/" && return 0
+    [ "$?" -ne 7 ]
+    return
+  fi
+  probe "$1"
+}
+# kill -0 also succeeds for a server that exited but was not reaped yet, so
+# a zombie does not count as running. Without ps to tell, trust kill -0.
+server_running() {
+  [ -n "$1" ] && kill -0 "$1" 2>/dev/null || return 1
+  case "$(ps -o stat= -p "$1" 2>/dev/null || true)" in
+    *Z*) return 1 ;;
+  esac
+}
 wait_ready() {
   WAIT_COUNT=0
   while [ "$WAIT_COUNT" -lt "$2" ]; do
@@ -482,22 +530,36 @@ wait_ready() {
   done
   return 1
 }
+REMOTE_PORT=""
 if [ -f "$RUNTIME_FILE" ]; then
   REMOTE_PORT="$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$RUNTIME_FILE" | head -n 1)"
   if [ -n "$REMOTE_PORT" ] && wait_ready "$REMOTE_PORT" 4; then
     printf '{"remotePort":%s,"serverKind":"external"}\n' "$REMOTE_PORT"; exit 0
   fi
 fi
+# Reconnecting owns the tunnel, not the lifetime of a server already running: one this script
+# started that is alive but slow is waited for and left running, never replaced.
+MANAGED_PID="$(cat "$STATE_DIR/pid" 2>/dev/null || true)"
+if server_running "$MANAGED_PID"; then
+  MANAGED_PORT="$(cat "$STATE_DIR/port" 2>/dev/null || true)"
+  [ -n "$MANAGED_PORT" ] || MANAGED_PORT="$REMOTE_PORT"
+  if [ -n "$MANAGED_PORT" ] && wait_ready "$MANAGED_PORT" 40; then
+    printf '{"remotePort":%s,"serverKind":"managed"}\n' "$MANAGED_PORT"; exit 0
+  fi
+  printf 'Remote T3 server is still running but did not become ready. Retry the connection; the server was left running.\n' >&2
+  exit 1
+fi
 if ! command -v t3 >/dev/null 2>&1; then
   printf 'T3 Code is not installed on this host. Install it (npx t3), then add the environment again.\n' >&2; exit 1
 fi
 REMOTE_PORT=3773
-while probe "$REMOTE_PORT"; do
+while answers "$REMOTE_PORT"; do
   REMOTE_PORT=$((REMOTE_PORT + 1))
   if [ "$REMOTE_PORT" -gt 3972 ]; then printf 'Failed to find an available port on the remote host.\n' >&2; exit 1; fi
 done
 nohup env T3CODE_NO_BROWSER=1 t3 serve --host 127.0.0.1 --port "$REMOTE_PORT" --base-dir "$DEFAULT_SERVER_HOME" >>"$LOG_FILE" 2>&1 < /dev/null &
 printf '%s\n' "$!" >"$STATE_DIR/pid"
+printf '%s\n' "$REMOTE_PORT" >"$STATE_DIR/port"
 if ! wait_ready "$REMOTE_PORT" 40; then
   printf 'Remote T3 server did not become ready on 127.0.0.1:%s.\n' "$REMOTE_PORT" >&2
   tail -n 20 "$LOG_FILE" >&2 2>/dev/null || true
