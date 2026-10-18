@@ -1182,6 +1182,8 @@ impl World {
         next.epoch.set(self.epoch.get().wrapping_add(1));
         // Delivery ownership is not saved state; transfer it only after validation.
         next.assets = std::mem::take(&mut self.assets);
+        next.set_seen
+            .set(self.set_seen.get() || next.set_seen.get());
         *self = next;
         Ok(())
     }

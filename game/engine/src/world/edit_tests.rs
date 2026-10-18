@@ -169,7 +169,11 @@ fn refuses_pin(sim: &Sim<Editable>, expected: &str) {
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap();
-    assert!(message.contains(expected), "{message}");
+    if expected == "pin refused: run contains a set development edit" {
+        assert_eq!(message, expected);
+    } else {
+        assert!(message.contains(expected), "{message}");
+    }
 }
 #[test]
 fn raw_world_import_latches_before_restart_and_clean_restore() {
@@ -206,4 +210,53 @@ fn queued_set_refuses_pin_before_admission() {
     sim.advance(17., Clock::Seekable);
     assert!(sim.agent(r#"{"op":"state"}"#).contains(r#""queuedSets":0"#));
     refuses_pin(&sim, "pin refused: run contains a set development edit");
+}
+
+#[test]
+fn consecutive_raw_loads_retain_imported_provenance() {
+    let mut source = Sim::<Editable>::new(EditOptions::default()).unwrap();
+    let clean = source.world().save();
+    source
+        .world_mut()
+        .apply_set("set player Tuning.speed 8", true);
+    let poisoned = source.world().save();
+    let mut raw = World::new(60, 0);
+    raw.register::<Tuning>();
+    let world = &mut raw;
+    world.load(&poisoned).unwrap();
+    world.load(&clean).unwrap();
+    assert!(world.set_seen.get());
+    assert_eq!(
+        world.hash(),
+        Sim::<Editable>::new(EditOptions::default())
+            .unwrap()
+            .world()
+            .hash()
+    );
+    let mut sim = Sim::<Editable>::new(EditOptions::default()).unwrap();
+    sim.assert_pin(&matching_pin(&sim));
+    let world = sim.world_mut();
+    world.load(&poisoned).unwrap();
+    world.load(&clean).unwrap();
+    refuses_pin(&sim, "pin refused: run contains a set development edit");
+    sim.world_mut().load(&raw.save()).unwrap();
+    sim.world_mut().load(&clean).unwrap();
+    refuses_pin(&sim, "pin refused: run contains a set development edit");
+}
+
+#[test]
+fn queued_save_retains_edit_after_argument_restart_cancels_live_queue() {
+    let mut sim = Sim::<Editable>::new(EditOptions::default()).unwrap();
+    sim.advance(0., Clock::Seekable);
+    sim.post("set player Tuning.speed 8");
+    let pending = sim.save().unwrap();
+    sim.bind(&[Value::Bool(true)], None).unwrap();
+    assert_eq!(sim.queued_sets(), 0);
+    sim.assert_pin(&matching_pin(&sim));
+    let mut replay = Sim::<Editable>::new(EditOptions::default()).unwrap();
+    replay.restore(&pending).unwrap();
+    assert_eq!(replay.queued_sets(), 1);
+    replay.advance(0., Clock::Seekable);
+    replay.advance(17., Clock::Seekable);
+    refuses_pin(&replay, "pin refused: run contains a set development edit");
 }
