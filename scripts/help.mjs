@@ -146,8 +146,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
     body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes.
-Without --storage, storage is refused; --reset-storage empties a native store, --keep-storage keeps a web one,
-or the store of a drive that compares (which otherwise starts empty).
+No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
 An app's server.ts runs for the drive, its database per --storage.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
