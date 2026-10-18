@@ -935,6 +935,14 @@ screen, 2026-10-16.)
   tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
   after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
   (Shelf recipe, 2026-10-10.)
+- **After a long press made with `axe touch --down --up --delay`, the iOS simulator
+  ignores taps.** An action sheet or alert the long press opened stays up whatever
+  is tapped, and relaunching the app does not help: Apple's Settings app on that
+  simulator ignores taps too, until the simulator reboots. Cause: AXe 1.8.0's
+  touch command, not the app. Fix: make real touches with the agent, which taps
+  an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
+  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
+  prompt, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)

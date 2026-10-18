@@ -949,6 +949,17 @@ final class MenuHost {
         guard let row = at as? NodeView, row.superview === pop.container, row.props["popover"] == nil else { return nil }
         return (pop, row)
     }
+    /// The title UIKit's alert or action sheet shows for `node`, a button
+    /// (an action or the cancel) of the confirmation it presents: what a
+    /// finger picks under `--touch platform`. Nil for anything else.
+    func shownAction(_ node: NodeView) -> String? {
+        guard let owner = confirmation, !owner.finishing, let pop = owner.popover, node.isDescendant(of: pop) else { return nil }
+        var at: UIView = node
+        while let up = at.superview, up !== pop.container { at = up }
+        guard let row = at as? NodeView else { return nil }
+        if let entry = owner.actions.first(where: { $0.node === row }) { return entry.title }
+        return rows(of: pop, modal: owner.modal).cancels.first === row ? title(of: row) : nil
+    }
     /// Under the agent, the rows each popover's menu was last given, in
     /// order, by popover id: where a finger finds a row in the menu UIKit
     /// shows (`Agent.shownRow`). UIKit puts no identifier of an action on

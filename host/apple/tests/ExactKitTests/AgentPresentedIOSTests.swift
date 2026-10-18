@@ -93,5 +93,53 @@ final class AgentPresentedIOSTests: XCTestCase {
         r = shot(third)
         XCTAssertEqual(r["presented"] as? String, "sheet"); XCTAssertEqual(r["h"] as? Double, 800)
     }
+
+    /// A native button that hides the popover `confirm`.
+    private func button(_ id: Int, press: Bool, y: Double) -> [[String: Any]] {
+        [["op": "create", "id": id, "kind": "control", "handlers": press ? ["press"] : [],
+          "props": ["type": "button", "accessibilityRole": "button", "popovertarget": "confirm", "popovertargetaction": "hide"],
+          "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+         ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 80.0, "h": 40.0]]
+    }
+
+    /// A real touch (`--touch platform`) on a button of a confirmation aims
+    /// at the button UIKit's alert shows for it, never at the hidden
+    /// authored node, which every alert covered ("UIView covers its middle":
+    /// a euxy row's rename prompt could not be driven).
+    func testARealTouchAimsAtTheAlertsButtonForAConfirmationsRow() throws {
+        let agent = mounted()
+        let p = try XCTUnwrap(session).presenter
+        let titles: [UInt32: String] = [3: "Keep", 9: "Cancel"]
+        p.buttonFace = { id in var f = ButtonFace(); f.title = titles[id]; return f }
+        p.apply(wireBatch([
+            ["op": "create", "id": 2, "kind": "view", "handlers": [], "style": ["text_color": [0, 0, 0, 255]],
+             "props": ["id": "confirm", "popover": "auto", "accessibilityRole": "alertdialog", "accessibilityLabel": "Keep?"]],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+            ["op": "create", "id": 10, "kind": "text", "props": ["text": "A message."], "handlers": [], "style": ["text_color": [0, 0, 0, 255]]],
+        ] + button(3, press: true, y: 40) + button(9, press: false, y: 80) + [
+            ["op": "children", "id": 2, "ids": [10, 3, 9]], ["op": "roots", "ids": [1, 2]],
+        ]))
+        p.menus.action("showPopover", ["confirm"])
+        let alert = try XCTUnwrap(root?.presentedViewController as? UIAlertController)
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "a presentation completes only in a scene's window")
+        }
+        let end = Date().addingTimeInterval(3)
+        while p.menus.inTransition, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        alert.view.layoutIfNeeded()
+        for (id, title) in [(9, "Cancel"), (3, "Keep")] {
+            let reply = agent.aim(["id": id])
+            if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
+            let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+            let native = try XCTUnwrap(aim["native"] as? [String: Any], "\(aim)")
+            XCTAssertEqual(native["kind"] as? String, "alertAction")
+            XCTAssertEqual(native["label"] as? String, title)
+            let w = try XCTUnwrap(aim["window"] as? [Double])
+            var hit = try XCTUnwrap(window).hitTest(CGPoint(x: w[0], y: w[1]), with: nil)
+            while let view = hit, view.accessibilityLabel != title { hit = view.superview }
+            XCTAssertNotNil(hit, "\(title): the point is on UIKit's \(title) button")
+            XCTAssertTrue(hit?.isDescendant(of: alert.view) == true, "\(title): in the alert")
+        }
+    }
 }
 #endif

@@ -210,6 +210,17 @@ extension Agent {
             return aimed(v, at: p, local: CGPoint(x: q.x - vp.pageOrigin.x, y: q.y - vp.pageOrigin.y), in: win, space: space,
                          hit: nil, native: ["kind": "menuItem", "label": label, "row": Int(row.id)])
         }
+        // A button of the alert or action sheet UIKit presents: its button there.
+        if let title = presenter.menus.shownAction(v) {
+            guard let space = scene?.coordinateSpace else { return ["error": "tap #\(v.id): no scene"] }
+            let shown = Agent.menuGroups(in: win).flatMap(\.rows).filter { $0.label == title }
+            guard shown.count == 1, let box = shown.first?.box else {
+                return ["error": "tap #\(v.id): \(shown.count) places UIKit shows read \"\(title)\"; `clock settle` waits out the alert's arrival"]
+            }
+            let p = CGPoint(x: box.midX, y: box.midY), vp = presenter.viewport, q = vp.convert(p, from: nil)
+            return aimed(v, at: p, local: CGPoint(x: q.x - vp.contentOffset.x, y: q.y - vp.contentOffset.y), in: win, space: space,
+                         hit: nil, native: ["kind": "alertAction", "label": title])
+        }
         // The point: the request's, else the middle of the target — of a
         // visible shaped fragment for an inline id, as `tap` aims.
         var at = req
