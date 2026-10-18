@@ -820,17 +820,18 @@ that opens a search view, or a search action in the bar; neither is built.
 |---|---|---|
 | Height | 80 dp, over the gesture bar | 80 dp |
 | Colour | `surfaceContainer`, the gesture bar's area the same | `surfaceContainer` |
-| Destinations | the root tablist's tabs that name a panel, sharing the width | 3 to 5, sharing the width |
+| Destinations | the root tablist's tabs that name a panel, sharing the width 8 dp apart | 3 to 5, the same (`NavigationBarItemHorizontalPadding`) |
 | Symbol and label | a 24 dp symbol 16 dp from the top, its label under it (label-medium, 12/16 sp), 16 dp from the bottom | the same |
-| Active indicator | a 64 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
-| Colours | the selected destination `onSurface`, the others `onSurfaceVariant` | the same for labels; the selected symbol is `onSecondaryContainer`, a role the reader does not report yet |
+| Active indicator | a 56 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
+| Colours | the selected destination's symbol `onSecondaryContainer` and its label `secondary`; the others `onSurfaceVariant`, at 38 % when disabled | the same (`NavigationBarItemDefaults.colors`) |
 
 "Here" in both tables is what was seen on a Pixel 10 Pro XL (Android 16, 2.4375 pixels a dp), from `state.bars`
 and its screenshots: the top bar's view is 317 pixels tall (a 66.05 dp status bar and 64 dp), the navigation bar's
 254 (80 dp and a 24.2 dp gesture bar); read off the pictures, the indicator is about 156 by 77 pixels and the
 title's first glyph about 40 pixels from the side, about 129 after the arrow. "Material 3" is the Compose Material 3 library's `TopAppBar` and `NavigationBar`
 and their tokens (`TopAppBarSmallTokens`, `NavigationBarTokens`) as remembered, not read against the library that
-day, and no reference app was beside it: the one S2 builds is what checks these.
+day. The navigation bar's are now read from it at the pinned version: its numbers are the schema's `nav-` rows
+(`reference/rows.json`), and the Material oracle compares it with Compose's.
 
 A destination tapped again while it is selected and its stack is at its root scrolls that route's content to its
 top, as iOS does (in one step: nothing animates it). Above its root the tap is the app's own. At the largest font

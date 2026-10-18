@@ -5932,7 +5932,13 @@
     ["field-indicator", "length", "unset", "unset", "unset", "unset", 1],
     ["field-indicator-focused", "length", "unset", "unset", "unset", "unset", 2],
     ["state-hover-opacity", "number", "unset", "unset", "unset", "unset", 0.08],
-    ["state-pressed-opacity", "number", "unset", "unset", "unset", "unset", 0.1]
+    ["state-pressed-opacity", "number", "unset", "unset", "unset", "unset", 0.1],
+    ["nav-height", "length", "unset", "unset", "unset", "unset", 80],
+    ["nav-icon", "length", "unset", "unset", "unset", "unset", 24],
+    ["nav-indicator-width", "length", "unset", "unset", "unset", "unset", 56],
+    ["nav-indicator-height", "length", "unset", "unset", "unset", "unset", 32],
+    ["nav-label-gap", "length", "unset", "unset", "unset", "unset", 4],
+    ["nav-item-gap", "length", "unset", "unset", "unset", "unset", 8]
   ],
   "_controls": "LLP 1121 D9 (stage 8 C): each native control's parameters a design can set (accent-color, or a colour role it reads) and how each host Exact ships honours one: [control (a `:state` after it: that state's), parameter, ios, macos, web, linux, windows, terminal, android], each host `exact`, `best-effort` (the platform alters it) or `none` (the platform's own stands), `: why` after it saying so. Measured by scripts/measure-controls.mjs, recorded with provenance in docs/control-roles-measured.md, which a test holds this table to; the compiler's tamber-unreachable lint reads it. A new parameter is a role first (LLP 1095 §3).",
   "controls": [

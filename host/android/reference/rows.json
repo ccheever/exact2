@@ -14,6 +14,12 @@
     "field-indicator": { "token": "FilledTextFieldTokens.ActiveIndicatorHeight" },
     "field-indicator-focused": { "token": "FilledTextFieldTokens.FocusActiveIndicatorHeight" },
     "state-hover-opacity": { "token": "StateTokens.HoverStateLayerOpacity" },
-    "state-pressed-opacity": { "token": "StateTokens.PressedStateLayerOpacity" }
+    "state-pressed-opacity": { "token": "StateTokens.PressedStateLayerOpacity" },
+    "nav-height": { "token": "NavigationBarTokens.TallContainerHeight" },
+    "nav-icon": { "token": "NavigationBarVerticalItemTokens.IconSize" },
+    "nav-indicator-width": { "token": "NavigationBarVerticalItemTokens.ActiveIndicatorWidth" },
+    "nav-indicator-height": { "token": "NavigationBarVerticalItemTokens.ActiveIndicatorHeight" },
+    "nav-label-gap": { "source": "NavigationBar.kt", "name": "NavigationBarIndicatorToLabelPadding" },
+    "nav-item-gap": { "source": "NavigationBar.kt", "name": "NavigationBarItemHorizontalPadding" }
   }
 }

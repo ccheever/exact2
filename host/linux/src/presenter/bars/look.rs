@@ -20,13 +20,20 @@
 //!
 //! **The navigation bar** is 80 tall over the gesture bar, whose area it
 //! fills with its own colour, `surfaceContainer`. Its destinations share
-//! its width: a 24 symbol with its label under it (label-medium), and
-//! behind the selected one's symbol the active indicator, a 64 by 32 pill
-//! in `secondaryContainer`. The selected destination is `onSurface`, the
-//! others `onSurfaceVariant`.
+//! its width, 8 apart: a 24 symbol with its label under it (label-medium),
+//! and behind the selected one's symbol the active indicator, a 56 by 32
+//! pill in `secondaryContainer`. The selected destination's symbol is
+//! `onSecondaryContainer` and its label `secondary`, the others'
+//! `onSurfaceVariant`, and a disabled one's that at 38 %
+//! (`NavigationBarItemDefaults.colors`). Its numbers are the schema's
+//! Material column (the `nav-` rows; `host/android/reference/rows.json`
+//! names each one's symbol).
 use crate::paint::{Backend, Rect4, Shape};
+use crate::presenter::palette::{material, Material};
 use crate::presenter::top::look::{glyph, paragraph, symbol, Role, Type, LABEL_LARGE, STATE_LAYER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
+use exact_kernel::generated::metric;
+use exact_kernel::style::metrics::{self, Column};
 use exact_kernel::ViewId;
 use std::rc::Rc;
 use tiny_skia::Transform;
@@ -48,13 +55,51 @@ const ICON_LAYER: f32 = 40.0;
 const TEXT_BUTTON: (f32, f32) = (58.0, 40.0);
 const TEXT_BUTTON_PADDING: f32 = 12.0;
 
-/// The navigation bar's height, over the gesture bar, where its labels fit.
-const NAV_HEIGHT: f32 = 80.0;
-/// The active indicator, and the room it leaves above and under the symbol.
-const NAV_INDICATOR: (f32, f32) = (64.0, 32.0);
-const NAV_INDICATOR_PADDING: f32 = 4.0;
-/// Between the indicator and the label.
-const NAV_LABEL_GAP: f32 = 4.0;
+/// A length of the Material look, dp.
+fn dp(index: usize) -> f32 {
+    metrics::length_in(index, Column::Material, 0.0, 0.0).expect("a Material row")
+}
+
+/// The navigation bar's numbers: its height over the gesture bar, where its
+/// labels fit; its symbol; the active indicator, and the room it leaves
+/// above and under the symbol; between the indicator and the label; and
+/// between two destinations.
+struct Nav {
+    height: f32,
+    icon: f32,
+    indicator: (f32, f32),
+    indicator_padding: f32,
+    label_gap: f32,
+    item_gap: f32,
+}
+
+fn nav() -> Nav {
+    let (icon, indicator) = (
+        dp(metric::NAV_ICON),
+        (
+            dp(metric::NAV_INDICATOR_WIDTH),
+            dp(metric::NAV_INDICATOR_HEIGHT),
+        ),
+    );
+    Nav {
+        height: dp(metric::NAV_HEIGHT),
+        icon,
+        indicator,
+        indicator_padding: (indicator.1 - icon) / 2.0,
+        label_gap: dp(metric::NAV_LABEL_GAP),
+        item_gap: dp(metric::NAV_ITEM_GAP),
+    }
+}
+
+/// A Material role the shell told, else Material's baseline (Compose's
+/// `lightColorScheme()` and `darkColorScheme()`), where the twelve roles
+/// LLP 1115.001 D4 maps have none of their own for it.
+fn told(role: Material, dark: bool, light: u32, night: u32) -> [u8; 4] {
+    material(role, dark).unwrap_or_else(|| {
+        let [_, r, g, b] = if dark { night } else { light }.to_be_bytes();
+        [r, g, b, 255]
+    })
+}
 
 /// Material Symbols' `arrow_back`, on a 24 grid: the Up arrow (D14). The
 /// one symbol of Material's own this stage needs; the others are still the
@@ -189,8 +234,9 @@ fn line(engine: &mut TextEngine, text: &str, style: Type, scale: f32, max: f32) 
 /// label and the indicator's own padding need where that is more (as
 /// `NavigationBarItem` places them).
 pub fn nav_height(font_scale: f32) -> f32 {
-    let content = ICON + NAV_INDICATOR_PADDING + NAV_LABEL_GAP + LABEL_MEDIUM.1 * font_scale;
-    let padding = ((NAV_HEIGHT - content) / 2.0).max(NAV_INDICATOR_PADDING);
+    let nav = nav();
+    let content = nav.icon + nav.indicator_padding + nav.label_gap + LABEL_MEDIUM.1 * font_scale;
+    let padding = ((nav.height - content) / 2.0).max(nav.indicator_padding);
     content + 2.0 * padding
 }
 
@@ -361,45 +407,60 @@ impl Layout {
 
     /// Material's navigation bar for `bottom`.
     pub fn bottom(engine: &mut TextEngine, bottom: &Bottom, inputs: &Inputs) -> Layout {
-        let (dark, scale) = (inputs.dark, inputs.font_scale);
+        let (dark, scale, nav) = (inputs.dark, inputs.font_scale, nav());
         let h = nav_height(scale);
-        let content = ICON + NAV_INDICATOR_PADDING + NAV_LABEL_GAP + LABEL_MEDIUM.1 * scale;
+        let content = nav.icon + nav.indicator_padding + nav.label_gap + LABEL_MEDIUM.1 * scale;
         let padding = (h - content) / 2.0;
+        // The destinations share what the gaps between them leave (the
+        // `Row`'s `Arrangement.spacedBy`, each item's `weight(1f)`).
         let span = (inputs.width - inputs.sides.0 - inputs.sides.1).max(0.0);
-        let cell = span / bottom.tabs.len().max(1) as f32;
+        let count = bottom.tabs.len().max(1) as f32;
+        let cell = ((span - nav.item_gap * (count - 1.0)) / count).max(0.0);
+        let inactive = told(Material::OnSurfaceVariant, dark, 0xFF49_454F, 0xFFCA_C4D0);
         let (mut items, mut targets) = (Vec::new(), Vec::new());
         for (index, tab) in bottom.tabs.iter().enumerate() {
-            let x = inputs.sides.0 + cell * index as f32;
+            let x = inputs.sides.0 + (cell + nav.item_gap) * index as f32;
             let middle = x + cell / 2.0;
-            let ink = match (tab.enabled, tab.selected) {
-                (false, _) => Role::Disabled,
-                (true, true) => Role::OnSurface,
-                (true, false) => Role::OnSurfaceVariant,
-            }
-            .color(dark);
+            let (ink, text) = match (tab.enabled, tab.selected) {
+                (false, _) => {
+                    let mut faded = inactive;
+                    faded[3] = (255.0 * 0.38f32).round() as u8;
+                    (faded, faded)
+                }
+                (true, true) => (
+                    told(
+                        Material::OnSecondaryContainer,
+                        dark,
+                        0xFF1D_192B,
+                        0xFFE8_DEF8,
+                    ),
+                    told(Material::Secondary, dark, 0xFF62_5B71, 0xFFCC_C2DC),
+                ),
+                (true, false) => (inactive, inactive),
+            };
             let label = (!tab.label.is_empty())
-                .then(|| line(engine, &tab.label, LABEL_MEDIUM, scale, cell - 8.0));
+                .then(|| line(engine, &tab.label, LABEL_MEDIUM, scale, cell));
             let pill = (
-                middle - NAV_INDICATOR.0 / 2.0,
-                padding - NAV_INDICATOR_PADDING,
-                NAV_INDICATOR.0,
-                NAV_INDICATOR.1,
+                middle - nav.indicator.0 / 2.0,
+                padding - nav.indicator_padding,
+                nav.indicator.0,
+                nav.indicator.1,
             );
-            let mut layer = Shape::new(pill, [NAV_INDICATOR.1 / 2.0; 4]);
+            let mut layer = Shape::new(pill, [nav.indicator.1 / 2.0; 4]);
             match (&tab.symbol, &label) {
                 (Some(role), _) => {
                     if tab.selected {
                         let fill = Role::SecondaryContainer.color(dark);
                         items.push(Item::Fill(layer, fill));
                     }
-                    let icon = (middle - ICON / 2.0, padding, ICON, ICON);
+                    let icon = (middle - nav.icon / 2.0, padding, nav.icon, nav.icon);
                     items.push(Item::Symbol(role.clone(), icon, ink));
                     if let Some(p) = &label {
-                        let y = padding + ICON + NAV_INDICATOR_PADDING + NAV_LABEL_GAP;
+                        let y = padding + nav.icon + nav.indicator_padding + nav.label_gap;
                         items.push(Item::Text(
                             p.clone(),
                             (middle - p.width / 2.0, y),
-                            ink,
+                            text,
                             tab.node,
                         ));
                     }
@@ -413,12 +474,20 @@ impl Layout {
                         let fill = Role::SecondaryContainer.color(dark);
                         items.push(Item::Fill(layer, fill));
                     }
-                    items.push(Item::Text(p.clone(), at, ink, tab.node));
+                    items.push(Item::Text(p.clone(), at, text, tab.node));
                 }
                 (None, None) => {}
             }
+            // A touch between two destinations is the nearer one's, as a
+            // destination narrower than 48 takes touches past its sides.
+            let half = nav.item_gap / 2.0;
+            let start = if index == 0 { inputs.sides.0 } else { x - half };
+            let end = match index + 1 == bottom.tabs.len() {
+                true => inputs.width - inputs.sides.1,
+                false => x + cell + half,
+            };
             targets.push(Target {
-                rect: (x, 0.0, cell, h),
+                rect: (start, 0.0, end - start, h),
                 what: What::Tab(tab.node),
                 enabled: tab.enabled,
                 layer: (layer, Role::OnSurface.color(dark)),
@@ -430,5 +499,82 @@ impl Layout {
             items,
             targets,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Three destinations, the first selected and the last disabled, in a
+    /// 412 wide window under the light scheme, no palette told.
+    fn bar() -> Layout {
+        let mut engine = TextEngine::from_font_files(
+            &[std::path::Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            ))],
+            "DejaVu Sans",
+        );
+        let tab = |node, label: &str, selected, enabled| Tab {
+            node,
+            label: label.into(),
+            symbol: Some("star".into()),
+            selected,
+            enabled,
+        };
+        let bottom = Bottom {
+            tablist: 1,
+            tabs: vec![
+                tab(2, "Home", true, true),
+                tab(3, "Starred", false, true),
+                tab(4, "Settings", false, false),
+            ],
+        };
+        let inputs = Inputs {
+            dark: false,
+            font_scale: 1.0,
+            width: 412.0,
+            edge: 0.0,
+            sides: (0.0, 0.0),
+        };
+        Layout::bottom(&mut engine, &bottom, &inputs)
+    }
+
+    #[test]
+    fn the_navigation_bar_has_materials_indicator_and_colours() {
+        let bar = bar();
+        let mut texts = Vec::new();
+        let mut symbols = Vec::new();
+        let mut fills = Vec::new();
+        for item in &bar.items {
+            match item {
+                Item::Text(_, _, color, node) => texts.push((*node, *color)),
+                Item::Symbol(_, rect, color) => symbols.push((*rect, *color)),
+                Item::Fill(shape, _) => fills.push(shape.rect),
+                Item::Glyph(..) => {}
+            }
+        }
+        // Where no palette was told, Material's baseline: the selected
+        // label `secondary`, its symbol `onSecondaryContainer`; the others
+        // `onSurfaceVariant`, at 38 % when disabled.
+        let variant = [0x49, 0x45, 0x4F, 0xFF];
+        assert_eq!(
+            texts,
+            [
+                (2, [0x62, 0x5B, 0x71, 0xFF]),
+                (3, variant),
+                (4, [0x49, 0x45, 0x4F, 97])
+            ]
+        );
+        assert_eq!(symbols[0].1, [0x1D, 0x19, 0x2B, 0xFF]);
+        assert_eq!(symbols[1].1, variant);
+        // One indicator, 56 by 32, behind the first symbol: the first cell
+        // is (412 − 16) / 3 = 132 wide.
+        assert_eq!(fills.len(), 1);
+        let (x, _, w, h) = fills[0];
+        assert_eq!((w, h), (56.0, 32.0));
+        assert_eq!(x + w / 2.0, 66.0);
+        assert_eq!(symbols[2].0 .0 + 12.0, 280.0 + 66.0);
     }
 }

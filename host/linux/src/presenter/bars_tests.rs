@@ -258,11 +258,15 @@ fn shelfs_library_is_a_top_app_bar_and_a_navigation_bar() {
     // Where each is: the top bar under the status bar, 64 tall; the
     // navigation bar over the gesture bar, 80 tall; both the window's width.
     let (above, below) = p.bars();
+    let below = below.unwrap();
     assert_eq!(above.unwrap().frame, [0.0, 0.0, 412.0, 52.0 + 64.0]);
-    assert_eq!(
-        below.unwrap().frame,
-        [0.0, 916.0 - 104.0, 412.0, 80.0 + 24.0]
-    );
+    assert_eq!(below.frame, [0.0, 916.0 - 104.0, 412.0, 80.0 + 24.0]);
+    // Its destinations share what 8 between each leaves, as Compose's row
+    // spaces its items; a touch in a gap is the nearer one's.
+    let cells: Vec<_> = (below.targets.iter())
+        .map(|t| (t.rect.0, t.rect.2))
+        .collect();
+    assert_eq!(cells, [(0.0, 136.0), (136.0, 140.0), (276.0, 136.0)]);
     // Out of the page: the heading, the button and the tablist take no box.
     // The search field stays, under the bar; the list ends at the
     // navigation bar. The page is the window less the system's bars.
