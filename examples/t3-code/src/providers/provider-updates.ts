@@ -29,7 +29,7 @@ const isInterrupted = (result: CommandResult<unknown>) => result._tag === 'Failu
 const PROVIDER_UPDATE_SUCCESS_VISIBLE_MS = 3_000;
 /** PROVIDER_DISPLAY_NAMES (packages/contracts/src/model.ts). */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = { antigravity: 'Antigravity', codex: 'Codex', claudeAgent: 'Claude', cursor: 'Cursor',
-  grok: 'Grok', acpRegistry: 'ACP Registry', pi: 'Pi', opencode: 'OpenCode' };
+  grok: 'Grok', muse: 'Muse Code', acpRegistry: 'ACP Registry', pi: 'Pi', opencode: 'OpenCode' };
 export const providerDisplayName = (driver: string) => PROVIDER_DISPLAY_NAMES[driver] ?? driver;
 
 const formatVersion = (value: string) => value.startsWith('v') ? value : `v${value}`;
