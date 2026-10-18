@@ -52,7 +52,7 @@ let core: [Target] = [
     // The snapshot driver (LLP 1126 D4, D5): SwiftUI over a headless
     // session's node model, for WidgetKit's archive. Linked by an app with
     // entries and its extension, never by a presenter.
-    .target(name: "ExactSnapshot", dependencies: ["ExactCore"], path: "Sources/ExactSnapshot", swiftSettings: [.unsafeFlags(["-application-extension"])]),
+    .target(name: "ExactSnapshot", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactSnapshot", swiftSettings: [.unsafeFlags(["-application-extension"])]),
     .target(name: "ExactKit", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactKit", swiftSettings: devTools),
     .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
     .target(name: "ExactGroupedLists", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactGroupedLists"),

@@ -10,9 +10,11 @@ import ExactCore
 
 /// What the system supplies around one render: the family, whether this is
 /// the placeholder (redacted by the system; nothing in it is account
-/// content, and it opens nothing), where a route's path resolves, and where
-/// the entry's images live (the bundle or the app group's generation; never
-/// fetched in the render).
+/// content, and it opens nothing), where a route's path resolves, where the
+/// entry's images live (the bundle, the app group's generation; never
+/// fetched in the render), and, for a harness outside WidgetKit, the
+/// content margins and root font size the view would otherwise read from
+/// its environment.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public struct SnapshotEnvironment {
     public enum Family: String, Sendable {
@@ -26,10 +28,17 @@ public struct SnapshotEnvironment {
     public var placeholder: Bool
     /// The app's origin or scheme a route path (`/prompt/3`) is a URL under.
     public var linkBase: URL?
-    public var assetRoot: URL
+    /// Where an `image` name resolves, in order; a path stays inside one.
+    public var imageRoots: [URL]
+    /// The system's `widgetContentMargins` when nil.
+    public var contentMargins: EdgeInsets?
+    /// The kernel's root font size; the environment's text size when nil.
+    public var rootFontSize: CGFloat?
 
-    public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, assetRoot: URL = Bundle.main.bundleURL) {
-        self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.assetRoot = assetRoot
+    public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL],
+                contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil) {
+        self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots
+        self.contentMargins = contentMargins; self.rootFontSize = rootFontSize
     }
 }
 
@@ -66,25 +75,20 @@ public enum SnapshotDriver {
         #endif
     }
 
-    /// Lay the entry out at the content size the system proposes (its
-    /// `displaySize` less its content margins) and the reader's text size,
-    /// and return the view WidgetKit archives.
-    public static func render(_ session: HeadlessSession, size: CGSize, dynamicType: DynamicTypeSize = .large,
-                              environment: SnapshotEnvironment) throws -> SnapshotView {
-        try render(session, size: size, rootFontSize: rootFontSize(for: dynamicType), environment: environment)
+    /// The view WidgetKit archives for an entry: the session is laid out
+    /// once, in the view, at the widget's `displaySize` less the system's
+    /// content margins and at the reader's text size, both read from the
+    /// view's environment. The widget's configuration must say
+    /// `.contentMarginsDisabled()`: the view applies the margins itself,
+    /// once, around the laid-out entry.
+    public static func view(session: HeadlessSession, displaySize: CGSize, environment: SnapshotEnvironment) -> SnapshotView {
+        SnapshotView(source: .session(session, displaySize), environment: environment)
     }
 
-    /// The same at an explicit root font size (a harness emulating another
-    /// platform's ramp).
-    public static func render(_ session: HeadlessSession, size: CGSize, rootFontSize: CGFloat,
-                              environment: SnapshotEnvironment) throws -> SnapshotView {
-        try session.setRootFontSize(rootFontSize)
-        return SnapshotView(snapshot: try session.resize(to: size), environment: environment)
-    }
-
-    /// The view of a tree already laid out at its size.
+    /// The view of a tree already laid out at its size, which the system's
+    /// content margins (or the environment's) surround.
     public static func view(_ snapshot: HeadlessSession.Snapshot, environment: SnapshotEnvironment) -> SnapshotView {
-        SnapshotView(snapshot: snapshot, environment: environment)
+        SnapshotView(source: .snapshot(snapshot), environment: environment)
     }
 
     /// The URL a snapshot opens: the first link's, in document order.
@@ -100,19 +104,47 @@ public enum SnapshotDriver {
     }
 }
 
-/// The entry's view: its roots at their frames, the root's background as
-/// the container's, account content private, the first link as the URL.
+/// The entry's view: its roots at their frames inside the content margins,
+/// the root's background as the container's, account content private, the
+/// first link as the URL.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public struct SnapshotView: View {
-    let snapshot: HeadlessSession.Snapshot
+    enum Source {
+        case snapshot(HeadlessSession.Snapshot)
+        case session(HeadlessSession, CGSize)
+    }
+    let source: Source
     let environment: SnapshotEnvironment
+    @Environment(\.widgetContentMargins) private var systemMargins
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    private var margins: EdgeInsets { environment.contentMargins ?? systemMargins }
+
+    /// The laid-out tree: as given, or the session laid out now at the
+    /// content size and text size (the archive is made in the extension,
+    /// again on a text-size change, so this runs where it is needed).
+    private var snapshot: HeadlessSession.Snapshot {
+        switch source {
+        case .snapshot(let snapshot): return snapshot
+        case .session(let session, let display):
+            let size = CGSize(width: max(0, display.width - margins.leading - margins.trailing), height: max(0, display.height - margins.top - margins.bottom))
+            do {
+                try session.setRootFontSize(environment.rootFontSize ?? SnapshotDriver.rootFontSize(for: dynamicType))
+                return try session.resize(to: size)
+            } catch {
+                return HeadlessSession.Snapshot(size: size, roots: [], nodes: [:])
+            }
+        }
+    }
 
     public var body: some View {
+        let snapshot = snapshot
         let roots = snapshot.roots.compactMap { snapshot.nodes[$0] }
         FrameLayout(frames: roots.map(\.frame), size: snapshot.size) {
             ForEach(roots, id: \.id) { SnapshotNodeView(node: $0, tree: snapshot, environment: environment, isRoot: true) }
         }
         .frame(width: snapshot.size.width, height: snapshot.size.height, alignment: .topLeading)
+        .padding(margins)
         // D8: account content by default. A `privacySensitive` modifier makes
         // its subtree ignore placeholder redaction (stage 0), so the
         // placeholder carries none.

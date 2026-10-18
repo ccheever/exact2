@@ -23,53 +23,49 @@ struct SnapshotNodeView: View {
         }
     }
 
-    /// The content in its box, painted and clipped, then its semantics.
+    /// The content in its box, painted and clipped, then its semantics. A
+    /// `visibility: hidden` node paints and says nothing of its own; its
+    /// descendants decide for themselves (CSS Display 3 §2.?: visibility
+    /// inherits, and a `visible` descendant shows).
     @ViewBuilder
     private var decorated: some View {
+        let visible = style.visible
         let clips = (style.string("overflow_x") ?? "visible") != "visible" || (style.string("overflow_y") ?? "visible") != "visible"
-        // D7: the root's link is the widget's URL (`SnapshotView`); a nested
-        // one is a `Link` where the family takes one (the medium family and
-        // larger; a small or accessory widget opens one URL).
         let nested = !isRoot && [.systemMedium, .systemLarge, .systemExtraLarge].contains(environment.family)
-        let link = nested ? SnapshotLinks.url(node.props["href"], base: environment.linkBase) : nil
+        let link = nested && !environment.placeholder ? SnapshotLinks.url(node.props["href"], base: environment.linkBase) : nil
         content
             .frame(width: node.frame.width, height: node.frame.height, alignment: .topLeading)
             // The root's background is the container's (D5), never drawn twice.
-            .background { if !isRoot { paint.fill(in: bounds) } }
-            .overlay { paint.border(in: bounds) }
-            .modifier(Clip(shape: clips ? paint.shape(in: bounds) : nil))
+            .background { if !isRoot && visible { paint.fill(in: bounds) } }
+            .overlay { if visible { paint.border(in: bounds) } }
+            .modifier(Clip(outline: clips ? paint.outline(in: bounds) : nil, path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
-            .modifier(Hidden(hidden: style.string("visibility") == "hidden"))
-            .modifier(Accented(on: accented))
+            .modifier(Scheme(scheme: style.string("color_scheme")))
             .modifier(Privacy(public: publicContent && !environment.placeholder))
-            .modifier(Semantics(node: node))
-            .modifier(Linked(url: environment.placeholder ? nil : link))
-    }
-
-    /// D5: the accented group, under the accented rendering mode, is what a
-    /// hand-built widget marks: a heading, and anything in the tint.
-    private var accented: Bool {
-        node.props["accessibilityRole"] == "heading" || style.color("text_color")?.namesTint == true || style.color("tint_color")?.namesTint == true
+            .modifier(Semantics(node: node, visible: visible))
+            .modifier(Linked(url: link))
     }
 
     /// `data-privacy="public"` (the node's `dataset`): not account content,
     /// so it stays while the Lock Screen redacts the rest (D8).
-    private var publicContent: Bool {
-        guard let json = node.props["dataset"]?.data(using: .utf8),
-              let words = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return false }
-        return words["privacy"] as? String == "public"
-    }
+    private var publicContent: Bool { SnapshotData.words(node)["privacy"] == "public" }
 
     @ViewBuilder
     private var content: some View {
         switch node.kind {
-        case "text": SnapshotTextView(node: node, environment: environment)
+        case "text", "time": SnapshotTextView(node: node, environment: environment)
         case "image": SnapshotImageView(node: node, environment: environment)
         default:
             if node.props["type"] == "progress" {
                 SnapshotProgressView(node: node)
             } else {
-                let children = node.children.compactMap { tree.nodes[$0] }
+                // Document order, then `z-index`: a stable sort keeps the
+                // order among equals (CSS 2 §E, the painting order).
+                let children = node.children.compactMap { tree.nodes[$0] }.enumerated()
+                    .sorted { a, b in
+                        let (za, zb) = (SnapshotStyle(a.element).number("z_index") ?? 0, SnapshotStyle(b.element).number("z_index") ?? 0)
+                        return za != zb ? za < zb : a.offset < b.offset
+                    }.map(\.element)
                 FrameLayout(frames: children.map(\.frame), size: node.frame.size) {
                     ForEach(children, id: \.id) { SnapshotNodeView(node: $0, tree: tree, environment: environment) }
                 }
@@ -78,31 +74,52 @@ struct SnapshotNodeView: View {
     }
 }
 
+/// A node's `data-*` words (`dataset`, one JSON object of strings).
+enum SnapshotData {
+    static func words(_ node: HeadlessSession.Node) -> [String: String] {
+        guard let json = node.props["dataset"]?.data(using: .utf8), let words = try? JSONSerialization.jsonObject(with: json) as? [String: String] else { return [:] }
+        return words
+    }
+}
+
+/// Overflow clips to the rounded border box; `clip-path` clips to its
+/// path; both apply to the node and everything in it.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Clip: ViewModifier {
-    let shape: AnyShape?
+    let outline: RoundedOutline?
+    let path: ClipPathRow?
     func body(content: Content) -> some View {
-        if let shape { content.clipShape(shape) } else { content }
+        content
+            .modifier(Outline(outline: outline))
+            .modifier(PathClip(path: path))
+    }
+    private struct Outline: ViewModifier {
+        let outline: RoundedOutline?
+        func body(content: Content) -> some View {
+            if let outline { content.clipShape(outline) } else { content }
+        }
+    }
+    private struct PathClip: ViewModifier {
+        let path: ClipPathRow?
+        func body(content: Content) -> some View {
+            if let path { content.clipShape(path, style: path.fillStyle) } else { content }
+        }
     }
 }
 
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-private struct Hidden: ViewModifier {
-    let hidden: Bool
+/// CSS `color-scheme` on a subtree (LLP 1034 §8): its `light-dark()` pairs
+/// and platform colours resolve in that scheme.
+private struct Scheme: ViewModifier {
+    let scheme: String?
     func body(content: Content) -> some View {
-        if hidden { content.hidden() } else { content }
+        switch scheme {
+        case "dark": content.environment(\.colorScheme, .dark)
+        case "light": content.environment(\.colorScheme, .light)
+        default: content
+        }
     }
 }
 
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-private struct Accented: ViewModifier {
-    let on: Bool
-    func body(content: Content) -> some View {
-        if on { content.widgetAccentable() } else { content }
-    }
-}
-
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Privacy: ViewModifier {
     let `public`: Bool
     func body(content: Content) -> some View {
@@ -110,8 +127,8 @@ private struct Privacy: ViewModifier {
     }
 }
 
-/// A nested link's content opens its URL.
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+/// A nested link's content opens its URL (D7); the root's link is the
+/// widget's URL (`SnapshotView`).
 private struct Linked: ViewModifier {
     let url: URL?
     func body(content: Content) -> some View {
@@ -119,25 +136,26 @@ private struct Linked: ViewModifier {
     }
 }
 
-/// Accessibility carries over from the node (D5): its label, a heading's
-/// trait, a paragraph as one element, a decorative image hidden.
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+/// Accessibility carries over from the node (D5): its label, hint and
+/// value, a heading with its level, a paragraph as one element, a
+/// decorative image hidden, a hidden node unspoken.
 private struct Semantics: ViewModifier {
     let node: HeadlessSession.Node
+    let visible: Bool
 
     func body(content: Content) -> some View {
         let label = node.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
-        let hidden = node.props["accessibilityElementsHidden"] == "true" || (node.kind == "image" && label == nil)
-        let combined = node.kind == "text" || label != nil
+        let hidden = !visible || node.props["accessibilityElementsHidden"] == "true" || (node.kind == "image" && label == nil)
+        let combined = node.kind == "text" || node.kind == "time" || label != nil
         content
             .modifier(Combined(on: combined && !hidden))
-            .modifier(Labelled(label: hidden ? nil : label, value: node.props["accessibilityValueText"]))
-            .modifier(Traits(heading: node.props["accessibilityRole"] == "heading", button: node.kind == "button" && node.props["href"] == nil))
+            .modifier(Labelled(label: hidden ? nil : label, hint: node.props["accessibilityHint"], value: node.props["accessibilityValueText"]))
+            .modifier(Heading(level: node.props["accessibilityRole"] == "heading" ? Int(node.props["accessibilityHeadingLevel"] ?? "") ?? 0 : nil))
+            .accessibilityAddTraits(node.kind == "button" && node.props["href"] == nil ? .isButton : [])
             .accessibilityHidden(hidden)
     }
 }
 
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Combined: ViewModifier {
     let on: Bool
     func body(content: Content) -> some View {
@@ -145,47 +163,53 @@ private struct Combined: ViewModifier {
     }
 }
 
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Labelled: ViewModifier {
     let label: String?
+    let hint: String?
     let value: String?
     func body(content: Content) -> some View {
         content
-            .modifier(Label(text: label))
-            .modifier(Value(text: value))
+            .modifier(Text(text: label, which: .label))
+            .modifier(Text(text: hint, which: .hint))
+            .modifier(Text(text: value, which: .value))
     }
-    private struct Label: ViewModifier {
+    private struct Text: ViewModifier {
+        enum Which { case label, hint, value }
         let text: String?
-        func body(content: Content) -> some View { if let text { content.accessibilityLabel(text) } else { content } }
-    }
-    private struct Value: ViewModifier {
-        let text: String?
-        func body(content: Content) -> some View { if let text, !text.isEmpty { content.accessibilityValue(text) } else { content } }
+        let which: Which
+        func body(content: Content) -> some View {
+            if let text, !text.isEmpty {
+                switch which {
+                case .label: content.accessibilityLabel(text)
+                case .hint: content.accessibilityHint(text)
+                case .value: content.accessibilityValue(text)
+                }
+            } else { content }
+        }
     }
 }
 
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-private struct Traits: ViewModifier {
-    let heading: Bool
-    let button: Bool
+/// A heading's trait and its level (`aria-level`): h1 to h6, else unspecified.
+private struct Heading: ViewModifier {
+    let level: Int?
     func body(content: Content) -> some View {
-        content
-            .accessibilityAddTraits(heading ? .isHeader : [])
-            .accessibilityAddTraits(button ? .isButton : [])
+        if let level {
+            let levels: [AccessibilityHeadingLevel] = [.unspecified, .h1, .h2, .h3, .h4, .h5, .h6]
+            content.accessibilityAddTraits(.isHeader).accessibilityHeading(levels[min(max(level, 0), 6)])
+        } else { content }
     }
 }
 
-@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 enum SnapshotLinks {
-    /// A route's path under the app's origin or scheme; any other `href` as
-    /// it is. Empty is no link (the grammar's rule).
+    /// A route's path as a URL reference against the app's origin or
+    /// scheme, its query, fragment and escapes kept (RFC 3986 §5); an
+    /// absolute `href` as it is. Empty is no link (the grammar's rule). An
+    /// inline link (a run's `href` inside a paragraph) is not a link region
+    /// in this stage; WP2's profile refuses it with "make the link its own
+    /// element".
     static func url(_ href: String?, base: URL?) -> URL? {
         guard let href, !href.isEmpty else { return nil }
-        if href.hasPrefix("/") {
-            guard let base else { return URL(string: href) }
-            return base.appending(path: href)
-        }
-        return URL(string: href)
+        return URL(string: href, relativeTo: base)?.absoluteURL
     }
 }
 #endif
