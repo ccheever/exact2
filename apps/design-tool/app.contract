@@ -210,6 +210,9 @@ shape Changes
   files: string
   // The files' changes and the commits told: what a commit's dry run follows.
   writes: string
+  // The plans the builds run: a rebuild (a package's edit, a manifest's)
+  // moves them where the files may not; a scrub's frame does not.
+  plans: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -544,7 +547,7 @@ component DesignTool
   resource inspected = loadSelection(changes.answer, design.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
   state impactToken = ""
-  resource uses = loadUses(impactToken, changes.files) as shape Uses else empty(ok=true)
+  resource uses = loadUses(impactToken, `${changes.files} ${changes.plans}`) as shape Uses else empty(ok=true)
   mutation outlined as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
@@ -554,6 +557,7 @@ component DesignTool
   // The files as of the last answer: reads of the design follow these, not
   // `since`, so a stream of build statuses never reads a big design again.
   state filesAt = ""
+  state plansAt = ""
   // A proposal's place in the poll: it follows every answer, at least one
   // each 25 s, but while a scrub is shown (its class moves without files:
   // the JS loop's builds, its design reader getting ready, which says
@@ -686,15 +690,19 @@ component DesignTool
     after(3000, advance)
 
   action advance
-    // A change (the files' digests moved), another run, more missed than
-    // the server keeps, or no answer: read the files again (not for a
-    // build's status or a scrub's frame, which move only `seq`).
-    if changes.missed or not hello.ok or not changes.ok or changes.files != filesAt
+    // A change (the files' digests moved, or a rebuild's plans), another
+    // run, more missed than the server keeps, or no answer: read the files
+    // again (not for a build's status or a scrub's frame, which move only
+    // `seq`). A failed read of a token's uses is asked again too.
+    if changes.missed or not hello.ok or not changes.ok or changes.files != filesAt or changes.plans != plansAt
       refresh hello
+    if not uses.ok
+      refresh uses
     if not design.ok
       refresh design
     since = changes.seq
     filesAt = changes.files
+    plansAt = changes.plans
     if not scrubShown
       proposeAt = changes.answer
     epoch = changes.epoch
@@ -707,6 +715,7 @@ component DesignTool
       if changes.ok
         since = changes.seq
         filesAt = changes.files
+        plansAt = changes.plans
         if not scrubShown
           proposeAt = changes.answer
         epoch = changes.epoch
