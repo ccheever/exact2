@@ -616,8 +616,7 @@ let Release;
 const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
-  // (A look snaps through the input piece's edges too: LLP 1121 D8.)
-  if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input();
+  if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input(); // (a look snaps by its edges too, LLP 1121 D8)
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
