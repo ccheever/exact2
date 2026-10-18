@@ -19,8 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { captureAssets, assetCards, copyStaticTreeIfPresent, webEnvelope, publicFileCards, listAssets, readStaticFile, readDevGeneration, retainDevGeneration } from '../host/web/serve.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
 import { appdropPlan, renderAppdrop, writeLink } from './deploy-appdrop.mjs';
-import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
-import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256 } from './origin.mjs';
+import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishRoot, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
+import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256, webReleasePath } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
 // behavior is tested independently with declared requirements.
 const fixtureBuild = (id, bundle) => ({version:1,compat:{id,inputs:{store:{L:'A'},executors:[]},target:'fixture'},
@@ -1036,3 +1036,37 @@ test('snapshot plans are public files and authenticated dev generation assets', 
     if (readDevGeneration(cache, `/__dev/generation/${epoch}/1/${name}`)?.body.toString() !== 'snapshot') throw new Error('entry absent from dev generation');
   } finally { rmSync(dir, {recursive:true,force:true}); }
 });
+
+
+test('a production web root serves every authenticated asset card, including activity schemas and types', async () => {
+  const root = resolve(import.meta.dir, '..');
+  mkdirSync(join(root, 'target'), {recursive:true});
+  const dir = mkdtempSync(join(root, 'target/web-activity-root-'));
+  try {
+    const id = 'test.activity-root', app = {id, displayName:'Activity root'};
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({name:app.displayName, app:{id, name:app.displayName}}));
+    writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Activity root"\n');
+    const bake = join(dir, 'bake'), web = join(dir, 'web'), origin = new DirectoryOrigin(join(dir, 'origin'));
+    const build = (out, args = []) => {
+      const run = spawnSync(process.execPath, ['host/web-js/build.mjs', 'activity-root', '--out', out, '--render', 'none', ...args],
+        {cwd:root, env:{...process.env, EXACT_APP_DIR:dir}, encoding:'utf8'});
+      if (run.status !== 0) throw new Error(run.stdout + run.stderr);
+    };
+    build(bake);
+    for (const [name, body] of [['plans/card.plan', 'snapshot'], ['activities/card.schema.json', '{"type":"object"}'], ['activities/card.d.ts', 'export type State = {};']]) {
+      mkdirSync(dirname(join(bake, name)), {recursive:true});
+      writeFileSync(join(bake, name), body);
+    }
+    writeFileSync(join(bake, 'exact.json'), JSON.stringify(webEnvelope(app, readFileSync(join(bake, 'app.plan')), assetCards(captureAssets(bake)))));
+    build(web, ['--production', '--plan', join(bake, 'app.plan')]);
+    const published = await publishRoot({origin, row:{}, web});
+    const envelope = JSON.parse(readStaticFile(origin.dir, `/${webReleasePath(published.root)}/exact.json`)?.body ?? 'null');
+    if (!envelope?.assets.some(card => card.name === 'activities/card.schema.json')) throw new Error('activity schema absent from published envelope');
+    for (const card of [envelope.plan, ...envelope.assets]) {
+      const body = readStaticFile(origin.dir, card.url)?.body;
+      if (!body || body.length !== card.bytes || sha256(body) !== card.sha256) throw new Error(`published card is not served: ${card.url}`);
+    }
+    rmSync(join(web, 'activities/card.schema.json'));
+    if (!await rejects(() => publishRoot({origin, row:{}, web}), error => error.message.includes('web envelope does not bind activities/card.schema.json'))) throw new Error('missing asset was published');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+}, 30000);
