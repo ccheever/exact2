@@ -446,10 +446,15 @@ function outlineSites(frame) {
 // A revision the page let go of itself (input, disabled, gone) is not taken again when its frame comes again.
 let holding = Promise.resolve(), holdLatest = null, applying = null;
 const ended = new Set();
+let lastRevision = 0;
+const end = (revision) => { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
 const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
 // The runtime the app runs (this module is served at /__dev/inspect.js): the one beside its app.js.
 const runtime = () => new URL("rt.js", document.querySelector('script[type="module"][src$="app.js"]')?.src ?? document.baseURI).href;
 function hold(m) {
+  // (A lower revision is a new server's: the revisions ended before are forgotten.)
+  if (m.revision < lastRevision) ended.clear();
+  lastRevision = m.revision;
   holdLatest = m;
   holding = holding.then(() => holdNow(m)).catch((error) => console.error("exact dev:", String(error)));
   return holding;
@@ -463,7 +468,9 @@ async function holdNow(m) {
   const holds = globalThis.exact?.hold, h = m.hold, revision = m.revision;
   if (!holds) { env.report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
   if (!h) { holds(null); env.report({ kind: "held", state: null, revision }); return; }
-  if (ended.has(revision)) return;
+  // One ended here is not taken again; one addressing another plan (a rebuild this page reloads to) is nothing,
+  // unsaid: the new page's registration replays it, its site corresponded.
+  if (ended.has(revision) || (typeof m.plan === "string" && m.plan !== (globalThis.exact?.plan ?? null))) return;
   let t;
   try { t = await inspectTable(); } catch (error) {
     // No table to resolve it by: the hold before is let go, and this one refused by name. A rebuild's table (this
@@ -488,10 +495,11 @@ async function holdNow(m) {
   applying = revision;
   const r = found && !two ? holds(found, h.state, (reason) => {
     if (reason === "replaced" && applying === revision) return;
-    if (reason !== "replaced") { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); }
+    if (reason !== "replaced") end(revision);
     env.report({ kind: "held", state: null, reason, revision });
   }) : (holds(null), { reason: "gone" });
   applying = null;
+  if (r.reason) end(revision);
   env.report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
 }
 

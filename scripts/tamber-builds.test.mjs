@@ -549,7 +549,7 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   expect(channel.hold('tool', 'web-1', { site: -1, instance: [], state: 'active' }).error).toContain('site');
   expect(channel.hold('tool', 'term-1', { site: 3, instance: [], state: 'active' }).unsupported).toContain('holds no state');
   const held = channel.hold('tool', 'web-1', { site: 3, instance: [[0, 1]], state: 'active' }, plan('1'));
-  expect(a.frames.at(-1)).toEqual({ kind: 'hold', revision: held.revision, hold: { site: 3, instance: [[0, 1]], state: 'active' } });
+  expect(a.frames.at(-1)).toEqual({ kind: 'hold', revision: held.revision, hold: { site: 3, instance: [[0, 1]], state: 'active' }, plan: plan('1') });
   // A new one replaces it.
   const hover = channel.hold('other', 'web-1', { site: 3, instance: [[0, 1]], state: 'hover' }, plan('1'));
   expect(channel.list()[0].hold).toEqual({ site: 3, instance: [[0, 1]], state: 'hover' });
@@ -563,14 +563,14 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   report(channel, { nonce: a2.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], planDigest: plan('1') });
   // (At a new revision: the host's `replaced` of the one before is old news.)
   const replayed = a2.frames.at(-1);
-  expect(replayed).toEqual({ kind: 'hold', revision: replayed.revision, hold: { site: 3, instance: [[0, 1]], state: 'hover' } });
+  expect(replayed).toEqual({ kind: 'hold', revision: replayed.revision, hold: { site: 3, instance: [[0, 1]], state: 'hover' }, plan: plan('1') });
   expect(replayed.revision).toBeGreaterThan(hover.revision);
   expect(report(channel, { nonce: a2.nonce, kind: 'held', state: null, reason: 'replaced', revision: hover.revision }).status).toBe(204);
   expect(web().hold).toEqual({ site: 3, instance: [[0, 1]], state: 'hover' });
   // A rebuild on the same stream (a new planDigest): the one site that corresponds.
   report(channel, { nonce: a2.nonce, kind: 'status', planDigest: plan('2'), revision: 0 });
   const moved = a2.frames.at(-1);
-  expect(moved).toEqual({ kind: 'hold', revision: moved.revision, hold: { site: 5, instance: [[0, 1]], state: 'hover' } });
+  expect(moved).toEqual({ kind: 'hold', revision: moved.revision, hold: { site: 5, instance: [[0, 1]], state: 'hover' }, plan: plan('2') });
   expect(moved.revision).toBeGreaterThan(replayed.revision);
   // Another rebuild with no single corresponding site: cleared, said so,
   // and the build told to let it go.

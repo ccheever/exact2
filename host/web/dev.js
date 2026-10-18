@@ -712,11 +712,14 @@ if (es) {
   // here; under another the server replays it, its site corresponded, once the status says the new plan.
   const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
   let swaps = 0;
-  // Each hold frame is bound, as it arrives, to the generation it addresses and that generation's plan digest; one a
-  // new generation overtook while it waited applies only under the same plan (else the server's replay corresponds
-  // it). A revision the page let go of itself (input, disabled, gone) is not taken again when its frame comes again
-  // (a poll's resent answer).
+  // A hold frame names the plan its site addresses (`plan`; else it is bound, as it arrives, to the generation it
+  // addresses and that generation's digest): under another plan, a generation swapped in since or swapping now, it is
+  // nothing, unsaid; the server's replay after the status that names the new plan corresponds it, and `rehold` takes
+  // it under the same plan. A revision the page ended itself (input, disabled, gone, a refusal) is not taken again
+  // when its frame comes again (a poll's resent answer); a lower revision is a new server's, and forgets them.
   const holdAt = new WeakMap(), ended = new Set();
+  let lastRevision = 0;
+  const end = (revision) => { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
   const digestNow = () => {
     const x = globalThis.exact;
     if (planDigestOf === (x.generation ?? null)) return planDigestNow;
@@ -737,12 +740,9 @@ if (es) {
     if (channel.holdLatest !== frame || (h && ended.has(revision))) return;
     const digest = swaps ? null : await planDigest();
     if (channel.holdLatest !== frame) return;
-    if (h && (swaps || (at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen))) {
-      // Overtaken: kept for `rehold` under the plan it addressed; applied now if the swap is done and the plan is that.
-      channel.hold = at.digest ? { frame, digest: at.digest } : null;
-      if (swaps || !at.digest || digest !== at.digest) return;
-      bindHold(frame);
-    }
+    const addressed = typeof frame.plan === "string" ? frame.plan : at.digest;
+    const moved = addressed ? digest !== addressed : at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen;
+    if (h && (swaps || moved)) { channel.hold = addressed ? { frame, digest: addressed } : null; return; }
     channel.hold = h ? { frame, digest } : null;
     if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
     if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
@@ -759,11 +759,12 @@ if (es) {
       // (The same frame taken again, a resent one or `rehold`'s, replaces nothing.)
       if (reason === "replaced" && applying === revision) return;
       if (channel.hold?.frame === frame) channel.hold = null;
-      if (reason !== "replaced") { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); }
+      if (reason !== "replaced") end(revision);
       report({ kind: "held", state: null, reason, revision });
     }) : (holds(null), { reason: "gone" });
     applying = null;
     if (r.reason && channel.hold?.frame === frame) channel.hold = null;
+    if (r.reason) end(revision);
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
   const inspect = async (frame) => {
@@ -823,7 +824,12 @@ if (es) {
       return;
     }
     if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
-    if (message.kind === "hold") { channel.holdLatest = message; bindHold(message); }
+    if (message.kind === "hold") {
+      if (message.revision < lastRevision) ended.clear();
+      lastRevision = message.revision;
+      channel.holdLatest = message;
+      bindHold(message);
+    }
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;

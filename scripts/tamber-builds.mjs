@@ -175,14 +175,17 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   // A build with no pin is told so at revision 0: nothing for it to catch.
   const pinFrame = id => (pins.has(id) ? { kind: 'pin', revision: pins.get(id).revision, pin: pins.get(id).pin } : { kind: 'pin', revision: 0, pin: null });
   const sendPin = (id, f) => { sent.set(id, f.revision); frame(id, f); };
-  /** Build `id` sent `hold` (or null) at a new revision, the last it was sent. */
-  const sendHold = (id, hold) => {
+  /** Build `id` sent `hold` (or null) at a new revision, the last it was sent,
+   * with the plan digest its site addresses when known (`plan`): a build
+   * running another plan takes it as nothing, unsaid, and the replay after
+   * its status names the new plan corresponds it. */
+  const sendHold = (id, hold, plan = null) => {
     const revision = ++holding;
     holdSent.set(id, revision);
     if (hold === null) holds.delete(id);
     const b = builds.get(id);
     if (hold === null && b) b.held = null;
-    frame(id, { kind: 'hold', revision, hold });
+    frame(id, { kind: 'hold', revision, hold, ...(hold && plan ? { plan } : {}) });
     return revision;
   };
   /** Build `id`'s hold sent again (a new revision), as its plan `plan` (a
@@ -207,7 +210,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       h.hold = { ...h.hold, site };
     }
     h.plan = plan ?? h.plan;
-    h.revision = sendHold(id, h.hold);
+    h.revision = sendHold(id, h.hold, h.plan);
   };
 
   return {
@@ -517,8 +520,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       const b = listed().find(b => b.id === id);
       if (!b) return { error: `no registered build \`${id}\`` };
       if (!b.capabilities?.includes('hold')) return { unsupported: `build \`${id}\` (${b.host}) holds no state` };
-      const revision = sendHold(id, hold);
-      if (hold !== null) holds.set(id, { client, hold, revision, plan: plan ?? b.planDigest ?? null });
+      const held = plan ?? b.planDigest ?? null;
+      const revision = sendHold(id, hold, held);
+      if (hold !== null) holds.set(id, { client, hold, revision, plan: held });
       log(`tamber: ${client} ${hold ? `held ${hold.state} on site ${hold.site}` : 'let go'} on ${id} (hold ${revision})`);
       announce();
       return { build: id, revision };

@@ -1450,7 +1450,7 @@ test('a hold reaches its build and follows its site into the build\'s next plan'
   await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ wait: false, client: 'tool' }) });
   const held = await post({ method: 'hold', client: 'tool', build: 'web-1', site: 1, instance: [], state: 'active' });
   expect(held.status).toBe(200);
-  expect(frames.at(-1)).toEqual({ kind: 'hold', revision: held.body.ok.revision, hold: { site: 1, instance: [], state: 'active' } });
+  expect(frames.at(-1)).toEqual({ kind: 'hold', revision: held.body.ok.revision, hold: { site: 1, instance: [], state: 'active' }, plan: P1 });
   // Its build says it holds it: every client is told.
   tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'held', state: 'active', revision: held.body.ok.revision }));
   const events = (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events;
