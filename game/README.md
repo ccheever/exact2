@@ -653,16 +653,22 @@ The web dev loop validates table saves in-process using that bake's compiled dec
 then delivers all tables together through `assets/exact-tables.json`. It prints validation
 time and subprocess count. No Cargo or rustc runs for a tuning save. A complete valid
 transaction activates at the next simulation tick; a rejected transaction keeps the old
-values. A setup-only read takes effect at the next setup; levels always require a new
+values. Paused tables await resume without preventing settlement. Restart and initial setup
+admit the latest valid pending transaction before setup reads it. Levels require a new
 session. Tables never spawn entities.
 
 Active table bytes appear in world resources and contribute to the hash. Every admitted
 version remains in saved inputs for the session. `sim.table_inputs()` exports these
 clock-stamped bytes; `sim.replay_tables(&inputs)` queues them on a tick-zero simulation
 loaded with their original setup version. A restore requires the same active table bytes
-and refuses changed tables by name. Development swaps are reported as `tableEdits` in
-world state and refuse a proof pin. The replay admission uses the next tick until the
-shared LLP 1127.004 D6 contract lands.
+and declared type names, and refuses changed tables by name. Development swaps are reported as `tableEdits` in
+world state and refuse a proof pin. Delivery while running is admitted at the next tick;
+replay preserves those recorded ticks, including transactions still pending at export.
+
+Web dev clients swap tables under the running world, preserving its tick. Native Apple
+dev clients apply a whole generation and restart the world on table delivery. For table
+games, Rust saves rebuild the primary module and validate the current table files before
+publishing the new declarations; the validator never follows an unselected side module.
 
 Animation order is explicit: `animation::step` → apply root motion → query sockets.
 `SocketFollow` attaches to a joint without changing the saved local transform.

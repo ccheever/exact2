@@ -1519,3 +1519,8 @@ its valid bindings disappear and return. Read it with
   returns `node.space.viewport`. A delivered input can return `landError` when
   settling its effects fails; it need not reject the call. Keep that receipt so a
   proof checks the failure without sending the input twice.
+
+- Reloading a wasm-bindgen validator through a new file-URL query can reuse Bun's cached
+  JavaScript module. Load a fresh module instance and its matching wasm together; verify a
+  declaration added during the dev session without another JSON edit. The table watcher
+  uses a unique data URL for each primary build.
