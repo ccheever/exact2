@@ -1,7 +1,7 @@
 // Settings → Project → Project icon (ProjectSettingsPanel.tsx's
 // icon row, ProjectIconPickerDialog.tsx, ProjectFaviconPickerDialog.tsx,
 // projectIconOptions.ts, projectIconColors.ts, projectIdentity.ts,
-// ProjectMonogram.tsx, ProjectFavicon.tsx). An override is a Lucide icon, an
+// ProjectMonogram.tsx, ProjectFavicon.tsx; reference 9c161462c9). An override is a Lucide icon, an
 // emoji or a monogram; a favicon is a workspace image. Both are group-shared
 // fields, so a change fans out to every member project (updateAllMembers).
 import { arr, obj, str, initialShell, applyShell, type Obj } from '../client/domain';
@@ -217,7 +217,7 @@ export async function runIconOp(client: T3Client, native: Native, storage: Files
   let change: Obj;
   if (op === 'project-favicon-set') {
     const path = str(input.path).trim();
-    if (!path || path.length > 1024 || !/\.(?:avif|gif|ico|jpe?g|png|svg|webp)$/i.test(path)) throw new ClientError('Choose an image file.');
+    if (!path || path.length > 1024 || !/\.(?:avif|gif|icns|ico|jpe?g|png|svg|webp)$/i.test(path)) throw new ClientError('Choose an image file.');
     change = { faviconPath: path, projectIcon: null };
   } else {
     const kind = str(input.kind);
