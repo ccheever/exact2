@@ -18,13 +18,13 @@
 import { obj, str, type Obj } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
+import { AUTH_STANDARD_CLIENT_SCOPES } from './remote-scopes';
 import { routingKeyEnvironment } from './connection-routes';
 
 /** PRIMARY_LOCAL_ENVIRONMENT_ID: the bootstrap's id and the fleet's name for the primary. */
 export const PRIMARY_LOCAL_ENVIRONMENT_ID = 'primary';
-/** AuthAdministrativeScopes: the desktop treats its own session as administrative. */
-export const AUTH_ADMINISTRATIVE_SCOPES = ['orchestration:read', 'orchestration:operate', 'terminal:operate', 'review:write', 'relay:read',
-  'access:read', 'access:write', 'relay:write'] as const;
+/** The desktop treats its own session as administrative: every permission a client can be granted. */
+export const AUTH_ADMINISTRATIVE_SCOPES = AUTH_STANDARD_CLIENT_SCOPES;
 
 /** DesktopEnvironmentBootstrapIncompleteError: one base URL without the other. */
 export class DesktopEnvironmentBootstrapIncompleteError extends Error {

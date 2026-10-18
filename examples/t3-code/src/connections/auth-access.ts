@@ -52,12 +52,12 @@ const optional = (key: string, value: unknown) => (typeof value === 'string' && 
 export function decodePairingLink(value: unknown): AuthPairingLink | null {
   const raw = obj(value);
   if (!str(raw.id) || !str(raw.expiresAt)) return null;
-  return { id: str(raw.id), scopes: strings(raw.scopes), subject: str(raw.subject), ...optional('label', raw.label), createdAt: str(raw.createdAt), expiresAt: str(raw.expiresAt) };
+  return { id: str(raw.id), scopes: strings(raw.permissions ?? raw.scopes), subject: str(raw.subject), ...optional('label', raw.label), createdAt: str(raw.createdAt), expiresAt: str(raw.expiresAt) };
 }
 export function decodeClientSession(value: unknown): AuthClientSession | null {
   const raw = obj(value), client = obj(raw.client);
   if (!str(raw.sessionId)) return null;
-  return { sessionId: str(raw.sessionId), subject: str(raw.subject), scopes: strings(raw.scopes), method: str(raw.method),
+  return { sessionId: str(raw.sessionId), subject: str(raw.subject), scopes: strings(raw.permissions ?? raw.scopes), method: str(raw.method),
     client: { deviceType: str(client.deviceType, 'unknown'), ...optional('label', client.label), ...optional('ipAddress', client.ipAddress), ...optional('userAgent', client.userAgent),
       ...optional('os', client.os), ...optional('browser', client.browser) },
     issuedAt: str(raw.issuedAt), expiresAt: str(raw.expiresAt), lastConnectedAt: typeof raw.lastConnectedAt === 'string' ? raw.lastConnectedAt : null,

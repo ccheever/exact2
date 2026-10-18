@@ -1,7 +1,7 @@
 // The Linked pull requests surface (MIT reference, see LICENSE-T3:
 // components/pullRequest/ThreadPullRequestsPanel.tsx, pullRequestListLines.ts,
 // PullRequestListRow.tsx, packages/shared/src/threadPullRequests.ts, upstream
-// 18b21325c3 "watch for changes"): the thread's visible links as stacked rows, the
+// 9c161462c9): the thread's visible links as stacked rows, the
 // row menu (Copy link, Open, Watch for changes / Stop watching, Unlink) and the
 // footer. Watch and unlink are orchestration commands (thread.pull-request.watch,
 // thread.pull-request.unlink); nothing here writes to the code host.
@@ -31,8 +31,9 @@ const keyOf = (link: Obj) => `${str(link.host).toLowerCase()}/${str(link.reposit
 const snapshotOf = (link: Obj): Obj | null => (link.snapshot && typeof link.snapshot === 'object' ? obj(link.snapshot) : null);
 
 /** resolveThreadPullRequestChains: native stacks by their layer order, then base→head chains, then the rest. */
-export function resolveChains(links: Obj[]): { kind: string; layers: Obj[] }[] {
-  const visible = visiblePullRequests(links), chains: { kind: string; layers: Obj[] }[] = [], placed = new Set<string>();
+export type PullRequestChain = { kind: string; layers: Obj[]; depths: number[] };
+export function resolveChains(links: Obj[]): PullRequestChain[] {
+  const visible = visiblePullRequests(links), chains: PullRequestChain[] = [], placed = new Set<string>();
   const stacks = new Map<string, Obj[]>();
   for (const link of visible) {
     const stack = link.stack && typeof link.stack === 'object' ? obj(link.stack) : null;
@@ -44,7 +45,7 @@ export function resolveChains(links: Obj[]): { kind: string; layers: Obj[] }[] {
     const order = new Map(arr(obj(members[0]!.stack).layers).map((layer, index) => [num(layer.number), index]));
     members.sort((a, b) => (order.get(num(a.number)) ?? 0) - (order.get(num(b.number)) ?? 0));
     for (const member of members) placed.add(keyOf(member));
-    chains.push({ kind: 'native', layers: members });
+    chains.push({ kind: 'native', layers: members, depths: members.map((_, index) => index) });
   }
   const remaining = visible.filter(link => !placed.has(keyOf(link)));
   const branchKey = (link: Obj, branch: string) => `${str(link.host).toLowerCase()}/${str(link.repository).toLowerCase()}:${branch}`;
@@ -54,31 +55,44 @@ export function resolveChains(links: Obj[]): { kind: string; layers: Obj[] }[] {
     const key = branchKey(link, str(snapshot.headBranch));
     byHead.set(key, byHead.has(key) ? null : link);
   }
-  const hasChild = new Set<string>();
-  for (const link of remaining) {
-    const snapshot = snapshotOf(link); if (!snapshot) continue;
+  const parentOf = (link: Obj): Obj | undefined => {
+    const snapshot = snapshotOf(link);
+    if (!snapshot) return undefined;
     const parent = byHead.get(branchKey(link, str(snapshot.baseBranch)));
-    if (parent && parent !== link) hasChild.add(keyOf(parent));
+    return parent == null || parent === link ? undefined : parent;
+  };
+  const children = new Map<string, Obj[]>();
+  for (const link of remaining) {
+    const parent = parentOf(link);
+    if (!parent) continue;
+    const siblings = children.get(keyOf(parent)) ?? [];
+    siblings.push(link); children.set(keyOf(parent), siblings);
   }
-  for (const top of remaining) {
-    if (hasChild.has(keyOf(top))) continue;
-    const layers: Obj[] = [];
-    let cursor: Obj | undefined = top;
-    while (cursor && !placed.has(keyOf(cursor))) {
-      placed.add(keyOf(cursor)); layers.unshift(cursor);
-      const snapshot: Obj | null = snapshotOf(cursor);
-      cursor = snapshot ? byHead.get(branchKey(cursor, str(snapshot.baseBranch))) ?? undefined : undefined;
+  for (const base of remaining) {
+    if (parentOf(base)) continue;
+    const layers: Obj[] = [], depths: number[] = [];
+    const pending = [{ link: base, depth: 0 }];
+    while (pending.length > 0) {
+      const { link, depth } = pending.pop()!;
+      if (placed.has(keyOf(link))) continue;
+      placed.add(keyOf(link)); layers.push(link); depths.push(depth);
+      const siblings = children.get(keyOf(link)) ?? [];
+      for (let index = siblings.length - 1; index >= 0; index--) pending.push({ link: siblings[index]!, depth: depth + 1 });
     }
-    if (layers.length) chains.push({ kind: 'derived', layers });
+    if (layers.length) chains.push({ kind: 'derived', layers, depths });
   }
-  for (const link of remaining) if (!placed.has(keyOf(link))) chains.push({ kind: 'derived', layers: [link] });
+  for (const link of remaining) if (!placed.has(keyOf(link))) chains.push({ kind: 'derived', layers: [link], depths: [0] });
   return chains;
+}
+export function layersFromTop(chain: PullRequestChain): Obj[] {
+  return chain.layers.map((link, index) => ({ link, index, depth: chain.depths[index]! }))
+    .sort((left, right) => right.depth - left.depth || right.index - left.index).map(entry => entry.link);
 }
 const activityAt = (link: Obj) => { const ms = Date.parse(str(snapshotOf(link)?.updatedAt, str(link.linkedAt))); return Number.isNaN(ms) ? 0 : ms; };
 /** pullRequestListLines: newest chain first, each read bottom to top with its depth. */
-export function listLines(chains: { kind: string; layers: Obj[] }[]): { link: Obj; depth: number; stack: { kind: string; size: number } | null }[] {
+export function listLines(chains: PullRequestChain[]): { link: Obj; depth: number; stack: { kind: string; size: number } | null }[] {
   return [...chains].sort((a, b) => Math.max(...b.layers.map(activityAt)) - Math.max(...a.layers.map(activityAt)))
-    .flatMap(chain => chain.layers.map((link, depth) => ({ link, depth, stack: depth === 0 && chain.layers.length > 1 ? { kind: chain.kind, size: chain.layers.length } : null })));
+    .flatMap(chain => chain.layers.map((link, index) => ({ link, depth: chain.depths[index]!, stack: index === 0 && chain.layers.length > 1 ? { kind: chain.kind, size: chain.layers.length } : null })));
 }
 
 function thread(client: T3Client): Obj | undefined { return client.shell.threads.find(entry => entry.id === client.threadId); }

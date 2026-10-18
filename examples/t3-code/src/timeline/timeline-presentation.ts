@@ -1,3 +1,5 @@
+// Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
+// apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
 import { runnableShellCommands } from '../terminal/terminal-integrations';
@@ -9,7 +11,7 @@ import { arr, num, obj, str, type Activity, type Message, type Obj } from '../cl
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { deriveRows, type Row } from './timeline-rows';
-import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, thoughtText, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
+import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
@@ -19,7 +21,7 @@ import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
 import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
-import { chippedAttachmentIds, markdownEnv, messageChips } from './message-chips';
+import { chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from '../details/git-route';
 import { openFileSurface, surfaceLocal } from '../panel/panel-surfaces';
@@ -272,8 +274,10 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   const question = entry.questionAnswer ? questionTextPreview(entry.questionAnswer) : '';
   const title = failedError ? usage ? 'Usage limit reached.' : entry.label
     : reasoning ? thoughtText(entry.detail ?? '') || (entry.status === 'inProgress' ? 'Thinking' : 'Thought') : question || (label ?? entryDisplayLabel(entry, root));
+  // A thread read names the thread by its live title, linked to it (ThreadReadLabel).
+  const read = failedError || reasoning ? null : threadReadLabel(entry, title, client.shell.threads);
   // Reads and skills expand to plain text (output) instead of the inspector (body).
-  return { id: entry.id, label: title, body: entry.questionAnswer ? '' : plain !== undefined && fetches ? plain ?? '' : inspect.input, icon: failedError || warning || severe ? 'circle-alert' : entryIcon(entry),
+  return { id: entry.id, label: read?.text ?? title, linkPrefix: read?.prefix ?? '', linkTitle: read?.title ?? '', linkThreadId: read?.threadId ?? '', body: entry.questionAnswer ? '' : plain !== undefined && fetches ? plain ?? '' : inspect.input, icon: failedError || warning || severe ? 'circle-alert' : entryIcon(entry),
     output: reasoning ? str(entry.detail) : fetches ? detail.text : structured ? '' : plain ?? detail.text, outputState: detail.state, ...extras, detailOpen: turnItemIsOpen(client, entry.id), ...toolActivityIconSources(client, item), result: inspect.result, failed, timestamp: entry.createdAt,
     tone: failedError ? usage ? 'provider-warning' : 'provider-error' : warning ? 'warning' : severe ? 'error' : failed ? 'failed' : '',
     ok: inspect.ok, reasoning, expandable: !failedError && (!!entry.questionAnswer || (plain !== undefined ? !!plain || entry.item.outputOmitted === true || !!detail.text : turnItemHasDetail(entry.item))),
@@ -329,8 +333,15 @@ function present(row: Row, context: PresentContext): Message {
     case 'setup': return { ...base, kind: 'worktree-setup', title: 'Worktree setup', setup: [setupView(row.snapshot, row.embedded, context.detailsOpen)] };
     case 'thinking': return { ...base, kind: 'thinking', title: context.preparing ? '' : 'Thinking', icon: 'brain', live: true, continues: row.continues === true,
       groupId: row.groupId ?? '', expanded: row.expanded === true };
-    case 'live': return { ...base, kind: 'live', title: row.label, icon: entryIcon(row.entry), failed: displayFailed(row.entry), live: row.active,
-      expanded: row.expanded, groupId: row.groupId, continues: row.continues === true, runId: row.entry.runId, activities: [{ ...keyedLabel(row, row.label), ...toolActivityIconSources(context.client, row.entry.item) }] };
+    case 'live': {
+      // The latest thought's first sentence sits above the status line (the open group lists it already);
+      // while that thought is itself the live entry, the status line says Thinking.
+      const thought = row.thought && !row.expanded ? liveThoughtLine(row.thought.detail ?? '') : '';
+      const label = thought && row.entry.id === row.thought?.id ? row.active ? 'Thinking' : 'Thought'
+        : threadReadLabel(row.entry, row.label, context.threads)?.text ?? row.label;
+      return { ...base, kind: 'live', title: label, detail: thought, icon: entryIcon(row.entry), failed: displayFailed(row.entry), live: row.active,
+        expanded: row.expanded, groupId: row.groupId, continues: row.continues === true, runId: row.entry.runId, activities: [{ ...keyedLabel(row, label), ...toolActivityIconSources(context.client, row.entry.item) }] };
+    }
     // The group's image icon: the primary tool source's, else the last entry's.
     case 'group': return { ...base, kind: 'group', title: row.summary, icon: row.icon, failed: row.failed, expanded: row.expanded, groupId: row.groupId,
       runId: row.runId, continues: row.continues === true, activities: [{ ...keyedLabel(row, row.summary), ...(row.toolIcon ? toolActivityIconSources(context.client, { toolIcon: row.toolIcon }) : {}) }] };
@@ -345,7 +356,7 @@ function present(row: Row, context: PresentContext): Message {
       const activities = row.entries.map(entry => activity(entry, root, context.client, row.entries.length === 1 ? row.label : undefined));
       return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries) };
     }
-    case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Partial output retained', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
+    case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Cut off by a steer', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
     case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize', activities: [keyedLabel(row, row.label)] };
     case 'plan': {
       const markdown = str(row.entry.item.markdown);
@@ -369,30 +380,47 @@ function present(row: Row, context: PresentContext): Message {
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
           diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
       }
-      const intent = str(item.inputIntent);
-      const text = str(item.text), chips = messageChips(item, context.root, context.threads, row.id), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      const intent = str(item.inputIntent), sender = userMessagePresentation(item);
+      const text = sender.text, chips = messageChips(item, context.root, context.threads, row.id), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // A file with a chip in the prose needs no standalone row (images always show).
       return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text, false),
-        collapsible: text.trim().length > 0 && (text.length > 600 || text.split('\n').length > 8),
-        intent: intent === 'queued_turn' ? 'Queued' : intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
-        intentTip: intent === 'queued_turn' ? 'Queued behind the active turn' : intent === 'promoted_queued_to_steer'
+        collapsible: shouldCollapseUserMessage(text),
+        intent: intent === 'queued_turn' ? 'From queue' : intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
+        intentTip: intent === 'queued_turn' ? 'Queued while the agent was busy' : intent === 'promoted_queued_to_steer'
           ? 'Originally queued, then promoted to steer the active turn' : intent === 'steer' ? 'Steered the active turn' : '',
-        attribution: item.createdBy === 'agent' ? 'agent' : item.createdBy === 'automation' || item.creationSource === 'scheduled_task' || item.scheduledTaskId ? 'automation' : '',
-        targetId: str(item.senderThreadId), detail: str(item.scheduledTaskId),
+        attribution: sender.attribution, targetId: str(item.senderThreadId), detail: sender.scheduledTaskId,
         status: ['completed', 'pending', 'waiting'].includes(str(item.status)) ? '' : str(item.status) };
     }
   }
 }
 
+const LEGACY_AUTOMATION_PREFIX = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
+const LEGACY_AUTOMATION_MESSAGE_ID = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
+/**
+ * resolveUserMessagePresentation (client-runtime userMessage.ts): who sent a user message the user
+ * did not type. Older scheduled messages carry their attribution in the prompt itself; a restart
+ * continuation the server sent as the agent is T3 Code's.
+ */
+export function userMessagePresentation(item: Obj): { text: string; attribution: '' | 'automation' | 'agent' | 't3code'; scheduledTaskId: string } {
+  const text = str(item.text);
+  if (typeof item.scheduledTaskId === 'string') return { text, attribution: 'automation', scheduledTaskId: item.scheduledTaskId };
+  const legacyPrefix = LEGACY_AUTOMATION_PREFIX.exec(text);
+  const legacyTaskId = legacyPrefix ? LEGACY_AUTOMATION_MESSAGE_ID.exec(str(item.messageId))?.[1] : undefined;
+  if (legacyPrefix && (legacyTaskId !== undefined || item.createdBy === 'agent')) return { text: text.slice(legacyPrefix[0].length), attribution: 'automation', scheduledTaskId: legacyTaskId ?? '' };
+  return { text, attribution: item.createdBy !== 'agent' ? '' : item.creationSource === 'server' ? 't3code' : 'agent', scheduledTaskId: '' };
+}
+
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
-  | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'>> & { timeTip: string };
+  | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'
+  | 'linkPrefix' | 'linkTitle' | 'linkThreadId'>> & { timeTip: string };
 const blankActivity = (activity: Activity): RowActivity => ({
   tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '',
   ...activity, outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
   results: activity.results ?? NO_INSPECTOR_EXTRAS.results, changePath: activity.changePath ?? '', stats: activity.stats ?? false, additions: activity.additions ?? 0,
   deletions: activity.deletions ?? 0, diffRunId: activity.diffRunId ?? '', diffPath: activity.diffPath ?? '', startedMs: activity.startedMs ?? 0,
   initials: activity.initials ?? '', driverIcon: activity.driverIcon ?? '', targetLabel: activity.targetLabel ?? '',
-  modelLine: activity.modelLine ?? '', effort: activity.effort ?? '', speed: activity.speed ?? '', speedLabel: activity.speedLabel ?? '' });
+  modelLine: activity.modelLine ?? '', effort: activity.effort ?? '', speed: activity.speed ?? '', speedLabel: activity.speedLabel ?? '',
+  linkPrefix: activity.linkPrefix ?? '', linkTitle: activity.linkTitle ?? '', linkThreadId: activity.linkThreadId ?? '' });
 
 /**
  * Timeline rows as Contract draws them, every Message field present. T3 shows

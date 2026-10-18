@@ -72,6 +72,13 @@ shape Thread
   // Working's start (epoch ms; the label ticks from the root clock) and a background environment's machine glyph.
   workingSince: number
   remoteMachine: string
+  // A "No project" thread's machine glyph and label, in the branch's place, when the projects span machines.
+  scratchMachine: string
+  scratchLabel: string
+  // A search result's matching pull request: its number, lifecycle state ('' unknown) and accessible label.
+  searchPr: string
+  searchPrState: string
+  searchPrLabel: string
   title: string
   projectName: string
   projectMark: string

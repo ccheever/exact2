@@ -1,5 +1,5 @@
 // PullRequestDetailGhost, measured against T3 Code
-// 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestGhosts.tsx: the detail
+// 9c161462c9 (MIT, see LICENSE-T3) components/pullRequest/{PullRequestGhosts,PullRequestDetailLayout}.tsx: the detail
 // panel's loaded shape while the detail is out — the list row's identity and summary where the
 // list has the pull request (`ghost.seeded`), bars for the rest, the tab bar inert with the
 // panel's tab, the Reviewers and Labels rows and the Description's opening — so the loaded
@@ -72,13 +72,14 @@ component PrdGhost
               box width="6rem" height="0.75rem" border-radius="0.25rem" background-color=pgBar()
               text `#${number}` font-size="0.75rem" line-height="1rem" color=pgMuted() flex-shrink=0
           if ghost.seeded
-            if surface == "page" or not handoffs.threadOwn
-              PrdCheckoutMenu(handoffs=handoffs, surface=surface, scheme=scheme, narrow=narrow, act=act, actOn=noActOn())
             if ghost.conflicting
               button press=act("handoff", `${surface}|conflicts`) disabled=(handoffs.pending != "" or (surface != "thread" and not handoffs.canCheckout)) aria-label=(handoffs.pending == "conflicts" ? "Preparing..." : "Resolve conflicts") testId="pull-request-ghost-resolve" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(handoffs.pending != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
                 PgIcon(name="triangle-alert", size=14, color="light-dark(#e40014, #ff6467)")
                 if not narrow
                   text (handoffs.pending == "conflicts" ? "Preparing..." : "Resolve conflicts") font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#e40014, #ff6467)"
+            // Check out beside the menu, as the loaded header has it.
+            if surface == "page" or not handoffs.threadOwn
+              PrdCheckoutMenu(handoffs=handoffs, surface=surface, scheme=scheme, narrow=narrow, act=act, actOn=noActOn())
           else
             box width="4rem" height="1.5rem" border-radius="0.375rem" background-color=pgBar() flex-shrink=0
           row width="1.5rem" height="1.5rem" align-items="center" justify-content="center" opacity=0.64 aria-label="Pull request actions loading" flex-shrink=0
@@ -129,12 +130,15 @@ component PrdGhost
           PrdGhostTab(label="Summary", active=(tab != "timeline"))
           PrdGhostTab(label="Timeline", active=(tab == "timeline"))
         box flex=1 min-width=0
+        // PullRequestChecksStatusLine, as the loaded panel draws it: the glyph's place and the label's.
         if ghost.checksLabel != ""
-          row align-items="center" gap="0.375rem" flex-shrink=0
+          row align-items="center" align-content="flex-start" justify-content="flex-end" flex-wrap="wrap" column-gap="0.375rem" height="1rem" overflow="hidden" min-width=0 flex-shrink=1
             PgIcon(name=(ghost.checksTone == "failing" ? "circle-x" : "circle-dot"), size=14, color=(ghost.checksTone == "failing" ? "light-dark(#e40014, #fb414a)" : "light-dark(#e17100, #ffb900e6)"))
             text ghost.checksLabel font-size="0.75rem" line-height="1rem" color=(ghost.checksTone == "failing" ? "light-dark(#e40014, #fb414a)" : "light-dark(#e17100, #ffb900e6)") white-space="nowrap"
         else
-          box width="8rem" height="0.75rem" border-radius="0.25rem" background-color=pgBar() flex-shrink=0
+          row align-items="center" justify-content="flex-end" column-gap="0.375rem" height="1rem" overflow="hidden" min-width=0 flex-shrink=1
+            box width="0.875rem" height="0.875rem" margin-top=1 margin-bottom=1 border-radius="624.9375rem" background-color=pgBar() flex-shrink=0
+            box width="7rem" height="0.75rem" border-radius="0.25rem" background-color=pgBar() flex-shrink=0
       column width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem"
         row min-height="1.5rem" align-items="center" gap="0.5rem"
           row width="6rem" align-items="center" gap="0.375rem" flex-shrink=0

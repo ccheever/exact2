@@ -1,4 +1,4 @@
-// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/core.test.ts).
+// Copied from T3 Code 9c161462c9 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/core.test.ts).
 // Changes from the reference:
 // - `vite-plus/test` is `bun:test`; the `vi.mock` of the two `?url` WASM imports is
 //   `src/test-assets.ts`, which points the runtime at the vendored files.
@@ -24,9 +24,6 @@ function codepointView(codepoints: ReadonlyArray<number>): DataView {
 
 describe("ghosttyCellText", () => {
   it("converts oversized grapheme clusters without hitting engine spread limits", () => {
-    // A program printing one base character followed by a huge run of
-    // combining marks packs the whole cluster into one cell; spreading that
-    // many arguments into String.fromCodePoint once overflows the call stack.
     const graphemeLength = 130_000;
     const view = new DataView(new ArrayBuffer(graphemeLength * 4));
     for (let index = 0; index < graphemeLength; index += 1) {
@@ -120,6 +117,46 @@ describe("GhosttyTerminalCore snapshots", () => {
       underline: false,
       selected: false,
     });
+  });
+
+  it("resolves foreground and background independently without retaining prior cell colors", async () => {
+    const core = await createCore();
+    core.write(
+      "\x1b[38;2;123;45;67mF\x1b[39;48;2;9;8;7mB\x1b[0mD\x1b[38;2;12;34;56;48;2;78;90;123mC\x1b[0mE",
+    );
+    expect(
+      core
+        .snapshot()
+        .rowData[0]!.cells.slice(0, 6)
+        .map(({ text, foreground, background }) => ({ text, foreground, background })),
+    ).toEqual([
+      { text: "F", foreground: { r: 123, g: 45, b: 67 }, background: { r: 0, g: 0, b: 0 } },
+      { text: "B", foreground: { r: 255, g: 255, b: 255 }, background: { r: 9, g: 8, b: 7 } },
+      { text: "D", foreground: { r: 255, g: 255, b: 255 }, background: { r: 0, g: 0, b: 0 } },
+      { text: "C", foreground: { r: 12, g: 34, b: 56 }, background: { r: 78, g: 90, b: 123 } },
+      { text: "E", foreground: { r: 255, g: 255, b: 255 }, background: { r: 0, g: 0, b: 0 } },
+      { text: "", foreground: { r: 255, g: 255, b: 255 }, background: { r: 0, g: 0, b: 0 } },
+    ]);
+  });
+
+  it("paints ANSI colors from the theme palette and repaints them on theme change", async () => {
+    const core = await createCore();
+    const theme = {
+      foreground: { r: 255, g: 255, b: 255 },
+      background: { r: 0, g: 0, b: 0 },
+      cursor: { r: 255, g: 255, b: 255 },
+    };
+    const palette = Array.from({ length: 16 }, (_, index) => ({ r: index, g: 1, b: 2 }));
+    core.write("\x1b[31mR\x1b[38;5;196mX\x1b[0m");
+    core.setTheme({ ...theme, palette });
+    let cells = core.snapshot().rowData[0]!.cells;
+    expect(cells[0]!.foreground).toEqual({ r: 1, g: 1, b: 2 });
+    expect(cells[1]!.foreground).toEqual({ r: 255, g: 0, b: 0 });
+
+    core.setTheme({ ...theme, palette: palette.map((color) => ({ ...color, g: 9 })) });
+    cells = core.snapshot().rowData[0]!.cells;
+    expect(cells[0]!.foreground).toEqual({ r: 1, g: 9, b: 2 });
+    expect(cells[1]!.foreground).toEqual({ r: 255, g: 0, b: 0 });
   });
 
   it("reuses a grown grapheme buffer and releases it on disposal", async () => {

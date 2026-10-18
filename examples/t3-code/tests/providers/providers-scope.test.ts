@@ -39,10 +39,10 @@ function servers() {
   const focus = new Backend(), second = new Backend();
   focus.generation = FOCUS_GENERATION; // the app's client bootstraps from this one
   focus.config = { ...focus.config, providers: [codex({ status: 'authenticated', email: 'mac@example.com', label: 'ChatGPT' })],
-    settings: { ...obj(focus.config.settings), providerInstances: instances } };
+    settings: { ...obj(focus.config.settings), providerInstances: instances, providers: { codex: { enabled: true } } } };
   second.generation = 3;
   second.config = { environment: { environmentId: 'env2', label: 'LAN box', platform: { os: 'darwin', machine: 'server' } },
-    providers: [codex({ status: 'unauthenticated' })], settings: { providerInstances: instances } };
+    providers: [codex({ status: 'unauthenticated' })], settings: { providerInstances: instances, providers: { codex: { enabled: true } } } };
   const native = new TwoServers(focus, second), disk = storage();
   return { focus, second, native, files: disk.files };
 }
