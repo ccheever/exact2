@@ -530,11 +530,18 @@ const scopedModule = (code, id) => {
 };
 // Both bundles take app.ts and its packages from the checked capture alone.
 const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).replayCaptured(tsStage, [resolve(gen, 'ts-fetch.js'), resolve(realpathSync(gen), 'ts-fetch.js')]) : null;
+// These hooks are optional. Keep their static accesses for tree-shaking,
+// but suppress missing-export warnings only at the generated glue's path.
+const optionalHookWarning = (id, message) => generatedRoots.some(root => id === resolve(root, 'ts-data.js'))
+  && /Import ["`](?:kept|overlay)["`] will always be undefined because there is no matching export/.test(message);
 const bundle = async (options) => {
   const r = await Bun.build({ ...options, plugins: [...(replay ? [{ name: 'captured-replay', setup: replay.bun }] : []), { name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
   } }] });
-  for (const m of r.logs) console.error(String(m));
+  for (const m of r.logs) {
+    if (m.level === 'warn' && optionalHookWarning(m.position?.file, m.message)) continue;
+    console.error(String(m));
+  }
   if (!r.success) process.exit(1);
 };
 // The renderer uses vm.Script, which cannot parse import.meta.
@@ -546,7 +553,10 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => {
+    if (level === 'warn' && log.code === 'IMPORT_IS_UNDEFINED' && optionalHookWarning(log.id, log.message)) return;
+    console.error(log.message);
+  } });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.

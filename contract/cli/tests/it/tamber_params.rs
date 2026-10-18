@@ -158,7 +158,7 @@ fn a_param_that_would_not_hold_is_refused_named_in_full() {
     let (id, m) = refused("unused", "    lonely: length = \"4px\"\n", "", DESIGN);
     assert_eq!(id, "tamber-param-unused");
     assert!(
-        m.contains("app.contract#App.lonely") && m.contains("stage 8"),
+        m.contains("app.contract#App.lonely") && m.contains("a state part's row"),
         "{m}"
     );
     let (id, _) = refused(
