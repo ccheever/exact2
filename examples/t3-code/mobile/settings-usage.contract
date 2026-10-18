@@ -94,6 +94,9 @@ shape MobileUsageData
   limitsEmpty: string
   total: string
   chartTitle: string
+  headlineLabel: string
+  headlineValue: string
+  headlineDetail: string
   chartStart: string
   chartEnd: string
   chartLegend: UsageLegend[]
@@ -209,8 +212,10 @@ component SettingsUsage
             text data.duplicateMessage color=colors.muted font-size=roles.footnote.size
           if data.hasUsage
             column background-color=colors.grouped border-radius=24 padding=14 gap=14
-              text data.chartTitle color=colors.muted font-size=roles.footnote.size
-              text data.total color=colors.foreground font-size=roles.largeTitle.size font-weight=500
+              column gap=1.75
+                text data.headlineLabel color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=400
+                text data.headlineValue color=colors.foreground font-size=31.5 line-height="35px" font-weight=700 font-variant-numeric="tabular-nums"
+                text data.headlineDetail color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=400
               row gap=2 height=180 align-items="flex-end" aria-label=data.chartTitle
                 for bar in data.chart key=bar.id
                   column flex=1 min-width=0 height=180 justify-content="flex-end" aria-label=bar.label

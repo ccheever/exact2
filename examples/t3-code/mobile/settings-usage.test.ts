@@ -167,6 +167,44 @@ test('Usage footer legend follows merged cost order in both metrics and retains 
     expect(data.total).toBe(metric==='cost'?'$6.00':'310');
   }
 });
+test('Usage headline follows the metric while raw totals and chart window labels remain separate',()=>{
+  const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1234}],
+    buckets:[{provider:'claude',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T00:00:00.000Z',costUsd:0.825,totals:{uncachedInputTokens:1234567}}]};
+  const input={tab:'usage',now,presentations:new Map(),external:false,sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  for(const resolution of ['day','hour'] as const){
+    const window={sinceDay:'2026-10-07',untilDay:resolution==='day'?'2026-10-08':'2026-10-07',timeZone:'UTC',resolution,sinceTime:'2026-10-07T00:00:00.000Z',untilTime:'2026-10-07T02:00:00.000Z'};
+    const cost=mobileUsagePresentation({...input,window,metric:'cost'},false),tokens=mobileUsagePresentation({...input,window,metric:'tokens'},false);
+    expect([cost.headlineLabel,cost.headlineValue,cost.headlineDetail]).toEqual(['Raw token cost','$0.83*','* if billed at full API rate']);
+    expect([tokens.headlineLabel,tokens.headlineValue,tokens.headlineDetail]).toEqual(['Processed tokens','1.23M','Across 1,234 sessions']);
+    expect([cost.total,tokens.total]).toEqual(['$0.83','1.23M']);
+    expect([cost.chartTitle,tokens.chartTitle]).toEqual(resolution==='day'?['Daily cost','Daily processed tokens']:['Hourly cost','Hourly processed tokens']);
+    expect(cost.chart.map(period=>period.id)).toEqual(resolution==='day'?['2026-10-07','2026-10-08']:['2026-10-07T00:00:00.000Z','2026-10-07T01:00:00.000Z']);
+    expect(cost.chart.map(period=>({id:period.id,label:period.label}))).toEqual(tokens.chart.map(period=>({id:period.id,label:period.label})));
+    expect(cost.chartLegend).toEqual(tokens.chartLegend);expect(cost.chartLegend[0]?.label).toBe('Claude Code');
+    expect([cost.providers[0]?.value,cost.models[0]?.value,cost.costs.find(item=>item.id==='cost')?.value,tokens.providers[0]?.detail]).toEqual(['$0.83','$0.83','$0.83','$0.83']);
+    expect(cost.chart[0]?.bands.find(band=>band.id==='claude')?.value).toBe('$0.83');
+  }
+});
+test('compatible zero Usage keeps the reference cost note and literal session wording',()=>{
+  for(const sessions of [0,1]){
+    const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:sessions}],buckets:[]};
+    const input={tab:'usage',window:mobileUsageWindow(7,now),now,presentations:new Map(),external:false,
+      sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+    const cost=mobileUsagePresentation({...input,metric:'cost'},false),tokens=mobileUsagePresentation({...input,metric:'tokens'},false);
+    expect(cost.hasUsage).toBe(true);expect(tokens.hasUsage).toBe(true);
+    expect([cost.headlineLabel,cost.headlineValue,cost.headlineDetail,cost.total]).toEqual(['Raw token cost','$0.00*','* if billed at full API rate','$0.00']);
+    expect([tokens.headlineLabel,tokens.headlineValue,tokens.headlineDetail,tokens.total]).toEqual(['Processed tokens','0',sessions===1?'Across 1 sessions':'Across 0 sessions','0']);
+  }
+});
+test('missing and future Usage summaries cannot publish a headline',()=>{
+  const input={tab:'usage',window:mobileUsageWindow(7,now),now,presentations:new Map(),external:false};
+  for(const metric of ['cost','tokens'])for(const summary of [null,{contractVersion:7,sources:[],buckets:[]}]){
+    const data=mobileUsagePresentation({...input,metric,sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+    expect([data.hasUsage,data.headlineLabel,data.headlineValue,data.headlineDetail,data.total]).toEqual([false,'','','','']);
+  }
+  const empty=mobileUsagePresentation(null,false);
+  expect([empty.hasUsage,empty.headlineLabel,empty.headlineValue,empty.headlineDetail,empty.total]).toEqual([false,'','','','']);
+});
 test('mobile USD formatting keeps reference rounding, signed zero, grouping and nonfinite output',()=>{
   expect([0.825,1.275,-0.825,-0.004,-0,0,1_234_567.891,NaN,Infinity,-Infinity].map(formatUsd))
     .toEqual(['$0.83','$1.28','-$0.83','-$0.00','-$0.00','$0.00','$1,234,567.89','$NaN','$∞','-$∞']);
