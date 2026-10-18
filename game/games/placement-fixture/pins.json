@@ -3,16 +3,16 @@
     "330": "0xce509bd330c6290a"
   },
   "saves": {
-    "continuation": "ea4c0f34a4c193bad172c925cd626a654ce24530aebc95426aa8e615edb49d27"
+    "continuation": "e0da425944b6a593d5e7d7d8f0ac4ffd1af49fbca5b7d66fcc263640559c0869"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "300e7a476e83a15d6115f6e35d0e5264ff99f93a9d24671ad6f4271298b10848",
-  "sourceInputs": "6e61181227345e08a13245c5e22dd9c1248a035df378b0416d9005e1e0ceb084",
+  "inputs": "a2557e3299d8f512a92da51551b9bba81a660c2e359e2ae0fd02b1307eb333e9",
+  "sourceInputs": "5420c8928437d891bfca270622919fc82fded93403d11c14e8247b16b84eb76f",
   "game": "placement-fixture",
   "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
-  "at": "44847582b68653e4e6f93120e063caf577a365c2",
-  "reason": "Refresh the stale fixture baseline against the current SDK after complete native/web mode and profile agreement"
+  "at": "a90fd67dc6071cb293b7db682efd957735b3a92e",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear extend the hash stream; f5ad281e8: EXGAME v5 world save magic"
 }
