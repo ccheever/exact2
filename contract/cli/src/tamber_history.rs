@@ -87,6 +87,12 @@ impl Lit {
         use contract_syntax::Expr;
         match e {
             Expr::Str(s, _) => Lit::Str(s.clone()),
+            // A number past f64 is its text (JSON has no infinity).
+            Expr::Number(n, sp) if !n.is_finite() => Lit::Other(
+                line.get(sp.col as usize - 1..sp.end_col as usize - 1)
+                    .unwrap_or("(a number)")
+                    .to_string(),
+            ),
             Expr::Number(n, _) => Lit::Num(*n),
             Expr::Bool(b, _) => Lit::Bool(*b),
             Expr::Ident(i, _) => Lit::Ident(i.clone()),
@@ -150,9 +156,10 @@ fn scan(l: &str) -> (i32, Option<usize>) {
     (depth, None)
 }
 
-/// Whether the row `k` in `text` has a comment on its line, or is its
-/// block's last row under a header with one: what `unset-state` takes.
-fn commented(text: &str, k: &Key) -> bool {
+/// Whether the row `k` in `text` has a comment on its line, or its block
+/// empties (every row in `removed`) under a header with one: what
+/// `unset-state` takes.
+fn commented(text: &str, k: &Key, removed: &[Key]) -> bool {
     let Ok(file) = contract_syntax::parse(text) else {
         return false;
     };
@@ -168,12 +175,11 @@ fn commented(text: &str, k: &Key) -> bool {
     if lines.get(at).is_some_and(|l| scan(l).1.is_some()) {
         return true;
     }
-    let alone = style
-        .attrs
-        .iter()
-        .filter(|a| contract_syntax::state::state_of(&a.name).is_some_and(|(st, _)| st == k.1))
-        .count()
-        == 1;
+    let alone = style.attrs.iter().all(|a| {
+        contract_syntax::state::state_of(&a.name).is_none_or(|(st, r)| {
+            st != k.1 || removed.contains(&(k.0.clone(), st.to_string(), r.to_string()))
+        })
+    });
     let header = (0..at).rev().find(|&i| {
         let l = lines[i].trim();
         l.strip_prefix(':')
@@ -182,9 +188,32 @@ fn commented(text: &str, k: &Key) -> bool {
     alone && header.is_some_and(|i| scan(lines[i]).1.is_some())
 }
 
-/// The rows the border's colour shares: their order is the design's too.
+/// The rows the border's colour shares: their order is the design's too
+/// (`border`, `border-color`, a side's `border-top` or `border-top-color`).
 fn border(row: &str) -> bool {
-    row.starts_with("border-") && row.ends_with("-color")
+    row == "border"
+        || row.strip_prefix("border-").is_some_and(|r| {
+            !["width", "style", "radius", "image", "spacing", "collapse"]
+                .iter()
+                .any(|w| r.contains(w))
+        })
+}
+
+/// Whether two border rows paint a side in common: a row naming no
+/// physical side (`border`, `border-color`, a logical side, which depends
+/// on the direction) every side, else the same side.
+fn overlap(a: &str, b: &str) -> bool {
+    let side = |r: &str| {
+        ["top", "right", "bottom", "left"]
+            .into_iter()
+            .find(|s| r.split('-').any(|w| w == *s))
+    };
+    border(a)
+        && border(b)
+        && match (side(a), side(b)) {
+            (Some(x), Some(y)) => x == y,
+            _ => true,
+        }
 }
 
 fn read(text: &Option<String>, which: &str) -> Result<Read, String> {
@@ -413,6 +442,7 @@ fn revert_contract(
     let styles: Vec<String> = contract_syntax::parse(current)
         .map(|f| f.styles.iter().map(|s| s.name.clone()).collect())
         .unwrap_or_default();
+    let mut unsets: Vec<(Key, Value, Value)> = Vec::new();
     for edit in edits {
         let k = &edit.key;
         let e = edit.json();
@@ -469,8 +499,7 @@ fn revert_contract(
                 *s == k.0
                     && *st == k.1
                     && *r != k.2
-                    && border(r)
-                    && border(&k.2)
+                    && overlap(r, &k.2)
                     && !earlier.contains(&r.as_str())
             });
             if now.is_none() && later {
@@ -478,8 +507,15 @@ fn revert_contract(
                 continue;
             }
             ops.push(json!({"op": "set-state", "style": k.0, "state": k.1, "row": k.2, "value": value, "file": file}));
-        } else if commented(current, k) {
-            conflicts.push(refuse("unset-state would take the comment on its line (or its emptied block's header): remove the row by hand", shown));
+        } else {
+            unsets.push((k.clone(), e, shown));
+        }
+    }
+    // The unsets together: one block's last rows go with its header.
+    let removed: Vec<Key> = unsets.iter().map(|(k, ..)| k.clone()).collect();
+    for (k, e, shown) in unsets {
+        if commented(current, &k, &removed) {
+            conflicts.push(json!({"file": file, "edit": e, "now": shown, "why": "unset-state would take the comment on its line (or its emptied block's header): remove the row by hand"}));
         } else {
             ops.push(
                 json!({"op": "unset-state", "style": k.0, "state": k.1, "row": k.2, "file": file}),

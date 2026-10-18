@@ -585,8 +585,12 @@ with.
   - the file has moved on it since;
   - the commit created or removed a design file (a `.contract` file's state rows included; one
     whose code alone changed is left alone);
-  - a `.contract` row put back last would paint over its block's other border rows, or the
-    commit changed their order;
+  - a `.contract` row put back last would paint over a border row of its block it came before,
+    or the commit changed their order;
+  - a `.contract` row's style is gone, it is written over more than one line, its value before
+    is no string or number, or `unset-state` would take a comment (on its line, or its emptied
+    block's header);
+  - the `.contract` file is not one of the app's own Contract sources now;
   - it added or removed a dial;
   - it added an axis, reordered an axis's values, or changed an axis's `under`;
   - it changed a kind, a range, metadata, the design's name or its exports.

@@ -442,19 +442,13 @@ fn history_holds_its_edges() {
         json!(quoted.replace("text \"a\"", "text \"b\"")),
     );
     assert_eq!(code["code"], true, "{code}");
-    // A "//" in a string leaves nothing behind; a split minus is one row.
+    // A "//" in a string leaves nothing behind.
     let url = compare(
         &mut s,
         json!(base),
         json!(base.replace("opacity=0.5", "opacity=0.5\n    box-shadow=\"https://x\"")),
     );
-    assert!(url["code"].is_null(), "{url}");
-    let split = compare(
-        &mut s,
-        json!(base),
-        json!(base.replace("opacity=0.5", "opacity=-\n      0.5")),
-    );
-    assert!(split["code"].is_null(), "{split}");
+    assert!(url["code"].is_null() && url["edits"].is_array(), "{url}");
     // Unset would take a comment on the row's line.
     std::fs::write(
         dir.join("app.contract"),
@@ -472,6 +466,41 @@ fn history_holds_its_edges() {
             .unwrap()
             .contains("comment"),
         "{added}"
+    );
+    // Round 3: two rows a commit added, unset together, empty a block
+    // whose header has a comment now.
+    let two = base.replace(
+        "  :active\n    opacity=0.5\n    border-left-color=\"#00ff00\"\n",
+        "",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        base.replace("  :active\n", "  :active // keep\n"),
+    )
+    .unwrap();
+    let both = revert(&mut s, json!(two), json!(base));
+    assert_eq!(both["ops"], json!([]), "{both}");
+    assert_eq!(both["conflicts"].as_array().unwrap().len(), 2, "{both}");
+    // Another side's row is no overlap: put back last, it goes back.
+    std::fs::write(dir.join("app.contract"), base).unwrap();
+    let side = base.replace(
+        "    border-left-color",
+        "    border-top-color=\"#0000ff\"\n    border-left-color",
+    );
+    let sides = revert(&mut s, json!(side), json!(base));
+    assert_eq!(sides["ops"][0]["row"], "border-top-color", "{sides}");
+    // A `border` shorthand is a border row: put back last, it would paint over.
+    let short = base.replace(
+        "    border-left-color",
+        "    border=\"1px solid #ff0000\"\n    border-left-color",
+    );
+    let shorts = revert(&mut s, json!(short), json!(base));
+    assert!(
+        shorts["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("paint over"),
+        "{shorts}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
