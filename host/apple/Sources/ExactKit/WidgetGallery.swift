@@ -194,54 +194,85 @@ final class ActivityPreview {
     }
 }
 
-/// The eight placements as the system presents them, in the gallery's own
-/// width: the Lock Screen card at the width the gallery has, the expanded
-/// Island as its regions (leading, centre and trailing on one row, the
-/// bottom under them) in a container of that width, the compact Island as
-/// its two regions around the sensor's obstruction, the minimal view in its
-/// circle. The regions' sizes are what the driver answers to the stand-ins'
-/// proposals, as they are in the extension; no region width is a number
-/// the gallery holds.
+/// The eight placements as the system presents them, in a given width:
+/// the Lock Screen card as wide as the gallery; the expanded Island as its
+/// regions, leading and trailing flanking the camera with equal space,
+/// the centre below the camera and the bottom below the rest (ActivityKit,
+/// "Displaying live data with Live Activities": the system sizes the centre
+/// first, taking the leading and trailing content's minimal width, and
+/// gives leading and trailing equal horizontal space); the compact Island as
+/// its two regions around the camera's obstruction; the minimal view in
+/// its circle. The regions' sizes are what the driver answers to the
+/// stand-ins' proposals, as in the extension. The camera's obstruction and
+/// the Island's insets are one device's (chronod's metrics for the iPhone
+/// 17 Pro: `obstructionSize (125.33, 36.67)`, compact `edgeInsets 7`); no
+/// API gives them in-process, and the extension never reads them.
 @MainActor
 struct ActivityGalleryView: View {
     let preview: ActivityPreview
+    let width: CGFloat
+    static let obstruction = CGSize(width: 125.33, height: 36.67)
+    static let islandInset: CGFloat = 7
+
+    private var dark: Bool { preview.scheme == "dark" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Lock Screen · \(preview.scheme)").font(.caption).foregroundStyle(.secondary)
-            // The tint stands in for the system's `activityBackgroundTint` (iOS only); unsaid, the scheme's material.
-            preview.view(.lockScreen)
-                .background(SnapshotActivity.tint(preview.render, dark: preview.scheme == "dark") ?? Color(white: preview.scheme == "dark" ? 0.15 : 0.93))
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .environment(\.colorScheme, preview.scheme == "dark" ? .dark : .light)
+            Text("Lock Screen · \(preview.scheme) · \(Int(width)) pt").font(.caption).foregroundStyle(.secondary)
+            lockScreen
             Text("Dynamic Island · expanded").font(.caption).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
-                    preview.view(.expandedLeading)
-                    Spacer(minLength: 8)
-                    preview.view(.expandedCenter)
-                    Spacer(minLength: 8)
-                    preview.view(.expandedTrailing)
-                }
-                preview.view(.expandedBottom)
-            }
-            .padding(EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18))
-            .background(Color.black)
-            .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
-            .environment(\.colorScheme, .dark)
+            expanded
             Text("Dynamic Island · compact and minimal").font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 16) {
-                HStack(spacing: 0) {
-                    preview.view(.compactLeading).padding(EdgeInsets(top: 7, leading: 7, bottom: 7, trailing: 0))
-                    Color.clear.frame(width: 125, height: 37)
-                    preview.view(.compactTrailing).padding(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 7))
-                }
-                .background(Color.black).clipShape(Capsule())
-                preview.view(.minimal)
-                    .padding(7).frame(minWidth: 37, minHeight: 37)
-                    .background(Color.black).clipShape(Capsule())
-            }
-            .environment(\.colorScheme, .dark)
+            compact
         }
+        .frame(width: width, alignment: .leading)
+    }
+
+    /// The card: the root's colour as the tint stands in for the system's
+    /// `activityBackgroundTint` (iOS only), its gradients the view paints,
+    /// and, unsaid, the scheme's material.
+    private var lockScreen: some View {
+        let laid = try? preview.render.layout(.lockScreen, width: width - 2 * ActivityPlacementView.platformMargins.leading, height: nil)
+        let tint = laid.flatMap { SnapshotActivity.background(of: $0, dark: dark).tint }
+        return preview.view(.lockScreen)
+            .frame(width: width)
+            .background { if let tint { tint } else { Rectangle().fill(.regularMaterial) } }
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .environment(\.colorScheme, dark ? .dark : .light)
+    }
+
+    private var expanded: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .top) {
+                HStack(alignment: .top, spacing: 0) {
+                    preview.view(.expandedLeading).frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear.frame(width: Self.obstruction.width, height: Self.obstruction.height)
+                    preview.view(.expandedTrailing).frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                preview.view(.expandedCenter).padding(.top, Self.obstruction.height)
+            }
+            preview.view(.expandedBottom)
+        }
+        .padding(EdgeInsets(top: 11, leading: 18, bottom: 18, trailing: 18))
+        .frame(width: width)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var compact: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 0) {
+                preview.view(.compactLeading).padding(EdgeInsets(top: Self.islandInset, leading: Self.islandInset, bottom: Self.islandInset, trailing: 0))
+                Color.clear.frame(width: Self.obstruction.width, height: Self.obstruction.height)
+                preview.view(.compactTrailing).padding(EdgeInsets(top: Self.islandInset, leading: 0, bottom: Self.islandInset, trailing: Self.islandInset))
+            }
+            .background(Color.black).clipShape(Capsule())
+            preview.view(.minimal)
+                .padding(Self.islandInset).frame(minWidth: Self.obstruction.height, minHeight: Self.obstruction.height)
+                .background(Color.black).clipShape(Capsule())
+        }
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -249,12 +280,13 @@ struct ActivityGalleryView: View {
 private struct ActivityGalleryCell: View {
     let entry: ActivityEntry
     let scheme: String
+    let width: CGFloat
     let appSession: ExactSession
     @State private var preview: ActivityPreview?
     @State private var failure: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let preview { ActivityGalleryView(preview: preview) }
+            if let preview { ActivityGalleryView(preview: preview, width: width) }
             else if let failure { Text(failure).foregroundStyle(.red) }
             else { ProgressView() }
         }
@@ -280,27 +312,33 @@ private struct WidgetGalleryView: View {
                 Spacer()
                 Button("Done", action: close)
             }.padding()
-            SwiftUI.ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    ForEach(entries, id: \.kind) { entry in
-                        Text(entry.kind).font(.title2)
-                        ForEach(entry.families, id: \.self) { family in
-                            ForEach(["fullColor", "accented", "vibrant"], id: \.self) { mode in
-                                ForEach(["light", "dark"], id: \.self) { scheme in
-                                    ForEach(["large", "xxxl"], id: \.self) { size in
-                                        WidgetGalleryCell(variant: WidgetVariant(entry: entry.kind, family: family, mode: mode, scheme: scheme, size: size), entry: entry, appSession: appSession)
+            // The gallery's own width, finite before the scroll view, is what
+            // an activity's placements are proposed (a horizontal scroll
+            // would leave it unbounded); the widget variants keep their
+            // family frames and scroll both ways.
+            GeometryReader { proxy in
+                SwiftUI.ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 24) {
+                        ForEach(entries, id: \.kind) { entry in
+                            Text(entry.kind).font(.title2)
+                            ForEach(entry.families, id: \.self) { family in
+                                ForEach(["fullColor", "accented", "vibrant"], id: \.self) { mode in
+                                    ForEach(["light", "dark"], id: \.self) { scheme in
+                                        ForEach(["large", "xxxl"], id: \.self) { size in
+                                            WidgetGalleryCell(variant: WidgetVariant(entry: entry.kind, family: family, mode: mode, scheme: scheme, size: size), entry: entry, appSession: appSession)
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    ForEach(activities, id: \.kind) { entry in
-                        Text("\(entry.kind) (Live Activity)").font(.title2)
-                        ForEach(["light", "dark"], id: \.self) { scheme in
-                            ActivityGalleryCell(entry: entry, scheme: scheme, appSession: appSession)
+                        ForEach(activities, id: \.kind) { entry in
+                            Text("\(entry.kind) (Live Activity)").font(.title2)
+                            ForEach(["light", "dark"], id: \.self) { scheme in
+                                ActivityGalleryCell(entry: entry, scheme: scheme, width: max(120, proxy.size.width - 32), appSession: appSession)
+                            }
                         }
-                    }
-                }.padding().id(appSession.app.resolver.publicationID + String(revision))
+                    }.padding().id(appSession.app.resolver.publicationID + String(revision))
+                }
             }
         }.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ExactWidgetGeneration"))) { _ in revision += 1 }
     }
