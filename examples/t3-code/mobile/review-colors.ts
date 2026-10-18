@@ -21,12 +21,14 @@ const palettes: Record<string, Record<string, string>[]> = {
 export function mobileReviewColors(scheme: string, palette = 't3-code') {
   const isDark = scheme === 'dark', values = (palettes[palette] ?? palettes['t3-code']!)[isDark ? 1 : 0]!;
   const token = (name: string) => values[`--color-${name}`] ?? '';
+  const additionBar = '#00cab1', deletionBar = '#ff2e3f';
   return { foreground: token('foreground'), secondary: token('foreground-secondary'), muted: token('foreground-muted'), tertiary: token('foreground-tertiary'),
     sheet: token('sheet-solid'), card: token('card'), border: token('border'), subtle: token('subtle'), subtleStrong: token('subtle-strong'),
     icon: token('icon'), iconSubtle: token('icon-subtle'), iconMuted: token('icon-muted'), primary: token('primary'), primaryForeground: token('primary-foreground'),
     warning: token('warning'), warningForeground: token('warning-foreground'), addition: isDark ? '#5ECC71' : '#199F43', deletion: isDark ? '#FF6762' : '#D52C36',
     additionBackground: isDark ? '#0d2f28' : '#e5f8f5', deletionBackground: isDark ? '#391415' : '#ffe6e7',
-    additionBar: '#00cab1', deletionBar: '#ff2e3f', codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'),
+    additionBar, deletionBar, additionHighlight: withAlpha(additionBar, .28), deletionHighlight: withAlpha(deletionBar, .28),
+    codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'),
     selection: withAlpha(token('primary'), .1) };
 }
 

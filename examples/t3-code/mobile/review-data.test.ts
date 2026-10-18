@@ -99,6 +99,24 @@ describe('mobile review source rules and real shared RPC ownership', () => {
     f.client.threadId = 'other'; await expect(act(f, 'save', '', 'Wrong thread', 0, view.owner)).rejects.toMatchObject({ kind: 'superseded' });
     expect(f.client.draft).toBe('');
   });
+  test('intraline source marks survive selection and comment insertion without re-pairing rows', async () => {
+    const f = fixture(), diff = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n-const first = old;\n-const second = before;\n+const first = new;\n+const second = after;\n';
+    f.hook(request => request.method === 'review.getDiffPreview' ? { ok: true, generation: 3,
+      value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff }] } } : undefined);
+    const view = await read(f), source = view.rows.filter(row => row.kind === 'line');
+    const marked = source.map(row => row.tokens.filter(token => token.mark).map(token => token.text).join(''));
+    expect(marked).toEqual(['old', 'before', 'new', 'after']);
+    expect(source.map(row => [row.oldNumber, row.newNumber])).toEqual([['1', ''], ['2', ''], ['', '1'], ['', '2']]);
+    const selected = (await act(f, 'range-start', 'src/a.ts', '', 0)).data;
+    expect(selected.rows.find(row => row.id === source[0]!.id)?.selected).toBe(true);
+    await act(f, 'extend', 'src/a.ts', '', 2); await act(f, 'comment');
+    expect((await act(f, 'save', '', 'Keep these source marks')).message).toBe('');
+    const after = mobileReviewSnapshot(false, f.client);
+    expect(after.rows.filter(row => row.kind === 'comment')).toHaveLength(1);
+    expect(after.rows.filter(row => row.kind === 'line').map(({ id, lineIndex, oldNumber, newNumber, tokens }) => ({ id, lineIndex, oldNumber, newNumber, tokens })))
+      .toEqual(source.map(({ id, lineIndex, oldNumber, newNumber, tokens }) => ({ id, lineIndex, oldNumber, newNumber, tokens })));
+    expect(f.calls.map(request => request.op === 'http' ? request.path : request.method)).toEqual(['/api/auth/session', 'review.getDiffPreview']);
+  });
   test.each([
     { name: '401-line TypeScript body', path: 'many.ts', lines: Array.from({ length: 401 }, (_, n) => `const value${n} = ${n};`) },
     { name: 'long TypeScript line', path: 'long.ts', lines: ['x'.repeat(24_010)] },

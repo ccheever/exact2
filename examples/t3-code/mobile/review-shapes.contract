@@ -22,6 +22,8 @@ shape ReviewColors
   deletionBackground: string
   additionBar: string
   deletionBar: string
+  additionHighlight: string
+  deletionHighlight: string
   codeBackground: string
   codeForeground: string
   selection: string
@@ -32,6 +34,7 @@ shape ReviewToken
   color: string
   weight: number
   slant: string
+  mark: bool
 
 shape ReviewRow
   id: string
