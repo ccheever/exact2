@@ -41,6 +41,8 @@
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
 //! indefinite bases, padding, borders, margins and overflow, with column and wrap controls.
+//! The zero-inner-basis cases include negative margins on padding/border floors,
+//! growable zero-width items, negative left margins and a zero-height column.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),

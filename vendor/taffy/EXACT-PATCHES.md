@@ -1579,6 +1579,20 @@ Chrome-measured cases under both intrinsic widths and sizing modes. Twenty
 queries failed before the distinction: the reported content-basis row was
 20px instead of 100px, and disabling shrink kept a 10px row at 20px.
 
+Intrinsic line sizes sum the computed outer contributions directly. The
+unused flex-fraction round trip divided a negative difference by a zero
+inner flex base, then discarded it when multiplying back. This erased
+negative margins at a zero basis or padding/border floor, and contributions
+already below the base without Patch 51's substitution.
+
+Nine `Chrome 151 intrinsic flex basis zero inner` fixtures cover these cases,
+positive-margin controls and a column. Taffy's
+`zero_inner_flex_bases_preserve_negative_contributions` also checks direct
+MaxContent measurements and layouts in both directions, with growth enabled
+and disabled. All were measured in Chrome 151.0.7922.34 on 2026-10-18. Before
+the correction, nine kernel frames and twelve Taffy measurements/layouts
+differed; the reported 20px row was 30px.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

@@ -87,10 +87,6 @@ struct FlexItem {
     /// Is the size of this item locked
     frozen: bool,
 
-    /// Either the max- or min- content flex fraction
-    /// See https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes
-    content_flex_fraction: f32,
-
     /// The proposed inner size of this item
     hypothetical_inner_size: Size<f32>,
     /// The proposed outer size of this item
@@ -911,7 +907,6 @@ fn generate_anonymous_flex_items(
                 target_size: Size::zero(),
                 outer_target_size: Size::zero(),
                 cross_size_was_stretched: false,
-                content_flex_fraction: 0.0,
 
                 baseline: 0.0,
 
@@ -1695,6 +1690,7 @@ fn determine_container_main_size(
                 let mut main_size = 0.0;
 
                 for line in lines.iter_mut() {
+                    let mut item_main_size_sum = 0.0;
                     for item in line.items.iter_mut() {
                         let style_min = item.min_size.main(constants.dir);
                         let style_preferred = item.size.main(constants.dir);
@@ -1868,62 +1864,13 @@ fn determine_container_main_size(
                         } else {
                             content_contribution
                         } + item.margin.main_axis_sum(dir);
-                        item.content_flex_fraction = {
-                            let diff = content_contribution - item.flex_basis;
-                            if diff > 0.0 {
-                                diff / f32_max(1.0, item.flex_grow)
-                            } else if diff < 0.0 {
-                                let scaled_shrink_factor = f32_max(1.0, item.flex_shrink) * item.inner_flex_basis;
-                                diff / scaled_shrink_factor
-                            } else {
-                                // We are assuming that diff is 0.0 here and that we haven't accidentally introduced a NaN
-                                0.0
-                            }
-                        };
+                        // EXACT PATCH 51: sum the outer contribution directly. No shared
+                        // line fraction is applied; dividing and multiplying by a zero
+                        // inner flex base discarded negative margins and contributions.
+                        item.outer_target_size.set_main(dir, content_contribution);
+                        item.target_size.set_main(dir, content_contribution);
+                        item_main_size_sum += content_contribution;
                     }
-
-                    // TODO Spec says to scale everything by the line's max flex fraction. But neither Chrome nor firefox implement this
-                    // so we don't either. But if we did want to, we'd need this computation here (and to use it below):
-                    //
-                    // Within each line, find the largest max-content flex fraction among all the flex items.
-                    // let line_flex_fraction = line
-                    //     .items
-                    //     .iter()
-                    //     .map(|item| item.content_flex_fraction)
-                    //     .max_by(|a, b| a.total_cmp(b))
-                    //     .unwrap_or(0.0); // Unwrap case never gets hit because there is always at least one item a line
-
-                    // Add each item’s flex base size to the product of:
-                    //   - its flex grow factor (or scaled flex shrink factor,if the chosen max-content flex fraction was negative)
-                    //   - the chosen max-content flex fraction
-                    // then clamp that result by the max main size floored by the min main size.
-                    //
-                    // The flex container’s max-content size is the largest sum of the afore-calculated sizes of all items within a single line.
-                    let item_main_size_sum = line
-                        .items
-                        .iter_mut()
-                        .map(|item| {
-                            let flex_fraction = item.content_flex_fraction;
-                            // let flex_fraction = line_flex_fraction;
-
-                            let flex_contribution = if item.content_flex_fraction > 0.0 {
-                                f32_max(1.0, item.flex_grow) * flex_fraction
-                            } else if item.content_flex_fraction < 0.0 {
-                                let scaled_shrink_factor = f32_max(1.0, item.flex_shrink) * item.inner_flex_basis;
-                                if scaled_shrink_factor == 0.0 {
-                                    0.0
-                                } else {
-                                    scaled_shrink_factor * flex_fraction
-                                }
-                            } else {
-                                0.0
-                            };
-                            let size = item.flex_basis + flex_contribution;
-                            item.outer_target_size.set_main(constants.dir, size);
-                            item.target_size.set_main(constants.dir, size);
-                            size
-                        })
-                        .sum::<f32>();
 
                     let gap_sum = sum_axis_gaps(constants.gap.main(constants.dir), line.items.len());
                     main_size = f32_max(main_size, item_main_size_sum + gap_sum)
@@ -3864,6 +3811,51 @@ mod intrinsic_tests {
                     if size != (Size { width: expected, height: 20.0 }) {
                         failures.push(format!("{name}; {width:?}; {mode:?}: {size:?}, Chrome {expected}×20"));
                     }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: max-content rows and columns.
+    #[test]
+    fn zero_inner_flex_bases_preserve_negative_contributions() {
+        let mut failures = Vec::new();
+        for direction in [FlexDirection::Row, FlexDirection::Column] {
+            let size = |main| if direction.is_row() {
+                Size { width: length(main), height: length(20.0) }
+            } else {
+                Size { width: length(20.0), height: length(main) }
+            };
+            for (grow, margin, expected) in [(0.0, -10.0, 20.0), (1.0, -10.0, 20.0), (0.0, 10.0, 40.0)] {
+                let mut tree = TaffyTree::<()>::new();
+                let item = tree.new_leaf(Style {
+                    size: size(0.0),
+                    flex_basis: length(0.0),
+                    flex_grow: grow,
+                    margin: if direction.is_row() {
+                        crate::geometry::Rect { right: length(margin), ..zero() }
+                    } else {
+                        crate::geometry::Rect { bottom: length(margin), ..zero() }
+                    },
+                    ..Default::default()
+                }).unwrap();
+                let sibling = tree.new_leaf(Style { size: size(30.0), ..Default::default() }).unwrap();
+                let root = tree.new_with_children(Style { flex_direction: direction, ..Default::default() }, &[item, sibling]).unwrap();
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(root).unwrap();
+                    let measured = tree.as_layout_tree().measure_child_size_both(
+                        root, Size::NONE, Size::NONE, Size::MAX_CONTENT, mode, Line::FALSE,
+                    ).main(direction);
+                    if measured != expected {
+                        failures.push(format!("{direction:?}; grow {grow}; margin {margin}; {mode:?}: {measured}, Chrome {expected}"));
+                    }
+                }
+                tree.mark_dirty(root).unwrap();
+                tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+                let measured = tree.layout(root).unwrap().size.main(direction);
+                if measured != expected {
+                    failures.push(format!("{direction:?}; grow {grow}; margin {margin}; layout: {measured}, Chrome {expected}"));
                 }
             }
         }
