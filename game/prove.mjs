@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
-import {snapshot, validateSnapshot, reusableLeg, digest, writeJSON} from './proof-snapshot.mjs';
+import {snapshot, validateSnapshot, reusableLeg, digest, writeJSON, inventory, assertInventory} from './proof-snapshot.mjs';
 import {startStatus} from './status.mjs';
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
@@ -53,10 +53,16 @@ if (saved && JSON.stringify(saved.config) !== JSON.stringify(config)) throw new 
 if (saved) validateSnapshot(saved.snapshot, resolve(import.meta.dir, '..'), sourceApp);
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
 app = record.snapshot.src;
+const checkSDK = () => {
+  const sdkOnly = values => Object.fromEntries(Object.entries(values).filter(([name]) => name.startsWith('sdk/')));
+  assertInventory(sdkOnly(record.snapshot.inputs), sdkOnly(inventory(resolve(import.meta.dir, '..'), sourceApp)));
+};
+checkSDK();
 writeJSON(resolve(root, 'legs.json'), record);
 console.log(`ARTIFACTS ${root}`);
 const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') => {
   progress.set({phase:`${host} ${mode} ${profile} ${build ? 'build' : 'proof'}`});
+  checkSDK();
   const key = `${host}-${mode}-${profile}-${build ? 'build' : index}`;
   const reuse = !build && reusableLeg(record.legs[key], root, record.snapshot.digest);
   if (reuse) { console.log(`REUSE ${key}`); return {...reuse, repeat:index, profile}; }
@@ -120,6 +126,7 @@ if (repin) {
   try { rows.push(await run(native, 1, false, '0', 'release')); } catch (error) { errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
+  checkSDK();
   const candidate = agreePins(rows, before, hosts, app);
   const command = record.command ??= proofCommand(import.meta.path, local ? sourceApp : name, ...(args.includes('--repin') ? ['--repin'] : []), '--hosts', exercised.join(','), ...(device ? ['--device'] : []), ...(phone ? ['--phone', phone] : []));
   const inputs = pinInputs(rows), sourceInputs = pinSourceInputs(rows);
