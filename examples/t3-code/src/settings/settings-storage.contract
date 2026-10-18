@@ -12,6 +12,7 @@ use LucideMinus from "./settings-icons.contract"
 use LucidePlus from "./settings-icons.contract"
 
 shape StorageRuleView
+  mixed: bool
   key: string
   label: string
   description: string
@@ -25,14 +26,27 @@ shape CleanupEntry
   id: string
   path: string
   detail: string
+  failed: bool
 shape CleanupReport
   id: string
   label: string
   counts: string
   description: string
   entries: CleanupEntry[]
+  omitted: string
+shape DatabaseNotice
+  show: bool
+  title: string
+  description: string
+  command: string
+  environmentId: string
 shape StoragePage
   available: bool
+  writeScope: string
+  cleanupAvailable: bool
+  cleanupDisabled: bool
+  cleanupDescription: string
+  databaseNotices: DatabaseNotice[]
   project: bool
   error: string
   notice: string
@@ -42,6 +56,7 @@ shape StoragePage
   scope: string
   modes: SelectOption[]
   directory: string
+  directoryMixed: bool
   directorySupported: bool
   keepSupported: bool
   keepValue: string
@@ -71,22 +86,38 @@ component StoragePanel
         SettingsSection(title="Worktrees", sectionId="storage-worktrees")
           if data.directorySupported
             SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
-              StorageDirectory(value=data.directory, busy=busy, rest=rest, restInput=restInput)
+              StorageDirectory(scope=data.writeScope, mixed=data.directoryMixed, value=data.directory, busy=busy, rest=rest, restInput=restInput)
           if data.project
             SettingsRow(title="Automatic worktree cleanup", description=data.modeDescription, first=true, rowId="storage-row-mode")
-              SettingsSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, empty=false, value="", width=160, disabled=busy, options=data.modes, choose=restInput("storage", "key=mode&value="))
+              SettingsSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, empty=false, value="", width=160, disabled=busy, options=data.modes, choose=restInput("storage", `scope=${encodeURIComponent(data.writeScope)}&key=mode&value=`))
           for rule in data.worktrees key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
             SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
-              StorageControl(rule=rule, busy=busy, rest=rest, restInput=restInput)
+              StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
           if data.keepSupported
             SettingsRow(title="Keep worktrees with local changes", description=data.keepDescription, first=false, rowId="storage-keep-when")
-              SettingsSelect(selectId="storage-worktree-keep-when", label="Keep worktrees with local changes", valueLabel=data.keepOptions.filter((option) => option.value == data.keepValue).map((option) => option.label).join(""), empty=false, value=data.keepValue, width=176, disabled=busy, options=data.keepOptions, choose=restInput("storage", "key=worktreeKeepWhen&value="))
+              SettingsSelect(selectId="storage-worktree-keep-when", label="Keep worktrees with local changes", valueLabel=data.keepValue == "" ? "Mixed" : data.keepOptions.filter((option) => option.value == data.keepValue).map((option) => option.label).join(""), empty=false, value=data.keepValue, width=176, disabled=busy, options=data.keepOptions, choose=restInput("storage", `scope=${encodeURIComponent(data.writeScope)}&key=worktreeKeepWhen&value=`))
         if data.artifacts.length > 0
           SettingsSection(title="Artifacts and logs", sectionId="storage-artifacts")
             for rule in data.artifacts key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
               SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
-                StorageControl(rule=rule, busy=busy, rest=rest, restInput=restInput)
+                StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
 
+      if data.cleanupAvailable
+        SettingsSection(title="Cleanup", sectionId="storage-cleanup")
+          SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
+            button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) testId="storage-cleanup-run"
+              text (busy ? "Deleting..." : "Delete now")
+      for notice in data.databaseNotices key=notice.environmentId
+        column width="100%" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e8, #ffffff14)" testId=`storage-database-${notice.environmentId}`
+          text notice.title font-weight=500 font-size="0.875rem"
+          text notice.description font-size="0.75rem" line-height="1.125rem"
+          input value=notice.command readonly=true aria-label="Database compact command" width="100%" font-size="0.75rem" testId="storage-database-command"
+          text "You can also run t3 doctor to inspect database storage." font-size="0.75rem"
+          row gap="0.75rem"
+            button press=rest("storage-copy-database", `environment=${encodeURIComponent(notice.environmentId)}&command=${encodeURIComponent(notice.command)}`) disabled=busy testId="storage-copy-database"
+              text "Copy command"
+            button press=rest("storage-dismiss-database", `environment=${encodeURIComponent(notice.environmentId)}`) disabled=busy testId="storage-dismiss-database"
+              text "Dismiss"
       if data.cleanupReports.length > 0
         CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
 
@@ -110,16 +141,21 @@ component CleanupLastRun
               text report.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             text report.counts font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
             text report.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            if report.entries.length == 0
+              text "Nothing needed cleanup." font-size="0.75rem"
             for entry in report.entries key=entry.id
               column width="100%" gap="0.125rem"
                 text entry.path title=entry.path max-width="100%" line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
-                text entry.detail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                text entry.detail font-size="0.75rem" line-height="1rem" color=(entry.failed ? "light-dark(#dc2626, #f87171)" : "light-dark(#71717b, #818181)")
+            if report.omitted != ""
+              text report.omitted font-size="0.75rem"
 
 // A switch, or RetentionControl: [−][N days][+] when on, "Off" when off.
 component StorageControl
   inject
     rem: number
   props
+    scope: string
     rule: StorageRuleView
     busy: bool
     rest: action
@@ -129,20 +165,24 @@ component StorageControl
     draft = next
   view
     row align-items="center" gap="0.75rem"
+      if rule.mixed
+        text "Mixed" font-size="0.75rem"
       if rule.retention and rule.enabled
         row role="group" align-items="center" height="1.75rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000a"
-          button press=rest("storage", `key=${rule.key}&value=${rule.decrease}`) disabled=busy aria-label=`Decrease ${rule.label}` testId=`storage-decrease-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.decrease}`) disabled=busy aria-label=`Decrease ${rule.label}` testId=`storage-decrease-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             LucideMinus(size=16, color="light-dark(#27272a, #f5f5f5)")
-          input value=draft input=edit change=restInput("storage", `key=${rule.key}&value=`) disabled=busy aria-label=`${rule.label} in days` testId=`storage-days-${rule.key}` width=((draft.length * 8 + 19) * rem / 16) height="1.625rem" padding-left="0.5625rem" padding-right=0 padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="right" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+          input value=draft input=edit change=restInput("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=`) disabled=busy aria-label=`${rule.label} in days` testId=`storage-days-${rule.key}` width=((draft.length * 8 + 19) * rem / 16) height="1.625rem" padding-left="0.5625rem" padding-right=0 padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="right" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
           text "days" font-size="0.75rem" line-height="1rem" padding-right="0.5rem" color="light-dark(#27272a, #f5f5f5)" aria-hidden=true
-          button press=rest("storage", `key=${rule.key}&value=${rule.increase}`) disabled=busy aria-label=`Increase ${rule.label}` testId=`storage-increase-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.increase}`) disabled=busy aria-label=`Increase ${rule.label}` testId=`storage-increase-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
       if rule.retention and not rule.enabled
         text "Off" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      SettingsSwitch(checked=rule.enabled, label=rule.label, disabled=busy, switchId=`storage-toggle-${rule.key}`, toggle=rest("storage", `key=${rule.key}&value=${rule.retention ? (rule.enabled ? "null" : "8") : (rule.enabled ? "false" : "true")}`))
+      SettingsSwitch(checked=rule.enabled, label=rule.label, disabled=busy, switchId=`storage-toggle-${rule.key}`, toggle=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.retention ? (rule.enabled ? "null" : "8") : (rule.enabled ? "false" : "true")}`))
 
 component StorageDirectory
   props
+    mixed: bool
+    scope: string
     value: string
     busy: bool
     rest: action
@@ -152,7 +192,7 @@ component StorageDirectory
     draft = next
   view
     row align-items="center" gap="0.5rem"
-      input value=draft input=edit change=restInput("storage", "key=worktreesDirectory&value=") placeholder="Default" aria-label="Worktree location" disabled=busy testId="storage-worktrees-directory" width="15rem" height="1.75rem" padding-left="0.5rem" border-radius="0.5rem" font-size="0.875rem" autocorrect="off"
+      input value=draft input=edit change=restInput("storage", `scope=${encodeURIComponent(scope)}&key=worktreesDirectory&value=`) placeholder=(mixed ? "Mixed" : "Default") aria-label="Worktree location" disabled=busy testId="storage-worktrees-directory" width="15rem" height="1.75rem" padding-left="0.5rem" border-radius="0.5rem" font-size="0.875rem" autocorrect="off"
       if value != ""
-        button press=rest("storage", "key=worktreesDirectory&value=") disabled=busy aria-label="Reset worktree location" testId="storage-reset-directory"
+        button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=worktreesDirectory&value=`) disabled=busy aria-label="Reset worktree location" testId="storage-reset-directory"
           text "Reset" font-size="0.75rem"

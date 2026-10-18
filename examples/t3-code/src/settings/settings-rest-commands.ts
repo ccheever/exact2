@@ -24,6 +24,8 @@ import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-sc
 import { PROJECT_SCOPED, applyDeviceSetting } from './settings-core'; // "Open links in"
 import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread ID
 import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
+import { scopedStorageCommand } from './storage-scope';
+import { databaseCommand } from './storage-maintenance';
 import { fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
@@ -112,6 +114,8 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
 }
 
 export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
+  if ((op === 'storage' || op === 'storage-run') && params(value).scope !== undefined) return scopedStorageCommand(client, native, op, params(value), storagePatch);
+  if (op.startsWith('storage-') && op !== 'storage-run') { const input = params(value); return databaseCommand(client, native, storage, op, str(input.environment), str(input.command)); }
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
   if (op === 'browser-link-target') { if (!applyDeviceSetting(client.local, 'browserLinkTarget', value)) throw new ClientError('Unsupported setting.'); await client.savePreferences(storage); return ''; } // "Open links in"
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
@@ -247,6 +251,7 @@ export function viewState(client: T3Client) {
 
 export async function restLocal(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
   void native; void storage; void scope; void value;
+  if (op === 'storage-dismiss-database' || op === 'storage-copy-database') { const input = params(value); return databaseCommand(client, native, storage, op, str(input.environment), str(input.command)); }
   if (op === 'rescan') { viewState(client).rescan++; return ''; }
   if (op.startsWith('diag-')) return telemetryLocal(client, op, value); // settings-a-telemetry.ts
   // The collection removal dialog's checkboxes: device-local, never gated on a pending write.

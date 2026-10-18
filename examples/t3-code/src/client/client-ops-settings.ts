@@ -119,6 +119,8 @@ async function setStorageSettings(this: T3Client, native: Native, scope: string,
   const retention = ['worktreeSettledAfterDays', 'worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
   if (key === 'mode') {
     if (!projectId || !['inherit', 'off', 'custom'].includes(str(value))) throw new ClientError('Unsupported worktree cleanup mode.');
+  } else if (key === 'worktreesDirectory') {
+    if (projectId || typeof value !== 'string') throw new ClientError('Worktree location belongs to the environment.');
   } else if (key === 'worktreeKeepWhen') {
     if (!['any-local-files', 'uncommitted-changes', 'tracked-changes'].includes(str(value))) throw new ClientError('Choose which local changes keep a worktree.');
   } else if (booleans.includes(key)) {
@@ -140,7 +142,7 @@ async function setStorageSettings(this: T3Client, native: Native, scope: string,
       current.worktreeCleanup = { mode: 'custom', rules: { ...effectiveWorktreeRules(settings, current), [key]: value } };
     }
     patch = { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
-  } else patch = { storageCleanup: { ...obj(settings.storageCleanup), [key]: value } };
+  } else patch = key === 'worktreesDirectory' ? { worktreesDirectory: str(value).trim() } : { storageCleanup: { ...obj(settings.storageCleanup), [key]: value } };
   const result = await this.request(native, 'server.updateSettings', { patch }, this.generation, true);
   this.config = { ...this.config, settings: result }; this.error = '';
 }

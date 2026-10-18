@@ -9,12 +9,13 @@ import { applyCoreSetting, decodeClientPrefs, generalSections, inheritanceGroups
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { scopeEnvironments, scopeProjectGroups } from '../../src/settings/settings-scope-sources';
+import { restCommand } from '../../src/settings/settings-rest-commands';
 import { archivedSettings, lastRunSummary } from '../../src/settings/settings-data';
 import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
 
-const capabilities = { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
+const capabilities = { storageCleanup: true, storageCleanupRun: true, projectWorktreeCleanup: true, settledWorktreeCleanup: true, worktreesDirectory: true, projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
 function focused(settings: Obj = {}) {
   const client = {
     local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
@@ -84,6 +85,25 @@ describe('settings scope across environments', () => {
     expect(calls.map(call => [call.fleet, call.method, call.payload, call.generation])).toEqual([[B, 'server.updateSettings', { patch: { enableProviderUpdateChecks: false } }, 3]]);
     expect((fleet.entries.get(B)!.config.settings as Obj).enableProviderUpdateChecks).toBe(false);
     expect(toasts(as(client))).toEqual([]);
+  });
+  test('Storage edits fan out while project custom rules retain each checkout inheritance', async () => {
+    const client = focused({ storageCleanup: { worktreeAfterDays: 2 }, projectSettingsOverrides: {} });
+    fleet.entries.set(B, entry(B, 'env-b', 'Server', { storageCleanup: { worktreeAfterDays: 9 } }));
+    const calls: Obj[] = [], native = nativeFor(new Set(), calls);
+    await restCommand(as(client), native, { read: async () => null, write: async () => {} }, 'storage', '', 'scope=%7C%7C&key=worktreeSettledAfterDays&value=0');
+    expect(client.writes.at(-1)).toEqual({ patch: { storageCleanup: { worktreeSettledAfterDays: 0 } } });
+    expect(calls.at(-1)?.payload).toEqual({ patch: { storageCleanup: { worktreeSettledAfterDays: 0 } } });
+    // The server merges partial nested storage patches; preserve its distinct rules in this transport fixture.
+    client.config.settings = { storageCleanup: { worktreeAfterDays: 2, worktreeSettledAfterDays: 0 }, projectSettingsOverrides: {} };
+    fleet.entries.get(B)!.config.settings = { storageCleanup: { worktreeAfterDays: 9, worktreeSettledAfterDays: 0 }, projectSettingsOverrides: {} };
+    await restCommand(as(client), native, { read: async () => null, write: async () => {} }, 'storage', '', `scope=${encodeURIComponent('|github.com/acme/app|')}&key=mode&value=custom`);
+    const local = client.writes.at(-1)!;
+    expect(((local.patch as Obj).projectSettingsOverrides as Obj).pa).toMatchObject({ worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 2 } } });
+    const remote = calls.at(-1)!.payload as Obj;
+    expect(((remote.patch as Obj).projectSettingsOverrides as Obj)['p-env-b']).toMatchObject({ worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 9 } } });
+    const count = client.writes.length + calls.length;
+    await expect(restCommand(as(client), native, { read: async () => null, write: async () => {} }, 'storage', '', `scope=${encodeURIComponent('gone||')}&key=worktreeSettledAfterDays&value=0`)).rejects.toThrow('no longer available');
+    expect(client.writes.length + calls.length).toBe(count);
   });
   test('a single environment writes only there', async () => {
     const client = focused();
