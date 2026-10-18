@@ -27,7 +27,8 @@ export function settingsColors(scheme: string, themeId: string) {
     muted: token('foreground-muted'), tertiary: token('foreground-tertiary'), border: token('border'), borderSubtle: token('border-subtle'), separator: token('separator'),
     subtle: token('subtle'), subtleStrong: token('subtle-strong'), primary: token('primary'), primaryForeground: token('primary-foreground'),
     icon: token('icon'), iconMuted: token('icon-muted'), iconSubtle: token('icon-subtle'), chevron: token('chevron'),
-    switchOn: token('switch-active-track'), switchOff: token('switch-inactive-track'), secondaryBorder: token('secondary-border'), link: token('md-link') };
+    switchOn: token('switch-active-track'), switchOff: token('switch-inactive-track'), secondaryBorder: token('secondary-border'), link: token('md-link'),
+    warning: token('warning'), warningBorder: token('warning-border'), warningForeground: token('warning-foreground') };
 }
 function wire(themeId: string, scheme: string) {
   const tokens = settingsTokens(scheme, themeId), token = (key: string) => tokens[`--color-${key}`]!;

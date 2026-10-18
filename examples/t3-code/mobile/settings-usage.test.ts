@@ -1163,13 +1163,13 @@ test('selected environments without quota reports use the reference Limits empty
 });
 test('a sole provider notice suppresses the Limits empty message',()=>{
   const data=presentedLimits([nativeAccount({...limits,windows:[],unavailable:{reason:'probeFailed',message:'Quota probe failed'}})],now);
-  expect(data.pools).toEqual([]);expect(data.notices.map(item=>item.text)).toEqual(['codex: Quota probe failed']);
+  expect(data.pools).toEqual([]);expect(data.limitWarnings.map(item=>item.text)).toEqual(['codex: Quota probe failed']);
   expect(data.limitsEmpty).toBe('');
 });
 test('a sole external usage destination suppresses the Limits empty message',()=>{
   const data=presentedLimits([nativeAccount({...limits,windows:[],unavailable:{reason:'unsupported'},
     externalUsage:{label:'Account usage',url:'https://usage.example.test/account'}})],now);
-  expect(data.pools).toEqual([]);expect(data.notices).toEqual([]);expect(data.links).toHaveLength(1);
+  expect(data.pools).toEqual([]);expect(data.limitWarnings).toEqual([]);expect(data.links).toHaveLength(1);
   expect(data.limitsEmpty).toBe('');
 });
 test('an actual limits refresh failure suppresses empty through automatic cooldown',async()=>{
@@ -1183,7 +1183,7 @@ test('an actual limits refresh failure suppresses empty through automatic cooldo
   fail=false;const second=await mobileUsage('null','limits',windowJSON,'cost',now+1,native);
   expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(1);
   expect(second.environments[0]?.status).toBe('');expect(second.limitsEmpty).toBe('');
-  expect(second.notices.map(item=>item.text)).toEqual([`${first.environments[0]!.label} could not refresh limits. Showing the last known values.`]);
+  expect(second.limitWarnings.map(item=>item.text)).toEqual([`${first.environments[0]!.label} could not refresh limits. Showing the last known values.`]);
 });
 test.each(['auth','summary','config'] as const)('a %s read failure is not a provider-refresh failure for empty-state eligibility',async kind=>{
   const fixture=transport();mobileClient.config={settings:{},providers:[]};
@@ -1225,14 +1225,14 @@ test('automatic pending preserves the real refresh failure and manual success cl
   try{
     await gate.entered;
     expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('');
-    expect(mobileUsageSnapshot('null','limits','cost').notices).toHaveLength(1);
+    expect(mobileUsageSnapshot('null','limits','cost').limitWarnings).toHaveLength(1);
     expect(mobileUsageSnapshot('null','usage','cost').notices).toEqual([]);
     const automatic=await mobileUsage('null','limits',windowJSON,'cost',now+2,native);
     expect(automatic.limitsEmpty).toBe('');expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(2);
   }finally{gate.release();await pending.catch(()=>{});}
   expect((await pending).message).toBe('');
   expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
-  expect(mobileUsageSnapshot('null','limits','cost').notices).toEqual([]);
+  expect(mobileUsageSnapshot('null','limits','cost').limitWarnings).toEqual([]);
 });
 test('refresh success clears prior failure even when its follow-up config read fails',async()=>{
   const fixture=transport();mobileClient.config={settings:{},providers:[]};let first=true;
@@ -1244,7 +1244,7 @@ test('refresh success clears prior failure even when its follow-up config read f
   await mobileUsage('null','limits',windowJSON,'cost',now,native);first=false;
   expect((await mobileUsageCommand('refresh-limits','','',now+1,native)).message).toContain('Config offline');
   expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
-  expect(mobileUsageSnapshot('null','limits','cost').notices).toEqual([]);
+  expect(mobileUsageSnapshot('null','limits','cost').limitWarnings).toEqual([]);
 });
 test('a late old-group refresh failure cannot suppress empty in a reopened Usage group',async()=>{
   const fixture=transport();mobileClient.config={settings:{},providers:[]};const gate=refreshBarrier();let hold=false;
@@ -1261,7 +1261,7 @@ test('a late old-group refresh failure cannot suppress empty in a reopened Usage
   }finally{gate.release();await old.catch(()=>{});}
   expect((await old).message).toBe('');expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(2);
   expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
-  expect(mobileUsageSnapshot('null','limits','cost').notices).toEqual([]);
+  expect(mobileUsageSnapshot('null','limits','cost').limitWarnings).toEqual([]);
 });
 test('real refresh failures retain captured labels, completion order and the current selected environment filter',async()=>{
   const fixture=transport();mobileClient.config={settings:{},providers:[]};
@@ -1286,24 +1286,24 @@ test('real refresh failures retain captured labels, completion order and the cur
   const first=JSON.stringify([fixture.id]),second=JSON.stringify([otherId]),text=(labels:string)=>`${labels} could not refresh limits. Showing the last known values.`;
   try{
     const a=await mobileUsage(first,'limits',windowJSON,'cost',now,native);
-    expect(a.notices.map(item=>item.text)).toEqual([text('First')]);
+    expect(a.limitWarnings.map(item=>item.text)).toEqual([text('First')]);
     const b=await mobileUsage(second,'limits',windowJSON,'cost',now+1,native);
-    expect(b.notices.map(item=>item.text)).toEqual([text('Second')]);
+    expect(b.limitWarnings.map(item=>item.text)).toEqual([text('Second')]);
     await mobileUsage(first,'limits',windowJSON,'cost',now+2,native);held=true;
     pending=mobileUsageCommand('refresh-limits','','',now+3,native);
     await gate.entered;saved[0]!.mobileLabel='Renamed first';
     const during=await mobileUsage('null','limits',windowJSON,'cost',now+4,native);
     expect(during.environments.map(item=>item.label)).toEqual(['Renamed first','Second']);
-    expect(during.notices.map(item=>item.text)).toEqual([text('First, Second')]);
+    expect(during.limitWarnings.map(item=>item.text)).toEqual([text('First, Second')]);
     gate.release();await pending;
-    expect(mobileUsageSnapshot('null','limits','cost').notices.map(item=>item.text)).toEqual([text('Second, First')]);
+    expect(mobileUsageSnapshot('null','limits','cost').limitWarnings.map(item=>item.text)).toEqual([text('Second, First')]);
     const filtered=await mobileUsage(second,'limits',windowJSON,'cost',now+5,native);
-    expect(filtered.notices.map(item=>item.text)).toEqual([text('Second')]);
+    expect(filtered.limitWarnings.map(item=>item.text)).toEqual([text('Second')]);
     expect(mobileUsageSnapshot(second,'usage','cost').notices).toEqual([]);
     await mobileUsage(first,'limits',windowJSON,'cost',now+6,native);success=true;
     expect((await mobileUsageCommand('refresh-limits','','',now+7,native)).message).toBe('');
     const cleared=await mobileUsage('null','limits',windowJSON,'cost',now+8,native);
-    expect(cleared.notices.map(item=>item.text)).toEqual([text('Second')]);
+    expect(cleared.limitWarnings.map(item=>item.text)).toEqual([text('Second')]);
     expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(4);
   }finally{
     gate.release();await pending?.catch(()=>{});
@@ -1320,7 +1320,10 @@ test('Usage keeps its own no-selection and no-summary copy',()=>{
 test('Usage diagnostic notices are not Limit-notice blockers',()=>{
   const data=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,
     sources:[{id:'a',label:'A',connected:true,summary:{contractVersion:7},error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
-  expect(data.notices[0]?.text).toContain('Update this app');
+  expect(data.notices).toEqual([]);expect(data.limitWarnings).toEqual([]);
+  const usage=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,
+    sources:[{id:'a',label:'A',connected:true,summary:{contractVersion:7},error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+  expect(usage.notices[0]?.text).toContain('Update this app');
   expect(data.limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
 });
 test('disconnected selection membership does not expand the connected-only quota projection',()=>{
@@ -1372,4 +1375,43 @@ test('non-Error reset failures use the credit copy while unrelated Usage failure
   const opened=await answer('automationCommand',['usage-command','open-link','',url,now,f.entry],undefined,undefined,f.native);
   expect([opened.message,opened.refresh]).toEqual(['Could not update usage.',false]);
   expect(f.calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
+});
+
+test('Limits warnings retain provider then hub order across selected environments and omit unsupported providers',()=>{
+  const failed=nativeAccount({...limits,windows:[],unavailable:{reason:'probeFailed',message:'Provider probe unavailable'}});
+  const unsupported={...nativeAccount({...limits,windows:[],unavailable:{reason:'unsupported',message:'API key quota'}},'other@test'),instanceId:'unsupported'};
+  const presentations:LimitPresentations=new Map([
+    ['a',{entry:{target:{label:'First'}},serverConfig:mobileUsageConfig({providers:[failed,unsupported],usageLimitSources:[{id:'hub',label:'Hub',error:'Hub unavailable',accounts:[]}]})}],
+    ['b',{entry:{target:{label:'Second'}},serverConfig:mobileUsageConfig({providers:[],usageLimitSources:[{id:'empty',label:'Empty hub',accounts:[]}]})}],
+  ]);
+  const before=JSON.stringify([...presentations]),data=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations,external:false,sources:[]},false);
+  expect(data.limitWarnings).toEqual([{id:'0',text:'First · codex: Provider probe unavailable'},{id:'1',text:'First · Hub: Hub unavailable'},{id:'2',text:'Second · Empty hub: No accounts reported.'}]);
+  expect(data.notices).toEqual([]);expect(data.limitsEmpty).toBe('');expect(JSON.stringify([...presentations])).toBe(before);
+});
+test('Limits appends one captured failure explanation after actual Limit notices',()=>{
+  const presentations:LimitPresentations=new Map([['a',{entry:{target:{label:'A'}},serverConfig:mobileUsageConfig({providers:[nativeAccount({...limits,windows:[],unavailable:{reason:'probeFailed'}})]})}]]);
+  const data=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations,external:false,sources:[],failedLabels:['Captured B','Captured A']},false);
+  expect(data.limitWarnings).toEqual([{id:'0',text:'codex: Could not read limits.'},{id:'1',text:'Captured B, Captured A could not refresh limits. Showing the last known values.'}]);
+  expect(data.notices).toEqual([]);
+});
+test.each(['Could not verify access.','Summary failed','Config offline','Waiting for connection…','Disconnected · showing saved usage'])('generic status %s stays raw owner data without becoming a Limits warning',status=>{
+  const source={id:'a',label:'A',connected:!status.startsWith('Waiting')&&!status.startsWith('Disconnected'),summary:null,error:status,canRead:false,canWrite:false,canManage:false,config:{}};
+  const before=JSON.stringify(source),data=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,sources:[source]},false);
+  expect(data.environments[0]?.status).toBe(status);expect(data.notices).toEqual([]);expect(data.limitWarnings).toEqual([]);expect(JSON.stringify(source)).toBe(before);
+});
+test('Usage retains its exact existing status, diagnostic, mismatch and Limit-notice output',()=>{
+  const presentations:LimitPresentations=new Map([['a',{entry:{target:{label:'A'}},serverConfig:mobileUsageConfig({providers:[nativeAccount({...limits,windows:[],unavailable:{reason:'probeFailed',message:'Quota unavailable'}})]})}]]);
+  const source={id:'a',label:'A',connected:true,summary:{contractVersion:7,sources:[{message:'Action diagnostic',action:'enableCursorKeychain',status:'failed'}]},error:'Auth status',canRead:true,canWrite:false,canManage:false,config:{}};
+  const input={window:mobileUsageWindow(30,now),metric:'cost',now,presentations,external:false,sources:[source],failedLabels:['A']};
+  const usage=mobileUsagePresentation({...input,tab:'usage'},false),limitsView=mobileUsagePresentation({...input,tab:'limits'},false);
+  expect(usage.environments).toEqual([{id:'a',label:'A',status:'Auth status',connected:true}]);
+  expect(usage.notices).toEqual([{id:'0',text:'codex: Quota unavailable'},{id:'1',text:'A: Update this app to read usage.'},{id:'2',text:'A: Action diagnostic'}]);
+  expect(usage.limitWarnings).toEqual([]);expect(limitsView.notices).toEqual([]);
+  expect(limitsView.limitWarnings).toEqual([{id:'0',text:'codex: Quota unavailable'},{id:'1',text:'A could not refresh limits. Showing the last known values.'}]);
+});
+test('all twelve themes expose their existing warning background, border and foreground roles',()=>{
+  for(const mode of ['light','dark'])for(const theme of ['t3-code','t3-chat','grove','ocean','ember','iris']){
+    const colors=settingsColors(mode,theme),tokens=settingsTokens(mode,theme);
+    expect([colors.warning,colors.warningBorder,colors.warningForeground]).toEqual([tokens['--color-warning'],tokens['--color-warning-border'],tokens['--color-warning-foreground']]);
+  }
 });
