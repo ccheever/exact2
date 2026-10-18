@@ -853,7 +853,7 @@ fn snapshot_v1_admitted_paint_and_layout_bake() {
             compile(&source(&view, "", ""), &widget()).unwrap();
         }
     }
-    for fit in ["fill", "contain", "cover", "none", "scale-down"] {
+    for fit in ["fill", "contain", "cover", "scale-down"] {
         let view =
             format!("    image \"assets/train.png\" width=40 height=30 object-fit=\"{fit}\"");
         compile(&source(&view, "", ""), &widget()).unwrap();
@@ -938,6 +938,11 @@ fn round3_border_none_literals_slash_radii_and_template_images() {
             "text title color=title",
             "snapshot-literal",
             "write a literal",
+        ),
+        (
+            r#"image "assets/train.png" width=40 height=30 object-fit="none""#,
+            "snapshot-object-fit",
+            "bounded thumbnail",
         ),
         (
             r#"view border-radius="10px / 20px""#,

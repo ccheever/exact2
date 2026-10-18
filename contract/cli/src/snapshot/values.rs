@@ -177,6 +177,8 @@ pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
             PositionType => Some((words(&value, &["static", "relative", "absolute"]), "snapshot-value", "a snapshot cannot scroll or stick; write static, relative or absolute as literal choices")),
             OverflowX | OverflowY => Some((words(&value, &["visible", "hidden", "clip"]), "snapshot-value", "a snapshot cannot scroll; write visible, hidden or clip on both axes")),
             TextAlign => Some((words(&value, &["start", "center", "end"]), "snapshot-text-align", "use text-align: start, center or end")),
+            // The driver decodes a bounded thumbnail, which cannot show an image at its own scale.
+            ObjectFit => Some((words(&value, &["fill", "contain", "cover", "scale-down"]), "snapshot-object-fit", "use object-fit: fill, contain, cover or scale-down; a widget draws a bounded thumbnail, never the image at its own scale")),
             TextOverflow => Some((words(&value, &["clip"]), "snapshot-text-overflow", "use line-clamp instead of text-overflow: ellipsis")),
             BorderStyleTop | BorderStyleRight | BorderStyleBottom | BorderStyleLeft => Some((words(&value, &["solid", "dashed", "dotted", "none", "hidden"]), "snapshot-border", BORDER)),
             BorderRadiusTopLeft | BorderRadiusTopRight | BorderRadiusBottomLeft | BorderRadiusBottomRight => Some((choices(&value, &radius), "snapshot-radius", RADIUS)),

@@ -374,7 +374,8 @@ or `display: none` to hide content; `visibility` and `z-index` are refused.
 Borders have one width, colour and solid, dashed, dotted or `none` style on all sides.
 Radii are px or percentages; percentages on non-square boxes produce ellipses.
 Radius calculations are refused. Overflow is the same on both axes: visible,
-hidden or clip. Raster images author both width and height. An entry declaring
+hidden or clip. Raster images author both width and height, and `object-fit` is
+fill, contain, cover or scale-down. An entry declaring
 any small or accessory family has at most one link; entries declaring only
 medium, large and extra large families may have several.
 
