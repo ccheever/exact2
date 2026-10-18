@@ -1371,7 +1371,9 @@ For a module client's `build.rs`, depend on `exact-js-bake` and call
 `exact_js_bake::build(Path::new(".."), "web")` (or `"macos"` / `"ios"`). This writes the
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
 `REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
-names. With a store (`"A"`), a signed update carries the module pair under
+names, which includes `baked.rs`: `exact_plan()` and `exact_compat()`. An Apple build
+(`host/apple/build.mjs`) bakes before Cargo and links the plan and `compat.json` into
+the executable, so an edit that changes only the plan compiles no Rust. With a store (`"A"`), a signed update carries the module pair under
 `typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
 and exactly its grants. An app with both a TypeScript and a Rust module still sets its
 `deploy.store` entries to `"0"`: signed delivery of both is not implemented.
@@ -1952,3 +1954,24 @@ clamps outside it. Supply both instants with `end` after `start`, without
 `value` or `max`. The existing forms remain: `progress value=0.4 max=1` is
 a determinate bar, and `progress` is the platform activity indicator. A
 progress control takes no children; `aria-label` names it.
+
+### Widget development gallery
+
+A development Apple build with `widgets`, made with `--widget-gallery` or
+`EXACT_WIDGET_GALLERY=1`, has **Widgets…** in its dev menu (Develop on macOS). It shows every declared family in full colour, accented and
+vibrant modes, light and dark, at large and XXXL text sizes. It uses the entry's
+headless plan and the extension's snapshot driver. In-process containers and
+mode presentation are stand-ins; archive fidelity needs the real extension.
+
+| Agent address | Reads |
+|---|---|
+| `bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot target/widget.png" state` | Snapshot tree, the entry alone, and its props |
+| `bun scripts/agent.mjs macos widget next-trains tree state` | First declared family, full colour, light, large text |
+| `bun scripts/agent.mjs ios widget next-trains --epoch 2026-08-28T09:05:00Z "clock +600000" tree state` | Refresh and render at the app’s advanced clock |
+
+An immediate refresh answer supplies its first timeline entry. Pending, empty
+or unavailable data keeps the preview; `state` reports which. `--props <json>`
+replaces the preview props for this read and takes precedence over refresh. Widget
+reads accept only `tree`, `screenshot <png>`, `state` and the app’s `clock`; film,
+window, compare and `--scale` options are refused. Ordinary builds name the
+`--widget-gallery` rebuild. Production builds include no gallery code.

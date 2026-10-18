@@ -39,6 +39,12 @@ component TabEdge
                 flex-direction="column"
                 header display="flex" align-items="center" padding="8px 16px"
                   text e.name role="heading" aria-level=(t.stack.length == 1 ? 1 : 2)
+                // A menu between the header and the scroller, and a dialog
+                // after it, take no place in the route's flow, open or closed.
+                if e.name == "scrolls"
+                  column id="sort-menu" popover="auto" role="menu" aria-label="Sort" testId="sort-menu"
+                    button press=open popovertarget="sort-menu" popovertargetaction="hide" testId="sort-first"
+                      text "First"
                 // A pushed screen is the next kind: scroll → plain list → grouped list → scroll.
                 if e.name == "scrolls" or e.name == "groupedPushed"
                   scroll id=`content-${e.id}` testId=`content-${e.name}` flex=1 min-height=0
@@ -67,6 +73,13 @@ component TabEdge
                       for r in rows key = r
                         button press=open testId=`${e.name}-${r}`
                           text `Row ${r}`
+                if e.name == "scrolls"
+                  dialog id="confirm" role="alertdialog" aria-label="Open a row?" testId="confirm"
+                    text "The first row opens."
+                    button commandfor="confirm" command="close"
+                      text "Cancel"
+                    button press=open commandfor="confirm" command="close"
+                      text "Open"
       row role="tablist" testId="tabs"
         button role="tab"
           aria-controls="panel-scrolls"

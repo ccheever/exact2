@@ -502,3 +502,20 @@ test('a claim is live unless its holder is shown gone or reused', async () => {
   assert.equal(claimLive('not json'), true, 'unreadable: never guess');
   assert.equal(claimLive(claim(process.pid, 'not a date')), true, 'an undated claim of a running pid');
 });
+
+// Run after a gallery build: exercise the completed receipt and the real CLI refusal.
+test.skipIf(!process.env.EXACT_WIDGET_GALLERY_TEST)('a snapshot driver edit makes a gallery build stale', async () => {
+  const { resolveApp, readBuilds } = await import('./app.mjs');
+  const app = resolveApp('caltrain'), source = resolve(import.meta.dir, '../host/apple/Sources/ExactSnapshot/SnapshotDriver.swift');
+  const receipt = readBuilds(app).find(build => build.compat.inputs.platform === 'macos' && build.binary.inputs.some(input => input.path === source));
+  assert.ok(receipt, 'build Caltrain with --widget-gallery first');
+  const before = readFileSync(source);
+  try {
+    writeFileSync(source, Buffer.concat([before, Buffer.from('\n// freshness test\n')]));
+    const name = receipt.binary.inputs.find(input => input.path === source).name;
+    assert.ok(pendingBuildInputs(receipt).includes(name));
+    const refused = spawnSync(process.execPath, [resolve(import.meta.dir, 'agent.mjs'), 'macos', 'widget', 'next-trains', 'tree'], { encoding: 'utf8' });
+    assert.equal(refused.status, 3, refused.stderr);
+    assert.match(refused.stderr, /SnapshotDriver.swift/);
+  } finally { writeFileSync(source, before); }
+});

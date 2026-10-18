@@ -801,7 +801,7 @@ component Water
 | `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it, at the default body's sizes at every text size; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
-| `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
+| `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures (under them where they do not fit on one line): a grouped list `row`'s content, or any list's |
 | `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under white ink (dark on the light hues: green, mint, teal, cyan, yellow, orange); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue on the hue at low opacity; `none` is the neutral grey with the label's ink; the title stays the default body size at every text size |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
@@ -1434,6 +1434,10 @@ this adds no spacing value or custom button face.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS.
+On iOS the search field scrolls away with the content while it is empty, as UIKit's
+does; `position="sticky" top=0` on the `input` keeps it in view (React Navigation's
+`hideWhenScrolling={false}`). The route's scroller runs under the bars wherever its
+menus, popovers and `dialog`s are written: they take no place in its flow.
 The agent paints the authored header by default, but marks such a node in `tree` and
 `screenshot`, and an `expect` or `tap` on it fails, saying so. A `testId` on a bar
 button, the search field, a segment or a tab is its `accessibilityIdentifier`, which
@@ -1516,8 +1520,10 @@ An `image` source is the same string on every host: a path under the app's
 `pause`, their `-fill`s, `skip-back-15`, `skip-forward-15`, `skip-back-30`,
 `skip-forward-30`, `speaker`, `speaker-mute` and `moon`; an unknown role is refused
 with the list), `symbol:sf/<name>` (an SF Symbol by its Apple name: drawn on Apple
-only, blank on the web and Linux with no warning, where `layout` reports `reason:
-"platform"`; a tab or button that must show everywhere takes a role), an `app:/data|cache|tmp/…` file
+only, blank on the web and Linux, where `layout` reports `reason: "platform"`; a
+build of an app that ships either warns, its first use with the repair and each
+later one in a line; a tab or button that must show everywhere takes a role or an
+icon token), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
@@ -2273,6 +2279,11 @@ with no field prefers its one filled action that is not destructive, as the Mac
 makes it the default button.) Only the alert's shape takes
 one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).
+
+A menu row's second `text` is its item's grey subtitle on iOS when it is a line
+under the first (two texts in a block `button`, or a `flex-direction="column"`
+one), with or without an `if` around it; two texts side by side in a row, or one
+positioned `absolute` (a count at the corner), stay one title.
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
@@ -3282,7 +3293,9 @@ light-dark(#f1f3f5, #16181c)`, written as CSS, dotted names allowed), and an
 `axes` block of app modes (`dark-style = black | dim  under scheme=dark`), each
 token's value in a mode on its own `when dark-style=dim: …` line. Rows name a
 token as they name a role, and an expression over tokens
-(`color-mix(in oklab, accent.fill 40%, surface.card)`) is folded by the build.
+(`color-mix(in oklab, accent.fill 40%, surface.card)`) is folded by the build,
+written whole, in a choice's arm or inside a shadow; a mix of colours alone
+(`color-mix(in srgb, red 35%, transparent)`) is a token in the `theme` block.
 `setMode("dark-style", "dim")` sets the window's mode; `-exact-mode="dark-style=black"`
 on a node holds its subtree in one (pins are `axis=value`, by spaces or commas;
 `axis:value` is refused), and inherited text inside takes the pin's value. The

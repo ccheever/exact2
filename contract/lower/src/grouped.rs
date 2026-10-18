@@ -1307,9 +1307,15 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             };
             // LLP 1116.020 D5: a stack before any text is the title, and
             // grows as a title does, so a text after it is the value at the
-            // far edge (`RowText` straight in a section drew it mid-row).
+            // far edge (`RowText` straight in a section drew it mid-row). A
+            // stack its author sized is laid out as written: three `flex=1`
+            // columns of figures keep CSS's `min-width: auto`, and a first
+            // one given `min-width: 0` here was squeezed under its caption's
+            // width at the largest text size (event-rsvp, round 21).
             if matches!(texts, Count::Known(0)) {
-                margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
+                if !sized(child) {
+                    margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
+                }
                 *texts = Count::Known(1);
             }
             // A control's lines are its label, in its own colour.
@@ -1387,6 +1393,11 @@ fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
 /// Whether a row's part is lines stacked in the row: a shown element that
 /// lays out as a column around two parts or more (a column with nothing in
 /// it is a box, as a cover's placeholder is). `part` reads an `if` through.
+/// Whether the author wrote how wide `node` is in its row.
+fn sized(node: &Node) -> bool {
+    matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| matches!(a.name.as_str(), "flex" | "flex-grow" | "flex-basis" | "width" | "min-width")))
+}
+
 fn stacks(node: &Node) -> bool {
     matches!(node, Node::Element { tag, attrs, children, .. }
         if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)

@@ -92,12 +92,18 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
 /// `lower-symbol-alias`: a literal source that names a role by another spelling builds as the
 /// role, and says which. The role is what the recipe, `contract vocab` and the refusal's list
 /// name, so the next edit finds it by search.
-pub(crate) fn aliases(e: &Expr) -> Vec<LowerError> {
+///
+/// `lower-symbol-platform`: an SF Symbol no shipped host but Apple's draws, pushed onto
+/// `platform`. The first use of a build says the whole advice and each later one is a line
+/// pointing at it; the caller keeps the group whole and out of [`crate::MAX_WARNINGS`] (the
+/// euxy port's forty paragraphs filled the cap, so the warnings after them were never printed).
+pub(crate) fn aliases(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerError> {
     match e {
         // A template of literals is linted as the literal it folds to.
-        Expr::Template(parts, span) if constant(parts).is_some() => {
-            aliases(&Expr::Str(constant(parts).unwrap_or_default(), *span))
-        }
+        Expr::Template(parts, span) if constant(parts).is_some() => aliases(
+            &Expr::Str(constant(parts).unwrap_or_default(), *span),
+            platform,
+        ),
         Expr::Str(s, span) => {
             let alias = |message| LowerError {
                 id: "lower-symbol-alias",
@@ -127,8 +133,25 @@ pub(crate) fn aliases(e: &Expr) -> Vec<LowerError> {
             }
             let token = sf.replace('.', "-");
             // A role by the same name draws everywhere, by its own Apple name.
-            let role = symbol_role(sf)
-                .and_then(|r| Some((r, exact_kernel::generated::symbol(r)?.0)))
+            let same =
+                symbol_role(sf).and_then(|r| Some((r, exact_kernel::generated::symbol(r)?.0)));
+            let names = targets
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" and ");
+            if !platform.is_empty() {
+                platform.push(LowerError {
+                    id: "lower-symbol-platform",
+                    message: match same {
+                        Some((r, _)) => format!("symbol `sf/{sf}` is blank on {names} too: write `symbol:{r}`, the role, which draws on every host"),
+                        None => format!("symbol `sf/{sf}` is blank on {names} too: declare `icon.{token}` as the first `lower-symbol-platform` warning shows, and write `symbol:icon.{token}`"),
+                    },
+                    span: *span,
+                });
+                return Vec::new();
+            }
+            let role = same
                 .map(|(r, apple)| format!("The role `{r}` draws on every host (Apple's `{apple}`): write `symbol:{r}`. Or "))
                 .unwrap_or_default();
             let stop: Vec<String> = targets
@@ -138,7 +161,7 @@ pub(crate) fn aliases(e: &Expr) -> Vec<LowerError> {
                         .map(|step| format!("not shipping {}? {step} removes it", t.name))
                 })
                 .collect();
-            vec![LowerError {
+            platform.push(LowerError {
                 id: "lower-symbol-platform",
                 message: format!(
                     "symbol `sf/{sf}` draws only on Apple, and the app ships {}, where it is blank. {role}{}eclare an icon token for them: in app.tamber's `icons` (a new app.tamber's first line is `tamber <name>`), `icon.{token} = icon(sf \"{sf}\", svg \"icons/{token}.svg\")`, with `assets/icons/{token}.svg` drawn as {} (a Material Symbols SVG is), and write `symbol:icon.{token}`{}",
@@ -148,9 +171,14 @@ pub(crate) fn aliases(e: &Expr) -> Vec<LowerError> {
                     if stop.is_empty() { String::new() } else { format!("; {}", stop.join("; ")) }
                 ),
                 span: *span,
-            }]
+            });
+            Vec::new()
         }
-        Expr::Ternary(_, a, b, _) => [aliases(a), aliases(b)].concat(),
+        Expr::Ternary(_, a, b, _) => {
+            let mut out = aliases(a, platform);
+            out.extend(aliases(b, platform));
+            out
+        }
         _ => Vec::new(),
     }
 }

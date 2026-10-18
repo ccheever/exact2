@@ -141,6 +141,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
                 std::env::set_var("EXACT_ASSETS", format!("{dir}/app"));
+                $crate::app::show_material_look();
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });
@@ -202,6 +203,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
                 std::env::set_var("EXACT_ASSETS", format!("{dir}/app"));
+                $crate::app::show_material_look();
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });

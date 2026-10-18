@@ -42,7 +42,7 @@ name is found where you are, else in the app, and it says which it took. Your
 shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
-|`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports and type-checks it.|
+|`contract build app.contract --json --errors-only`|A CI gate: `[]` and exit zero mean no errors (omit `--errors-only` to include warnings); it rewrites the types `app.ts` imports and type-checks it.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
@@ -52,6 +52,10 @@ want checked or captured is a test's end; a drive takes any others (`resize`, `p
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
 the change on stderr. `contract types --check app.contract` checks freshness without writing.
+`bun exact.mjs update` reports lock drift after this checkout moves; `bun exact.mjs lock`
+refreshes it. `contract migrate app.contract` rewrites retired Contract syntax;
+[the Snapback upgrade note](../snapback4/README.md#updating-an-inherited-app) covers
+mutation refusals too.
 Keep scratch files in `.exact/`: they do not make the build stale (a JSON file `app.ts` imports does).
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a

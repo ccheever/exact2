@@ -2,7 +2,8 @@
 import { resolve } from 'node:path';
 import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFileSync, cpSync, rmSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { plistFile } from './assets.mjs';
+import { plistFile, wrapFramework } from './assets.mjs';
+import { assertCapabilityFrameworks } from './link.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 export const widgetEntries = app => app.manifest.widgets ?? [];
 export const widgetGroup = app => `group.${app.widgetAppId ?? app.id}`;
@@ -39,6 +40,9 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple }
   // the objects/module stay incremental, including on a kernel-only edit.
   if (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== digest) rmSync(dylib, { force: true });
   runApple('swift', [...args, '--product', 'ExactCore'], options);
+  // Only the extension links the snapshot target. Keeping it out of the shared
+  // runtime keeps SwiftUI and WidgetKit out of an ordinary app launch.
+  runApple('swift', [...args, '--product', 'ExactSnapshot'], options);
   const changed = !existsSync(stamp) || readFileSync(stamp, 'utf8') !== digest || !existsSync(resolve(framework, 'ExactCore'));
   if (changed) {
     mkdirSync(resolve(framework, 'Modules'), { recursive: true });
@@ -57,7 +61,21 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple }
     }
     writeFileSync(stamp, digest);
   }
-  return prepared;
+  assertCapabilityFrameworks(resolve(framework, 'ExactCore'), []);
+  return { ...prepared, snapshotArchive: resolve(bin, 'libExactSnapshot.a') };
+}
+/** The reload artifact has no app-specific inputs. Reuse it until its source or target changes. */
+export function widgetReload({ directory, triple, sdk, device, runApple, source = resolve(pkg, 'Sources/ExactCore/WidgetContainer.swift') }) {
+  const digest = createHash('sha256').update(readFileSync(source)).update(JSON.stringify([triple, sdk])).digest('hex');
+  const binary = resolve(directory, 'libexact_widget_reload.dylib'), stamp = resolve(directory, 'widget-reload.sha256');
+  if (existsSync(binary) && existsSync(stamp) && readFileSync(stamp, 'utf8') === digest) return binary;
+  mkdirSync(directory, { recursive: true });
+  runApple('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O',
+    '-D', 'EXACT_WIDGET_RELOAD', '-module-name', 'ExactWidgetReload', '-target', triple, '-sdk', sdk,
+    '-module-cache-path', resolve(directory, 'cache'), source, '-o', binary + '.tmp']);
+  renameSync(binary + '.tmp', binary);
+  writeFileSync(stamp, digest);
+  return binary;
 }
 export function packageWidgets({ app, bundle, shared, directory, sdk, triple, device, entitlements, sign, runApple, production }) {
   const extension = resolve(bundle, 'PlugIns/ExactWidgets.appex');
@@ -68,6 +86,9 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
   const runtimeInfo = resolve(bundle, 'Frameworks/ExactCore.framework/Info.plist');
   const runtime = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', runtimeInfo]).stdout);
   writeFileSync(runtimeInfo, plistFile({ ...runtime, ...versions }));
+  const frameworks = resolve(bundle, 'Frameworks'), reload = 'libexact_widget_reload.dylib';
+  copyFileSync(widgetReload({ directory, triple, sdk, device, runApple }), resolve(frameworks, reload));
+  wrapFramework(frameworks, reload, 'ExactWidgetReload', app, device ? 'iPhoneOS' : 'iPhoneSimulator');
   const entries = widgetEntries(app), names = entries.map((_, i) => `Entry${i}`);
   const human = kind => kind.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const generated = entries.map((entry, i) => `struct ${names[i]}: Widget {
@@ -91,6 +112,6 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
     '-module-cache-path', resolve(directory, 'cache'), '-I', resolve(root, 'host/apple/Sources/CExact'), '-I', resolve(shared.framework, 'Modules'), '-F', resolve(shared.framework, '..'), '-framework', 'ExactCore',
     '-Xlinker', '-rpath', '-Xlinker', '@executable_path/../../Frameworks',
     ...(!device ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath] : []),
-    resolve(root, 'host/apple/widget/Timeline.swift'), source, '-o', resolve(extension, 'ExactWidgets')]);
+    shared.snapshotArchive, resolve(root, 'host/apple/widget/Timeline.swift'), source, '-o', resolve(extension, 'ExactWidgets')]);
   sign(extension, entitlementPath);
 }

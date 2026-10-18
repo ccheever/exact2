@@ -100,6 +100,7 @@ public final class HeadlessSession {
     }
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
+        public init(description: String) { self.description = description }
     }
 
     package let core: SessionCore
@@ -209,6 +210,23 @@ public final class HeadlessSession {
     @discardableResult
     public func press(_ node: UInt32, at now: Double = 0) throws -> Snapshot {
         try turn { core.runtime.press(node, now: now) }
+    }
+
+    /// Gallery refresh never opens the app's storage or executes requests.
+    package func previewTimeline(at date: Date) throws -> [String: Any] {
+        let bytes = core.runtime.previewTimeline(at: date.timeIntervalSince1970 * 1000)
+        let result = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] ?? [:]
+        if let error = result["error"] as? String { throw Failure(description: error) }
+        return result
+    }
+    /// Advance a pure snapshot without activating the host's deferred I/O.
+    @discardableResult
+    package func advance(to now: Double) throws -> Snapshot {
+        try turn { core.runtime.advance(now: now) }
+    }
+    package func agentFacts() -> [String: Any] {
+        let bytes = Data(core.runtime.agent("{\"op\":\"tags\"}").utf8)
+        return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
     }
 
     private func turn(size: CGSize? = nil, _ body: () throws -> Batch) throws -> Snapshot {

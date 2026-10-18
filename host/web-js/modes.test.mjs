@@ -110,6 +110,9 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   const frame = (design, rev, css, more = {}) => ({ ...batch, base: null, kind: 'tamber-snapshot', design, scrub: { id: 'scrub-1', rev }, tokens: [{ ...batch.tokens[0], css }], ...more });
   expect(design(frame('d3', 2, ['#222222ff', '#333333ff'], { kind: 'tamber-batch', base: 'd2' })).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#333333ff');
+  // Transitions stay off through the drag, and come back once it rests.
+  expect(document.documentElement.getAttribute('data-x-scrub')).toBe('');
+  await new Promise(ok => setTimeout(ok, 200));
   expect(document.documentElement.getAttribute('data-x-scrub')).toBe(null);
   expect(design(frame('d4', 1, ['#444444ff', '#555555ff'])).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#333333ff');

@@ -17,6 +17,49 @@ fn refused(expr: &str) -> (String, String) {
     }
 }
 
+/// What `reverse`'s refusal names for a list the view holds.
+const REVERSED: &str = "sortBy(xs, (x, i) => i, \"desc\")";
+
+/// The composition is the list last to first, empty included.
+#[test]
+fn the_reversal_reverse_names_is_the_list_last_to_first() {
+    struct Nothing;
+    impl exact_runner::DataSource for Nothing {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, exact_runner::DataError> {
+            Ok(exact_plan::Value::list(Vec::new()))
+        }
+    }
+    let src = format!("component A\n  state xs = [1, 2, 3]\n  derive r = {REVERSED}\n  action clear\n    xs = []\n  view\n    text r.join(\",\") testId=\"r\"\n");
+    let plan = contract::compile(&src).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        Nothing,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &exact_runner::Runner<Nothing>| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("r")[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                exact_kernel::PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text(&r), "3,2,1");
+    r.act("clear", vec![]).unwrap();
+    assert_eq!(text(&r), "");
+}
+
 #[test]
 fn each_refused_form_names_an_edit_that_compiles() {
     // (written, the id, words the message holds, the edit it names)
@@ -26,6 +69,18 @@ fn each_refused_form_names_an_edit_that_compiles() {
             "syntax-refused-idiom",
             "`xs.at(i)`, an option",
             "xs.at(0)",
+        ),
+        (
+            "xs[0]",
+            "syntax-refused-idiom",
+            "`match xs.at(i) { case some(x) => x, case none => 0 }`",
+            "match xs.at(0) { case some(x) => x, case none => 0 }",
+        ),
+        (
+            "xs.reverse()",
+            "syntax-method-call",
+            "reads last to first as `sortBy(xs, (x, i) => i, \"desc\")`",
+            REVERSED,
         ),
         (
             "s[0]",

@@ -12,14 +12,28 @@ import { builtinModules } from 'node:module';
 import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
 
 /** Explicit build input, ahead of an ignored app-local development selection. */
-export function backendOrigin(app, env=process.env) {
+export function backendOriginSelection(app, env=process.env) {
   const file=resolve(app,'.exact/backend-origin');
   const value=env.EXACT_BACKEND_ORIGIN ?? (existsSync(file) ? readFileSync(file,'utf8').trim() : null);
   if (value===null) return null;
   let url; try { url=new URL(value); } catch { throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin'); }
   if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.pathname!=='/' || url.search || url.hash)
     throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin without credentials, path, query or fragment');
-  return url.origin;
+  return { origin: url.origin, source: env.EXACT_BACKEND_ORIGIN != null ? 'EXACT_BACKEND_ORIGIN' : '.exact/backend-origin' };
+}
+export const backendOrigin = (app, env=process.env) => backendOriginSelection(app, env)?.origin ?? null;
+
+/** Explain when an app-local selection takes precedence over the authored origin. */
+export function backendOriginWarning(code, selection, parse) {
+  if (selection?.source !== '.exact/backend-origin') return null;
+  const parsed=parse('app.ts',code);
+  if (parsed.errors.length) return null;
+  const declarations=parsed.program.body.flatMap(s=>(s.type==='ExportNamedDeclaration' ? s.declaration : s)?.declarations ?? []);
+  const init=declarations.find(d=>d.id.type==='Identifier' && d.id.name==='origin')?.init;
+  const literal=init?.type==='Literal' && typeof init.value==='string' ? init.value
+    : init?.type==='TemplateLiteral' && !init.expressions.length ? init.quasis[0].value.cooked : null;
+  if (!literal || literal.replace(/\/+$/,'')===selection.origin) return null;
+  return `.exact/backend-origin selects ${selection.origin}, overriding the app.ts origin literal ${JSON.stringify(literal)}. Edit or remove .exact/backend-origin to use the changed literal; EXACT_BACKEND_ORIGIN overrides both.`;
 }
 /** Rewrite only the top-level literal origin and its exact net.fetch grant literals in the captured copy. */
 export function injectBackendOrigin(code, origin, parse) {
@@ -738,7 +752,9 @@ export function configure(stage, incremental=false, parse) {
   if (existsSync(modulePath)) {
     const before=readFileSync(modulePath,'utf8'), original=resolve(stage,'__exact_backend_source.json');
     const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
-    const after=injectBackendOrigin(authored,backendOrigin(app),parse);
+    const selection=backendOriginSelection(app), warning=backendOriginWarning(authored,selection,parse);
+    writeFileSync(resolve(stage,'__exact_backend_warning.json'), JSON.stringify(warning));
+    const after=injectBackendOrigin(authored,selection?.origin ?? null,parse);
     if (before!==after) writeFileSync(modulePath,after);
     // Every producer refuses alike what the web build cannot read without running it.
     if (parse) staticFacts(after,parse);

@@ -377,6 +377,8 @@ uint32_t exact_boot(ExactRuntime rt, float width, float height);
  * Pure boot reads no store or secrets. Timeline refresh is the only data step. */
 uint32_t exact_boot_entry(ExactRuntime rt, size_t plan, size_t kind, size_t props, float width, float height);
 uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_ms, const uint8_t *receipt, size_t receipt_len, const uint8_t *module, size_t module_len);
+/* Gallery-only query: a fresh data seam and scratch store, no host activation. */
+uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);

@@ -3,6 +3,15 @@ import ExactCore
 import CExact
 
 final class HeadlessSessionTests: XCTestCase {
+    func testFactsKeepEpochWhileOffsetFollowsTheVirtualInstantAcrossDST() throws {
+        let epoch = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-08T09:30:00Z"))
+        let zone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let before = SessionFacts(displayScale: 1, preferences: [], date: epoch, timeZone: zone)
+        let after = SessionFacts(displayScale: 1, preferences: [], date: epoch.addingTimeInterval(3600), clock: 3_600_000, timeZone: zone)
+        XCTAssertEqual(before.utcOffset, -480)
+        XCTAssertEqual(after.utcOffset, -420)
+        XCTAssertEqual(after.epochAtZero, before.epochAtZero)
+    }
     func testPlanLayoutsWithoutAView() throws {
         let plan = try fixturePlan("HEADLESS")
         let session = try HeadlessSession(plan: plan, size: CGSize(width: 200, height: 400),

@@ -233,7 +233,7 @@ if (es) {
     // and the design its runner runs (read from it: /__dev/design is 204 when the
     // plan's own is the one to run, so no live answer would say it).
     // An inspect outline drawn on the old generation's boxes goes.
-    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); },
+    applied: (candidate) => { clearTimeout(retry); if (stillUntil) stillEnds(); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -268,6 +268,8 @@ if (es) {
   // build asks for the snapshot. A frame before boot waits for it, the
   // latest only (a snapshot carries the whole design).
   let designing = Promise.resolve();
+  // A scrub's status, taken once its drag rests.
+  let statusLater = null;
   // Applied in place (the wasm's `exact_design_rows`): its batch is the
   // page's only when `live` says applied.
   // `still()`, after every wait, says whether the frame is still this page's.
@@ -277,8 +279,16 @@ if (es) {
     if (!still()) return { live: "structure" };
     if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
-    if (out.live === "applied") { if (frame.scrub) unmoving(() => x.send(n)); else x.send(n); }
-    if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; status(); }
+    // A scrub's frames say the design once the drag rests (a status reads the
+    // root's computed style and posts, each frame otherwise), the commit's
+    // own report with it; one the runner dropped (an older frame) moves
+    // nothing, and leaves the rest as it was.
+    const moves = typeof out.design === "string" && out.design !== x.designDigest;
+    if (out.live === "applied") {
+      if (frame.scrub && moves) { clearTimeout(statusLater); statusLater = setTimeout(status, 150); scrubSend = true; try { unmoving(() => x.send(n)); } finally { scrubSend = false; } }
+      else x.send(n);
+    }
+    if (moves) { x.designDigest = out.design; if (!frame.scrub) status(); }
     if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
     return out;
   };
@@ -293,9 +303,17 @@ if (es) {
       sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
       document.head.append(sheet);
     }
-    root.setAttribute("data-x-scrub", "");
-    try { apply(); void root.offsetWidth; } finally { root.removeAttribute("data-x-scrub"); }
+    // Off through the drag (one style change of the whole page as it starts
+    // and one as it rests, not two each frame), its last values styled
+    // before transitions come back.
+    if (!root.hasAttribute("data-x-scrub")) root.setAttribute("data-x-scrub", "");
+    try { apply(); } finally {
+      clearTimeout(stillUntil);
+      stillUntil = setTimeout(stillEnds, 150);
+    }
   };
+  let stillUntil = null, scrubSend = false;
+  const stillEnds = () => { clearTimeout(stillUntil); stillUntil = null; void document.documentElement.offsetWidth; document.documentElement.removeAttribute("data-x-scrub"); };
   // One at a time, in the stream's order: a snapshot fetched is never older
   // than a batch applied before it.
   // A snapshot asked for under one generation is that generation's: one
@@ -392,14 +410,15 @@ if (es) {
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
     return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
   };
-  const status = async () => { const body = await facts(); channel.told = JSON.stringify(body); report(body); };
+  const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
   // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
   // when they moved.
   for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
   let due = false;
   const committed = () => {
-    if (due || !channel.nonce) return;
+    // A scrub frame's own commit is said once the drag rests, with these facts.
+    if (due || !channel.nonce || scrubSend) return;
     due = true;
     setTimeout(() => {
       designing = designing.then(async () => {

@@ -509,7 +509,7 @@ pub struct GlyphRun {
     pub coords: std::sync::Arc<[i16]>,
     /// The face's file and collection index, when it was loaded from one.
     pub file: Option<(std::sync::Arc<str>, u32)>,
-    /// The weight shaped with (the `wght` a variable face is set to).
+    /// The requested CSS weight; a declared face may pin a different `wght`.
     pub weight: u16,
     /// Points.
     pub size: f32,
@@ -1277,3 +1277,6 @@ mod balance_tests;
 #[cfg(test)]
 #[path = "text/live_time_tests.rs"]
 mod live_time_tests;
+
+#[cfg(test)]
+mod variable_face_tests;

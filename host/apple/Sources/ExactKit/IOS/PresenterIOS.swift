@@ -319,6 +319,7 @@ package final class Presenter {
                 self.setKeyboardInset(overlap)
             }
             if top == nil { self.pinnedRoom.release() }
+            self.menus.rehostPopovers()
             self.revealEditorAsTheKeysMove()
         }
         // Under the agent (LLP 1012) the change applies at once, as the

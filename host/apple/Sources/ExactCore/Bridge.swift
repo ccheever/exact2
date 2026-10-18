@@ -244,6 +244,12 @@ package final class Runtime {
         }
         return islands(batch)
     }
+    package func previewTimeline(at now: Double) -> Data {
+        on(busy: Data()) {
+            let count = exact_refresh_entry(rt, now)
+            return Data(bytes: exact_out(rt), count: Int(count))
+        }
+    }
     package func entryTimeline(at now: Double, deadline: DispatchTime, receipt: Data = Data(), module: Data = Data()) -> Data {
         on(busy: Data()) {
             let current = DispatchTime.now().uptimeNanoseconds

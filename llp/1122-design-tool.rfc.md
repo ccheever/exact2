@@ -1209,3 +1209,42 @@ T2c went before T2b's JS half (the lead's order, 2026-10-17).
 |---|---|
 | The same node on the clone answers the same on the JS and wasm loops | **Met** for five nodes: both tabs, the hamburger, the wordmark and a post's avatar. Identity, rows, sources, tokens, joins and editability match. Static and token values match exactly; expression rows match by source and token (theme2's ruling). Seven theme-fixture nodes, two of them boundaries, are compared on every test run. |
 | A live token edit, then the node inspected → the new value | **Met** on the theme fixture's JS loop. On this machine the loop served the edit by a rebuild and reload, so the value came from the new plan's table; the value-only batch path was not driven. |
+
+### Stage 6's kinds in the tool (`b436b529b`; `cf00a0d47`..`bbc26d770`, `f16377fd6`; reads `76efb7f0a`, `5443e977b`, `0beb826a9`, `904db0513`)
+
+- **Each kind loads and shows as `resolve` gives it.** Before this, a design with any non-colour token
+  failed to load. A cell shows a length in px (with its rem, em or named value labelled by its px),
+  a number, a shadow (a small preview on its column's ground, plus its text), a type's longhands
+  (the unsaid ones named), a family, a duration or an easing. A length dial's slider and stepper
+  write `Npx`.
+- **Typed fields by kind** (`parts.ts`, a byte-exact cut of the value as written): a length's amount
+  and unit, a number, each shadow's x, y, blur, spread, inset and colour, and a type's longhands.
+  Each field edits only its own part, and the edit is still the one `set-token` line. Words it
+  doesn't touch stay as written: token colours, an unsaid spread, a family's quoting. A draft goes
+  stale when its branch's value moves under it, whichever field typed it.
+- **Kinds that rebuild say so before the gesture** (D6): a motion token reads "Rebuilds", Apply
+  writes it, and it has no scrub. On the JS target's dev loop, `propose` answers `rebuild` for an
+  edit that moves a token the pages write inline (a `font-weight` number, an SVG attribute's length
+  or number), as the loop's design reader marks it (theme2's 18:00 ruling). Without the reader, the
+  session's class stands.
+- **Icons** are listed read only, with their sources, since no operation writes one.
+- **Reads on a big design** (found by the gate): the design and axes reads follow the files (a
+  `changed` event, a gap, a new run), not every event. A read asks four resolves at a time and
+  stops once a newer read overtakes it. A proposal is asked again on each poll answer, except while
+  a scrub is shown. Before this, the clone's 73 resolves (about 207 ms each while the serve process
+  parsed `app.contract` per request) were reread on every build status and overran their 15 s.
+- **Known limits:**
+  - the design reader getting ready sends no event, so a proposal shown before then can stay
+    Live until the next poll answer (25 s at most);
+  - Expose's lengths are an inline Contract theme, which no design server serves;
+  - a batch `resolve` would make a read one request (QUEUE).
+
+### Stage 6 kinds' gate: met (2026-10-18; the run is `~/x2theme/kinds-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A length scrubs live on the web and the natives; Keep writes one line | **Met** on a clone copy's `space.header`: the JS loop, the wasm loop, the iOS simulator and the Mac. Each native build's design digest followed every frame, with no reload. |
+| A shadow list (inset, token colours) scrubs live; Keep writes one line | **Met** on `shadow.header`. A blur and an unsaid spread were edited; the untouched words were kept as written. |
+| A motion edit rebuilds | **Met**: "Rebuilds" before the gesture, no scrub, Apply only. |
+| Icons read only | **Met**: the clone's 64 icons, listed with their sources. |
+| theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool.test.mjs). |

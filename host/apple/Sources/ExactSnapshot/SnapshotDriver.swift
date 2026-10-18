@@ -42,11 +42,13 @@ public struct SnapshotEnvironment {
     public var rootFontSize: CGFloat?
     /// The timeline entry's date: where a `countdown` starts from.
     public var entryDate: Date
+    /// An agent read freezes live leaves at its clock; WidgetKit leaves this nil.
+    public var frozenDate: Date?
 
     public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
-                rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now) {
+                rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now, frozenDate: Date? = nil) {
         self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
-        self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate
+        self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate; self.frozenDate = frozenDate
     }
 }
 

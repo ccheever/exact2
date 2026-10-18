@@ -19,6 +19,10 @@ pub(crate) fn emit(
         plans.insert(kind.clone(), card.clone());
         assets.push(card);
     }
+    if !entries.is_empty() {
+        let bytes = std::fs::read(out.join("plans/widgets.json")).map_err(|e| e.to_string())?;
+        assets.push(json!({"name":"plans/widgets.json", "sha256":exact_update::sha256_hex(&bytes), "bytes":bytes.len()}));
+    }
     if typescript && !entries.is_empty() {
         std::fs::create_dir_all(out.join("typescript")).map_err(|e| e.to_string())?;
         for file in ["app.hbc", "app.module.json"] {
@@ -92,7 +96,8 @@ mod tests {
         let (assets, _) = emit(&out, true, &entries).unwrap();
         let copied = dir.0.join("copy");
         copy(&out, &copied, &assets).unwrap();
-        assert_eq!(assets.len(), 3);
+        // The entry's plan, the gallery's widgets.json and the module pair.
+        assert_eq!(assets.len(), 4);
         for name in ["app.hbc", "app.module.json"] {
             assert_eq!(
                 std::fs::read(out.join(name)).unwrap(),
@@ -110,7 +115,7 @@ mod tests {
         }
         let (assets, _) = emit(&out, false, &entries).unwrap();
         copy(&out, &copied, &assets).unwrap();
-        assert_eq!(assets.len(), 1);
+        assert_eq!(assets.len(), 2);
         assert!(!copied.join("typescript").exists());
     }
 
@@ -172,8 +177,12 @@ mod tests {
                     compat.embedded["plans"]["card"]["sha256"],
                     exact_update::sha256_hex(&bytes)
                 );
-                assert_eq!(compat.embedded["assets"].as_array().unwrap().len(), 1);
-                assert!(!out.join("plans/widgets.json").exists());
+                assert_eq!(compat.embedded["assets"].as_array().unwrap().len(), 2);
+                let registry: Value =
+                    serde_json::from_slice(&std::fs::read(out.join("plans/widgets.json")).unwrap())
+                        .unwrap();
+                assert_eq!(registry[0]["kind"], "card");
+                assert_eq!(registry[0]["families"], json!(["systemSmall"]));
             } else {
                 assert!(compat.embedded.get("plans").is_none());
                 assert!(!out.join("plans").exists());

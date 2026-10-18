@@ -2,12 +2,13 @@
 
 use std::{io::Write, path::Path, process::ExitCode};
 
-const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)] [--entry <kind> (requires -o; no --map)]";
+const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map)]";
 
 struct Options<'a> {
     input: &'a str,
     output: Option<&'a str>,
     json: bool,
+    errors_only: bool,
     map: bool,
     /// A widget entry's kind (LLP 1126 D2): its plan instead of the app's,
     /// compiled as the bake compiles it from `app.json` beside the input.
@@ -16,10 +17,12 @@ struct Options<'a> {
 
 fn options(args: &[String]) -> Option<Options<'_>> {
     let (mut input, mut output, mut json, mut map, mut entry) = (None, None, false, false, None);
+    let mut errors_only = false;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--json" if !json => json = true,
+            "--errors-only" if !errors_only => errors_only = true,
             "--map" if !map => map = true,
             "-o" if output.is_none() => {
                 output = Some(args.next()?.as_str());
@@ -45,6 +48,7 @@ fn options(args: &[String]) -> Option<Options<'_>> {
         input: input?,
         output,
         json,
+        errors_only,
         map,
         entry,
     })
@@ -139,6 +143,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         input,
         output,
         json,
+        errors_only,
         map,
         entry,
     }) = options(args)
@@ -170,7 +175,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     };
     refused.extend(crate::ambient::check(Path::new(input)));
     let clocks = contract::resource_clock_warnings(Path::new(input)).unwrap_or_default();
-    if !json {
+    if !json && !errors_only {
         for finding in &clocks {
             eprintln!("warning: {finding}");
         }
@@ -178,7 +183,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     // Warnings never fail the build; they follow its refusals (LLP 1116 D6).
     let (compiled, mut warnings) = contract::compile_path_all_warned(Path::new(input), true);
     if let Ok(s) = &surfaces {
-        if s.newer.is_some() && !json {
+        if s.newer.is_some() && !json && !errors_only {
             crate::surface_warnings(s);
         }
     }
@@ -196,12 +201,20 @@ pub(super) fn run(args: &[String]) -> ExitCode {
                 }),
         );
     }
+    if errors_only {
+        warnings.clear();
+    }
     let (plan, map) = match compiled {
         Ok(_) if !refused.is_empty() => return report_all(&refused, &warnings, json, 1),
         Ok(compiled) => compiled,
         Err(mut errors) => {
             errors.extend(refused);
-            errors.truncate(contract::MAX_DIAGNOSTICS);
+            if !errors
+                .iter()
+                .any(|e| contract_syntax::migrate::is_retired(&e.id))
+            {
+                errors.truncate(contract::MAX_DIAGNOSTICS);
+            }
             return report_all(&errors, &warnings, json, 1);
         }
     };

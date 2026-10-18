@@ -25,6 +25,7 @@ extension Presenter {
     /// With `rect`, in the node's space, only that part of it is shown.
     func reveal(_ node: NodeView?, rect: CGRect? = nil) {
         guard let node, node.window != nil else { return }
+        if surface(containing: node)?.kind == .popover { menus.rehostPopovers() }
         var v: UIView? = node.superview, nearest = true
         while let cur = v {
             var target: UIScrollView? = cur is ScrollView || cur is GroupedScroller ? cur as? UIScrollView : nil

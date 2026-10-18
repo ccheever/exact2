@@ -21,7 +21,7 @@
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
-export { Cdp } from './agent-launch.mjs';
+import { widgetStep } from './agent-widget.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { guardFlags } from './help.mjs';
@@ -1360,7 +1360,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   return s;
 }
 export { runTests, textOf } from './agent-test.mjs';
-export { browserDiagnosticNoise };
+export { Cdp, browserDiagnosticNoise };
 // Exported for game/proof.test.mjs, which drives the real CLI with a fake
 // session (`injected.open`) and no app server (`injected.driveServer`).
 export async function main(argv, injected = {}) {
@@ -1404,7 +1404,7 @@ export async function main(argv, injected = {}) {
     : await launch();
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
-  const step = async (line) => {
+  const step = async (line) => { if (flags.widget) return widgetStep(s, flags.widget, line);
       if (heldRead(s, line, () => step(line))) return null; // inside a played contact, answered at its tap up (agent-drag.mjs)
       const trimmed = line.trim();
       // `type` keeps the text tail, including newlines and \n, which a

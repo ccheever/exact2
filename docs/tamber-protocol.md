@@ -427,7 +427,10 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     wrote carries a mark above the scrub's frames. A build applies a scrub's frames with no
     transition: an authored
     `transition` on a row the frame sets neither starts nor goes on (a development preview that
-    follows the tool's gesture; any other edit moves as authored).
+    follows the tool's gesture; any other edit moves as authored). The web pages keep every
+    transition off from a scrub's first frame until 150 ms after its last (one style change at
+    each end, the last values styled before transitions come back; a new generation ends it at
+    once): a development preview, which a release build never runs.
   - **A frame set without compiling is checked** once the gesture rests (150 ms with no update):
     the frame shown, planned and compiled in full, must be the design set. Where it is not, or the
     full check refuses it, the scrub ends (`mismatch`).
@@ -885,7 +888,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
     the facts that paint, the `plan` and `design` digests (and `planDigest`, *1.9*, as it moves),
     and the pin `revision` it applied.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
-    `setRootFontSize` included (at most once a turn).
+    `setRootFontSize` included (at most once a turn). A scrub's frames move the design without a
+    status each: the web pages report it once, about 150 ms after the drag rests.
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
   - `selected` (*1.3*, LLP 1122 D5; the wasm web page and the iOS and Mac hosts send it in inspect mode):
