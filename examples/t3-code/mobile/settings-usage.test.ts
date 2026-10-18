@@ -81,6 +81,104 @@ test('opening a usage link preserves the selected time window and does not reque
   await mobileAutomationPrepare('settings','{}','','','',now,opener);
 });
 
+test('Cursor prompts retain ready-provider eligibility, account suppression and selected-environment labels',()=>{
+  const summary:Obj={contractVersion:6,sources:[{action:'enableCursorKeychain',fingerprint:{provider:'cursor',hostId:'mac'}}],buckets:[]};
+  const a={id:'a',label:'Mac A',connected:true,summary,error:'',canRead:true,canWrite:true,canManage:false,config:{providers:[{driver:'cursor',status:'ready'}]}};
+  const input={tab:'usage',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false};
+  const single=mobileUsagePresentation({...input,sources:[a]},false);
+  expect(single.cursor).toEqual([{id:'a',label:'Mac A',usageLabel:'Cursor',buttonLabel:'Enable',disabled:false}]);
+  expect(single.hasProviders).toBe(true);expect(single.providers).toEqual([]);expect(single.cursorInsertAt).toBe(0);
+  const b={...a,id:'b',label:'Mac B'},multiple=mobileUsagePresentation({...input,sources:[a,b]},false);
+  expect(multiple.cursor.map(item=>[item.usageLabel,item.buttonLabel])).toEqual([['Cursor · Mac A','Enable on Mac A'],['Cursor · Mac B','Enable on Mac B']]);
+  for(const status of ['error','disabled','missing']){
+    const data=mobileUsagePresentation({...input,sources:[{...a,config:{providers:[{driver:'cursor',status}]}}]},false);
+    expect(data.cursor).toEqual([]);expect(data.hasProviders).toBe(false);
+  }
+  for(const source of [{...a,summary:null},{...a,config:{}},{...a,summary:{contractVersion:6,sources:[],buckets:[]}}])
+    expect(mobileUsagePresentation({...input,sources:[source]},false).cursor).toEqual([]);
+  const oneEligible=mobileUsagePresentation({...input,sources:[a,{...b,config:{}}]},false);
+  expect(oneEligible.cursor[0]).toMatchObject({usageLabel:'Cursor · Mac A',buttonLabel:'Enable'});
+  for(const source of [{...a,connected:false},{...a,canWrite:false}])expect(mobileUsagePresentation({...input,sources:[source]},false).cursor[0]?.disabled).toBe(true);
+  const account={...b,summary:{contractVersion:6,sources:[{fingerprint:{provider:'cursor',hostId:'cursor.com'}}],buckets:[]}};
+  expect(mobileUsagePresentation({...input,sources:[a,account]},false).cursor).toEqual([]);
+  expect(mobileUsagePresentation({...input,sources:[]},false).hasProviders).toBe(false);
+  expect(mobileUsagePresentation(null,false).hasProviders).toBe(false);
+});
+test('Cursor prompts remain available for incompatible summaries without admitting their usage totals',()=>{
+  const config={providers:[{driver:'cursor',status:'ready'}]};
+  for(const contractVersion of [3,7])for(const count of [1,2])for(const metric of ['cost','tokens']){
+    const sources=Array.from({length:count},(_,index)=>({id:`qa-${index}`,label:`Mac ${index+1}`,connected:true,error:'',canRead:true,canWrite:true,canManage:false,config,
+      summary:{contractVersion,sources:[{action:'enableCursorKeychain',fingerprint:{provider:'cursor',hostId:`mac-${index}`}}],
+        buckets:[{provider:'cursor',model:'qa',day:'2026-10-07',costUsd:999,totals:{uncachedInputTokens:999}}]}}));
+    const data=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(30,now),metric,now,presentations:new Map(),external:false,sources},false);
+    expect(data.hasUsage).toBe(false);expect(data.hasProviders).toBe(true);expect(data.providers).toEqual([]);expect(data.cursorInsertAt).toBe(0);
+    expect(data.cursor.map(item=>[item.id,item.usageLabel,item.buttonLabel,item.disabled])).toEqual(count===1
+      ?[['qa-0','Cursor','Enable',false]]:[['qa-0','Cursor · Mac 1','Enable on Mac 1',false],['qa-1','Cursor · Mac 2','Enable on Mac 2',false]]);
+    expect([data.total,data.headlineValue]).toEqual(['','']);expect(data.models).toEqual([]);expect(data.hasCost).toBe(false);
+    expect(data.chartLegend).toEqual([]);expect(data.chartHasActivity).toBe(false);expect(data.totals.map(item=>item.value)).toEqual(['0','$0.00','0','0','0','0.0%']);
+  }
+  const empty=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,
+    sources:[{id:'qa',label:'QA',connected:true,error:'',canRead:true,canWrite:true,canManage:false,config,summary:{contractVersion:6,sources:[],buckets:[]}}]},false);
+  expect(empty.hasUsage).toBe(true);expect(empty.hasProviders).toBe(false);expect(empty.cursor).toEqual([]);expect(empty.providers).toEqual([]);
+});
+test('Cursor insertion follows Codex and Claude under both Usage metrics and pooled Limits order',()=>{
+  const summary:Obj={contractVersion:6,sources:['grok','claude','codex'].map(provider=>({status:'ok',fingerprint:{provider,hostId:'mac',resolvedHomePath:`/qa/${provider}`}})),
+    buckets:[['grok',9,5],['claude',1,100],['codex',4,10]].map(([provider,costUsd,tokens])=>({provider,model:'qa',day:'2026-10-07',costUsd,totals:{uncachedInputTokens:tokens}}))};
+  summary.sources=[...summary.sources as Obj[],{action:'enableCursorKeychain',fingerprint:{provider:'cursor',hostId:'mac'}}];
+  const providers=['grok','claudeAgent','codex'].map((driver,index)=>({...nativeAccount(limits,`${index}@qa.test`),instanceId:driver,driver}));
+  const config={providers:[...providers,{driver:'cursor',status:'ready'}]},source={id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:true,canManage:false,config};
+  const presentations:LimitPresentations=new Map([['qa',{entry:{target:{label:'QA'}},serverConfig:mobileUsageConfig(config)}]]);
+  for(const metric of ['cost','tokens'])for(const tab of ['usage','limits']){
+    const data=mobileUsagePresentation({tab,window:mobileUsageWindow(30,now),metric,now,presentations,external:false,sources:[source]},false);
+    expect(data.providers.map(item=>item.id)).toEqual(metric==='cost'?['grok','codex','claude']:['claude','codex','grok']);
+    expect(data.cursorInsertAt).toBe(metric==='cost'?3:2);
+    expect(data.pools.map(pool=>pool.id)).toEqual(['grok','claudeAgent','codex']);expect(data.cursorPoolInsertAt).toBe(3);
+    expect(data.cursor).toHaveLength(1);expect(data.limitsEmpty).toBe('');
+  }
+  const noCore={...summary,sources:[{status:'ok',fingerprint:{provider:'grok',hostId:'mac'}},{action:'enableCursorKeychain',fingerprint:{provider:'cursor',hostId:'mac'}}],
+    buckets:[{provider:'grok',model:'qa',day:'2026-10-07',costUsd:1,totals:{uncachedInputTokens:1}}]};
+  const first=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,sources:[{...source,summary:noCore}]},false);
+  expect(first.providers.map(item=>item.id)).toEqual(['grok']);expect(first.cursorInsertAt).toBe(0);expect(first.cursorPoolInsertAt).toBe(0);expect(first.limitsEmpty).toBe('');
+  const noPrompt=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,sources:[{...source,summary:{contractVersion:6,sources:[],buckets:[]}}]},false);
+  expect(noPrompt.hasProviders).toBe(false);expect(noPrompt.cursor).toEqual([]);expect(noPrompt.limitsEmpty).toBe('No subscription limits reported.');
+});
+test('Cursor command pending disables its button, rejects duplicates and clears after existing refresh work',async()=>{
+  const fixture=transport(['diagnostics:read','settings:write']);
+  mobileClient.config={settings:{},providers:[{driver:'cursor',status:'ready'}]};
+  let enabled=false;
+  const prompt:Obj={contractVersion:6,readAt:'2026-10-07T00:00:00Z',sources:[{action:'enableCursorKeychain',fingerprint:{provider:'cursor',hostId:'mac'}}],buckets:[]};
+  const native:Native={...fixture.native,async later(input){const request=obj(input),reply=await fixture.native.later(input);
+    if(request.method==='server.updateSettings'){enabled=true;return {...reply,value:{cursorKeychainUsageEnabled:true}};}
+    if(request.method==='server.getUsageSummary')return {...reply,value:enabled?{...prompt,sources:[{fingerprint:{provider:'cursor',hostId:'cursor.com'}}]}:prompt};return reply;}};
+  await mobileUsage('null','usage',windowJSON,'cost',now,native);
+  let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;}),started=new Promise<void>(resolve=>{entered=resolve;});
+  fixture.intercept(async request=>{if(request.method==='server.updateSettings'){entered();await gate;}});
+  const command=mobileUsageCommand('enable-cursor',fixture.id,'',now,native);await started;
+  try{
+    const shown=mobileUsageSnapshot('null','usage','cost');expect(shown.cursor[0]).toMatchObject({disabled:true,buttonLabel:'Enable',usageLabel:'Cursor'});
+    expect((await mobileUsageCommand('enable-cursor',fixture.id,'',now,native)).message).toBe('This usage action is already running.');
+    expect(fixture.calls.filter(call=>call.method==='server.updateSettings')).toHaveLength(1);
+    expect(fixture.calls.find(call=>call.method==='server.updateSettings')?.payload).toEqual({patch:{cursorKeychainUsageEnabled:true}});
+  }finally{release();}
+  expect((await command).message).toBe('');expect(mobileUsageSnapshot('null','usage','tokens').cursor[0]?.disabled).toBe(false);
+  expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(1);expect(fixture.calls.filter(call=>call.method==='server.getUsageSummary')).toHaveLength(2);
+  await mobileUsage('null','usage',windowJSON,'cost',now,native);expect(mobileUsageSnapshot('null','usage','cost').cursor).toEqual([]);
+});
+test('Cursor enable rechecks write permission and preserves failure reporting without refresh on failed writes',async()=>{
+  const fixture=transport(['diagnostics:read','settings:write']);mobileClient.config={settings:{},providers:[{driver:'cursor',status:'ready'}]};let failWrite=false;
+  const prompt={contractVersion:6,sources:[{action:'enableCursorKeychain',fingerprint:{provider:'cursor',hostId:'mac'}}],buckets:[]};
+  const native:Native={...fixture.native,async later(input){const request=obj(input),reply=await fixture.native.later(input);
+    if(request.method==='server.getUsageSummary')return {...reply,value:prompt};
+    if(request.method==='server.updateSettings'&&failWrite)return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Keychain denied'}};return reply;}};
+  await mobileUsage('null','usage',windowJSON,'cost',now,native);fixture.permissions.splice(fixture.permissions.indexOf('settings:write'),1);
+  expect((await mobileUsageCommand('enable-cursor',fixture.id,'',now,native)).message).toContain('permission');
+  expect(fixture.calls.some(call=>call.method==='server.updateSettings')).toBe(false);expect(mobileUsageSnapshot('null','usage','cost').cursor[0]?.disabled).toBe(false);
+  fixture.permissions.push('settings:write');failWrite=true;
+  expect((await mobileUsageCommand('enable-cursor',fixture.id,'',now,native)).message).toBe('Keychain denied');
+  expect(mobileUsageSnapshot('null','usage','cost').cursor[0]?.disabled).toBe(false);expect(fixture.calls.filter(call=>call.method==='server.updateSettings')).toHaveLength(1);
+  expect(fixture.calls.some(call=>call.method==='server.refreshProviders')).toBe(false);
+});
+
 test('nonempty usage provider rows project only declared UI fields',()=>{
   const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'host',resolvedHomePath:'/home'},distinctSessions:1}],
     buckets:[{provider:'claude',model:'model',day:'2026-10-07',costUsd:2,totals:{uncachedInputTokens:1000}}]};

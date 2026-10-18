@@ -98,7 +98,7 @@ export async function mobileUsage(selectionJSON:string,tab:string,windowJSON:str
 /** No network/watch activity for a metric or email-reveal change. Scope mismatch never shows another selection. */
 export function mobileUsageSnapshot(selectionJSON:string,tab:string,metric:string){
   const selectedTab=tab==='usage'?'usage':'limits';
-  return prepared?.selection===selectionJSON?mobileUsagePresentation({...prepared,tab:selectedTab,metric:metric==='tokens'?'tokens':'cost'}):{...mobileUsagePresentation(null),tab:selectedTab,canRefresh:false};
+  return prepared?.selection===selectionJSON?mobileUsagePresentation({...prepared,tab:selectedTab,metric:metric==='tokens'?'tokens':'cost'},true,id=>commands.has(JSON.stringify(['enable-cursor',id,'']))):{...mobileUsagePresentation(null),tab:selectedTab,canRefresh:false};
 }
 async function current(environmentId:string,native:Native,permission:'diagnostics:read'|'settings:write'|'providers:manage'|null,selected=prepared) {
   if(!selected?.sources.some(source=>source.id===environmentId))throw new ClientError('Choose an environment in the current usage selection.');

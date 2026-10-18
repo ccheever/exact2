@@ -1,5 +1,6 @@
 // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+use ProviderIcon from "./provider-icon.contract"
 shape UsageEnvironment
   id: string
   label: string
@@ -17,6 +18,8 @@ shape UsageLink
 shape UsageCursor
   id: string
   label: string
+  usageLabel: string
+  buttonLabel: string
   disabled: bool
 shape UsageColumn
   key: string
@@ -99,6 +102,8 @@ shape MobileUsageData
   duplicateMessage: string
   links: UsageLink[]
   cursor: UsageCursor[]
+  cursorInsertAt: number
+  cursorPoolInsertAt: number
   pools: UsagePool[]
   limitsEmpty: string
   total: string
@@ -112,6 +117,7 @@ shape MobileUsageData
   chartLegend: UsageLegend[]
   chart: UsageBar[]
   providers: UsageProvider[]
+  hasProviders: bool
   totals: UsageValue[]
   hasCost: bool
   costByType: UsageCostSegment[]
@@ -174,18 +180,14 @@ component SettingsUsage
             text link.accounts color=colors.muted font-size=roles.footnote.size
             if link.message.length > 0
               text link.message color=colors.muted font-size=roles.footnote.size
-        for cursor in data.cursor key=cursor.id
-          column padding=14 gap=7 border-radius=24 background-color=colors.grouped
-            text `Cursor account usage · ${cursor.label}` color=colors.foreground font-size=roles.body.size
-            text "Allow access to Cursor's login in macOS Keychain on this environment to read account usage." color=colors.muted font-size=roles.footnote.size
-            button appearance="none" press=command("enable-cursor", cursor.id, "") disabled=cursor.disabled min-height=44
-              text "Enable" color=colors.link font-size=roles.body.size
         if data.emptyMessage.length > 0
           text data.emptyMessage padding-top=56 padding-bottom=56 text-align="center" color=colors.muted font-size=roles.body.size
         if data.tab == "limits"
           if data.limitsEmpty.length > 0
             text data.limitsEmpty color=colors.muted font-size=roles.body.size
-          for pool in data.pools key=pool.id
+          for pool, poolIndex in data.pools key=pool.id
+            if poolIndex == data.cursorPoolInsertAt
+              UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
             column gap=10.5
               SettingsSectionLabel(title=pool.label, colors=colors, roles=roles)
               column background-color=colors.grouped border-radius=24 padding=14 gap=17.5
@@ -205,6 +207,8 @@ component SettingsUsage
                       text window.pace color=colors.muted font-size=roles.footnote.size
                     for reset in window.resets key=reset.key
                       text reset.text color=colors.muted font-size=roles.caption.size
+          if data.cursorPoolInsertAt == data.pools.length
+            UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
         else
           row gap=7 align-items="center"
             row flex=1 border-radius=7 background-color=colors.subtle padding=2
@@ -246,11 +250,14 @@ component SettingsUsage
                       view width=7 height=7 border-radius=4 flex-shrink=0 background-color=(dark ? provider.dark : provider.light)
                       text provider.label flex-shrink=0 color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
                 text data.chartEnd flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+          if data.hasProviders
             column gap=7
               SettingsSectionLabel(title="Providers", colors=colors, roles=roles)
               column background-color=colors.grouped border-radius=24 overflow="hidden"
                 for provider, index in data.providers key=provider.id
-                  column padding=14 gap=7 border-top-width=(index > 0 ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+                  if index == data.cursorInsertAt
+                    UsageCursorRows(items=data.cursor, bordered=(index > 0), colors=colors, roles=roles, command=command)
+                  column padding=14 gap=7 border-top-width=(index > 0 or (data.cursor.length > 0 and data.cursorInsertAt == 0) ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
                     row align-items="baseline" justify-content="space-between" gap=10.5
                       row align-items="center" gap=7 flex-shrink=0
                         view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color=(dark ? provider.dark : provider.light)
@@ -260,6 +267,9 @@ component SettingsUsage
                       view height="100%" flex=provider.fraction border-radius=999 background-color=(dark ? provider.dark : provider.light)
                       view flex=(1 - provider.fraction)
                     text `${provider.share} · ${provider.detail}` color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+                if data.cursorInsertAt == data.providers.length
+                  UsageCursorRows(items=data.cursor, bordered=(data.providers.length > 0), colors=colors, roles=roles, command=command)
+          if data.hasUsage
             UsageValues(title="Totals", items=data.totals, colors=colors, roles=roles)
             if data.hasCost
               column gap=7
@@ -280,6 +290,48 @@ component SettingsUsage
                         text model.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` line-clamp=1
                         text model.detail color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
                       text model.value flex-shrink=0 color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-variant-numeric="tabular-nums"
+component UsageCursorAction
+  props
+    item: UsageCursor
+    label: string
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    command: action
+  view
+    button appearance="none" press=command("enable-cursor", item.id, "") disabled=item.disabled padding-top=7 padding-bottom=7 padding-left=14 padding-right=14 border-radius=999 background-color=colors.primary aria-label=`Enable Cursor usage from ${item.label}` aria-description="Requires access to your Cursor login in macOS Keychain."
+      text label color=colors.primaryForeground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+component UsageCursorRows
+  props
+    items: UsageCursor[]
+    bordered: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    command: action
+  view
+    for item, index in items key=item.id
+      row align-items="center" justify-content="space-between" gap=10.5 padding=14 border-top-width=(bordered or index > 0 ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+        row flex=1 min-width=0 align-items="center" gap=7
+          view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color="#8b8b8b"
+          text item.usageLabel flex-shrink=1 color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
+        UsageCursorAction(item=item, label="Enable", colors=colors, roles=roles, command=command)
+component UsageCursorLimits
+  props
+    items: UsageCursor[]
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    dark: bool
+    command: action
+  view
+    if items.length > 0
+      column gap=10.5
+        row align-items="center" gap=7 padding-left=3.5 padding-right=3.5
+          ProviderIcon(driver="cursor", size=18, dark=dark, iconUrl="")
+          text "Cursor" color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
+        column align-items="flex-start" gap=10.5 border-radius=24 background-color=colors.grouped padding=14
+          text "Requires access to your Cursor login in macOS Keychain." color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+          row flex-wrap="wrap" gap=7
+            for item in items key=item.id
+              UsageCursorAction(item=item, label=item.buttonLabel, colors=colors, roles=roles, command=command)
 component UsageCostBar
   props
     label: string
