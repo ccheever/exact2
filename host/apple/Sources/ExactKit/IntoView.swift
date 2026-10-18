@@ -224,18 +224,31 @@ extension Presenter {
             // Content room belongs to the range; only UI insets (a bar or
             // keyboard) obstruct the viewport used for CSS alignment.
             let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
-            let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
-            let port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
             let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
-            let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
-            let y = IntoView.aligned(block, target: area.minY, area.maxY, port: port.minY, size: port.height) - (port.minY - sv.bounds.minY)
-            let rangeInset = sv.adjustedContentInset
-            let maxX = max(-rangeInset.left, sv.contentSize.width + rangeInset.right - sv.bounds.width)
-            let maxY = max(-rangeInset.top, sv.contentSize.height + rangeInset.bottom - sv.bounds.height)
-            let to = CGPoint(x: min(max(x, -rangeInset.left), maxX), y: min(max(y, -rangeInset.top), maxY))
+            func destination() -> CGPoint {
+                let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
+                let port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
+                let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
+                let y = IntoView.aligned(block, target: area.minY, area.maxY, port: port.minY, size: port.height) - (port.minY - sv.bounds.minY)
+                let rangeInset = sv.adjustedContentInset
+                let maxX = max(-rangeInset.left, sv.contentSize.width + rangeInset.right - sv.bounds.width)
+                let maxY = max(-rangeInset.top, sv.contentSize.height + rangeInset.bottom - sv.bounds.height)
+                return CGPoint(x: min(max(x, -rangeInset.left), maxX), y: min(max(y, -rangeInset.top), maxY))
+            }
+            let to = destination()
             guard to != sv.contentOffset else { continue }
             // UIKit element jumps fall back to instant (LLP 1070.000 §14).
+            let topInset = sv.adjustedContentInset.top
             sv.setContentOffset(to, animated: false)
+            // A jump that collapses a large title moves the offset by the
+            // inset it took away, past the range's end near the bottom; the
+            // next batch's restore clamped it there a moment later. Settle
+            // that transition and align once more, against the new port.
+            if sv.adjustedContentInset.top != topInset {
+                sv.layoutIfNeeded()
+                let settled = destination()
+                if settled != sv.contentOffset { sv.setContentOffset(settled, animated: false) }
+            }
         }
     }
 }
