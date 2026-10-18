@@ -1,9 +1,12 @@
+import { requestComposerField, type ComposerFieldCompletion } from './composer-field-request';
+import { composerFieldCurrent } from './composer-field-bridge';
+import { composerFieldOwner } from './auto-balance-owner';
 // The composer shelf's references and video tiles, adapted from T3 Code (MIT;
 // see LICENSE-T3): ChatComposer removeComposerImage, composerDraftStore
 // removeImage/removeFile (lib/composerContextReferences removeInlineContextReference),
 // composerAttachmentFiles isPreviewableComposerVideo and packages/shared video.ts.
 import type { T3Client } from '../client/client';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { bridgeReply, ClientError, nativeFiles, type Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { draftFiles, setDraftFiles } from './composer-editor-files';
 import { contextId, contextReferences } from './composer-editor-menu';
@@ -40,14 +43,23 @@ export function referencedImageIds(prompt: string, imageIds: ReadonlyArray<strin
  * chip for the removed attachment. A live field persists its accepted input;
  * a background draft has no field and updates its stored source directly.
  */
-export async function removeAttachmentReferences(client: T3Client, native: Native, key: string, kind: 'image' | 'file', producerId: string): Promise<boolean> {
-  const prompt = client.local.drafts[key] ?? '';
+export async function removeAttachmentReferences(client: T3Client, native: Native, key: string, kind: 'image' | 'file', producerId: string, effects: ComposerFieldCompletion = {}): Promise<boolean> {
+  const field = key === client.draftKey ? composerFieldCurrent(client, composerFieldOwner(client)) : null;
+  if (key === client.draftKey && !field) throw new ClientError('The composer is not ready to remove attachment references.');
+  const prompt = field?.value ?? client.local.drafts[key] ?? '';
   const next = removeInlineContextReference(prompt, kind === 'image' ? contextId('image', producerId) : producerId).prompt;
-  if (next === prompt) return false;
-  if (key !== client.draftKey) { client.local.drafts[key] = next; return true; }
+  if (next === prompt) { await effects.applied?.(native); return false; }
+  if (key !== client.draftKey) { client.local.drafts[key] = next; await effects.applied?.(native); return true; }
   // `expect`: a prompt typed past this one is never overwritten; its own input carries the chips then.
-  const reply = await bridgeReply(native, { op: 'editorEdit', all: true, expect: prompt, text: next, focus: false }).catch(() => null);
-  return reply?.ok === true && obj(reply.value).applied === true;
+  const reply = await requestComposerField(native, { op: 'editorEdit', all: true, expect: prompt, text: next, focus: false }, {
+    ...effects, applied: async current => {
+      const source = composerFieldCurrent(client, composerFieldOwner(client))?.value ?? client.local.drafts[key] ?? '';
+      if (removeInlineContextReference(source, kind === 'image' ? contextId('image', producerId) : producerId).prompt !== source) throw new ClientError('The attachment is still referenced by the prompt.');
+      await effects.applied?.(current);
+    },
+  });
+  if (!reply.accepted) throw new ClientError('The prompt changed before attachment references could be removed.');
+  return true;
 }
 
 // ── Video tiles (composerVideos) ────────────────────────────────────────────
@@ -103,8 +115,12 @@ export async function videoOp(client: T3Client, native: Native, op: string, id: 
   if (op === 'shelf-video-play') { previews.set(client, id); return ''; }
   if (op !== 'shelf-video-remove') throw new ClientError(`Unknown editor action: ${op}`);
   if (previews.get(client) === id) previews.delete(client);
-  setDraftFiles(client.local, draftFiles(client.local).filter(candidate => candidate !== file));
-  await removeAttachmentReferences(client, native, client.draftKey, 'file', file.contextId);
-  if (file.status === 'staged') await bridgeReply(native, { op: 'composerAttachRemove', id: file.id }).catch(() => undefined);
+  const key = client.draftKey;
+  await removeAttachmentReferences(client, native, key, 'file', file.contextId, { applied: async current => {
+    const previous = draftFiles(client.local);
+    setDraftFiles(client.local, previous.filter(candidate => candidate !== file));
+    try { await client.persist(nativeFiles(current)); } catch (error) { setDraftFiles(client.local, previous); throw error; }
+    if (file.status === 'staged') await bridgeReply(current, { op: 'composerAttachRemove', id: file.id });
+  } });
   return '';
 }

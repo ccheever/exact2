@@ -197,7 +197,7 @@ describe('the prompt stash (composer-editor-stash createdAt)', () => {
     test(`runtime clock ${name}: a stashed prompt is stamped with the window's wall time`, async () => {
       install();
       const local = { drafts: {} as Record<string, string> };
-      const client = { local, draft: 'keep this', draftKey: 'e:new:p', environmentId: 'e', config: {}, shell: { projects: [], threads: [], sequence: 0 } } as unknown as T3Client;
+      const client = { persist: async () => {}, local, draft: 'keep this', draftKey: 'e:new:p', environmentId: 'e', config: {}, shell: { projects: [], threads: [], sequence: 0 } } as unknown as T3Client;
       const editor = { available: true, watch: () => {}, later: async (request: Obj) => ({ ok: true, generation: 1,
         value: request.op === 'editorState' ? { text: 'keep this' } : { applied: true } }) } as unknown as Native;
       await editorLocal(client, editor, 'stash', '', '', REAL);

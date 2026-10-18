@@ -159,14 +159,14 @@ export async function fileComment(client: T3Client, native: Native, op: string, 
     if (!draft || draft.path !== path || !value.trim()) return '';
     const comment = buildFileReviewComment({ id: draft.id, filePath: path, startLine: draft.startLine, endLine: draft.endLine, text: value, contents });
     const record = reviewCommentContextRecord(comment);
-    await addReviewCommentChip(client, native, record);
-    state.saved.push({ contextId: record.contextId, path, startLine: draft.startLine, endLine: draft.endLine, text: comment.text });
-    state.draft = null; state.selection = null; state.focus = '';
+    await addReviewCommentChip(client, native, record, { applied: () => {
+      state.saved.push({ contextId: record.contextId, path, startLine: draft.startLine, endLine: draft.endLine, text: comment.text });
+      if (state.draft === draft) { state.draft = null; state.selection = null; state.focus = ''; }
+    } });
     return '';
   }
   if (op === 'delete') {
-    await removeReviewCommentChip(client, native, value);
-    state.saved = state.saved.filter(entry => entry.contextId !== value);
+    await removeReviewCommentChip(client, native, value, { applied: () => { state.saved = state.saved.filter(entry => entry.contextId !== value); } });
     return '';
   }
   return '';

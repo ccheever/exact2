@@ -224,3 +224,6 @@ shape ComposerFieldAcknowledgement
   seq: number
   then: string
   send: bool
+  focus: string
+  removedImage: string
+  inputSerial: number

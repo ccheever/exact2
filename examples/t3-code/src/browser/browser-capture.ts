@@ -1,3 +1,4 @@
+import { requestComposerField } from '../composer/composer-field-request';
 // The chrome row's Annotate, Capture (Shift-click records) and Float preview
 // buttons, the More menu's separate window, their toasts and the floating player's browser source (MIT reference,
 // see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewView.tsx `handlePickElement`,
@@ -432,9 +433,9 @@ async function insertAnnotationChip(client: T3Client, native: Native, origin: An
     const expected = edit.edit.value.slice(0, edit.edit.start) + edit.edit.text + edit.edit.value.slice(edit.edit.end);
     const completion = send ? prepareAttachmentEffect(client, snapshot, expected, { kind: 'annotation-send', draftKey: origin.key }) : 0;
     if (send && !completion) return refuse();
-    const inserted = await bridgeReply(native, { ...request, completion }).catch(() => null), applied = inserted?.ok === true && obj(inserted.value).applied === true;
-    if (completion) finishAttachmentEffect(client, { ...edit.edit, completion }, applied, composerFieldCurrent(client, origin.fieldOwner));
-    return applied ? 'chip' : refuse();
+    const inserted = await requestComposerField(native, { ...request, completion }).catch(() => null);
+    if (completion && !inserted?.queued) finishAttachmentEffect(client, { ...edit.edit, completion }, inserted?.applied === true, composerFieldCurrent(client, origin.fieldOwner));
+    return inserted?.queued ? 'queued' : inserted?.applied ? 'chip' : refuse();
   }
   if (origin.key === client.draftKey) return refuse();
   const prompt = client.local.drafts[origin.key] ?? '';

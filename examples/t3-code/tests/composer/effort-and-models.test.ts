@@ -44,7 +44,7 @@ describe('effort keys', () => {
     native.later = async input => {
       const request = obj(input);
       if (request.op === 'editorState') return native.ok({ text: 'Read this', caret: 6 });
-      if (request.op === 'editorEdit') { edits.push(request); return native.ok({ applied: apply }); }
+      if (request.op === 'editorEdit') { edits.push(request); if (apply) client.local.drafts[client.draftKey] = String(request.text); return native.ok({ applied: apply }); }
       return later(input);
     };
     await stepReasoningEffort(client, native, 1, async () => {});
