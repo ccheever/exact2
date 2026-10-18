@@ -63,7 +63,7 @@ pub fn event(input: TokenStream) -> TokenStream {
         }
         let name = ty[1].to_string();
         expand(input, Some("Event")).map(|mut s| {
-            s = s.replace(&format!("impl ::exact_game::Event for {name} {{"), &format!("impl ::exact_game::Event for {name} {{ const CAPACITY: usize = {bound}; const QUEUE_NAME: &'static str = concat!(\"events:\", stringify!({name}));")); s
+            s = s.replace(&format!("impl ::exact_game::Event for {name} {{"), &format!("impl ::exact_game::Event for {name} {{ const CAPACITY: ::core::primitive::usize = {bound}; const QUEUE_NAME: &'static ::core::primitive::str = ::core::concat!(\"events:\", ::core::stringify!({name}));")); s
         })
     });
     match result {
@@ -313,7 +313,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                     )
                 })
                 .collect::<String>();
-            format!("fn set_field(&mut self, field: &str, text: &str) -> Result<(), ::exact_game::DataError> {{ match field {{ {arms} _ => Err(::exact_game::DataError::new(format!(\"unknown field {{field}}\"))) }} }}")
+            format!("fn set_field(&mut self, field: &::core::primitive::str, text: &::core::primitive::str) -> ::core::result::Result<(), ::exact_game::DataError> {{ match field {{ {arms} _ => ::core::result::Result::Err(::exact_game::DataError::new(::std::format!(\"unknown field {{field}}\"))) }} }}")
         } else {
             String::new()
         }
