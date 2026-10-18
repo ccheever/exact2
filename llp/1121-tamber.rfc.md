@@ -3303,7 +3303,7 @@ The clone at `d2406b4` was run on exact2 `272f117e3`.
 | The clone's post action row and Post button declare params | **Met.** |
 | The design tool lists them by group and priority with their controls and `select` options | **Met through `describe`**, which gives group, priority, control and options per param. The tool's own panel is LLP 1122 T3, not yet landed. |
 | A `set-param` reaches every instance live, and one on a duration param rebuilds instead | **Met** on the wasm loop, the JS loop, the iOS simulator and the Mac. `tint` and `gap` reached all six action rows live, and the natives kept their plan ("2 tokens to 2 builds, no generation"). `Drawer.fade` (a duration) is `rebuild`, and the page and natives took a new plan. |
-| A Swift native view's `.tamber` params appear beside them and draw through `ExactTamber(view)` | **Met on the Mac:** tamber-host's Swatch ring follows the mode. On the iOS simulator the first frame agrees, but the smoke's relaunch never opened its agent socket (a harness problem, followed up). |
+| A Swift native view's `.tamber` params appear beside them and draw through `ExactTamber(view)` | **Met** on the Mac and the iOS simulator: tamber-host's Swatch ring follows the mode. At the gate run the iOS smoke's relaunch never opened its agent socket; that was the gate simulator's own state. reload1's rerun on main `78b93c82a`, on a freshly made simulator, passes in full: the relaunch, the ring's colour change, the pin, the scheme and the font. |
 | An unused param, an ambiguous short name and a `rem` value on a ranged length are refused | **Met.** |
 | Renaming an import keeps an override on its component | **Met.** |
 | No regressions | **Met.** Plans of apps without params are byte-identical before and after stage 7, apart from a format-digest header another lane moved. |
@@ -3313,7 +3313,7 @@ sections) lands with LLP 1122 T5's `set-row`. A refuses an unread param, so eith
 paired with a row rewrite. Its `.contract` ownership infrastructure arrives with stage 8 D.
 
 **Queued:** a stale duration seen once on the JS loop after writes queued behind a slow first
-verifying build (not reproduced in three replays); and the iOS tamber smoke's relaunch.
+verifying build (not reproduced in three replays).
 
 **Stage 7 is closed.**
 
