@@ -48,7 +48,7 @@ import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
-import { alsoOnIPv6Loopback, freeOnIPv6Loopback, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { captureAssets, assetCards, alsoOnIPv6Loopback, freeOnIPv6Loopback, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -438,7 +438,7 @@ function captureGeneration(reuseCurrentAssets = false) {
   }
   const module = currentModule ? moduleCards(files, app.id) : null;
   if (currentRust) for (const [name, body] of currentRust) {
-    if (name === 'app.plan' || name === 'app.plan.map.json') continue;
+    if (name === 'app.plan' || name === 'app.plan.map.json' || (currentModule && name.startsWith('plans/'))) continue;
     // A Contract/TS bake can reuse the exact accepted Rust artifact. Bind
     // its receipt to the new common plan; each client validates both
     // executors together before restart with carry.
@@ -450,25 +450,26 @@ function captureGeneration(reuseCurrentAssets = false) {
   }
   const rust = currentRust ? rustCards(files) : null;
   const assets = [];
+  const entryFiles = currentModule ?? currentRust;
+  const fromProducer = name => entryFiles && name.startsWith('plans/');
   // Logic edits reuse the last admitted static snapshot. Asset events capture
   // through owned filesystem reads again before publishing their own revision.
   if (reuseCurrentAssets && current) {
     for (const asset of current.envelope.assets) {
+      if (fromProducer(asset.name)) continue;
       const body = current.files.get(asset.name);
       files.set(asset.name, body);
       assets.push({ name: asset.name, sha256: asset.sha256, bytes: body.length });
     }
   } else {
-    for (const tree of ['assets', 'deck', 'shaders']) {
-      let captured;
-      try { captured = filesystem({ op: 'tree', root: resolve(dist, tree) }); }
-      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
-      for (const [relative, encoded] of Object.entries(captured)) {
-        const name = `${tree}/${relative}`, body = Buffer.from(encoded, 'base64');
-        files.set(name, body);
-        assets.push({ name, sha256: createHash('sha256').update(body).digest('hex'), bytes: body.length });
-      }
-    }
+    const captured = new Map([...captureAssets(dist)].filter(([name]) => !fromProducer(name)));
+    for (const [name, body] of captured) files.set(name, body);
+    assets.push(...assetCards(captured));
+  }
+  if (entryFiles) {
+    const entries = new Map([...entryFiles].filter(([name]) => name.startsWith('plans/')));
+    for (const [name, body] of entries) files.set(name, body);
+    assets.push(...assetCards(entries));
   }
   assets.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   if ([planBytes, ...files.values()].some((body) => body.length > 64 * 1024 * 1024)
@@ -726,10 +727,12 @@ function startModuleCompiler() {
         if (request.id !== moduleRun) continue;
         if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
         const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
+        for (const [name, body] of captureAssets(request.output)) candidate.set(name, body);
         // A value-only design edit (LLP 1121 stage 4): the same structure and
         // the same module, so no generation; its tokens go out as a batch.
         // The executables, not the receipt, which names the plan's digest.
-        const sameModule = currentModule && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
+        const sameEntries = currentModule && JSON.stringify(assetCards(new Map([...currentModule].filter(([name]) => name.startsWith('plans/'))))) === JSON.stringify(assetCards(new Map([...candidate].filter(([name]) => name.startsWith('plans/')))));
+        const sameModule = sameEntries && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
         const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
         // While a scrub previews, the builds stay on it: a value-only edit
         // changes only what its end restores; a generation ends it. A

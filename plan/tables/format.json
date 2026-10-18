@@ -14,6 +14,16 @@
       "name": "locale",
       "codec": "opt:slots",
       "_comment": "@ref LLP 1060 D4: the root string slot holding the resolved locale every `t(...)` reads; set only when the app calls `t`. The runner writes it from set_place."
+    },
+    {
+      "name": "snapshot_entry",
+      "codec": "string",
+      "_comment": "LLP 1126 D2: empty for a running app, otherwise the snapshot entry kind; checked before decoding tables."
+    },
+    {
+      "name": "snapshot_refresh",
+      "codec": "opt:sources",
+      "_comment": "LLP 1126.000 WP2: the snapshot refresh signature, number -> {date: number, props: Props}[]. Absent on a running app."
     }
   ],
   "_about": "The single declaration authority for the plan: its tables, the expression VM's opcodes, the stdlib roster, and the enum vocabularies. plan/build.rs generates the row structs, the canonical encoder, the validating decoder, the opcode and stdlib enums, and FORMAT_DIGEST from this file. Nothing here is hand-mirrored anywhere else. Kernel node types, props, and style rows are NOT declared here: plan rows carry the kernel's ordinals as numbers, and the crates that give them meaning take the vocabulary from exact-kernel (LLP 1004 D2).",

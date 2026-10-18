@@ -11,6 +11,58 @@ use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// Clock ticks format cached instants without evaluating app code.
+    pub(super) fn live_time(
+        &mut self,
+        i: u32,
+        element: &str,
+        e: &str,
+        scope: &crate::code::Scope,
+    ) -> Result<(), String> {
+        let plan = self.plan;
+        let row = &plan.nodes[i as usize];
+        if element == "time"
+            || (element == "progress"
+                && row
+                    .bindings
+                    .iter()
+                    .any(|b| plan.binding(b).id == PropId::Start as u16))
+        {
+            let mut values = Vec::new();
+            for prop in [
+                PropId::Datetime,
+                PropId::TimeFormat,
+                PropId::Start,
+                PropId::End,
+            ] {
+                let value = row
+                    .bindings
+                    .iter()
+                    .map(|b| plan.binding(b))
+                    .find(|b| b.kind == BindingKind::Prop && b.id == prop as u16);
+                values.push(match value {
+                    Some(b) => format!("({})()", self.f(b.expr, scope)?),
+                    None => "null".into(),
+                });
+            }
+            let live = self.uses.rt("liveTime");
+            let inline = row
+                .parent
+                .is_some_and(|p| plan.nodes[p.0 as usize].node_type == NodeType::Text as u8);
+            let reserve = !inline
+                && !row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+                    b.kind == BindingKind::Style
+                        && (b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16)
+                });
+            let _ = write!(
+                self.out,
+                "{live}({e},()=>[{}],{reserve});",
+                values.join(",")
+            );
+        }
+        Ok(())
+    }
+
     /// Whether image `i` needs symbols.js — it draws a symbol, its source is
     /// bound, or its source is an `app:/` file, which symbols.js resolves
     /// (`data-app-src`, LLP 1069.002 D7) — and whether its source is bound.

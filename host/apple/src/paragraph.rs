@@ -540,3 +540,53 @@ impl<D: DataSource> Host<D> {
         props
     }
 }
+
+/// Props by their own names, including derived text advances.
+pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
+    let mut out = exact_kernel::SortedMap::default();
+    for (id, value) in node.props.iter() {
+        let text = match value {
+            PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,
+            PropValue::Str(s) => s.to_string(),
+            PropValue::Bool(b) => b.to_string(),
+            PropValue::Int(i) => i.to_string(),
+            PropValue::Float(f) if matches!(id, PropId::Datetime | PropId::Start | PropId::End) => {
+                f.to_string()
+            }
+            PropValue::Float(f) => style::num(*f as f32),
+        };
+        out.insert(id.name().to_string(), text);
+    }
+    // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
+    if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
+        out.insert(PropId::Text.name().to_string(), shown);
+    }
+    style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+    if let Some(scale) = fit_scale(node) {
+        out.insert("fitScale".into(), scale);
+    }
+    if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
+        // The runner preserves collection anchors and follows the end using
+        // sequence-checked corrections. Eager native autoscroll would compete.
+        out.remove(PropId::ScrollFollowEnd.name());
+    }
+    if node.node_type == NodeType::TextInput {
+        out.remove("spellcheck");
+        if let Some(value) = node.spellcheck() {
+            out.insert("spellcheck".into(), value.to_string());
+        }
+    }
+    if node.node_type == NodeType::Image {
+        if let Some(role) = node
+            .props
+            .str(PropId::ImageSource)
+            .and_then(|s| s.strip_prefix("symbol:"))
+        {
+            out.insert(
+                "symbolName".into(),
+                exact_kernel::apple_symbol_name(role).into(),
+            );
+        }
+    }
+    out
+}

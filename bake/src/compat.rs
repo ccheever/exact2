@@ -123,6 +123,28 @@ pub fn compatibility_id_sources(
     grants: Option<&str>,
     rust_grants: Option<&str>,
 ) -> Result<Compat, String> {
+    compatibility_id_sources_with_entries(
+        app_dir,
+        platform,
+        target,
+        manifest,
+        grants,
+        rust_grants,
+        None,
+    )
+}
+
+/// Reuse entry plans already compiled for source declarations and refresh checks.
+/// With `None`, compatibility generation compiles the manifest's entries itself.
+pub fn compatibility_id_sources_with_entries(
+    app_dir: &Path,
+    platform: &str,
+    target: &str,
+    manifest: &Manifest,
+    grants: Option<&str>,
+    rust_grants: Option<&str>,
+    entries: Option<&std::collections::BTreeMap<String, contract::snapshot::Entry>>,
+) -> Result<Compat, String> {
     // Cargo must rebake even when only the explicit trust selection changes.
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
@@ -159,14 +181,22 @@ pub fn compatibility_id_sources(
         if matches!(platform, "ios" | "macos") {
             crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
         }
+        let compiled;
+        let entries = match entries {
+            Some(entries) => entries,
+            None => {
+                compiled = contract::snapshot::entries(app_dir)?;
+                &compiled
+            }
+        };
         crate::receipt::emit(
             &mut compat,
             &trust,
             app_dir,
-            platform,
-            target,
+            (platform, target),
             manifest,
             Path::new(&out),
+            entries,
         )?;
     }
     Ok(compat)
@@ -411,6 +441,13 @@ fn compatibility_with_trust(
                 inputs["protocolHandlers"] = handlers.clone();
             }
         }
+    }
+    let widgets = manifest.widgets()?;
+    if !widgets.is_empty() {
+        inputs["widgets"] = json!(widgets
+            .iter()
+            .map(|w| json!({"kind":w.kind,"families":w.families}))
+            .collect::<Vec<_>>());
     }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An

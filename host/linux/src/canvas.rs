@@ -165,6 +165,9 @@ mod gradient;
 #[path = "canvas/input.rs"]
 mod input;
 #[cfg(target_os = "android")]
+#[path = "canvas/time.rs"]
+pub mod time;
+#[cfg(target_os = "android")]
 pub use device::{configure, window, Told};
 #[cfg(target_os = "android")]
 #[path = "canvas/jni.rs"]

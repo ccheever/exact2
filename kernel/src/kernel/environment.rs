@@ -2,6 +2,11 @@
 use super::*;
 
 impl Kernel {
+    /// Format an instant with the same host that measures its reserved width.
+    pub fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
+        self.measurer.format_time(request)
+    }
+
     /// Say which font stacks, by id, are the system's (LLP 1115.000 D12.3):
     /// those whose first member is a generic family. Bold Text weights
     /// them; unsaid, the eight generic stacks are.
