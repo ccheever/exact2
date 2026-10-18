@@ -117,3 +117,32 @@ test('file, citation and skill faces paint the displayed label while preserving 
     expect(face.drawn('FindParts(parts=run.findParts)', { ...scope, label: 'Different', chip: { kind: 'skill', label: 'Different' } })).toBeFalse();
   }
 });
+
+for (const field of ['threadId', 'environmentId'] as const) {
+  test(`${field} changing during unsubscribe cannot admit the prior owner's query`, async () => {
+    const { client, calls } = fixture(true);
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    client.restAccess = () => ({ call: async (request: Obj) => {
+      calls.push(request);
+      if (calls.length === 1) { entered(); await gate; }
+      return { id: '1-1' };
+    } }) as ReturnType<T3Client['restAccess']>;
+    const state = threadFindState(client);
+    state.now = 1000; state.model.show(); state.model.edit('old-query', 1000);
+    state.key = 'thread-find:prior'; state.retired.push('thread-find:older');
+    const tick = threadFindTick(client, native, 1200);
+    await waiting;
+    client[field] = 'new-owner';
+    if (field === 'environmentId') expect(threadFindView(client).open).toBeFalse();
+    release(); await tick;
+    expect(calls).toEqual([{ op: 'unsubscribe', key: 'thread-find:older' }]);
+    expect(threadFindView(client).open).toBeFalse();
+    expect(threadFindState(client).retired).toContain('thread-find:prior');
+    await threadFindTick(client, native, 1300);
+    expect(calls.some(call => call.op === 'unsubscribe' && call.key === 'thread-find:prior')).toBeTrue();
+    expect(calls.some(call => call.op === 'subscribe')).toBeFalse();
+    expect(threadFindState(client).retired).toEqual([]);
+  });
+}

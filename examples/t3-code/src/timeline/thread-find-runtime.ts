@@ -71,10 +71,19 @@ export async function threadFindTick(client: T3Client, native: Native, now: numb
   const state = threadFindState(client), model = state.model; state.now = now; state.viewport = viewport;
   const current = () => threadFindState(client) === state;
   if (state.key && (!model.open || model.due > 0 && !model.pending)) { state.retired.push(state.key); state.key = ''; }
-  for (const key of state.retired.splice(0)) {
+  while (state.retired.length) {
+    const key = state.retired[0]!;
     try { await client.restAccess(native).call({ op: 'unsubscribe', key }); }
-    catch (error) { if (letGo(error)) { state.retired.push(key); throw error; } }
+    catch (error) { if (letGo(error)) throw error; }
+    state.retired.shift();
+    if (!current()) {
+      const next = threadFindState(client);
+      next.retired = [...new Set([...next.retired, ...state.retired])];
+      state.retired.length = 0;
+      return threadFindView(client);
+    }
   }
+  if (!current()) return threadFindView(client);
   model.changed(`${client.thread?.sequence ?? 0}`, now);
   const names = markdownSkills(skills);
   const request = model.request(client.threadId, names, now);
