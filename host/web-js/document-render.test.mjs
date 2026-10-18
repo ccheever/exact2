@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { dirname, resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
 import { createDocument } from './dom.js';
+import { open } from '../../scripts/agent.mjs';
 
 async function renderedPages(source, check, files = {}, manifest = {}) {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -315,3 +316,50 @@ test('the render DOM compares document positions, across trees one way each', ()
     expect(x.compareDocumentPosition(y)).toBe(there);
   }
 });
+
+test('Rust-rendered spinners follow parent display after adoption without a position binding', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/progress-document-agent-test-'));
+  let browser, server;
+  try {
+    const source = resolve(dir, 'app.contract'), dist = resolve(dir, 'dist');
+    writeFileSync(source, `routes nav
+  home "/" render=build
+
+component ProgressDocument
+  state grid = false
+  action toggle
+    grid = not grid
+  view
+    column
+      button "Toggle" testId="toggle" press=toggle width=100 height=24
+      box display=(grid ? "grid" : "block") width=240 height=40
+        progress testId="spinner"
+      box display=(grid ? "grid" : "block") justify-items="center" width=240 height=40
+        progress testId="sized" width=20 height=20
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', dist, '--render', 'rust'], {
+      cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    expect(readFileSync(resolve(dist, 'index.html'), 'utf8')).toContain('justify-self:start;');
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await open({ host: 'web', url: server.url.href });
+    expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+    const frames = () => browser.carrier.evaluate(`['spinner','sized'].map(id => {
+      const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
+      return { x: r.x - p.x, width: r.width };
+    })`);
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+    await browser.tap('toggle');
+    expect(await frames()).toEqual([{ x: 0, width: 240 }, { x: 110, width: 20 }]);
+    await browser.tap('toggle');
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);

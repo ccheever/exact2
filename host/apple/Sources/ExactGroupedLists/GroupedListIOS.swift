@@ -371,7 +371,8 @@ final class GroupedListHost: GroupedLists {
             return ["error": "tap #\(id): its cell's middle is under the software keyboard; dismiss it or scroll the row above it first"]
         }
         let at = presenter.viewportScroll.convert(middle, from: nil)
-        let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x), Agent.r2(at.y - presenter.viewportScroll.contentOffset.y)],
+        let page = presenter.viewportScroll.pageOrigin // a box's space (LLP 1130)
+        let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x - page.x), Agent.r2(at.y - page.y)],
                                     "delivery": "host-activation", "native": "grouped-list"]
         if row.view != node.id, row.accessory == "toggle" {
             guard list.toggle(row.view) else { return ["error": "tap #\(id): the switch is disabled"] }
@@ -400,7 +401,8 @@ final class GroupedListHost: GroupedLists {
         var seen: [String: Any] = ["view": "UICollectionViewListCell", "accessory": row.accessory, "custom": row.custom]
         if let cell = list.cell(row.view) {
             let r = cell.convert(cell.bounds, to: presenter.viewportScroll)
-            seen["frame"] = [Agent.r2(r.minX), Agent.r2(r.minY - presenter.viewportScroll.contentOffset.y), Agent.r2(r.width), Agent.r2(r.height)]
+            let page = presenter.viewportScroll.pageOrigin
+            seen["frame"] = [Agent.r2(r.minX - page.x), Agent.r2(r.minY - page.y), Agent.r2(r.width), Agent.r2(r.height)]
         }
         return seen
     }
@@ -755,7 +757,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         guard let container = viewport.superview, owner.window != nil, owner.isDescendant(of: viewport),
               presenter.keyboardInset == 0, viewport.contentSize.height <= viewport.bounds.height + 0.5,
               viewport.contentSize.width <= viewport.bounds.width + 0.5 else { skirt?.isHidden = true; return }
-        let port = viewport.frame, whole = container.bounds, box = owner.convert(owner.bounds, to: container)
+        // The page's area, which the viewport is drawn past (LLP 1130).
+        let port = presenter.pageFrame, whole = container.bounds, box = owner.convert(owner.bounds, to: container)
         let meets = { (a: CGFloat, b: CGFloat) in abs(a - b) < 0.5 }
         let top = meets(box.minY, port.minY) && port.minY > whole.minY ? whole.minY : box.minY
         let bottom = meets(box.maxY, port.maxY) && port.maxY < whole.maxY ? whole.maxY : box.maxY
@@ -775,10 +778,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             skirtKey = sides
             view.backgroundColor = UIColor { [weak root = host.presenter.root] traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? ThemeRoles.color("grouped-background", in: root, or: .systemGroupedBackground) }
         }
-        if view.superview !== container || container.subviews.firstIndex(of: view).map({ $0 > (container.subviews.firstIndex(of: viewport) ?? 0) }) == true {
-            container.insertSubview(view, belowSubview: viewport)
+        // Inside the viewport, behind the document: the viewport now covers the whole view.
+        let document = presenter.root
+        if view.superview !== viewport || viewport.subviews.firstIndex(of: view).map({ $0 > (viewport.subviews.firstIndex(of: document) ?? 0) }) == true {
+            viewport.insertSubview(view, belowSubview: document)
         }
-        assign(view, \.frame, reach)
+        assign(view, \.frame, viewport.convert(reach, from: container))
         assign(view, \.isHidden, false)
     }
     #endif

@@ -21,6 +21,12 @@ pub(crate) fn neutral() -> bool {
     roles::column() == roles::Column::Neutral
 }
 
+/// Whether this process paints the Material look (Android's reader, and the
+/// Material oracle's door): `app::show_material_look`.
+pub(crate) fn material() -> bool {
+    metrics::column() == metrics::Column::Material
+}
+
 /// A length of the neutral look for a control whose font size is `em`, in
 /// pixels; `index` is one of `generated::metric`. None of the rows a control
 /// reads is in `rem`.

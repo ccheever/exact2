@@ -321,15 +321,46 @@ pub fn project(
         }
         out.push(Some(parts));
     }
+    let progress: Vec<_> = out
+        .iter()
+        .map(|p| {
+            p.as_ref()
+                .is_some_and(|p| p.props.contains_key("data-exact-progress"))
+        })
+        .collect();
     // Arms and each copies share templates. Only candidacy is static;
     // paint.js decides isolation from the actual instance's descendants.
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
         crate::paint::attributes(&node.facts(), &mut parts.props);
+        // The immediate parent's live display supplies the block-flow exemption.
+        // A bound display writes the same property through `style_row`; regions
+        // inherit it from their actual element parent without a DOM scan.
+        if tree[i].iter().any(|c| progress[*c as usize]) {
+            let justify = if node.style.display == exact_kernel::Display::Block {
+                "start"
+            } else {
+                "auto"
+            };
+            parts
+                .css
+                .push_str(&format!("--exact-progress-justify:{justify};"));
+        }
+        if progress[i] {
+            parts.css = parts.css.replace("justify-self:start;", "");
+            let justify = if node.style.position_type == exact_kernel::PositionType::Absolute {
+                "auto"
+            } else {
+                PROGRESS_JUSTIFY
+            };
+            parts.css.push_str(&format!("justify-self:{justify};"));
+        }
     }
     Ok(out)
 }
+
+pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
 
 /// Every `for` row's roots, through any region at its top.
 fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {

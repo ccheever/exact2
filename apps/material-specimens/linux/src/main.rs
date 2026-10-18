@@ -269,11 +269,16 @@ fn draw(
         let (view, painted) = field;
         let kernel = p.host().kernel();
         let props = &kernel.node(view).ok_or("no field")?.props;
-        let said = [
-            (painted.label, props.str(PropId::Placeholder)),
+        // A field's label is its placeholder; a button's, its title.
+        let title = said(&p, view);
+        let words = [
+            (
+                painted.label,
+                props.str(PropId::Placeholder).or(title.as_deref()),
+            ),
             (painted.value, props.str(PropId::Value)),
         ];
-        for (text, words) in said {
+        for (text, words) in words {
             let (Some(text), Some(words)) = (text, words) else {
                 continue;
             };
