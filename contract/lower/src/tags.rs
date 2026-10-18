@@ -420,6 +420,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // the six actions by `setActionHandler`'s names, and the seconds a
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
+        "decorations" => AttrTarget::Prop(PropId::Decorations),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
         "seekforward" => AttrTarget::Handler("seekforward"),
         "seekto" => AttrTarget::Handler("seekto"),
@@ -839,7 +840,12 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
-        "fit" | "objectFit" => "object-fit",
+        "fit" | "objectFit" | "resizeMode" => "object-fit",
+        // React Native's names for CSS's text rows.
+        "numberOfLines" => "line-clamp",
+        "ellipsizeMode" => "text-overflow",
+        "textTransform" => "text-transform",
+        "fontVariant" => "font-variant-numeric",
         // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
         "adjustsFontSizeToFitWidth"
         | "adjustsFontSizeToFit"
@@ -984,6 +990,8 @@ pub const HEAD_FIELDS: &[&str] = &[
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
     similar(name, |candidate| match attr(candidate) {
+        // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+        _ if candidate == crate::states::PRESS_OPACITY_TO => false,
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
         Some(_) => !style_only,
         None => false,

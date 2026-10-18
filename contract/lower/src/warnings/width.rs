@@ -40,7 +40,7 @@ fn container(tag: &str) -> bool {
 /// The rows a node is drawn with: its `class`'s style rows, then its own,
 /// which win by coming last. `None` when the class is a choice or names no
 /// style the file declares, which the walk cannot see through.
-fn rows<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<Vec<&'a Attr>> {
+pub(super) fn rows<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<Vec<&'a Attr>> {
     let mut all: Vec<&Attr> = Vec::new();
     for class in attrs.iter().filter(|a| a.name == "class") {
         let Expr::Ident(name, _) = &class.value else {
@@ -53,7 +53,7 @@ fn rows<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<Vec<&'a Attr>>
 }
 
 /// The last row named `name` among `rows`.
-fn last<'a>(rows: &[&'a Attr], name: &str) -> Option<&'a Attr> {
+pub(super) fn last<'a>(rows: &[&'a Attr], name: &str) -> Option<&'a Attr> {
     rows.iter().rev().find(|a| a.name == name).copied()
 }
 

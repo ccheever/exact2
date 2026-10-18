@@ -1,3 +1,5 @@
+//! GPU product identity shared with the bake.
+
 /// A GPU product's digest: its exact bytes, except that a signed 64-bit
 /// Mach-O's code signature is left out, with the three sizes that follow it
 /// (the signature command's `datasize`, `__LINKEDIT`'s `vmsize` and
@@ -66,6 +68,11 @@ mod tests {
         );
         assert_ne!(ours, code_digest(&signed(b"ad-hoc", 2)));
         assert_ne!(ours, crate::sha256_hex(&signed(b"ad-hoc", 1)));
-        assert_eq!(code_digest(b"not Mach-O"), crate::sha256_hex(b"not Mach-O"));
+        let original = signed(b"ad-hoc", 1);
+        let resigned = signed(b"a recipient's longer signature", 1);
+        assert_ne!(crate::sha256_hex(&original), crate::sha256_hex(&resigned));
+        for bytes in [b"not Mach-O".as_slice(), &original[..100]] {
+            assert_eq!(code_digest(bytes), crate::sha256_hex(bytes));
+        }
     }
 }

@@ -1,0 +1,30 @@
+// A peer's persisted write must update every window without a restart.
+component StoreRefresh
+  state favourite = false persist
+  state marker = false persist
+  state delay = 10000 persist
+  state local = 0
+  task short when delay == 10000
+    after(10000, timeout)
+  task long when delay == 20000
+    after(20000, timeout)
+  action timeout
+    local = local
+  action wait
+    delay = delay + 10000
+  action star
+    favourite = !favourite
+  action mark
+    marker = !marker
+  action increment
+    local = local + 1
+  view
+    column
+      button press=star testId="favourite"
+        text favourite ? "Favourite" : "Not a favourite"
+      button press=mark testId="marker"
+        text marker ? "Marked" : "Unmarked"
+      button press=wait testId="wait"
+        text "Wait"
+      button press=increment testId="local"
+        text `${local}`

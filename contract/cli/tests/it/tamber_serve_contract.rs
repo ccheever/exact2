@@ -5,7 +5,7 @@
 #![cfg(unix)]
 
 use super::tamber_serve::{app, digest, Serve};
-use serde_json::json;
+use serde_json::{json, Value};
 
 const DESIGN: &str = "tamber t\n\ntheme\n  accent.fill = #0a7aff\n  accent.pressed = #0050c8\n";
 
@@ -304,6 +304,203 @@ fn set_state_round_three_edges() {
     assert!(
         broken["ok"]["files"]["ui/post.contract"].is_string(),
         "{broken}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// history and revert read a `.contract` file's state rows: an edit each,
+/// `code` for its other lines; a revert sets a row back, finds one already
+/// back, refuses one moved on, and leaves the code.
+#[test]
+fn history_reads_state_rows_and_revert_plans_them() {
+    let dir = app("state-history", DESIGN);
+    let before = "style Post\n  opacity=1\n  :hover\n    opacity=0.9\n  :active\n    opacity=0.5\n\ncomponent App\n  view\n    column class=Post\n      text \"a\"\n";
+    let after = "style Post\n  opacity=1\n  :hover\n    opacity=0.8\n  :active\n    opacity=0.4\n    background-color=\"#000000\"\n\ncomponent App\n  view\n    column class=Post\n      text \"b\"\n";
+    // Now: hover moved on, active already back, the colour as the commit made it.
+    let now = "style Post\n  opacity=1\n  :hover\n    opacity=0.7\n  :active\n    opacity=0.5\n    background-color=\"#000000\"\n\ncomponent App\n  view\n    column class=Post\n      text \"b\"\n";
+    std::fs::write(dir.join("app.contract"), now).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let pair = json!([{"file": "app.contract", "before": before, "after": after}]);
+    let (compared, _) = s.ask(json!({"method": "compare", "pairs": pair}));
+    let file = &compared["ok"]["files"][0];
+    assert_eq!(file["code"], true, "{compared}");
+    let edits: Vec<(String, String, Value)> = file["edits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["state"].as_str().unwrap().into(),
+                e["row"].as_str().unwrap().into(),
+                e["after"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        edits,
+        [
+            ("hover".into(), "opacity".into(), json!("0.8")),
+            ("active".into(), "opacity".into(), json!("0.4")),
+            (
+                "active".into(),
+                "background-color".into(),
+                json!("\"#000000\"")
+            ),
+        ]
+    );
+    let (planned, _) = s.ask(json!({"method": "revert-plan", "pairs": pair}));
+    let p = &planned["ok"];
+    assert_eq!(
+        p["ops"],
+        json!([{"op": "unset-state", "style": "Post", "state": "active", "row": "background-color", "file": "app.contract"}]),
+        "{planned}"
+    );
+    assert_eq!(p["already"][0]["edit"]["row"], "opacity", "{planned}");
+    assert_eq!(p["conflicts"][0]["edit"]["state"], "hover", "{planned}");
+    assert_eq!(p["conflicts"][0]["now"], "0.7", "{planned}");
+    assert_eq!(p["code"], json!(["app.contract"]));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review round 1 of the history follow-up: a literal's kind counts
+/// (`0.5` to `"0.5"`, `true` to `false`); a style declared twice is
+/// refused; a node's state header is code; a file the commit created is
+/// refused, not stripped; a border row put back last is refused.
+#[test]
+fn history_holds_its_edges() {
+    let dir = app("state-history2", DESIGN);
+    let base = "style Post\n  opacity=1\n  :active\n    opacity=0.5\n    border-left-color=\"#00ff00\"\n\ncomponent App\n  view\n    column class=Post\n      :hover\n        opacity=0.9\n      text \"a\"\n";
+    std::fs::write(dir.join("app.contract"), base).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let compare = |s: &mut Serve, before: Value, after: Value| {
+        s.ask(json!({"method": "compare", "pairs": [{"file": "app.contract", "before": before, "after": after}]})).0["ok"]["files"][0].clone()
+    };
+    let kind = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("opacity=0.5", "opacity=\"0.5\"")),
+    );
+    assert_eq!(kind["edits"][0]["after"], "\"0.5\"", "{kind}");
+    let twice = compare(
+        &mut s,
+        json!(base),
+        json!(format!("{base}\nstyle Post\n  opacity=1\n")),
+    );
+    assert!(
+        twice["refused"].as_str().unwrap().contains("twice"),
+        "{twice}"
+    );
+    let node = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("      :hover", "      :active")),
+    );
+    assert_eq!(node["code"], true, "{node}");
+    assert_eq!(node["edits"], json!([]), "{node}");
+    let header = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("  :active\n", "  :active // pressed\n")),
+    );
+    assert_eq!(header["code"], true, "{header}");
+    let revert = |s: &mut Serve, before: Value, after: Value| {
+        s.ask(json!({"method": "revert-plan", "pairs": [{"file": "app.contract", "before": before, "after": after}]})).0["ok"].clone()
+    };
+    let created = revert(&mut s, Value::Null, json!(base));
+    assert!(
+        created["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("created"),
+        "{created}"
+    );
+    // The commit removed `border-color` from before `border-left-color`.
+    let had = base.replace(
+        "    border-left-color",
+        "    border-color=\"#ff0000\"\n    border-left-color",
+    );
+    let back = revert(&mut s, json!(had), json!(base));
+    assert!(
+        back["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("paint over"),
+        "{back}"
+    );
+    // Round 2: put back last where it was last, it goes back.
+    let last = base.replace(
+        "    border-left-color=\"#00ff00\"\n",
+        "    border-left-color=\"#00ff00\"\n    border-color=\"#ff0000\"\n",
+    );
+    let ok = revert(&mut s, json!(last), json!(base));
+    assert_eq!(ok["ops"][0]["op"], "set-state", "{ok}");
+    // A "(" or "//" in a string is no parenthesis or comment.
+    let quoted = base.replace("opacity=0.5", "opacity=0.5\n    box-shadow=\"( // x\"");
+    let code = compare(
+        &mut s,
+        json!(quoted),
+        json!(quoted.replace("text \"a\"", "text \"b\"")),
+    );
+    assert_eq!(code["code"], true, "{code}");
+    // A "//" in a string leaves nothing behind.
+    let url = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("opacity=0.5", "opacity=0.5\n    box-shadow=\"https://x\"")),
+    );
+    assert!(url["code"].is_null() && url["edits"].is_array(), "{url}");
+    // Unset would take a comment on the row's line.
+    std::fs::write(
+        dir.join("app.contract"),
+        base.replace("opacity=0.5", "opacity=0.5 // kept"),
+    )
+    .unwrap();
+    let added = revert(
+        &mut s,
+        json!(base.replace("    opacity=0.5\n", "")),
+        json!(base),
+    );
+    assert!(
+        added["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("comment"),
+        "{added}"
+    );
+    // Round 3: two rows a commit added, unset together, empty a block
+    // whose header has a comment now.
+    let two = base.replace(
+        "  :active\n    opacity=0.5\n    border-left-color=\"#00ff00\"\n",
+        "",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        base.replace("  :active\n", "  :active // keep\n"),
+    )
+    .unwrap();
+    let both = revert(&mut s, json!(two), json!(base));
+    assert_eq!(both["ops"], json!([]), "{both}");
+    assert_eq!(both["conflicts"].as_array().unwrap().len(), 2, "{both}");
+    // Another side's row is no overlap: put back last, it goes back.
+    std::fs::write(dir.join("app.contract"), base).unwrap();
+    let side = base.replace(
+        "    border-left-color",
+        "    border-top-color=\"#0000ff\"\n    border-left-color",
+    );
+    let sides = revert(&mut s, json!(side), json!(base));
+    assert_eq!(sides["ops"][0]["row"], "border-top-color", "{sides}");
+    // A `border` shorthand is a border row: put back last, it would paint over.
+    let short = base.replace(
+        "    border-left-color",
+        "    border=\"1px solid #ff0000\"\n    border-left-color",
+    );
+    let shorts = revert(&mut s, json!(short), json!(base));
+    assert!(
+        shorts["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("paint over"),
+        "{shorts}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

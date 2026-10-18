@@ -123,6 +123,28 @@ pub fn compatibility_id_sources(
     grants: Option<&str>,
     rust_grants: Option<&str>,
 ) -> Result<Compat, String> {
+    compatibility_id_sources_with_entries(
+        app_dir,
+        platform,
+        target,
+        manifest,
+        grants,
+        rust_grants,
+        None,
+    )
+}
+
+/// Reuse entry plans already compiled for source declarations and refresh checks.
+/// With `None`, compatibility generation compiles the manifest's entries itself.
+pub fn compatibility_id_sources_with_entries(
+    app_dir: &Path,
+    platform: &str,
+    target: &str,
+    manifest: &Manifest,
+    grants: Option<&str>,
+    rust_grants: Option<&str>,
+    entries: Option<&std::collections::BTreeMap<String, contract::snapshot::Entry>>,
+) -> Result<Compat, String> {
     // Cargo must rebake even when only the explicit trust selection changes.
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
@@ -159,14 +181,22 @@ pub fn compatibility_id_sources(
         if matches!(platform, "ios" | "macos") {
             crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
         }
+        let compiled;
+        let entries = match entries {
+            Some(entries) => entries,
+            None => {
+                compiled = contract::snapshot::entries(app_dir)?;
+                &compiled
+            }
+        };
         crate::receipt::emit(
             &mut compat,
             &trust,
             app_dir,
-            platform,
-            target,
+            (platform, target),
             manifest,
             Path::new(&out),
+            entries,
         )?;
     }
     Ok(compat)
@@ -412,6 +442,19 @@ fn compatibility_with_trust(
             }
         }
     }
+    let widgets = manifest.widgets()?;
+    if !widgets.is_empty() {
+        inputs["widgets"] = json!(widgets
+            .iter()
+            .map(|w| json!({"kind":w.kind,"families":w.families,"watchFamilies":w.watch_families,"title":w.title,"description":w.description}))
+            .collect::<Vec<_>>());
+    }
+    let activities = manifest.live_activities()?;
+    if !activities.is_empty() {
+        inputs["liveActivities"] = json!(activities.iter().map(|a| json!({
+            "kind":a.kind, "title":a.title, "description":a.description, "push":a.push, "frequent":a.frequent
+        })).collect::<Vec<_>>());
+    }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
     // app with one artifact carries no key, so its id and bytes are as before.
@@ -480,10 +523,12 @@ fn executors(app_dir: &Path, platform: &str) -> Vec<String> {
 
 /// The data crate's source-input digest (LLP 1030 D3a): its tree, the
 /// workspace lockfile, the toolchain — never its compiled output, which a
-/// `wasm32` build can keep while the native build moved.
+/// `wasm32` build can keep while the native build moved. A `data/` without
+/// a `Cargo.toml` is no crate: TypeScript modules there are the bundle's,
+/// and an edit to them is an update, not a new cohort.
 fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
     let dir = app_dir.join("data");
-    if !dir.is_dir() {
+    if !dir.join("Cargo.toml").is_file() {
         return Ok(serde_json::Value::Null);
     }
     let mut files = Vec::new();
@@ -698,6 +743,79 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("app.json"), "{}").unwrap();
         assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.resolved");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn widget_gallery_labels_require_a_new_binary_cohort() {
+        let dir = app("widget-label-cohort");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        manifest.json["widgets"] = serde_json::json!([{"kind":"card","families":["systemSmall"],
+            "component":"Card","props":"Props","refresh":"refresh","preview":{}}]);
+        let build = |manifest: &Manifest| {
+            compatibility_with_trust(
+                &dir,
+                "ios",
+                "aarch64-apple-ios",
+                manifest,
+                Some(""),
+                "development",
+            )
+            .unwrap()
+        };
+        let original = build(&manifest);
+        for key in ["title", "description"] {
+            let mut labelled = manifest.clone();
+            labelled.json["widgets"][0][key] = serde_json::json!("Next trains");
+            assert_ne!(original.id, build(&labelled).id, "{key} is generated Swift");
+        }
+        let mut watch = manifest.clone();
+        watch.json["widgets"][0]["watchFamilies"] = serde_json::json!(["accessoryCorner"]);
+        assert_ne!(
+            original.id,
+            build(&watch).id,
+            "watch families are generated Swift"
+        );
+        manifest.json["widgets"][0]["preview"] = serde_json::json!({"title":"new preview"});
+        assert_eq!(
+            original.id,
+            build(&manifest).id,
+            "preview props ride the bundle"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn activity_state_rides_the_bundle_and_capabilities_require_a_binary() {
+        let dir = app("activity-cohort");
+        let mut m = Manifest::read(&dir).unwrap();
+        m.json["live_activities"] =
+            serde_json::json!([{"kind":"train","component":"Train","state":"State","preview":{}}]);
+        let build = |m: &Manifest| {
+            compatibility_with_trust(&dir, "ios", "aarch64-apple-ios", m, Some(""), "development")
+                .unwrap()
+        };
+        let original = build(&m);
+        for key in ["title", "description", "push", "frequent"] {
+            let mut changed = m.clone();
+            changed.json["live_activities"][0][key] = if key == "push" || key == "frequent" {
+                serde_json::json!(true)
+            } else {
+                serde_json::json!("Train")
+            };
+            assert_ne!(
+                original.id,
+                build(&changed).id,
+                "{key} changes generated Swift or entitlements"
+            );
+        }
+        m.json["live_activities"][0]["state"] = serde_json::json!("NextState");
+        m.json["live_activities"][0]["preview"] = serde_json::json!({"title":"New state"});
+        assert_eq!(
+            original.id,
+            build(&m).id,
+            "state shapes and preview values ride the bundle"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -985,7 +1103,18 @@ mod tests {
         std::fs::remove_file(dir.join("app.ts")).unwrap();
         // A byte in the data crate is identity.
         std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
-        assert_ne!(with_icon, id(&dir, "ios"), "a data crate edit moves it");
+        let moved = id(&dir, "ios");
+        assert_ne!(with_icon, moved, "a data crate edit moves it");
+        // A `data/` of TypeScript modules is no crate: its edits are not identity.
+        std::fs::remove_file(dir.join("data/Cargo.toml")).unwrap();
+        let typescript = id(&dir, "ios");
+        std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // again\n").unwrap();
+        assert_eq!(
+            typescript,
+            id(&dir, "ios"),
+            "a data/ without Cargo.toml is not a crate"
+        );
+        assert_ne!(typescript, moved);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

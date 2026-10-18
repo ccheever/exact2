@@ -211,6 +211,131 @@
         "additionalProperties": false
       }
     },
+    "live_activities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "component",
+          "state",
+          "preview"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "preview": {
+            "type": "object"
+          },
+          "push": {
+            "type": "boolean",
+            "default": false
+          },
+          "frequent": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "widgets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "families",
+          "component",
+          "props",
+          "refresh",
+          "preview"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "description": "Gallery display name; defaults to the humanised kind."
+          },
+          "description": {
+            "type": "string",
+            "description": "Gallery description; defaults to the humanised kind."
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "props": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "refresh": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "families": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "systemSmall",
+                "systemMedium",
+                "systemLarge",
+                "systemExtraLarge",
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline",
+                "accessoryCorner"
+              ]
+            }
+          },
+          "watchFamilies": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline",
+                "accessoryCorner"
+              ]
+            },
+            "description": "Optional watchOS families; defaults to the accessory families in families."
+          },
+          "preview": {
+            "type": "object"
+          }
+        }
+      }
+    },
     "protocol_handlers": {
       "type": "array",
       "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",
@@ -220,7 +345,8 @@
         "additionalProperties": false,
         "properties": {
           "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
-          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" }
+          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" },
+          "distribution_only": { "type": "boolean", "description": "Register this handler in Apple bundles only for an archive or --distribution build. Defaults to false." }
         }
       }
     },

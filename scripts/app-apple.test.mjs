@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, resolve, toNamespacedPath } from 'node:path';
 import { HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots } from './app.mjs';
 import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
-import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
+import { iosAssets, entitlements, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
@@ -122,6 +122,8 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
     assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
     assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
+    assert.equal(keys.ExactLaunchImageSource, 'icon.png', 'an image of the picture decodes from the catalog');
+    assert.equal(keys.ExactLaunchImageSHA256, launchImageInventory(app).sha256, 'only for the bytes the catalog was made from');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
@@ -291,6 +293,104 @@ test('simulator signing gives each app and embedded host a distinct Keychain ide
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
 });
 
+test('widgets share the owner Keychain groups and leave the host sample outside the group', async () => {
+  const {entitlements, infoPlist} = await import('../host/apple/build.mjs');
+  const app = {id:'com.exact.test',displayName:'Test',manifest:{widgets:[{kind:'next-trains',families:['systemSmall']}],host:{ios:{}}}};
+  for (const target of [app, {...app,id:app.id+'.widgets',widgetAppId:app.id}]) {
+    const ent = entitlements(target,null,true,null,{simulator:true});
+    assert.match(ent, /<key>keychain-access-groups<\/key><array><string>SIMULATORX.com.exact.test<\/string><string>com.exact.test<\/string><\/array>/);
+    assert.match(ent, /group.com.exact.test/);
+  }
+  const host = entitlements({...app,id:app.id+'.host',widgetHost:true},null,true,null,{simulator:true});
+  assert.doesNotMatch(host, /application-groups/);
+  assert.match(host, /SIMULATORX.com.exact.test.host/);
+  assert.doesNotMatch(infoPlist(app,false,{id:app.id+'.host',executable:'ExactHostIOS'}), /ExactAppGroup|ExactAppIdentifier|ExactWidgetKinds/);
+  assert.match(infoPlist(app,false,{executable:'Test'}), /ExactAppGroup/);
+  assert.doesNotMatch(infoPlist(app,false,{executable:'Test'}), /NSSupportsLiveActivities/);
+  assert.doesNotMatch(entitlements(app,null,true,null,{simulator:true}), /aps-environment/);
+});
+
+test('Live Activities alone gate the group, the Keychain group and the plist keys, and a pushed one signs aps-environment (LLP 1126.001 WP13)', async () => {
+  const {entitlements, infoPlist} = await import('../host/apple/build.mjs');
+  const {hasEntries} = await import('../host/apple/widgets.mjs');
+  const app = {id:'com.exact.test',displayName:'Test',manifest:{live_activities:[{kind:'departure',push:true},{kind:'alert',frequent:true}],host:{ios:{}}}};
+  assert.ok(hasEntries(app) && !hasEntries({manifest:{}}) && hasEntries({manifest:{widgets:[{kind:'w',families:['systemSmall']}]}}));
+  const plist = infoPlist(app,false,{executable:'Test'});
+  assert.match(plist, /<key>ExactWidgetKinds<\/key><array><\/array>/, 'the app is the group store\'s writer with no widget kind');
+  assert.match(plist, /<key>NSSupportsLiveActivities<\/key><true\/>/);
+  assert.match(plist, /<key>NSSupportsLiveActivitiesFrequentUpdates<\/key><true\/>/);
+  assert.doesNotMatch(infoPlist({...app,manifest:{...app.manifest,live_activities:[{kind:'departure'}]}},false,{executable:'Test'}), /FrequentUpdates/);
+  assert.doesNotMatch(infoPlist(app,false,{executable:'Test',tv:true}), /NSSupportsLiveActivities|ExactAppGroup/);
+  const sim = entitlements(app,null,true,null,{simulator:true});
+  assert.match(sim, /group.com.exact.test/);
+  assert.match(sim, /<key>aps-environment<\/key><string>development<\/string>/);
+  assert.match(entitlements(app,'TEAM',false), /<key>aps-environment<\/key><string>production<\/string>/, 'a distribution profile signs production');
+  assert.doesNotMatch(entitlements({...app,id:app.id+'.widgets',widgetAppId:app.id},'TEAM',true), /aps-environment/, 'the extension reads no token');
+  assert.doesNotMatch(entitlements({...app,manifest:{...app.manifest,live_activities:[{kind:'departure'}]}},'TEAM',true), /aps-environment/);
+});
+
+test('a device build with entries takes the app\'s and the extension\'s profiles that grant the shared groups, or names what each close profile lacked or failed (LLP 1126.001 WP13)', async () => {
+  const {entryProfiles} = await import('../host/apple/widgets.mjs');
+  const app = {id:'com.exact.test',manifest:{live_activities:[{kind:'departure',push:true}],host:{ios:{}}}};
+  const day = 8.64e7;
+  // A decoded profile as devices.mjs reads one; the real predicates (`profileMisfit`, `profilesFor`) judge it. The
+  // Keychain grant is the one group both sign, `TEAM.com.exact.test`, here without the team wildcard.
+  const make = (name, appId, extra = {}) => {
+    const p = {path:`/p/${name}`, name, team:'TEAM', prefix:'TEAM', appId, devices:['PHONE'], dev:true, expires:new Date(Date.now()+day), entitlements:['application-identifier','get-task-allow','keychain-access-groups'], groups:[], keychain:['TEAM.com.exact.test','com.apple.token'], aps:null, enterprise:false, ...extra};
+    p.method ??= p.dev ? 'development' : p.devices.length ? 'adhoc' : p.enterprise ? 'enterprise' : 'appstore';
+    return p;
+  };
+  const wildcard = make('Team wildcard', 'TEAM.*', {keychain:['TEAM.*','com.apple.token']}), appOnly = make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development'});
+  const extension = make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test']});
+  const pair = entryProfiles({app, udid:'PHONE', installed:[wildcard, appOnly, extension], named:null});
+  assert.equal(pair.app.name, 'App'); assert.equal(pair.extension.name, 'Extension');
+  const refusal = (installed, options = {}) => { try { entryProfiles({app, udid:'PHONE', installed, named:null, ...options}); } catch (e) { return e.message; } assert.fail('refused'); };
+  const wildcardOnly = refusal([wildcard]);
+  assert.match(wildcardOnly, /com.exact.test: "Team wildcard" covers it but none grants the App Group group.com.exact.test, aps-environment \(development on a development profile/);
+  assert.match(wildcardOnly, /com.exact.test.widgets: "Team wildcard" covers it but none grants the App Group group.com.exact.test\n/);
+  assert.match(wildcardOnly, /register the App ID com.exact.test with App Groups \(group.com.exact.test\) and Push Notifications, and the App ID com.exact.test.widgets with App Groups \(group.com.exact.test\); then make one development profile for each App ID that includes this phone/);
+  assert.match(refusal([appOnly]), /com.exact.test: provisioned\n  com.exact.test.widgets: no profile covers it\nIn the Apple Developer portal, register the App ID com.exact.test.widgets with App Groups \(group.com.exact.test\) and Keychain Sharing \(the group <prefix>.com.exact.test, or the team's <prefix>.\*\); then make one development profile for each App ID that includes this phone/);
+  // The grants: the push environment agrees with the method; HealthKit is the app's alone; the Keychain group is
+  // the one both sign (the extension's own App ID's group is no grant of it), or the team wildcard.
+  assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production'}), extension]), /"App" covers it but none grants aps-environment/);
+  assert.match(refusal([appOnly, extension], {required:['com.apple.developer.healthkit']}), /com.exact.test: "App" covers it but none grants com.apple.developer.healthkit\n  com.exact.test.widgets: provisioned/);
+  assert.equal(entryProfiles({app, udid:'PHONE', installed:[appOnly, make('Wildcard extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['TEAM.*']})], named:null}).extension.name, 'Wildcard extension');
+  const ownGroup = refusal([appOnly, make('Own group', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['TEAM.com.exact.test.widgets']})]);
+  assert.match(ownGroup, /com.exact.test.widgets: "Own group" covers it but none grants the Keychain group TEAM.com.exact.test\n/);
+  assert.match(ownGroup, /register the App ID com.exact.test.widgets with Keychain Sharing \(the group TEAM.com.exact.test, or the team's TEAM.\*\)/);
+  // The conditions, each named: expiry, this phone, the team, the prefix, the method (before the phone).
+  const expired = refusal([wildcard, make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development', expires:new Date(Date.now()-day)}), extension]);
+  assert.match(expired, /com.exact.test: "Team wildcard" covers it but none grants the App Group group.com.exact.test, aps-environment[\s\S]*?pushes\); "App" is for it but expired on \d{4}-\d\d-\d\d/);
+  assert.match(expired, /com.exact.test.widgets: provisioned/);
+  assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development', devices:['OTHER']}), extension]), /"App" is for it but does not include this phone/);
+  assert.match(refusal([appOnly, make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], team:'OTHER'})]), /"Extension" is for it but is team OTHER's, not TEAM's/);
+  assert.match(refusal([appOnly, make('Extension', 'OLD.com.exact.test.widgets', {groups:['group.com.exact.test'], prefix:'OLD', keychain:['OLD.*']})]), /"Extension" is for it but has the App ID prefix OLD, not TEAM/);
+  assert.match(refusal([appOnly, make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]})]), /"Store extension" is for it but is App Store, not development/);
+  assert.match(refusal([make('Ad hoc app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:['OTHER']}), extension]), /"Ad hoc app" is for it but is Ad Hoc, not development/);
+  // EXACT_PROFILE is the app's, under the same conditions: on a phone, a development profile for this app.
+  assert.equal(entryProfiles({app, udid:'PHONE', installed:[wildcard, extension], named:appOnly}).app, appOnly);
+  assert.match(refusal([extension], {named:{...appOnly, expires:new Date(Date.now()-day)}}), /com.exact.test: EXACT_PROFILE \(App\) is for it but expired on/);
+  assert.match(refusal([extension], {named:make('Other', 'TEAM.com.other', {groups:['group.com.exact.test'], aps:'development'})}), /EXACT_PROFILE \(Other\) is for it but is for TEAM.com.other, not com.exact.test/);
+  assert.match(refusal([extension], {named:make('Store', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:[]})}), /EXACT_PROFILE \(Store\) is for it but is App Store, not development/);
+  const adHoc = make('Ad hoc app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:['A','B','PHONE']});
+  const adHocExtension = make('Ad hoc extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:['A','B','PHONE']});
+  const namedAdHoc = refusal([extension, adHocExtension], {named:adHoc});
+  assert.match(namedAdHoc, /com.exact.test: EXACT_PROFILE \(Ad hoc app\) is for it but is Ad Hoc, not development\n  com.exact.test.widgets: provisioned\nMake one development profile for each App ID that includes this phone/, 'the development extension profile fits a phone build; the named Ad Hoc one does not');
+  // An archive (no phone): distribution profiles, the extension's of the named one's method, an Ad Hoc pair of
+  // its devices; a development pair is refused, and an unfit named profile keeps the extension on distribution.
+  assert.equal(entryProfiles({app, udid:undefined, installed:[extension, adHocExtension], named:adHoc}).extension, adHocExtension);
+  const archive = refusal([extension, make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]}), {...adHocExtension, devices:['A']}], {udid:undefined, named:adHoc});
+  assert.match(archive, /embeds one Ad Hoc profile in the app and one in its extension[^\n]*On this Mac, for an archive:\n  com.exact.test: provisioned\n  com.exact.test.widgets: "Extension" is for it but is development, not Ad Hoc; "Store extension" is for it but is App Store, not Ad Hoc; "Ad hoc extension" is for it but does not include 2 of the 3 devices the app's profile names\nMake one Ad Hoc profile for each App ID naming the same devices/);
+  const developmentArchive = refusal([extension], {udid:undefined, named:appOnly});
+  assert.match(developmentArchive, /embeds one distribution profile[^\n]*for an archive:\n  com.exact.test: EXACT_PROFILE \(App\) is for it but is development; an archive takes a distribution profile\n  com.exact.test.widgets: "Extension" is for it but is development; an archive takes a distribution profile\nMake one distribution profile for each App ID; install both/);
+  const store = make('Store app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:[]});
+  assert.equal(entryProfiles({app, udid:undefined, installed:[adHocExtension, make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]})], named:store}).extension.name, 'Store extension');
+  const enterprise = make('Enterprise app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:[], enterprise:true});
+  assert.equal(enterprise.method, 'enterprise');
+  assert.equal(entryProfiles({app, udid:undefined, installed:[make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]}), make('Enterprise extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[], enterprise:true})], named:enterprise}).extension.name, 'Enterprise extension');
+  assert.match(refusal([make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]})], {udid:undefined, named:enterprise}), /"Store extension" is for it but is App Store, not enterprise/);
+});
+
 test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {
   // LLP 1069.008.000 D2, D4, D5.
   const {entitlements, tvReach} = await import('../host/apple/build.mjs');
@@ -329,4 +429,88 @@ test('Swift under modules/apple is the app module even when it has no views', as
     if (saved === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = saved;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('widget reload artifact is cached by source and target triple', async () => {
+  const { widgetReload } = await import('../host/apple/widgets.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-widget-reload-')), source = resolve(dir, 'reload.swift');
+  try {
+    writeFileSync(source, 'first');
+    let builds = 0;
+    const options = { directory: dir, source, triple: 'arm64-apple-ios17.0-simulator', sdk: '/sdk', runApple: (_, args) => { builds++; writeFileSync(args.at(-1), 'binary'); } };
+    widgetReload(options); widgetReload(options); assert.equal(builds, 1);
+    writeFileSync(source, 'second'); widgetReload(options); assert.equal(builds, 2);
+    widgetReload({ ...options, triple: 'arm64-apple-ios17.0' }); assert.equal(builds, 3);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('watch entries keep accessory families and omit TypeScript pending the Hermes gate', async () => {
+  const { platformWidgetEntries } = await import('../host/apple/widgets.mjs');
+  const { watchEntries } = await import('../host/apple/watch.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-watch-entry-'));
+  try {
+    const app = { dir, manifest: { widgets: [
+      { kind: 'home', families: ['systemSmall'] },
+      { kind: 'train', refresh: 'nextTrains', families: ['systemSmall', 'accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'] },
+    ] } };
+    assert.deepEqual(platformWidgetEntries(app).map(e => e.families), [['systemSmall'], ['systemSmall', 'accessoryCircular', 'accessoryRectangular', 'accessoryInline']]);
+    assert.deepEqual(watchEntries(app).map(e => [e.kind, e.families]), [['train', ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner']]]);
+    writeFileSync(resolve(dir, 'app.ts'), '');
+    assert.deepEqual(watchEntries(app), []);
+    assert.deepEqual(watchEntries(app), [], 'mixed apps remain omitted until the watch Hermes gate');
+    const caltrain = { dir, manifest: { widgets: [{kind:'train', families:['systemSmall', 'accessoryRectangular'], watchFamilies:['accessoryInline','accessoryCircular','accessoryCorner']}] } };
+    assert.deepEqual(platformWidgetEntries(caltrain).map(e => e.families), [['systemSmall','accessoryRectangular']]);
+    assert.deepEqual(platformWidgetEntries(caltrain, 'watchos').map(e => e.families), [['accessoryInline','accessoryCircular','accessoryCorner']]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('corner-only entries give iOS no widget group or publishing kinds', () => {
+  const app = {id:'com.exact.corner',displayName:'Corner',manifest:{widgets:[{kind:'corner',families:['accessoryCorner']}],host:{ios:{}}}};
+  assert.doesNotMatch(infoPlist(app,false), /ExactAppGroup|ExactWidgetKinds|ExactAppIdentifier/);
+  assert.doesNotMatch(entitlements(app,null,true,null,{simulator:true}), /application-groups/);
+  const activity = {...app, manifest:{...app.manifest,live_activities:[{kind:'departure'}]}};
+  assert.match(entitlements(activity,null,true,null,{simulator:true}), /application-groups/);
+  const plist = infoPlist(activity,false);
+  assert.match(plist, /<key>ExactWidgetKinds<\/key><array><\/array>/);
+  assert.match(plist, /<key>NSSupportsLiveActivities<\/key><true\/>/);
+});
+
+test('--watch-sim requires an id before the parent build can consume flags', async () => {
+  const { watchSimulator } = await import('../host/apple/watch.mjs');
+  for (const args of [['--watch-sim'], ['--watch-sim','--release'], ['--watch-sim','s1126-wp17']]) assert.throws(() => watchSimulator(args), /requires a UDID/);
+  const id = '114F2B20-7CA4-46F3-A1AA-22784759F58D';
+  assert.equal(watchSimulator(['--watch-sim',id,'--release']), id);
+});
+
+test('watch owns the build before the parent starts and reports a skipped TypeScript run', async () => {
+  const { buildWatch } = await import('../host/apple/watch.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-watch-lock-')), logs = [], events = [], log = console.log;
+  try {
+    writeFileSync(resolve(dir, 'app.ts'), '');
+    const app = {dir, id:'com.exact.watch-test', displayName:'Watch Test', manifest:{widgets:[{kind:'question',refresh:'question',families:['accessoryInline']}]} };
+    console.log = message => logs.push(message);
+    await buildWatch(app, ['--watchos', '--run'], {
+      appleBuildLock: () => { events.push('lock'); return () => events.push('release'); },
+      buildParent: async args => { events.push('parent'); assert.ok(args.includes('--no-install')); },
+      appleArtifacts: () => ({bundle:resolve(dir,'Parent.app')}),
+    });
+    assert.deepEqual(events, ['lock','parent','release']);
+    assert.ok(logs.some(line => line.includes('omits entry question')));
+    assert.ok(logs.some(line => line.includes('--run skipped')));
+  } finally { console.log = log; rmSync(dir, {recursive:true,force:true}); }
+});
+
+
+test('a refused parent prevents use of a stale companion bundle', async () => {
+  const { buildWatch } = await import('../host/apple/watch.mjs');
+  const before = process.exitCode ?? 0, events = [];
+  try {
+    await assert.rejects(buildWatch({id:'fixture'}, ['--watchos'], {
+      appleBuildLock: () => { events.push('lock'); return () => events.push('release'); },
+      buildParent: async () => { events.push('parent'); process.exitCode = 1; },
+      appleArtifacts: () => { throw new Error('stale artifact accessed'); },
+    }), /iOS companion build refused/);
+    assert.deepEqual(events, ['lock','parent','release']);
+  } finally { process.exitCode = before; }
 });

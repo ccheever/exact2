@@ -15,8 +15,11 @@ use super::*;
 use exact_kernel::style::{roles, Color};
 use exact_kernel::ColorValue;
 
-/// The Material 3 colour roles a shell resolves, in the order it tells them
-/// (`Native.colors`: these twelve light, then the same twelve dark).
+/// Material 3's colour roles, every role of Compose's `ColorScheme`, in the
+/// order a shell tells them (`Native.colors`: all of them light, then all of
+/// them dark). The first twelve are those D4 maps Exact's own roles to; the
+/// rest the Material look reads by Material's names ([`material`]; LLP
+/// 1115.001.001 D2.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Material {
     /// `primary`.
@@ -43,10 +46,58 @@ pub enum Material {
     OutlineVariant,
     /// `error`.
     Error,
+    /// `primaryContainer`.
+    PrimaryContainer,
+    /// `onPrimaryContainer`.
+    OnPrimaryContainer,
+    /// `inversePrimary`.
+    InversePrimary,
+    /// `secondary`.
+    Secondary,
+    /// `onSecondary`.
+    OnSecondary,
+    /// `onSecondaryContainer`.
+    OnSecondaryContainer,
+    /// `tertiary`.
+    Tertiary,
+    /// `onTertiary`.
+    OnTertiary,
+    /// `tertiaryContainer`.
+    TertiaryContainer,
+    /// `onTertiaryContainer`.
+    OnTertiaryContainer,
+    /// `background`.
+    Background,
+    /// `onBackground`.
+    OnBackground,
+    /// `surfaceVariant`.
+    SurfaceVariant,
+    /// `surfaceTint`.
+    SurfaceTint,
+    /// `inverseSurface`.
+    InverseSurface,
+    /// `inverseOnSurface`.
+    InverseOnSurface,
+    /// `onError`.
+    OnError,
+    /// `errorContainer`.
+    ErrorContainer,
+    /// `onErrorContainer`.
+    OnErrorContainer,
+    /// `outline`.
+    Outline,
+    /// `scrim`.
+    Scrim,
+    /// `surfaceBright`.
+    SurfaceBright,
+    /// `surfaceDim`.
+    SurfaceDim,
+    /// `surfaceContainerLowest`.
+    SurfaceContainerLowest,
 }
 
 /// How many roles a palette holds for each scheme.
-pub const MATERIAL_ROLES: usize = 12;
+pub const MATERIAL_ROLES: usize = 36;
 
 /// The device's palette: each [`Material`] role's colour under the light
 /// scheme and under the dark one, as Android has a colour (`0xAARRGGBB`).
@@ -114,8 +165,8 @@ const ROLES: &[(&str, Material, u32)] = &[
 ];
 
 impl Palette {
-    /// A palette from the shell's twenty-four colours, the twelve roles
-    /// light and then dark; `None` for any other count.
+    /// A palette from the shell's colours, every role light and then
+    /// every role dark; `None` for any other count.
     pub fn from_words(words: &[i32]) -> Option<Palette> {
         let (light, dark) = words.split_at_checked(MATERIAL_ROLES)?;
         let colors = |half: &[i32]| -> Option<[u32; MATERIAL_ROLES]> {
@@ -159,7 +210,28 @@ impl Palette {
     /// start. A running presenter is told through
     /// [`Presenter::set_palette`], which also paints again.
     pub fn tell(&self) -> u64 {
+        *TOLD.lock().unwrap_or_else(|e| e.into_inner()) = Some(*self);
         roles::set_reported(self.report())
+    }
+}
+
+/// The palette this process was last told.
+static TOLD: std::sync::Mutex<Option<Palette>> = std::sync::Mutex::new(None);
+
+/// A Material role as the shell told it, under a scheme: what the Material
+/// look reads where Exact has no role of its own for it (`outline`,
+/// `onSecondaryContainer`). `None` where no palette was told.
+pub fn material(role: Material, dark: bool) -> Option<[u8; 4]> {
+    let told = (*TOLD.lock().unwrap_or_else(|e| e.into_inner()))?;
+    Some(told.rgba(role, dark))
+}
+
+impl Palette {
+    /// `role` under a scheme, as RGBA.
+    fn rgba(&self, role: Material, dark: bool) -> [u8; 4] {
+        let table = if dark { self.dark } else { self.light };
+        let [a, r, g, b] = table[role as usize].to_be_bytes();
+        [r, g, b, a]
     }
 }
 
@@ -180,8 +252,10 @@ pub(crate) fn reported_accent(dark: bool) -> Option<([u8; 4], [u8; 4])> {
 /// What a presenter keeps of the reported colours.
 #[derive(Default)]
 pub(super) struct State {
-    /// The reported table's generation this presenter last painted from.
-    seen: Option<u64>,
+    /// The reported table's generation this presenter last painted from,
+    /// and the palette, whose roles past the table's (read by [`material`])
+    /// can change while the table does not.
+    seen: Option<(u64, Palette)>,
 }
 
 impl<D: DataSource> Presenter<D> {
@@ -194,13 +268,40 @@ impl<D: DataSource> Presenter<D> {
     /// from a paint under the old colours stands.
     pub fn set_palette(&mut self, palette: &Palette) {
         let generation = palette.tell();
-        if self.colors.seen == Some(generation) {
+        if self.colors.seen == Some((generation, *palette)) {
             return;
         }
         let first = self.colors.seen.is_none();
-        self.colors.seen = Some(generation);
+        self.colors.seen = Some((generation, *palette));
         self.host.colors_changed(first);
         self.brush.colors_changed();
         self.dirty = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_palette_is_every_material_role_light_then_dark_and_reads_by_its_name() {
+        assert_eq!(
+            Palette::from_words(&[0; 24]),
+            None,
+            "twelve roles a scheme is the old count"
+        );
+        let mut words = vec![0xFF00_0000u32 as i32; MATERIAL_ROLES * 2];
+        words[Material::Outline as usize] = 0xFF79_747Eu32 as i32;
+        words[MATERIAL_ROLES + Material::Outline as usize] = 0xFF93_8F99u32 as i32;
+        // Not told: telling a palette changes every role in the process.
+        let palette = Palette::from_words(&words).expect("every role, light and dark");
+        assert_eq!(
+            palette.rgba(Material::Outline, false),
+            [0x79, 0x74, 0x7E, 0xFF]
+        );
+        assert_eq!(
+            palette.rgba(Material::Outline, true),
+            [0x93, 0x8F, 0x99, 0xFF]
+        );
     }
 }

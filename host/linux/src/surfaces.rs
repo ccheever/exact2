@@ -4,9 +4,7 @@
 //! @ref LLP 1046.001 D7; LLP 1015 §7
 #![allow(unsafe_code)]
 use crate::{Host, Presenter};
-mod digest;
 use base64::Engine;
-use digest::file_digest;
 use exact_runner::{
     DataSource, Event, FailureKind, Outcome, RequestOut, SurfaceOutcome, SurfaceRequest,
     MAX_HOST_WORK_BYTES,
@@ -315,6 +313,8 @@ fn artifact_of(compat: &Value, name: &str) -> String {
         .map(|(module, _)| module.clone())
         .unwrap_or_default()
 }
+mod digest;
+
 fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<(), String> {
     let card = gpu_card(compat, artifact);
     let refuse = |reason: &str| format!("GPU module {}: {reason}", path.display());
@@ -327,12 +327,12 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
         }
     }
     let receipt;
-    let receipt_backed = card["receipt"] == true
+    let development = card["receipt"] == true
         && card["trust"] == "development"
         // No-delivery apps omit trust from the cohort; their baked GPU card
         // still records the explicit development build trust.
         && (compat["inputs"]["trust"].is_null() || compat["inputs"]["trust"] == "development");
-    let identity = if receipt_backed {
+    let identity = if development {
         let bytes = std::fs::read(format!("{}.proof.json", path.display()))
             .map_err(|e| refuse(&format!("completed GPU receipt: {e}")))?;
         receipt = serde_json::from_slice::<Value>(&bytes).map_err(|e| refuse(&e.to_string()))?;
@@ -348,7 +348,7 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
     };
     if identity.as_str()
         != Some(
-            file_digest(path, !receipt_backed)
+            digest::file(path, !development)
                 .map_err(|e| refuse(&e))?
                 .as_str(),
         )

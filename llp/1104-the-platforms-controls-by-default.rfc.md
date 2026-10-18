@@ -379,7 +379,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
    Proposed: the second, because hosting SwiftUI for a text view brings its own focus and measurement paths. Apple's own apps rarely border multi-line text, so this is the field's look extended, not a platform control.
 2. **Field styles.** Should fields get a vocabulary like `buttonStyle` (macOS `borderShape` capsule, a plain borderless platform field)? Proposed: not now.
 3. **`select`** is a `Control` already drawn natively. Should D2–D4 cover it? Proposed: yes, as a follow-up.
-4. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps Lexy's rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
+4. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
 
 **Settled:**
 - r5 Q2: D2 makes most self-styled buttons bare with no edit, and the codemod covers the rest.

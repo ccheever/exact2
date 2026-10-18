@@ -3,6 +3,25 @@
 version = 4
 
 [[package]]
+name = "activity-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "activity-fixture-data",
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "activity-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1389,6 +1408,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
  "url",
  "vello",
  "wgpu 29.0.4",
@@ -1500,6 +1520,7 @@ version = "0.1.0"
 name = "exact-markdown-editor"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-markdown",
 ]
 
@@ -1677,6 +1698,7 @@ dependencies = [
  "exact-textflow",
  "exact-web-capabilities",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -2957,6 +2979,27 @@ dependencies = [
  "exact-web",
  "exact-web-capabilities",
  "markdown-data",
+]
+
+[[package]]
+name = "material-specimens-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "hello-data",
+]
+
+[[package]]
+name = "material-specimens-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-linux",
+ "serde_json",
+ "tiny-skia",
 ]
 
 [[package]]

@@ -153,6 +153,17 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.source.prepare_snapshot(module, deadline)
+    }
+    fn take_storage_changed(&mut self) -> bool {
+        self.source.take_storage_changed()
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.document_owner = owner;
         self.source.set_document_owner(owner);

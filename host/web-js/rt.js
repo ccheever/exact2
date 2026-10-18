@@ -192,7 +192,7 @@ export function commit(f, what = "commit") {
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
     Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
     Store.restore(store);
-    for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js)
+    for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js, ts-data.js)
     say(`refused ${what}: ${e.message}`); Why = why(step, e instanceof Refusal ? e.message : String(e)); // `String`: a TypeError's name too
     if (!(e instanceof Refusal)) console.error(e);
     Restoring = true; try { settle(); } catch {} finally { Restoring = false; }
@@ -431,7 +431,7 @@ function closeLetGo() {
   }
 }
 function ask(source, args, name, mutation = false) {
-  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation);
+  let a; try { a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
   return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
@@ -495,7 +495,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       if (r.ticket && equal(a, r.ticket.args)) return r.value;
     }
     let ans;
-    try { ans = ask(source, a, name); }
+    try { ans = ask(source, a, name); Out.push(...(ans?.effects ?? [])); } // what its source sent on a socket goes once this commit stands (LLP 1016.000 D7, amended 2026-10-18)
     catch (e) {
       if (e instanceof Refusal) throw e;
       if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);
@@ -700,7 +700,7 @@ export function P(e, name, f) {
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
-    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); }
+    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); if (e.exactDecorations?.painted) e.exactDecorations.sync(); }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; if (name === "autofocus") { if (v === "true") e.removeAttribute("data-autofocus"); else e.setAttribute("data-autofocus", "false"); } }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
@@ -955,7 +955,7 @@ export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
 export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
-export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
+export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState, ev.start ?? -1, ev.end ?? -1]));
 export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
@@ -1077,11 +1077,8 @@ export function wf(e, f) {
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
 }
 export { onResize, onIntersect } from "./observers.js";
-/** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
- * the web host's own geometry-glue.js, fetched after first paint by a plan
- * whose actions read geometry (`geo`); unavailable until it is (D5). The
- * record is the runner's `Geometry`: x, y, width, height, provisional,
- * unavailable. */
+/** Page geometry (LLP 1051.000), fetched after first paint by `geo`; unavailable before loading.
+ * Answers use the runner's Geometry: x, y, width, height, provisional, unavailable. */
 let Geo = null, Geometry = null;
 export function geo() {
   if (Geometry || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
@@ -1095,8 +1092,11 @@ function geoRead(op, id) {
   return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
 }
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
-/** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most untransformed box
- * at the viewport point, `none` until the reader has loaded; `elementsFromPoint` every one. */
+export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Number.isFinite(start) && Number.isFinite(end) && start >= 0 && start <= end && Geo ? Geo.range(document.getElementById(id), start, end, out) : 0;
+  return bits & 1 ? [...out, !!(bits & 2), false] : [0, 0, 0, 0, false, true]; };
+export { decorationRecord } from './shape.js'; import { startDecoration } from './editor.js';
+export const decoratedEditor = e => startDecoration(e, {own:Owner, onEnd, inflight, viewId, Ids, Views, say});
+/** `elementFromPoint(x,y)` (LLP 1094 D10): nearest front-most untransformed id at a viewport point; none before loading. `elementsFromPoint` returns every one. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
 export const x_elementsFromPoint = (x, y) => Geo?.namedPoints(x, y) ?? [];
 /** A Markdown field (LLP 1045 D5): markup-editor.js over its wasm replaces

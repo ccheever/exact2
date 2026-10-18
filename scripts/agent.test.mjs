@@ -9,6 +9,7 @@ import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
 import { chromium, launchFacts } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
+import { stateOp } from './agent-inspect.mjs';
 
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
@@ -135,6 +136,23 @@ test('a press while a contact is held is refused before it reaches the carrier',
   s.contact = null;
   await s.tap('a');
   assert.deepEqual(calls.map(c => c[1]), ['press']);
+});
+
+// A game's canvas is `testId="world"`, and the web and Apple hosts add a `world` summary list to the app's record: `state world`
+// asks the engine (`world: true`, as `tree` does), never the record whose `world` section the name would otherwise read.
+test('state of a world\'s view asks its engine, not the record\'s world summary', async () => {
+  const asked = [], engine = { tick: 3, hash: '0x1', entities: [{ name: 'fox' }] };
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) {
+      if (req.op === 'tree') return { nodes: [{ id: 1, props: { testId: 'world' }, depth: 0, world: { name: 'world', entities: 1, tick: 3 } }, { id: 2, props: { testId: 'go' }, depth: 0 }] };
+      if (req.op === 'state') { asked.push(req); return req.world ? engine : { slots: {}, world: [{ canvas: 1, tick: 3, hash: '0x1' }] }; }
+      return {};
+    } };
+  const s = await open({ reuse: carrier });
+  assert.deepEqual(await stateOp(s, ['world']), engine);
+  assert.deepEqual(asked.at(-1), { op: 'state', id: 1, world: true });
+  assert.deepEqual(await stateOp(s, ['go']), { slots: {}, world: [{ canvas: 1, tick: 3, hash: '0x1' }] }); // a plain view: the record
+  assert.deepEqual(asked.at(-1), { op: 'state', id: 2 });
 });
 
 test('held request answers bypass tap and key delivery validation', async () => {
@@ -382,6 +400,100 @@ test('a native named store is kept unless the drive resets it, under its lock; a
       if (locked) { assert.equal(lock.device, `the one ${host} device`); assert.deepEqual(order, ['resolve', 'lock', 'open']); }
     }
   } finally { [console.log, console.error] = quiet; }
+});
+
+test('storage advice preserves canvas journal entries through the host seam', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  for (const probe of [s => s.landed({ tapped: true }), s => driveNotes(s, { host: 'linux' })('tap')]) {
+    const journal = ['loop wind on'], lines = [], calls = [];
+    let cursor = 0;
+    const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+      async ask(req) {
+        calls.push(req.op);
+        if (req.op !== 'logs') return { epoch: 0, clock: 0 };
+        const from = cursor; cursor = journal.length;
+        return { from: req.since, next: lines.length, lines: lines.slice(req.since),
+          world: [{ canvas: 7, from, next: cursor, lines: journal.slice(from) }] };
+      } };
+    const s = await open({ reuse: carrier });
+    carrier.host = 'linux';
+    await probe(s);
+    assert.ok(calls.includes('logs'), 'the input ran the storage probe');
+    journal.push('beacon-1 lit', 'sfx chime');
+    const logs = await s.logs();
+    assert.deepEqual(logs.world, [
+      { canvas: 7, from: 0, next: 1, lines: journal.slice(0, 1) },
+      { canvas: 7, from: 1, next: 3, lines: journal.slice(1) },
+    ]);
+    assert.deepEqual((await s.logs()).world[0].lines, [], 'the caller consumes each entry once');
+  }
+});
+
+test('canvas journal errors survive before and after buffered entries', async () => {
+  const { peekLogs } = await import('./agent-test.mjs');
+  const entry = { canvas: 7, from: 100, next: 101, lines: ['saved entry'] };
+  const error = { canvas: 7, error: 'journal unavailable' };
+  for (const rows of [[entry, error], [error, entry]]) {
+    const pending = [...rows];
+    const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+      async ask(req) { return req.op === 'logs' ? { from: 0, next: 0, lines: [], world: pending.length ? [pending.shift()] : [] } : {}; } };
+    const s = await open({ reuse: carrier });
+    await peekLogs(s, 0);
+    assert.deepEqual((await s.logs()).world, rows);
+    assert.deepEqual((await s.logs()).world, [], 'entries and errors are consumed once');
+  }
+});
+
+test('a failed journal read retains the buffered entries for retry', async () => {
+  const { peekLogs, takeWorldLogs } = await import('./agent-test.mjs');
+  const entry = { canvas: 7, from: 0, next: 1, lines: ['saved entry'] };
+  const s = { op: async () => ({ world: [entry] }) };
+  await peekLogs(s, 0);
+  const broken = { [Symbol.iterator]() { throw new Error('cannot read batch'); } };
+  assert.throws(() => takeWorldLogs(s, broken), /cannot read batch/);
+  assert.deepEqual(takeWorldLogs(s, []), [entry]);
+  assert.deepEqual(takeWorldLogs(s, []), []);
+});
+
+test('canvas journals separate restarted cursors and reset with a web reload', async () => {
+  const { peekLogs, reloadWeb } = await import('./agent-test.mjs');
+  const old = { canvas: 7, from: 100, next: 110, lines: ['old canvas'] };
+  const fresh = { canvas: 7, from: 0, next: 1, lines: ['new canvas'] };
+  let pending = [old, fresh];
+  const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}),
+    reset() { pending = [fresh]; },
+    async ask(req) { return req.op === 'logs' ? { from: req.since, next: req.since, lines: [], world: pending.length ? [pending.shift()] : [] } : {}; } };
+  const s = await open({ reuse: carrier });
+  pending = [old, fresh];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, fresh], 'replacement without reload keeps lifetimes separate');
+  const restored = { canvas: 7, from: 5000, next: 9096, dropped: 5000, lines: ['restored canvas'] };
+  pending = [old, restored];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, restored], 'a replacement with a later cursor retains its own span and dropped count');
+  assert.deepEqual((await s.logs()).world, [], 'both lifetimes are consumed once');
+  const contiguous = { canvas: 7, from: 110, next: 4206, dropped: 110, lines: ['replacement at the old boundary'] };
+  pending = [old, contiguous];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, contiguous], 'equal boundaries do not merge replacement metadata into the old lifetime');
+  assert.deepEqual((await s.logs()).world, [], 'equal-boundary lifetimes are consumed once');
+  pending = [old];
+  s.logCursor = 99;
+  await peekLogs(s, 99);
+  await reloadWeb(s);
+  assert.equal(s.logCursor, 0);
+  assert.deepEqual((await s.logs()).world, [fresh], 'reload discards the old page journal');
+  assert.deepEqual((await s.logs()).world, []);
+
+  let finish;
+  carrier.ask = () => new Promise(resolve => { finish = resolve; });
+  const inFlight = peekLogs(s, 0);
+  carrier.ask = async () => ({});
+  await reloadWeb(s);
+  finish({ world: [old] });
+  await inFlight;
+  carrier.ask = async () => ({ from: 0, next: 0, lines: [], world: [fresh] });
+  assert.deepEqual((await s.logs()).world, [fresh], 'a late probe cannot refill the old page buffer');
 });
 
 test('a drive with no store says its storage was refused after the first op that met it, a screenshot too, once', async () => {

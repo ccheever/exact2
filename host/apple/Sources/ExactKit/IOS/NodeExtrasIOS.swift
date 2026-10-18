@@ -297,6 +297,14 @@ extension NodeView {
     /// its author wrote it on this node, a platform colour and one equal to
     /// its parent's included. Nil leaves the control the platform's (D4).
     func ownColor(_ key: String) -> BatchValue? { wrote(key) ? style[key] : nil }
+    /// A field's text: its own `color`, else the design's `FieldText`, else
+    /// the platform's; an inherited colour never tints a field (LLP 1115 D4,
+    /// LLP 1121 D9).
+    /// A field of the author's own (`appearance="none"`) is their box, and
+    /// inherits as text does.
+    var fieldInk: UIColor {
+        showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
+    }
     /// `ownColor` as this node draws it now, or nil.
     func ownUIColor(_ key: String) -> UIColor? {
         ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }

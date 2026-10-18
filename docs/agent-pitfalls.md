@@ -461,6 +461,27 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Porting a React Native app
 
+What a port writes from habit, what the compiler says, and what to write (the euxy port,
+2026-10-17: 19 of 50 compiles refused, most of them these). A warning builds; fix it anyway.
+
+| React Native writes | exact2 says | Write |
+|---|---|---|
+| `line-height=20` | `lower-line-height-multiplier` (warning) | `line-height="20px"`: a bare number is a multiplier, as in CSS |
+| `color="rgba(0,0,0,0.5)"`, `"#00000080"` | `lower-colour-one-scheme` (warning) | a role (`-exact-secondary-label`, `-exact-fill`), `light-dark(<light>, <dark>)`, or nothing |
+| `` text `${n} cards` `` | `lower-count-plural` (warning) | `` `${n} ${n == 1 ? "card" : "cards"}` `` |
+| `0% rotate=-2deg` in `keyframes` | `syntax-unquoted-length` | `0% rotate="-2deg"`, each keyframe on one line |
+| `tags.find(t => …)` | `syntax-method-call` | `first(tags.filter(t => …))`; in each row of a list, `lower-row-lookup` (warning): join it in the data module |
+| a helper action reading state its caller just set | `analyze-call-stale-read` | `let next = …` in the caller, `n = next`, pass `next` |
+| `width=120` on a box of text | `lower-text-px-width` (warning) | `width="7.5rem"`, or let the content size it |
+| `numberOfLines`, `ellipsizeMode`, `resizeMode`, `textTransform`, `fontVariant` | `lower-unknown-attr` | `line-clamp`, `text-overflow`, `object-fit`, `text-transform`, `font-variant-numeric` |
+| `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
+| `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
+| `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
+| `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
+| a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
+
 What the original's style objects say is not always what its iOS screen shows. Port
 what the screenshot shows. (euxy port against its Expo original, judged screen by
 screen, 2026-10-16.)
@@ -483,6 +504,16 @@ screen, 2026-10-16.)
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
   ref/x.png"` names each differing region's node and source line, a box's size measured in
   both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).
+
+- **A scrolled sheet or screen ends 34 points higher than the original.** euxy's Edit
+  Lane sheet, scrolled to its end, left 58 points under Delete lane where the original
+  left 24. Cause: a React Native `ScrollView` does not inset its content on iOS
+  (`contentInsetAdjustmentBehavior` is `never`), so its `paddingBottom: 24` was the whole
+  gap and the last row sat over the home indicator. A route's last scroller in exact2 is
+  inset by UIKit as a hand-built one is (`automatic`: the home indicator's 34 points, and
+  the tab bar's height on a tab), and the ported padding adds to that. Fix: subtract the
+  inset from the ported padding (`padding-bottom=0` here leaves 34); do not add
+  `env(safe-area-inset-bottom)` to it.
 
 - **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
   `padding="13px 16px" min-height=24` made

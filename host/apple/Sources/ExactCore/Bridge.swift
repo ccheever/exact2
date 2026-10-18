@@ -23,6 +23,10 @@ public struct Batch {
     public let busy: Bool
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
+    /// Store refresh acknowledged no runner commit; keep the current timers.
+    public var unchanged = false
+    public var storeReadPending = false
+    public var storeActivationPending = false
     public var pending = false
     /// A module generation refused while requests are in flight: ask again (LLP 1007 §6).
     public var requests = false
@@ -149,7 +153,6 @@ package final class Runtime {
         // Its paragraphs' line boxes too, for multi-column flows (LLP 1093 D6).
         on { () -> Void in
             exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
-            // The platform's time formats (LLP 1126 D6), for the kernel's reservations.
             exact_set_time_format(rt, TimeFormatting.format)
             exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
             // A system symbol's box, measured before layout as a paragraph's is
@@ -236,10 +239,30 @@ package final class Runtime {
     }
     /// Boot a snapshot entry's plan by its kind (LLP 1126 D2): the headless
     /// session's boot, which a running host's `bootPlan` refuses.
-    package func bootEntry(_ bytes: Data, kind: String, width: CGFloat, height: CGFloat) -> Batch {
-        // WP4 supplies the entry admission and Rust ABI on its rebase.
-        Batch(ops: [], timers: false, motion: false, clock: nil,
-              error: "snapshot entry \(kind) requires WP4's exact_boot_entry ABI")
+    package func bootEntry(_ bytes: Data, kind: String, props: Data? = nil, width: CGFloat, height: CGFloat) -> Batch {
+        let batch = on { () -> Batch in
+            let name = Data(kind.utf8)
+            var payload = bytes; payload.append(name); payload.append(props ?? Data())
+            _ = write(payload)
+            return read(exact_boot_entry(rt, bytes.count, name.count, props?.count ?? 0, Float(width), Float(height)))
+        }
+        return islands(batch)
+    }
+    package func previewTimeline(at now: Double) -> Data {
+        on(busy: Data()) {
+            let count = exact_refresh_entry(rt, now)
+            return Data(bytes: exact_out(rt), count: Int(count))
+        }
+    }
+    package func entryTimeline(at now: Double, deadline: DispatchTime, receipt: Data = Data(), module: Data = Data()) -> Data {
+        on(busy: Data()) {
+            let current = DispatchTime.now().uptimeNanoseconds
+            let remaining = Double(deadline.uptimeNanoseconds > current ? deadline.uptimeNanoseconds - current : 0) / 1_000_000
+            return receipt.withUnsafeBytes { receipt in module.withUnsafeBytes { module in
+                let count = exact_entry_timeline(rt, now, remaining, receipt.bindMemory(to: UInt8.self).baseAddress, receipt.count, module.bindMemory(to: UInt8.self).baseAddress, module.count)
+                return Data(bytes: exact_out(rt), count: Int(count))
+            } }
+        }
     }
     package func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
         return on {
@@ -259,6 +282,7 @@ package final class Runtime {
         }
     }
     package func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
+    package func storeChanged(retryOnly: Bool = false) -> Batch { on { read(exact_store_changed(rt, retryOnly ? 1 : 0)) } }
     package func discardPlan() { on { exact_discard_plan(rt) } }
     package func trim() { on { exact_trim(rt) } }
 

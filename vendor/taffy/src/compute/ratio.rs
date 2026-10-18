@@ -187,14 +187,21 @@ pub(crate) fn minimum_ratio_width(
     let style = tree.get_core_container_style(node);
     if style.aspect_ratio().is_none() || !style.size().width.is_auto()
         || !style.min_size().width.is_auto() || style.is_compressible_replaced()
-        || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container()
-        || style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b)).is_none() {
+        || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container() {
         return None;
     }
+    let height = style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))?;
     let pb = (style.padding().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))
         + style.border().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))).sum_axes();
-    let adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb.width } else { 0.0 };
-    let max = style.max_size().width.maybe_resolve(parent.width, |v, b| tree.calc(v, b)).map(|w| w + adjustment);
+    let ratio = Ratio::of(&style, pb)?;
+    let adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb } else { Size::ZERO };
+    let min_height = style.min_size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
+        .maybe_add(adjustment.height);
+    let max = style.max_size().maybe_resolve(parent, |v, b| tree.calc(v, b)).maybe_add(adjustment);
+    // EXACT PATCH 50: the content-only probe omits the definite height's
+    // transfer (CSS Sizing 4 §5.1, Flexbox §4.5). Keep the larger suggestion,
+    // transferring the clamped height in the box the ratio relates.
+    let transferred = ratio.width((height + adjustment.height).maybe_clamp(min_height, max.height));
     drop(style);
     let intrinsic = tree.measure_child_size(
         node,
@@ -205,5 +212,5 @@ pub(crate) fn minimum_ratio_width(
         crate::AbsoluteAxis::Horizontal,
         crate::geometry::Line::FALSE,
     );
-    Some(intrinsic.maybe_min(max))
+    Some(f32_max(intrinsic, transferred).maybe_min(max.width))
 }

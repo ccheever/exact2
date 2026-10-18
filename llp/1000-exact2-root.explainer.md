@@ -101,7 +101,8 @@ and this one does not. Read them first.
   is the app's executable. LLP 1015.
 - `host/apple-update/`, `host/linux-update/` — optional delivery adapters
   above their hosts (LLP 1030 D4). App bake selects the adapter entry for
-  `L=A`, the core entry for `L=0`; neither core host depends on `exact-update`.
+  `L=A`, the core entry for `L=0`. Neither core host links `exact-update`: an
+  `L=0` binary omits the updater, keys, store and check path.
 - `gpu/` — `exact-gpu`, the GPU canvas (LLP 1009): the `Surface` trait an app's
   GPU crate implements against wgpu, the module that runs surfaces on a device,
   and its ABI — a C ABI for the `dylib` the macOS presenter `dlopen`s, wasm-bindgen

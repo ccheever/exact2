@@ -580,7 +580,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     const clean = verify('--shots', 'out/shots');
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
     assert.ok(clean.lines.length <= 9, clean.stdout);
-    assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 4 screens: nothing spills"), clean.stdout);
+    assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 5 screens: nothing spills"), clean.stdout); // 4, and 1 the tests pass through
     assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
     assert.ok(clean.lines.includes('tests: 2 passed, 0 failed'), clean.stdout);
     assert.ok(clean.lines.includes('check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
@@ -719,7 +719,7 @@ test('the largest text size: its findings once each with the screens they were o
   const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
   const wrap = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
   assert.equal(lines[0], `  squeezed Text "Party size"#4 [16,300 0×120]: its box is squeezed to no width, so none of its text shows; let it keep its words (no min-width: 0 or px width beside it), or ${wrap}`);
-  assert.match(lines[1], /: its text is 40 pt wider than its box, and spills; let its box grow with its text: no px width or height on it \(a rem size, or none\)$/);
+  assert.match(lines[1], /: its text is 40 pt wider than its box, and spills; give it room \(no px width on its box\), or wrap the row: .*; a word longer than any line breaks between syllables with `hyphens="auto"`$/);
   assert.equal(lines[2], `  overflow rsvp-maybe [220,300 240×64]: runs 58 pt past the 402-wide viewport's side, and nothing scrolls it; ${wrap}`);
   for (const l of lines) assert.doesNotMatch(l, /shrink|smaller|font-size/, 'a remedy never asks for a smaller text');
   const large = [
@@ -729,7 +729,7 @@ test('the largest text size: its findings once each with the screens they were o
   ];
   const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
   assert.deepEqual(r.lines.slice(1, 6), [
-    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (give the text room; a smaller or fixed font is the tell)',
+    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (the app\'s own layout: give the text room; a smaller or fixed font is the tell)',
     `  (first screen only) ${lines[0].trim()}`,
     `  (first screen only) ${lines[1].trim()}`,
     lines[2],
@@ -743,15 +743,54 @@ test('the largest text size: its findings once each with the screens they were o
   assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
 });
 
-// LLP 1116.021 follow-up (water-tracker, contacts, round 20): a label a list's row cuts is given an ellipsis or a taller row,
-// never the flex-wrap the row does not take; an iOS test end at a window the phone shows scaled measures no contrast or target.
+// Round 21's event-rsvp at the largest text size: a centred caption wider than its column runs past both of its sides and
+// 1.7 pt into the next column's caption, which read "GoingMaybe" while verify said nothing spills. Two texts set flush on
+// purpose only touch, and texts whose boxes overlap where their lines are drawn apart (`ink`) do not run together.
+test('the largest text size: a text past its column, and two texts that run into each other', async () => {
+  const { judge, line } = await import('./agent-check.mjs');
+  const { largeRemedy } = await import('./verify.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 13, x: 22.33, y: 314, w: 110, h: 52, text: 'Going', spill: { by: 11, dx: 9.67 } },
+    { id: 16, x: 130.67, y: 314, w: 125.33, h: 52, text: 'Maybe' },
+    { id: 20, x: 16, y: 500, w: 10, h: 20, text: '$' },
+    { id: 21, x: 26, y: 500, w: 20, h: 20, text: '12' },
+    { id: 22, x: 16, y: 600, w: 300, h: 20, text: 'Title', ink: { x: 16, y: 600, w: 40, h: 20 } },
+    { id: 23, x: 50, y: 600, w: 266, h: 20, text: 'Value', ink: { x: 280, y: 600, w: 36, h: 20 } },
+  ] };
+  const nodes = new Map([[11, { id: 11, type: 'View', props: {} }], [13, { id: 13, type: 'Text', props: { text: 'Going' } }], [16, { id: 16, type: 'Text', props: { text: 'Maybe' } }]]);
+  const found = judge(obs, null, { host: 'ios' });
+  assert.deepEqual(found.map((f) => [f.kind, f.id]), [['overflow', 13], ['overlap', 13]]);
+  const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
+  assert.match(lines[0], /^ {2}overflow Text "Going"#13 \[22,314 110×52\]: runs 10 pt past View#11's side, and nothing there scrolls or clips it; wrap the row/);
+  assert.match(lines[1], /^ {2}overlap {2}Text "Going"#13 \[22,314 110×52\]: overlaps Text "Maybe"#16 by 1\.7×52; wrap the row/);
+});
+
+// Round 22's expense-tracker at the largest text size: a month's name, clamped to two lines and centred between two
+// buttons, ran 57 pt past its box and under the next-month button while verify said nothing spills. A clamp answers the
+// lines past it, not a line wider than the box, and a control is judged against where a text is drawn.
+test('the largest text size: a clamped word wider than its box, drawn under the button beside it', async () => {
+  const { judge } = await import('./agent-check.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 13, x: 32, y: 233, w: 93, h: 77, control: 'NativeButtonIOS', sized: 'platform' },
+    { id: 15, x: 133, y: 208, w: 136, h: 127, text: 'January 2026', clamp: true, over: [56.62, 0], ink: { x: 133, y: 208, w: 192.62, h: 127 } },
+    { id: 16, x: 277, y: 233, w: 93, h: 77, control: 'NativeButtonIOS', sized: 'platform' },
+    { id: 20, x: 32, y: 400, w: 200, h: 40, text: 'Two lines and more', clamp: true, over: [0, 40] },
+    { id: 21, x: 32, y: 500, w: 200, h: 20, text: 'One line, cut with an ellipsis', clamp: true, ellipsis: true, over: [90, 0] },
+  ] };
+  assert.deepEqual(judge(obs, null, { host: 'ios' }).map((f) => [f.kind, f.id, f.detail.need ?? f.detail.by]), [['clipped', 15, [57, 0]], ['overlap', 16, [49, 77]]]);
+});
+
+// A label a list's row cuts is hyphenated and its row grows taller, as UIKit's cells do at the accessibility sizes; never
+// the flex-wrap the row does not take, nor the line-clamp round 22's graders named a tell; an iOS test end at a window the
+// phone shows scaled measures no contrast or target.
 test('the largest text size in a list row; a scaled iOS test end', async () => {
   const { largeRemedy, scaledEnd } = await import('./verify.mjs');
   const cut = { kind: 'clipped', detail: { cut: [9, 0], by: 3 } }, over = { kind: 'clipped', detail: { need: [4, 0] } };
   for (const f of [cut, over]) {
-    assert.match(largeRemedy(f, { inRow: true }), /^ask for an ellipsis \(`line-clamp="1"`, or more lines\).*let the row grow taller/);
-    assert.doesNotMatch(largeRemedy(f, { inRow: true }), /flex-wrap/);
+    assert.match(largeRemedy(f, { inRow: true }), /^let a word longer than its line break between syllables \(`hyphens="auto"`\) and the row grow taller/);
+    assert.doesNotMatch(largeRemedy(f, { inRow: true }), /flex-wrap|line-clamp="/);
   }
+  assert.match(largeRemedy({ kind: 'clipped', detail: { need: [0, 12] } }, { inRow: true }), /^let the row grow taller with its text/);
   assert.match(largeRemedy(cut), /flex-wrap/);
   assert.match(largeRemedy({ kind: 'clipped', detail: { edge: 'bottom' } }, { inRow: true }), /let the page scroll/);
   const lines = ['  contrast day-2025-12-30\'s label "2025-12-30" [15,549 34×7]: 1:1 (#000000 on #000000), needs 4.5:1; use a role', '  target   add [300,20 16×16]: …', '  overlap  a [1,1 10×10]: …'];
@@ -764,6 +803,18 @@ test('the largest text size in a list row; a scaled iOS test end', async () => {
   assert.deepEqual(scaledEnd(end(), [402, 292.36])[0].lines, lines, 'a size the phone shows unscaled');
 });
 
+
+// The web's tour of the screens the tests pass through says only what the screens verify visits did not: another run's
+// row ids hold another date, and a line is the same with its digits aside.
+test('the tour at the largest text size: only what the visited screens did not say', async () => {
+  const { tourNews } = await import('./verify.mjs');
+  const visited = [{ screen: 'first screen', lines: ['  clipped  note-1792335600000-0\'s label "Coastal weekend" [32,474 129×62]: its text is 86 px wider than its box'] }];
+  const toured = [{ screen: 'line 36 of "study"', lines: [
+    '  clipped  note-1792339200000-0\'s label "Coastal weekend" [32,480 129×62]: its text is 86 px wider than its box',
+    '  clipped  again\'s label "Again" [48,839 133×66]: again cuts 17 px of its width',
+  ] }];
+  assert.deepEqual(tourNews(visited, toured), [{ screen: 'line 36 of "study"', lines: [toured[0].lines[1]] }]);
+});
 
 // LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
 // app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.

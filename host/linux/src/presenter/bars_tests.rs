@@ -1,7 +1,7 @@
 //! A shell's bars (LLP 1115.001 D11): what each shows for Shelf's routes,
 //! the room they take of the page, what a touch in one does, how a driver
 //! addresses what they stand for, and a host with no such shell unchanged.
-use super::look::{nav_height, TOP_HEIGHT};
+use super::look::{nav_height, top_height};
 use super::*;
 use crate::presenter::top::SurfacePainter;
 use exact_runner::{DataError, Value};
@@ -258,11 +258,15 @@ fn shelfs_library_is_a_top_app_bar_and_a_navigation_bar() {
     // Where each is: the top bar under the status bar, 64 tall; the
     // navigation bar over the gesture bar, 80 tall; both the window's width.
     let (above, below) = p.bars();
+    let below = below.unwrap();
     assert_eq!(above.unwrap().frame, [0.0, 0.0, 412.0, 52.0 + 64.0]);
-    assert_eq!(
-        below.unwrap().frame,
-        [0.0, 916.0 - 104.0, 412.0, 80.0 + 24.0]
-    );
+    assert_eq!(below.frame, [0.0, 916.0 - 104.0, 412.0, 80.0 + 24.0]);
+    // Its destinations share what 8 between each leaves, as Compose's row
+    // spaces its items; a touch in a gap is the nearer one's.
+    let cells: Vec<_> = (below.targets.iter())
+        .map(|t| (t.rect.0, t.rect.2))
+        .collect();
+    assert_eq!(cells, [(0.0, 136.0), (136.0, 140.0), (276.0, 136.0)]);
     // Out of the page: the heading, the button and the tablist take no box.
     // The search field stays, under the bar; the list ends at the
     // navigation bar. The page is the window less the system's bars.
@@ -502,7 +506,7 @@ fn the_largest_font_scale_clips_neither_bar() {
     assert_eq!(nav_height(2.0), 80.0, "Material's 80 holds a doubled label");
     assert!(nav_height(3.0) > 80.0, "and grows past it");
     let (above, below) = p.bars();
-    assert_eq!(above.unwrap().frame[3], 52.0 + TOP_HEIGHT);
+    assert_eq!(above.unwrap().frame[3], 52.0 + top_height());
     assert_eq!(below.unwrap().frame[3], 24.0 + 80.0);
 }
 

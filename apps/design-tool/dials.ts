@@ -99,13 +99,14 @@ const literalOf = (kind: string, v: string, tokens: ReadonlySet<string>) =>
  * literal) has none of. A select's option that is no literal of the kind
  * (a token's name: `tokens` are the design's) is left out, said so, since
  * `set-dial` takes a literal. */
-export function controlOf(d: { name: string; kind: string; value: string; range: [string, string] | null; meta: Record<string, string> }, tokens: ReadonlySet<string> = new Set()): Control | null {
+export function controlOf(d: { name: string; kind: string; value: string; range: [string, string] | null; meta: Record<string, string> }, tokens: ReadonlySet<string> = new Set(), takesTokens = false): Control | null {
   const m = d.meta ?? {};
   const own = d.kind === 'color' ? 'color' : d.range ? 'slider' : 'stepper';
   const declared = m.control;
   if (declared === 'none') return null;
   const written = (m.options ?? '').split('|').map(o => o.trim()).filter(Boolean);
-  const literal = (o: string) => literalOf(d.kind, o, tokens);
+  // (A param takes a token as well as a literal: LLP 1121 D15.)
+  const literal = (o: string) => takesTokens || literalOf(d.kind, o, tokens);
   const options = written.filter(literal);
   const dropped = written.filter(o => !literal(o));
   const fits = declared === 'color' ? d.kind === 'color'
@@ -129,7 +130,9 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
   ].filter(Boolean).join(' ');
   // A select's options as given, the current value matched by meaning (a
   // colour folded as the server folds it), else listed first.
-  const same = (o: string) => (d.kind === 'color' ? folded(o) === folded(d.value) : numberOf(o) === numberOf(d.value));
+  // A token is matched by its name alone; a literal by its meaning.
+  const named = (v: string) => takesTokens && tokens.has(v.trim());
+  const same = (o: string) => o.trim() === d.value.trim() || (!named(o) && !named(d.value) && (d.kind === 'color' ? folded(o) === folded(d.value) : numberOf(o) !== null && numberOf(o) === numberOf(d.value)));
   const matched = options.find(same);
   return {
     name: d.name, kind: d.kind, control, label: m.label ?? d.name, help: [m.help ?? '', said].filter(Boolean).join(' '),
@@ -140,6 +143,8 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
     bounds: control === 'slider' || control === 'stepper' ? [d.range ? `${numberOf(d.range[0])}${unit} – ${numberOf(d.range[1])}${unit}` : '', `step ${step}${unit}`].filter(Boolean).join(' · ') : '',
     options: control === 'select' && !matched ? [d.value, ...options] : options,
     unit,
+    // A colour's swatch: the literal itself.
+    swatch: d.kind === 'color' ? d.value : '',
   };
 }
 

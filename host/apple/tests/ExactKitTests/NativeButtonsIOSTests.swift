@@ -525,6 +525,24 @@ final class NativeButtonsIOSTests: XCTestCase {
         watcher.reset(); watcher.touchesBegan([LocatedTouch(opener)], with: UIEvent())
         XCTAssertFalse(p.menus.isOpen(pop), "a former opener's touch dismisses it")
     }
+    /// A native button opening a `role="menu"` popover is UIKit's pull-down
+    /// button, its rows the popover's (household-list: a real touch drew the
+    /// popover's bare rows); one opening any other popover keeps its activation.
+    func testANativeInvokerOfAMenuIsAPullDownButton() throws {
+        let p = presenter(box(1) + native(2, ["popovertarget": "choices"])
+            + box(4, ["popover": "auto", "id": "choices", "accessibilityRole": "menu"]) + native(5, ["popovertarget": "choices", "popovertargetaction": "hide"])
+            + [["op": "children", "id": 1, "ids": [2, 4]], ["op": "children", "id": 4, "ids": [5]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Alice", style: "plain", ios: "plain"), 5: face("Bob")])
+        let opener = try button(p, 2)
+        XCTAssertTrue(opener.showsMenuAsPrimaryAction)
+        let menu = try XCTUnwrap(opener.menu)
+        XCTAssertEqual(menu.children.count, 1, "its rows, read as it opens")
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityRole": "dialog"]]]))
+        XCTAssertFalse(opener.showsMenuAsPrimaryAction, "a content popover opens by the button's activation")
+        XCTAssertNil(opener.menu)
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[4])))
+    }
     /// The runner is told where an open popover is by its border box before
     /// its own transform, which the runner applies itself, and after the
     /// host's placement, which the runner cannot know: a popover the keyboard
@@ -685,6 +703,27 @@ final class NativeButtonsIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["direction": "rtl"]]]))
         XCTAssertEqual(select.contentHorizontalAlignment, .center, "clearing alignment restores UIKit's centering even in RTL")
         XCTAssertEqual(select.frame.midX, node.contentBox().midX, accuracy: 0.001)
+    }
+
+    /// A select its box holds narrower than its widest option wraps its
+    /// title and grows taller, as UIKit's pop-up button does under Auto
+    /// Layout, instead of drawing past its box (unit-converter at the
+    /// largest text size, round 22); one that fits keeps one line.
+    func testSelectNarrowerThanItsTitleWrapsAndGrowsTaller() throws {
+        var menu = selectMenu()
+        menu.chosen = 1
+        let p = selectPresenter(menu)
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        let natural = p.controls.naturalSize(select, node), narrow = (natural.width / 2).rounded()
+        p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": Double(narrow), "h": 52.0]]))
+        XCTAssertEqual(select.frame.width, narrow)
+        let reference = popupReference(menu, alignment: .center)
+        defer { reference.removeFromSuperview() }
+        let wrapped = reference.sizeThatFits(CGSize(width: narrow, height: CGFloat.greatestFiniteMagnitude)).height
+        XCTAssertGreaterThan(wrapped, natural.height, "the title takes two lines there")
+        XCTAssertEqual(select.frame.height, ceil(wrapped), accuracy: 0.5)
+        p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 320.0, "h": 52.0]]))
+        XCTAssertEqual(select.frame.size, natural)
     }
 
     func testAlignedSelectKeepsItsChoiceEventsAndWidestOptionMeasurement() throws {

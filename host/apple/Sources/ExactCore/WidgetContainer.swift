@@ -1,0 +1,241 @@
+// @ref LLP 1126 D8 — the app publishes, an extension pins and only reads.
+import Foundation
+#if EXACT_WIDGET_RELOAD
+import WidgetKit
+@_cdecl("exact_widget_reload")
+public func exactWidgetReload(_ bytes: UnsafePointer<UInt8>?, _ length: Int) {
+    if let bytes, let kinds = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: length)) as? [String] {
+        for kind in kinds { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
+    } else { WidgetCenter.shared.reloadAllTimelines() }
+}
+#else
+import CommonCrypto
+
+public enum WidgetContainer {
+    public static var appID: String? { Bundle.main.object(forInfoDictionaryKey: "ExactAppIdentifier") as? String }
+    public static var root: URL? {
+        if let appID, getenv("EXACT_APP_GROUP_APP").map({ String(cString: $0) }) == appID,
+           let path = getenv("EXACT_APP_GROUP_ROOT") { return URL(fileURLWithPath: String(cString: path)) }
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "ExactAppGroup") as? String else { return nil }
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
+    }
+    /// Called before any session. Only widget-enabled binaries carry these keys.
+    public static func configure() {
+        guard let root, let appID else { return }
+        setenv("EXACT_APP_GROUP_ROOT", root.path, 1)
+        setenv("EXACT_APP_GROUP_APP", appID, 1)
+        if Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil {
+            setenv("EXACT_WIDGET_WRITER", appID, 1)
+        }
+    }
+    public static var updateBase: URL? { root?.appendingPathComponent("Library/Application Support", isDirectory: true) }
+    private static var compatibility: String {
+        let object = (try? JSONSerialization.jsonObject(with: Runtime.bakedCompat())) as? [String: Any]
+        return object?["id"] as? String ?? ""
+    }
+    /// No lock, selection, repair or network access: read the pointer once and
+    /// keep its immutable directory for this entire invocation. Stage 1 keeps
+    /// all published generations; reclamation needs cross-process leases first.
+    public static func pin(generation: String? = nil) throws -> URL {
+        guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
+        return try pin(root: root, generation: generation, compatibility: compatibility)
+    }
+    package static func pin(root: URL, generation: String? = nil, compatibility: String) throws -> URL {
+        let base = root.appendingPathComponent("widget-generations", isDirectory: true)
+        let name = try generation ?? String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8)
+        guard name.count == 64, name.allSatisfy({ $0.isHexDigit }) else { throw CocoaError(.fileReadCorruptFile) }
+        let directory = base.appendingPathComponent(name, isDirectory: true)
+        guard try String(contentsOf: directory.appendingPathComponent("compatibility"), encoding: .utf8) == compatibility else {
+            throw HeadlessSession.Failure(description: "widget generation belongs to another compatibility cohort")
+        }
+        return directory
+    }
+    private static let publisher = DispatchQueue(label: "exact.widget-generation", qos: .utility)
+    private static var typescript: Bool { Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true }
+    private static let statusLock = NSLock()
+    private static var lastFailure: String?
+    public static var publicationFailure: String? {
+        statusLock.lock(); defer { statusLock.unlock() }; return lastFailure
+    }
+    private static func report(_ error: Error?) {
+        statusLock.lock(); lastFailure = error.map(String.init(describing:)); statusLock.unlock()
+        if let error { FileHandle.standardError.write(Data("widget generation: \(error)\n".utf8)) }
+    }
+    /// Installed by the running app, never by the extension. An explicit
+    /// configuration also lets an embedder supply its own container.
+    package static func observeStore(root: URL? = nil, appID: String? = nil, kinds: [String]? = nil,
+                                     foreground: [Notification.Name], needsRefresh: @escaping () -> Bool = { false }, changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) -> WidgetStoreObserver? {
+        guard let root = root ?? self.root, let appID = appID ?? self.appID,
+              let kinds = kinds ?? Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return nil }
+        return WidgetStoreObserver(root: root, name: appID + ".widget-store", foreground: foreground, needsRefresh: needsRefresh, changed: changed)
+    }
+    @MainActor package static func reloadAfterStoreChange(kinds: [String]?) {
+        do { try reloadTimelines(kinds: kinds) } catch { report(error) }
+    }
+    /// Copy assets off the first-frame path; first-use framework loading and
+    /// WidgetCenter's call run on main. A failed signal stays pending on disk.
+    /// The widget kinds a bundle declares, or nil for one with no entry of either kind: the build writes
+    /// `ExactWidgetKinds` only for an app with widgets or Live Activities, empty with activities alone, so the
+    /// key's presence gates publication and its contents are the kinds a generation must hold (LLP 1126.001 WP13).
+    package static func entryKinds(of bundle: Bundle = .main) -> [String]? {
+        bundle.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String]
+    }
+    package static func publishAfterFirstPixel(_ assets: AssetResolver) {
+        guard let root, let kinds = entryKinds() else { return }
+        publisher.async {
+            do {
+                guard try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript) else { return }
+                DispatchQueue.main.async {
+                    do { try signal(root: root) { try reloadTimelines() }; report(nil) }
+                    catch { report(error) }
+                }
+            } catch { report(error) }
+        }
+    }
+    private typealias Reload = @convention(c) (UnsafePointer<UInt8>?, Int) -> Void
+    @MainActor private static var reloader: (path: String, call: Reload)?
+    @MainActor package static func reloadTimelines(kinds: [String]? = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], artifact: URL? = Bundle.main.privateFrameworksURL?.appendingPathComponent("ExactWidgetReload.framework/ExactWidgetReload")) throws {
+        precondition(Thread.isMainThread)
+        guard let path = artifact?.path else { throw HeadlessSession.Failure(description: "widget reload: app has no frameworks directory") }
+        if reloader?.path != path {
+            _ = dlerror()
+            guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
+                throw HeadlessSession.Failure(description: "widget reload: \(dlerror().map { String(cString: $0) } ?? "dlopen failed"): \(path)")
+            }
+            _ = dlerror()
+            guard let symbol = dlsym(library, "exact_widget_reload") else {
+                let reason = dlerror().map { String(cString: $0) } ?? "missing exact_widget_reload"
+                dlclose(library)
+                throw HeadlessSession.Failure(description: "widget reload: \(reason): \(path)")
+            }
+            reloader = (path, unsafeBitCast(symbol, to: Reload.self))
+        }
+        if let kinds {
+            let bytes = try JSONSerialization.data(withJSONObject: kinds)
+            bytes.withUnsafeBytes { raw in reloader?.call(raw.bindMemory(to: UInt8.self).baseAddress, raw.count) }
+        } else { reloader?.call(nil, 0) }
+    }
+    @MainActor package static func signal(root: URL, reload: () throws -> Void) throws {
+        precondition(Thread.isMainThread)
+        let base = root.appendingPathComponent("widget-generations")
+        let digest = try Data(contentsOf: base.appendingPathComponent("current"))
+        let signalled = base.appendingPathComponent("signalled")
+        if (try? Data(contentsOf: signalled)) == digest { return }
+        try reload()
+        try digest.write(to: signalled, options: .atomic)
+        FileHandle.standardError.write(Data("widget reload: signalled \(String(decoding: digest, as: UTF8.self))\n".utf8))
+    }
+    /// `bundle` and `root` are the app's; a test names its own.
+    package static func publish(_ assets: AssetResolver, bundle: Bundle = .main, root: URL? = WidgetContainer.root) throws -> Bool {
+        guard let root, let kinds = entryKinds(of: bundle) else { return false }
+        let typescript = bundle.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true
+        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript)
+    }
+    package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {
+        // A signed bake or accepted delivery identifies the bytes already. An
+        // unchanged launch reads only current, without opening any asset.
+        let stamp = Data((compatibility + "\n" + assets.publicationID).utf8)
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
+        let digest = hash.map { String(format: "%02x", $0) }.joined()
+        let base = root.appendingPathComponent("widget-generations", isDirectory: true)
+        let current = base.appendingPathComponent("current")
+        if (try? String(contentsOf: current, encoding: .utf8)) == digest {
+            return (try? String(contentsOf: base.appendingPathComponent("signalled"), encoding: .utf8)) != digest
+        }
+        let final = base.appendingPathComponent(digest, isDirectory: true)
+        let fm = FileManager.default
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: final.path) {
+            let names = try assets.widgetNames()
+            for kind in kinds where !names.contains("plans/\(kind).plan") { throw HeadlessSession.Failure(description: "generation lacks widget \(kind)") }
+            if typescript && !["typescript/app.hbc", "typescript/app.module.json"].allSatisfy(names.contains) {
+                throw HeadlessSession.Failure(description: "widget generation lacks the TypeScript module pair")
+            }
+            let staging = base.appendingPathComponent(".\(UUID().uuidString)", isDirectory: true)
+            try fm.createDirectory(at: staging, withIntermediateDirectories: false)
+            defer { try? fm.removeItem(at: staging) }
+            for name in names {
+                guard let bytes = try assets.delivery(name) else { throw CocoaError(.fileReadNoSuchFile) }
+                let file = staging.appendingPathComponent(name)
+                try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try bytes.write(to: file)
+            }
+            try Data(compatibility.utf8).write(to: staging.appendingPathComponent("compatibility"))
+            try fm.moveItem(at: staging, to: final)
+        }
+        try Data(digest.utf8).write(to: current, options: .atomic)
+        return true
+    }
+}
+
+/// Both a Darwin ping and foreground take this same counter check. The
+/// notification carries no state; coalesced or missed pings are harmless.
+package final class WidgetStoreObserver {
+    private let counter: URL
+    private let name: String
+    private let changed: (Bool, @escaping (Bool) -> Void) -> Void
+    private let needsRefresh: () -> Bool
+    private var notified = false
+    private var generation: UInt64?
+    private var inFlight: UInt64?
+    private var foregroundTokens: [NSObjectProtocol] = []
+    private var token: UInt = 0
+    package init(root: URL, name: String, foreground: [Notification.Name], needsRefresh: @escaping () -> Bool, changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) {
+        counter = root.appendingPathComponent("widget-store-generation")
+        self.name = name
+        self.changed = changed
+        self.needsRefresh = needsRefresh
+        token = StoreObservers.insert(self)
+        foregroundTokens = foreground.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.check() }
+        }
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), UnsafeRawPointer(bitPattern: token), { _, observer, _, _, _ in
+            guard let observer, let box = StoreObservers.find(UInt(bitPattern: observer)) else { return }
+            DispatchQueue.main.async { box.observer?.check() }
+        }, name as CFString, nil, .deliverImmediately)
+        generation = readCounter()
+    }
+    deinit {
+        foregroundTokens.forEach(NotificationCenter.default.removeObserver)
+        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), UnsafeRawPointer(bitPattern: token), CFNotificationName(name as CFString), nil)
+        StoreObservers.remove(token)
+    }
+    private func readCounter() -> UInt64? {
+        (try? String(contentsOf: counter, encoding: .utf8)).flatMap(UInt64.init)
+    }
+    package func check(force: Bool = false) {
+        precondition(Thread.isMainThread)
+        if inFlight != nil { notified = true; return }
+        guard let next = readCounter(), next != generation || force || needsRefresh() else { return }
+        inFlight = next
+        changed(next == generation && !force) { [weak self] success in
+            guard let self else { return }
+            if success { generation = next }
+            inFlight = nil
+            // A write can arrive while sessions are busy. It gets its own turn;
+            // a refusal of this same revision waits for the next foreground.
+            let force = notified
+            let again = force || readCounter() != next
+            notified = false
+            if again { DispatchQueue.main.async { [weak self] in self?.check(force: force) } }
+        }
+    }
+}
+
+/// CF's token is an integer, never a pointer to a dying observer. A callback
+/// retains the weak box under the lock before hopping to main.
+private enum StoreObservers {
+    final class Box { weak var observer: WidgetStoreObserver?; init(_ observer: WidgetStoreObserver) { self.observer = observer } }
+    static let lock = NSLock()
+    static var next: UInt = 0
+    static var boxes: [UInt: Box] = [:]
+    static func insert(_ observer: WidgetStoreObserver) -> UInt {
+        lock.lock(); defer { lock.unlock() }
+        next += 1; boxes[next] = Box(observer); return next
+    }
+    static func find(_ token: UInt) -> Box? { lock.lock(); defer { lock.unlock() }; return boxes[token] }
+    static func remove(_ token: UInt) { lock.lock(); defer { lock.unlock() }; boxes.removeValue(forKey: token) }
+}
+
+#endif

@@ -100,6 +100,11 @@ test('a gated check is skipped on a pass under its inputs, and runs when the gat
   expect(failed).toEqual({ error: 'no graph' });
 });
 
+test('the lane tests in-repo game pins outside the engine workspace', () => {
+  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  expect(steps.find(([name]) => name === 'game-pins')).toEqual(['game-pins', 'bun', ['game/app/shells.mjs', '--test']]);
+});
+
 test('the semantics run as four gated checks, and only a finished run is an outcome', () => {
   const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
   expect(steps.filter(step => step[3]).map(([name]) => name)).toEqual(['lean', 'vm-extract', 'difftest', 'difftest-js']);

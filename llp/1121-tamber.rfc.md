@@ -1440,9 +1440,25 @@ Android's reader and the terminal.
       corpus unchanged; `tamber-unreachable` names the macOS switch and iOS's disabled glass
    button; the workbench shows each component's state parts, editable through `set-state`
    (which rebuilds).
-9. **Icon tokens** (D10). Digest break: none if the symbol wire already takes an SVG source
-   per node, else one. **Gate:** the clone's ~100 `symbol:sf/…` uses draw on the web from
-   icon tokens; a missing source fails the build with the target named.
+9. **Icons and native controls, finished; the design server's row operations** (D9, D10, D13).
+   Re-scoped 2026-10-18 (theme2's brief, accepted by the lead, Charlie informed): the icon tokens
+   this stage first held were built and met in stage 6 F (their gate: the clone's `symbol:sf/…`
+   uses draw on the web from icon tokens, and a missing source fails the build with the target
+   named). What it holds now: Apple draws icon paths (an svg-only icon, tinted by a colour
+   token); Mac symbol images take their colour; `explain` and `uses` answer icons and params;
+   `set-row`, `add-param` and `remove-param` (stage 7 C's, on stage 8 D's `.contract`
+   ownership), the server half of LLP 1122 T5; held rows name their tokens (LLP 1122 T4);
+   D9's and D8's follow-ups (an authored accent past an `AccentColor` role on the natives, the
+   web's authored transition off a look's edges, a row arriving during a delegated track, the
+   iPad pointer's `:hover`). Wire: the next window, `tamber/1.12`. Digest break: name it if A
+   or B moves the kernel schema. **Gate:** an svg-only icon draws on iOS and the Mac, tinted by
+   a colour token, through a live retheme; Mac symbols take `color`; `explain` answers an icon
+   and a param; LLP 1122 T5's gate lines through `set-row` (one-line template edit with hot
+   reload, a stale digest refused, a failing candidate writes nothing, promote to param and to
+   token each one transaction, a `class:` row edits its style's own file); inspect on a held
+   node names its rows' tokens; an authored transition does not time a look on the web; an
+   iPad pointer shows a `:hover` look; no regressions (release unchanged where unused, conform
+   clean, LLP 1061's press corpus unchanged).
 10. **External clients and remote authentication** (D13, D14). A Figma plugin bridge, a Paper
     or Pencil client, pairing. Waits on §9 Q4. **Gate:** a changed accent in Figma Variables
     is proposed as a dial change and a changed folded value as a pinned override; a paired
@@ -3329,8 +3345,11 @@ The clone at `d2406b4` was run on exact2 `272f117e3`.
 sections) lands with LLP 1122 T5's `set-row`. A refuses an unread param, so either op only works
 paired with a row rewrite. Its `.contract` ownership infrastructure arrives with stage 8 D.
 
-**Queued:** a stale duration seen once on the JS loop after writes queued behind a slow first
-verifying build (not reproduced in three replays).
+**Queued, then closed:** a stale duration seen once on the JS loop after writes queued behind a
+slow first verifying build (not reproduced in three replays). Closed by rt1's JS-loop builds
+(`7a1c8e84f..bf2e295c2`): a build that started before a newer edit is stopped or set aside, never
+published; the clone's sequence (`Drawer.fade` 400ms then 250ms behind slow builds) now reads 0.25s
+on a fresh page.
 
 **Stage 7 is closed.**
 
@@ -3412,8 +3431,343 @@ verifying build (not reproduced in three replays).
   bytes back.
 - **A node's own state part** is `set-row`'s (LLP 1122 T5): a `set-state` naming a `node` is
   refused, and the "no file declares `style`" refusal says so.
+- **History and revert** (the lead's 06:04 ruling, a follow-up): a `.contract` file's commits
+  read as its state rows' edits (`what: "state"`), `code` where other lines changed, which a
+  revert leaves alone; a change with no state row is the app's code and not listed.
 - **Wire:** `tamber/1.11`, the window stage 7's close opened (theme2, 20:30).
 - **Tests:** `contract/cli/tests/it/tamber_serve_contract.rs` (set, replace, undo to the
   unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
   `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`
   takes a written `.contract`, one dirty at its baseline refused).
+
+### Stage 8, commit B1: `:active` as the press paint; looks on the runner and the web (draft for theme2)
+
+Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on the replan).
+
+- **`:active` lowers to the press paint** (`contract/lower/src/states.rs`). Its rows are written on the node, the class's then the node's (the node's wins), each keeping its `:active` span for inspect and the map:
+  - `background-color` → `-exact-press-background-color`;
+  - `color` → `-exact-press-color`;
+  - `-exact-press-scale` → the node's own;
+  - `opacity` → `-exact-press-opacity-to`, a new row, bit 215, lowering's alone. An author's is `lower-unknown-attr`, naming `:active opacity`, and `contract vocab` doesn't list it.
+
+  Tokens stay names, as in any row.
+
+  Refused:
+  - `border-color` and `box-shadow` in `:active` (`lower-state-row`: the press can't paint them yet);
+  - `-exact-press-scale` in `:hover` or `:focus-visible` (`lower-state-row`, pointing at `:active`);
+  - a node, or its class, saying a press paint both ways (`lower-state-press-paint`): `-exact-press-background-color`, `-exact-press-color`, `-exact-press-opacity` or `-exact-press-scale` beside the same `:active` row.
+- **Where an `:active` row is written** (theme2's 06:14 condition). The map's binding for a lowered row carries `"state": "active"` and `at`, the `:active` row's file and span (`sites::Origin::State`; its `origin` is still the node's or class's). `uses`, and so explain, name that line, not the node's.
+- **The absolute press opacity.** The press eases from the opacity shown at the press, a hover or focus look's included, to the target. For that node it replaces D7's clamped share. A hand-written `-exact-press-opacity` keeps the share.
+  - Web: `--exact-press-opacity-to`. The glue's `PAINT` list takes it, and index.html computes `base + (to − base) × paint`.
+  - Apple, Linux and Android: B2 and B3.
+- **Looks are `:hover` and `:focus-visible` only.**
+  - The looks table's state 0 is retired: the reader refuses it, and codes 1 and 2 are kept. `format.json`'s comment says so, so FORMAT_DIGEST moves to `0x973e_e759_65ad_8001` (over main's at the push).
+  - The runner resolves a node's looks rows in its tuple (`set_plan_style`) and sends `Op::SetLooks` (op 9: at most 2 looks, states 1 and 2, ascending; look rows only, set or cleared). It sends them at mount and when its tuple moves (a mode, a pin). `ThemeIndex::looks` keeps those that read a token, and `set_tokens` (a live batch, a role's value) sends them again.
+  - SCHEMA_DIGEST moves to `0x8b10_52ba_0e04_2f0b` (op 9 and bit 215, over main's at the push), in stage 8's window. Every host takes a new binary.
+- **The web, wasm** (`host/web/src/host/looks.rs`). A node with looks gets a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, written as follows.
+  - `:hover` goes under `@media (hover:hover)`, then `:focus-visible`; none applies on a disabled node (`:disabled`, or a box's `disabled` of any value but "false").
+  - The rows are `!important` over the inline base, and below the shell's pressed-paint rules, which are `#exact-root`-scoped. So the press paint shows over a hover.
+  - They have no transition: a look snaps, under Reduce Motion too.
+  - The sheet goes with the last plan at a boot. An explicit clear (`unset`) crosses written with no value, as a static row's.
+- **Round 2:**
+  - A text with a look never folds into its parent's box (`element::folded`, `holds_folded`).
+  - The glue takes no press on a box whose `disabled` is any value but "false".
+  - The press paint re-reads what's beneath when a sheet or the root changes under a hold (a look's rule, the theme, the JS target's modes).
+  - `-exact-press-opacity-to` is refused in a `style` block, not suggested for a typo, and not described by `contract vocab`.
+  - `uses` lists a token a `:hover` or `:focus-visible` row reads, at its node, with its state.
+  - Round 3 (the last):
+    - A disabled box takes no press by key either.
+    - The design tool's inspect join and the agent's `layout` carry an `:active` row's `state` and `at`, and the inspector names it `:active opacity` and so on. Its edit is `set-state`'s; a token rung stands.
+    - `outline` finds a node from a `uses` location that is a part's row.
+    - The JS target's CSSOM token and tuple writes call the glue's `repaintPress`.
+    - The wasm looks sheet is written once per batch (a microtask).
+  - theme2's 07:06 question: a node's own `:active` where it has no `press` never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged. A pressable link (`link`, `button`) with an `href` and no `press` is linted too, as unreliable: only Apple presses it, and the web by touch (theme2's 11:48 ruling; the hosts' disagreement is LLP 1061's, on QUEUE); a `text` link never holds it.
+  - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
+- **The JS target** (`host/web-js`):
+  - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.
+  - Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes, as unscoped as wasm's, so the shell's pressed paint wins over it; the node takes `data-exact-looks`.
+  - `:active` reaches the page as D7's custom properties through the template.
+- **Tests:**
+  - `state_parts.rs` and `state_looks.rs`: each lowering, the refusals, one spelling, the internal row, retired state 0, looks re-sent by a live token (and not by one only the base reads), `unset`.
+  - `host/web/tests/it/looks.rs`: the press rows, the rules in order, a live batch re-sending them.
+  - `host/web/tests/looks.test.mjs` (Chrome):
+    - a hover at once;
+    - the press easing from the hovered 0.8 to its absolute 0.6, its paint over the hover;
+    - a base change while pressed;
+    - Reduce Motion (press colours ease, hover snaps);
+    - a disabled box taking none.
+  - The kernel's op round trip and its refusals; `modes_tests.rs`, the JS target's rule group.
+  - LLP 1061's press tests unchanged.
+
+### Stage 8, commit B2: Apple (iOS and Mac) (draft for theme2)
+
+- **The absolute press opacity** (`PressPaint.swift`). `press_opacity_to` is a pressed paint row: it makes the node `authorsPress`, so there is no dim and no ink wash. A full press takes away `shown − to`, where "shown" is a hover or focus look's opacity, else the node's own, through the same additive `pressOpacity` animation. That depth is recomputed when the base moves live or a look comes or goes mid-press. A hand-written `press_opacity` keeps D7's share.
+- **Looks** (`host/apple/src/looks.rs`). The node's style dictionary carries `"looks": {"hover": {…}, "focus_visible": {…}}`. Each look's rows are written as the style's own (colour pairs, roles), and its opacity is a number.
+- **How Swift shows them.** Swift keeps the engine's style (`presented` → `looked` → `pressPainted`).
+  - While the pointer hovers the node (the Mac) or its focus is visible, the look's background, border colours and shadow stand in, at once. The focus's go over the hover's, and the press's paint goes over both.
+  - The look's opacity is an additive `lookOpacity` layer animation that snaps.
+  - None of this applies on a disabled node.
+- **Mac hover** (`Mac/HoverMac.swift`). `setHoverPath` passes its whole path to `hoverLooks`. So a node shows its `:hover` look whether or not it hears `hover`, and only nodes with a handler get the runner's hover event. The native-module `hover(_:_:)` moved to that file too (PresenterMac.swift is at its cap).
+- **iOS** has no hover (an iPad pointer's hover is a later step), and no focus-visible yet.
+- **Round 1:**
+  - A pressed share is of what shows, a look's opacity included, as on the web and Linux.
+  - A change of `disabled` shows or drops the looks at once (`relook`).
+  - A depth re-aimed mid-ease re-aims from what shows (`segment`).
+  - A look's `currentcolor` is the node's colour, and a row a look clears crosses null (an opacity as 1), so the base's goes.
+  - A re-entrant hover publishes only the newer path's looks, for views still attached.
+- **Round 2:**
+  - The press's opacity fade is always `-depth × progress` of the press's own ease, held or easing either way. So a look's opacity that comes or goes mid-press moves what shows at once, as on the web and Linux, and the tracked segment is gone.
+  - A side a look clears is the node's colour (`currentcolor`).
+  - An opacity or background track a press row or a look names stays sampled by the engine, not Core Animation, so the additive layers compose on the rendered value.
+  - A sheet's or a popover's own window shows `:hover` looks through its pointer tracking.
+  - QUEUE: looks on an inline run, which have no view; and a look that comes while a track already plays.
+- **Round 3 (the last):**
+  - An opacity or background animation that a press row or a look names is engine-sampled on both platforms, in the common eligibility, not only for box-lowered properties.
+  - The press's clock moves on every press and release, a depth of 0 included.
+  - The opacity fade is the press's own ease, the same curve and start (`beginTime`), so what shows is `-depth × progress` at every frame.
+  - A press easing out reads its depth from a new style too.
+  - A sheet's or a popover's window keeps its hovered path on a child's exit.
+- **Tests:**
+  - `StateLooksTests` (Mac and iOS):
+    - `:active`'s paint with its absolute 0.6 (depth 0.4) and no dim;
+    - a base change while pressed;
+    - on the Mac, hover and focus looks at once, with the press easing from the hover's 0.8 to 0.6, then back;
+    - a disabled node taking none.
+  - `looks.rs`'s dictionary test. `PressPaintTests` and `PressFeedback*Tests` are unchanged.
+
+
+### Stage 8, commit B3: Linux, and Android through it (draft for theme2)
+
+- **The absolute press opacity** (`press.rs`, `press::present`). After the hover and focus looks' opacity, the press moves `shown.opacity` toward `press_opacity_to` by its progress. `press_opacity` keeps the share. `press_opacity_to` counts as pressed paint (`paints`), so a list row's wash stands aside.
+- **Looks** (`paint/presented.rs`, `BoxPaint::states`). While its `:hover` and then its `:focus-visible` look hold (`Presented.looks`), their background, border colours and shadow replace the box's own, at once. The press's background goes over them.
+- **When a look holds** (`presenter/feedback.rs`, `refresh_looks`):
+  - `:hover`: the mouse's hit and its ancestors that have one, as CSS matches. A finger hovers nothing.
+  - `:focus-visible`: the focus where its ring shows.
+  - A node whose looks change is marked for kept rows, and none applies on a disabled node.
+- **Round 1:**
+  - The engine's presentation cache starts from the committed style (`unpresented`), so a look's or a press's opacity is never kept in it.
+  - The hover looks follow a resting pointer through `hover_at`, as hover handlers do.
+  - A focus with no `:focus-visible` look marks nothing.
+  - A look's `currentcolor` is the node's colour, and a cleared opacity is 1.
+  - On Android's Canvas reader, an opacity, background or colour track the host paints over (a press row, a look naming it) is not lowered: the engine samples it, and the composed value is drawn.
+- **Round 2:**
+  - A reader layer takes the opacity as its alpha only when it plays the opacity. Otherwise the painter draws it, so a lowered scale under a look's or a press's opacity fades once. Before this, a style opacity under 1 with a lowered transform faded twice.
+  - The hover looks follow the point while a contact is held (`follow_pointer`).
+  - A row a look clears is CSS's initial: transparent, `currentcolor` or no shadow. `paints_over` counts a cleared row.
+  - A look's `currentcolor` follows a colour transition.
+  - A disabled node shows no press, its release ease included.
+  - The shown opacity is clamped before the press composes on it.
+  - QUEUE: a look that comes while a track already plays on the reader.
+- **Round 3 (the last):**
+  - An engine-sampled animation is never also a reader track, beside a transition that keeps the node's layer open.
+  - A colour transition stays engine-sampled where a look reads `currentcolor`.
+  - The hover looks follow a display's acknowledged frame (`follow_pointer` after `display_complete`).
+  - A `background-clip: text` background shows the states' colour.
+  - A look painted or taken off, and a focus with a look, take the full painter rather than flow damage.
+  - Not done (nit): an inset border's shading of a look's side colour.
+- **Android** replays the display list Linux records, so it needs no Kotlin change.
+- **A follow-up for every host** (theme2's 08:13 ruling): a `:hover`, `:focus-visible` or `:active` part on a run inside a paragraph is `lower-state-target`: a run's press, hover and focus are its paragraph's. A run has no view on Apple and no box on Linux, and D7's press rows paint no run there either, so `:active` is refused with them. Runner-known `:disabled` and `:checked` on a run fold as before. Android forwards no mouse hover, so it shows none.
+- **Tests:** `presenter/looks_tests.rs`:
+  - the hover at once with its 0.8;
+  - the press easing to its absolute 0.5 with the hover's border beneath;
+  - the hover again after the lift;
+  - hovering a child;
+  - a disabled node, and a finger leaving no hover;
+  - `press_paint_tests.rs` unchanged.
+
+### Stage 8, commit C1: the control-role table, measured (draft for theme2)
+
+- **`controls`** in `kernel/tables/schema.json`, beside `_metrics`: one row a (control, parameter),
+  `[control, parameter, ios, macos, web, linux, windows, terminal, android]`. A control is `switch`,
+  `checkbox`, `radio`, `range`, `progress` (with a value), `spinner` (`progress` without),
+  `select`, `button-prominent`, `field` or `textarea`, with a state
+  part's state after a `:` where the row is that state's (`button-prominent:disabled`); a parameter
+  is `accent-color` or a colour role (`Field`, `FieldText`, `placeholder`). Each host cell is
+  `exact`, `best-effort` or `none`, with `: why`. `build.rs` validates every part (the state too)
+  and emits `generated::CONTROLS`. No new role (theme2's ruling (1)); the off track waits for a
+  design that needs it.
+- **SCHEMA_DIGEST moves** to `0x278f_080f_af7d_307f` (every host a new binary; no host reads the
+  table). It lands in stage 8's break window with B's move, one new binary per host.
+- **Measured before it lands:** `scripts/measure-controls.mjs` over `scripts/fixtures/control-roles`
+  (the authored build against one with neither), on the web, the iOS simulator, macOS, the Linux
+  painter and the Android emulator. `docs/control-roles-measured.md` records every cell with its
+  ΔE00, pixels and provenance; `scripts/measure-controls.test.mjs` holds the table to it. Windows
+  is the Linux painter's row (inferred, not measured); the terminal is `none` by construction.
+- **What it found:** `accent-color` reaches every control on iOS but its spinner, and every one but
+  `select` and the spinner on the web, the painters and the Android reader; a disabled switch,
+  checkbox, radio or range is best-effort (dimmed) everywhere it is honoured. A disabled prominent button is the
+  platform's on iOS, the web and the painters, the author's on the reader. `Field` reaches only the
+  reader and the Mac's textarea, `FieldText` Apple's fields and the reader, `placeholder` every host
+  but the reader. Each `none` that is Exact's own gap says so (theme2's 07:32 ruling) and has a QUEUE
+  line. The Mac's accent cells are read from AppKit's API: its agent capture here is an inactive
+  window, which draws every control grey (QUEUE: measure in a key window).
+- **Round 1 (Astra, Grok):** Android's column is the Canvas reader (`--reader`, the fixture as an APK
+  in a scratch checkout), not the Linux host under adb; best-effort is theme2's rule; `progress`
+  is split from `spinner` and `field` from `textarea`; disabled switches, checkboxes, radios and ranges are rows;
+  a frame too small to read is `unmeasured` and fails the run.
+
+### Stage 8, commit C2: `tamber-unreachable` (draft for theme2)
+
+- **A lint** (`contract/lower/src/control_roles.rs`): for each target the app ships (app.json
+  `host`, `deploy.store`, `deploy.binaries` and its target crates, as icons read them), each
+  control the app draws, and each parameter it sets there, a `none` cell of `CONTROLS` warns once a
+  (target, control, parameter), at the override: `accent-color on macOS switches: NSSwitch draws
+  the system accent (the first at line N; LLP 1121 D9)`. `best-effort` says nothing (theme2's ruling (2)).
+- **Set** means an `accent-color` row on the control, an element around it or a class of either,
+  or the design's `AccentColor`; a field's parameter, the design's `Field`, `FieldText` or
+  `placeholder`, unless the field writes its own `background-color`, `color` or `::placeholder
+  color` (a node's own row wins over the role).
+- **The platform's own state** is a row: `button-prominent:disabled` (a prominent button that
+  writes `disabled`) names iOS's grey disabled glass, its why pointing at a styled pressable (D8).
+- **Tests:** `contract/cli/tests/it/control_roles.rs` (the Mac's switches warned, never the web's;
+  best-effort silent; nothing set, nothing judged; a field's own row exempting its role; the iOS
+  disabled glass line).
+
+### Stage 8, commit E1: held states: the `hold` command, the server, the web and the agent's `holdState` (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s8e-plan.md`; theme2's 07:48 ruling and its conditions), under the one 1.11 bullet.
+
+- **The server** (`scripts/tamber-builds.mjs`, `scripts/tamber-server.mjs`):
+  - `hold {client, build, site, instance, state}` needs write scope and a present client. It names a build that holds states; another is told (409, `unsupported: "hold"`).
+  - One hold a build, its client's. A new one replaces the old; `state: null` lets it go; the client going lets its holds go.
+  - It's sent as the build channel's `hold {revision, hold}`.
+  - **Replay.** A build that registers again gets the hold under the same plan. A build that runs another plan (a `planDigest` that moved, at a status or a registration) gets it at the one site of the new plan's map at the old site's source location (`correspond`, through `sitesAt`). Otherwise the hold is cleared with `hold-cleared` to every client.
+  - A build's `held` report is every client's event (07:48 (c)). One that lets a hold go for `input`, `disabled` or `gone` ends it at the server.
+  - Holds don't survive a server restart, as pins don't.
+- **The web, both targets.** The input glue's `exact.hold(el, state, dropped)` holds the real state, handlers never told:
+  - `active`: the press of the node the press resolves to (`[data-exact-on~=press]` up from the site's element, as a real press), via `showPress`, so the press paint and scale ease as a real press's, at once on the agent's clock.
+  - `hover` and `focus-visible`: `data-exact-held`, which `looks::rules` now writes beside `:hover` and `:focus-visible` under the same disabled guard (07:48 (b)).
+  - A disabled node refuses one. Real input on the node lets it go: a press, a key, the pointer over it for a hover, the focus for a focus. So does its disabling or going (a mutation observer, only while held).
+  - The wasm page's `dev.js` and the JS target's `inspect-dev.js` resolve a frame's site and instance path to exactly one view, as a refresh does, and report `held`. Both register `hold`.
+- **The agent's form** (LLP 1012 amended): `{"op":"tap","id":V,"holdState":…}`, and `tap <target> hold-state active|hover|focus-visible|none` in the CLI. It calls the same glue and replies `{tapped, holdState, delivery: "recognized"}`.
+- **What is held** (LLP 1122 D8):
+  - `layout`'s node answer, and a selection made in inspect mode, carry `held {state, rows}` by wire name: the press paint's rows for `active`, the look's held rule's rows otherwise.
+  - The server's join gives each row its `state` and its `source`: an `:active` row's part's place (the map's `at`), a look's row its node's.
+- **Tests:**
+  - `tamber-builds.test.mjs`: one a build, refusals, unsupported, `held` to every client, replay under the same plan, at the corresponding site, cleared otherwise, input letting go, the client going.
+  - `tamber-server.test.mjs`: through the method, a present client, the next plan's site.
+  - `host/web/tests/hold.test.mjs` (Chrome): `active` resolved to the press node with its paint and rows; no press there is `gone`; `hover` by its held rule with its rows; real input, disabling and going letting go; a disabled node refusing.
+  - `tamber-inspect.test.mjs` (held rows joined), `agent-keys.test.mjs` (the CLI word), `looks.rs` (the held rules).
+- **After review round 1 (Astra, Grok):**
+  - Revisions: every hold frame, a replay included, has a new one, and only a report naming the last one sent counts (`held` requires it). A late echo or a superseded frame's `replaced` is dropped. A let-go at that revision ends the hold, an agent's hold in its place included.
+  - A registration with no hold is sent `hold: null`; a replay that finds no single site sends `hold: null` as well as `hold-cleared`. A hold or its end announces `builds`.
+  - A hold `unsupported` is checked against the hold revision, not the pin's; it ends the hold and goes to its owner alone (07:48 (c); an event's `only`, which the subscription and the long poll honour).
+  - The wasm dev loop's new generation lets the hold go unsaid (`exact.holdQuiet`, before the tree goes) and takes it again itself under the same plan; under another, the server's replay does once the status names it.
+  - The JS target: hold frames run one at a time, and one a newer frame replaced while it waited is dropped; the runtime is imported from beside `app.js`; `layout` and the selection carry `held`.
+  - No single view there lets the previous hold go too. Instance paths compare with sorted keys.
+  - `active` resolves to the innermost press handler only (07:48), not a bare styled button. A real press on the node as it is held ends there: its release leaves the held paint.
+  - Looks held snap, on and off, an authored transition or not. The pointer or the focus leaving the node lets a hover or a focus go.
+  - Held rows a token or a role writes carry `computed`, and the held answer says `provenance: "incomplete"`.
+- **After review round 2 (Astra, Grok):**
+  - The wasm loop: only the latest hold frame applies (a same-plan replay queued before a newer clear does not), and a frame a generation swap overtook while it waited is left unsaid to `rehold` (same plan) or the server's replay; a clear always applies. Taking the same frame again (resent, or `rehold`'s) reports no `replaced`; the JS target likewise.
+  - The JS target: an instance path that does not resolve matches nothing (not the empty path); an unreadable inspect table lets the previous hold go and refuses this one by name.
+  - The server: a let-go closes its revision (a late applied report of it is dropped); an applied report with no hold kept applies nothing; a hold `unsupported` clears `held`; a hold taken before the build named a plan takes the first plan it names; the owner-only field is `only` (`to` stays the inspect handoff's).
+  - `active` resolves to the innermost press handler only, as the ruling says; `heldOf` answers for the element named too (a label inside the press), with the press's rows.
+  - The wasm agent's `holdState` waits for the glue as the JS agent's does. `hello`'s builds name `hold` and `held`.
+- **After review round 3 (Astra, Grok):**
+  - The wasm loop binds each hold frame, as it arrives, to the generation it addresses and that generation's plan digest. One a generation swap overtook applies only once the swap is done and under that same plan; otherwise it is left unsaid to the server's replay (no `gone` ahead of the new plan's status). `rehold` binds the frame afresh.
+  - A revision the page let go of itself (input, disabled, gone) is not taken again when a poll resends its frame (both targets).
+  - The JS target: a table of a rebuilt plan (the page reloads to it) refuses nothing; the new page's registration replays the hold. A leaving view (`data-exiting`) is no match on either target, and a held node that starts to leave is gone.
+- **After the re-check (Astra):** a frame bound at arrival could still address the old plan once the new runner was in. The server now names the plan a hold's site addresses (`hold {revision, hold, plan}`), and every host takes a frame of another plan as nothing, unsaid, for the replay to correspond. Ended revisions are forgotten at a lower revision (a new server's), and a refusal ends its revision too.
+- **After the second re-check (Astra):** a hold from before a new stream (a server restart, a reconnect) neither ends a revision nor reports a let-go on the new one (ended revisions and reports are scoped to the stream and the server's run), so a new revision of the same number still applies and the new server's hold is not ended by the old one's. The protocol's `hold` bullet names `plan`.
+
+### Stage 8, commit E2: held states on Apple (iOS and Mac) (draft for theme2)
+
+- **`HeldState.swift`.** One hold an app, on the host's own tracking, handlers never told:
+  - `active`: `pressed` on the node the press resolves to (up to the innermost node with a `press` handler, 07:48), through the same `pressChanged`, so D7's press paint and scale ease as a real press's (at once on the agent's clock). A held press plays no haptic. A real release on the node lets it go (`input`).
+  - `hover` (the Mac): `lookState(hovered: true)`. The pointer coming over the node or leaving it lets it go; moving within it does not. iOS answers `hover` unsupported (D8; the iPad pointer is later).
+  - `focus-visible`: `lookState(focus: true)`; the focus ring's change lets it go.
+  - A disabled node refuses one; its disabling (`disabled`) and its going (`gone`) let it go.
+- **The build channel** (`BuildChannel.swift`, `Inspect.swift`): `hold` among the capabilities; `hold {revision, hold}` resolves the site and instance path to exactly one view (structural instance compare), as `refresh` does, and reports `held`/`unsupported` with the frame's revision. No single view lets the previous hold go too; the same frame taken again replaces nothing.
+- **A dev loop's new generation** (`ExactApp.applyTogether`): a held node going with the old tree is let go unsaid, and the hold frame is taken again after the swap under the same plan (`rehold`); under another plan the server's replay does, as on the web.
+- **The agent**: `{"op":"tap","id":V,"holdState":…}` on both platforms; `layout`'s node and the inspect selection carry `held {state, rows}` (the press rows by wire name for `active`, the look's rows otherwise).
+- **Tests** (`HeldStateTests`, Mac and iOS): a held press is the real press with its paint and rows until a real release; a disabled node refuses and its disabling and going let go; a new generation lets a hold go unsaid; the Mac's held hover goes when the pointer comes or leaves, not as it moves within; iOS holds no hover.
+- **After review round 1 (Astra, Grok):**
+  - The hold is kept apart from the real state and shown beside it: `active` shows the press (`showPress`, eased as a real press, at once on the agent's clock) without touching `pressed`; `hover` and `focus-visible` show the look beside the pointer's and the focus's (`looked`). Letting go leaves what the real state shows: a press really down and inside its box keeps its paint, and its release still clicks. A press already down as an active hold lands is taken over: its release or its leaving the box shows nothing and is no input.
+  - Real input lets every state go: a press (the Mac's window monitor and `mouseDown`; iOS's `ExactWindow`, a node's `touchesBegan`, the agent's finger) or a key (`keyEvent`, both platforms) on the held node or inside it, through authored parents. A hover goes when the pointer's path comes onto the node or leaves it (an over bit of its own, a node with no hover look included); moving within keeps it. A focus goes when the focus comes into the node or leaves it, on every focus change (`Presenter.focus` and `blur`, both platforms).
+  - Disabled: resolving `active` stops at a disabled node and answers `disabled`; a node under a disabled one refuses; a props change disabling the held node or an ancestor lets it go.
+  - `held.rows` are CSS values: the press rows from the runner's `node` op, the look's rows written as the runner writes them (`#rrggbb`, `light-dark(…)`). They answer for the node named too, with its press's rows.
+  - A new generation lets the hold go unsaid before the presenters reset (`HeldState.swap`, the frame kept), takes no input while swapping, and holds again after under the same plan: one `held` at the same revision, nothing `gone`; under another plan nothing is said.
+  - A state no host knows is answered `unsupported` by name, unpainted.
+  - The site and instance resolve through the logical tree: a flat leaf's or an inline run's site (no view of its own) presses its press ancestor; a hover or a focus needs the node's own view (else `gone`).
+  - Tests: a press down after the hold lets it go at its down; one down before it is taken over (no input at its release, the paint kept, and let go with the press still down it still clicks); a key; the focus coming and going; a hover on a child; a disabled ancestor; row values; a child with no view; an unknown state; the presenter reset; and on the Mac `applyTogether` under the same plan and another.
+- **After review round 2 (Astra, Grok):**
+  - `active` resolves to the host's real press, a `press` handler or a button's default link (theme2's 11:48), as `platformPressDims` takes it.
+  - The iOS agent lets a hold go at its press's down, whichever way the tap is delivered (a host activation included), on the node it names or that node's nearest view, and where a pan's finger lands.
+  - Keys let go at keyboard input's entry, before shortcuts and composition: the Mac's `routeKey`, UIKit's key commands (`performShortcut`), the software keyboard's text (`insertText`, `setMarkedText`), and the iOS agent's key before its shortcut.
+  - A held node that starts to leave (an exit) is `gone` at once, and one taken out of the map (`forget`) or under a presenter that resets (its session ending) too: one `gone` at the held revision; still unsaid in a generation swap.
+  - A held press shows on a native button as its highlight, beside the platform's own (`NativeButtonIOS`, `NativeButtonCellMac`), and on a press with no press rows as the platform's dim or tint, taken over the same way.
+  - A Mac hover takes `over` from a live hit test of the resting pointer, so after a same-plan swap a move within the new node keeps the hold.
+  - The iOS agent's `layout` of a flat leaf answers as one (its box in its parent's view, `native.flatLeaf`), with the press's held rows.
+  - Tests: a shortcut through `routeKey` and a UIKit key command; a native button and a plain press, down then held then up; a default link; an exit then a destroy, a reset, and on the build channel an exit and a session's end each `gone` once at the held revision; the iOS agent's tap on the press and on its flat child, and `layout` of that child; on the Mac a held hover through a same-plan swap, moved within. The fixture plan is `host/apple/tests/fixtures/held-state.contract`.
+- **After review round 3 (Astra, Grok):**
+  - Holds are their stream's, as the web's are: a hold frame is bound on arrival to the stream it came on (the connection's nonce). A new stream forgets the revisions ended on the one before (as a lower revision does), and what a hold of an old stream says later (its let-go, its refusal) is said to none and ends nothing, so a restarted server that numbers from where the old one did is never answered by an old hold. `rehold` takes only a frame of the stream it is on.
+  - A hold frame for another plan than the running one leaves both the hold held and the frame kept for `rehold` as they are.
+  - A Mac click's hit and a held hover's `over` are what the hover path sees (`TableRowCell.whatIsThere`): a pressable table row's own views, where AppKit's hit test gives the table.
+  - iOS's text view and field let a hold go at a backspace, one that deletes nothing included.
+  - The iOS agent lets a hold go where its press is delivered, never at a tap it then refuses: at a finger's checked hit (its long press or double tap too), at a host activation once it took, at a pan's, a pinch's, an iframe tap's, and at a scroll drag's accepted start.
+  - Tests: two reconnects reusing revision 5 (an old hold's late release says nothing; ended revisions are the old stream's), and a frame for another plan; a real click on a pressable table row and a move within a held row; a refused tap, a tap on the press at its flat child's point (the press runs), a checkbox's host activation, and a backspace.
+  - After the re-check: a canvas lets a hold go only at an accepted down or one-shot press (not its hover, wheel or a contact's later phase), and a long press or a double tap only once a handler heard it or it selected; one refused (`no … handler`) keeps the hold (tested).
+
+### Stage 8, commit E3: held states on Linux and Android (draft for theme2)
+
+Built to the same plan and E1's wire. Android's reader runs this presenter, so it holds what Linux holds.
+
+- **The build channel** (`host/linux/src/build_channel.rs`, `presenter/build_channel.rs`): `hold` is parsed (`Frame::Hold`), no longer reserved. The registration says `hold` among its capabilities. The registration and `status` say `planDigest`, so the server replays a hold under a new plan.
+- **Where the hold lives.** One hold an app, on the host's own tracking (`Host::looks_shown`, `press::Shown`), shared by the build channel's frames and the agent's `holdState`. A new generation's host holds none, so nothing is said.
+- **Resolving.** The runner's `sites`, then `node` with `plan: true` for each view at the frame's site; the instance path compares as a JSON value (keys in any order). No single view there lets the one held before go (`replaced`) and reports `gone`.
+- **The states**, handlers never told (`presenter/held.rs`):
+  - `active`: the press of the innermost node at or above it with a `press` handler (07:48), via `press_feedback(key, true)`, so D7's press paint and scale ease as a real press's (landed at once on the agent's clock). While held, a real press's release or its moving off leaves the press: a press already down when the hold comes is taken over.
+  - `hover` and `focus-visible`: the held node keeps that look beside the pointer's and the focus's (`Shown::on`); `refresh_looks` paints it on and off at once.
+- **Letting go.** A disabled node (or one under a disabled node) refuses one, and disabling lets it go (`disabled`). The node going, or mounted again, lets it go (`gone`). Real input lets it go (`input`): a press on it or inside it (`pointer_pressed_with`, so the agent's taps too), a key with the focus in it, the pointer coming over it or leaving it for a hover (not moving within it), the focus coming or going for a focus. A held press let go while a real contact still presses the node stays until that contact's release. A newer hold, a null one or the agent's `holdState` lets it go (`replaced`); the same frame taken again (resent, or `rehold`'s) replaces nothing. Every report names its hold frame's revision; a state the host doesn't know is `unsupported` by name.
+- **A new generation** lets the hold go unsaid, and `rehold` takes the last hold frame again under the same plan digest. Under another, the server's replay does.
+- **The agent:** `{"op":"tap","id":V,"holdState":…}` answers `{tapped, holdState, delivery: "recognized"}`, or an error for a disabled node or no press there, or `malformed` for another state. `layout`'s node answer carries `held {state, rows}`: the node's press rows for `active` (`press_scale`, `press_opacity`, `press_opacity_to`, `press_background_color`, `press_color`, the ones it has), the look's rows otherwise, by wire name. It gives no tokens, and the server's join adds the sources.
+- **Tests** (`presenter/held_tests.rs`): `active` as the press paint, eased, its rows, and let go by a real press that then goes on; a real press taken over; `hover` and `focus-visible` as their looks, their rows, and the pointer and the focus crossing; a disabled node refusing and disabling letting go; no press there, no single view, an unknown state, a reordered instance, and going; a new generation unsaid and held again under the same plan only; the agent's `holdState` and `layout`'s held rows. `build_channel.rs`: the frame parse and the capability.
+- **After review round 1 (Astra, Grok):** a held `active` named on a node inside the press answers `layout` for that node too, with the press's rows; a held press let go keeps its paint only while a live contact presses the node inside the box it had when pressed (one dragged off unpaints). A frame addressing another plan is nothing, unsaid; a revision ended here is not taken again from a resent frame, and a lower revision (a new server's) forgets them.
+- **After review round 2 (Astra, Grok):** a disabled node stops a held `active`'s walk to its press (`disabled`), as a real press does; an `unsupported` hold ends its revision; a held `active` shows the painted control's pressed look (a neutral control's wash) as a contact's does.
+- **After review round 3 (Astra, Grok):** a held `active` named inside its press climbs the kernel's parents (the display's are none until a new generation's first picture is acknowledged), so a same-plan generation takes it again with no `gone`; a frame of another plan leaves the frame kept and what is held alone; holds are scoped to the build channel's stream (a let-go of an earlier stream's says nothing, a queued hold report of an earlier nonce, or of none while the stream is lost, is dropped, a kept frame is taken again only on its own stream, a hold command still waiting from the old stream is dropped, and a new or lost stream forgets the ended revisions); Android's reader tells exact2 of a finger down, a key down or any IME call (a code-point deletion included) in a hosted field (`Native.fieldInput`), so real input that changes nothing else (a backspace in an empty field) still lets a hold go; Android's hosted fields (a finger on one, an edit, composing, a selection, the action key) let a hold of the field go; a held press and a contact's each show their own painted control pressed.
+
+### Stage 8, commit G: the clone takes state parts (clone `5ca7be8`, `382201d`, `95d7d41`, on its main)
+
+- **The Post button** is its own control (D8): `style PostButton`, a solid pill on `param.fill`
+  (primary_500), `:active` primary_600 (lowering to D7's press paint) and `:disabled`
+  primary_300. It was iOS prominent glass with an `opacity=(dim ? 0.5 : 1)` hand fix, and iOS
+  draws a disabled prominent glass button grey (D9); the hand fix and the `dim` prop are gone.
+- **The action row's six buttons** take `style ControlButton`: `:hover` and `:focus-visible`
+  show contrast_25, and `:disabled` is opacity 0.6, replacing the reply column's opacity hand fix.
+  The switches already took `accent-color="primary_500"`.
+- **Spinners** (`382201d`): after the spinner rule (C's gap, `4418182a9`) the clone's root
+  `accent-color="text"` reached its 14 spinners; its 7 bare ones take their own colours
+  (contrast_500, white_100 inside filled buttons), as Bluesky's grey `ActivityIndicator`s are.
+- **Format** (`95d7d41`): one `contract fmt` over its 22 `.contract` files, format only; the plan
+  is byte-identical (cmp), so a `set-state` write is a one-line diff.
+- The clone's web tests pass, 9/9.
+
+### Stage 8's gate: met, with two deviations (2026-10-18; the run is `~/x2theme/stage8-gate-run.txt`)
+
+The clone at `95d7d41` (G `5ca7be8`) on exact2 main: the host lines at `91ad9421f` (the Android
+reader at `55a2c10fc`), the hold lines at `b301a914a`. Stage 8's commits: A `e53b427a3`..`d17651ba0`,
+F `7be3690cf`..`78b93c82a`, D `5ddec9cc4`..`dd5a46579`, B1 `4b1f450fe`..`6da7f6fc2`, B2 and B3
+`b5f14324e`..`8e9ac2349`, C `c57e36a3d`..`84b24fafb`, E1 `9d8d22d29`..`740af62e9`, E2 and E3
+`e27145459`..`a0ff804f2`.
+
+| Gate line | Result |
+|---|---|
+| The clone's Post button and switches are right on every host with no hand fix and no double dim | **Met** on the web, macOS, the iOS simulator, Linux and the Android reader: rest #006aff (primary_500), pressed #0059d6 (the `:active` part), disabled #75afff (primary_300, nothing over it), switch #006aff. The Mac's `NSSwitch` draws the system accent, which `tamber-unreachable` names. |
+| A checked, disabled toggle with both parts shows `:disabled`'s | **Met** on the same hosts (#ff0000), and `state_parts.rs`. |
+| A class change and a base change while pressed keep the overlay over the new base | **Met**: the web's `looks.test.mjs` in Chrome, Linux's look tests, Apple's `StateLooksTests`. |
+| Existing `disabledStyled` apps unchanged; LLP 1061's press corpus unchanged | **Met**: caltrain, theme-fixture, shelf, realworld and tamber-host, and the press corpus (`press.contract`, `press-paint.contract`, `motion-feel.contract`), built before and after each run of stage 8 commits: only the format and schema digests, and A's empty looks table (4 bytes). Conform `--synthetic --strict`: 0 failures in 97 targets. |
+| `tamber-unreachable` names the macOS switch and iOS's disabled glass button | **Met**: the clone's settings and moderation switches (after `91ad9421f` placed it past the warning cap), and `control_roles.rs` for iOS's disabled prominent glass (the clone has none now). |
+| The workbench shows each component's state parts, editable through `set-state` (which rebuilds) | **Deviation**: the server half is met (on a copy of the clone, `set-state PostButton :active background-color` proposes `rebuild`, writes the row as a one-line diff, and undo gives the bytes back). The workbench is the design tool's, LLP 1122 T3 and T4, and moves to T4's gate. |
+| Hold (LLP 1122 T4): a held state shows without a touch; real input clears it; a disabled node refuses | **Met** on the web and the Mac. |
+| Hold: inspect on a held node shows the state part's rows | **Deviation**: the rows and computed values show, but by the lowered press row (`press_background_color`) with provenance `incomplete`, not as the author wrote them (`background-color` under `:active`, its span, its tokens). Moved to stage 9 E. |
+| No regressions; release output unchanged where no state parts are used | **Met** (above). |
+
+**Also in stage 8:** C's Exact-side gaps, each its own reviewed commit, re-measured, flipping its
+cells: the reader's placeholder (`682def423`), one spinner rule on every host (`4418182a9`), the
+painters' closed select's why (`d4e62c645`), FieldText (`e5ebb1163`, which also ends Apple's
+inherited colour on a field, LLP 1115 D4) and Field (`6ec337216`; the Mac's input stays `none`,
+its bezel drawing its own ground). The protocol's tamber/1.11 window closes with the stage; the
+next wire change takes tamber/1.12.
+
+**Stage 8 is closed.**

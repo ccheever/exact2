@@ -95,6 +95,9 @@ impl<D: DataSource> Presenter<D> {
     /// a colour the full wide table refused is reported on the build
     /// channel (LLP 1122 D4), or to stderr with none.
     pub fn apply_live(&mut self, frame: &str) -> Option<String> {
+        // The trace's (EXACT_SCRUB_TRACE): when taken, and the design before,
+        // so a frame the runner drops (an older one) is no line.
+        let traced = scrub_trace().then(|| (unix_ms(), self.host.runner().design()));
         let (error, full, roles) = self.host.apply_live(frame);
         // Nothing kept from a paint under the old overrides stands (LLP 1121 stage 5).
         if roles {
@@ -110,7 +113,14 @@ impl<D: DataSource> Presenter<D> {
         if error.is_some() {
             return error;
         }
-        self.after_commit()
+        let after = self.after_commit();
+        if let Some((taken, before)) = traced {
+            let applied = unix_ms();
+            if self.host.runner().design() != before {
+                trace_scrub(frame, taken, applied);
+            }
+        }
+        after
     }
 
     /// App modes (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
@@ -219,4 +229,136 @@ impl<D: DataSource> Presenter<D> {
             None => reply,
         })
     }
+}
+
+/// EXACT_SCRUB_TRACE in the host's environment (`x_scrub_trace=1` on
+/// Android): a line on stderr (logcat on Android) per scrub frame that
+/// moved the design, as the Apple host prints one (PlanURL.swift): its
+/// revision, the first token's value, and when (unix ms) the presenter took
+/// it, its commit was made, and its frame was drawn (`turned`). Where frames
+/// are said (the Android reader: [`scrub_frames_said`] at each display
+/// frame, [`scrub_frame_drawn`] as its host's own turn hands it a stream or
+/// none) a line waits for the next; one no frame takes within two (the
+/// reader stopped, a frame skipped) says `turned none`, as one does when no
+/// frame has come for two. Elsewhere a line is printed at once, its
+/// commit's time for `turned`.
+fn scrub_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("EXACT_SCRUB_TRACE").is_some())
+}
+
+/// A traced frame: revision, taken, applied (unix ms), value, and when it
+/// was applied by this process's clock (its age, which a wall clock set back
+/// cannot stretch).
+type Traced = (u64, f64, f64, String, std::time::Instant);
+
+/// Two frames: a line waits no longer for its frame.
+const FRAME_WAIT: std::time::Duration = std::time::Duration::from_millis(34);
+
+/// Lines waiting for their frame, and when a frame was last said.
+static PENDING: std::sync::Mutex<(Vec<Traced>, Option<std::time::Instant>)> =
+    std::sync::Mutex::new((Vec::new(), None));
+/// Whether this host says its frames.
+static FRAMES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn unix_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+}
+
+/// The lines, written outside the queue's lock; a failing stderr loses
+/// them. `turned`: the frame's time, the commit's (`None`, a host that says
+/// no frame), or unknown (`Some(None)`).
+fn write_scrub(lines: &[Traced], turned: Option<Option<f64>>) {
+    use std::io::Write;
+    if lines.is_empty() {
+        return;
+    }
+    let mut err = std::io::stderr().lock();
+    for (rev, taken, applied, value, _) in lines {
+        let turned = match turned {
+            None => format!("{applied:.1}"),
+            Some(Some(t)) => format!("{t:.1}"),
+            Some(None) => "none".into(),
+        };
+        let _ = writeln!(
+            err,
+            "exact scrub: rev {rev} received {taken:.1} applied {applied:.1} turned {turned} value {value}"
+        );
+    }
+}
+
+fn pending() -> std::sync::MutexGuard<'static, (Vec<Traced>, Option<std::time::Instant>)> {
+    PENDING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn trace_scrub(frame: &str, taken: f64, applied: f64) {
+    let Some(edit) = exact_runner::design::Edit::parse(frame) else {
+        return;
+    };
+    let Some(mark) = edit.scrub else {
+        return;
+    };
+    let now = std::time::Instant::now();
+    let value = edit
+        .tokens
+        .first()
+        .map_or("", |t| t.value.as_str())
+        .to_string();
+    let line = (mark.rev, taken, applied, value, now);
+    if !FRAMES.load(std::sync::atomic::Ordering::Relaxed) {
+        write_scrub(&[line], None);
+        return;
+    }
+    // No frame said for two (the reader stopped): its frame is unknown, as
+    // are those waiting longer than two; a few dozen wait at most.
+    let (unsaid, stalled) = {
+        let mut guard = pending();
+        let (queue, said) = &mut *guard;
+        let stalled = said.is_none_or(|at| now.duration_since(at) > FRAME_WAIT);
+        let stale = queue
+            .iter()
+            .take_while(|l| stalled || now.duration_since(l.4) > FRAME_WAIT || queue.len() >= 64)
+            .count();
+        let unsaid: Vec<Traced> = queue.drain(..stale).collect();
+        if !stalled {
+            queue.push(line.clone());
+        }
+        (unsaid, stalled)
+    };
+    write_scrub(&unsaid, Some(None));
+    if stalled {
+        write_scrub(&[line], Some(None));
+    }
+}
+
+/// The reader's display frame: this host says its frames.
+pub fn scrub_frames_said() {
+    if scrub_trace() {
+        FRAMES.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// The host's own turn handed the reader its stream (or none, a view of the
+/// app's own drawing the change): the lines waiting, with its time, those
+/// that waited longer than two frames unknown.
+pub fn scrub_frame_drawn() {
+    if !scrub_trace() {
+        return;
+    }
+    FRAMES.store(true, std::sync::atomic::Ordering::Relaxed);
+    let (now, turned) = (std::time::Instant::now(), unix_ms());
+    let lines = {
+        let mut guard = pending();
+        guard.1 = Some(now);
+        std::mem::take(&mut guard.0)
+    };
+    let (late, fresh): (Vec<Traced>, Vec<Traced>) = lines
+        .into_iter()
+        .partition(|l| now.duration_since(l.4) > FRAME_WAIT);
+    write_scrub(&late, Some(None));
+    write_scrub(&fresh, Some(Some(turned)));
 }

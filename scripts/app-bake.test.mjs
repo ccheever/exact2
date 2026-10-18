@@ -217,6 +217,27 @@ test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
+test('watch archives from nightly require matching bytes and the exact compiler unit', async () => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-watch-dep-'));
+  try {
+    const directory = resolve(root, 'aarch64-apple-watchos-sim/host-dev');
+    const out = resolve(directory, 'build/caltrain-apple/a11ce/out');
+    mkdirSync(out, { recursive: true });
+    const file = resolve(directory, 'libcaltrain_apple.a'), unit = resolve(out, 'libcaltrain_apple-a11ce.a');
+    const dep = resolve(out, 'caltrain_apple-a11ce.d'), src = resolve(root, 'lib.rs');
+    const metadata = { target_directory: root, build_directory: root, packages: [{ id: 'caltrain', name: 'caltrain-apple' }] };
+    const message = { package_id: 'caltrain', filenames: [file], target: { name: 'caltrain_apple', src_path: src } };
+    writeFileSync(file, 'selected archive'); writeFileSync(unit, 'different bytes');
+    writeFileSync(dep, `${dep}: ${src}\n`);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+    writeFileSync(unit, 'selected archive');
+    assert.equal(unitDepInfo(message, root, metadata), dep);
+    writeFileSync(dep, `${dep}: ${root}/wrong.rs\n`);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const { spawnSync } = await import('node:child_process');
@@ -501,4 +522,21 @@ test('a claim is live unless its holder is shown gone or reused', async () => {
   assert.equal(claimLive(claim(2 ** 22 + 12345, new Date().toISOString())), false, 'no such process');
   assert.equal(claimLive('not json'), true, 'unreadable: never guess');
   assert.equal(claimLive(claim(process.pid, 'not a date')), true, 'an undated claim of a running pid');
+});
+
+// Run after a gallery build: exercise the completed receipt and the real CLI refusal.
+test.skipIf(!process.env.EXACT_WIDGET_GALLERY_TEST)('a snapshot driver edit makes a gallery build stale', async () => {
+  const { resolveApp, readBuilds } = await import('./app.mjs');
+  const app = resolveApp('caltrain'), source = resolve(import.meta.dir, '../host/apple/Sources/ExactSnapshot/SnapshotDriver.swift');
+  const receipt = readBuilds(app).find(build => build.compat.inputs.platform === 'macos' && build.binary.inputs.some(input => input.path === source));
+  assert.ok(receipt, 'build Caltrain with --widget-gallery first');
+  const before = readFileSync(source);
+  try {
+    writeFileSync(source, Buffer.concat([before, Buffer.from('\n// freshness test\n')]));
+    const name = receipt.binary.inputs.find(input => input.path === source).name;
+    assert.ok(pendingBuildInputs(receipt).includes(name));
+    const refused = spawnSync(process.execPath, [resolve(import.meta.dir, 'agent.mjs'), 'macos', 'widget', 'next-trains', 'tree'], { encoding: 'utf8' });
+    assert.equal(refused.status, 3, refused.stderr);
+    assert.match(refused.stderr, /SnapshotDriver.swift/);
+  } finally { writeFileSync(source, before); }
 });

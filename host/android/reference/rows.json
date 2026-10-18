@@ -1,0 +1,29 @@
+{
+  "about": "LLP 1115.001.001 D2.4: where each value of the schema's Material column comes from in Compose Material 3 at the pinned version, by symbol, never by line. `token`: a generated token (a shape's `corner` names which); `defaults`: a public `*Defaults` member, as the reference reads it at run time (`InputsTest`, `defaults.json`); `source`: a constant declared in a library file; `computed`: an expression of tokens, where the library computes it. `tokens.mjs` checks each against the schema.",
+  "rows": {
+    "field-height": { "defaults": "TextFieldDefaults.MinHeight" },
+    "field-corner": { "token": "FilledTextFieldTokens.ContainerShape", "corner": "topStart" },
+    "field-padding": { "source": "internal/TextFieldImpl.kt", "name": "TextFieldPadding" },
+    "field-label-top": { "source": "TextField.kt", "name": "TextFieldWithLabelVerticalPadding" },
+    "field-label-line": { "source": "internal/TextFieldImpl.kt", "name": "MinFocusedLabelLineHeight" },
+    "field-icon-size": { "token": "FilledTextFieldTokens.TrailingIconSize" },
+    "field-icon-inset": {
+      "computed": "(48 - SmallIconButtonTokens.IconSize) / 2",
+      "in": "internal/TextFieldImpl.kt textFieldHorizontalIconPadding(): half of the 48 dp minimum touch size the 24 dp icon is padded to"
+    },
+    "field-indicator": { "token": "FilledTextFieldTokens.ActiveIndicatorHeight" },
+    "field-indicator-focused": { "token": "FilledTextFieldTokens.FocusActiveIndicatorHeight" },
+    "state-hover-opacity": { "token": "StateTokens.HoverStateLayerOpacity" },
+    "state-pressed-opacity": { "token": "StateTokens.PressedStateLayerOpacity" },
+    "nav-height": { "token": "NavigationBarTokens.TallContainerHeight" },
+    "nav-icon": { "token": "NavigationBarVerticalItemTokens.IconSize" },
+    "nav-indicator-width": { "token": "NavigationBarVerticalItemTokens.ActiveIndicatorWidth" },
+    "nav-indicator-height": { "token": "NavigationBarVerticalItemTokens.ActiveIndicatorHeight" },
+    "nav-label-gap": { "source": "NavigationBar.kt", "name": "NavigationBarIndicatorToLabelPadding" },
+    "nav-item-gap": { "source": "NavigationBar.kt", "name": "NavigationBarItemHorizontalPadding" },
+    "top-height": { "token": "AppBarSmallTokens.ContainerHeight" },
+    "top-edge": { "source": "AppBar.kt", "name": "TopAppBarHorizontalPadding" },
+    "top-title-inset": { "source": "AppBar.kt", "name": "TopAppBarTitleInset" },
+    "top-icon": { "token": "AppBarTokens.IconSize" }
+  }
+}

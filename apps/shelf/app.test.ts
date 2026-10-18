@@ -26,15 +26,16 @@ test('no-tells finds literal colours and sizes, and lets roles and text styles b
 // The store's rules, through the data module's own answers.
 async function shelf() {
   let bytes: Uint8Array | undefined;
+  let reads = 0;
   const storage = { fs: {
-    readFile: async () => { if (!bytes) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return bytes.buffer; },
+    readFile: async () => { reads++; if (!bytes) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return bytes.buffer; },
     mkdir: async () => {},
     atomicWriteFile: async (_path: string, next: Uint8Array) => { bytes = next.slice(); },
   } };
   const source = await import(`./app.ts?case=${Math.random()}`);
   const call = (name: string, ...args: unknown[]) => source.answer(name, args, {}, storage, {});
   const book = async (id: string) => (await call('library')).books.find((b: { id: string }) => b.id === id);
-  return { call, book };
+  return { call, book, reads: () => reads };
 }
 
 test('progress clamps, a page read starts a book, the last page finishes it', async () => {
@@ -56,4 +57,16 @@ test('the goal stays between 1 and 365, and the average counts rated finished bo
   await call('setGoal', 400);
   expect((await call('library')).goal).toBe(365);
   expect((await call('library')).avgText).toBe('5.0 ★');
+});
+
+
+test('a fresh widget reads the same library as the app, then follows edits', async () => {
+  const { call, reads } = await shelf();
+  const rows = await call('widgetLibrary', 1234);
+  const library = await call('library');
+  expect(reads()).toBe(1);
+  expect(rows).toEqual([{ date: 1234, props: { count: library.books.length, latest: library.books[0].title } }]);
+  expect(rows[0].props.count).toBe(3); // The gallery's preview has seven.
+  await call('removeBook', 'seed-3');
+  expect(await call('widgetLibrary', 5678)).toEqual([{ date: 5678, props: { count: 2, latest: 'Piranesi' } }]);
 });

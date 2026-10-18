@@ -139,7 +139,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router
+names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -193,6 +193,11 @@ component App
 - A welcome shown at first launch only is not a second route: the main screen is the root
   route and shows the welcome while a `persist` flag is unset (docs/recipes/first-launch.md).
   A stack's first visit keeps its root route: `replace` to another route is refused there.
+- A route's first child, a `header` holding one heading, is iOS's navigation bar: an
+  `aria-level=1` heading is its large title, a lower level the inline title. A pushed route
+  has the platform's Back button and edge swipe with nothing written; a control whose `id`
+  is the root's `navigationBack` runs your action and titles the button. Draw neither
+  (docs/contract-for-agents.md, the table of what each host draws).
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
@@ -220,7 +225,7 @@ component App
 ```
 
 ## modal: a form over the screen, with Save and Cancel
-names: dialog, sheet, closedby, popup
+names: dialog, sheet, closedby, popup, grabber, sheet-grabber, prefersGrabberVisible
 
 A form you lay out (fields, Save, Cancel) is a route presented as a sheet:
 `navigationPresentation="modal"` on its root, its Cancel the control whose `id` the root's
@@ -272,11 +277,13 @@ component App
 
 - In tests, `clock settle` after the push and after Save. A sheet's height:
   `navigationDetent="medium"` (or `"fit-content"`, or `"45%"` of the sheet's maximum).
+- A sheet's grabber is the platform's: iOS shows one on a sheet with several detents.
+  `navigationGrabber="visible"` or `"hidden"` on the route says otherwise; draw none.
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
-## confirm: ask before deleting
-names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal, prompt, rename
+## confirm: ask before what can't be undone (delete, close, cancel)
+names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal, prompt, rename, action sheet, action-sheet, actionSheet, ActionSheetIOS, showActionSheetWithOptions, UIAlertController
 
 A `dialog role="alertdialog"`: its `aria-label` the question, a `text` the message, each action
 a `button` with `press` that also closes it, and one Cancel (a closing button with no
@@ -307,6 +314,9 @@ component App
           text "Cancel"
 ```
 
+- Ask first for what can't be undone: a detail screen's Delete, Close Poll, Cancel Event, a bulk
+  clear. A routine or recoverable step asks nothing: a row's swipe (`contract vocab swipe`), a
+  row removed from a form being edited.
 - Its rows are only text, actions and one Cancel; a form is a sheet (`contract vocab modal`).
   In tests, `clock settle` after it opens, then `tap "remove-confirm"`.
 - A prompt (rename, a name for a new list) is the same alert with an `input` row:
@@ -318,6 +328,9 @@ component App
 - An alert has no outside: Escape and Back cancel it, a tap beside it does nothing. Leave
   `closedby` unwritten; `closedby="any"` asks for the platform's dismissible form in its place
   (an action sheet on an iPhone, a dialog a click outside closes on the web).
+- Several actions and no `text` make an action sheet (an "Open in…" chooser): from the
+  bottom of an iPhone, its Cancel drawn, when it has a Cancel; a popover at its invoker
+  when it has none.
 
 More: docs/recipes/navigation-stack.md
 
@@ -395,7 +408,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## swipe: a list row's swipe actions
-names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft, swipeContent, swipeLeading, swipeTrailing
+names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft, swipeContent, swipeLeading, swipeTrailing, swipe actions
 
 `delete=action` on a list row is its swipe to delete: a red Delete beside the row, which a
 full swipe performs. On iOS it is UIKit's own swipe action; on the web and the Mac the row
@@ -743,9 +756,9 @@ component App
 ## stepper: a count with plus and minus (a number field)
 names: UIStepper, NSStepper, quantity, spin-button, increment, counter
 
-`input type="number"` with `min`, `max` and `step` is a numeric field with the platform's stepping control
-(UIStepper on iOS, NSStepper on the Mac, the browser's spin buttons on the web); the field stays
-editable; `appearance="textfield"` drops the control. A count 1-99:
+`input type="number"` with `min`, `max` and `step` is a field with the platform's stepper
+(UIStepper, NSStepper, the browser's spin buttons); the field stays editable;
+`appearance="textfield"` drops the stepper. A count 1-99:
 
 ```contract
 component App
@@ -757,7 +770,9 @@ component App
 ```
 
 - The value is text, as any field's: a step is an `input` and a `change` with the new text, which a
-  derive parses with `parseNumber` (docs/recipes/number-field.md). `step` defaults to 1.
+  derive parses with `parseNumber` (`number-field`).
+- A press adds `step` (1 unsaid), the value's unit: `step=50` for millilitres. A freely typed
+  amount has no stepper: a plain `input` with `inputmode`.
 - On iOS the stepper needs the field about 130 pt wide (`flex=1` in a row), else the field shows alone.
 - A test types the value (`type "qty" "5"`); `agent … layout qty` gives `native.stepper`'s
   `increment` point, and `tap qty at <x> <y>` presses it.
@@ -788,7 +803,7 @@ along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 hatch on separate rows does not establish one pattern across the list.
 
 ## menu: a pull-down menu of actions, and a long-press one
-names: menus, dropdown, pulldown, pull-down, popupmenu, contextPopover, UIMenu
+names: menus, dropdown, pulldown, pull-down, popupmenu, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction
 
 A menu is HTML's: a `column popover="auto" role="menu"` of `button`s, opened by a button's
 `popovertarget` (on iOS a `UIMenu`; in a `header`, the bar item's pull-down). A long-press
@@ -826,7 +841,7 @@ A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextme
 taps the item. A row whose `popovertarget` names another menu is its submenu.
 
 ## search: the bar's search field, filtering a list or querying a server
-names: searchable, searchbar, search-bar, UISearchBar, UISearchController
+names: searchable, searchbar, search-bar, UISearchBar, UISearchController, search bar, search field
 
 An `input type="search"` in a route's `header` is the bar's search field: on iOS UIKit's
 search controller (a magnifier, a clear button, Cancel), on the web a field under the title.
@@ -960,3 +975,88 @@ component App
   element, which has no placeholder.
 - `::before` and `::after` are refused: Contract has no generated box. Write what they would show as
   a child (a `text`, an `image`).
+
+## glass: Liquid Glass, a material or a blur behind a box
+names: Liquid Glass, liquid-glass, liquidGlass, material, materials, vibrancy, blur, frosted, UIVisualEffectView, UIGlassEffect, BlurView, GlassView, expo-blur, expo-glass-effect
+
+Bars, tab bars, sheets and menus are the platform's, glass included: leave them unsaid. A
+surface of your own takes `backgroundMaterial`: `"glass"` or `"glass-clear"` is
+`UIGlassEffect` on iOS 26 and `NSGlassEffectView` on macOS 26; `"ultra-thin"`, `"thin"`,
+`"material"`, `"thick"` and `"chrome"` (each with `-light` and `-dark`) are UIKit's blurs,
+and `"sidebar"`, `"menu"`, `"popover"`, `"hud-window"` the Mac's. The web and Linux draw a
+blur that approximates each. A glass button is `buttonStyle="glass"` or
+`"prominent-glass"`, and `glassGroup=<points>` on a box merges the glass inside it as
+SwiftUI's `GlassEffectContainer` does.
+
+```contract
+component App
+  view
+    column height="100%" background-color="-exact-system-teal"
+      row backgroundMaterial="glass" border-radius=24 margin=16 padding=12 gap=8
+        button buttonStyle="glass" aria-label="Play" testId="play"
+          image "symbol:play"
+        text "Now playing"
+```
+
+- CSS's `backdrop-filter="blur(12px) saturate(1.8)"` blurs what is behind on the web, macOS
+  and Linux; iOS draws a fixed light material for it, so a surface meant for iPhone says
+  `backgroundMaterial`, which wins when both are written.
+
+## haptics: a tap the hand feels
+names: haptic, vibrate, vibration, Haptics, impactAsync, selectionAsync, notificationAsync, UIImpactFeedbackGenerator, UISelectionFeedbackGenerator, UINotificationFeedbackGenerator, sensoryFeedback, expo-haptics
+
+`-exact-press-haptic` plays at touch-down on what is pressed, with no round trip:
+`"selection"`, or `"impact-light"`, `-medium`, `-heavy`, `-soft`, `-rigid`. From an action,
+`haptic(kind)` plays one of those or `"success"`, `"warning"` or `"error"`, as when a drag
+crosses a threshold. iOS uses the feedback generators, the web vibrates where it can, Linux
+does nothing.
+
+```contract
+component App
+  state n = 0
+  action add
+    let next = n + 1
+    n = next
+    if next == 10
+      haptic("success")
+  view
+    button press=add -exact-press-haptic="impact-light" testId="add"
+      text `${n}`
+```
+
+## status-bar: the colour of the iPhone's status bar
+names: status bar, statusbar, setStatusBarStyle, UIStatusBarStyle, preferredStatusBarStyle, expo-status-bar
+
+`status-bar-style="light-content"` (light text, for a dark surface), `"dark-content"` or
+`"auto"` on any node, bound to state if it changes, sets an iPhone's status bar; of what the
+bar sits over, the declaration painted on top wins. `status-bar-animation="fade"` fades a
+change. Other hosts ignore both.
+
+More: docs/contract-for-agents.md (`status-bar-style`)
+
+## toast: a message that shows for a moment
+names: Toast, snackbar, Snackbar, react-native-toast-message, burnt
+
+No host has a toast control, iOS included. A brief message is an overlay: a root child after
+the page (after the `tablist` in a tab app) shown while state holds the message, and a
+`task … when` that clears it with `after(ms, action)`.
+
+```contract
+component App
+  state toast = ""
+  action save
+    toast = "Saved"
+  action hide
+    toast = ""
+  task dismiss when toast != "" key=toast
+    after(2000, hide)
+  view
+    column height="100%"
+      button press=save testId="save"
+        text "Save"
+      if toast != ""
+        text toast position="absolute" bottom=32 left=16 right=16 padding=12 border-radius=12 backgroundMaterial="thin" aria-live="polite" testId="toast"
+```
+
+- The action the task runs clears the message whatever it reads: a gated task is armed at
+  commits, not by the clock (docs/agent-pitfalls.md, "A gate reads state at commits").

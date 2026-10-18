@@ -242,7 +242,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
     var pressable: Bool { handlers.contains("press") || defaultLink != nil || presenter?.invocation(of: self) != nil }
     /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
-    var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged() } } }
+    var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged(); lookState(focus: focusVisible) } } }
     /// A focused field whose ring Exact draws (LLP 1104 D6; `showFieldFocus`).
     var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
     /// A key down's default action at a focused node; its `key` handlers
@@ -453,6 +453,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        holdGone() // out of the map: a hold on it is let go (HeldState.swift)
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
         invalidateText()
@@ -1014,12 +1015,12 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.views[id] === self { firstDraw() }
     }
 
-    /// Whether the style clips the children (`overflow: hidden`; a paragraph's
+    /// Whether the style clips the children (`overflow: hidden` or `clip`; a paragraph's
     /// any overflow but `visible`; line-clamp, LLP 1054 P3). Without a clip box
     /// it is `clipsToBounds` (`applyStyle`; a landing flight, `FlightsMac`).
     var overflowClips: Bool {
         let over = [style["overflow_x"]?.string ?? "visible", style["overflow_y"]?.string ?? "visible"]
-        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains("hidden")
+        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains { $0 == "hidden" || $0 == "clip" }
     }
 
     func applyStyle(_ s: NodeStyle) {
@@ -1141,7 +1142,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-            f.textColor = color("text_color", SystemColor.canvasText)
+            f.textColor = fieldInk
             applyPlaceholder(f)
             styleNativeField()
             updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)
@@ -1401,7 +1402,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // menu opens.
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
-        if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
+        if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event), click: event) { return }
         if !canvas, !bubbleContextMenu(event) { super.rightMouseDown(with: event) }
     }
     package override func scrollWheel(with event: NSEvent) {

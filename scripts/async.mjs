@@ -7,7 +7,7 @@
  * `#[ignore = "async lane: …"]`, every web host unit test found by one glob
  * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
- * (`host/web-js/conform.mjs --strict`), the separate game workspace tests,
+ * (`host/web-js/conform.mjs --strict`), the separate game workspace and in-repo game tests,
  * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
  * --no-install`) for any range beyond documentation-only edits,
  * the
@@ -76,13 +76,15 @@ function laneTests() {
 
 const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
-// The second lane: tvOS uses Caltrain (its TypeScript-free build needs no
+// The second lane: watchOS compiles Caltrain with the pinned nightly and
+// rust-src (webToolchainEnv names their install); tvOS uses Caltrain (its TypeScript-free build needs no
 // Hermes) and installs it on an Apple TV simulator, which the first lane's
 // compile does not; Linux and Windows compile their target-only branches:
 // Windows with Windows Desk, Linux with every app (`*-linux` is the host and
 // each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too.
 export function tierTwoChecks() {
   return [
+    ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']],
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
     ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
@@ -121,6 +123,7 @@ export function checks(sha, since, selection = {}) {
     gameCheck,
     ['game-recipes', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '-p', 'exact-game', '--locked', '--doc', '--no-fail-fast']],
     ['game-vocab', 'bun', ['test', 'game/vocab.test.mjs']],
+    ['game-pins', 'bun', ['game/app/shells.mjs', '--test']],
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
@@ -387,9 +390,8 @@ async function once(state) {
 }
 
 if (import.meta.main) {
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log('Usage: bun scripts/async.mjs [--once] [--from <rev>] [--worktree <dir>] [--interval <seconds>] [--branch <ref>] [--tier 1|2] [--newest] [--explain [<rev>]]');
-    console.log('Runs asynchronous workspace, game, recipe, vocabulary, web and platform checks. --help performs no work.');
+  if (process.argv.includes('--help')) {
+    console.log('Usage: bun scripts/async.mjs [--once] [--from <rev>] [--worktree <dir>] [--interval <s>] [--branch <ref>] [--tier 1|2] [--newest] [--explain [<rev>]]');
     process.exit(0);
   }
   if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);

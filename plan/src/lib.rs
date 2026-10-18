@@ -27,6 +27,20 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod entry;
+pub use entry::entry_identifier;
+/// ActivityKit's ordered placement identities (LLP 1126.001 WP8).
+pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
+    "lockScreen",
+    "compactLeading",
+    "compactTrailing",
+    "minimal",
+    "expanded.leading",
+    "expanded.trailing",
+    "expanded.center",
+    "expanded.bottom",
+];
+
 pub mod shared;
 pub mod strings;
 pub mod value;
@@ -72,6 +86,8 @@ pub enum PlanError {
         available: usize,
     },
     BadMagic,
+    /// A running host received a snapshot, or the snapshot reader received another entry.
+    WrongEntry,
     UnsupportedVersion(u32),
     FormatDigestMismatch {
         expected: u64,
@@ -221,6 +237,42 @@ impl Plan {
     /// progress. Called by the generated `validate`, so every loaded or built
     /// plan has passed it.
     pub fn validate_semantics(&self) -> Result<(), PlanError> {
+        let activity = !self.activity_slots.is_empty();
+        if self.snapshot_entry.is_empty() {
+            if self.snapshot_refresh.is_some() || activity {
+                return Err(PlanError::WrongEntry);
+            }
+        } else if self.snapshot_refresh.is_some() == activity {
+            return Err(PlanError::WrongEntry);
+        }
+        if activity {
+            if self.activity_slots.len() != ACTIVITY_PLACEMENTS.len() {
+                return Err(PlanError::WrongEntry);
+            }
+            let roots: Vec<_> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent == Some(NodesId(0)) && n.arm.is_none())
+                .map(|(i, _)| i as u32)
+                .collect();
+            for (i, slot) in self.activity_slots.iter().enumerate() {
+                if self.str(slot.name) != ACTIVITY_PLACEMENTS[i]
+                    || roots.get(i) != Some(&slot.root.0)
+                {
+                    return Err(PlanError::WrongEntry);
+                }
+            }
+            if roots.len() != ACTIVITY_PLACEMENTS.len()
+                || !self.slots.iter().any(|s| {
+                    self.str(s.name) == "snapshot_state"
+                        && s.owner.is_none()
+                        && self.type_(s.ty).kind == TypeKind::Record
+                })
+            {
+                return Err(PlanError::WrongEntry);
+            }
+        }
         // @ref LLP 1038 D2 — declaration order and the one root router slot.
         let mut notfound = false;
         for (i, route) in self.routes.iter().enumerate() {
@@ -464,6 +516,15 @@ impl Plan {
                 table: "looks",
                 row: i as u32 + 1,
                 field: "node",
+            });
+        }
+        // A look is `:hover` (1) or `:focus-visible` (2): `:active` (0) lowers
+        // to the press paint (LLP 1121 D8 as amended 2026-10-18).
+        if let Some(i) = self.looks.iter().position(|l| !(1..=2).contains(&l.state)) {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32,
+                field: "state",
             });
         }
         self.validate_texts()?;

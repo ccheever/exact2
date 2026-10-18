@@ -20,6 +20,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub(crate) mod case;
+pub mod decorations;
+pub use decorations::DecoratedField;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -521,6 +523,17 @@ pub trait TextMeasurer {
         _request: &TextMeasureRequest<'_>,
     ) -> Option<TextMetrics> {
         None
+    }
+
+    /// A decorated field's intrinsic content using its actual editor layout.
+    /// Hosts ignoring decoration paint retain their ordinary field metrics.
+    fn decorated_field_text(
+        &mut self,
+        kind: crate::FieldKind,
+        request: &TextMeasureRequest<'_>,
+        _decorations: DecoratedField<'_>,
+    ) -> Option<TextMetrics> {
+        self.field_text(kind, request)
     }
 
     /// Native button border-box size, including its platform chrome and

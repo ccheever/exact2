@@ -34,6 +34,22 @@ impl LayoutTree {
         if !arena.has_type(NodeType::TextInput) && self.field_chrome.is_empty() {
             return Ok(());
         }
+        let revision = Some(measurer.measure_revision());
+        if self.decorated_measure_revision != revision {
+            self.decorated_measure_revision = revision;
+            let decorated: Vec<_> = self
+                .slots
+                .iter()
+                .filter_map(|(&node, &slot)| {
+                    (arena.node_type(slot) == NodeType::TextInput
+                        && arena.props(slot).str(crate::PropId::Decorations).is_some())
+                    .then_some(node)
+                })
+                .collect();
+            for node in decorated {
+                self.mark_dirty(node);
+            }
+        }
         let mut answers = Vec::new();
         for (&node, &slot) in &self.slots {
             let native = arena.is_native_text_control(slot);
@@ -170,7 +186,28 @@ pub(super) fn text(
 ) -> TextMetrics {
     if arena.node_type(slot) == NodeType::TextInput {
         let kind = FieldKind::from_props(arena.props(slot));
-        if let Some(metrics) = measurer.field_text(kind, request) {
+        let props = arena.props(slot);
+        let metrics = match props
+            .str(crate::PropId::Decorations)
+            .zip(props.str(crate::PropId::DecorationStyles))
+        {
+            Some((record, styles)) => measurer.decorated_field_text(
+                kind,
+                request,
+                crate::text::DecoratedField {
+                    view: arena.local_id(slot),
+                    record,
+                    styles,
+                    root_font_size: arena.root_font_size(),
+                    display_scale: arena
+                        .display_scale_next
+                        .or(arena.display_scale)
+                        .unwrap_or(1.0),
+                },
+            ),
+            None => measurer.field_text(kind, request),
+        };
+        if let Some(metrics) = metrics {
             return metrics;
         }
     }

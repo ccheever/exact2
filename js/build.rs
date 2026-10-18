@@ -163,6 +163,7 @@ fn main() {
         "overlay",
         "socket",
         "heap",
+        "snapshot",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

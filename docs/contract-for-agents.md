@@ -100,7 +100,10 @@ Inside the exact2 checkout, for its own apps, the same commands are
 `bun host/web/dev.mjs --app <name>`. Run `bun install --frozen-lockfile` there once.
 
 Use `build --json` before and after the edit. It returns one JSON array with all
-independent diagnostics it can collect, capped at 20; success is `[]`. Keep the
+independent diagnostics it can collect, capped at 20; success is `[]`. It is the
+whole output: stderr stays empty (but for a note while the compiler first
+builds), and `bun exact.mjs contract build`
+appends `app.ts`'s type errors (`typescript-TS2322`, …) to the same array. Keep the
 exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read all
 diagnostics, including related locations, before making the next repair. Each has
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
@@ -181,7 +184,12 @@ To show what survives a restart on any host, use an authored test's `reload` ste
 The driver prints each reply in a short text form. A `tap` or `type` is one line
 (`tapped #15 "add" · delivery platform · epoch 2 · clock 0 ms`); a failed one starts
 with `ERROR`. `state` prints one line a section (`slots {"count":1}`) and leaves out
-the empty ones (null, `[]`, `{}`). `--json` prints every field of every reply.
+the empty ones (null, `[]`, `{}`); one over 8 KB prints its size, its small sections,
+the others' sizes, and how to read one (`state resources`, `state feed.0`) or all of it
+(`state --full`). `state <name>` reads a state, derive, resource or section of the
+record, even where a view carries the same name. Every other reply is one line too
+(`clock 600 ms · settled · epoch 5`, `screenshot out.png · 420×900 · …`).
+`--json` prints every field of every reply, one JSON object a line.
 `--scale <n>` shrinks each screenshot to n pixels a point: an iPhone's are
 1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
 web, at about a ninth of the pixels. An app's `bun exact.mjs agent ios|macos`
@@ -789,14 +797,14 @@ component Water
 | Component | Props | Draws |
 | --- | --- | --- |
 | `SummaryCard` | `label: string`, `value: string`, `detail: string`, `progress: option<number>`, `symbol: option<string>` | a card: the symbol and label, the value large in tabular figures, the detail beside it where the card is wide and under it where it is narrow, the fraction as `progress` |
-| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
+| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value (the value under the label where both do not fit) over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
 | `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it, at the default body's sizes at every text size; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
-| `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
-| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
+| `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures (under them where they do not fit on one line): a grouped list `row`'s content, or any list's |
+| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under white ink (dark on the light hues: green, mint, teal, cyan, yellow, orange); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue on the hue at low opacity; `none` is the neutral grey with the label's ink; the title stays the default body size at every text size |
-| `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
+| `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and checkmark), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross), `"dimmed"` (the rest, once told), or `"chosen"` (the person's own pick once told or closed: the selected look, disabled, so a closed poll still marks the vote while the rest dim); told, dimmed and chosen tiles are disabled; as a grouped list's row it is the list's cell, the checkmark its accessory; a reader hears "Quito, correct" |
 
 - Props have no defaults: pass `none` for an option. A symbol is an `image` source:
   a role (`"symbol:calendar"`) draws on every host, `"symbol:sf/<name>"` on Apple only.
@@ -971,9 +979,14 @@ a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
 reason)`. The mapper may also send and close on its own socket while it
 answers `open` or a `message` (a subscribe, an Ack per frame), with no
 `fetch`. Sends run after the commit that settles the mutation or the frame
-stands, in order, and have bounded admission. The source must send and
-answer synchronously, and a mutation that sends cannot also `fetch`
-(whichever comes second refuses it). Refreshing or removing the
+stands, in order, and have bounded admission. A mutation's source that
+sends answers now or with a promise, and cannot also `fetch` (whichever
+comes second refuses it). A resource's answer may send its own
+request on its module's socket and await the reply, with no timer, and so
+may a mutation whose source answers with a promise: what each turn of it
+sends goes out once the commit that ran that turn stands, and stays sent if
+it is let go (on the web build, only its source's synchronous call may
+send). Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See
@@ -1421,6 +1434,10 @@ this adds no spacing value or custom button face.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS.
+On iOS the search field scrolls away with the content while it is empty, as UIKit's
+does; `position="sticky" top=0` on the `input` keeps it in view (React Navigation's
+`hideWhenScrolling={false}`). The route's scroller runs under the bars wherever its
+menus, popovers and `dialog`s are written: they take no place in its flow.
 The agent paints the authored header by default, but marks such a node in `tree` and
 `screenshot`, and an `expect` or `tap` on it fails, saying so. A `testId` on a bar
 button, the search field, a segment or a tab is its `accessibilityIdentifier`, which
@@ -1503,8 +1520,10 @@ An `image` source is the same string on every host: a path under the app's
 `pause`, their `-fill`s, `skip-back-15`, `skip-forward-15`, `skip-back-30`,
 `skip-forward-30`, `speaker`, `speaker-mute` and `moon`; an unknown role is refused
 with the list), `symbol:sf/<name>` (an SF Symbol by its Apple name: drawn on Apple
-only, blank on the web and Linux with no warning, where `layout` reports `reason:
-"platform"`; a tab or button that must show everywhere takes a role), an `app:/data|cache|tmp/…` file
+only, blank on the web and Linux, where `layout` reports `reason: "platform"`; a
+build of an app that ships either warns, its first use with the repair and each
+later one in a line; a tab or button that must show everywhere takes a role or an
+icon token), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
@@ -1824,6 +1843,10 @@ the complete original URL percent-encoded in `u`; read it with
 navigation root with `navigate=`. At cold launch it is the initial location;
 when already running, each link fires one `navigate` event in arrival order.
 An app without `protocol_handlers` keeps ordinary URL-to-location behavior.
+For a packaged-only scheme, use
+`[{"protocol":"notes","url":"/open?u=%s","distribution_only":true}]`.
+Apple archives and `--distribution` builds register it; local builds omit both
+its scheme and template. `--bundle` or `--release` alone does not enable it.
 Web builds copy this key into the web app manifest; the browser decides which
 schemes it supports and whether the installed app is registered.
 
@@ -2261,6 +2284,11 @@ makes it the default button.) Only the alert's shape takes
 one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).
 
+A menu row's second `text` is its item's grey subtitle on iOS when it is a line
+under the first (two texts in a block `button`, or a `flex-direction="column"`
+one), with or without an `if` around it; two texts side by side in a row, or one
+positioned `absolute` (a count at the corner), stay one title.
+
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
 on the web and under the agent the nested popover, opened by `tap <row>`. Place
@@ -2383,8 +2411,10 @@ down" "screenshot x.png" "tap up"` shows it. Nothing waits on the runner and no
 state changes. `-exact-press-color` reaches the node's text as `color` does
 (a text with its own colour keeps it). Any of them, 1 included, replaces the
 platform's unsaid press: iOS's dim, the Mac's darkening, a list row's cell
-highlight. Contract has no `:active` and no pressed block, so these are paint
-only; a press that changes layout is app state. Do not draw a press from
+highlight. An `:active` state part (below) says the same paint, with an
+opacity that is what the node shows pressed rather than a share; write each
+paint one way or the other, not both. These are paint only; a press that
+changes layout is app state. Do not draw a press from
 `pointerdown`/`pointerup` state: each touch then waits on the runner. Say
 nothing to get the platform's own.
 
@@ -2881,7 +2911,8 @@ syntax and vocabulary, use the [grammar reference](contract-grammar.md). For a
 new feature, start from the corresponding compiler fixture rather than memory
 of JavaScript, React Native, or the predecessor's Contract language.
 
-CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
+CSS overflow accepts `visible`, `hidden`, `clip`, `scroll`, and `auto`.
+`clip` clips without a scroll container or the zero automatic minimum size of `hidden`. `auto` clips and
 permits scrolling, with indicators shown only when content overflows. A visible
 axis beside hidden/scroll/auto computes to auto, as on the web.
 
@@ -2979,7 +3010,10 @@ end[, selectionMode]])` replaces its selection or a UTF-16 range. Selection
 is preserved by default (`select`, `start`, `end` are the other modes).
 Exact deliberately fires one `input` so its action can update the bound
 value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
-step. That input type also covers hatch replacements and browser spelling
+step by default. On the web, append `"undo"` after the selection mode, or call
+`setRangeText(id, text, "undo")`, to create one undoable replacement. The field keeps
+its plain source; see [decorations](contract-grammar.md#plain-textarea-decorations) for styled
+textarea ranges. That input type also covers hatch replacements and browser spelling
 corrections, so it does not uniquely identify this command. `select` follows
 input only when the selection changes. URL inputs trim surrounding ASCII
 whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` reports caret moves through `InputEvent`, and
@@ -3046,8 +3080,12 @@ on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
 `url`, `number` or no type, and `textarea` outside the Markdown editor) is the
 platform's own field by default (LLP 1104). On the web it inherits the page's
-font and colour, as a CSS reset does; other platforms use their control's own
-text style. Disabled and placeholder appearances are the platform's. To colour
+font, as a CSS reset does; other platforms use their control's own text style.
+Its text is its own `color`, else the design's `FieldText`, else the
+platform's field ink, on every host: a colour set on an ancestor never tints
+it (LLP 1115 D4, LLP 1121 D9). A field of your own (`appearance="none"`) and
+the Markdown editor inherit `color` as text does. Disabled and placeholder
+appearances are the platform's. To colour
 the placeholder, write CSS's `::placeholder` as a block under the field (its
 value may compute) or in a `style`; it admits `color` alone, with its own
 alpha, and without it the placeholder keeps the platform's colour (LLP 1104
@@ -3093,14 +3131,38 @@ component App
 `aria-pressed` true) are the runner's: they take `background-color`, `color`,
 `border-color`, `opacity`, `box-shadow` and `-exact-tint-color`, `:checked`
 under `:disabled`, and `:disabled` is your own disabled look (no default dim).
-`:active` (the host's press), `:hover` and `:focus-visible` are the host's:
-their rows never inherit (`background-color`, `border-color`, `opacity`,
-`box-shadow`, `-exact-press-scale`) and are literals, tokens included; the
-plan records them, and the hosts apply them on their own tracking from stage
-8 B. A part
+`:active` is the host's own press of the innermost node with a `press`: it takes
+`background-color`, `color`, `opacity` and `-exact-press-scale`, which become the
+node's pressed paint (LLP 1061 D7), eased on the press curve (under Reduce
+Motion too, as the press is feedback) and replacing the host's unsaid press (no
+65% dim on top); its `opacity` is the opacity it shows pressed, not a share.
+Say each once: `:active background-color` beside `-exact-press-background-color`
+is refused (`lower-state-press-paint`), as is a border or shadow there, which the
+press cannot paint yet. `:hover` and `:focus-visible` take `background-color`,
+`border-color`, `opacity` and `box-shadow`, shown at once while they hold (a
+`:hover` replaces the platform's hover wash, as `:active` its press; on
+the web a `transition` of the node's own on one of those rows still times it), the
+focus's over the hover's, under the press. Each host applies them on its own
+tracking, over the node's rows (rows a part doesn't name show the base, also a
+base that changes while pressed); their rows are literals, tokens included. A
+disabled node takes none. The web (both targets) does this today; Apple, Linux
+and Android follow (LLP 1121 stage 8 B). A part
 on a native control or a list's row is refused (their states are the
 platform's); a node's own part whose state it never writes (`:disabled` with no
 `disabled`) is warned of (`lower-state-dead`).
+
+A native control takes `accent-color` and, a field, the design's `Field`,
+`FieldText` and `placeholder` roles, where its host honours them: the
+schema's control-role table says which, per host
+(`docs/control-roles-measured.md`). For each target the app ships (not the
+terminal, which draws no colour, nor tvOS or watchOS, which have no column), a
+parameter you set that the host there does not honour is warned of once
+(`tamber-unreachable: accent-color on macOS switches: NSSwitch draws the
+system accent (the first at line 12; LLP 1121 D9)`): the platform's look is
+the answer there, or a control of your own (`appearance="none"`, or a styled
+pressable for a disabled prominent button). A field's own `color`,
+`background-color` (or `background`) or `::placeholder color` wins over the
+role, so it is not judged.
 
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes
@@ -3243,7 +3305,9 @@ light-dark(#f1f3f5, #16181c)`, written as CSS, dotted names allowed), and an
 `axes` block of app modes (`dark-style = black | dim  under scheme=dark`), each
 token's value in a mode on its own `when dark-style=dim: …` line. Rows name a
 token as they name a role, and an expression over tokens
-(`color-mix(in oklab, accent.fill 40%, surface.card)`) is folded by the build.
+(`color-mix(in oklab, accent.fill 40%, surface.card)`) is folded by the build,
+written whole, in a choice's arm or inside a shadow; a mix of colours alone
+(`color-mix(in srgb, red 35%, transparent)`) is a token in the `theme` block.
 `setMode("dark-style", "dim")` sets the window's mode; `-exact-mode="dark-style=black"`
 on a node holds its subtree in one (pins are `axis=value`, by spaces or commas;
 `axis:value` is refused), and inherited text inside takes the pin's value. The
@@ -3261,6 +3325,18 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+The brand's states come from the theme, not a hatch (LLP 1129): `AccentColor =
+accent` is the app's tint, so the keyboard's focus ring is drawn in it (on the web
+a solid 2 px line, which reads on a control filled with the accent); `Highlight`
+and `HighlightText` colour selected text on the web (iOS draws it in the tint); a
+`button` you fill (`background-color="accent"`) hovers in its own ink, as the
+filled button does, and a row or card of your own (a `link` or a pressable)
+hovers in the brand's colour by a `:hover` part; a sheet's corners are
+`border-radius` on its route. A button
+in the brand's shape is a face you write on a `button` with no `buttonStyle`; a
+`buttonStyle` is the platform's control, which takes the accent and no radius
+(`lower-button-style`), and `ButtonText` and `LinkText` are the tint's, not the
+theme's (`lower-theme-tint`).
 A type token is CSS `font` syntax (`type.body = -exact-body/1.35 "InterVariable"`):
 `font="type.body"` writes only the longhands it names, so the text style's own
 weight applies where it names none, and a size in px is warned of

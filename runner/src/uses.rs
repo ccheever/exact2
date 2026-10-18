@@ -528,6 +528,7 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
                     ) => format = true,
                     Some(
                         Stdlib::Frame
+                        | Stdlib::RangeFrame
                         | Stdlib::Measure
                         | Stdlib::ElementFromPoint
                         | Stdlib::ElementsFromPoint

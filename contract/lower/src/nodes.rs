@@ -93,6 +93,7 @@ impl Lowerer<'_> {
             None => std::borrow::Cow::Borrowed(expanded),
         };
         let expanded = &*expanded;
+        decorations::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
@@ -284,6 +285,39 @@ impl Lowerer<'_> {
             self.link_colour(tag, parent_tag, expanded, children)
                 .map(|e| ("color", e)),
         );
+        // A run inside a paragraph has no box of its own on every host: its
+        // hover, focus and press are its paragraph's (theme2's 08:13 ruling;
+        // D7's press rows paint no run on Apple or Linux either).
+        // (A run is a text node under a text node, as the kernel has it: under
+        // `text`, `time` or `option` alike.)
+        if parent_tag
+            .and_then(tags::tag)
+            .is_some_and(|p| p.node_type == NodeType::Text)
+            && t.node_type == NodeType::Text
+        {
+            let host = |a: &&Attr| {
+                contract_syntax::state::state_of(&a.name)
+                    .is_some_and(|(s, _)| matches!(s, "active" | "hover" | "focus-visible"))
+            };
+            if let Some(a) = expanded.iter().find(host) {
+                return err(
+                    "lower-state-target",
+                    "a state part on a run inside a paragraph: a run's press, hover and focus are its paragraph's; put the part on the paragraph or make the run a box (LLP 1121 D8)",
+                    a.span,
+                );
+            }
+        }
+        // The press's absolute opacity is lowering's, from `:active`.
+        if let Some(a) = expanded
+            .iter()
+            .find(|a| a.name == crate::states::PRESS_OPACITY_TO)
+        {
+            return err(
+                "lower-unknown-attr",
+                format!("unknown attribute `{}`: the press's opacity is `opacity` in an `:active` part (LLP 1121 D8), or `-exact-press-opacity`, a share of the node's own (LLP 1061 D7)", a.name),
+                a.span,
+            );
+        }
         let states = self.fold_states(expanded, target, &implied, class_len, scope, locals)?;
         let expanded = states.as_ref().map_or(expanded, |s| s.attrs.as_slice());
         let mut bindings: Vec<BindingsRow> = Vec::new();
@@ -455,6 +489,7 @@ impl Lowerer<'_> {
                     None => (class_len, None),
                 };
                 let class = class_label.is_some();
+                let pressed = states.as_ref().is_some_and(|s| index >= s.pressed);
                 let origin = if class
                     && (folded == Some(true)
                         || folded.is_none() && index >= sheet.len() && index < class_len)
@@ -464,6 +499,15 @@ impl Lowerer<'_> {
                     Origin::Tag
                 } else {
                     Origin::Own
+                };
+                // `:active`'s, lowered to the press paint: where it is written.
+                let origin = match pressed {
+                    true => Origin::State {
+                        of: Box::new(origin),
+                        state: "active",
+                        span: a.span,
+                    },
+                    false => origin,
                 };
                 origins.resize(bindings.len(), origin);
             }
@@ -673,7 +717,6 @@ impl Lowerer<'_> {
                 )?;
             }
             let state = match state.as_str() {
-                "active" => 0,
                 "hover" => 1,
                 _ => 2,
             };

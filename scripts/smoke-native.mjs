@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { decodePng } from './png.mjs';
+import { resetLogs } from './agent-test.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const EXPECTED_EVENTS = 'press;change:changed;hover:true;focus;blur;key:Enter;submit;message:hello;';
@@ -521,7 +522,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
         // new page's agent. Polling ready after location.reload can see the
         // old page and pass just before navigation destroys its context.
         await s.carrier.reset({ keep: true });
-        s.now = 0; s.logCursor = 0;
+        s.now = 0; resetLogs(s);
       } else await s.carrier.evaluate(`fetch('./app.plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))`);
       t = await until(s, 'the reloaded plan attaches again', (t) => module(t, 'box')?.state === 'ready');
       const after = await s.carrier.evaluate('exact.nativeDefines?.count');

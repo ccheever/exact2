@@ -179,7 +179,11 @@ fn part(name: &str) -> Option<Part> {
 
 fn entry(name: &str) -> Option<Entry> {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
-    let attr = tags::attr(name).map(|a| attr_json(name, &a));
+    // Lowering's own row for `:active`'s opacity is no attribute (LLP 1121 D8).
+    let attr = (name != contract_lower::PRESS_OPACITY_TO)
+        .then(|| tags::attr(name))
+        .flatten()
+        .map(|a| attr_json(name, &a));
     let value_of: Vec<&'static str> = vocab::attrs()
         .into_iter()
         .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))
@@ -681,7 +685,7 @@ fn function_text(f: &Function) -> String {
 fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
-        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step. Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
+        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step by default. The core also accepts a third argument \"undo\" for the current selection or sixth argument \"undo\" after selectionMode; host undo adoption is pending (LLP 1114.007). Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => "",
@@ -711,6 +715,9 @@ fn kind(a: &AttrTarget) -> &'static str {
 }
 
 fn prop_type(p: PropId) -> String {
+    if p == PropId::Decorations {
+        return "TextDecorations(value, spans, blocks, hidden, atoms)".into();
+    }
     format!("{:?}", tags::prop_ty(p)).to_lowercase()
 }
 
@@ -737,6 +744,9 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
+    if name == "decorations" {
+        return Some("plain `textarea`; host adoption pending (LLP 1114.007)");
+    }
     // `title` is every element's, HTML's tooltip; `head`'s is the document's.
     if tags::HEAD_FIELDS.contains(&name) && name != "title" {
         return Some("`head`");

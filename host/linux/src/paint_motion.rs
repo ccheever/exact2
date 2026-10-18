@@ -172,13 +172,14 @@ impl<D: DataSource> Host<D> {
         if let Some(n) = self.runner.kernel().node(view) {
             self.row_dirty.node(n.key);
         }
-        let base = self.presented(view);
+        let base = self.unpresented(view);
         let entry = self.presented.entry(view).or_insert(base);
         entry.colors.set(property, value);
     }
 
     /// The views below `node` whose `color` is `node`'s: no own row on the
-    /// way, and no paint motion of their own.
+    /// way, no platform start that stops it (a field's), and no paint
+    /// motion of their own.
     fn inheritors_of(&self, node: u64, property: Property) -> Vec<ViewId> {
         let row = match property {
             Property::Color => StyleId::TextColor,
@@ -194,7 +195,10 @@ impl<D: DataSource> Host<D> {
             let Some(child) = kernel.node(id) else {
                 continue;
             };
-            if child.style.mask.has(row) || self.paint.owns(motion_node(child.key), property) {
+            if child.style.mask.has(row)
+                || child.starts(row)
+                || self.paint.owns(motion_node(child.key), property)
+            {
                 continue;
             }
             out.push(id);

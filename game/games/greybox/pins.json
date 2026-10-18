@@ -4,14 +4,16 @@
     "90": "0x4d892b02503223cb"
   },
   "saves": {
-    "continuation": "c4589053ef56077a92ddf40305e34c83e43bd4e008793c86163249ffa9d3fbb1"
+    "continuation": "2dd2b8bc170a421c00b26ccacb50267a2bdefef415caf18e41704ccfca697ec8"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "4da9d338fb67b0e491566c8f65d83fbdcb68677fab22194e98f4e8ea4c811f9c",
+  "inputs": "e1870174dbbd1698806e1b94948e97927254c4925a6fd7f19ccc0d286046d191",
+  "sourceInputs": "cf781f443a99e095535b43bba017a575144fee9589255ee78c66f8af2b328903",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "5c8a02687d1ab16b975ec43fc36fa1cc31e81fc4",
+  "reason": "2e49129cb: EXSIM v7 changes the save header version byte"
 }

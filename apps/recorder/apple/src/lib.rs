@@ -3,8 +3,7 @@
 //! (LLP 1067.000). The source links no native module of its own.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
-const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
+include!(concat!(env!("OUT_DIR"), "/baked.rs"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
@@ -13,4 +12,4 @@ fn embedded_data() -> ExactEmbeddedData {
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
 include!(concat!(env!("OUT_DIR"), "/linked.rs"));
-exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data; linked = EXACT_LINKED);
+exact_apple::host!(AppData, exact_plan(), exact_compat(), None, std::ptr::null(), app_data; linked = EXACT_LINKED);

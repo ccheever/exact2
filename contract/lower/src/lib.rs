@@ -25,8 +25,10 @@ mod class;
 mod collection;
 mod color_profile;
 mod contain;
+mod control_roles;
 pub mod controls;
 pub mod dataset;
+mod decorations;
 mod disabled_look;
 mod edits;
 mod error;
@@ -67,6 +69,7 @@ mod theme;
 mod timers;
 mod type_tokens;
 mod values;
+pub use shorthands::style_values;
 pub mod vocab;
 mod warnings;
 
@@ -79,6 +82,7 @@ pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
 pub use theme::{retention, synthetic_candidates};
@@ -143,6 +147,9 @@ pub(crate) struct Lowerer<'a> {
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
+    /// Literal decoration rows and the aliases visible to each source file.
+    pub decorations: BTreeMap<String, serde_json::Value>,
+    pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
     /// The `keyframes` declarations, by name, with what each animates (LLP 1055 D5).
     pub keyframes: BTreeMap<String, Vec<exact_motion::Property>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
@@ -268,6 +275,9 @@ fn lower_with_sites(
     profile: Profile,
     text_styles: Option<&mut warnings::TextStyles>,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
+    // An earlier compile's targets and roles go first: lowering may stop
+    // before the design is read, and the warnings still run.
+    control_roles::unlowered();
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
         file,
@@ -297,6 +307,8 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
+        decorations: BTreeMap::new(),
+        decoration_scopes: file.decoration_scopes.clone(),
         keyframes: BTreeMap::new(),
         fns: file
             .fns
@@ -335,6 +347,7 @@ fn lower_with_sites(
         names_tokens_outside_views(file, root_types),
         asset_root,
     );
+    l.declare_decorations(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -342,6 +355,12 @@ fn lower_with_sites(
             // state takes is the fold's (`states`, LLP 1121 D8).
             let name =
                 contract_syntax::state::state_of(&a.name).map_or(a.name.as_str(), |(_, row)| row);
+            // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+            let name = if name == states::PRESS_OPACITY_TO {
+                ""
+            } else {
+                name
+            };
             match tags::attr(name) {
                 Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
@@ -354,7 +373,9 @@ fn lower_with_sites(
                     span: a.span,
                 }),
                 None => {
-                    let hint = fields::placeholder_hint(&a.name)
+                    let hint = (name.is_empty() && !a.name.is_empty())
+                        .then(|| "; the press's opacity is `opacity` in an `:active` part (LLP 1121 D8)".to_string())
+                        .or_else(|| fields::placeholder_hint(&a.name))
                         .or_else(|| tags::renamed(&a.name).map(|n| format!("; `{}` is spelled `{n}` here", a.name)))
                         .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
@@ -883,6 +904,9 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
+        if a.name == "decorations" {
+            return self.bind_decorations(tag, a, scope, locals, bindings);
+        }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
@@ -942,8 +966,9 @@ impl<'a> Lowerer<'a> {
             return err(
                 "lower-attr-tag",
                 format!(
-                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`",
-                    a.name
+                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`{}",
+                    a.name,
+                    lint::react_native(&a.name).unwrap_or_default()
                 ),
                 a.span,
             );

@@ -56,6 +56,11 @@ pub struct Planned {
     /// The app's synthetic tokens whose values change, each its expression
     /// and its new value per full app tuple.
     pub synthetic: Vec<(String, Vec<crate::Folded>)>,
+    /// Each token of the design file whose folded value changes, named as
+    /// the plan's theme row names it (the declared spelling; a synthetic
+    /// token by its expression), with its CSS text per full app tuple: a
+    /// scrub's frame patches the running design's rows from these.
+    pub values: Vec<(String, Vec<String>)>,
 }
 
 /// The app's synthetic tokens (D3): Contract rows' expressions over tokens,
@@ -104,6 +109,10 @@ pub struct Retention {
     pub computed_measure: bool,
     /// Every word the views' literals write, any of which may name a token.
     pub words: std::collections::BTreeSet<String>,
+    /// Every word a colour keyframe writes: a token (or a role's override)
+    /// one names is folded into the plan's `@keyframes`, so its value is
+    /// structure, and an edit of it rebuilds.
+    pub folded: std::collections::BTreeSet<String>,
 }
 
 impl Retention {
@@ -153,6 +162,7 @@ pub fn plan(
     let mut out = Vec::new();
     let mut changed = Vec::new();
     let mut moved = Vec::new();
+    let mut values = Vec::new();
     let mut structure = false;
     let mut diff = String::new();
     for (path, text) in files {
@@ -216,6 +226,24 @@ pub fn plan(
         structure |= tokens
             .iter()
             .any(|t| motion(&before, t) || motion(&after, t));
+        if *path == synthetic.file {
+            if let Some(f) = &after {
+                for (c, declared) in f.tokens.iter().zip(&f.design.tokens) {
+                    if !tokens.contains(&c.name) {
+                        continue;
+                    }
+                    let name = match c
+                        .name
+                        .strip_prefix('~')
+                        .and_then(|i| i.parse::<usize>().ok())
+                    {
+                        Some(i) => exprs[i].0.clone(),
+                        None => declared.name.value.clone(),
+                    };
+                    values.push((name, c.values.iter().map(|v| v.css()).collect()));
+                }
+            }
+        }
         for t in tokens {
             match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
                 Some(i) => {
@@ -268,6 +296,7 @@ pub fn plan(
         },
         diff,
         synthetic: moved,
+        values,
     })
 }
 
@@ -445,6 +474,21 @@ fn shape(f: &Folding, retention: Option<&Retention>, vocab: &Vocab) -> String {
             t.role,
             t.fixed
         ));
+        // A token a colour keyframe names, its value folded into the plan:
+        // by its name, or a role it overrides by any spelling of the role
+        // (`label`, `-exact-label`, `CanvasText` in any case).
+        let bare = |w: &str| {
+            let w = w.to_ascii_lowercase();
+            w.strip_prefix("-exact-").map_or(w.clone(), str::to_string)
+        };
+        if retention.is_some_and(|r| {
+            r.folded
+                .iter()
+                .any(|w| w == name || t.role.as_ref().is_some_and(|role| bare(w) == bare(role)))
+        }) {
+            let values: Vec<String> = t.values.iter().map(crate::Value::css).collect();
+            s.push_str(&format!("folded {name} {values:?}\n"));
+        }
     }
     s
 }

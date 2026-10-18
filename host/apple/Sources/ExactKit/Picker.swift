@@ -318,10 +318,9 @@ extension Picker {
 #elseif canImport(UIKit)
 extension Picker: UIDocumentPickerDelegate {
     func present(_ r: Request) {
-        guard var controller = session.presenter.root.window?.rootViewController else {
+        guard let controller = ViewPresentation.presenter(for: session.presenter.views[r.view] ?? session.presenter.root) else {
             session.log("picker: refused: no window"); cancel(r.view); return
         }
-        while let presented = controller.presentedViewController { controller = presented }
         let media = !r.accept.isEmpty && r.accept.allSatisfy { $0.hasPrefix("image/") || $0.hasPrefix("video/") }
         if media {
             // A production plan that can show it is refused at boot without

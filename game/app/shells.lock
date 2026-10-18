@@ -1081,7 +1081,6 @@ dependencies = [
  "exact-runner",
  "exact-svg-raster",
  "exact-textflow",
- "exact-update",
  "fontconfig-parser",
  "fontique",
  "getrandom 0.3.4",
@@ -1101,6 +1100,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1213,6 +1213,7 @@ dependencies = [
  "exact-runner",
  "exact-textflow",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

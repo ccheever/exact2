@@ -1,0 +1,24 @@
+[package]
+name = "activity-fixture-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Live Activity packaging fixture on Apple platforms: the core over one text node"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "activity_fixture_apple"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+activity-fixture-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+activity-fixture-data = { path = "../data" }

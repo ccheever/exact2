@@ -164,9 +164,9 @@ test('a web test run asks the backend its app fetches first', async () => {
     mkdirSync(resolve(dist, 'assets'));
     writeFileSync(resolve(dist, 'assets/snapback4.wasm'), wasm);
     writeFileSync(resolve(dist, 'assets/snapback4.wasm.json'), JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
-    await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down}: nothing listens there`);
+    await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down} (source: built net.fetch grant (rebuild after changing the backend selection)): nothing listens there`);
     await backendPreflight({ manifest: {} }, dist, (line) => said.push(line));
-    expect(said).toEqual([`note: no backend at ${down}: nothing listens there, and app.ts fetches it (a net.fetch grant); a test that loads from it fails`]);
+    expect(said).toEqual([`note: no backend at ${down} (source: built net.fetch grant): nothing listens there, and app.ts fetches it (a net.fetch grant); a test that loads from it fails`]);
     grants(`net.fetch ${up}`);
     await backendPreflight(snapback, dist);
     expect(loopbackOrigins(resolve(dist, 'none'))).toEqual([]);
@@ -518,4 +518,59 @@ test('web freshness tracks backend selection creation, edits and deletion',async
     bake();rmSync(selection);expect(webChanges(dist,app).app).toEqual([selection]);
     bake();expect(webChanges(dist,app).all).toEqual([]);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('widget variants address the gallery without changing viewport flags', () => {
+  const { flags, rest } = parseFlags(['ios', 'widget', 'next-trains', '--family', 'systemMedium', '--mode', 'accented', '--scheme', 'dark', '--size', 'xxxl', '--sim', 's1126-wp6', 'tree', 'screenshot shot.png', 'state']);
+  expect(flags.widget).toEqual({ entry: 'next-trains', family: 'systemMedium', mode: 'accented', scheme: 'dark', size: 'xxxl' });
+  expect(flags.size).toBeUndefined();
+  expect(flags.sim).toBe('s1126-wp6');
+  expect(rest).toEqual(['ios', 'tree', 'screenshot shot.png', 'state']);
+  expect(parseFlags(['macos', '--size', '420x900', 'tree']).flags.size).toEqual([420, 900]);
+  expect(() => parseFlags(['web', 'widget', 'next-trains', 'tree'])).toThrow('ios or macos');
+  expect(() => parseFlags(['ios', 'widget', '--mode', 'dark'])).toThrow('name an entry');
+});
+
+
+test('widget addresses occupy the command word and accept only strict reads or app clock', async () => {
+  const { widgetStep } = await import('./agent-widget.mjs');
+  expect(parseFlags(['--app', 'caltrain', 'ios', 'widget', 'tree', '--props', '{"station":"Given"}', 'tree']).flags.widget).toEqual({entry:'tree', props:'{"station":"Given"}'});
+  expect(parseFlags(['macos', '--open', 'widget', 'tree']).flags.widget).toBeUndefined();
+  for (const line of ['tags', 'logs', 'tap entry', 'screenshot a.png window', 'screenshot a.png compare b.png', 'screenshot a.png over 600 every 50', 'screenshot a.apng']) {
+    expect(() => parseFlags(['ios', 'widget', 'next-trains', line])).toThrow('widget: tree, state');
+  }
+  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--scale', '2', 'tree'])).toThrow('--scale is unavailable');
+  for (const size of ['xxxl', '390xNaN', '0x900']) expect(() => parseFlags(['ios', '--size', size, 'tree'])).toThrow('--size:');
+  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--props', '[]', 'tree'])).toThrow('JSON object');
+  const calls = [], session = { clock: async value => {calls.push(value); return {clock:60000};}, op: async request => {calls.push(request); return request;} };
+  expect(await widgetStep(session, {entry:'next-trains'}, 'clock +60000')).toEqual(['clock', {clock:60000}]);
+  await widgetStep(session, {entry:'next-trains'}, 'clock +60000');
+  expect(calls).toEqual([{op:'state', widget:{entry:'next-trains'}, availability:true}, '+60000', '+60000']);
+  expect((await widgetStep(session, {entry:'next-trains'}, 'screenshot a.png'))[1].path).toBe(resolve('a.png'));
+});
+
+test('backend diagnostics name the selected source and warn when a saved selection shadows the literal', async () => {
+  const {backendOriginSelection, backendOriginWarning} = await import('../js/bake/src/typescript.mjs');
+  const {backendOriginSource, resetBackends} = await import('./agent-test.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-origin-source-'));
+  const literal='http://127.0.0.1:1', saved='http://127.0.0.1:2', explicit='http://127.0.0.1:3';
+  const code=`const origin = '${literal}';`;
+  try {
+    writeFileSync(resolve(dir,'app.ts'),code);
+    expect(backendOriginSelection(dir,{})).toBe(null);
+    expect(backendOriginSource(dir,literal,{})).toBe('app.ts origin literal');
+    mkdirSync(resolve(dir,'.exact'));
+    writeFileSync(resolve(dir,'.exact/backend-origin'),saved);
+    const selection=backendOriginSelection(dir,{});
+    expect(selection).toEqual({origin:saved,source:'.exact/backend-origin'});
+    expect(backendOriginSource(dir,saved,{})).toBe('.exact/backend-origin');
+    expect(backendOriginSource(dir,explicit,{EXACT_BACKEND_ORIGIN:explicit})).toBe('EXACT_BACKEND_ORIGIN');
+    expect(backendOriginSource(dir,'http://127.0.0.1:4',{})).toContain('rebuild');
+    expect(backendOriginWarning(code,selection,parseSync)).toContain(`overriding the app.ts origin literal "${literal}"`);
+    expect(backendOriginWarning(`const origin = '${saved}/';`,selection,parseSync)).toBe(null);
+    expect(backendOriginWarning(code,backendOriginSelection(dir,{EXACT_BACKEND_ORIGIN:explicit}),parseSync)).toBe(null);
+    rmSync(resolve(dir,'.exact/backend-origin'));
+    await expect(resetBackends([literal],null,1000,{dir})).rejects.toThrow('(source: app.ts origin literal)');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });
