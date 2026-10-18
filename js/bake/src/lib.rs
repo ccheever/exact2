@@ -1144,6 +1144,12 @@ fn bake_in(
         "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},
         "web": {"file": "app.js", "sha256": digest(&script), "bytes": script.len()},
     });
+    if !entries.is_empty() {
+        receipt["plans"] = entries.iter().map(|(kind, entry)| {
+            let bytes = entry.plan.encode();
+            (kind.clone(), serde_json::json!({"file":format!("plans/{kind}.plan"),"bytes":bytes.len(),"sha256":digest(&bytes)}))
+        }).collect::<serde_json::Map<_, _>>().into();
+    }
     // The package code bundled in, by name and version (absent with none).
     if !packages.is_empty() {
         receipt["packages"] = packages.into();

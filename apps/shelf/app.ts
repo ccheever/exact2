@@ -123,7 +123,7 @@ function patchBook(storage: Storage, id: string, patch: Partial<Book>) {
 
 const sources: Sources = {
   widgetLibrary: async ([date], _store, storage) => {
-    const { books } = JSON.parse(decode(await storage.fs.readFile(FILE))) as Saved;
+    const { books } = await load(storage);
     const latest = [...books].sort((a, b) => b.addedAt - a.addedAt)[0]?.title ?? 'Add your first book';
     return [{ date, props: { count: books.length, latest } }];
   },

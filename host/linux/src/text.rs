@@ -577,6 +577,11 @@ impl TextEngine {
         Self::with_catalog(catalog::Catalog::new())
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_font_files(paths: &[&Path], sans: &str) -> Self {
+        Self::with_catalog(catalog::Catalog::from_files(paths, sans))
+    }
+
     fn with_catalog(catalog: catalog::Catalog) -> Self {
         Self {
             sans: catalog.sans.clone(),

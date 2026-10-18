@@ -1,0 +1,177 @@
+# The control-role table, measured (LLP 1121 D9, stage 8 C)
+
+Each cell of `kernel/tables/schema.json`'s `controls`, with where its fidelity comes from.
+`scripts/measure-controls.test.mjs` holds the table to this page: a cell that changes changes here, with its measurement.
+
+**How:** `bun scripts/measure-controls.mjs <host>` builds `scripts/fixtures/control-roles` twice, as written
+(an authored `accent-color` #e0218a, and `Field` #fff1a8, `FieldText` #0b8a3a, `placeholder` #d9480f) and with
+neither, and compares each control's pixels, closed and at rest, the two builds pixel for pixel, leaving out
+any pixel either build moved between two looks 0.7 s apart (animation):
+
+- **exact**: at least 4 pixels within ΔE00 3 of the authored colour where the plain build's are not;
+- **best-effort** (theme2's ruling): none so close, but at least 4 pixels further than ΔE00 3 from the
+  authored colour yet nearer it than the plain build's pixel there: moved by more than ΔE00 1, of the
+  authored colour's hue (within 30°, chroma 10 or more), and not another colour the fixture asks for blended
+  over the pixel or the control's ground (theme2's 08:42 ruling adds the hue; an authored grey, chroma under
+  10, is judged by ΔE00 alone);
+- **none**: otherwise;
+- **unmeasured**: a frame with fewer than 16 pixels, or frames that differ between the builds (the run
+  fails).
+
+An open menu (the reader fills a select's chosen row with the accent) and a focus ring are not judged:
+the table's `select` is the closed button, as a person first sees it.
+
+**Where (2026-10-18):**
+
+- `ios`: iOS 27.0 simulator (iPhone 17 Pro, 24A434).
+- `macos`: macOS 27.0 (the agent's capture: an inactive window).
+- `web`: Chrome 155.0.8059.84 on macOS 27.0.
+- `linux`: the Linux host's painter (caltrain-linux, host-dev), headless on macOS 27.0.
+- `windows`: not measured.
+- `terminal`: not measured.
+- `android`: the Canvas reader (`agent.mjs android --reader`, the fixture built into an APK in a scratch
+  checkout: `--scratch <worktree>`) on the Android 16 emulator (sdk_gphone64_arm64, density 420).
+
+**Provenance:**
+
+- `measured`: the run above gave it.
+- `inferred: same painter, not measured`: Windows draws with the Linux painter (`host/windows` depends on `exact-linux`); Linux's row, until a Windows box exists.
+- A `none` whose why says the host does not read a role yet is Exact's gap, not the platform's: each has a QUEUE line, and fixing the host flips the cell after a re-measure.
+- `none by construction`: the terminal draws no colour and no control but progress as text.
+- `inferred: agent capture is an inactive window`: the agent's macOS capture is an inactive window here (no frontmost session), which draws every control grey; the cell is read from AppKit's API as the host uses it (`ControlsMac.swift`, `ButtonConfigurationMac.swift`): `none` where the control takes no tint, `best-effort` (unverified) where it takes one, until a Mac with a console session measures it (QUEUE).
+
+| control | parameter | host | fidelity | ΔE00 | pixels | provenance |
+| --- | --- | --- | --- | --- | --- | --- |
+| switch | accent-color | ios | exact | 0 | 6552 | measured |
+| switch | accent-color | macos | none | (38.2) | 0 | inferred: agent capture is an inactive window |
+| switch | accent-color | web | exact | 0 | 358 | measured |
+| switch | accent-color | linux | exact | 0 | 6404 | measured |
+| switch | accent-color | windows | exact | - | - | inferred: same painter, not measured |
+| switch | accent-color | terminal | none | - | - | none by construction |
+| switch | accent-color | android | exact | 0 | 47180 | measured |
+| switch:disabled | accent-color | ios | best-effort | 20.2 | 6934 | measured |
+| switch:disabled | accent-color | macos | none | (40.7) | 0 | inferred: agent capture is an inactive window |
+| switch:disabled | accent-color | web | best-effort | 19.6 | 408 | measured |
+| switch:disabled | accent-color | linux | best-effort | 19.1 | 6464 | measured |
+| switch:disabled | accent-color | windows | best-effort | - | - | inferred: same painter, not measured |
+| switch:disabled | accent-color | terminal | none | - | - | none by construction |
+| switch:disabled | accent-color | android | best-effort | 19.4 | 48122 | measured |
+| checkbox | accent-color | ios | exact | 0 | 2180 | measured |
+| checkbox | accent-color | macos | best-effort | (28.1) | 0 | inferred: agent capture is an inactive window |
+| checkbox | accent-color | web | exact | 0 | 276 | measured |
+| checkbox | accent-color | linux | exact | 0 | 6606 | measured |
+| checkbox | accent-color | windows | exact | - | - | inferred: same painter, not measured |
+| checkbox | accent-color | terminal | none | - | - | none by construction |
+| checkbox | accent-color | android | exact | 0 | 25431 | measured |
+| checkbox:disabled | accent-color | ios | best-effort | 25 | 2333 | measured |
+| checkbox:disabled | accent-color | macos | best-effort | (33.5) | 0 | inferred: agent capture is an inactive window |
+| checkbox:disabled | accent-color | web | best-effort | 19.1 | 295 | measured |
+| checkbox:disabled | accent-color | linux | best-effort | 19 | 6629 | measured |
+| checkbox:disabled | accent-color | windows | best-effort | - | - | inferred: same painter, not measured |
+| checkbox:disabled | accent-color | terminal | none | - | - | none by construction |
+| checkbox:disabled | accent-color | android | best-effort | 19.4 | 26544 | measured |
+| radio | accent-color | ios | exact | 0 | 1732 | measured |
+| radio | accent-color | macos | best-effort | (29.2) | 0 | inferred: agent capture is an inactive window |
+| radio | accent-color | web | exact | 0 | 232 | measured |
+| radio | accent-color | linux | exact | 0 | 6560 | measured |
+| radio | accent-color | windows | exact | - | - | inferred: same painter, not measured |
+| radio | accent-color | terminal | none | - | - | none by construction |
+| radio | accent-color | android | exact | 0 | 18778 | measured |
+| radio:disabled | accent-color | ios | best-effort | 25 | 1994 | measured |
+| radio:disabled | accent-color | macos | best-effort | (33.5) | 0 | inferred: agent capture is an inactive window |
+| radio:disabled | accent-color | web | best-effort | 20.2 | 256 | measured |
+| radio:disabled | accent-color | linux | best-effort | 19 | 6604 | measured |
+| radio:disabled | accent-color | windows | best-effort | - | - | inferred: same painter, not measured |
+| radio:disabled | accent-color | terminal | none | - | - | none by construction |
+| radio:disabled | accent-color | android | best-effort | 14.2 | 26520 | measured |
+| range | accent-color | ios | exact | 0 | 10186 | measured |
+| range | accent-color | macos | none | (35.8) | 0 | inferred: agent capture is an inactive window |
+| range | accent-color | web | exact | 0 | 180 | measured |
+| range | accent-color | linux | exact | 0 | 180 | measured |
+| range | accent-color | windows | exact | - | - | inferred: same painter, not measured |
+| range | accent-color | terminal | none | - | - | none by construction |
+| range | accent-color | android | exact | 0 | 6714 | measured |
+| range:disabled | accent-color | ios | best-effort | 19.8 | 10208 | measured |
+| range:disabled | accent-color | macos | none | (38.2) | 0 | inferred: agent capture is an inactive window |
+| range:disabled | accent-color | web | best-effort | 20.2 | 216 | measured |
+| range:disabled | accent-color | linux | best-effort | 20.2 | 212 | measured |
+| range:disabled | accent-color | windows | best-effort | - | - | inferred: same painter, not measured |
+| range:disabled | accent-color | terminal | none | - | - | none by construction |
+| range:disabled | accent-color | android | best-effort | 7.7 | 7850 | measured |
+| progress | accent-color | ios | exact | 0.6 | 7567 | measured |
+| progress | accent-color | macos | none | (32.8) | 0 | inferred: agent capture is an inactive window |
+| progress | accent-color | web | exact | 0 | 886 | measured |
+| progress | accent-color | linux | exact | 0 | 886 | measured |
+| progress | accent-color | windows | exact | - | - | inferred: same painter, not measured |
+| progress | accent-color | terminal | none | - | - | none by construction |
+| progress | accent-color | android | exact | 0 | 5680 | measured |
+| spinner | accent-color | ios | none | 30.7 | 0 | measured |
+| spinner | accent-color | macos | none | (32.8) | 0 | inferred: agent capture is an inactive window |
+| spinner | accent-color | web | none | 43.6 | 0 | measured |
+| spinner | accent-color | linux | none | 28.1 | 0 | measured |
+| spinner | accent-color | windows | none | - | - | inferred: same painter, not measured |
+| spinner | accent-color | terminal | none | - | - | none by construction |
+| spinner | accent-color | android | none | 27.4 | 0 | measured |
+| select | accent-color | ios | exact | 0 | 1312 | measured |
+| select | accent-color | macos | none | (28.1) | 0 | inferred: agent capture is an inactive window |
+| select | accent-color | web | none | 28.1 | 0 | measured |
+| select | accent-color | linux | none | 28.1 | 0 | measured |
+| select | accent-color | windows | none | - | - | inferred: same painter, not measured |
+| select | accent-color | terminal | none | - | - | none by construction |
+| select | accent-color | android | none | 33.3 | 0 | measured |
+| button-prominent | accent-color | ios | exact | 0 | 97123 | measured |
+| button-prominent | accent-color | macos | best-effort | (28.1) | 0 | inferred: agent capture is an inactive window |
+| button-prominent | accent-color | web | exact | 0 | 12095 | measured |
+| button-prominent | accent-color | linux | exact | 0 | 12154 | measured |
+| button-prominent | accent-color | windows | exact | - | - | inferred: same painter, not measured |
+| button-prominent | accent-color | terminal | none | - | - | none by construction |
+| button-prominent | accent-color | android | exact | 0 | 73623 | measured |
+| button-prominent:disabled | accent-color | ios | none | 35 | 0 | measured |
+| button-prominent:disabled | accent-color | macos | best-effort | (34.6) | 0 | inferred: agent capture is an inactive window |
+| button-prominent:disabled | accent-color | web | none | 28.1 | 0 | measured |
+| button-prominent:disabled | accent-color | linux | none | 28.1 | 0 | measured |
+| button-prominent:disabled | accent-color | windows | none | - | - | inferred: same painter, not measured |
+| button-prominent:disabled | accent-color | terminal | none | - | - | none by construction |
+| button-prominent:disabled | accent-color | android | exact | 0 | 73836 | measured |
+| field | Field | ios | none | 18.7 | 0 | measured |
+| field | Field | macos | none | 18.7 | 0 | measured |
+| field | Field | web | none | 20.4 | 0 | measured |
+| field | Field | linux | none | 20.4 | 0 | measured |
+| field | Field | windows | none | - | - | inferred: same painter, not measured |
+| field | Field | terminal | none | - | - | none by construction |
+| field | Field | android | exact | 0 | 132269 | measured |
+| field | FieldText | ios | exact | 0 | 1301 | measured |
+| field | FieldText | macos | exact | 0 | 54 | measured |
+| field | FieldText | web | none | 25.9 | 0 | measured |
+| field | FieldText | linux | none | 25.9 | 0 | measured |
+| field | FieldText | windows | none | - | - | inferred: same painter, not measured |
+| field | FieldText | terminal | none | - | - | none by construction |
+| field | FieldText | android | exact | 0 | 848 | measured |
+| field | placeholder | ios | exact | 0 | 2403 | measured |
+| field | placeholder | macos | exact | 0 | 117 | measured |
+| field | placeholder | web | exact | 0 | 195 | measured |
+| field | placeholder | linux | exact | 0 | 142 | measured |
+| field | placeholder | windows | exact | - | - | inferred: same painter, not measured |
+| field | placeholder | terminal | none | - | - | none by construction |
+| field | placeholder | android | none | 28.9 | 0 | measured |
+| textarea | Field | ios | none | 18.7 | 0 | measured |
+| textarea | Field | macos | exact | 0 | 11630 | measured |
+| textarea | Field | web | none | 20.4 | 0 | measured |
+| textarea | Field | linux | none | 20.4 | 0 | measured |
+| textarea | Field | windows | none | - | - | inferred: same painter, not measured |
+| textarea | Field | terminal | none | - | - | none by construction |
+| textarea | Field | android | exact | 0 | 165449 | measured |
+| textarea | FieldText | ios | exact | 0 | 1301 | measured |
+| textarea | FieldText | macos | exact | 0 | 53 | measured |
+| textarea | FieldText | web | none | 25.9 | 0 | measured |
+| textarea | FieldText | linux | none | 25.9 | 0 | measured |
+| textarea | FieldText | windows | none | - | - | inferred: same painter, not measured |
+| textarea | FieldText | terminal | none | - | - | none by construction |
+| textarea | FieldText | android | exact | 0 | 848 | measured |
+| textarea | placeholder | ios | exact | 0 | 2403 | measured |
+| textarea | placeholder | macos | exact | 0 | 116 | measured |
+| textarea | placeholder | web | exact | 0 | 195 | measured |
+| textarea | placeholder | linux | exact | 0 | 142 | measured |
+| textarea | placeholder | windows | exact | - | - | inferred: same painter, not measured |
+| textarea | placeholder | terminal | none | - | - | none by construction |
+| textarea | placeholder | android | none | 28.9 | 0 | measured |

@@ -227,11 +227,15 @@ impl<D: DataSource> Swappable<D> {
 }
 
 impl<D: DataSource> DataSource for Swappable<D> {
-    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
         self.embedded
             .as_mut()
             .ok_or_else(|| DataError::Unavailable("snapshot needs the embedded cohort".into()))?
-            .prepare_snapshot(module)
+            .prepare_snapshot(module, deadline)
     }
 
     fn take_storage_changed(&mut self) -> bool {

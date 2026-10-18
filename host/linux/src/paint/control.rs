@@ -143,11 +143,16 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
         .map(|c| rgba(c.resolve(dark)))
 }
 
-/// A focused node's accent ([`accents`]), except native neutral text fields
+/// A focused node's accent ([`accents`]), except native neutral fields
 /// marked invalid, whose ring matches their system-red border.
 pub(crate) fn ring(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
     if look::neutral()
-        && node.node_type == NodeType::TextInput
+        && (node.node_type == NodeType::TextInput
+            || (node.node_type == NodeType::Control
+                && matches!(
+                    node.props.str(PropId::Type),
+                    Some("select" | "date" | "time" | "datetime-local")
+                )))
         && node.style.appearance != Appearance::None
         && node.props.str(PropId::AccessibilityInvalid) == Some("true")
     {
@@ -209,9 +214,11 @@ impl super::Painter {
         }
         let dark = self.dark;
         if look::neutral() {
+            // Focus changes without a tree commit, so a row cannot keep this ring.
+            self.row_refuse();
             // The look's field: its ground and line, the text a field's
             // padding in, on the middle line, and a select's caret.
-            neutral::field(self.backend.as_mut(), node, content, ts, dark);
+            let shape = neutral::field(self.backend.as_mut(), node, content, ts, dark);
             let style = node.computed_style(StyleMask::INHERITED);
             let spec = super::text_spec(&style, text);
             let paragraph = self.text.borrow_mut().paragraph(&spec, None);
@@ -241,6 +248,13 @@ impl super::Painter {
             self.backend.pop_clip();
             if chevron {
                 neutral::caret(self.backend.as_mut(), node, content, ts, dark);
+            }
+            if focused
+                && self.ringless != Some(node.id)
+                && node.props.bool(PropId::Disabled) != Some(true)
+                && !node.style.mask.has(exact_kernel::StyleId::OutlineStyle)
+            {
+                self.field_ring(&shape, ring(node, dark), ts);
             }
             return;
         }

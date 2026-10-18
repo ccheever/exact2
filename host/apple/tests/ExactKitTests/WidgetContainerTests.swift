@@ -26,4 +26,14 @@ final class WidgetContainerTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: base.appendingPathComponent(first + "/plans/card.plan"), encoding: .utf8), "first")
         XCTAssertNotEqual(try String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8), first)
     }
+    func testTypeScriptPublicationRefusesEitherMissingHalf() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for half in ["app.hbc", "app.module.json"] {
+            let assets = AssetResolver(root: root, names: ["plans/card.plan", "typescript/" + half], generation: half) { _ in Data("bytes".utf8) }
+            XCTAssertThrowsError(try WidgetContainer.publish(assets, root: root, kinds: ["card"], compatibility: "cohort", typescript: true))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("widget-generations/current").path))
+    }
+
 }

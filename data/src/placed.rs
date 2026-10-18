@@ -438,8 +438,12 @@ fn turn<D: DataSource>(
 }
 
 impl<D: DataSource + 'static> DataSource for Placed<D> {
-    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
-        self.here()?.prepare_snapshot(module)?;
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.here()?.prepare_snapshot(module, deadline)?;
         // The headless invocation already has an owner. Keep its disposable
         // source there, including its interrupt and read-only storage policy.
         self.placement = Placement::Main;

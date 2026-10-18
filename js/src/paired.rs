@@ -28,7 +28,7 @@ impl Paired {
         expected_app: &str,
         expected_grants: &str,
     ) -> Result<Self, String> {
-        let module = Self::module(receipt, bytecode, expected_app, expected_grants)?;
+        let module = Self::module(receipt, bytecode, None, expected_app, expected_grants)?;
         let meta: Value = serde_json::from_str(receipt).map_err(|e| e.to_string())?;
         let card = &meta["plan"];
         if plan.len() > 32 << 20
@@ -48,11 +48,13 @@ impl Paired {
     /// the running app's plan. The generation pairs all its entry plans (D8).
     pub(crate) fn module(
         receipt: &str,
-        bytecode: Vec<u8>,
+        bytecode: impl AsRef<[u8]> + Into<std::sync::Arc<[u8]>>,
+        entry: Option<(&str, &[u8])>,
         expected_app: &str,
         expected_grants: &str,
     ) -> Result<Module, String> {
-        if receipt.len() > 1 << 20 || bytecode.len() > 32 << 20 {
+        let bytes = bytecode.as_ref();
+        if receipt.len() > 1 << 20 || bytes.len() > 32 << 20 {
             return Err("module candidate exceeds its size limit".into());
         }
         let meta: Value = serde_json::from_str(receipt).map_err(|e| e.to_string())?;
@@ -65,7 +67,7 @@ impl Paired {
         }
         if BYTECODE_VERSION == 0
             || meta["bytecodeVersion"].as_u64() != Some(BYTECODE_VERSION.into())
-            || bytecode.get(..12) != crate::PRELUDE.get(..12)
+            || bytes.get(..12) != crate::PRELUDE.get(..12)
         {
             return Err("module candidate has an incompatible Hermes bytecode version".into());
         }
@@ -79,10 +81,20 @@ impl Paired {
         }
         let card = &meta["module"];
         if card["file"] != "app.hbc"
-            || card["bytes"].as_u64() != Some(bytecode.len() as u64)
-            || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(&bytecode)))
+            || card["bytes"].as_u64() != Some(bytes.len() as u64)
+            || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(bytes)))
         {
             return Err("module candidate module does not match its receipt".into());
+        }
+        if let Some((kind, plan)) = entry {
+            let card = &meta["plans"][kind];
+            if plan.len() > 32 << 20
+                || card["file"] != format!("plans/{kind}.plan")
+                || card["bytes"].as_u64() != Some(plan.len() as u64)
+                || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(plan)))
+            {
+                return Err("snapshot entry does not match its module receipt".into());
+            }
         }
         Ok(Module::new(bytecode, expected_app, expected_grants))
     }
@@ -91,19 +103,21 @@ impl Paired {
 /// The bytecode's SHA-256, hashed once per process for the same bytes: a
 /// render server makes a module per request from one bytecode, and asks
 /// each for its revision (the page's checkpoint names it). A few recent
-/// bytecodes are kept, compared byte for byte.
-pub(crate) fn revision_of(bytecode: &[u8]) -> String {
-    static KNOWN: std::sync::Mutex<Vec<(Vec<u8>, String)>> = std::sync::Mutex::new(Vec::new());
+/// bytecodes are kept, shared with their modules rather than copied, and
+/// compared byte for byte.
+pub(crate) fn revision_of(bytecode: &std::sync::Arc<[u8]>) -> String {
+    type Known = Vec<(std::sync::Arc<[u8]>, String)>;
+    static KNOWN: std::sync::Mutex<Known> = std::sync::Mutex::new(Vec::new());
     let mut known = KNOWN
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((_, hash)) = known.iter().find(|(bytes, _)| bytes.as_slice() == bytecode) {
+    if let Some((_, hash)) = known.iter().find(|(bytes, _)| bytes[..] == bytecode[..]) {
         return hash.clone();
     }
-    let hash = format!("{:x}", Sha256::digest(bytecode));
+    let hash = format!("{:x}", Sha256::digest(&bytecode[..]));
     if known.len() == 4 {
         known.remove(0);
     }
-    known.push((bytecode.to_vec(), hash.clone()));
+    known.push((bytecode.clone(), hash.clone()));
     hash
 }

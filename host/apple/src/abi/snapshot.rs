@@ -79,23 +79,34 @@ impl<D: DataSource> Bridge<D> {
     }
     /// Query the declared refresh source in the already booted entry.
     pub fn entry_timeline(&mut self, now: f64) -> u32 {
-        self.entry_timeline_module(now, 0, 0)
+        self.entry_timeline_module(now, 900.0, &[], &[])
     }
-    /// The pinned generation's receipt and HBC, concatenated in the input.
-    pub fn entry_timeline_module(&mut self, now: f64, receipt: usize, module: usize) -> u32 {
-        if receipt > 1 << 20
-            || module > 32 << 20
-            || receipt + module > self.input.len()
-            || (receipt == 0) != (module == 0)
+    /// Borrow the pinned pair for admission; no bridge input or concatenation.
+    pub fn entry_timeline_module(
+        &mut self,
+        now: f64,
+        remaining_ms: f64,
+        receipt: &[u8],
+        module: &[u8],
+    ) -> u32 {
+        if receipt.len() > 1 << 20
+            || module.len() > 32 << 20
+            || receipt.is_empty() != module.is_empty()
+            || !remaining_ms.is_finite()
+            || remaining_ms <= 0.0
+            || remaining_ms > 900.0
         {
-            return self
-                .emit(serde_json::json!({"error":"invalid snapshot module lengths"}).to_string());
+            return self.emit(
+                serde_json::json!({"error":"invalid snapshot input or expired deadline"})
+                    .to_string(),
+            );
         }
-        let bytes = self.input[..receipt + module].to_vec();
-        let Ok(text) = std::str::from_utf8(&bytes[..receipt]) else {
+        let Ok(text) = std::str::from_utf8(receipt) else {
             return self
                 .emit(serde_json::json!({"error":"invalid snapshot module receipt"}).to_string());
         };
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(remaining_ms / 1000.0);
         let result = self
             .host
             .as_mut()
@@ -104,7 +115,8 @@ impl<D: DataSource> Bridge<D> {
                 host.entry_timeline(
                     now,
                     self.links.io,
-                    (receipt > 0).then(|| (text, bytes[receipt..].to_vec())),
+                    (!receipt.is_empty()).then_some((text, module)),
+                    deadline,
                 )
             });
         self.emit(match result {

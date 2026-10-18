@@ -153,8 +153,12 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
-    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
-        self.source.prepare_snapshot(module)
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.source.prepare_snapshot(module, deadline)
     }
     fn take_storage_changed(&mut self) -> bool {
         self.source.take_storage_changed()

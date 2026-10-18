@@ -879,7 +879,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         while let current = view, !(current is TableRowCell), !(current is NSTableView) {
             if let node = current as? NodeView, presenter.views[node.id] === node, node.answersContextMenu, !node.formDisabled, !node.inert {
                 contextEvent = event.eventNumber
-                return presenter.contextMenu(node, at: point)
+                return presenter.contextMenu(node, at: point, click: event)
             }
             view = current.superview
         }

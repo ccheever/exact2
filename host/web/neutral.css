@@ -83,6 +83,8 @@
      is text (they underline, below). */
   @media (hover: hover) {
     #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    /* A button its author filled (LLP 1129 D1): the filled button's hover, a wash of its own ink, which shows over any fill. */
+    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
     /* A grouped list's row starts at its text: the wash reaches the card's edge before it. */
     #exact-root [data-liststyle] > section > div > :is(button, a[href], [data-exact-on~="press"]):hover:not(:disabled, [data-native], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { box-shadow: -64px 0 0 var(--exact-quaternary-fill); }
   }

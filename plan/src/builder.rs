@@ -132,7 +132,7 @@ impl PlanBuilder {
             offset: self.plan.code.len() as u32,
             len: bytes.len() as u32,
         };
-        self.plan.code.extend_from_slice(&bytes);
+        self.plan.code.to_mut().extend_from_slice(&bytes);
         self.bodies.insert(bytes, code);
         code
     }

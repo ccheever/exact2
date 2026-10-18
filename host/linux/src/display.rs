@@ -678,6 +678,9 @@ fn presented<D: DataSource>(
         v.publish(frame.pixels.clone());
     }
     p.display_complete(&frame);
+    // Its boxes are the ones the pointer rests on now: their hover, and
+    // their `:hover` looks (LLP 1121 D8), follow (#139).
+    p.follow_pointer();
     if first.is_none() {
         *first = Some(Instant::now());
         *check_due = Some(Instant::now() + Duration::from_secs(2));

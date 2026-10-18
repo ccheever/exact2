@@ -72,6 +72,12 @@ struct State {
   size_t capture_limit;
   size_t capture_bytes = 0;
   std::vector<CapturedString> captures;
+  // Collections so far, Hermes' own and these: what the prelude stamps an
+  // answer with when it begins (`__exact_gc_epoch`).
+  int64_t gc_epoch = 0;
+  // The prelude asked for a full collection after this call
+  // (`__exact_gc_epoch(true)`): kept until a call that returns collects.
+  bool collect_owed = false;
   // At the last full collection (collect_garbage): the heap's total
   // allocation then and what it held, all of it live.
   int64_t collected_at = 0;
@@ -87,6 +93,7 @@ void collect_garbage(State *state, const char *cause) {
   auto info = instrumentation.getHeapInfo(false);
   state->collected_at = info["hermes_totalAllocatedBytes"];
   state->live = info["hermes_allocatedBytes"];
+  state->gc_epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
 }
 
 // Hermes' young generation keeps every page it has touched (exact_js_harden),
@@ -94,17 +101,22 @@ void collect_garbage(State *state, const char *cause) {
 // collection ends it at a share of the segment that starts at a half and grows
 // by a tenth with every collection under 10 ms. A module that allocates a
 // little per call collects here instead, between calls, once it has allocated
-// as much as it held live at the last full collection and at least
-// kCollectEvery since, so its young generation stays near boot's. A full
-// collection's cost follows the live heap, so this is at most one per that
-// much allocation. The total counts what Hermes' own young collections
+// half as much as it held live at the last full collection and at least
+// kCollectEvery since. Its young generation then stays near its largest
+// call's allocation plus kCollectEvery: euxy's boot (a 430 KB call, then a
+// 760 KB one) kept 1.2 MB of it touched at 512 KB, and keeps 0.8 MB. A full
+// collection's cost follows the live heap, so this is at most one per half
+// that much allocation. The total counts what Hermes' own young collections
 // already reclaimed, so after one this collects early, never late.
-constexpr int64_t kCollectEvery = 512 << 10;
+constexpr int64_t kCollectEvery = 256 << 10;
 
 void collect_if_due(State *state) {
   auto info = state->rt->instrumentation().getHeapInfo(false);
   int64_t total = info["hermes_totalAllocatedBytes"];
-  if (total - state->collected_at >= std::max(kCollectEvery, state->live))
+  // Hermes' own collections within the call count too: one may have moved
+  // an answer's value to the old generation.
+  state->gc_epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
+  if (total - state->collected_at >= std::max(kCollectEvery, state->live / 2))
     collect_garbage(state, "between calls");
 }
 
@@ -133,6 +145,15 @@ void install_capture(State *state) {
             state->capture_bytes += path.size() + value.size()*sizeof(char16_t);
             state->captures.push_back({std::move(path), std::move(value)});
             return jsi::Value::undefined();
+          }));
+  // The collections as of the last call's end, read when an answer begins;
+  // `true` asks for a full collection when this call returns.
+  rt.global().setProperty(rt, "__exact_gc_epoch",
+      jsi::Function::createFromHostFunction(rt,
+          jsi::PropNameID::forAscii(rt, "__exact_gc_epoch"), 1,
+          [state](jsi::Runtime &, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+            if (count == 1 && args[0].isBool() && args[0].getBool()) state->collect_owed = true;
+            return jsi::Value(static_cast<double>(state->gc_epoch));
           }));
 }
 
@@ -401,7 +422,20 @@ int exact_js_call(void *h, const char *name, const char *a, const char *b, const
                   3);
     }
     int status = fail(out, result.getString(rt).utf8(rt), 0);
-    collect_if_due(state);
+    // A captured string (64 Ki characters or more) whose answer outlived a
+    // collection may be old generation now, promoted while its answer was
+    // pending, and once sent it is garbage that no later collection frees
+    // while the module is idle (euxy's QR path: 376 KB). The prelude owes a
+    // full collection for it, asked for once no answer awaits a reply:
+    // asked at each reply, one collection would mark the answers still
+    // pending, whose replies would ask again. A string made and sent with no
+    // collection between, as a frame's answer is, waits for collect_if_due.
+    if (state->collect_owed) {
+      state->collect_owed = false;
+      collect_garbage(state, "owed after a large reply");
+    } else {
+      collect_if_due(state);
+    }
     return status;
   } catch (const jsi::JSError &e) {
     clear_captures(state);

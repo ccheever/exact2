@@ -256,13 +256,31 @@ impl Target {
     }
 }
 
+/// Borrowed bytes of one pinned snapshot cohort (LLP 1126 D8).
+#[derive(Clone, Copy)]
+pub struct SnapshotModule<'a> {
+    /// Producer receipt admitting both the entry plan and bytecode.
+    pub receipt: &'a str,
+    /// Hermes bytecode; copied once into the engine's owned allocation.
+    pub bytecode: &'a [u8],
+    /// Encoded entry plan, checked against the receipt before activation.
+    pub plan: &'a [u8],
+    /// Entry kind within the receipt's plans map.
+    pub kind: &'a str,
+}
+
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
     /// Prepare a disposable, read-only snapshot refresh before activation.
     /// Bytecode and its receipt come from the app's pinned generation, never
     /// from a separately selected update (LLP 1126.000 WP5).
-    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        let _ = deadline;
         if module.is_some() {
             return Err(DataError::Unavailable(
                 "this source accepts no snapshot bytecode".into(),

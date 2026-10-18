@@ -353,14 +353,19 @@ data instances for the app and refresh, so refresh state cannot affect the app
 first frame. The TypeScript and replaceable Rust producers use the same check.
 
 On iOS, a TypeScript refresh runs under Hermes from the module bytes in the
-app's pinned App Group generation. It can return immediately or await `fetch`
+app's pinned App Group generation (or the extension's embedded cohort before
+the app first publishes it). The receipt admits both the entry plan and bytecode.
+It can return immediately or await `fetch`
 and `storage.fs` reads from `app:/`. File writes, SQLite, document handles and
 native modules are unavailable in stage 1; `secret.keep` values are read from
 the shared Keychain only during refresh. The extension never persists store
-writes. The app reloads widget timelines after a successful store write.
-Refresh has a 900 ms deadline, leaving 100 ms below LLP 1126 D8's one-second
-line for completion and teardown. Failure or timeout keeps the extension
-process's last good timeline, or an “Open app” placeholder after a cold start,
+writes. The app reloads widget timelines after a successful write readable by a refresh.
+Refresh has a 900 ms deadline starting at `getTimeline`, including boot. Each JS
+turn gets the time remaining to that deadline, rather than the app's 100 ms
+per-call budget. This leaves 100 ms below LLP 1126 D8's one-second
+line for completion and teardown. Failure or timeout uses the last good timeline
+cached in the App Group for this kind and generation, or an “Open app”
+placeholder if none exists,
 and schedules a retry no sooner than 15 minutes later. Rendering and gallery
 previews do not load Hermes or read the store.
 
@@ -857,9 +862,10 @@ Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 `send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
 reason of at most 123 UTF-8 bytes. In a mutation, both methods are allowed
-only during its source's synchronous call. A source that stages socket operations
-must answer now with a value: not a promise, not a stream answer, and with
-no `fetch` in the same mutation. Whichever of a socket operation and a
+during its source's synchronous call, and after it only when the source
+answered with a promise (below). A source that stages socket operations
+answers now with a value or with a promise (then it is an answer in flight,
+below), not a stream answer, and makes no `fetch` in the same source. Whichever of a socket operation and a
 `fetch` comes second throws `a mutation cannot both send on a socket and
 fetch`, and the mutation is refused before either takes effect: no frame is
 sent and no request starts. A thrown source, wrong-shaped answer or refused
@@ -889,7 +895,52 @@ throw, a wrong-shaped snapshot or a refused commit sends none of it, and
 call has a mutation's bounds below; overload throws `QuotaExceededError` and
 fails that frame's snapshot even if the mapper catches it. On `close` and
 `error` the handle is already closed and refuses; so do another socket's
-handle, a continuation the mapper schedules, and a `fetch` in the call.
+handle and a `fetch` in the call. A continuation the mapper schedules is not
+the call's: it runs in a later turn (below).
+
+A resource's answer may also `send` and `close` on a socket a stream
+resource of the same module owns, so it sends its own request and awaits
+the reply, with no timer, and so may a mutation whose source answers with
+a promise (LLP 1016.000 D7, amended 2026-10-18):
+
+```ts
+const waiting = new Map<string, (reply: string) => void>();
+// In `feed`'s mapper, for a reply: waiting.get(reply.id)?.(reply.text)
+if (source === "request") {
+  const socket = feeds.get(id);
+  if (!socket) throw new Error("feed is not open");
+  socket.send(JSON.stringify({ _tag: "Request", id: n }));
+  return new Promise<string>(resolve => waiting.set(n, resolve));
+}
+```
+
+What each turn of an answer sends goes out in the order it sent it once
+the commit that ran the turn stands, as its fetches do; a refused commit
+takes it back and says so, and nothing the answer does afterwards (a
+value, a failure) takes it back. Natively its turns are its source's call
+and each delivery of its own `fetch` or storage step. Code that resumes
+from an `await` runs in the next turn that drains microtasks (its own
+delivery, or the answer's that settled what it awaited) and sends as that
+turn's answer; a mapper's call drains none, so code a mapper resumes runs
+in the next answer asked, or in none (and its send refuses) when that is
+the waiting answer's own re-ask. Send before the first `await`, or settle
+waiters from an answer. An answer asked again sends again, so key a
+request that must not repeat. On the web build only the source's
+synchronous call may send; a continuation refuses, since the page cannot
+tell whose it is. An answer
+the runner lets go (new arguments, `refresh`, a newer send, leaving the
+view) sends nothing more as its own; what it sent stays sent. It may also
+`fetch`, though a mutation's synchronous source still may not do both. A
+refused commit's batches are taken back without telling the code, so a
+protocol that awaits a reply times out. Its bounds are a mutation's, over all its turns (`socket answer
+exceeds 256 operations`, `… 1 MiB`); overload throws without failing the
+answer. A handle that is not open, or whose socket a mutation's stream
+owns, throws `InvalidStateError`, and so does an operation after the
+answer's own `close` of that socket. A batch the host refuses is said in
+`logs` as `answer <resource or mutation> failed: …; socket frames were refused`. Its
+`bufferedAmount` counts the transport's bytes as the turn began and what
+this turn has sent, and natively also what earlier turns sent that the host
+has not yet taken.
 
 A mutation or mapper call stages at most 256 operations and 1 MiB, including
 bytes already buffered by the browser. Overflow throws `QuotaExceededError`; a stale or

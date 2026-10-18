@@ -293,9 +293,14 @@ fn loading_is_a_validation_pass() {
     // A code body that indexes a missing slot is refused by pc and table.
     let mut bad_code = plan.clone();
     let start = bad_code.code.len() as u32;
-    bad_code
-        .code
-        .extend_from_slice(&[Opcode::LoadSlot as u8, 7, 0, 0, 0, Opcode::Return as u8]);
+    bad_code.code.to_mut().extend_from_slice(&[
+        Opcode::LoadSlot as u8,
+        7,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     bad_code.derives[0].body = Code {
         offset: start,
         len: 6,
@@ -317,7 +322,7 @@ fn loading_is_a_validation_pass() {
     // A body without a terminating Return is refused.
     let mut no_return = plan.clone();
     let start = no_return.code.len() as u32;
-    no_return.code.push(Opcode::Unit as u8);
+    no_return.code.to_mut().push(Opcode::Unit as u8);
     no_return.derives[0].body = Code {
         offset: start,
         len: 1,
@@ -333,7 +338,10 @@ fn loading_is_a_validation_pass() {
     // An unknown opcode byte is refused.
     let mut unknown = plan.clone();
     let start = unknown.code.len() as u32;
-    unknown.code.extend_from_slice(&[250, Opcode::Return as u8]);
+    unknown
+        .code
+        .to_mut()
+        .extend_from_slice(&[250, Opcode::Return as u8]);
     unknown.derives[0].body = Code {
         offset: start,
         len: 2,
@@ -478,9 +486,14 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     // A backward jump (`Jump 0; Return`) would loop forever at boot.
     let mut looping = plan.clone();
     let start = looping.code.len() as u32;
-    looping
-        .code
-        .extend_from_slice(&[Opcode::Jump as u8, 0, 0, 0, 0, Opcode::Return as u8]);
+    looping.code.to_mut().extend_from_slice(&[
+        Opcode::Jump as u8,
+        0,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     looping.slots[0].init = Code {
         offset: start,
         len: 6,
@@ -500,7 +513,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     body.extend_from_slice(&1.0f64.to_le_bytes());
     body.push(Opcode::Return as u8);
     let len = body.len() as u32;
-    misaligned.code.extend_from_slice(&body);
+    misaligned.code.to_mut().extend_from_slice(&body);
     misaligned.slots[0].init = Code { offset: start, len };
     assert!(matches!(
         misaligned.validate(),
@@ -513,6 +526,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     let mut fine = plan.clone();
     let start = fine.code.len() as u32;
     fine.code
+        .to_mut()
         .extend_from_slice(&[Opcode::Jump as u8, 5, 0, 0, 0, Opcode::Return as u8]);
     fine.slots[0].init = Code {
         offset: start,
@@ -749,7 +763,7 @@ fn a_callback_body_is_entered_and_left_only_at_its_ends() {
         let mut p = plan.clone();
         let start = p.code.len() as u32;
         let len = body.len() as u32;
-        p.code.extend_from_slice(&body);
+        p.code.to_mut().extend_from_slice(&body);
         p.slots[0].init = Code { offset: start, len };
         p.validate()
     };

@@ -694,6 +694,38 @@ fn with(node: &Node, sheet: Vec<Attr>) -> Node {
     }
 }
 
+/// A field whose authored `flex` is a number alone (`flex=1`, CSS's `1 1
+/// 0%`) with no `flex-basis` after it, written as its grow and shrink: the
+/// row's sheet keeps the basis. `None` for any other field.
+fn grown_field(node: &Node) -> Option<Node> {
+    let Node::Element { attrs, .. } = node else {
+        return None;
+    };
+    let flex = attrs.iter().rposition(|a| a.name == "flex")?;
+    let grow = match &attrs[flex].value {
+        Expr::Str(v, _) => v.trim().parse::<f64>().ok()?,
+        v => crate::values::numeric_literal(v)?,
+    };
+    if attrs[flex..].iter().any(|a| a.name == "flex-basis") {
+        return None;
+    }
+    let mut node = node.clone();
+    let Node::Element { attrs, .. } = &mut node else {
+        return None;
+    };
+    let a = attrs.remove(flex);
+    let longhand = |name: &str, value: f64| Attr {
+        name: name.into(),
+        value: Expr::Number(value, a.span),
+        ..a.clone()
+    };
+    attrs.splice(
+        flex..flex,
+        [longhand("flex-grow", grow), longhand("flex-shrink", 1.0)],
+    );
+    Some(node)
+}
+
 /// `yes` where the boolean attribute `name` is true, else `otherwise`; a
 /// bound one chooses as it changes.
 fn by_flag(attrs: &[Attr], name: &str, yes: &str, otherwise: Expr, span: Span) -> Expr {
@@ -1246,9 +1278,12 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         // one too, keeps the rest; 8rem and a short label fit on one line up
         // to the largest size before the accessibility ones, and past it the
         // row wraps the field under the label. A date, time or menu keeps its
-        // own width. Under the label either is as narrow as the line.
+        // own width. Under the label either is as narrow as the line. An
+        // author's `flex=1` on the field (the number-field recipe writes it)
+        // grows it from the same basis: CSS's `1 1 0%` let the label squeeze
+        // it to "…" at the accessibility sizes instead of wrapping.
         ("input", _) if texts.low() >= 1 && text_field(child) => with(
-            child,
+            &grown_field(child).unwrap_or_else(|| child.clone()),
             vec![
                 m("text-align", "field-align", at),
                 n("flex-grow", 0.0, at),

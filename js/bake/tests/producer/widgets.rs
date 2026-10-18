@@ -37,6 +37,24 @@ fn widget_refresh_has_a_checked_source_without_changing_the_app_plan() {
         "the refresh must have a fresh module instance"
     );
     assert_eq!(pending.entries.len(), 1);
+    // The producer receipt admits the exact pruned entry used by a widget.
+    use exact_runner::DataSource;
+    let mut module = exact_js::Module::new(
+        Vec::new(),
+        "test.exact.logic",
+        "net.fetch https://example.test/",
+    );
+    module
+        .prepare_snapshot(
+            Some(exact_runner::SnapshotModule {
+                receipt: &pending.receipt,
+                bytecode: &pending.bytecode,
+                plan: &pending.entries["card"].plan.encode(),
+                kind: "card",
+            }),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
+        .unwrap();
     let output = f.0.join("output");
     pending.write_new(&output).unwrap();
     assert_eq!(

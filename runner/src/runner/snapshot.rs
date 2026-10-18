@@ -20,11 +20,17 @@ impl<D: DataSource> Runner<D> {
         let signature = self.plan.source(source);
         let name = self.plan.str(signature.name).to_owned();
         let ty = signature.ty;
+        if Instant::now() >= deadline {
+            return Err("widget refresh timed out".into());
+        }
         self.data
             .activate()
             .map_err(|e| format!("refresh activation: {e:?}"))?;
         let mut store = Store::new_linked(self.data.grants(), snapshot, self.links.grants);
         let args = [Value::Number(now)];
+        if Instant::now() >= deadline {
+            return Err("widget refresh timed out".into());
+        }
         let mut answer = self.data.answer(&mut store, &name, &args);
         let result = (|| {
             // Bound chains too: an immediate continuation must not spin forever.
@@ -96,6 +102,9 @@ impl<D: DataSource> Runner<D> {
                                 return Err(error);
                             }
                         };
+                        if Instant::now() >= deadline {
+                            return Err("widget refresh timed out".into());
+                        }
                         answer = self.data.parse(&mut store, &name, &args, outcome);
                     }
                 }

@@ -54,6 +54,7 @@ pub mod geometry;
 pub mod gradient;
 pub mod host;
 pub mod link;
+mod looks;
 pub mod markup;
 pub mod material;
 pub mod measure;

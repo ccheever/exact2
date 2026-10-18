@@ -305,8 +305,11 @@ macro_rules! host {
         }
         /// Refresh the entry's declared source; returns a JSON timeline or an error.
         #[no_mangle]
-        pub extern "C" fn exact_entry_timeline(rt: u32, now: f64, receipt: usize, module: usize) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.entry_timeline_module(now, receipt, module), |n| n)
+        pub extern "C" fn exact_entry_timeline(rt: u32, now: f64, remaining_ms: f64, receipt: *const u8, receipt_len: usize, module: *const u8, module_len: usize) -> u32 {
+            // The synchronous caller owns both slices until this call returns.
+            let receipt = if receipt.is_null() { &[] } else { unsafe { std::slice::from_raw_parts(receipt, receipt_len) } };
+            let module = if module.is_null() { &[] } else { unsafe { std::slice::from_raw_parts(module, module_len) } };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.entry_timeline_module(now, remaining_ms, receipt, module), |n| n)
         }
 
         /// Prepare one session, optionally using a composition-owned generation.

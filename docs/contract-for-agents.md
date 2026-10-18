@@ -797,12 +797,12 @@ component Water
 | Component | Props | Draws |
 | --- | --- | --- |
 | `SummaryCard` | `label: string`, `value: string`, `detail: string`, `progress: option<number>`, `symbol: option<string>` | a card: the symbol and label, the value large in tabular figures, the detail beside it where the card is wide and under it where it is narrow, the fraction as `progress` |
-| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
+| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value (the value under the label where both do not fit) over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
 | `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it, at the default body's sizes at every text size; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
-| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
+| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under white ink (dark on the light hues: green, mint, teal, cyan, yellow, orange); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue on the hue at low opacity; `none` is the neutral grey with the label's ink; the title stays the default body size at every text size |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
 
@@ -979,9 +979,14 @@ a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
 reason)`. The mapper may also send and close on its own socket while it
 answers `open` or a `message` (a subscribe, an Ack per frame), with no
 `fetch`. Sends run after the commit that settles the mutation or the frame
-stands, in order, and have bounded admission. The source must send and
-answer synchronously, and a mutation that sends cannot also `fetch`
-(whichever comes second refuses it). Refreshing or removing the
+stands, in order, and have bounded admission. A mutation's source that
+sends answers now or with a promise, and cannot also `fetch` (whichever
+comes second refuses it). A resource's answer may send its own
+request on its module's socket and await the reply, with no timer, and so
+may a mutation whose source answers with a promise: what each turn of it
+sends goes out once the commit that ran that turn stands, and stays sent if
+it is let go (on the web build, only its source's synchronous call may
+send). Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See
@@ -3125,6 +3130,19 @@ on a native control or a list's row is refused (their states are the
 platform's); a node's own part whose state it never writes (`:disabled` with no
 `disabled`) is warned of (`lower-state-dead`).
 
+A native control takes `accent-color` and, a field, the design's `Field`,
+`FieldText` and `placeholder` roles, where its host honours them: the
+schema's control-role table says which, per host
+(`docs/control-roles-measured.md`). For each target the app ships (not the
+terminal, which draws no colour, nor tvOS or watchOS, which have no column), a
+parameter you set that the host there does not honour is warned of once
+(`tamber-unreachable: accent-color on macOS switches: NSSwitch draws the
+system accent (the first at line 12; LLP 1121 D9)`): the platform's look is
+the answer there, or a control of your own (`appearance="none"`, or a styled
+pressable for a disabled prominent button). A field's own `color`,
+`background-color` (or `background`) or `::placeholder color` wins over the
+role, so it is not judged.
+
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes
 and shorthands: a row on any conditional arm counts, even if its value is
@@ -3284,6 +3302,16 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+The brand's states come from the theme, not a hatch (LLP 1129): `AccentColor =
+accent` is the app's tint, so the keyboard's focus ring is drawn in it (on the web
+a solid 2 px line, which reads on a control filled with the accent); `Highlight`
+and `HighlightText` colour selected text on the web (iOS draws it in the tint); a
+`button` you fill (`background-color="accent"`) hovers in its own ink, as the
+filled button does; a sheet's corners are `border-radius` on its route. A button
+in the brand's shape is a face you write on a `button` with no `buttonStyle`; a
+`buttonStyle` is the platform's control, which takes the accent and no radius
+(`lower-button-style`), and `ButtonText` and `LinkText` are the tint's, not the
+theme's (`lower-theme-tint`).
 A type token is CSS `font` syntax (`type.body = -exact-body/1.35 "InterVariable"`):
 `font="type.body"` writes only the longhands it names, so the text style's own
 weight applies where it names none, and a size in px is warned of

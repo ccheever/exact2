@@ -508,11 +508,29 @@ pub(crate) fn group_root(app_id: &str) -> Option<std::path::PathBuf> {
 
 /// Stage 1 has one writer: the app. Publish only a counter and a Darwin ping;
 /// another process re-reads the store, never a payload in the notification.
-#[allow(unsafe_code)]
 pub(crate) fn widget_changed(app: &str) {
+    if std::env::var("EXACT_WIDGET_WRITER").ok().as_deref() != Some(app) {
+        return;
+    }
     let Some(root) = group_root(app) else {
         return;
     };
+    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<(std::path::PathBuf, String)>> =
+        std::sync::OnceLock::new();
+    let writer = WRITER.get_or_init(|| {
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for (root, app) in receive {
+                publish_widget_change(root, app);
+            }
+        });
+        send
+    });
+    let _ = writer.send((root, app.to_owned()));
+}
+
+#[allow(unsafe_code)]
+fn publish_widget_change(root: std::path::PathBuf, app: String) {
     let current = root.join("widget-store-generation");
     let value = std::fs::read_to_string(&current)
         .ok()
@@ -536,6 +554,8 @@ pub(crate) fn widget_changed(app: &str) {
             notify_post(name.as_ptr());
         }
     }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = app;
 }
 
 #[cfg(test)]
