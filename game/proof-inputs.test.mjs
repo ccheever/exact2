@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
+import {agreePins, buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
 import {writeFixtureFile} from './tests/proof-helpers.mjs';
 
 test('receipts issued before directory checks rebuild once even when source and artifact digests still match', async () => {
@@ -423,3 +423,15 @@ test('proof summaries record both identities from the completed bake', async () 
     expect(receipt.inputs).toBe(buildInputHash('linux', target, '0', 'release').update(after.all).digest('hex'));
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 15000);
+
+
+test('web repin requires shipping observations and receipts distinguish profiles', () => {
+  const pins = {ticks:{60:'0x123456789abcdef0'}, saves:{continuation:'a'.repeat(64)}};
+  const rows = ['linux', 'web'].flatMap(host => ['0', '1', 'fresh-game', 'release'].map(mode => ({host, mode:mode === 'release' ? '0' : mode, profile:mode === 'release' ? mode : 'gpu-dev', pins:structuredClone(pins)})));
+  const old = pins;
+  expect(() => agreePins(rows.filter(row => !(row.host === 'web' && row.profile === 'release')), old, ['linux', 'web'], '.')).toThrow('web release');
+  rows.find(row => row.host === 'web' && row.profile === 'release').pins.ticks[60] = '0xdddddddddddddddd';
+  expect(() => agreePins(rows, old, ['linux', 'web'], '.')).toThrow('disagrees with gpu-dev');
+  expect(buildInputHash('web', 'target', '0', 'release').digest('hex'))
+    .not.toBe(buildInputHash('web', 'target', '0', 'gpu-dev').digest('hex'));
+});

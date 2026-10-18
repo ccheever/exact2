@@ -77,7 +77,10 @@ bun game/prove.mjs ./my-game
 ```
 
 The first baseline requires Linux and web agreement in all three simulation modes,
-plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
+plus native release and shipping-profile web runs. Later invocations verify one GPU-less Linux run by default.
+Both proof hosts build the game module under `gpu-dev`; `EXACT_GAME_PROOF_PROFILE=release`
+selects native release or the web shipping profile. Repinning refuses any pin disagreement
+between the fast and shipping profiles. Ordinary web builds and deploys keep the shipping profile.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two

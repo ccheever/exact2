@@ -123,7 +123,11 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // whole, as does a machine whose binaryen isn't the pinned one.
 const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
-const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly}));
+// Proofs select the fast game module; ordinary builds and production keep shipping bytes.
+const proofProfile = game && buildEnv.EXACT_UPDATE_TRUST !== 'production' ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
+if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
+const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
+const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
 // dist, so a server sees the previous app or the next one, never a mixture;
@@ -470,7 +474,7 @@ if (authReach.sessions) {
 // the web) and wasm-opt. Only when the app has a GPU crate.
 // Each declared GPU module (LLP 1009 D6) is its own wasm under gpu/, fetched
 // the first time a canvas of one of its surfaces mounts.
-const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts(app, stage);
+const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts(app, stage, {profile:gpuProfile});
 let gpuNote = gpu.note;
 if (gpu.built) {
   copyHostFiles('gpu');

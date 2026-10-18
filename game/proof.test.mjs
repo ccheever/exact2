@@ -440,7 +440,7 @@ const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
   name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
-}))), {name:'fixture',host:nativeProofHost(hosts),mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+}))), ...[...hosts.includes('web') ? ['web'] : [], nativeProofHost(hosts)].map(host => ({name:'fixture',host,mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}))];
 
 test('Windows baselines require all native and web modes plus matching release evidence', () => {
   const hosts=['windows','web'], rows=candidates(hosts), old=rows[0].pins;
@@ -665,7 +665,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
@@ -685,14 +685,14 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);
     expect(first.calls).toEqual([
       ...[native,'web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
-      {host:native,mode:'0',build:false},
+      {host:native,mode:'0',build:false}, {host:'web',mode:'0',build:false},
     ]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }
@@ -1202,6 +1202,9 @@ test('R15 semantic drift fixture is rejected by the release gate',async()=>{
     rows.at(-1).pins.ticks[60]='0x'+createHash('sha256').update(outcomes[1]).digest('hex').slice(0,16);
     for(const row of rows.slice(0,-1)) row.pins.ticks[60]='0x'+createHash('sha256').update(outcomes[0]).digest('hex').slice(0,16);
     expect(()=>agreePins(rows,rows[0].pins,['linux'], '.')).toThrow('release');
+    const web = candidates();
+    web.find(row => row.host === 'web' && row.profile === 'release').pins.ticks[60] = rows.at(-1).pins.ticks[60];
+    expect(() => agreePins(web, web[0].pins, ['linux', 'web'], '.')).toThrow('web release proof missing, failed, or disagrees with gpu-dev');
   } finally {rmSync(dir,{recursive:true,force:true});}
 },60000);
 

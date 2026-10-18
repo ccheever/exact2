@@ -192,7 +192,7 @@ export function buildInputHash(host, target, mode = '0', profile = process.env.E
   // Receipts made before complete directory checks may describe stale artifacts.
   const hash = createHash('sha256').update('exact game proof receipt v4\0').update(host).update(target);
   if (host === 'web') hash.update(mode);
-  if (host === 'linux' || host === 'windows') hash.update(profile);
+  if (host === 'linux' || host === 'windows' || host === 'web') hash.update(profile);
   return hash;
 }
 export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
@@ -261,9 +261,11 @@ export function agreePins(rows, previous, hosts, app) {
     }
     reference ??= row;
   }
-  const release = rows.filter(row => row.host === native && row.mode === '0' && row.profile === 'release');
-  if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
-    throw new Error(`repin refused: ${native} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
+  for (const host of [native, ...hosts.includes('web') ? ['web'] : []]) {
+    const release = rows.filter(row => row.host === host && row.mode === '0' && row.profile === 'release');
+    if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
+      throw new Error(`repin refused: ${host} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
+  }
   return {...reference.pins, hosts};
 }
 export function pinInputs(rows) {
@@ -678,7 +680,7 @@ export async function proof(meta, script) {
       } else {
         const script = host === 'windows' ? 'host/windows/build.mjs' : host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs';
         const flags = host === 'windows' ? (profile === 'release' ? ['--release'] : []) : host === 'web' ? ['--wasm'] : device ? ['--device', ...(phone ? ['--phone', phone] : [])] : host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [];
-        const child = spawn('bun', [resolve(root,script), ...flags], {cwd:root, env:process.env, stdio:'inherit', windowsHide:true});
+        const child = spawn('bun', [resolve(root,script), ...flags], {cwd:root, env:{...process.env, EXACT_GAME_PROOF_PROFILE:profile}, stdio:'inherit', windowsHide:true});
         sample();
         const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
         if (code !== 0) throw new Error(`app build exited ${code}`);

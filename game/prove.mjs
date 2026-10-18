@@ -40,7 +40,7 @@ const artifacts = resolve(app, 'artifacts/prove');
 mkdirSync(artifacts, {recursive:true});
 const root = mkdtempSync(resolve(artifacts, 'run-'));
 console.log(`ARTIFACTS ${root}`);
-const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') => {
+const run = async (host, index, build = false, mode = '0', profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev') => {
   const destination = host === 'ios' && device ? 'ios-device' : host;
   const out = resolve(root, `${destination}-${mode}-${build ? 'build' : index}${profile === 'release' ? '-release' : ''}`);
   mkdirSync(out, {recursive:true});
@@ -79,19 +79,20 @@ if (repin) {
     let unavailable = false;
     await paranoidRuns(async mode => {
       if (unavailable) return 0;
-      try { rows.push(await run(host, 1, false, mode)); return 0; }
+      try { rows.push(await run(host, 1, false, mode, 'gpu-dev')); return 0; }
       catch (error) {
         if (mode === '0' && error.webUnavailable) { unavailable = true; console.log('WEB unavailable: repin refuses the missing requested host; set CHROME and rerun.'); }
         else errors.push(error);
         return 1;
       }
     }, async () => {
-      if (!unavailable) try { await run(host, 0, true); } catch (error) { errors.push(error); return 1; }
+      if (!unavailable) try { await run(host, 0, true, '0', 'gpu-dev'); } catch (error) { errors.push(error); return 1; }
       return 0;
     }, host);
     if (!unavailable) exercised.push(host);
   }
-  try { rows.push(await run(native, 1, false, '0', 'release')); } catch (error) { errors.push(error); }
+  for (const host of [native, ...hosts.includes('web') ? ['web'] : []])
+    try { rows.push(await run(host, 1, false, '0', 'release')); } catch (error) { errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   const candidate = agreePins(rows, before, hosts, app);
