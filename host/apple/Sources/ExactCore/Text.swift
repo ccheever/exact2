@@ -49,6 +49,12 @@ package struct Run: Hashable {
     package var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     package var background: [Double]? = nil
+    /// The inline box that `background` is (its node's id, 0 for none) and
+    /// that box's `border-radius` (top-left, top-right, bottom-right,
+    /// bottom-left; empty for square): paint, never metrics. A box's runs
+    /// share one background, rounded only at the box's own ends.
+    package var backgroundBox: UInt32 = 0
+    package var backgroundRadii: [InlineRadius] = []
     /// CSS visibility hides ink without changing shaping or descendant visibility.
     package var hidden = false
     /// Its colour is one its author fixed: a literal or a `light-dark()`
@@ -71,7 +77,8 @@ package struct Run: Hashable {
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
+              lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.backgroundBox == rhs.backgroundBox,
+              lhs.backgroundRadii == rhs.backgroundRadii, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
               lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
@@ -97,6 +104,8 @@ package struct Run: Hashable {
         hasher.combine(decoration)
         hasher.combine(href)
         hasher.combine(background)
+        hasher.combine(backgroundBox)
+        hasher.combine(backgroundRadii)
         hasher.combine(hidden)
         hasher.combine(fixedInk)
         hasher.combine(shadow)
@@ -802,6 +811,7 @@ package final class TextEngine {
             offset += length
         }
         TextEngine.setBaseDirection(s, direction: spec.direction)
+        presentation?.finish(s)
         if spec.preserves, s.string.contains("\t"), let first = spec.strut ?? spec.runs.first {
             setTabStops(s, run: first)
         }
@@ -1154,9 +1164,16 @@ package final class TextEngine {
     /// An over-wide line truncated at `width` with the ellipsis in the style
     /// of the character it replaces; the browser keeps the first character
     /// when not even the token fits.
+    /// The ellipsis's attributes: the text's it replaces, marked as the
+    /// token, which stands for what was cut (an inline box's end is not in it).
+    private static func truncation(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var marked = attributes
+        marked[.exactTruncation] = true
+        return marked
+    }
     package static func ellipsis(_ line: CTLine, range: NSRange, width: Double, source: NSAttributedString) -> CTLine? {
         let at = max(range.location, min(NSMaxRange(range), source.length) - 1)
-        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: source.attributes(at: at, effectiveRange: nil)))
+        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: truncation(source.attributes(at: at, effectiveRange: nil))))
         return CTLineCreateTruncatedLine(line, width, .end, token)
     }
 
@@ -1184,7 +1201,7 @@ package final class TextEngine {
         // CoreText to make room for it, removing the line's trailing break/space.
         while end > range.location && [9, 10, 13, 32, 0x2028, 0x2029].contains(Int(string.character(at: end - 1))) { end -= 1 }
         let candidate = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
-        candidate.append(NSAttributedString(string: "…", attributes: source.attributes(at: max(range.location, end - 1), effectiveRange: nil)))
+        candidate.append(NSAttributedString(string: "…", attributes: truncation(source.attributes(at: max(range.location, end - 1), effectiveRange: nil))))
         let typesetter = CTTypesetterCreateWithAttributedString(candidate)
         let line = CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: end - range.location + 1))
         // Keep paragraph-global indices, including the token, for AppKit hits.

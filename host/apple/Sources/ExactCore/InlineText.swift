@@ -28,6 +28,7 @@ package struct InlineText {
         self.id = id; self.parent = parent; self.props = props
         var value = style.run
         value.text = props["text"] ?? ""
+        if value.background != nil || style.backgroundRef != nil { value.backgroundBox = id } else { value.backgroundRadii = [] }
         value.href = props["href"] ?? ""
         lightRun = value
         darkColor = style.darkColor
@@ -43,6 +44,33 @@ package struct InlineText {
     /// A run with an `href`: the web's `<a>` in its paragraph.
     package var isLink: Bool { !(props["href"] ?? "").isEmpty }
 
+}
+
+/// One corner of an inline box's `border-radius`: px plus a percentage, or
+/// a `calc()`, of the fragment's width across and its height down.
+package struct InlineRadius: Hashable {
+    package var px: Double = 0
+    package var pct: Double = 0
+    package var calc: CalculatedLength?
+    package init(px: Double = 0, pct: Double = 0) { self.px = px; self.pct = pct }
+    /// A radius row as the wire carries it.
+    package init(_ value: BatchValue) {
+        switch value {
+        case .number(let n): px = n
+        case .calculation(let c): calc = c
+        case .object(let o):
+            if let c = CalculatedLength(o) { calc = c } else { px = o["px"]?.number ?? 0; pct = o["pct"]?.number ?? 0 }
+        default: break
+        }
+    }
+    package var isZero: Bool { px == 0 && pct == 0 && calc == nil }
+    package func length(basis: CGFloat) -> CGFloat {
+        max(0, calc?.length(basis: basis) ?? CGFloat(px) + CGFloat(pct) * basis / 100)
+    }
+    package static func == (a: InlineRadius, b: InlineRadius) -> Bool { a.px == b.px && a.pct == b.pct && a.calc == b.calc }
+    package func hash(into hasher: inout Hasher) {
+        hasher.combine(px); hasher.combine(pct); hasher.combine(calc?.handle); hasher.combine(calc?.environment)
+    }
 }
 
 // Resolved while reading a paragraph; no dictionary of unused layout rows.
