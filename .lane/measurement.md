@@ -1,6 +1,6 @@
 # D2 cold-build measurements
 
-2026-10-18, lane/1132.A2-cold-build. Cold measurements complete; cache and edit measurements follow.
+2026-10-18, lane/1132.A2-cold-build. Cold and registry-reuse phase measurements; setup and live-edit results follow below.
 
 Machine: Mac17,6, 18 logical CPUs, 128 GiB RAM; macOS host triple
 `aarch64-apple-darwin`. Bun 1.4.2, stable rustc 1.97.0
@@ -149,3 +149,93 @@ python3 .lane/measure/audit.py /tmp/exact-1132-a2-cold/target/d2-linux \
 
 All six HTML reports passed. A negative control makes one predecessor finish
 one second after its dependent starts; the audit rejects it in every report.
+
+## Registry eligibility and reuse
+
+The cache excludes every path/git package and any registry package depending
+on one, transitively. That reduces the native `gpu-dev` registry dependency
+chain to **151.7 s, 28.3% of 537.0 s**: the cache still clears the quarter
+gate. The release eligible chain is **62.6 s, 6.9% of 902.1 s**. The entire
+web registry chain is only **17.8%** of its cold build. Consequently only
+native `gpu-dev` is wired to the cache; release and web remain unchanged.
+
+A fresh generated game took a coherent generation, then built with the same
+Cargo timings and rustc timer wrapper. The wrapper exits 86 if Cargo invokes
+rustc for a copied unit whose completed fingerprint is present. It did not
+fire. A preceding transfer trial also built successfully with the source
+target directory moved away; reuse does not depend on that target remaining
+available. Changes to the compiler instrumentation create a separate key.
+
+| Phase, seconds | Web control, load 65–98 | Native `gpu-dev` reuse, load 134–226 | Release experiment, load 70–188 |
+|---|---:|---:|---:|
+| Registry | 144.3 | 49.7 | 0.0 |
+| Engine path crates | 30.0 | 44.0 | 103.7 |
+| Game/shells | 55.4 | 13.5 | 54.9 |
+| Core/vendor path crates | 109.9 | 288.4 | 372.8 |
+| Standard library | 62.5 | 0 | 0 |
+| Cross-crate LTO and linker | 87.3 | 1.1 | 242.1 |
+| `wasm-opt`, sampled | about 10.5 | 0 | 0 |
+| Other | 70.1 | 21.1 | 74.4 |
+| **Total** | **570.0** | **417.8** | **847.9** |
+
+Rounding can change a displayed sum by 0.1 s. The release experiment took a
+registry generation solely to test its acceptance; that profile is **not
+cached by the shipped build**. Its path/LTO bottleneck leaves no registry
+work on the final dependency chain even though registry units still compile
+in parallel. This is why compiler work and elapsed dependency chains are
+reported separately.
+
+| Compiler work, unit-seconds | Native `gpu-dev` reuse, load 134–226 | Release experiment, load 70–188 |
+|---|---:|---:|
+| Registry | 301.9 | 318.2 |
+| Engine | 292.4 | 225.3 |
+| Game/shells | 26.5 | 61.2 |
+| Core/vendor | 1,419.6 | 913.4 |
+| LTO/link | 4.4 | 246.1 |
+
+`gpu-dev`: **392 copied fingerprints, zero rebuilt despite reuse**; registry
+compiler invocations fall from **379 to 34**. The remaining registry units
+are path-dependent `vello`, `wgpu`, `wgpu-core`, `wgpu-core-deps-apple`,
+`wgpu-hal`, and the SDK helper's separate debug-profile dependencies:
+`base64`, `block-buffer`, `cfg-if`, `cpufeatures`, `crypto-common`, `digest`,
+`generic-array`, `itoa`, `libc`, `memchr`, `serde_core`, `serde_json`, `sha2`,
+`typenum`, `version_check`, `zmij`. Some have multiple versions or compiler
+units. Path dependants intentionally do not enter a generation.
+
+Release experiment: **422 copied fingerprints, zero rebuilt despite reuse**;
+registry compiler invocations fall from **444 to 69**. Neither number is a
+claim that all units in a generation are needed by every build.
+
+Reuse commands use the cold native command with the fresh game's
+`proof.mjs`, its empty private target/build directory, and
+`D2_STOP_ON_REBUILD=$PWD/.lane/measure/product-gpu-dev-hashes.json` (or
+`product-release-hashes.json`). Outputs:
+
+```text
+game/cache: ... starts with the 392 registry units this machine has compiled
+PASS all recorded children exited
+PROOF UNVERIFIED integrated-game linux: 0 failures; 417.412 s
+
+PASS all recorded children exited
+PROOF UNVERIFIED integrated-game linux: 0 failures; 847.388 s
+```
+
+Reuse load before/after (1 / 5 / 15 minutes): `gpu-dev`
+**192.09 / 154.84 / 153.01 → 136.05 / 150.53 / 153.51**; release experiment
+**133.71 / 149.56 / 153.13 → 77.73 / 109.78 / 126.40**.
+
+The web control runs `web-build` again with the original app's entire target
+moved aside, so the game target is fresh but the SDK's editor/text-flow leaf
+artifacts are resident. It copies no registry generation. Load is
+**98.13 / 111.81 / 126.50 → 65.60 / 90.71 / 109.88**. Its shorter total is
+not attributed to the native cache. The cold/control GPU wasm files have
+identical SHA-256:
+`e373aa7da20c744b9406f5c93f8e704d1f16fd7919a08afd27eac76d9db7bcdd`.
+The game's web remap flags include its directory; two generated games have
+different keys. Key isolation is an actual negative control, not a copied
+unit that Cargo rejected.
+
+An earlier transfer trial's end-to-end proof was invalidated by a tracked
+measurement-note commit during its run. Its successful Cargo transfer is
+not counted as an end-to-end proof; the stable-source run above is the
+recorded result.

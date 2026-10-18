@@ -1420,6 +1420,10 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **Stopping `game/dev.mjs` during a build can leave its build child running.**
+  A terminated server does not prove its Cargo/build descendants exited. Record
+  the process tree before stopping it, then check those PIDs; terminate only
+  processes belonging to that invocation before starting another build.
 - **`exact.mjs linux` builds the host, not the game's GPU module.** For the
   `gpu-dev` host/module pair, use `bun proof.mjs linux --build-only` from the
   game directory. See [game build profiles](../game/README.md#exact2-integration).
