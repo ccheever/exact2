@@ -42,6 +42,7 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
   <div id="eased" data-view="11" style="${eased}">e</div>
   <div id="eased-js" data-exact-looks="1" style="${eased}"><span id="eased-js-in">j</span></div>
   <div id="focused" data-exact-looks="2" tabindex="0" style="${eased}">f</div>
+  <div id="delayed" data-exact-looks="1" style="width:100px;height:40px;background-color:#ffffff;transition:background-color 0s linear 300ms">d</div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
@@ -83,8 +84,8 @@ check('a look snaps through an authored transition, entering and leaving; a base
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const at = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
     const mouse = (type, [x, y]) => call('Input.dispatchMouseEvent', { type, x, y, button: 'none', buttons: 0, clickCount: 1 });
-    // What shows a frame later: a transition would be at its start.
-    const shows = (id) => evaluate(`new Promise(r => requestAnimationFrame(() => { const s = getComputedStyle(document.getElementById('${id}')); r([s.backgroundColor, Number(s.opacity).toFixed(2)]); }))`);
+    // What shows right after the edge, and the transitions it started there (none: it snapped).
+    const shows = (id) => evaluate(`(e => { const s = getComputedStyle(e); return [s.backgroundColor, Number(s.opacity).toFixed(2), e.getAnimations().filter(a => a.transitionProperty).length]; })(document.getElementById('${id}'))`).then(([bg, o, n]) => n ? [bg, o, `${n} transitions`] : [bg, o]);
     const away = await at('away');
     for (const id of ['eased', 'eased-js']) {
       await mouse('mouseMoved', await at(id));
@@ -99,6 +100,31 @@ check('a look snaps through an authored transition, entering and leaving; a base
     expect(await shows('eased-js')).toEqual(['rgb(255, 255, 0)', '0.80']);
     expect(await evaluate('window.snaps')).toBe(0);
     await mouse('mouseMoved', away);
+    // A delay alone would hold the look back: it snaps too.
+    await mouse('mouseMoved', await at('delayed'));
+    expect((await shows('delayed'))[0]).toBe('rgb(255, 255, 0)');
+    await mouse('mouseMoved', away);
+    expect((await shows('delayed'))[0]).toBe('rgb(255, 255, 255)');
+    // A click, then a key: the key turns the focused node's focus look on, at once.
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 1, clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 0, clickCount: 1 });
+    await mouse('mouseMoved', away);
+    expect(await evaluate(`[document.activeElement.id, document.activeElement.matches(':focus-visible')]`)).toEqual(['focused', false]);
+    await evaluate(`document.getAnimations().forEach(a => a.finish())`);
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+    expect(await evaluate(`document.getElementById('focused').matches(':focus-visible')`)).toBe(true);
+    expect(await evaluate(`new Promise(r => requestAnimationFrame(() => r((e => [getComputedStyle(e).backgroundColor, e.getAnimations().filter(a => a.transitionProperty).length])(document.getElementById('focused')))))`)).toEqual(['rgb(0, 255, 255)', 0]);
+    await evaluate(`document.getElementById('focused').blur()`);
+    // A pointer's focus shows no focus look: nothing is held still (a base transition there runs on), nor is hovering
+    // a node whose only look is its focus.
+    await evaluate(`window.snapped = 0; new MutationObserver(r => { window.snapped += r.length; }).observe(document.getElementById('focused'), { attributes: true, attributeFilter: ['data-exact-snap'] })`);
+    await mouse('mouseMoved', await at('focused'));
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 1, clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 0, clickCount: 1 });
+    await evaluate(`document.getElementById('focused').blur()`);
+    await mouse('mouseMoved', away);
+    expect(await evaluate('window.snapped')).toBe(0);
     // A focus look: focus coming and going, at once.
     await evaluate(`document.getElementById('focused').focus({ focusVisible: true })`);
     expect(await evaluate(`document.getElementById('focused').matches(':focus-visible')`)).toBe(true);
@@ -106,15 +132,11 @@ check('a look snaps through an authored transition, entering and leaving; a base
     await evaluate(`document.getElementById('focused').blur()`);
     expect(await shows('focused')).toEqual(['rgb(255, 255, 255)', '1.00']);
     // A base change still eases as authored.
-    await evaluate(`(e => { getComputedStyle(e).backgroundColor; e.style.backgroundColor = '#000000'; getComputedStyle(e).backgroundColor; })(document.getElementById('eased'))`);
-    await evaluate('new Promise(ok => setTimeout(ok, 100))');
-    const [mid] = await shows('eased');
-    expect(mid).not.toBe('rgb(0, 0, 0)');
-    expect(mid).not.toBe('rgb(255, 255, 255)');
+    expect(await evaluate(`(e => { getComputedStyle(e).backgroundColor; e.style.backgroundColor = '#000000'; getComputedStyle(e).backgroundColor; return e.getAnimations().filter(a => a.transitionProperty === 'background-color').length; })(document.getElementById('eased'))`)).toBe(1);
   } finally {
     await cdp.send('Target.closeTarget', { targetId });
   }
-});
+}, 30_000);
 
 check('a hover look composes over the base, under the press paint', async () => {
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });

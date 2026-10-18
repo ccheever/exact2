@@ -3902,17 +3902,23 @@ D8 says a look snaps; on both web targets a look is a page rule (`looks::rules`)
 `transition` on a property its look sets timed the look both ways.
 - **The input glue** (`host/web/input-glue.js`, both targets): the browser has already moved
   `:hover` and `:focus-visible` when `pointerover`/`pointerout` (and `mouseover`/`mouseout`, which
-  Firefox sends alone for a scroll under a still pointer) and `focusin`/`focusout` come. A node
-  with a look for the state whose edge it is (entering or leaving it, not moving within it; a focus
-  look is the focused node's own), and a transition of its own, takes that one style change with
-  its transitions off (`data-exact-snap`, which the press paint's observer doesn't watch; one style
-  read for every such node). A key that turns `:focus-visible` on for the node already focused (a
-  click, then a key) is held still in the frame's style change. A base change eases as authored.
+  Firefox sends alone for a scroll under a still pointer; one after its pointer event is the same
+  edge) and `focusin`/`focusout` come. An enabled node with a look for the state whose edge it is
+  (the pointer entering or leaving it, not moving within it, where the pointer can hover; a focus
+  look's node's own `:focus-visible` turning on or off, inside a shadow root too, not a pointer's
+  focus) takes that one style change with its transitions off (`data-exact-snap`, set before any
+  style is read, which the press paint's observer doesn't watch; one forced style for every such
+  node). A key that turns `:focus-visible` on for
+  the node already focused (a click, then a key) is held still too: Blink and WebKit move it before
+  the key comes, others in its default action. A base change eases as authored. The JS target loads
+  the input piece for a node with a look, as for a key shortcut (after first paint).
 - **Deviation (theme2's 19:55 (b)):** a transition of that node's running across the edge, on any
   property, ends there (CSS can't hold one property still). QUEUE only if seen in practice.
 - **Not heard:** hover that moves with no event (a node laid out or inserted under a still pointer;
-  WebKit's hover timer), and a touch screen's hover that sticks after its up; the look then eases
-  as before.
+  WebKit's hover timer), a touch screen's hover that sticks after its up, and an edge before the
+  JS target's input piece has loaded; the look then eases as before.
 - **Tests:** `host/web/tests/looks.test.mjs`: a wasm view and a JS-target node with transitions on
-  what their looks set show the look and the base a frame after the edge; moving onto a child
-  touches nothing; a focus look comes and goes at once; a base change still eases.
+  what their looks set show the look and the base right after the edge with no transition started;
+  moving onto a child touches nothing; a delay alone snaps; a focus look comes and goes at once, a
+  click then a key included, and a pointer's focus or a hover over a focus-only look touches
+  nothing; a base change still starts its transition.
