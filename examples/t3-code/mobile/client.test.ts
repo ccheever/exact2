@@ -187,19 +187,26 @@ describe('pinned shared sources', () => {
       }
     }
     visit(directory);
-    expect(names.length).toBe(297);
+    expect(names.length).toBe(298);
     const copies = names.map(name => {
       const local = readFileSync(join(directory, name), 'utf8').split('\n');
       expect(local[0]).toContain('GAP 001');
-      const pin = name === 'timeline-t3tools.ts' ? 'eefa4fe3744d6c4e0dc5c9f0a84bdfb9d3961ba4'
+      const pin = name === 'pages-usage.ts' ? '4ca539ce7206f332c3d912789bca10a5e6268ee3'
+        : name === 'word-diff.ts' ? '633320b410683cc88018c8f66bc908177fffd0f4'
+        : name === 'timeline-t3tools.ts' ? 'eefa4fe3744d6c4e0dc5c9f0a84bdfb9d3961ba4'
         : name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
       const adapted = ['client.ts', 'client-ops-composer.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts'].includes(name);
-      expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
+      if (name === 'word-diff.ts') expect(local.slice(0, 3)).toEqual([
+        '// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.',
+        '// Unchanged body from examples/t3-code/word-diff.ts; engine/span source extracted from',
+        '// settings-font-previews.ts at 5b7eb54af3aa972f92d7fb62ce809f433a8774cb.',
+      ]);
+      else if (name !== 'pages-usage.ts') expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
-    const objects = copies.map(copy => `${copy.pin}:examples/t3-code/${copy.name}`);
+    const objects = copies.map(copy => `${copy.pin}:examples/t3-code/${copy.name === 'pages-usage.ts' ? 'mobile/shared/' : ''}${copy.name}`);
     objects.push('db560228e1cb2ad00c9cbff76ed8d22a05438249:examples/t3-code/composer-editor.ts');
     const result = Bun.spawnSync(['git', 'cat-file', '--batch'], {
       cwd: directory, stdin: new TextEncoder().encode(objects.join('\n') + '\n'),
@@ -219,6 +226,10 @@ describe('pinned shared sources', () => {
     expect(offset).toBe(bytes.length);
     for (const [index, { name, local }] of copies.entries()) {
       let expected = bodies[index]!;
+      if (name === 'pages-usage.ts') {
+        expect(local.join('\n')).toBe(expected);
+        continue;
+      }
       if (name === 'domain.ts') expected = '// Mobile365aa87982: successful older-page adoption excludes expanded history from disk caching.\n' + expected
         .replace('  latestLocalTurnOrdinal: number | null;\n}', '  latestLocalTurnOrdinal: number | null;\n  /** Absent on a fresh snapshot. Live events preserve successful load-earlier growth. */\n  historyExpanded?: true;\n}')
         .replace('    ...state, historyCursor, hasMore,', '    ...state, historyCursor, hasMore, historyExpanded: true,');
@@ -303,7 +314,7 @@ describe('pinned shared sources', () => {
         .replace("const runOf = (entry: Entry): string => entry.kind === 'message' ? entry.role === 'assistant' ? str(entry.item.runId) : ''\n  : entry.kind === 'plan' ? str(entry.item.runId) : entry.kind === 'work' ? entry.entry.runId : '';\nconst startsResponse = (entry: Entry) => entry.kind === 'message' && entry.role === 'user' && entry.item.inputIntent !== 'steer'\n  && entry.item.inputIntent !== 'promoted_queued_to_steer' || entry.kind === 'work' && entry.entry.itemType === 'notification';\nconst persistentResource = (entry: Entry) => entry.kind === 'event' && PERSISTENT.has(str(entry.item.type));\nconst failedItem = (entry: Entry): Obj | null => {\n", "const runOf = (entry: Entry): string => entry.kind === 'message' ? entry.role === 'assistant' ? str(entry.item.runId) : ''\n  : entry.kind === 'plan' || entry.kind === 'html-render' ? str(entry.item.runId) : entry.kind === 'work' ? entry.entry.runId : '';\nconst startsResponse = (entry: Entry) => entry.kind === 'message' && entry.role === 'user' && entry.item.inputIntent !== 'steer'\n  && entry.item.inputIntent !== 'promoted_queued_to_steer' || entry.kind === 'work' && entry.entry.itemType === 'notification';\nconst persistentResource = (entry: Entry) => entry.kind === 'html-render' || entry.kind === 'event' && PERSISTENT.has(str(entry.item.type));\nconst failedItem = (entry: Entry): Obj | null => {\n")
         .replace("    }\n    if (entry.kind === 'plan') { rows.push({ kind: 'plan', id: entry.id, createdAt: entry.createdAt, entry }); continue; }\n", "    }\n    if (entry.kind === 'html-render') { rows.push({ kind: 'html-render', id: entry.id, createdAt: entry.createdAt, entry }); continue; }\n    if (entry.kind === 'plan') { rows.push({ kind: 'plan', id: entry.id, createdAt: entry.createdAt, entry }); continue; }\n")
         .replace("    if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') runId = null;\n    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work') runId = runOf(entry) || runless;\n    else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) runId = str(entry.item.runId) || runless;\n", "    if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') runId = null;\n    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work' || entry.kind === 'html-render') runId = runOf(entry) || runless;\n    else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) runId = str(entry.item.runId) || runless;\n");
-      let actual = local.slice(2).join('\n');
+      let actual = local.slice(name === 'word-diff.ts' ? 3 : 2).join('\n');
       if (name === 'client.ts') {
         expect(actual).toContain('// Mobile history ownership: invocation-local tokens and captured transfer cleanup.');
         const method = /^  private ownedNative\([^\n]*\n[\s\S]*?^  }\n/m;
