@@ -293,6 +293,18 @@ macro_rules! host {
             }, |n| n)
         }
 
+        /// Boot a snapshot entry's plan (LLP 1126 D2): the input buffer's
+        /// first `len` bytes, then its kind's `kind_len` bytes.
+        #[no_mangle]
+        pub extern "C" fn exact_boot_entry(rt: u32, len: usize, kind_len: usize, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
+                b.set_delivery($delivery);
+                b.boot_entry(len, kind_len, ($new)(), hooks, width, height)
+            }, |n| n)
+        }
+
         /// Prepare one session, optionally using a composition-owned generation.
         #[no_mangle]
         pub extern "C" fn exact_prepare_plan(rt: u32, token: u64, len: usize, width: f32, height: f32) -> u32 {

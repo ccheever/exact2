@@ -372,6 +372,10 @@ uint32_t exact_baked_compat(ExactRuntime rt);
  * running app, if any, exactly as it was. */
 uint32_t exact_boot(ExactRuntime rt, float width, float height);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
+/* Boot a snapshot entry's plan (LLP 1126 D2): the input buffer's first len
+ * bytes, then the entry's kind in the next kind_len bytes. The headless
+ * session's boot; a running host's boot refuses an entry plan. */
+uint32_t exact_boot_entry(ExactRuntime rt, size_t len, size_t kind_len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
