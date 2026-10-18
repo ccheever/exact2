@@ -329,30 +329,55 @@ test('Live Activities alone gate the group, the Keychain group and the plist key
   assert.doesNotMatch(entitlements({...app,manifest:{...app.manifest,live_activities:[{kind:'departure'}]}},'TEAM',true), /aps-environment/);
 });
 
-test('a device build with entries takes the app\'s and the extension\'s profiles that grant the shared groups, or names each missing grant (LLP 1126.001 WP13)', async () => {
+test('a device build with entries takes the app\'s and the extension\'s profiles that grant the shared groups, or names what each close profile lacked or failed (LLP 1126.001 WP13)', async () => {
   const {entryProfiles} = await import('../host/apple/widgets.mjs');
   const app = {id:'com.exact.test',manifest:{live_activities:[{kind:'departure',push:true}],host:{ios:{}}}};
-  const make = (name, appId, extra = {}) => ({path:`/p/${name}`, name, team:'TEAM', prefix:'TEAM', appId, devices:['PHONE'], dev:true, expires:new Date(Date.now()+8.64e7), entitlements:['application-identifier','get-task-allow','keychain-access-groups'], groups:[], keychain:['TEAM.*','com.apple.token'], aps:null, ...extra});
+  const day = 8.64e7;
+  // A decoded profile as devices.mjs reads one; the real predicates (`profileMisfit`, `profilesFor`) judge it.
+  const make = (name, appId, extra = {}) => {
+    const p = {path:`/p/${name}`, name, team:'TEAM', prefix:'TEAM', appId, devices:['PHONE'], dev:true, expires:new Date(Date.now()+day), entitlements:['application-identifier','get-task-allow','keychain-access-groups'], groups:[], keychain:['TEAM.*','com.apple.token'], aps:null, ...extra};
+    p.method ??= p.dev ? 'development' : p.devices.length ? 'adhoc' : 'appstore';
+    return p;
+  };
   const wildcard = make('Team wildcard', 'TEAM.*'), appOnly = make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development'});
   const extension = make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test']});
-  const installed = (list) => (udid, bundle) => list.filter(p => p.devices.includes(udid) && (p.appId === `TEAM.*` || p.appId === `TEAM.${bundle}`));
-  const both = entryProfiles({app, udid:'PHONE', covering: installed([wildcard, appOnly, extension]), named:null});
-  assert.equal(both.app.name, 'App'); assert.equal(both.extension.name, 'Extension');
-  const refusal = (list, required = []) => { try { entryProfiles({app, udid:'PHONE', required, covering: installed(list), named:null}); } catch (e) { return e.message; } assert.fail('refused'); };
+  const pair = entryProfiles({app, udid:'PHONE', installed:[wildcard, appOnly, extension], named:null});
+  assert.equal(pair.app.name, 'App'); assert.equal(pair.extension.name, 'Extension');
+  const refusal = (installed, options = {}) => { try { entryProfiles({app, udid:'PHONE', installed, named:null, ...options}); } catch (e) { return e.message; } assert.fail('refused'); };
   const wildcardOnly = refusal([wildcard]);
-  assert.match(wildcardOnly, /com.exact.test: "Team wildcard" covers it but none grants the App Group group.com.exact.test, aps-environment/);
+  assert.match(wildcardOnly, /com.exact.test: "Team wildcard" covers it but none grants the App Group group.com.exact.test, aps-environment \(development on a development profile/);
   assert.match(wildcardOnly, /com.exact.test.widgets: "Team wildcard" covers it but none grants the App Group group.com.exact.test\n/);
-  assert.match(wildcardOnly, /register the App ID com.exact.test with App Groups \(group.com.exact.test\) and Push Notifications, and the App ID com.exact.test.widgets with App Groups/);
-  assert.match(refusal([appOnly]), /com.exact.test: provisioned\n  com.exact.test.widgets: no profile covers it/);
-  assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test']}), extension]), /none grants aps-environment \(an activity takes pushes\)/);
-  assert.match(refusal([appOnly, extension], ['com.apple.developer.healthkit']), /com.exact.test: "App" covers it but none grants com.apple.developer.healthkit/);
-  assert.match(refusal([appOnly, make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.other']})]), /com.exact.test.widgets: "Extension" covers it but none grants the App Group group.com.exact.test/);
-  // The named profile (EXACT_PROFILE) is the app's; the extension's is found beside it, of the same team and kind.
-  const named = entryProfiles({app, udid:'PHONE', covering: installed([wildcard, extension]), named: appOnly});
-  assert.equal(named.app, appOnly); assert.equal(named.extension.name, 'Extension');
-  const distribution = make('Extension dist', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]});
-  const archived = entryProfiles({app, udid:undefined, covering:(udid, bundle, like) => [distribution, extension].filter(p => p.appId === `TEAM.${bundle}` && p.dev === like.dev), named:{...appOnly, dev:false, devices:[]}});
-  assert.equal(archived.extension.name, 'Extension dist');
+  assert.match(wildcardOnly, /register the App ID com.exact.test with App Groups \(group.com.exact.test\) and Push Notifications, and the App ID com.exact.test.widgets with App Groups \(group.com.exact.test\); then make one development profile for each App ID that includes this phone/);
+  assert.match(refusal([appOnly]), /com.exact.test: provisioned\n  com.exact.test.widgets: no profile covers it\nIn the Apple Developer portal, register the App ID com.exact.test.widgets with App Groups \(group.com.exact.test\) and Keychain Sharing \(the group <prefix>.com.exact.test\); then make one development profile for each App ID that includes this phone/);
+  // The grants: the push environment agrees with the method; HealthKit is the app's alone; the extension may name only its own Keychain group.
+  assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production'}), extension]), /"App" covers it but none grants aps-environment/);
+  assert.match(refusal([appOnly, extension], {required:['com.apple.developer.healthkit']}), /com.exact.test: "App" covers it but none grants com.apple.developer.healthkit\n  com.exact.test.widgets: provisioned/);
+  assert.equal(entryProfiles({app, udid:'PHONE', installed:[appOnly, make('Own group', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['TEAM.com.exact.test.widgets']})], named:null}).extension.name, 'Own group');
+  const noKeychain = refusal([appOnly, make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['com.apple.token']})]);
+  assert.match(noKeychain, /com.exact.test.widgets: "Extension" covers it but none grants the Keychain group <prefix>.com.exact.test/);
+  assert.match(noKeychain, /register the App ID com.exact.test.widgets with Keychain Sharing \(the group <prefix>.com.exact.test\)/);
+  // The conditions, each named: expiry, this phone, the team, the prefix, the method.
+  const expired = refusal([wildcard, make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development', expires:new Date(Date.now()-day)}), extension]);
+  assert.match(expired, /com.exact.test: "Team wildcard" covers it but none grants the App Group group.com.exact.test, aps-environment[\s\S]*?pushes\); "App" is for it but expired on \d{4}-\d\d-\d\d/);
+  assert.match(expired, /com.exact.test.widgets: provisioned/);
+  assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development', devices:['OTHER']}), extension]), /"App" is for it but does not include this phone/);
+  assert.match(refusal([appOnly, make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], team:'OTHER'})]), /"Extension" is for it but is team OTHER's, not TEAM's/);
+  assert.match(refusal([appOnly, make('Extension', 'OLD.com.exact.test.widgets', {groups:['group.com.exact.test'], prefix:'OLD', keychain:['OLD.*']})]), /"Extension" is for it but has the App ID prefix OLD, not TEAM/);
+  assert.match(refusal([appOnly, make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]})]), /"Store extension" is for it but is App Store, not development/);
+  assert.match(refusal([make('Ad hoc app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false}), extension]), /"Ad hoc app" is for it but is Ad Hoc, not development/);
+  // EXACT_PROFILE is the app's, under the same conditions.
+  assert.equal(entryProfiles({app, udid:'PHONE', installed:[wildcard, extension], named:appOnly}).app, appOnly);
+  assert.match(refusal([extension], {named:{...appOnly, expires:new Date(Date.now()-day)}}), /com.exact.test: EXACT_PROFILE \(App\) is for it but expired on/);
+  assert.match(refusal([extension], {named:make('Other', 'TEAM.com.other', {groups:['group.com.exact.test'], aps:'development'})}), /EXACT_PROFILE \(Other\) is for it but is for TEAM.com.other, not com.exact.test/);
+  assert.match(refusal([extension], {named:make('Store', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:[]})}), /EXACT_PROFILE \(Store\) is for it but is App Store and names no device/);
+  // An archive (no phone): the extension's profile matches the named one's method, and an Ad Hoc pair its devices.
+  const adHoc = make('Ad hoc app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:['A','B']});
+  const adHocExtension = make('Ad hoc extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:['A','B']});
+  assert.equal(entryProfiles({app, udid:undefined, installed:[extension, adHocExtension], named:adHoc}).extension, adHocExtension);
+  const archive = refusal([extension, make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]}), {...adHocExtension, devices:['A']}], {udid:undefined, named:adHoc});
+  assert.match(archive, /embeds one Ad Hoc profile in the app and one in its extension[^\n]*On this Mac, for an archive:\n  com.exact.test: provisioned\n  com.exact.test.widgets: "Extension" is for it but is development, not Ad Hoc; "Store extension" is for it but is App Store, not Ad Hoc; "Ad hoc extension" is for it but does not include 1 of the 2 devices the app's profile names\nMake one Ad Hoc profile for each App ID naming the same devices/);
+  const store = make('Store app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', dev:false, devices:[]});
+  assert.equal(entryProfiles({app, udid:undefined, installed:[adHocExtension, make('Store extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]})], named:store}).extension.name, 'Store extension');
 });
 
 test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {

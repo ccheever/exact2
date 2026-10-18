@@ -377,19 +377,27 @@ the extension, which reads no token), and `frequent: true` for one that needs
 the frequent-update budget (`NSSupportsLiveActivitiesFrequentUpdates`). An
 entry of either kind, a widget or an activity, gives the iOS build its WidgetKit
 extension, the shared `ExactCore` framework, the App Group and the Keychain
-group, and the app's `Info.plist` `NSSupportsLiveActivities`; an app with
-activities alone ships the extension with an empty widget bundle until its
-activity configuration lands (LLP 1126.001 WP10). The entry's root, state shape
-and preview are stage 2's bake (WP8).
+group; an activity entry alone adds `NSSupportsLiveActivities` to the app's
+`Info.plist` (a widget-only app has no such key). An app with activities alone
+ships the extension with an empty widget bundle until its activity
+configuration lands (LLP 1126.001 WP10). The entry's root, state shape and
+preview are stage 2's bake (WP8).
 
-A device build of an app with entries embeds two development profiles, the
-app's and the extension's (`<id>.widgets`), each granting the App Group
-`group.<id>` and the Keychain group, the app's also `aps-environment` when an
+A device build of an app with entries embeds two profiles, the app's and the
+extension's (`<id>.widgets`), of one team, App ID prefix and distribution
+method (development, Ad Hoc, enterprise or App Store), each granting the App
+Group `group.<id>` and the Keychain group `<prefix>.<id>` (Keychain Sharing;
+the team wildcard `<prefix>.*` grants it), the app's also `aps-environment`
+(`development` on a development profile, `production` on the others) when an
 activity takes pushes. A team wildcard profile grants no App Group, so each is
 a profile for its exact App ID; `build.mjs --device` refuses before building
-anything, naming each App ID and capability to register and the profiles to
-install. `EXACT_PROFILE` names the app's; the extension's is found among the
-installed profiles by its id, of the same team and kind.
+anything, naming for each App ID the profile that was close and the condition
+it failed (expired, not this phone, another team or prefix, the other method),
+and the capabilities to register and profiles to install. `EXACT_PROFILE` names
+the app's, under the same conditions; the extension's is found among the
+installed profiles by its id. An archive (`--archive`) matches the extension's
+profile to the named one's method, and an Ad Hoc pair must cover the same
+devices.
 
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
