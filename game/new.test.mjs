@@ -776,3 +776,22 @@ test('--render scaffolds a render crate with an explicit shader root', async () 
       'exact_game_render::module!(game_logic::MyGame, hooks = game_render::Passes, shaders = game_render::shaders::SHADERS);\n');
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
+
+test('SDK graph drift is repaired by the async lock refresh before locked consumers', async () => {
+  const {sdkLock} = await import('./app/shells.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'sdk-drift-')), sdk = resolve(root, 'sdk'), dep = resolve(root, 'dep');
+  mkdirSync(resolve(sdk, 'app'), {recursive:true}); mkdirSync(dep);
+  const manifest = version => `[package]\nname = "sdk-drift-dependency"\nversion = "${version}"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`;
+  try {
+    writeFileSync(resolve(dep, 'lib.rs'), ''); writeFileSync(resolve(dep, 'Cargo.toml'), manifest('0.1.0'));
+    writeFileSync(resolve(sdk, 'Cargo.toml'), `[workspace]\nresolver = "2"\n[workspace.package]\nedition = "2021"\n[workspace.dependencies]\nsdk-drift-dependency = { path = "../dep" }\n`);
+    sdkLock(sdk, {update:true}); sdkLock(sdk);
+    writeFileSync(resolve(dep, 'Cargo.toml'), manifest('0.2.0'));
+    assert.throws(() => sdkLock(sdk), /stale for the SDK/);
+    sdkLock(sdk, {update:true}); sdkLock(sdk);
+    assert.match(readFileSync(resolve(sdk, 'app/shells.lock'), 'utf8'), /name = "sdk-drift-dependency"\nversion = "0.2.0"/);
+    const {checks} = await import('../scripts/async.mjs');
+    const steps = checks('head', 'base', {lane:[],apple:false,glue:[]});
+    assert.ok(steps.findIndex(s => s[0] === 'game-lock') < steps.findIndex(s => s[0] === 'game'));
+  } finally { rmSync(root, {recursive:true, force:true}); }
+}, 120000);

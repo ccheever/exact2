@@ -118,6 +118,7 @@ export function checks(sha, since, selection = {}) {
     // and Fieldnotes as the dev loop builds it (its Rust drive, in `test`).
     prepareCheck,
     ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--tests', '--no-fail-fast']],
+    ['game-lock', 'bun', ['game/app/shells.mjs', '--update-lock']],
     gameCheck,
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
