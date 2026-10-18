@@ -37,7 +37,8 @@ let capabilities: [(name: String, target: String, define: String)] = [
 // quick. `bun host/apple/build.mjs --test` sets it.
 let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
 // Inspect mode (LLP 1122 T2c, Inspect.swift) is a development build's: a
-// production one (`EXACT_UPDATE_TRUST=production`) compiles none of it.
+// production one (`EXACT_UPDATE_TRUST=production`) compiles none of it, nor
+// the agent's read of UIKit's private alert views (`Agent.shownButton`).
 let devTools: [SwiftSetting] = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] == "production" ? [] : [.define("EXACT_INSPECT")]
 
 let gallery = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] != "production"

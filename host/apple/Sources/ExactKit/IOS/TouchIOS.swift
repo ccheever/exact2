@@ -400,8 +400,11 @@ extension Agent {
     /// finger cannot press it. UIKit gives an action's button no public
     /// geometry; the view it draws one with names the action it draws, so
     /// the button is found by its action, never by a title the alert may
-    /// show twice or as its title or message.
+    /// show twice or as its title or message. That read of UIKit's private
+    /// view is a development build's alone (`EXACT_INSPECT`, Package.swift):
+    /// a production one contains neither its class name nor its key.
     static func shownButton(_ action: UIAlertAction, of alert: UIAlertController, in window: UIWindow) -> Result<CGRect, AimRefusal> {
+        #if EXACT_INSPECT
         func find(_ view: UIView) -> UIView? {
             if NSStringFromClass(Swift.type(of: view)).hasPrefix("_UIAlertControllerActionView"), view.responds(to: NSSelectorFromString("action")),
                view.value(forKey: "action") as AnyObject? === action { return view }
@@ -418,6 +421,9 @@ extension Agent {
             }
         }
         return window.bounds.contains(middle) ? .success(box) : .failure(AimRefusal(why: "its button is off the window"))
+        #else
+        return .failure(AimRefusal(why: "a production build does not find an alert's buttons for a finger: drive a development build"))
+        #endif
     }
 
     static func popoverName(_ pop: NodeView) -> String { "popover #\(pop.id)\(pop.props["id"].map { " (\($0))" } ?? "")" }
