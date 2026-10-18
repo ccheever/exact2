@@ -163,7 +163,7 @@ const whenOf = (text: string): When[] => text.split(' ').filter(Boolean).map(w =
 // param answers it (else the full one), from the newest design read.
 let paramNames = new Map<string, string>();
 // The params as the newest settled read of the app's design has them.
-let appParams = new Map<string, ParamInfo>();
+let appParams = new Map<string, ParamInfo>(), appParamsKey = '';
 const lineName = (param: string) => paramNames.get(param) ?? param;
 const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join(' ');
 
@@ -201,7 +201,8 @@ const SYSTEM = new Set(['canvas', 'canvastext', 'linktext', 'visitedtext', 'acti
  * which also makes the value an expression. A word is a whole word of the
  * value: never part of a hex colour or a number. */
 export function inputsOf(value: string, names: string[], dials: string[]): { tokens: string[]; dials: string[]; roles: string[] } {
-  const words = value.split(/[\s,()/*+]+/).filter(w => /^[A-Za-z_-][\w.-]*$/.test(w));
+  // (A param's full name, `src/card.contract#Card.tone`, is one word: a division has spaces.)
+  const words = value.split(/[\s,()*+]+/).filter(w => /^[A-Za-z_.-][\w./#-]*$/.test(w));
   const set = new Set(words), lower = new Set(words.map(w => w.toLowerCase()));
   const named = (n: string) => set.has(n) || lower.has(n.toLowerCase()) || (n.toLowerCase().startsWith('-exact-') && lower.has(n.toLowerCase().slice(7)));
   const tokens = names.filter(named), found = dials.filter(d => set.has(d));
@@ -278,8 +279,13 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
 function opsOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown>[] {
   const op = opOf(file, kind, target, when, value);
   const p = kind === 'set-param' && when ? appParams.get(target) : undefined;
+  // A default that reads another param (named in full) is no value a line can
+  // take: none, said by the proposal.
+  if (p && p.set === null && p.default.includes('#')) return [];
   return p && p.set === null ? [{ op: 'set-param', name: lineName(target), when: [], value: p.default }, op] : [op];
 }
+// Whether `opsOf` read the params of the design these digests are of.
+const paramsOf = (kind: string, when: string, files: Record<string, string>) => !(kind === 'set-param' && when) || appParamsKey === digestKey(files);
 function opOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown> {
   const on = file ? { file } : {};
   switch (kind) {
@@ -798,7 +804,7 @@ const sources: Sources = {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir) });
-        if (!file || file === designFile) { appParams = snapshots.get(number)!.params; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
+        if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -853,9 +859,13 @@ const sources: Sources = {
     if (!kind || !target) return idle;
     if (kind !== 'remove-token' && kind !== 'unset-param' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
     const ops = opsOf(file, kind, target, when, value);
+    if (!ops.length) return { ...idle, ok: false, error: `${lineName(target)}'s default reads another param, which its line can't: give it a value of its own first, then Only this mode.` };
     const { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
+    // A param's first `when` line was planned from the params of another
+    // revision than this proposal's: asked again once the design is read.
+    if (!paramsOf(kind, when, ok.files)) return { ...idle, ok: false, error: 'The design changed: reading it again before this is proposed.' };
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.

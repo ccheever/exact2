@@ -47,7 +47,10 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
   const amount = (v: string) => numberOf(numeric ? v.replace(/ms$/, '') : v);
   // (The kinds a slider or stepper writes.)
   const ranged = p.kind === 'length' || p.kind === 'number' || numeric;
-  const free = p.kind === 'icon' ? 'icon' : p.control === 'token' || !(ranged || p.kind === 'color') && c.control !== 'select' ? 'token' : c.control;
+  // A length or number control needs an amount: a value in rem or a token
+  // with none to start from is typed instead.
+  const counted = (c.control !== 'slider' && c.control !== 'stepper') || amount(written) !== null || amount(folded) !== null;
+  const free = p.kind === 'icon' ? 'icon' : p.control === 'token' || !counted || !(ranged || p.kind === 'color') && c.control !== 'select' ? 'token' : c.control;
   return {
     c: {
       ...c,
