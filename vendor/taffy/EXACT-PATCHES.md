@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53 and 54 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54 and 55 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1694,6 +1694,25 @@ widths, auto and fixed margins, taller content, minimum and maximum widths,
 zero height minima, hidden overflow, disabled shrinking, two ratios, reversed
 columns, padding and borders under both box-sizing modes, and rows. Existing
 `Chrome 151 ratio column stretch` cases retain intrinsic and wider-content coverage.
+
+## Patch 55: floor stretched flex sizes before cross-axis alignment
+
+`determine_used_cross_size` includes padding and border in the minimum used
+cross size, including when an authored maximum is smaller. This keeps the
+content size nonnegative ([CSS Sizing §3.3](https://www.w3.org/TR/css-sizing-3/#box-sizing))
+before `outer_target_size` feeds alignment. Applying the floor only in child
+layout left alignment using a size smaller than the box it positioned.
+The same floor applies to the comparison that detects actual stretch.
+Patch 50 still excludes a column's automatic ratio minimum from final stretch;
+authored bounds keep their box-sizing adjustment and minimum precedence.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+23 literal `Chrome 151 column stretch floor` cases measured with Chrome
+151.0.7922.34 on 2026-10-19. Eight frames failed before the patch. The reported
+40×80 item in a 10px RTL column moves from x=0 to x=-30, including with a
+ratio under either box-sizing mode. Controls cover LTR, fitting items,
+`flex-start`, explicit widths, padding and borders, and minimum/maximum
+bounds under both box-sizing modes. Existing ratio-stretch fixtures pass.
 
 ## Cargo workspace boundary
 

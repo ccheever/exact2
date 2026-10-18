@@ -2441,6 +2441,10 @@ fn determine_used_cross_size(
                     } else {
                         child.min_size.cross(constants.dir)
                     };
+                    // EXACT PATCH 55: alignment needs the used border-box size,
+                    // including its padding/border floor even when max-size is
+                    // smaller. Deferring this floor to child layout loses overflow.
+                    let min_cross_size = Some(min_cross_size.unwrap_or(0.0).max(pb_sum.cross(constants.dir)));
                     let cross_size = (line_cross_size - child.margin.cross_axis_sum(constants.dir)).maybe_clamp(
                         min_cross_size,
                         max_size_ignoring_aspect_ratio.cross(constants.dir),

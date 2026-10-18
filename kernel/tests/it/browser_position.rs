@@ -41,6 +41,10 @@
 //! 151.0.7922.34. It covers preferred heights in shorter columns, definite
 //! stretch versus wrapping, alignment and auto margins, content minima,
 //! authored widths, shrink opt-outs, padding, borders and row controls.
+//! `Chrome 151 column stretch floor` uses that version and date for RTL
+//! columns with items wider than the line's stretch size. Controls cover
+//! ratios, LTR, fitting items, alignment, explicit widths, padding, borders
+//! and width bounds under both box-sizing modes.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
