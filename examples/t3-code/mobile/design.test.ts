@@ -1,6 +1,31 @@
 import { describe, expect, test } from 'bun:test';
 import { mobileHomeColors, mobileHtmlRenderTheme, mobileTheme, mobileThreadColors } from './design';
 
+describe('mobile user intent badge appearance', () => {
+  const expected = {
+    light: ['oklch(76.9% 0.188 70.08 / 25%)', 'oklch(76.9% 0.188 70.08 / 10%)', 'oklch(55.5% 0.163 48.998)',
+      'oklch(68.5% 0.169 237.323 / 25%)', 'oklch(68.5% 0.169 237.323 / 10%)', 'oklch(50% 0.134 242.749)'],
+    dark: ['oklch(82.8% 0.189 84.429 / 25%)', 'oklch(82.8% 0.189 84.429 / 10%)', 'oklch(87.9% 0.169 91.605)',
+      'oklch(74.6% 0.16 232.661 / 25%)', 'oklch(74.6% 0.16 232.661 / 10%)', 'oklch(82.8% 0.111 230.318)'],
+  };
+  for (const palette of ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris']) {
+    for (const scheme of ['light', 'dark'] as const) {
+      test(`${palette} ${scheme} keeps the pinned adaptive amber and sky roles`, () => {
+        const colors = mobileThreadColors(scheme, palette);
+        expect([colors.queuedIntentBorder, colors.queuedIntentBackground, colors.queuedIntentForeground,
+          colors.steerIntentBorder, colors.steerIntentBackground, colors.steerIntentForeground]).toEqual(expected[scheme]);
+      });
+    }
+  }
+  test('caption size, line height and em tracking follow the base font preference', () => {
+    for (const [base, size, line, tracking] of [[11, 8, 11, 0.2], [16, 12, 16, 0.3], [22, 17, 22, 0.425]]) {
+      const colors = mobileThreadColors('light', 't3-code', base);
+      expect([colors.intentFontSize, colors.intentLineHeight]).toEqual([size, line]);
+      expect(colors.intentLetterSpacing).toBeCloseTo(tracking, 10);
+    }
+  });
+});
+
 describe('iOS sidebar runtime palette', () => {
   // Pinned upstream mobileThemeVariables.test.ts: default iPad Light uses the
   // opaque row-hover frame; Dark keeps its black drawer below the chat canvas.

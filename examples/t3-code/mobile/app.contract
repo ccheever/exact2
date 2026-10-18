@@ -597,7 +597,7 @@ component App
   action threadLocalCommand(op: string, id: string, value: string)
     if not pending(changed) and not pending(threadSubmissionChanged)
       send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
-  resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
+  resource threadLook = threadColors(appearance.scheme, appearance.themeId, appearance.baseFontSize) as shape ThreadColors
   resource htmlRenderContext = htmlRenderContext(top(nav).name, `${top(nav).id}`, top(nav).params.threadEnvironment, top(nav).params.threadId, searchParam(top(nav), "htmlRender"), top(nav).params.attachmentId, mediaUi.readVersion, data.revision) as shape HtmlRenderContext
   mutation htmlRenderChanged as shape HtmlRenderResult queue refreshes threadData, documentData then didHtmlRender
   action didHtmlRender

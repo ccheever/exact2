@@ -70,7 +70,7 @@ export function mobileOutboxThread(environmentId: string, threadId: string, now:
     loaded: true, loading: false, emptyTitle: '', emptyDetail: '', error: '', uncertain: false, hasMore: false,
     historyLoading: false, historyError: '', readsNeeded: false, answerFilesOwner: '', answerFilesRequest: '', approvals: [],
     rows: [...rows, ...(detail && arr(detail.messages).some(message => message.id === record.messageId) ? [] : [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileThreadBlocks(record.text, dark),
-      user: true, timestamp: mobileMessageTime(record.createdAt), showMeta: true, streaming: false, attribution: '', intent: status,
+      user: true, timestamp: mobileMessageTime(record.createdAt), showMeta: true, streaming: false, attribution: '', intent: status, intentDescription: '', intentTone: '',
       copyConfiguration: '', expanded: false, toggleOp: '', toggleId: '', failed: false, live: false, activities: [],
       htmlRender: { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false }, media: [], first: rows.length === 0, last: true, canFork: false, forkKey: '', forkBusy: false }])].map((row, index, all) => ({ ...row, first: index === 0, last: index === all.length - 1 })),
     composer: { editing: false, saving: false, canCancel: false, editNotice: '', editNoticeDismissKey: '', editPendingId: '', canRetryEdit: false,

@@ -68,6 +68,8 @@ shape ThreadRow
   streaming: bool
   attribution: string
   intent: string
+  intentDescription: string
+  intentTone: string
   copyConfiguration: string
   expanded: bool
   toggleOp: string
@@ -179,4 +181,13 @@ shape ThreadColors
   codeForeground: string
   userCodeBackground: string
   userCodeForeground: string
+  queuedIntentBorder: string
+  queuedIntentBackground: string
+  queuedIntentForeground: string
+  steerIntentBorder: string
+  steerIntentBackground: string
+  steerIntentForeground: string
+  intentFontSize: number
+  intentLineHeight: number
+  intentLetterSpacing: number
   composerBackdrop: string
