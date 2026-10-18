@@ -279,7 +279,7 @@ test('cached threads adopt their own composer selection and existing staged choi
   expect(mobileThreadComposer(f.client).modelLabel).toBe('model-b'); expect(f.client.providerId).toBe('provider-b');
   expect(f.client.modelOptions).toEqual([{ id: 'effort', value: 'high' }]);
   expect(f.client.runtimeMode).toBe('approval-required'); expect(f.client.interactionMode).toBe('default');
-  stage(f.client, { modelId: 'staged-model', runtimeMode: 'full-access', interactionMode: 'plan' });
+  stage(f.client, { providerId: 'provider-b', modelId: 'staged-model', options: [], runtimeMode: 'full-access', interactionMode: 'plan' });
   f.client.thread = null; await f.sync();
   expect(mobileThreadComposer(f.client).modelLabel).toBe('staged-model');
   expect(f.client.runtimeMode).toBe('full-access'); expect(f.client.interactionMode).toBe('plan');

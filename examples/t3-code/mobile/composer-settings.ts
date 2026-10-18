@@ -172,14 +172,15 @@ export async function mobileComposerSettingsAction(kind: string, id: string, val
         const pending = state.pending, entry = catalog(client).find(entry => entry.provider.instanceId === pending.instanceId && entry.model.slug === pending.model);
         if (!entry || entry.unavailable) throw new ClientError('Set up this provider on web or desktop, or select another model.');
         const reason = selectionReason(client, entry.provider, entry.model); if (reason) throw new ClientError(reason);
-        // Shared rememberModel reads this memory when its single model-selection command is built;
-        // that accepted command, not Save, writes New Task's sticky model.
+        // Shared rememberModel reads this memory when the model command applies the pick;
+        // in New Task that command, not Save, writes the sticky model.
         const memory = client.local.composerControls.stickyOptionsByModel;
         memory[pending.instanceId] = { ...memory[pending.instanceId], [pending.model]: pending.options.map(option => ({ ...option })) };
         const response = await command('model', pending.model, pending.instanceId); if (response.message) throw new ClientError(response.message);
         if (state.owner !== owner(client)) throw new ClientError('The draft changed while settings were saving.');
+        // A started thread keeps its runtime choice; the sheet only shows the compatible mode (compatibleRuntimeMode).
         const supported = entry.provider.supportedRuntimeModes;
-        if (Array.isArray(supported) && supported.length && !supported.includes(client.runtimeMode)) {
+        if (!client.threadId && Array.isArray(supported) && supported.length && !supported.includes(client.runtimeMode)) {
           const mode = runtimeModes.find(mode => supported.includes(mode.mode));
           if (mode) { const next = await command('runtime', '', mode.mode); if (next.message) throw new ClientError(next.message); }
         }

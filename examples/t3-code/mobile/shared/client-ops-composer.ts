@@ -1,6 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/client-ops-composer.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.
+// Mobile 365aa87982: a started thread's model, option and mode picks stay local until Send keeps them.
 import { mobileNewTaskDirectText, mobileNewTaskMessageContext as withMessageContext, mobileNewTaskSendGuard } from '../mobile-new-task-context-send';
 import { mobileModelSelectionUnavailable } from '../model-availability';
 import { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';
@@ -14,7 +15,7 @@ import { projectCloneBlock } from './project-clones-live';
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread';
-import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
+import { composerNow, stage, rememberModel, rememberOptions, stagedFor, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
 import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
 import { promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
@@ -29,7 +30,7 @@ import { activeInput, pendingRequests, setCustomAnswer, chooseOption, advanceQue
 import { threadPhase } from './composer-presentation';
 import { autoBalanceSend } from './auto-balance'; // auto-balance
 import { obj, str, arr, type Obj } from './domain';
-import { ClientError, activeRun, providerAvailable, modelSelection, sendPayload,
+import { ClientError, activeRun, providerAvailable, sendPayload,
   launchPayload, type Native, type Files } from './protocol';
 
 /** The draft, favorite models, a pending question's answers, and Retry of an uncertain submission. */
@@ -121,7 +122,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // r7-handoff: a draft launches as its own id
   assertOwner(); assertDraft();
   if (selection.threadId) {
-    const key = this.draftKey, staged = stagedFor(this);
+    const staged = stagedFor(this);
     for (const command of nextTurnCommands(obj(this.projection.thread), staged, submission?.interactionMode ?? '')) {
       const [modeCommandId] = await this.ids(native, 1);
       assertOwner();
@@ -132,7 +133,6 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       dispatchSelection(this, selection.providerId, selection.modelId, JSON.parse(selection.options)));
     if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
     await this.dispatch(native, storage, payload, 'Send', assertOwner);
-    clearStaged(this, key);
     if (submission) this.interactionMode = submission.interactionMode;
     await acknowledgeWoke(this, selection.threadId, native);
     // composer.sendAndNewThread: the sent thread keeps running; a fresh new-thread composer opens in its project.
@@ -177,12 +177,8 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   if (additive) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId); }
   setFanout(this, null);
   const remembered = rememberModel(this, providerId, modelId);
-  if (stagesChanges(this)) { stage(this, { providerId, modelId, options: remembered }); return; }
-  if (this.threadId) {
-    const [commandId] = await this.ids(native, 1);
-    await this.dispatch(native, storage, { type: 'thread.model-selection.set', commandId, threadId: this.threadId,
-      modelSelection: modelSelection(providerId, modelId, remembered) }, 'Change model');
-  }
+  // onUpdateModelSelection: a provider without Plan also writes Build.
+  if (this.threadId) { stage(this, { providerId, modelId, options: remembered, ...provider.showInteractionModeToggle === false ? { interactionMode: 'default' } : {} }); return; }
   this.providerId = providerId; this.modelId = modelId;
   this.modelOptions = remembered;
 }
@@ -193,12 +189,7 @@ async function changeModelOption(this: T3Client, native: Native, storage: Files,
   const options = applyOptionChoice(arr(obj(model?.capabilities).optionDescriptors), this.modelOptions, id, value);
   if (this.threadId && provider?.requiresNewThreadForModelChange === true) throw new ClientError('Start a new thread to change this model option.');
   rememberOptions(this, this.providerId, this.modelId, options);
-  if (stagesChanges(this)) { stage(this, { options }); return; }
-  if (this.threadId) {
-    const [commandId] = await this.ids(native, 1);
-    await this.dispatch(native, storage, { type: 'thread.model-selection.set', commandId, threadId: this.threadId,
-      modelSelection: modelSelection(this.providerId, this.modelId, options) }, 'Change reasoning effort');
-  }
+  if (this.threadId) { stage(this, { providerId: this.providerId, modelId: this.modelId, options }); return; }
   this.modelOptions = options;
 }
 async function changeMode(this: T3Client, native: Native, storage: Files, op: string, value: string): Promise<void> {
@@ -209,12 +200,7 @@ async function changeMode(this: T3Client, native: Native, storage: Files, op: st
     throw new ClientError('This provider does not support that permission mode.');
   }
   if (op === 'interaction' && value === 'plan' && provider?.showInteractionModeToggle === false) throw new ClientError('This provider does not support plan mode.');
-  if (stagesChanges(this)) { stage(this, op === 'runtime' ? { runtimeMode: value } : { interactionMode: value }); return; }
-  if (this.threadId) {
-    const [commandId] = await this.ids(native, 1);
-    const field = op === 'runtime' ? 'runtimeMode' : 'interactionMode';
-    await this.dispatch(native, storage, { type: `thread.${op === 'runtime' ? 'runtime' : 'interaction'}-mode.set`, commandId, threadId: this.threadId, [field]: value }, 'Change mode');
-  }
+  if (this.threadId) { stage(this, op === 'runtime' ? { runtimeMode: value } : { interactionMode: value }); return; }
   if (op === 'runtime') this.runtimeMode = value; else this.interactionMode = value;
 }
 async function dispatchRequest(this: T3Client, native: Native, storage: Files, payload: Obj, description: string): Promise<void> {
