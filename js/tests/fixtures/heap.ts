@@ -38,7 +38,29 @@ let frames = 0;
 let collectedFrames = 0;
 let clearedBefore = 0;
 
-function answer(source: string): unknown {
+// Answers that each await a fetch and reply with a large string, two in
+// flight at once; each reply counts as `large` does. The first allocates
+// garbage enough to make a collection due while it waits.
+let overlapReplies = 0;
+let overlapCollected = 0;
+let overlapClearedBefore = 0;
+
+async function overlap(n: number): Promise<string> {
+  if (n === 0) garbage(1 << 20);
+  await fetch(`https://heap.test/${n}`);
+  overlapReplies++;
+  registry.register({}, `overlap ${n}`);
+  if (cleared.size !== overlapClearedBefore) {
+    overlapClearedBefore = cleared.size;
+    overlapCollected++;
+  }
+  return "o".repeat(65536) + n;
+}
+
+function answer(source: string, args: unknown[]): unknown {
+  if (source === "overlap") return overlap(args[0] as number);
+  if (source === "overlapCollected") return String(overlapCollected);
+  if (source === "overlapCleared") return state(`overlap ${args[0]}`);
   if (source === "large") {
     frames++;
     registry.register({}, `frame ${frames}`);
@@ -73,6 +95,6 @@ function answer(source: string): unknown {
 (globalThis as any).exact = {
   abi: 1,
   appId: "test.heap",
-  grants: "",
+  grants: "net.fetch https://heap.test",
   answer,
 };

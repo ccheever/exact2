@@ -72,12 +72,12 @@ struct State {
   size_t capture_limit;
   size_t capture_bytes = 0;
   std::vector<CapturedString> captures;
-  // A capture of this reply was made before a collection that ran after its
-  // answer began (`__exact_capture_string`'s third argument).
-  bool captures_held = false;
   // Collections so far, Hermes' own and these: what the prelude stamps an
   // answer with when it begins (`__exact_gc_epoch`).
   int64_t gc_epoch = 0;
+  // The prelude asked for a full collection after this call
+  // (`__exact_gc_epoch(true)`): kept until a call that returns collects.
+  bool collect_owed = false;
   // At the last full collection (collect_garbage): the heap's total
   // allocation then and what it held, all of it live.
   int64_t collected_at = 0;
@@ -123,7 +123,6 @@ void collect_if_due(State *state) {
 void clear_captures(State *state) {
   state->captures.clear();
   state->capture_bytes = 0;
-  state->captures_held = false;
 }
 
 // The prelude captures and removes this binding before app initialization.
@@ -133,12 +132,11 @@ void install_capture(State *state) {
   auto &rt = *state->rt;
   rt.global().setProperty(rt, "__exact_capture_string",
       jsi::Function::createFromHostFunction(rt,
-          jsi::PropNameID::forAscii(rt, "__exact_capture_string"), 3,
+          jsi::PropNameID::forAscii(rt, "__exact_capture_string"), 2,
           [state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
                   size_t count) -> jsi::Value {
-            if (count < 2 || count > 3 || !args[0].isString() || !args[1].isString())
+            if (count != 2 || !args[0].isString() || !args[1].isString())
               throw jsi::JSError(rt, "result capture requires a path and string");
-            if (count == 3 && args[2].isBool() && args[2].getBool()) state->captures_held = true;
             auto path = args[0].getString(rt).utf8(rt);
             auto value = args[1].getString(rt).utf16(rt);
             const auto remaining = state->capture_limit - state->capture_bytes;
@@ -148,11 +146,13 @@ void install_capture(State *state) {
             state->captures.push_back({std::move(path), std::move(value)});
             return jsi::Value::undefined();
           }));
-  // The collections as of the last call's end, read when an answer begins.
+  // The collections as of the last call's end, read when an answer begins;
+  // `true` asks for a full collection when this call returns.
   rt.global().setProperty(rt, "__exact_gc_epoch",
       jsi::Function::createFromHostFunction(rt,
-          jsi::PropNameID::forAscii(rt, "__exact_gc_epoch"), 0,
-          [state](jsi::Runtime &, const jsi::Value &, const jsi::Value *, size_t) -> jsi::Value {
+          jsi::PropNameID::forAscii(rt, "__exact_gc_epoch"), 1,
+          [state](jsi::Runtime &, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+            if (count == 1 && args[0].isBool() && args[0].getBool()) state->collect_owed = true;
             return jsi::Value(static_cast<double>(state->gc_epoch));
           }));
 }
@@ -425,13 +425,17 @@ int exact_js_call(void *h, const char *name, const char *a, const char *b, const
     // A captured string (64 Ki characters or more) whose answer outlived a
     // collection may be old generation now, promoted while its answer was
     // pending, and once sent it is garbage that no later collection frees
-    // while the module is idle (euxy's QR path: 376 KB). One made and sent
-    // with no collection between, as a frame's answer is, waits for
-    // `collect_if_due`.
-    if (state->captures_held)
-      collect_garbage(state, "held large reply");
-    else
+    // while the module is idle (euxy's QR path: 376 KB). The prelude owes a
+    // full collection for it, asked for once no answer awaits a reply:
+    // asked at each reply, one collection would mark the answers still
+    // pending, whose replies would ask again. A string made and sent with no
+    // collection between, as a frame's answer is, waits for collect_if_due.
+    if (state->collect_owed) {
+      state->collect_owed = false;
+      collect_garbage(state, "owed after a large reply");
+    } else {
       collect_if_due(state);
+    }
     return status;
   } catch (const jsi::JSError &e) {
     clear_captures(state);

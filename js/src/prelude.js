@@ -1042,13 +1042,13 @@
   }) });
 
   // --- the seam ------------------------------------------------------------
-  var calls = new Map();     // id -> { id, status, value, error, tickets }
-  var nextCall = 1;
-  // Large native strings travel beside the JSON skeleton, by explicit paths that
-  // reserve no property spelling; the built-in serializer owns getters, toJSON,
-  // omissions and cycles. Each says if its answer outlived a collection (shim.cc).
+  var calls = new Map(), nextCall = 1, gcOwed = false; // calls: id -> { id, status, value, error, tickets }
+  // Large native strings travel beside the JSON skeleton by explicit paths (no property
+  // spelling reserved); the serializer owns getters, toJSON, omissions and cycles. One
+  // whose answer outlived a collection owes a full one, once no answer awaits (shim.cc).
   var captureString = global.__exact_capture_string, gcEpoch = global.__exact_gc_epoch || function () { return 0; };
   delete global.__exact_capture_string; delete global.__exact_gc_epoch;
+  function cleanUp() { var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
   function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
     if (typeof captureString !== "function") return JSON.stringify(reply);
@@ -1076,7 +1076,7 @@
         for (var link = parent; link && link.parent; link = link.parent) pathKey(link.key);
         // Application toJSON hooks apply to its values, never our path metadata.
         Object.defineProperty(path, "toJSON", {value:undefined});
-        captureString(JSON.stringify(path), item, !!held);
+        captureString(JSON.stringify(path), item); if (held) gcOwed = true;
         return "";
       }
       // Only ancestors of the current object are needed for later capture paths.
@@ -1137,7 +1137,7 @@
   // worker placement, which runs one turn to its end, it still waits.
   function reply(call, text) {
     call.replied = true;
-    calls.delete(call.id);
+    calls.delete(call.id); cleanUp();
     return text;
   }
   function settle(call, final) {
@@ -1203,7 +1203,7 @@
       return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     }
     call.replied = true;
-    calls.delete(call.id);
+    calls.delete(call.id); cleanUp();
     if (moduleWide) return fail(new Error("the answer is pending on nothing: it awaits a promise that no fetch or storage step " +
       "in flight in this module will settle"));
     return fail(new Error("the answer is pending on nothing: no host operation it started will resolve it. " +
@@ -1361,7 +1361,7 @@
     var rejected = dropped.length ? " rejected" : "";
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
-    calls.delete(call.id);
+    calls.delete(call.id); cleanUp();
     return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
@@ -1375,7 +1375,7 @@
       if (failed) { c.lost = true; storing.delete(c); }
       if (c.storage > 0 && !c.lost) owed = true;
       else { c.replied = true; calls.delete(c.id); }
-    });
+    }); cleanUp();
     if (!owed) return "";
     // Deliver only when the operation in flight is the let-go call's.
     // One queued behind a live answer stays there: delivering it here would
