@@ -204,7 +204,6 @@ public final class ExactApp {
     public func refreshDelivery() {
         for session in sessions { session.apply(session.runtime.deliverySync()) }
     }
-
     func handleCommand(_ name: String) -> Bool { lifecycle?.handleCommand(name, app: self) ?? false }
 
     /// A session of this app: one runtime, unbooted until `boot` or its view's first layout.
