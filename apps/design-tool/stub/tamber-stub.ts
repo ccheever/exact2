@@ -34,7 +34,7 @@ const present = new Set<string>();
 // test refuses as moved (`/__stub/refuse-release`) names who moved it. An
 // edit of the warmth dial is rebuild-class (as if it fed a role override),
 // both proposed and scrubbed; so is a motion token's, as the server says.
-const REBUILDS = new Set(['warmth', 'duration.fast', 'easing.standard']);
+const REBUILDS = new Set(['warmth', 'duration.fast', 'easing.standard', 'app.contract#Card.fade', 'Card.fade']);
 // A token the JS loop's pages write inline: rebuild-class while a web-js
 // build runs, as the serving loop says (LLP 1121 stage 6).
 const INLINE = new Set(['opacity.muted']);

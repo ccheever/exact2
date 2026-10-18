@@ -1,0 +1,17 @@
+// The design tool stub's app (LLP 1122 T3): components with params of each
+// kind the component panel draws, read by their rows.
+component Card
+  params
+    fill: color = "accent.fill"  control="color"  group="Colour"  priority=1  label="Fill"
+    pad: length = "8px"  range="0..24"  step=1  control="slider"  group="Shape"  priority=1  label="Padding"
+    tone: color = "surface.card"  control="select"  options="surface.card|surface.inset"  group="Colour"  priority=3  label="Tone"
+    fade: duration = "150ms"  group="Motion"  label="Fade"
+  view
+    column background-color="param.fill" padding="param.pad" border-color="param.tone" border-width=1 border-style="solid" transition="background-color param.fade"
+      text "A card"
+
+component App
+  view
+    column background-color="surface.page" gap=8
+      Card()
+      Card()

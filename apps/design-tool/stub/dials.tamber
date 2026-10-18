@@ -5,7 +5,8 @@
 // literal, a range in scientific notation, two axes, a role override and a
 // fixed-scheme token, declared pairs (one below 4.5:1), and a token of
 // each kind the branch editor has typed fields for, motion tokens and an
-// icon.
+// icon. Components (T3): the stub app's Card (its Contract params, two set
+// here, one of them pinning a literal) and a native MapCard declared here.
 tamber dials
 
 axes
@@ -55,3 +56,12 @@ theme
 
 icons
   icon.star = icon(sf "star", material "star")
+
+component MapCard
+  params
+    pin: color = accent.fill  control=color  priority=1  label="Pin"
+    zoom: number = 12  in 1..20  step=1  control=stepper  priority=2  label="Zoom"
+
+params
+  Card.pad = 12px
+  Card.tone = #eeeeee

@@ -142,6 +142,10 @@ shape SelRow
   source: string
   rung: string
   token: string
+  // The param rung's (LLP 1122 T3): its full and short names; `token` is
+  // then the token it aliases, offered, never the default (D6).
+  param: string
+  short: string
   reason: string
   column: string
 
@@ -225,11 +229,39 @@ shape Control
   // What a number the slider or stepper gives is written with: `px` for a
   // length (LLP 1121 D15: a length dial is a px value), nothing for a number.
   unit: string
+  // A colour's swatch: the value itself, or (a param naming a token) what
+  // it folds to.
+  swatch: string
 
 shape DialGroup
   name: string
   dials: Control[]
   more: Control[]
+
+// The component panel (LLP 1122 D7, T3): a component's params, each with
+// its control (`c.name` is the param's full name), grouped as dials are.
+shape ParamRow
+  c: Control
+  // `Component.param`, or the full name where two components share it.
+  short: string
+  // The app has a line for it in the design's `params` block.
+  set: bool
+  // The tokens the default reads that a literal line no longer follows
+  // (LLP 1121 D14's mark).
+  pinned: string[]
+  default: string
+
+shape ParamGroup
+  name: string
+  params: ParamRow[]
+  more: ParamRow[]
+
+shape ComponentPanel
+  identity: string
+  name: string
+  // Declared in the design (`app.tamber#Name`): a view that isn't Contract.
+  native: bool
+  groups: ParamGroup[]
 
 shape Column
   id: string
@@ -292,6 +324,8 @@ shape Design
   axes: AxisChoice[]
   // The design's icons (LLP 1121 D10), read only: no operation writes one.
   icons: IconRow[]
+  // Each component with params (LLP 1121 D15).
+  components: ComponentPanel[]
 
 shape IconRow
   name: string
@@ -329,6 +363,9 @@ shape Branch
   roles: string[]
   exact: bool
   own: string
+  // A component's param (LLP 1122 T3), its full name in `token`: its edit
+  // is `set-param`, and it has no rename or remove.
+  param: bool
   // The design read it is of.
   answer: number
 
@@ -605,20 +642,22 @@ component DesignTool
   derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
   // A cell's edit whose branch the grid no longer shows (another client
   // changed it): not applied, lest it make a `when` no one asked for.
-  derive draftStale = editKind == "set-token" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
+  // What the branch editor writes: a token's branch, or a param's line (T3).
+  derive branchOp = branch.param ? "set-param" : "set-token"
+  derive draftStale = editKind == branchOp and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
   // The branch's value as the draft has it, and its typed fields.
-  derive shownValue = editKind == "set-token" and editTarget == branch.token and not draftStale ? editValue : branch.value
+  derive shownValue = editKind == branchOp and editTarget == branch.token and not draftStale ? editValue : branch.value
   // The branch by what it is, not which read: a read that gives the same
   // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
   derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}`
-  derive partsBase = rawFor == branchKey and editKind == "set-token" and editTarget == branch.token ? rawBase : branch.value
+  derive partsBase = rawFor == branchKey and editKind == branchOp and editTarget == branch.token ? rawBase : branch.value
   resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
   // The cut by its value and its parts (a reread that reads a name as
   // another kind cuts it otherwise, and a draft of the old cut is stale).
   derive partsKey = `${branchKey}␟${typed.of}␟${typed.parts.map(p => p.key).join(",")}`
   // The fields' texts: the draft's while it is this cell's token edit from
   // this cut, else the cut's own (another edit replaced it, or none).
-  derive fieldDraft = partFor == partsKey and editKind == "set-token" and editTarget == branch.token
+  derive fieldDraft = partFor == partsKey and editKind == branchOp and editTarget == branch.token
   derive fieldTexts = fieldDraft ? partTexts : typed.parts.map(p => p.text)
   // Fields that must hold something and are empty (required, or holding the
   // place before a later part that is written): emptied, a later part would
@@ -626,7 +665,7 @@ component DesignTool
   derive partMissing = typed.parts.filter(p => p.control != "fixed" and fieldTexts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and fieldTexts.slice(p.after, p.after + 1).join("") != ""))).map(p => p.label).join(", ")
   // A cell's token draft typed against another value of its branch (it
   // moved under it, a write elsewhere): stale, as one for another branch is.
-  derive partsStale = editKind == "set-token" and editTarget == branch.token and draftFor != "" and draftFor != branchKey
+  derive partsStale = editKind == branchOp and editTarget == branch.token and draftFor != "" and draftFor != branchKey
 
   // The oldest highlight here fades after 3 s, then the next.
   task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
@@ -677,43 +716,53 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     draftName = person
     renaming = true
-  action dialNumber(name: string, unit: string, n: number)
+  action dialNumber(op: string, name: string, unit: string, n: number)
     // A scrub open on another edit ends first.
-    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+    if scrubShown and not (editKind == op and editTarget == name)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
-    editKind = "set-dial"
+    editKind = op
     editTarget = name
     editWhen = ""
     editValue = `${n}${unit}`
-  action dialStepped(name: string, unit: string, v: string)
+  action dialStepped(op: string, name: string, unit: string, v: string)
     // A stepper's number, with its dial's unit.
-    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+    if scrubShown and not (editKind == op and editTarget == name)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
-    editKind = "set-dial"
+    editKind = op
     editTarget = name
     editWhen = ""
     editValue = v.trim() == "" ? "" : `${v.trim()}${unit}`
-  action dialReleased(name: string, n: number)
+  action dialReleased(op: string, name: string, n: number)
     // A slider let go: the scrub on it writes its last value, once that is
     // previewed.
-    if scrubShown and editKind == "set-dial" and editTarget == name and not pending(written)
+    if scrubShown and editKind == op and editTarget == name and not pending(written)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
-  action dialText(name: string, v: string)
+  action dialText(op: string, name: string, v: string)
     // A scrub open on another edit ends first.
-    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+    if scrubShown and not (editKind == op and editTarget == name)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
-    editKind = "set-dial"
+    editKind = op
     editTarget = name
     editWhen = ""
     editValue = v.trim()
+  action resetParam(name: string)
+    // The app's line goes, and the default applies again: `unset-param`.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = "unset-param"
+    editTarget = name
+    editWhen = ""
+    editValue = ""
   action toggleInspect
     if not pending(inspectSent)
       send inspectSent = sendInspect(client, not inspected.inspecting)
@@ -761,7 +810,7 @@ component DesignTool
       opened = opened.concat([group])
     focusDial = name
   action cellText(v: string)
-    editKind = "set-token"
+    editKind = branchOp
     editTarget = branch.token
     editWhen = scopeOwn ? branch.own : branch.when
     editValue = v.trim()
@@ -779,20 +828,20 @@ component DesignTool
       partTexts = texts
       partFor = partsKey
       draftFor = branchKey
-      editKind = "set-token"
+      editKind = branchOp
       editTarget = branch.token
       editWhen = scopeOwn ? branch.own : branch.when
       editValue = missing ? "" : [typed.parts.map(p => p.control == "fixed" ? p.text : (texts.slice(p.index, p.index + 1).join("") == "" and p.optional ? "" : [p.pre, texts.slice(p.index, p.index + 1).join(""), p.post].join(""))).join(""), typed.tail].join("")
   action onlyThisMode
     // A value already typed for this cell is kept, now for this mode alone.
-    if not (editKind == "set-token" and editTarget == branch.token)
+    if not (editKind == branchOp and editTarget == branch.token)
       editValue = branch.value
       // A fresh draft: the fields are the value's, and it is of this value.
       rawFor = ""
       partFor = ""
       draftFor = branchKey
     scopeOwn = true
-    editKind = "set-token"
+    editKind = branchOp
     editTarget = branch.token
     editWhen = branch.own
   action pin
@@ -1057,13 +1106,19 @@ component DesignTool
                       text r.name font="-exact-footnote" width="9rem"
                       text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
                       text r.source color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-source-${r.name}`
-                      if r.rung == "token"
+                      if r.rung == "param"
+                        button press=editFromSelection(r.param, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
+                          text `Edit ${r.short}`
+                        if r.token != ""
+                          button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-token-${r.name}`
+                            text `Edit the token ${r.token} instead`
+                      else if r.rung == "token"
                         button press=editFromSelection(r.token, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
                           text `Edit ${r.token}`
                       else if r.token != ""
                         button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-link-${r.name}`
                           text `Open ${r.token}`
-                      if r.rung != "token" and r.reason != ""
+                      if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
               if impactToken != ""
                 column gap=2 testId="impact"
@@ -1154,13 +1209,33 @@ component DesignTool
                   column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                     text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                     for c in g.dials key=c.name
-                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name, c.unit), onText=dialText(c.name), onStep=dialStepped(c.name, c.unit), onRelease=dialReleased(c.name))
+                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
                     if g.more.length > 0
                       button press=toggleMore(g.name) testId=`more-${g.name}`
                         text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                       if opened.includes(g.name)
                         for c in g.more key=c.name
-                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name, c.unit), onText=dialText(c.name), onStep=dialStepped(c.name, c.unit), onRelease=dialReleased(c.name))
+                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+              if design.components.length > 0
+                column gap=12 testId="components"
+                  text "Components" role="heading" aria-level=2
+                  for k in design.components key=k.identity
+                    column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`component-${k.name}`
+                      row gap=8 align-items="baseline"
+                        text k.name role="heading" aria-level=3
+                        text (k.native ? `${k.identity} · a native view's` : k.identity) color="-exact-secondary-label" font="-exact-footnote" testId=`component-${k.name}-identity`
+                      for g in k.groups key=g.name
+                        column gap=4 testId=`param-group-${k.name}-${g.name}`
+                          if g.name != ""
+                            text g.name font="-exact-subheadline"
+                          for r in g.params key=r.c.name
+                            ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                          if g.more.length > 0
+                            button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
+                              text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
+                            if opened.includes(`${k.identity}|${g.name}`)
+                              for r in g.more key=r.c.name
+                                ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -1265,12 +1340,13 @@ component DesignTool
                   if not branch.exact
                     button press=onlyThisMode testId="only-this-mode"
                       text "Only this mode"
-                  row gap=8
-                    input value=renameTo input=editRename placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
-                    button press=renameToken disabled=(renameTo.trim() == "") testId="rename"
-                      text "Rename"
-                    button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
-                      text "Remove"
+                  if not branch.param
+                    row gap=8
+                      input value=renameTo input=editRename placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                      button press=renameToken disabled=(renameTo.trim() == "") testId="rename"
+                        text "Rename"
+                      button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
+                        text "Remove"
                   dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
                     button press=removeToken destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
                       text "Remove"
@@ -1311,12 +1387,12 @@ component DesignTool
                     row gap=8
                       button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or pending(written)) buttonStyle="filled" testId="apply"
                         text "Apply"
-                      if editKind == "set-dial" or editKind == "set-token"
+                      if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
                         button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or draftStale or partsStale or pending(written)) testId="scrub-start"
                           text "Scrub live"
                       button press=cancelEdit testId="cancel-edit"
                         text "Cancel"
-                    if (editKind == "set-dial" or editKind == "set-token") and proposal.ok and proposal.active and proposal.chip != "live"
+                    if (editKind == "set-dial" or editKind == "set-token" or editKind == "set-param") and proposal.ok and proposal.active and proposal.chip != "live"
                       text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
               if not scrubShown and scrub.ended != ""
                 text scrub.ended color="-exact-secondary-label" testId="scrub-note"
@@ -1519,7 +1595,7 @@ component DialControl
         text c.value color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-value`
       if c.control == "color"
         row gap=8 align-items="center" testId=`dial-${c.name}-color`
-          view width=28 height=28 border-radius=6 background-color=c.value border="1px solid -exact-separator"
+          view width=28 height=28 border-radius=6 background-color=c.swatch border="1px solid -exact-separator"
           input value=c.value change=onText aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
       else if c.control == "slider"
         // Each value while it is dragged; let go, a scrub open on it is kept.
@@ -1530,7 +1606,32 @@ component DialControl
         select value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-select`
           for o in c.options key=o
             option o value=o
+      else if c.control == "token"
+        // A param's own default: a token's name or a literal, typed.
+        input value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-field`
       if c.bounds != ""
         text c.bounds color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-bounds`
       if c.help != ""
         text c.help color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-help`
+
+// A param's row in the component panel: its control (the dials panel's),
+// whether the app sets it or the default applies, Reset, and D14's mark.
+component ParamControl
+  props
+    r: ParamRow
+    focused: bool
+    onNumber: action
+    onText: action
+    onStep: action
+    onRelease: action
+    onReset: action
+  view
+    column gap=2 testId=`param-${r.short}`
+      DialControl(c=r.c, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
+      row gap=8 align-items="center" padding="0 4px"
+        text (r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
+        if r.set
+          button press=onReset testId=`param-${r.short}-reset`
+            text "Reset"
+      if r.pinned.length > 0
+        text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`

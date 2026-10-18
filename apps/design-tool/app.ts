@@ -10,6 +10,7 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf } from './dials';
+import { componentsOf } from './components';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
 export { joined, missing, partsOf } from './parts';
@@ -130,7 +131,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [], components: [] });
 let designs = 0;
 
 
@@ -208,7 +209,7 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string> };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Set<string> };
 const snapshots = new Map<number, Snapshot>();
 // Design reads, and reads of the app design's axes (either kind): only the
 // newest of the second sets the axes a selection is placed by.
@@ -268,6 +269,9 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
   const on = file ? { file } : {};
   switch (kind) {
     case 'set-dial': return { op: kind, name: target, value, ...on };
+    // A param's line is the app design's (LLP 1121 D15), whichever file is open.
+    case 'set-param': return { op: kind, name: target, when: whenOf(when), value };
+    case 'unset-param': return { op: kind, name: target, when: whenOf(when) };
     case 'set-token': return { op: kind, name: target, when: whenOf(when), value, ...on };
     case 'add-token': return { op: kind, name: target, value, ...on };
     case 'rename-token': return { op: kind, from: target, to: value, ...on };
@@ -275,7 +279,7 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
   }
 }
 const label = (kind: string, target: string, when: string, value: string) =>
-  kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
+  kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : kind === 'unset-param' ? `reset ${target}${when ? ` when ${when}` : ''}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
 // The scrub (LLP 1122 D6), one session at a time, from Scrub live to Keep,
 // Cancel or an end: the edit it is of (file, kind, target, branch), the
 // digests and server run it opened on, its id once the server answers, the
@@ -588,6 +592,8 @@ const opText = (o: any): string => {
     o?.op === 'set-token' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
     : o?.op === 'unset-token-when' ? `${o.name}: drop when ${whenText(o.when ?? [])}`
     : o?.op === 'set-dial' ? `${o.name} = ${o.value}`
+    : o?.op === 'set-param' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
+    : o?.op === 'unset-param' ? `reset ${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''}`
     : o?.op === 'add-token' ? `add ${o.name} = ${o.value}`
     : o?.op === 'rename-token' ? `rename ${o.from} → ${o.to}`
     : o?.op === 'remove-token' ? `remove ${o.name}`
@@ -762,7 +768,7 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens].map((t: { name: string; kind: string }) => [t.name, t.kind])) });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: new Set((ir.components ?? []).flatMap((c: { params: { name: string }[] }) => c.params.map(p => p.name))) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -773,6 +779,7 @@ const sources: Sources = {
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
+        components: componentsOf(ir.components, file || designFile, names),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -780,7 +787,7 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
+    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', param: false, answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
@@ -799,7 +806,7 @@ const sources: Sources = {
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
       ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
-      expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
+      expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, param: snap.params.has(token), answer,
     };
   },
   // The branch editor's typed fields for a value (parts.ts), the names in
@@ -813,7 +820,7 @@ const sources: Sources = {
     const key = keyOf(file, kind, target, when, value);
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, review: '' };
     if (!kind || !target) return idle;
-    if (kind !== 'remove-token' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
+    if (kind !== 'remove-token' && kind !== 'unset-param' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
     const { error, reply, used } = await call('/__tamber', { method: 'propose', ops: [opOf(file, kind, target, when, value)] });
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
@@ -844,7 +851,7 @@ const sources: Sources = {
     // Scrub live pressed: a session for this edit, opened on the digests
     // and server run its proposal read. Then each value the draft takes is
     // wanted, if it is still this edit; the state as it stands is answered.
-    const scrubbable = (kind === 'set-dial' || kind === 'set-token') && !!value;
+    const scrubbable = (kind === 'set-dial' || kind === 'set-token' || kind === 'set-param') && !!value;
     const op = scrubbable ? opOf(file, kind, target, when, value) : null;
     const of = [file, kind, target, when].join('␟');
     if (ask > scrubAsked) {
