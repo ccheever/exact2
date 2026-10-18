@@ -730,7 +730,10 @@ driver asks again.
   an overflowing panel take a look at the picture.
 - **Coverage**: an occlusion query around each draw of the forward and translucent
   passes. It answers whether any sample passed the depth test, not how many (Metal's
-  visibility results are Boolean in wgpu, and WebGPU promises only zero or not).
+  visibility results are Boolean in wgpu, and WebGPU promises only zero or not). The
+  web has none: wgpu 30's WebGPU backend does not pass a render pass's occlusion query
+  set to the browser, which then refuses the frame, so a web look frame reports no
+  coverage and the particles tell is told on native hosts only.
 - **Draws**: each draw in pass order (occluders, sun shadow cascades, the depth
   prepass, forward, translucent) with its batch (a primitive shape, or a model and
   material), winding, pipeline variant, instances submitted and kept after culling
@@ -746,7 +749,8 @@ driver asks again.
   from above. Presentation only.
 
 The readback is the colour target (its size is `look.readbackBytes`), the query
-results and, for a culled frame, the indirect arguments and compacted lists.
+results and, for a culled frame, the indirect arguments and compacted lists;
+`state.world.perf.look` counts the look frames and the bytes they read back.
 `tests/tells.rs` holds the negative controls: a near-black scene, particles spawned
 under the ground and a shadowed sun with no caster in reach each trip their tell on
 both paths, and the same scenes corrected trip none.

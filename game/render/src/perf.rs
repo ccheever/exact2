@@ -122,6 +122,8 @@ pub(crate) struct Perf {
     pub culled_triangles: Option<u64>,
     /// Local lights drawn and dropped beyond `MAX_LIGHTS` in the last frame.
     lights: (usize, usize),
+    /// Look frames drawn (LLP 1127.000) and the bytes they read back.
+    pub look: (u64, u64),
     warned: bool,
 }
 impl Perf {
@@ -204,6 +206,12 @@ impl Perf {
             out,
             ",\"lights\":{{\"drawn\":{},\"dropped\":{}}}",
             self.lights.0, self.lights.1
+        )
+        .unwrap();
+        write!(
+            out,
+            ",\"look\":{{\"frames\":{},\"readbackBytes\":{}}}",
+            self.look.0, self.look.1
         )
         .unwrap();
         match self.culled {

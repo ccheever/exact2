@@ -178,7 +178,9 @@ pub(crate) fn drawn(records: &[Record], facts: &Facts, read: &Reading) -> Drawn 
         r.query
             .is_some_and(|q| read.covered.get(q as usize) == Some(&true))
     };
+    // Without queries (the web) coverage is unknown, and no particle tell is told.
     let particles = (records.iter())
+        .filter(|_| facts.coverage)
         .filter(|r| {
             matches!(
                 r.drew,

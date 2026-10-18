@@ -411,6 +411,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     fn finish_look(&mut self, p: Pending) -> Result<String, Refusal> {
         let bytes = p.readback.bytes;
         let read = p.readback.read()?;
+        self.perf.look.0 += 1;
+        self.perf.look.1 += bytes;
         let sim = self
             .sim
             .as_ref()

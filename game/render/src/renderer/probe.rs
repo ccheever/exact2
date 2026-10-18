@@ -8,7 +8,10 @@
 //! test, not how many: Metal's visibility results are Boolean in wgpu
 //! (vendor/wgpu-hal/src/metal/command.rs), and WebGPU promises only zero or not
 //! zero (https://www.w3.org/TR/webgpu/#occlusion). So a draw reads as covered or
-//! not, which is what the tells need.
+//! not, which is what the tells need. The web has none: wgpu 30's WebGPU backend
+//! does not pass a render pass's `occlusion_query_set` to the browser
+//! (wgpu-30.0.1/src/backend/webgpu.rs, `begin_render_pass`), which then refuses
+//! the frame's command buffer, so a web look frame records its draws unqueried.
 use super::*;
 use std::cell::{Cell, RefCell};
 
@@ -76,7 +79,7 @@ pub(crate) struct Probe {
     pub records: RefCell<Vec<Record>>,
     stage: Cell<Stage>,
     variant: Cell<Option<usize>>,
-    pub queries: wgpu::QuerySet,
+    pub queries: Option<wgpu::QuerySet>,
     capacity: u32,
     next: Cell<u32>,
 }
@@ -90,10 +93,12 @@ impl Probe {
             records: RefCell::new(Vec::new()),
             stage: Cell::new(Stage::Occluders),
             variant: Cell::new(None),
-            queries: device.create_query_set(&wgpu::QuerySetDescriptor {
-                label: Some("game look coverage"),
-                ty: wgpu::QueryType::Occlusion,
-                count: capacity,
+            queries: cfg!(not(target_arch = "wasm32")).then(|| {
+                device.create_query_set(&wgpu::QuerySetDescriptor {
+                    label: Some("game look coverage"),
+                    ty: wgpu::QueryType::Occlusion,
+                    count: capacity,
+                })
             }),
             capacity,
             next: Cell::new(0),
@@ -108,7 +113,7 @@ impl Probe {
     }
     /// The query set for a pass of `stage`: the forward and translucent passes'.
     pub fn set_for(&self, stage: Stage) -> Option<&wgpu::QuerySet> {
-        stage.queried().then_some(&self.queries)
+        self.queries.as_ref().filter(|_| stage.queried())
     }
     /// Record a draw about to be issued in `pass`, beginning its occlusion
     /// query when the pass carries the set. Pair with [`Probe::end`].
@@ -117,7 +122,8 @@ impl Probe {
         if let Drew::Group { variant, .. } = &mut drew {
             *variant = self.variant.take();
         }
-        let query = (stage.queried() && self.next.get() < self.capacity).then(|| {
+        let queried = stage.queried() && self.queries.is_some();
+        let query = (queried && self.next.get() < self.capacity).then(|| {
             let index = self.next.get();
             self.next.set(index + 1);
             pass.begin_occlusion_query(index);
@@ -218,6 +224,8 @@ pub(crate) struct Facts {
     pub direct: bool,
     /// Sun shadow cascades drawn (0 without a shadowed sun).
     pub cascades: u32,
+    /// The forward and translucent draws carried occlusion queries.
+    pub coverage: bool,
     /// The camera's lists were occlusion-culled this frame.
     pub occluding: bool,
     pub slot_list: Vec<u32>,
@@ -290,6 +298,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         Facts {
             direct: self.cull.direct || groups.is_empty(),
             cascades: self.shadows.as_ref().map_or(0, |s| s.count),
+            coverage: self.probe.as_ref().is_some_and(|p| p.queries.is_some()),
             occluding: self.occluding,
             slot_list: self.slot_list.clone(),
             record_slots: if ASSETS {
@@ -360,7 +369,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
-            encoder.resolve_query_set(&probe.queries, 0..n, &resolve, 0);
+            encoder.resolve_query_set(probe.queries.as_ref().unwrap(), 0..n, &resolve, 0);
             let read = buffer(u64::from(n) * 8, "game look coverage");
             encoder.copy_buffer_to_buffer(&resolve, 0, &read, 0, u64::from(n) * 8);
             parts.push((Part::Queries(n), read));
