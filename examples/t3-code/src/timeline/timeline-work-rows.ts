@@ -1,4 +1,4 @@
-// Timeline work rows and message actions adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// Timeline work rows and message actions adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // packages/contracts/src/orchestrationV2.ts (OrchestrationV2NotificationSource),
 // packages/client-runtime/src/state/itemSupport.ts (resolveV2ItemSupport's provider session) and
 // threadWorkflows.ts (canForkProjectedAssistantItem), work-log/toolPresentation.ts
@@ -10,7 +10,7 @@ const isRecord = (value: unknown): value is Obj => value !== null && typeof valu
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
 // ---- Notification sources (OrchestrationV2NotificationSource) ----
-const KNOWN_SOURCE_KINDS = new Set(['delegated_task', 'background_task', 'background_command', 'subagent', 'command', 'monitor']);
+const KNOWN_SOURCE_KINDS = new Set(['delegated_task', 'background_task', 'background_command', 'subagent', 'command', 'monitor', 'system']);
 
 /**
  * Decodes a notification source as the reference's schema does. Servers store and send the shapes
@@ -38,6 +38,8 @@ export function decodeNotificationSource(value: unknown): Obj | null {
     case 'background_command': case 'command': return { kind: 'command' };
     case 'subagent': return child(value, { kind: 'subagent' });
     case 'monitor': return { kind: 'monitor' };
+    // T3 Code itself, such as a restart continuing an interrupted turn.
+    case 'system': return { kind: 'system' };
     default:
       if (kind !== undefined && typeof kind !== 'string') return null;
       return typeof kind === 'string' && KNOWN_SOURCE_KINDS.has(kind) ? null : { kind: 'background_task' };

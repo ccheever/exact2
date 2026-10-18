@@ -56,7 +56,7 @@ component ScriptRow
         button press=run aria-label=`Run ${details.scriptName}` testId="details-run-script" width="100%" min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           box display="flex" flex-shrink=0
             CnScriptIcon(icon=details.scriptIcon, size=16, color="light-dark(#71717b, #818181)")
-          text details.scriptName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
+          text details.scriptName flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
         TipBubble(label=`Run ${details.scriptName}`, side="top", align="center", offset=36, inset=0, shown=(hovered == "run"))
       box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
       box position="relative" flex-shrink=0

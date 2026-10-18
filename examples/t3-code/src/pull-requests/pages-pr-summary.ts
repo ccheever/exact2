@@ -1,12 +1,15 @@
 // The pull request Summary tab's model (MIT reference, see LICENSE-T3, T3 Code
-// 1e2ecbd975 apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
+// 9c161462c9 apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
 // verdict each last gave (a ring, the sr-only words and the "<name> — <outcome>" tooltip), the
 // checks with "Check details are out of date." when a newer rollup disagrees, and the
-// conversation split as the tab splits it — finished work (a resolved thread's comment, a
-// dismissed review), bot comments, and the rest, windowed 10 at a time from the newest. The
-// window, the order, the open groups are the tab's own state (pages-pr-summary.contract); this
-// model gives every card its place from the newest (`fromEnd`) and both orders.
+// conversation through the comment filter — bot comments and finished work (a resolved thread's
+// comment, a dismissed review, drawn collapsed) shown only when the filter asks for them — windowed
+// 10 at a time from the newest. The filter is this device's (commentFilter, kept in the pages
+// preferences as the reference keeps it in localStorage); the window and the order are the tab's own
+// state (pages-pr-summary.contract); this model gives every card its place from the newest (`fromEnd`)
+// and both orders.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { pagesPrefs } from '../pages/pages-prefs';
 import { relativeLabel } from './pages-prs';
 import { currentTimestampLocale } from '../shared/timestamp-format';
 import { checkStatusLabel, checksRollup } from '../details/pr-row-logic';
@@ -29,8 +32,9 @@ export type PrCommentCard = {
   canEdit: boolean; raw: string; kind: string; saving: boolean; savedSerial: number; reactions: PrReactionPill[]; reacted: string[]; canReact: boolean;
   /** The finding its Fix hands over (pullRequestFindingKey), '' for talk and verdicts. */
   fix: string;
+  /** Finished work (a resolved thread's comment, a dismissed review): drawn collapsed. */
+  finished: boolean;
 };
-export type PrCommentGroup = { label: string; authorsText: string; filesText: string; latest: string; latestTip: string; faces: PrFace[]; more: number };
 export type PrReviewerEntry = { key: string; login: string; avatar: string; initial: string; outcome: string; stale: boolean; outcomeText: string; tooltip: string };
 export type PrSummaryCheck = { key: string; name: string; status: string; statusLabel: string; url: string; fix: string };
 export type PrSummaryView = ReturnType<typeof emptySummary>;
@@ -40,11 +44,28 @@ export function emptySummary() {
     key: '', activityPending: false, activityError: '', reviewers: [] as PrReviewerEntry[], showLabels: true,
     checksStale: false, checksState: '', checks: [] as PrSummaryCheck[], commentsTitle: 'Comments (0)', truncated: false, truncatedText: '', empty: true,
     activeCount: 0, newest: [] as PrCommentCard[], oldest: [] as PrCommentCard[],
-    botCount: 0, botsNewest: [] as PrCommentCard[], botsOldest: [] as PrCommentCard[], bots: emptyGroup(),
-    finishedCount: 0, finishedNewest: [] as PrCommentCard[], finishedOldest: [] as PrCommentCard[], finished: emptyGroup(),
+    // The filter: what it shows, its trigger's words ("Filter", "3 hidden") and the line for a conversation it hides whole.
+    showBots: false, showResolved: false, filterLabel: 'Filter', filteredOutText: '',
   };
 }
-const emptyGroup = (): PrCommentGroup => ({ label: '', authorsText: '', filesText: '', latest: '', latestTip: '', faces: [], more: 0 });
+
+/**
+ * Which kinds of comment the conversation shows. Kept per device rather than per pull request:
+ * whether a reader wants bot reports and finished threads in front of them is a habit, not a
+ * property of one change.
+ */
+export type CommentFilter = { bots: boolean; resolved: boolean };
+export function commentFilter(client: { local: object }): CommentFilter {
+  const saved = pagesPrefs(client).commentFilter;
+  return { bots: saved?.bots === true, resolved: saved?.resolved === true };
+}
+/** `chatlocal:pr-ui-comment-filter`: the menu's checkbox ("bots" or "resolved") flips. */
+export function toggleCommentFilter(client: { local: object }, which: string): void {
+  if (which !== 'bots' && which !== 'resolved') return;
+  const next = commentFilter(client);
+  next[which] = !next[which];
+  pagesPrefs(client).commentFilter = next;
+}
 
 const face = (actor: unknown): PrFace => { const person = obj(actor), login = str(person.login, 'ghost'); return { key: login.toLowerCase(), login, avatar: str(person.avatarUrl), initial: login.slice(0, 1).toUpperCase() }; };
 /** PullRequestActorLabel's tooltip: "Name (@login)" where the host gave a different name. */
@@ -75,19 +96,12 @@ function card(comment: Obj, threads: Map<string, Obj>, url: string, now: number,
     finishedLabel: thread?.isResolved === true ? 'Resolved' : 'Review dismissed', preview: body === null ? '' : previewText(body),
     canEdit: writes.canEdit, raw: writes.raw, kind: writes.kind, saving: writes.saving, savedSerial: writes.savedSerial, reactions: writes.pills, reacted: writes.reacted, canReact,
     fix: (finding => (finding ? pullRequestFindingKey(finding) : ''))(remarkFinding(comment, thread, outcome)),
+    finished: thread?.isResolved === true || outcome === 'dismissed',
   };
-}
-/** CommentGroup's header: the first three faces, how many wrote, across how many files, and when last. */
-function group(label: string, comments: Obj[], now: number): PrCommentGroup {
-  const authors = [...new Map(comments.map(comment => [str(obj(comment.author).login, 'ghost').toLowerCase(), comment.author])).values()];
-  const files = new Set(comments.flatMap(comment => (str(comment.path) ? [str(comment.path)] : []))).size;
-  const latest = comments.reduce<string | null>((date, comment) => (date === null || str(comment.createdAt) > date ? str(comment.createdAt) : date), null);
-  return { label, authorsText: `${authors.length} ${authors.length === 1 ? 'author' : 'authors'}`, filesText: files > 0 ? `${files} ${files === 1 ? 'file' : 'files'}` : '',
-    latest: latest ? relativeLabel(latest, now) : '', latestTip: latest ? fullDate(latest) : '', faces: authors.slice(0, 3).map(face), more: Math.max(0, authors.length - 3) };
 }
 const both = (cards: PrCommentCard[]) => ({ newest: [...orderPullRequestComments(cards, 'newest')], oldest: cards });
 
-export type SummaryInput = { detail: Obj; activity: Obj | null; activityPending: boolean; activityError: string; now: number; listEntry: Obj | null; remark?: (comment: Obj) => RemarkWrites };
+export type SummaryInput = { detail: Obj; activity: Obj | null; activityPending: boolean; activityError: string; now: number; listEntry: Obj | null; remark?: (comment: Obj) => RemarkWrites; filter?: CommentFilter };
 export function presentSummary(input: SummaryInput): PrSummaryView {
   const { detail, activity, now } = input;
   const view = emptySummary(), url = str(detail.url), capabilities = obj(detail.capabilities);
@@ -121,18 +135,18 @@ export function presentSummary(input: SummaryInput): PrSummaryView {
   view.truncatedText = `This conversation is longer than this page reads in one go. The most recent ${comments.length} are here; open it on the host to read the rest.`;
   view.empty = comments.length === 0;
   const threads = new Map(arr(activity?.reviewThreads).flatMap(thread => arr(thread.comments).map(comment => [str(comment.id), thread] as const)));
-  const active: Obj[] = [], finished: Obj[] = [], bots: Obj[] = [];
-  for (const comment of comments) {
-    const done = threads.get(str(comment.id))?.isResolved === true || pullRequestReviewOutcome(str(comment.reviewState) || null) === 'dismissed';
-    (done ? finished : isBot(comment.author) ? bots : active).push(comment);
-  }
+  const filter = input.filter ?? { bots: false, resolved: false };
+  const isFinished = (comment: Obj) => threads.get(str(comment.id))?.isResolved === true || pullRequestReviewOutcome(str(comment.reviewState) || null) === 'dismissed';
+  const shown = comments.filter(comment => (filter.bots || !isBot(comment.author)) && (filter.resolved || !isFinished(comment)));
+  // The one count the filter shows. Per-kind counts would overlap, since a resolved bot comment
+  // is both kinds and needs both shown.
+  const hidden = comments.length - shown.length;
+  view.showBots = filter.bots; view.showResolved = filter.resolved;
+  view.filterLabel = hidden > 0 ? `${hidden} hidden` : 'Filter';
+  view.filteredOutText = shown.length === 0 && hidden > 0 ? (hidden === 1 ? 'The only comment is hidden by the filter.' : `All ${hidden} comments are hidden by the filter.`) : '';
   const remark = input.remark ?? noRemarkWrites, canReact = capabilities.reactions === true;
-  const cards = (list: Obj[]) => list.map((comment, index) => card(comment, threads, url, now, list.length - 1 - index, remark, canReact));
-  const activeCards = both(cards(active)), botCards = both(cards(bots)), finishedCards = both(cards(finished));
-  view.activeCount = active.length; view.newest = activeCards.newest; view.oldest = activeCards.oldest;
-  view.botCount = bots.length; view.botsNewest = botCards.newest; view.botsOldest = botCards.oldest;
-  view.bots = group(`${bots.length} bot comment${bots.length === 1 ? '' : 's'}`, bots, now);
-  view.finishedCount = finished.length; view.finishedNewest = finishedCards.newest; view.finishedOldest = finishedCards.oldest;
-  view.finished = group(`${finished.length} resolved or dismissed comment${finished.length === 1 ? '' : 's'}`, finished, now);
+  // Windowed by recency regardless of display order: `fromEnd` counts back from the newest shown.
+  const cards = both(shown.map((comment, index) => card(comment, threads, url, now, shown.length - 1 - index, remark, canReact)));
+  view.activeCount = shown.length; view.newest = cards.newest; view.oldest = cards.oldest;
   return view;
 }

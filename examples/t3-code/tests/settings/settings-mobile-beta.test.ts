@@ -1,12 +1,12 @@
-// General → About → Mobile app (upstream f1dcd93931 NightlyMobileBeta.tsx).
+// General → About → Mobile app (T3 Code 9c161462c9 MobileAppSettingsRow.tsx).
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
-import type { Native } from '../../src/client/protocol';
 import { encodeQr, qrCells } from '../../src/settings/settings-qr';
 import { aboutRows, rememberDelivery } from '../../src/settings/settings-a-about';
 import { CLIENT_VERSION } from '../../src/connections/connections';
-import { ANDROID_BETA_GROUP_URL, ANDROID_PLAY_TESTING_URL, IOS_TESTFLIGHT_URL, isNightlyVersion, mobileBetaCommand, mobileBetaMarks, showMobileBeta } from '../../src/settings/settings-mobile-beta';
+import { APP_STORE_URL, GOOGLE_PLAY_URL, mobileAppRow } from '../../src/settings/settings-mobile-beta';
 
+const IOS_TESTFLIGHT_URL = 'https://testflight.apple.com/join/XgaxaRtd';
 // Module rows of the reference's QrCode.encodeText(IOS_TESTFLIGHT_URL, MEDIUM) (version 3, mask 2),
 // as packages/shared/src/qrCode.ts at f90b77d809 draws it ('#' dark).
 const TESTFLIGHT_TOP = ['#######..#..#...#####.#######', '#.....#..##....##.....#.....#', '#.###.#.##.#..#.#.#...#.###.#'];
@@ -18,10 +18,6 @@ describe('beta links as QR codes', () => {
     expect(modules.slice(0, 3).map(row => row.map(dark => dark ? '#' : '.').join(''))).toEqual(TESTFLIGHT_TOP);
     // Finder patterns at three corners, timing row between them.
     expect(modules[6]!.slice(8, 21).map(dark => dark ? 1 : 0).join('')).toBe('1010101010101');
-  });
-  test('the Android links are version 4 (33 modules)', () => {
-    expect(encodeQr(ANDROID_BETA_GROUP_URL, 'M').length).toBe(33);
-    expect(encodeQr(ANDROID_PLAY_TESTING_URL, 'M').length).toBe(33);
   });
   test('cells are dark runs inside a 128-point square with one light module of margin', () => {
     const cells = qrCells(IOS_TESTFLIGHT_URL, 128, 1, 'M'), unit = 128 / 31;
@@ -39,36 +35,21 @@ describe('beta links as QR codes', () => {
 });
 
 describe('Mobile app row', () => {
-  test('IS_NIGHTLY_BUILD reads the first prerelease identifier', () => {
-    expect(isNightlyVersion('0.1.1-nightly.20261018.3302')).toBe(true);
-    expect(isNightlyVersion('0.0.45')).toBe(false);
-    expect(isNightlyVersion('0.0.46-beta.1')).toBe(false);
-    expect(showMobileBeta('0.0.45', 'nightly')).toBe(true);
-    expect(showMobileBeta('0.0.45', 'latest')).toBe(false);
-  });
-  test('About lists Mobile app after the version rows: this client is a Nightly build', () => {
+  test('both stable and nightly show store links after the version rows', () => {
     const client = {} as T3Client;
-    rememberDelivery(client, 'embedded', false);
-    expect(isNightlyVersion(CLIENT_VERSION)).toBe(true);
-    expect(aboutRows(client, CLIENT_VERSION).map(row => row.title)).toEqual(['Version', 'Update track', 'Mobile app']);
-    expect(aboutRows(client, CLIENT_VERSION)[0]!.value).toBe('0.1.1-nightly.20261018.3302');
-    rememberDelivery(client, 'nightly/macos-arm64', false);
-    const mobile = aboutRows(client, CLIENT_VERSION).at(-1)!;
-    expect(mobile).toMatchObject({ id: 'nightly-mobile-beta', kind: 'mobile-beta', description: 'Nightly needs the beta app. The App Store and Google Play versions cannot connect.' });
-    expect(mobile.qr.map(mark => [mark.id, mark.caption, mark.copied])).toEqual([['ios', '', 0], ['android-group', '1. Join the group', 0], ['android-play', '2. Become a tester', 0]]);
+    for (const stream of ['embedded', 'nightly/macos-arm64', 'latest/macos-arm64']) {
+      rememberDelivery(client, stream, false);
+      const rows = aboutRows(client, '0.0.45');
+      expect(rows.map(row => row.title)).toEqual(['Version', 'Update track', 'Mobile app']);
+      expect(aboutRows(client, CLIENT_VERSION)[0]!.value).toBe('0.1.1-nightly.20261018.3302');
+      expect(rows.at(-1)).toMatchObject({ id: 'mobile-app', kind: 'mobile-app', description: 'Connect to your server from your phone or tablet.' });
+    }
   });
-  test('Copy link writes only a beta link; each copy replays Copied', async () => {
-    const copied: string[] = [];
-    const client = { restAccess: () => ({ call: async (request: { op: string; text: string }) => { copied.push(request.text); return { copied: true }; } }) } as unknown as T3Client;
-    const native = { available: true } as unknown as Native;
-    expect(mobileBetaMarks(client).map(mark => mark.copied)).toEqual([0, 0, 0]);
-    await mobileBetaCommand(client, native, 'copy', IOS_TESTFLIGHT_URL);
-    expect(copied).toEqual([IOS_TESTFLIGHT_URL]);
-    expect(mobileBetaMarks(client).map(mark => mark.copied)).toEqual([1, 0, 0]);
-    await mobileBetaCommand(client, native, 'copy', IOS_TESTFLIGHT_URL);
-    await mobileBetaCommand(client, native, 'copy', ANDROID_PLAY_TESTING_URL);
-    expect(mobileBetaMarks(client).map(mark => mark.copied)).toEqual([2, 0, 1]);
-    await expect(mobileBetaCommand(client, native, 'copy', 'https://example.com')).rejects.toThrow('Unsupported mobile app action.');
-    expect(copied.length).toBe(3);
+  test('the QR symbols encode exactly the store links their Open buttons use', () => {
+    const row = mobileAppRow();
+    expect(row.qr.map(mark => [mark.id, mark.label, mark.caption, mark.url])).toEqual([
+      ['ios', 'iPhone and iPad', 'App Store', APP_STORE_URL], ['android', 'Android', 'Google Play', GOOGLE_PLAY_URL],
+    ]);
+    for (const mark of row.qr) expect(mark.cells).toEqual(qrCells(mark.url, 128, 1, 'M'));
   });
 });

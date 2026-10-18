@@ -1,5 +1,5 @@
 // The pull request panel's Code tab: PullRequestCodeTab.tsx (T3 Code
-// 1e2ecbd975, MIT, see LICENSE-T3) — the change or one commit's change read a slice at a time
+// 9c161462c9, MIT, see LICENSE-T3) — the change or one commit's change read a slice at a time
 // (`POST /api/pull-requests/diff`, the native `prDiff` op), Viewed ticks, line comments into the
 // review being written, the host's conversations on their lines or listed off the diff, and the
 // toolbar. The panel's resource (pages-pr-detail.ts) reads here once the tab was opened for this
@@ -235,8 +235,9 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   }
   const pending = code.commit === null ? pullRequestReviewStore(client).pending(pullRequestReviewKey(reference)) : [];
   const draft = code.draft, omitted = new Map(code.slices.flatMap(slice => slice.omittedFileStats.map(file => [file.path, file] as const)));
+  const sourceStats = new Map(parsedSlices(code).flatMap(parsed => parsed?.kind === 'files' ? parsed.sourceFiles.map(file => [file.path, file] as const) : []));
   const rows = codeRows({
-    files, layout: view.layout as 'stacked' | 'split', foldOverride: effectiveFold(client, code), toggled: code.toggled, omitted,
+    sourceStats, files, layout: view.layout as 'stacked' | 'split', foldOverride: effectiveFold(client, code), toggled: code.toggled, omitted,
     viewedMark: path => (!view.viewedShown ? '' : code.viewed.isStale(path) ? 'changed' : code.viewed.isViewed(path) ? 'viewed' : 'unviewed'),
     annotations: path => ({
       threads: threads.filter(thread => placed.has(str(thread.id)) && str(thread.path) === path).map(thread => ({ id: str(thread.id), side: (thread.side === 'left' ? 'left' : 'right') as PrDiffSide, line: num(thread.line) })),

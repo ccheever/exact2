@@ -2,7 +2,7 @@
 // (OrchestrationMessageContext records, ChatAttachment), file-link paths, and
 // the Markdown settings the chat reads.
 import { describe, expect, test } from 'bun:test';
-import { attachmentSize, chippedAttachmentIds, diffSchemeOf, fileLinkTarget, markdownEnv, messageChips, middleTruncate } from '../../src/timeline/message-chips';
+import { attachmentSize, chippedAttachmentIds, diffSchemeOf, fileLinkTarget, markdownEnv, markdownLinks, messageChips, middleTruncate } from '../../src/timeline/message-chips';
 import type { T3Client } from '../../src/client/client';
 import { markdownImageHref, markdownLinkHref, NO_HREF } from '../../src/media/media-views';
 
@@ -77,6 +77,26 @@ describe('sent-message context chips', () => {
   });
 });
 
+describe('markdown link scan (extractMarkdownLinkHrefs)', () => {
+  test('angle and bare destinations, titles, nested brackets and images', () => {
+    expect(markdownLinks('[a](<x y.md>) [b]( c.ts "t" ) [d[e](f.md) ![g](h.png) [i](j.md \'k\')')).toEqual([
+      { image: false, label: 'a', href: 'x y.md' }, { image: false, label: 'b', href: 'c.ts' }, { image: false, label: 'd[e', href: 'f.md' },
+      { image: true, label: 'g', href: 'h.png' }, { image: false, label: 'i', href: 'j.md' }]);
+  });
+  test('a label stays on one line; an unclosed title or an empty destination is no link', () => {
+    expect(markdownLinks('[a\n[b](c.md) [d\ne](f.md)')).toEqual([{ image: false, label: 'b', href: 'c.md' }]);
+    expect(markdownLinks('[a](b.md "open) [c]() [d](<e.md>')).toEqual([]);
+  });
+  test('unmatched labels and destinations scan in linear time (#18387)', () => {
+    const started = performance.now();
+    expect(markdownLinks('[a]('.repeat(20_000))).toEqual([]);
+    expect(markdownLinks('[a](file.md) '.repeat(20_000))).toHaveLength(20_000);
+    expect(markdownLinks(`[${'['.repeat(20_000)}](`)).toEqual([]);
+    expect(markdownLinks(`[a]( ${' '.repeat(20_000)}x "`.repeat(20))).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
 describe('Markdown settings', () => {
   const client = (settings: object) => ({ local: { clientSettings: settings } }) as unknown as T3Client;
   test('code size clamps to 10–18, word wrap and the monospace family come from Settings → Appearance', () => {
@@ -119,7 +139,7 @@ describe('Pull Requests diff colors and Markdown settings', () => {
     const { pullRequestsPage } = await import('../../src/pull-requests/pages-prs');
     const { pullRequestDetail } = await import('../../src/pull-requests/pages-pr-detail');
     const client = { local: { clientSettings: { diffColorScheme: 'blue-orange', fontSizeCode: 15, wordWrap: false, fontFamilyCode: '' } },
-      config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [], threads: [] }, ready: false, environmentId: 'e' } as unknown as T3Client;
+      config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [], threads: [] }, projectGroups: () => [], ready: false, environmentId: 'e' } as unknown as T3Client;
     const list = await pullRequestsPage(client, null, { open: false, refresh: 0, now: 0, selected: '', query: '', typed: false });
     expect(list.diffScheme).toBe('blue-orange');
     const detail = await pullRequestDetail(client, null, { selected: '', refresh: 0, now: 0 });

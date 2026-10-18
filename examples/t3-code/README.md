@@ -99,7 +99,11 @@ outdated or newer; one that can update itself offers **Update** in Settings › 
 connected server older than this client shows "Server update available" above the composer (and
 a warning in the thread details card); its Update streams the update's progress, waits for the
 server to come back on the new version and shares that state with Settings › Connections
-(`server-update.ts`).
+(`server-update.ts`). The sidebar's Update button combines one-click provider and remote server
+updates in one confirmation, with per-machine progress and Retry. Provider installers finish
+before servers restart; a slow server keeps its own progress without holding up the other
+machines. Servers installed from npm appear after the target release is published on npm.
+The app has no desktop self-update feed, so its own download/restart step is absent.
 
 1. In T3 Code, open **Settings → Connections** and create a fresh pairing link.
    A command-line installation can also use `t3 pair` for a running server.
@@ -150,7 +154,8 @@ server to come back on the new version and shares that state with Settings › C
   thread with a banner, Copy ID and two local rows; `composer-feedback.ts`). Both long
   writes are detached requests whose reply joins the inbox (`composer-replies.ts`). The composer overlays the transcript, which keeps a
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
-  the context strip's workspace control is the desktop Select.
+  the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
+  2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
 - Requests: approvals, single/multiple-choice and free-text questions.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and

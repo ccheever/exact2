@@ -13,6 +13,10 @@
 //   "Ask before editing the notes"  asks first (`session/request_permission`, an `edit` tool call), so a
 //                                   thread in the runtime mode "approval-required" waits on an approval;
 //                                   allowed, it writes notes/approved.md
+//   "Read the thread <id> [for <n>s]"
+//                                   thinks ("**Checking the other thread**"), then holds a running
+//                                   `t3_thread_read` tool call on that thread id for n seconds (0 by
+//                                   default), so the live row shows the latest thought over a running tool
 // After `session/new` and `session/load` it advertises one skill, `$frontend-design`
 // (`available_commands_update`; T3 lists a `$` command as a skill), so the composer's `$` menu can
 // insert a skill chip.
@@ -109,6 +113,14 @@ if (process.argv.includes("--fixture-login")) {
         if (allowed) { mkdirSync(join(cwd, "notes"), { recursive: true }); writeFileSync(path, "# Approved\n\nWritten after the approval.\n"); }
         update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: allowed ? "completed" : "failed" });
         text = allowed ? "Stand-in reply: wrote notes/approved.md" : "Stand-in reply: left the notes as they were";
+      } else if (/^read the thread\s+\S+/i.test(first)) {
+        const [, threadId, seconds] = /^read the thread\s+(\S+)(?:\s+for\s+(\d+)s)?/i.exec(first) ?? [];
+        update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "**Checking the other thread**\n\nIt holds the plan this turn follows." } });
+        const toolCall = { toolCallId: `read-${Date.now()}`, title: "t3_thread_read", kind: "other", rawInput: { threadId } };
+        update(sessionId, { sessionUpdate: "tool_call", ...toolCall, status: "in_progress" });
+        await Bun.sleep(Number(seconds ?? 0) * 1000);
+        update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: "completed", rawOutput: { threadId } });
+        text = "Stand-in reply: read the other thread";
       } else if (cwd && /^edit the notes/i.test(first)) {
         const paths = editNotes(cwd);
         update(sessionId, { sessionUpdate: "tool_call", toolCallId: `edit-${Date.now()}`, title: "Edit README.md and write the notes", kind: "edit", status: "completed", locations: paths.map((path) => ({ path })) });

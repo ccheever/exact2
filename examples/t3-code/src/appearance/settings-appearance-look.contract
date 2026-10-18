@@ -19,6 +19,8 @@ shape Look
   accent: string
   accentText: string
   message: string
+  wizardSteps: string
+  wizardPanel: string
   chatMax: number
   artwork: bool
   pill: string

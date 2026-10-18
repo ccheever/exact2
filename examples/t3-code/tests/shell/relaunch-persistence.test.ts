@@ -19,7 +19,6 @@ import { shellView } from '../../src/shell/shell';
 import { toasts } from '../../src/shell/toast';
 import { usagePrefs, usageLocal } from '../../src/usage/pages-usage';
 import { commandLabel } from '../../src/snapshot/snapshot-shortcut';
-import { NIGHTLY_NOTICE } from '../../src/shell/shell-nightly';
 import { commandShortcut } from '../../src/shell/shell';
 
 const NOW = Date.parse('2026-10-04T12:00:00.000Z');
@@ -38,19 +37,12 @@ function disk(initial = '') {
 const load = (client: T3Client, files: Files) => (client as unknown as { load(storage: Files): Promise<void> }).load(files);
 
 describe('relaunch persistence (the preference file the reference keeps in localStorage)', () => {
-  test('the Nightly notice dismissed by its × stays dismissed after a relaunch', async () => {
-    const { files, box } = disk();
-    const first = new T3Client();
-    await load(first, files);
-    await shellView(first, null, files, NOW, '', false);
-    const notice = toasts(first).find(toast => toast.title === NIGHTLY_NOTICE.title)!;
-    expect(notice).toBeDefined();
-    await shellView(first, null, files, NOW + 1000, `x${notice.id}`, false);
-    expect(JSON.parse(box.text).shell.nightlyNoticeDismissed).toBe(true);
-    const relaunched = new T3Client();
-    await load(relaunched, files);
-    await shellView(relaunched, null, files, NOW + 2000, '', false);
-    expect(toasts(relaunched).some(toast => toast.title === NIGHTLY_NOTICE.title)).toBe(false);
+  test('a fresh launch keeps the obsolete beta-app warning absent', async () => {
+    const { files } = disk();
+    const client = new T3Client();
+    await load(client, files);
+    await shellView(client, null, files, NOW, '', false);
+    expect(toasts(client).some(toast => toast.title === 'Nightly needs the beta mobile app')).toBe(false);
   });
   test('Usage preferences and drafts survive a relaunch while navigation starts at Home', async () => {
     const { files } = disk();
