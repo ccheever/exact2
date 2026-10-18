@@ -586,16 +586,16 @@ final class SnapshotDriverTests: XCTestCase {
         func node(_ id: UInt32, _ kind: String, _ props: [String: String], frame: CGRect, lines: [HeadlessSession.Line] = []) -> HeadlessSession.Node {
             HeadlessSession.Node(id: id, kind: kind, frame: frame, props: props, style: ["text_color": ["sys": "labelColor"]], lines: lines, runs: [run])
         }
-        let relative = node(2, "text", ["semanticTag": "time", "datetime": "1787915700000", "format": "relative"], frame: CGRect(x: 0, y: 0, width: 160, height: 16))
+        let relative = node(2, "text", ["semanticTag": "time", "datetime": "1787915700000", "timeFormat": "relative"], frame: CGRect(x: 0, y: 0, width: 160, height: 16))
         let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let countdown = node(3, "time", ["datetime": iso.string(from: now.addingTimeInterval(300.5)), "format": "countdown"], frame: CGRect(x: 0, y: 20, width: 110, height: 16))
+        let countdown = node(3, "time", ["datetime": iso.string(from: now.addingTimeInterval(300.5)), "timeFormat": "countdown"], frame: CGRect(x: 0, y: 20, width: 110, height: 16))
         let interval = node(4, "control", ["type": "progress", "start": "1787915700000", "end": "1787916300000"], frame: CGRect(x: 0, y: 40, width: 160, height: 6))
         let value = node(5, "control", ["type": "progress", "value": "3", "max": "8"], frame: CGRect(x: 0, y: 50, width: 160, height: 6))
-        let calendar = node(6, "time", ["datetime": "1787915700000", "format": "date-short"], frame: CGRect(x: 0, y: 60, width: 160, height: 16),
+        let calendar = node(6, "time", ["datetime": "1787915700000", "timeFormat": "date-short"], frame: CGRect(x: 0, y: 60, width: 160, height: 16),
                             lines: [HeadlessSession.Line(text: "7/26/26", range: NSRange(location: 0, length: 7), origin: CGPoint(x: 0, y: 12), width: 48, ascent: 12, descent: 3)])
         XCTAssertEqual(SnapshotLive.presentation(relative, entryDate: entry), .relative(now))
         XCTAssertEqual(SnapshotLive.presentation(countdown, entryDate: entry), .countdown(entry...now.addingTimeInterval(300.5)))
-        XCTAssertEqual(SnapshotLive.presentation(node(7, "time", ["datetime": "1787915700000", "format": "timer"], frame: .zero), entryDate: entry), .timer(now))
+        XCTAssertEqual(SnapshotLive.presentation(node(7, "time", ["datetime": "1787915700000", "timeFormat": "timer"], frame: .zero), entryDate: entry), .timer(now))
         XCTAssertNil(SnapshotLive.presentation(calendar, entryDate: entry), "a calendar format is the kernel's text")
         XCTAssertNil(SnapshotLive.presentation(value, entryDate: entry))
         XCTAssertEqual(SnapshotLive.instant("2026-07-26T12:35:00Z"), ISO8601DateFormatter().date(from: "2026-07-26T12:35:00Z"))

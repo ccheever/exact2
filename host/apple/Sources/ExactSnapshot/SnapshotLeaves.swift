@@ -97,7 +97,8 @@ package enum SnapshotAccent {
 /// D6: `time` and `progress` as the platform's live views, which update
 /// with no code running. A `time` has `datetime` (an instant: epoch
 /// milliseconds, or ISO 8601 with or without fractional seconds) and
-/// `format`: `relative` is `Text(date, style: .relative)`, `timer` is
+/// `format` (the prop `timeFormat` on the wire): `relative` is
+/// `Text(date, style: .relative)`, `timer` is
 /// `Text(date, style: .timer)` (counting on both sides of the instant),
 /// `countdown` is `Text(timerInterval: entryDate...instant, countsDown:
 /// true)` from the timeline entry's date, stopping at zero as the running
@@ -120,7 +121,7 @@ package enum SnapshotLive {
 
     package static func presentation(_ node: HeadlessSession.Node, entryDate: Date) -> Presentation? {
         guard node.kind == "time" || node.props["semanticTag"] == "time", let date = instant(node.props["datetime"]) else { return nil }
-        switch node.props["format"] ?? "" {
+        switch node.props["timeFormat"] ?? node.props["format"] ?? "" {
         case "relative": return .relative(date)
         case "timer": return .timer(date)
         case "countdown": return .countdown(min(entryDate, date)...date)
@@ -179,7 +180,7 @@ struct SnapshotProgressView: View {
     var body: some View {
         Group {
             if let interval = SnapshotLive.interval(node) {
-                ProgressView(timerInterval: interval, countsDown: node.props["format"] == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
+                ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
             } else if let value = Double(node.props["value"] ?? "") {
                 ProgressView(value: min(value, total), total: total)
             } else {
