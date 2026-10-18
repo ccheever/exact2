@@ -132,8 +132,8 @@ test('Providers is single-environment: the machine defaults to the connected env
   const client = { environmentId: 'env1', config: { environment: { platform: { machine: 'laptop' } }, settings: {} } } as unknown as T3Client;
   expect(scopeMachine(client, 'providers', '')).toBe('env1');
   expect(scopeMachine(client, 'general', '')).toBe('');
-  const choices = [{ id: '', label: 'All environments', mark: '', ink: '', surface: '', member: '', selected: true, offline: false },
-    { id: 'env1', label: 'Mac', mark: '', ink: '', surface: '', member: '', selected: false, offline: false }];
+  const choices = [{ id: '', label: 'All environments', secondary: '', mark: '', ink: '', surface: '', member: '', selected: true, offline: false },
+    { id: 'env1', label: 'Mac', secondary: '', mark: '', ink: '', surface: '', member: '', selected: false, offline: false }];
   expect(environmentScopeChoices(client, 'providers', choices).map(choice => [choice.id, choice.mark])).toEqual([['env1', 'laptop']]);
   expect(environmentScopeChoices(client, 'general', choices).map(choice => [choice.id, choice.mark])).toEqual([['', ''], ['env1', 'laptop']]);
   expect(environmentScopeIcon(client, 'env1')).toBe('laptop');
