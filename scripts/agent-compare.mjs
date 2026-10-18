@@ -8,8 +8,8 @@
 // white first). Two cells match when each lies within INK of the other's 3×3 neighbourhood, so anti-aliasing and
 // sub-point offsets do not count.
 import { MalformedOperation } from './agent-keys.mjs';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, relative, resolve } from 'node:path';
 import { decodePng, encodePng, shrink } from './png.mjs';
 import { scaledLines } from './agent-inspect.mjs';
 
@@ -456,4 +456,17 @@ export async function compareOp(s, referencePath, take) {
   for (const line of scaledLines(layout)) text += `\n  note: ${line}`;
   const { mask, ...kept } = result;
   return { ...shot, compare: { ...kept, reference: referencePath }, diff, text };
+}
+
+/** A drive that takes a plain `screenshot` while the app keeps reference pictures (a `ref/` or `reference/` folder in
+ *  the app or here) is told of `compare`, which says where the screen differs in text, so neither picture is viewed. */
+export function referenceNote(ops, appDir, say = console.error) {
+  const shots = ops.map((line) => line.trim().split(/\s+/)).filter(([op, png, ...rest]) => op === 'screenshot' && png && !rest.includes('compare') && rest[0] !== 'over' && rest[1] !== 'save');
+  if (!shots.length) return;
+  const dirs = [appDir, process.cwd()].filter(Boolean).flatMap((base) => ['ref', 'reference', 'references'].map((name) => resolve(base, name)));
+  const dir = dirs.find((d) => existsSync(d) && readdirSync(d).some((f) => f.endsWith('.png')));
+  if (!dir) return;
+  const shown = relative(process.cwd(), dir) || '.', pngs = readdirSync(dir).filter((f) => f.endsWith('.png'));
+  const [, png] = shots.find(([, png]) => pngs.includes(basename(png))) ?? shots[0], same = pngs.includes(basename(png)) ? basename(png) : '<name>.png';
+  say(`note: ${shown}/ holds ${pngs.length} reference picture${pngs.length === 1 ? '' : 's'}: "screenshot ${png} compare ${shown}/${same}" says in text where the screen differs from one, with no picture to view`);
 }
