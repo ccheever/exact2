@@ -137,6 +137,7 @@ impl<const PAINT: bool> Wrapped<PAINT> {
         let limit = self.limit.unwrap();
         let (mut cols, mut trailing) = (0, 0);
         let (mut best, mut fallback) = (None, None);
+        let mut fallback_width = usize::MAX;
         for (i, &(glyph, boundary)) in cells.iter().enumerate() {
             if glyph.text == "\n" {
                 return (i + 1, false);
@@ -165,8 +166,14 @@ impl<const PAINT: bool> Wrapped<PAINT> {
             if boundary && (cols > trailing || (self.keeps && cols > 0)) {
                 let hyphen = glyph.text == "\u{ad}";
                 let end = (i + 1, hyphen);
-                fallback = Some(end);
-                if cols - trailing + usize::from(hyphen) <= limit {
+                // A visible hyphen makes the preceding spaces internal to the line.
+                let width = if hyphen { cols + 1 } else { cols - trailing };
+                // A SHY after hanging spaces must not enlarge an overflowing fallback.
+                if width <= fallback_width {
+                    fallback = Some(end);
+                    fallback_width = width;
+                }
+                if width <= limit {
                     best = Some(end);
                 }
             }
@@ -467,7 +474,7 @@ mod tests {
     #[test]
     fn discretionary_breaks_have_ink_only_when_a_soft_hyphen_is_taken() {
         let paragraph = Paragraph::from_style(&StyleProps::default());
-        // CSS Text 3 §5.4: a taken SHY contributes the visible hyphen's width.
+        // CSS Text 3 §5.3: a taken SHY contributes the visible hyphen's width.
         for (text, limit, expected) in [
             ("ab\u{ad}cdef", 4, vec![("ab-", 3), ("cdef", 4)]),
             ("ab\u{ad}cdef", 6, vec![("abcdef", 6)]),
@@ -487,6 +494,117 @@ mod tests {
                 style: paragraph.strut,
             }];
             assert_layout(&runs, &paragraph, Some(limit), false, &expected);
+        }
+    }
+
+    #[test]
+    fn hyphenated_candidates_count_preceding_spaces() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        for (text, space, limit, expected) in [
+            ("a \u{ad}b", WhiteSpace::Normal, 2, vec![("a", 1), ("b", 1)]),
+            (
+                "a  \u{ad}b",
+                WhiteSpace::PreLine,
+                2,
+                vec![("a", 1), ("b", 1)],
+            ),
+            // The walker offers no break between these Unicode spaces and SHY.
+            (
+                "a\u{2009}\u{ad}b",
+                WhiteSpace::Normal,
+                2,
+                vec![("a -", 3), ("b", 1)],
+            ),
+            (
+                "a\u{3000}\u{ad}b",
+                WhiteSpace::Normal,
+                2,
+                vec![("a -", 3), ("b", 1)],
+            ),
+            (
+                "界 \u{ad}b",
+                WhiteSpace::Normal,
+                3,
+                vec![("界", 2), ("b", 1)],
+            ),
+            (
+                "a\t\u{ad}b",
+                WhiteSpace::PreWrap,
+                2,
+                vec![("a ", 2), ("b", 1)],
+            ),
+            (
+                "a  \u{ad}b",
+                WhiteSpace::PreWrap,
+                3,
+                vec![("a  ", 3), ("b", 1)],
+            ),
+            (
+                "a \u{ad}bc",
+                WhiteSpace::Normal,
+                3,
+                vec![("a -", 3), ("bc", 2)],
+            ),
+            (
+                "a  \u{ad}bc",
+                WhiteSpace::PreWrap,
+                4,
+                vec![("a  -", 4), ("bc", 2)],
+            ),
+            ("a \u{ad}b", WhiteSpace::Normal, 3, vec![("a b", 3)]),
+        ] {
+            paragraph.white_space = space;
+            for split in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
+                let mut second = paragraph.strut;
+                second.font_weight = 700;
+                let runs = [
+                    TextRun {
+                        text: text[..split].into(),
+                        style: paragraph.strut,
+                    },
+                    TextRun {
+                        text: text[split..].into(),
+                        style: second,
+                    },
+                ];
+                for clamp in [0, 1] {
+                    paragraph.line_clamp = clamp;
+                    let expected = if clamp == 0 {
+                        &expected[..]
+                    } else {
+                        &expected[..1]
+                    };
+                    assert_layout(&runs, &paragraph, Some(limit), false, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn min_content_keeps_the_narrower_space_break_before_a_soft_hyphen() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        for text in ["a \u{ad}b", "a  \u{ad}b", "a\t\u{ad}b"] {
+            let runs = [TextRun {
+                text: text.into(),
+                style: paragraph.strut,
+            }];
+            for mode in [
+                OverflowWrap::Normal,
+                OverflowWrap::BreakWord,
+                OverflowWrap::Anywhere,
+            ] {
+                paragraph.overflow_wrap = mode;
+                assert_layout(&runs, &paragraph, Some(0), true, &[("a", 1), ("b", 1)]);
+                let measured = CellMeasurer::default().measure(&TextMeasureRequest {
+                    runs: &runs,
+                    paragraph,
+                    width: AxisOffer::MinContent,
+                    height: AxisOffer::MaxContent,
+                    exclusions: &[],
+                });
+                assert_eq!(measured.width, COLUMN);
+                assert_eq!(measured.height, 2.0 * ROW);
+            }
         }
     }
 
