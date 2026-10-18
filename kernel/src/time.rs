@@ -1,5 +1,6 @@
 //! Live HTML time presentations and their English fallback. @ref LLP 1126 D6
 use crate::{AxisOffer, PropId, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun};
+use exact_num::date::{civil, MONTHS, WEEKDAYS};
 
 /// Named presentations of an instant; date and time styles use the viewer's zone.
 pub const FORMATS: &[&str] = &[
@@ -64,6 +65,33 @@ pub fn relative(delta: f64) -> (i64, &'static str) {
     ((minutes / divisor).round() as i64, unit)
 }
 
+/// Duration field shape: minutes/seconds, or the number of hour digits.
+pub fn duration_shape(r: &TimeRequest<'_>) -> u32 {
+    let hours = seconds(r) / 3600;
+    if hours == 0 {
+        0
+    } else {
+        hours.ilog10() + 1
+    }
+}
+
+/// Next relative value boundary, with a minute as the minimum cadence.
+pub fn relative_delay(datetime: f64, now: f64) -> f64 {
+    let minutes = ((datetime - now) / 60_000.).ceil();
+    let current = relative(datetime - now);
+    let mut lo = 1;
+    let mut hi = 525_600;
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if relative((minutes - f64::from(mid)) * 60_000.) == current {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    60_000. - (now - datetime).rem_euclid(60_000.) + f64::from(lo - 1) * 60_000.
+}
+
 /// One English table for Linux and the terminal, and the unsupported-host fallback.
 pub fn english(r: &TimeRequest<'_>) -> Option<String> {
     if r.format == "relative-reservation" {
@@ -89,6 +117,9 @@ pub fn english(r: &TimeRequest<'_>) -> Option<String> {
     }
     if r.format == "relative" {
         let (n, unit) = relative(r.datetime - r.now);
+        if n == 0 {
+            return Some("now".into());
+        }
         let unit = match unit {
             "minute" => "min.",
             "hour" => "hr.",
@@ -150,22 +181,15 @@ pub fn reservation(
                 format: "relative-reservation",
                 ..*r
             };
-            if let Some(v) = format(&q) {
+            if let Some(v) = format(&q).or_else(|| english(&q)) {
                 values.push(v);
             }
         }
-        for amount in [
-            59.,
-            3599.,
-            86399.,
-            2_591_999.,
-            31_535_999.,
-            315_359_999_999.,
-        ] {
+        for minutes in [59., 23. * 60., 29. * 1440., 11. * 43_200., 9998. * 525_600.] {
             for sign in [-1., 1.] {
                 let q = TimeRequest {
                     datetime: 0.,
-                    now: sign * amount * 1000.,
+                    now: sign * minutes * 60_000.,
                     ..*r
                 };
                 if let Some(v) = format(&q) {
@@ -176,21 +200,15 @@ pub fn reservation(
         return values.join("\n");
     }
     if matches!(r.format, "timer" | "countdown") {
-        let mut values: Vec<_> = (0..=9)
-            .map(|n| format!("{n}{n}{n}{n}{n}{n}{n}{n}{n}{n}:{n}{n}:{n}{n}"))
-            .collect();
-        let q = TimeRequest {
-            datetime: 0.,
-            now: 7_199_999_999_955_000.,
-            format: "timer",
-            ..*r
-        };
-        if let Some(model) = format(&q) {
+        let mut values = Vec::new();
+        if let Some(model) = format(r) {
             let digits: Vec<_> = (0..=9)
                 .filter_map(|d| {
                     format(&TimeRequest {
+                        datetime: 0.,
                         now: f64::from(d) * 1000.,
-                        ..q
+                        format: "timer",
+                        ..*r
                     })
                     .and_then(|s| s.chars().rev().find(|c| c.is_numeric()))
                 })
@@ -238,10 +256,8 @@ pub(crate) fn reserve(
         |run| run.style,
     );
     for value in values.lines() {
-        let runs = [TextRun {
-            text: value.into(),
-            style,
-        }];
+        let shown = arena.reservation_text(slot, value);
+        let runs = [TextRun { text: shown, style }];
         let request = TextMeasureRequest {
             runs: &runs,
             paragraph: arena.paragraph(slot),
@@ -249,47 +265,10 @@ pub(crate) fn reserve(
             height: AxisOffer::MaxContent,
             exclusions: &[],
         };
-        let candidate = m.measure(&request);
+        let Some(candidate) = m.measure_reservation(&request) else {
+            continue;
+        };
         metrics.width = metrics.width.max(candidate.width);
         metrics.height = metrics.height.max(candidate.height);
     }
-}
-
-/// English month names shared by Contract date functions.
-pub const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
-/// English weekday names shared by Contract date functions.
-pub const WEEKDAYS: [&str; 7] = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-];
-
-/// Proleptic Gregorian civil date, from days since 1970-01-01 (Hinnant).
-pub fn civil(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (yoe + era * 400 + i64::from(month <= 2), month, day)
 }

@@ -599,6 +599,21 @@ impl NodeArena {
         self.text_runs_at(slot, self.fit_scale(slot), out);
     }
 
+    pub(crate) fn reservation_text<'a>(
+        &self,
+        slot: u32,
+        text: &'a str,
+    ) -> std::borrow::Cow<'a, str> {
+        let rows = crate::text::RunRows::from_rows(self.style(slot), |rows, take| {
+            self.copy_inherited(slot, rows, take)
+        });
+        rows.hyphens.shown(crate::text::case::shown(
+            rows.transform,
+            text,
+            Default::default(),
+        ))
+    }
+
     /// [`Self::text_runs`] at `scale` of their size (a fit's measurement).
     pub(crate) fn text_runs_at<'a>(&'a self, slot: u32, scale: f32, out: &mut Vec<TextRun<'a>>) {
         let start = out.len();

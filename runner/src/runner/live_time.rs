@@ -1,9 +1,9 @@
 //! Presentation-only clock work: no settlement, handlers or app data calls.
 //! @ref LLP 1126 D6
 use super::*;
-use exact_kernel::time::{instant, reservation, TimeRequest};
+use exact_kernel::time::{duration_shape, instant, relative_delay, reservation, TimeRequest};
 use exact_kernel::{Op, PropId as P, PropList, PropValue};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Default)]
 pub(super) struct LiveTimes(BTreeMap<ViewId, Live>);
@@ -16,6 +16,8 @@ struct Live {
     reserve: Option<String>,
     value: Option<String>,
     reservation_key: String,
+    context: String,
+    duration_shape: u32,
 }
 
 impl LiveTimes {
@@ -44,6 +46,7 @@ impl<D: DataSource> Runner<D> {
 
     pub(super) fn prepare_live_times(&mut self, ops: &mut Vec<Op>) -> LiveTimes {
         let mut next = self.live_times.clone();
+        let mut changed = BTreeSet::new();
         for op in ops.iter() {
             match op {
                 Op::SetProp { id, prop, value }
@@ -52,15 +55,17 @@ impl<D: DataSource> Runner<D> {
                         P::SemanticTag | P::Type | P::Datetime | P::TimeFormat | P::Start | P::End
                     ) =>
                 {
-                    next.0
-                        .entry(*id)
-                        .or_default()
-                        .props
-                        .set(*prop, value.clone());
+                    let live = next.0.entry(*id).or_default();
+                    if live.props.get(*prop) != Some(value) {
+                        live.props.set(*prop, value.clone());
+                        changed.insert(*id);
+                    }
                 }
                 Op::ClearProp { id, prop } => {
                     if let Some(live) = next.0.get_mut(id) {
-                        live.props.remove(*prop);
+                        if live.props.remove(*prop).is_some() {
+                            changed.insert(*id);
+                        }
                     }
                 }
                 Op::DestroyView { id } => {
@@ -80,7 +85,18 @@ impl<D: DataSource> Runner<D> {
                 || live.props.str(P::Type) == Some("progress")
         });
         let now = self.time.epoch_at_zero + self.now_ms;
+        let context = format!(
+            "{}/{}/{}/{}",
+            self.time.epoch_at_zero, self.time.utc_offset, self.place.locale, self.place.time_zone
+        );
         for (&id, live) in &mut next.0 {
+            if !changed.contains(&id)
+                && live.context == context
+                && live.due.is_none_or(|due| due > self.now_ms)
+            {
+                continue;
+            }
+            live.context.clone_from(&context);
             let number = |p| {
                 live.props
                     .get(p)
@@ -105,9 +121,22 @@ impl<D: DataSource> Runner<D> {
                     };
                     let text = self.kernel.format_time(&request)?;
                     let key = format!(
-                        "{datetime}/{}/{}/{}/{}",
-                        request.format, request.locale, request.time_zone, request.utc_offset
+                        "{datetime}/{}/{}/{}/{}/{}",
+                        request.format,
+                        request.locale,
+                        request.time_zone,
+                        request.utc_offset,
+                        self.time.epoch_at_zero
                     );
+                    let identity = key;
+                    let reset = !live.reservation_key.starts_with(&format!("{identity}/"));
+                    if reset {
+                        live.duration_shape = duration_shape(&request);
+                    }
+                    if format == "timer" {
+                        live.duration_shape = live.duration_shape.max(duration_shape(&request));
+                    }
+                    let key = format!("{identity}/{}", live.duration_shape);
                     if key != live.reservation_key {
                         let reserve = reservation(&request, |r| self.kernel.format_time(r));
                         put(
@@ -120,9 +149,7 @@ impl<D: DataSource> Runner<D> {
                         live.reservation_key = key;
                     }
                     live.due = match request.format {
-                        "relative" => {
-                            Some(self.now_ms + 60_000.0 - (now - datetime).rem_euclid(60_000.0))
-                        }
+                        "relative" => Some(self.now_ms + relative_delay(datetime, now)),
                         "timer" | "countdown"
                             if request.format != "countdown" || datetime > now =>
                         {
@@ -163,7 +190,8 @@ impl<D: DataSource> Runner<D> {
                     live.due = (now < end).then_some(if now < start {
                         start - self.time.epoch_at_zero
                     } else {
-                        (self.now_ms + 1000.0).min(end - self.time.epoch_at_zero)
+                        (self.now_ms + 1000.0 - (now - start).rem_euclid(1000.0))
+                            .min(end - self.time.epoch_at_zero)
                     });
                 } else if live.value.is_some() {
                     put(id, P::Value, &mut live.value, None, ops);

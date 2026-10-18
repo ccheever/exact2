@@ -34,6 +34,7 @@ mod height_binding;
 mod image;
 mod invocation;
 mod layout_equality;
+mod live_time;
 mod motion;
 mod native_buttons;
 mod native_fields;
@@ -83,5 +84,3 @@ pub fn keyframed(text: &str) -> exact_motion::Animations {
     assert!(dropped.is_empty(), "{dropped:?}");
     a
 }
-
-mod live_time;

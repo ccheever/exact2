@@ -1,5 +1,6 @@
 #![allow(clippy::field_reassign_with_default)]
 //! Kernel publication only: manual paragraph completion, no host/worker claim.
+mod live_time;
 mod support;
 use exact_kernel::*;
 use std::rc::Rc;

@@ -70,6 +70,7 @@ mod link_runs;
 mod lint;
 mod list_rows;
 mod lists;
+mod live_time;
 mod locals;
 mod markdown_editing;
 mod media;
@@ -169,5 +170,3 @@ mod vocab;
 mod vscode_grammar;
 mod wakelock;
 mod warnings;
-
-mod live_time;

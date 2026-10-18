@@ -142,3 +142,155 @@ fn inline_time_uses_natural_runs_and_can_grow() {
     k.compute_layout(1, Offer::definite(1000., 200.)).unwrap();
     assert!(k.node(2).unwrap().frame.width > before);
 }
+
+#[test]
+fn duration_candidates_use_the_platform_digits_and_the_displayed_fields() {
+    use exact_kernel::time::{english, reservation, TimeRequest};
+    let r = TimeRequest {
+        datetime: 2000.,
+        now: 0.,
+        format: "countdown",
+        locale: "ar",
+        time_zone: "UTC",
+        utc_offset: 0.,
+    };
+    let local = |q: &TimeRequest<'_>| {
+        english(q).map(|s| {
+            s.chars()
+                .map(|c| {
+                    if c.is_ascii_digit() {
+                        char::from_u32('٠' as u32 + c as u32 - '0' as u32).unwrap()
+                    } else {
+                        c
+                    }
+                })
+                .collect()
+        })
+    };
+    let values = reservation(&r, local);
+    assert_eq!(values.lines().count(), 11);
+    assert!(
+        values
+            .lines()
+            .all(|s| s.chars().count() == 5 && !s.chars().any(|c| c.is_ascii_digit())),
+        "{values}"
+    );
+    for font_size in [15., 28.] {
+        let mut k = Kernel::with_monospace();
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::Display, &StyleValue::Text("flex".into()))
+            .unwrap();
+        style
+            .set_dynamic(StyleId::FontSize, &StyleValue::Number(font_size))
+            .unwrap();
+        k.apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::Text,
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                },
+                Op::AttachRoot { id: 1 },
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(style),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Text,
+                    value: "٠٠:٠٢".into(),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::TextReservation,
+                    value: values.clone().into(),
+                },
+            ],
+        )
+        .unwrap();
+        k.compute_layout(1, Offer::definite(1000., 100.)).unwrap();
+        let frame = k.node(2).unwrap().frame;
+        k.apply(
+            0,
+            2,
+            &[Op::SetProp {
+                id: 2,
+                prop: PropId::Text,
+                value: "٠٨:٠٠".into(),
+            }],
+        )
+        .unwrap();
+        k.compute_layout(1, Offer::definite(1000., 100.)).unwrap();
+        assert_eq!(k.node(2).unwrap().frame, frame);
+        assert!(frame.width < 6. * font_size as f32);
+    }
+}
+
+#[test]
+fn reservation_measurement_uses_the_painted_case_and_hyphens() {
+    use std::{cell::RefCell, rc::Rc};
+    struct Captured(Rc<RefCell<Vec<String>>>);
+    impl TextMeasurer for Captured {
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            self.0
+                .borrow_mut()
+                .extend(r.runs.iter().map(|s| s.text.to_string()));
+            MonospaceMeasurer::default().measure(r)
+        }
+    }
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut k = Kernel::new(Box::new(Captured(seen.clone())));
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(
+            StyleId::TextTransform,
+            &StyleValue::Text("uppercase".into()),
+        )
+        .unwrap();
+    style
+        .set_dynamic(StyleId::Hyphens, &StyleValue::Text("none".into()))
+        .unwrap();
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::Text,
+            },
+            Op::AttachRoot { id: 1 },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(style),
+            },
+            Op::SetProp {
+                id: 1,
+                prop: PropId::Text,
+                value: "now".into(),
+            },
+            Op::SetProp {
+                id: 1,
+                prop: PropId::TextReservation,
+                value: "wide\u{ad} sample".into(),
+            },
+        ],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(400., 100.)).unwrap();
+    assert!(
+        seen.borrow().iter().any(|s| s == "WIDE\u{34f} SAMPLE"),
+        "{:?}",
+        seen.borrow()
+    );
+    assert!(!seen.borrow().iter().any(|s| s.contains('\u{ad}')));
+}

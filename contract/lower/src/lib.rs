@@ -42,6 +42,7 @@ mod identity;
 mod intersect;
 mod keyframes;
 mod lint;
+mod live_time;
 mod media;
 mod menus;
 mod metrics;
@@ -1203,5 +1204,3 @@ pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentT
             .any(|s| !exact_plan::runner_owned_source(s))
         || !native::module_tags(file).is_empty()
 }
-
-mod live_time;

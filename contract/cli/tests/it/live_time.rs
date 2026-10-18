@@ -20,7 +20,7 @@ fn text(r: &Runner<NoData>, id: &str) -> String {
 }
 
 #[test]
-fn live_time_advances_without_evaluating_the_app_and_reserves_its_width() {
+fn live_time_advances_without_evaluating_the_app() {
     let source = r#"component App
   state unchanged = 0
   derive observed = performanceNow()
@@ -72,6 +72,8 @@ fn live_time_validates_its_author_forms() {
         "time datetime=0 format=\"unknown\"",
         "text datetime=0",
         "progress start=0",
+        "progress start=2 end=1",
+        "progress start=2 end=2",
         "progress start=0 end=1 value=0.2",
         "progress start=0 end=1 max=1",
     ] {
@@ -89,4 +91,118 @@ fn live_time_validates_its_author_forms() {
     ] {
         contract::compile(&format!("component App\n  view\n    {body}\n")).unwrap();
     }
+}
+
+fn prop(r: &Runner<NoData>, id: &str, p: PropId) -> String {
+    r.kernel()
+        .node_by_key(r.kernel().find_by_test_id(id)[0])
+        .unwrap()
+        .props
+        .str(p)
+        .unwrap()
+        .into()
+}
+
+#[test]
+fn duration_reservations_keep_the_initial_fields_and_grow_at_hour_digits() {
+    let source = "component App\n  view\n    row\n      time datetime=0 format=\"timer\" testId=\"timer\"\n      time datetime=7200000 format=\"countdown\" testId=\"countdown\"\n";
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let initial = prop(&r, "timer", PropId::TextReservation);
+    assert_eq!(initial.lines().count(), 11);
+    assert!(initial.lines().all(|s| s.len() == 5), "{initial}");
+    let countdown = prop(&r, "countdown", PropId::TextReservation);
+    r.advance(2000.).unwrap();
+    assert_eq!(text(&r, "timer"), "00:02");
+    assert_eq!(prop(&r, "timer", PropId::TextReservation), initial);
+    r.advance(3599000.).unwrap();
+    assert_eq!(prop(&r, "timer", PropId::TextReservation), initial);
+    r.advance(3600000.).unwrap();
+    let hour = prop(&r, "timer", PropId::TextReservation);
+    assert!(hour.lines().all(|s| s.len() == 7), "{hour}");
+    r.advance(36000000.).unwrap();
+    let ten = prop(&r, "timer", PropId::TextReservation);
+    assert!(ten.lines().all(|s| s.len() == 8), "{ten}");
+    assert_eq!(prop(&r, "countdown", PropId::TextReservation), countdown);
+    assert_eq!(text(&r, "countdown"), "00:00");
+}
+
+#[test]
+fn relative_zero_is_now_at_the_instant_and_thirty_seconds_afterward() {
+    let mut r = Runner::boot(
+        contract::compile(
+            "component App\n  view\n    time datetime=0 format=\"relative\" testId=\"time\"\n",
+        )
+        .unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r, "time"), "now");
+    assert!(r.advance(30000.).unwrap().is_empty());
+    assert_eq!(text(&r, "time"), "now");
+    r.advance(60000.).unwrap();
+    assert_eq!(text(&r, "time"), "1 min. ago");
+    assert!(r.journal().any(|s| s.contains("advance → 1 timer fired")));
+}
+
+#[test]
+fn an_unrelated_commit_does_not_call_the_time_formatter() {
+    use exact_kernel::{MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics};
+    use std::{cell::Cell, rc::Rc};
+    struct Counting(Rc<Cell<usize>>);
+    impl TextMeasurer for Counting {
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(r)
+        }
+        fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+            self.0.set(self.0.get() + 1);
+            exact_kernel::time::english(r)
+        }
+    }
+    let source = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Bump\" press=bump testId=\"bump\"\n      text n.toString()\n      time datetime=-259200000 format=\"relative\" testId=\"time\"\n";
+    let calls = Rc::new(Cell::new(0));
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::new(Box::new(Counting(calls.clone()))),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let before = calls.get();
+    let button = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("bump")[0])
+        .unwrap()
+        .id;
+    r.dispatch(button, exact_runner::Event::Press).unwrap();
+    assert_eq!(calls.get(), before);
+    assert_eq!(r.timer_due_ms(), Some(43200000.));
+    r.advance(60000.).unwrap();
+    assert_eq!(calls.get(), before);
+}
+
+#[test]
+fn datetime_edits_name_the_instant_and_the_wrong_tag() {
+    let error =
+        contract::compile("component App\n  view\n    time datetime=\"2026-10-17T12:00:00Z\"\n")
+            .unwrap_err();
+    assert!(
+        error.message.contains("epoch milliseconds") && error.message.contains("date("),
+        "{error:?}"
+    );
+    let error = contract::compile("component App\n  view\n    view datetime=0\n").unwrap_err();
+    assert!(
+        error.message.contains("`view`") && error.message.contains("`time`"),
+        "{error:?}"
+    );
 }
