@@ -173,11 +173,12 @@ fn auto_precedence_timed_progress_and_sure_rows() {
     );
     let timed =
         "component App\n  view\n    progress start=0 end=1000 accent-color=\"accent.brand\"\n";
-    // A timed progress: the web's bar (exact), iOS's spinner (none).
+    // A timed progress: the web's bar (exact), the Mac's spinner (none;
+    // iOS's is best-effort since the spinner rule, so says nothing).
     assert!(unreachable(&app("timed-web", "\"web\": {}", design, timed)).is_empty());
-    assert!(unreachable(&app("timed", "\"ios\": {}", design, timed))
+    assert!(unreachable(&app("timed", "\"macos\": {}", design, timed))
         .iter()
-        .any(|m| m.contains("iOS spinners")));
+        .any(|m| m.contains("macOS spinners")));
 
     let both = "style Red\n  color=\"#ff0000\"\n\nstyle Blue\n  color=\"#0000ff\"\n\ncomponent App\n  state flag = true\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input class=(flag ? Red : Blue) value=words change=write aria-label=\"W\"\n";
     assert!(unreachable(&app("both", "\"web\": {}", design, both)).is_empty());
