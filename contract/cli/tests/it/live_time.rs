@@ -74,6 +74,7 @@ fn live_time_validates_its_author_forms() {
         "progress start=0",
         "progress start=2 end=1",
         "progress start=2 end=2",
+        "progress start=0 end=-1",
         "progress start=0 end=1 value=0.2",
         "progress start=0 end=1 max=1",
     ] {

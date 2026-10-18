@@ -60,10 +60,7 @@ pub(crate) fn check(tag: &str, attrs: &[Attr], span: Span) -> Result<(), LowerEr
             attrs
                 .iter()
                 .find(|a| a.name == name)
-                .and_then(|a| match a.value {
-                    Expr::Number(n, _) => Some(n),
-                    _ => None,
-                })
+                .and_then(|a| crate::values::numeric_literal(&a.value))
         };
         if literal("start")
             .zip(literal("end"))
