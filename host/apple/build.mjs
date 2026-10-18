@@ -188,7 +188,7 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
 /** Named catalog assets require an app bundle on macOS, including agent drives. */
 export function appleRunBinary(app, host = false) {
   const paths = appleArtifacts(app, { host });
-  return !host && appleAssetCatalogInventory(app, 'macos').length ? resolve(paths.bundle, 'Contents/MacOS', paths.executable) : paths.binary;
+  return !host && (appleAssetCatalogInventory(app, 'macos').length || platformWidgetEntries(app, 'macos').length) ? resolve(paths.bundle, 'Contents/MacOS', paths.executable) : paths.binary;
 }
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */
@@ -660,7 +660,7 @@ async function main(args, lockHeld = false) {
   const gallery = process.env.EXACT_UPDATE_TRUST !== 'production' && !tv && (args.includes('--widget-gallery') || process.env.EXACT_WIDGET_GALLERY === '1');
   // An entry of either kind (a widget, a Live Activity) is the extension, the shared framework, the App Group and
   // the Keychain group (LLP 1126.001 WP13); tvOS has none of them.
-  const widgets = ios && !tv && hasEntries(app);
+  const widgets = !tv && (ios ? hasEntries(app) : platformWidgetEntries(app, 'macos').length > 0);
   const release = lockHeld ? () => {} : appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
@@ -818,7 +818,7 @@ async function main(args, lockHeld = false) {
   // link's claim from here; with another app linking, or anything else, the build is as it was. It links the
   // capabilities that link did (`<product>.linked`), since this build's are known only once the bake ends.
   const sole = args.includes('--host') ? null : ios ? 'ExactIOS' : 'ExactMac';
-  const widgetCore = widgets ? prepareWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: iosTripleFor(app, device, tv), device }) : null;
+  const widgetCore = widgets ? prepareWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: moduleTripleFor(app, ios, device, tv), device, platform: ios ? 'ios' : 'macos' }) : null;
   const earlyEnv = (link = 'all') => ({ ...swiftEnv(expected.capture, expected.composition, link),
     ...(widgetCore && existsSync(resolve(widgetCore.xcframework, 'Info.plist')) ? { EXACT_CORE_FRAMEWORK: relative(pkg, widgetCore.xcframework) } : {}) });
   const early = (() => {
@@ -1151,7 +1151,7 @@ async function main(args, lockHeld = false) {
     // The linked plan and compat.json, as the bake verified them, where this app alone links from (and its next early build).
     const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id) : null;
     for (const p of products) {
-      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
+      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
       let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
@@ -1174,7 +1174,8 @@ async function main(args, lockHeld = false) {
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id, shared && resolve(shared.framework, 'ExactCore'));
       assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
-      assertCapabilityFrameworks(executable, gallery ? [...swiftCapabilities, 'ExactSnapshot'] : swiftCapabilities, gallery ? ['SwiftUI', 'WidgetKit'] : []);
+      const launchCapabilities = ios ? swiftCapabilities : swiftCapabilities.filter(name => name !== 'ExactNumerals');
+      assertCapabilityFrameworks(executable, gallery ? [...launchCapabilities, 'ExactSnapshot'] : launchCapabilities, gallery ? ['SwiftUI', 'WidgetKit'] : []);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
@@ -1237,7 +1238,7 @@ async function main(args, lockHeld = false) {
 
   const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements};
   if (!ios) {
-    const bundlePath = assembleMac({hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
+    const bundlePath = assembleMac({shared, triple: moduleTripleFor(app, ios, device, tv), hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });

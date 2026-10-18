@@ -548,7 +548,7 @@ export function profileMisfit(p, udid, like = null) {
 let decoded = null;
 export function installedProfiles() {
   const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
-  return decoded ??= dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))));
+  return decoded ??= dirs.flatMap((d) => readdirSync(d).filter((f) => /\.(mobileprovision|provisionprofile)$/.test(f)).map((f) => decodeProfile(resolve(d, f))));
 }
 
 /** The fields of a `.mobileprovision` this script reads (it is a CMS-signed XML plist). */
@@ -562,11 +562,11 @@ export function decodeProfile(path) {
   // The keys of its Entitlements whose value is not `false`: what it allows.
   const allowed = /<key>Entitlements<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(xml)?.[1] ?? '';
   const entitlements = [...allowed.matchAll(/<key>([^<]+)<\/key>\s*(<false\/>)?/g)].filter((m) => !m[2]).map((m) => m[1]);
-  const appId = str('application-identifier');
+  const appId = str('application-identifier') ?? str('com.apple.application-identifier');
   // What an app with widgets or Live Activities needs of it (LLP 1126.001 WP13): the App Groups it grants, the
   // Keychain groups (the team's `<prefix>.*`, usually) and the push environment.
-  const dev = /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), enterprise = /<key>ProvisionsAllDevices<\/key>\s*<true\/>/.test(xml);
-  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev, expires: new Date(expires ?? 0), entitlements,
+  const dev = /<key>(?:com.apple.security.)?get-task-allow<\/key>\s*<true\/>/.test(xml), enterprise = /<key>ProvisionsAllDevices<\/key>\s*<true\/>/.test(xml);
+  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev, expires: new Date(expires ?? 0), entitlements, platforms: strings('Platform'),
     method: dev ? 'development' : devices.length ? 'adhoc' : enterprise ? 'enterprise' : 'appstore',
     groups: strings('com.apple.security.application-groups'), keychain: strings('keychain-access-groups'), aps: str('aps-environment') ?? null };
 }

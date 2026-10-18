@@ -405,6 +405,23 @@ installed profiles by its id. An archive (`--archive`) matches the extension's
 profile to the named one's method, and an Ad Hoc pair must cover the same
 devices.
 
+On macOS, `bun host/apple/build.mjs --run` packages the app's widgets in
+`Contents/PlugIns`. The Mac keeps `systemSmall`, `systemMedium`, `systemLarge`
+and `systemExtraLarge`; if no families remain it builds no extension. Live
+Activities do not create a Mac extension. The extension uses the same runtime
+framework and snapshot driver, in its own sandbox with outbound network access.
+The app keeps its existing sandbox policy and loads the reload arm on demand.
+
+Mac widgets need a team signing identity (`EXACT_IDENTITY` can name its SHA-1).
+Their container is `<TEAMID>.<app id>.widgets`, separate from iOS's group.
+Shared secrets additionally need matching macOS profiles for the app and
+`<app id>.widgets`, granting that container (or `<TEAMID>.*`) and the restricted
+Keychain group `<prefix>.<app id>` (or `<prefix>.*`). `EXACT_PROFILE` can name
+the app's profile. Both are embedded when available. Without them, widgets
+whose data module declares `secret.keep` show the “Open app” placeholder;
+they neither read the app's login Keychain nor reuse cached account content.
+Caltrain and Shelf need no shared secrets. See LLP 1126.001 WP16 and §5 Q5.
+
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`

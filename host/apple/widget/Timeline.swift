@@ -4,6 +4,9 @@ import Foundation
 import SwiftUI
 import WidgetKit
 import os
+#if os(macOS)
+import AppKit
+#endif
 #if EXACT_INSPECT
 import Darwin
 #endif
@@ -23,7 +26,7 @@ struct ExactWidgetEntry: TimelineEntry {
     var unavailable = false
 }
 private func embeddedRoot() -> URL {
-    Bundle.main.bundleURL
+    Bundle.main.resourceURL ?? Bundle.main.bundleURL
 }
 private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Family {
     switch family {
@@ -36,9 +39,11 @@ private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Famil
     #if os(watchOS)
     case .accessoryCorner: .accessoryCorner
     #endif
+    #if !os(macOS)
     case .accessoryCircular: .accessoryCircular
     case .accessoryRectangular: .accessoryRectangular
     case .accessoryInline: .accessoryInline
+    #endif
     @unknown default:
         #if os(watchOS)
         .accessoryRectangular
@@ -118,6 +123,13 @@ struct ExactTimelineProvider: TimelineProvider {
         var unavailable = preview(context, placeholder: true)
         unavailable.unavailable = true
         let fallback = Timeline(entries: [unavailable], policy: .after(date.addingTimeInterval(900)))
+        // An unprovisioned Mac extension must not read the login Keychain or
+        // reuse account props cached by an earlier provisioned build.
+        if Bundle.main.object(forInfoDictionaryKey: "ExactWidgetRequiresSecrets") as? Bool == true,
+           Bundle.main.object(forInfoDictionaryKey: "ExactWidgetSecretsAvailable") as? Bool != true {
+            completion(fallback)
+            return
+        }
         _ = WidgetRefresh.configured
         // A binary update can precede the app's first launch/publication.
         let root = (try? WidgetContainer.pin()) ?? embeddedRoot()
@@ -212,8 +224,12 @@ struct ExactWidgetView: View {
     @Environment(\.widgetContentMargins) private var margins
     private var unavailable: some View { Text("Open \(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "the app")") }
     @ViewBuilder var body: some View {
+        #if os(macOS)
+        GeometryReader { geometry in content(size: geometry.size) }
+        #else
         if family == .accessoryInline { content(size: entry.displaySize).fixedSize() }
         else { GeometryReader { geometry in content(size: geometry.size) } }
+        #endif
     }
     private func content(size displaySize: CGSize) -> some View {
         Group {
@@ -221,7 +237,7 @@ struct ExactWidgetView: View {
             else {
                 let size = CGSize(width: max(1, displaySize.width - margins.leading - margins.trailing), height: max(1, displaySize.height - margins.top - margins.bottom))
                 let preferences = Preferences(reducedMotion: motion, reducedTransparency: transparency,
-                    contrast: contrast == .increased ? "more" : "no-preference", dark: scheme == .dark,
+                    contrast: contrast == .increased ? "more" : "no-preference", dark: isDark,
                     gamut: gamut, highDynamicRange: false, boldText: legibility == .bold)
                 let facts = SessionFacts(displayScale: scale, preferences: preferences, rootFontSize: bodySize, date: entry.date)
                 if let view = try? widgetSnapshotView(entry, displaySize: displaySize, contentSize: size, facts: facts, family: family) {
@@ -234,5 +250,13 @@ struct ExactWidgetView: View {
         }.privacySensitive(!entry.preview)
     }
 
+    private var isDark: Bool {
+        #if os(macOS)
+        let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        return appearance?.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        #else
+        return scheme == .dark
+        #endif
+    }
     private var bodySize: Double { SnapshotDriver.rootFontSize(for: textSize) }
 }

@@ -60,6 +60,11 @@ NSMutableDictionary *query_for(const char *service, const char *name) {
   NSString *group = [bundle objectForInfoDictionaryKey:@"ExactKeychainAccessGroup"];
   if (group.length && [owner isEqualToString:query[(__bridge id)kSecAttrService]]) {
     query[(__bridge id)kSecAttrAccessGroup] = group;
+#if TARGET_OS_OSX
+    // A provisioned widget cohort shares the restricted data-protection
+    // Keychain. The login Keychain's ACL belongs to the creating app alone.
+    query[(__bridge id)kSecUseDataProtectionKeychain] = @YES;
+#endif
   }
   return query;
 }
@@ -110,10 +115,11 @@ int ibex2_darwin_keychain_set(const char *service, const char *name, const unsig
     if (status == errSecItemNotFound) {
       NSMutableDictionary *item = query_for(service, name);
       item[(__bridge id)kSecValueData] = data;
-#if TARGET_OS_IPHONE
+#if TARGET_OS_OSX
+      if (item[(__bridge id)kSecUseDataProtectionKeychain])
+#endif
       item[(__bridge id)kSecAttrAccessible] =
           (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
-#endif
       status = SecItemAdd((__bridge CFDictionaryRef)item, nullptr);
     }
     if (status != errSecSuccess) {

@@ -464,6 +464,41 @@ test('watch entries keep accessory families and omit TypeScript pending the Herm
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('Mac widgets omit accessory-only entries and require a provisioned pair for shared secrets (LLP 1126.001 WP16)', async () => {
+  const { platformWidgetEntries, macWidgetGroup, macWidgetProfiles, macWidgetEntitlements } = await import('../host/apple/widgets.mjs');
+  const app = { id: 'com.exact.test', manifest: { widgets: [
+    { kind: 'home', families: ['systemSmall', 'systemMedium', 'systemLarge', 'systemExtraLarge', 'accessoryRectangular'] },
+    { kind: 'lock', families: ['accessoryInline'] },
+  ] } };
+  assert.deepEqual(platformWidgetEntries(app, 'macos').map(e => e.families), [['systemSmall', 'systemMedium', 'systemLarge', 'systemExtraLarge']]);
+  assert.deepEqual(platformWidgetEntries({ manifest: { widgets: [app.manifest.widgets[1]], live_activities: [{ kind: 'activity' }] } }, 'macos'), []);
+  assert.equal(macWidgetGroup(app, 'TEAM'), 'TEAM.com.exact.test.widgets');
+  const make = (id, extra = {}) => ({ appId: `PREFIX.${id}`, team: 'TEAM', prefix: 'PREFIX', platforms: ['OSX'],
+    expires: new Date(Date.now() + 86400000), method: 'development', devices: ['MAC'],
+    groups: ['TEAM.*'], keychain: ['PREFIX.com.exact.test'], ...extra });
+  const owner = make(app.id), extension = make(`${app.id}.widgets`);
+  const choose = installed => macWidgetProfiles({ app, team: 'TEAM', installed, named: null, udid: 'MAC' });
+  assert.equal(choose([]), null);
+  const profiles = choose([owner, extension]);
+  assert.equal(profiles.app, owner); assert.equal(profiles.extension, extension);
+  for (const changed of [{ platforms: ['iOS'] }, { team: 'OTHER' }, { keychain: [] }, { groups: [] }, { devices: ['OTHER'] }, { expires: new Date(0) }, { method: 'appstore' }, { prefix: 'OTHER', appId: `OTHER.${app.id}.widgets` }]) {
+    assert.equal(choose([owner, { ...extension, ...changed }]), null, JSON.stringify(changed));
+  }
+  assert.throws(() => macWidgetProfiles({ app, team: 'TEAM', installed: [], named: owner }), /matching macOS profile/);
+  const plain = macWidgetEntitlements({ app, team: 'TEAM' });
+  assert.match(plain, /TEAM.com.exact.test.widgets/);
+  assert.doesNotMatch(plain, /keychain-access-groups|application-identifier|app-sandbox|network.client|aps-environment/);
+  const sandbox = macWidgetEntitlements({ app, team: 'TEAM', extension: true });
+  assert.match(sandbox, /com.apple.security.app-sandbox<\/key><true\/>/);
+  assert.match(sandbox, /com.apple.security.network.client<\/key><true\/>/);
+  assert.doesNotMatch(sandbox, /keychain-access-groups|application-identifier/);
+  for (const isExtension of [false, true]) {
+    const signed = macWidgetEntitlements({ app, team: 'TEAM', profiles, extension: isExtension });
+    assert.match(signed, /<key>keychain-access-groups<\/key><array><string>PREFIX.com.exact.test<\/string><\/array>/);
+    assert.match(signed, new RegExp(`<key>com.apple.application-identifier</key><string>PREFIX.com.exact.test${isExtension ? '.widgets' : ''}</string>`));
+  }
+});
+
 
 test('corner-only entries give iOS no widget group or publishing kinds', () => {
   const app = {id:'com.exact.corner',displayName:'Corner',manifest:{widgets:[{kind:'corner',families:['accessoryCorner']}],host:{ios:{}}}};
