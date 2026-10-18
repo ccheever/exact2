@@ -240,9 +240,10 @@ component ChatColumn
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
           EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
       if data.messages.length == 0 and data.threadId != ""
-        // MessagesTimeline's empty state (no rows, not working): centred in the timeline under the docked composer; while
-        // the thread's detail loads the pane stays blank (hideEmptyPlaceholder: threadDetailLoading).
-        column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
+        // MessagesTimeline's empty state (no rows, not working): centred in the lane above the composer, which overlays the
+        // timeline (contentInsetEndAdjustment: the tail less its 12pt gap); while the thread's detail loads the pane stays
+        // blank (hideEmptyPlaceholder: threadDetailLoading).
+        column flex=1 min-height=0 width="100%" padding-right=laneInset padding-bottom=(overlaid ? max(0, data.transcriptTail - 12) : 0) box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
           if not data.threadLoading and not data.running
             text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)" testId="empty-timeline-hint"
       if data.messages.length > 0
@@ -309,7 +310,7 @@ component ChatColumn
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
         box flex=1 min-height=0 padding-top=(branches.show ? "0.75rem" : "2.75rem")
-      AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
+      AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings, inset=laneInset)
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
