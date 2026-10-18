@@ -431,20 +431,20 @@ impl<D: DataSource> Presenter<D> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         let result = match self.contact_down(x, y, now_ms) {
             Ok(taken) => {
-                // Keep the field's identity before pointerdown can remove it.
+                // Keep the field and its focus policy before pointerdown can remove them.
                 let field = self.contact.as_ref().and_then(|c| {
                     let node = self.host.kernel().node_by_key(c.hit)?;
                     (c.canvas.is_none()
                         && c.retained.is_none()
                         && node.node_type == NodeType::TextInput
                         && !crate::fields::hosts(&node))
-                    .then_some((c.hit, c.origin))
+                    .then(|| (c.hit, c.origin, self.pointerdown_prevents_focus(node.id)))
                 });
                 match self.pointer_pressed(x, y, now_ms) {
                     Some(error) => Err(error),
                     None => {
-                        if let Some((key, point)) = field {
-                            self.focus_field_on_down(key, point, now_ms);
+                        if let Some((key, point, prevented)) = field {
+                            self.focus_field_on_down(key, point, prevented, now_ms);
                         }
                         Ok(taken)
                     }
@@ -456,13 +456,22 @@ impl<D: DataSource> Presenter<D> {
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
         result
     }
-    fn focus_field_on_down(&mut self, key: NodeKey, point: (f32, f32), now_ms: f64) {
+    fn focus_field_on_down(
+        &mut self,
+        key: NodeKey,
+        point: (f32, f32),
+        prevented: bool,
+        now_ms: f64,
+    ) {
         if self.contact_is_direct() || self.menu.is_some() {
             return;
         }
         let hit = self.host.kernel().node_by_key(key).map(|n| n.id);
         if let Some(contact) = self.contact.as_mut().filter(|c| c.hit == key) {
             contact.field_focus_before_down = Some(self.focus);
+        }
+        if prevented || hit.is_some_and(|id| self.pointerdown_prevents_focus(id)) {
+            return;
         }
         if hit.is_none_or(|id| {
             !self.input_live(key) || !self.focusable(id) || self.focus_refusal(id).is_some()
@@ -475,10 +484,7 @@ impl<D: DataSource> Presenter<D> {
             self.queue_collections();
             return;
         }
-        let hit = hit.unwrap();
-        if !self.pointerdown_prevents_focus(hit) {
-            self.focus_for_press(hit, point, now_ms, false);
-        }
+        self.focus_for_press(hit.unwrap(), point, now_ms, false);
     }
     fn contact_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_sample(x, y, now_ms)?;
