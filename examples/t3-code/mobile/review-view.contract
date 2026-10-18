@@ -106,7 +106,7 @@ component ReviewCodeRow
             text (row.text == "" ? " " : row.text)
           else
             for token in row.tokens key=token.id
-              text token.text color=token.color font-weight=token.weight font-style=token.slant
+              text token.text color=token.color font-weight=token.weight font-style=token.slant background-color=(token.mark && row.change == "addition" ? colors.additionHighlight : token.mark && row.change == "deletion" ? colors.deletionHighlight : "transparent")
 
 component ReviewCommentComposer
   props

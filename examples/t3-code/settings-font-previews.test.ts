@@ -6,7 +6,8 @@
 // user #D47628, the template's "<" #199F43, the comment #737373).
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
-import { diffWordsWithSpace, fontDiffPreview, wordAltMarks } from './settings-font-previews';
+import { fontDiffPreview } from './settings-font-previews';
+import { diffWordsWithSpace, wordAltMarks } from './word-diff';
 
 const changes = (before: string, after: string) => diffWordsWithSpace(before, after).map(change => [change.added ? '+' : change.removed ? '-' : '=', change.value]);
 const spans = (before: string, after: string) => wordAltMarks(before, after).map(side => side.map(segment => [segment.mark ? 1 : 0, segment.text]));
@@ -33,6 +34,10 @@ describe('word-alt emphasis (pushOrJoinSpan)', () => {
     ]);
     expect(spans('const a = 1;', 'let a = 2;')).toEqual([[[1, 'const'], [0, ' a = '], [1, '1'], [0, ';']], [[1, 'let'], [0, ' a = '], [1, '2'], [0, ';']]]);
     expect(spans('', 'added')).toEqual([[], [[1, 'added']]]);
+  });
+  test('the desktop preview retains emphasis beyond mobile native admission limits', () => {
+    const before = 's'.repeat(996) + ' old0', after = 's'.repeat(996) + ' new0';
+    expect(wordAltMarks(before, after).map(side => side.filter(segment => segment.mark).map(segment => segment.text).join(''))).toEqual(['old0', 'new0']);
   });
 });
 

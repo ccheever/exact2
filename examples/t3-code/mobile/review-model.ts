@@ -5,11 +5,12 @@ import { mobileReviewPatchFiles, type ReviewPatchFile } from './review-patch';
 import { diffReviewLines, type ReviewLine } from './shared/diff-comments';
 import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
 import { inferReviewCommentFenceLanguage } from './shared/diff-comments';
+import { reviewHunkWordRanges, reviewMarkedTokens, type ReviewToken, type ReviewWordRange } from './review-word-diff';
 
 export interface ReviewRow {
   id: string; markerId: string; kind: string; path: string; filePath: string; text: string; title: string; detail: string; action: string;
   oldNumber: string; newNumber: string; lineIndex: number; change: string; selected: boolean;
-  expanded: boolean; viewed: boolean; additions: number; deletions: number; tokens: ThreadCodeToken[];
+  expanded: boolean; viewed: boolean; additions: number; deletions: number; tokens: ReviewToken[];
 }
 export interface ReviewFile {
   id: string; name: string; path: string; previousPath: string; additions: number; deletions: number;
@@ -30,7 +31,7 @@ export function reviewPatch(text: string, sectionId = 'review') {
     rawReason: truncated ? 'Diff was truncated before it could be parsed completely. Showing the raw excerpt.' : 'Unsupported diff format. Showing raw patch.' };
 }
 /** Highlight each complete side so multiline lexical state survives neighboring lines. */
-export function reviewLineTokens(lines: ReviewLine[], path: string, dark: boolean): ThreadCodeToken[][] {
+export function reviewLineTokens(lines: ReviewLine[], path: string, dark: boolean, ranges: ReviewWordRange[][] = []): ReviewToken[][] {
   const side = (old: boolean) => {
     const indices = lines.map((line, index) => ({ line, index })).filter(({ line }) => line.change !== (old ? 'add' : 'delete'));
     const text = indices.map(({ line }) => line.content).join('\n');
@@ -38,16 +39,17 @@ export function reviewLineTokens(lines: ReviewLine[], path: string, dark: boolea
     for (const token of mobileCodeTokens(text, inferReviewCommentFenceLanguage(path), dark)) {
       token.text.split('\n').forEach((part, index) => {
         if (index) colored.push([]);
-        if (part) colored.at(-1)!.push({ ...token, id: `${token.id}:${index}`, text: part.replace(/\t/g, '    ') });
+        if (part) colored.at(-1)!.push({ ...token, id: `${token.id}:${index}`, text: part });
       });
     }
     return new Map(indices.map(({ index }, at) => [index, colored[at] ?? []]));
   };
   const old = side(true), next = side(false);
-  return lines.map((line, index) => (line.change === 'delete' ? old : next).get(index) ?? []);
+  return lines.map((line, index) => reviewMarkedTokens((line.change === 'delete' ? old : next).get(index) ?? [], ranges[index] ?? []));
 }
 export function reviewFileRows(file: DiffFileModel, dark: boolean, selection: { start: number; end: number } | null): ReviewRow[] {
-  const lines = diffReviewLines(file), tokens = reviewLineTokens(lines, file.path, dark), rows: ReviewRow[] = [];
+  const lines = diffReviewLines(file), ranges = file.hunks.flatMap(hunk => reviewHunkWordRanges(hunk.lines));
+  const tokens = reviewLineTokens(lines, file.path, dark, ranges), rows: ReviewRow[] = [];
   let at = 0;
   file.hunks.forEach((hunk, index) => {
     const oldCount = hunk.lines.filter(line => line.kind !== 'addition').length, newCount = hunk.lines.filter(line => line.kind !== 'deletion').length;
