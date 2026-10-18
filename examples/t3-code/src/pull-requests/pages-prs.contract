@@ -220,7 +220,7 @@ component PrList
   action sweepMove(e: PointerEvent)
     if sweepGroup != "" and e.buttons == 1
       let nextY = e.clientY
-      let started = sweepDragging or abs(nextY - sweepStartY) >= 6
+      let started = sweepDragging or max(nextY - sweepStartY, sweepStartY - nextY) >= 6
       sweepY = nextY
       sweepDragging = started
       sweepRefs = page.groups.filter((group) => group.key == sweepGroup).map((group) => group.rows.filter((row) => started and row.speed.filter((item) => item.action == "close" and not item.disabled).length > 0 and frame(`pr-row-wrap-${row.key}`).y + frame(`pr-row-wrap-${row.key}`).height >= min(sweepOriginY, nextY) and frame(`pr-row-wrap-${row.key}`).y <= max(sweepOriginY, nextY)).map((row) => row.ref)).flat()
