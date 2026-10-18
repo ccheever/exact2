@@ -7,7 +7,7 @@
  * `#[ignore = "async lane: …"]`, every web host unit test found by one glob
  * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
- * (`host/web-js/conform.mjs --strict`), the separate game workspace tests,
+ * (`host/web-js/conform.mjs --strict`), the separate game workspace and in-repo game tests,
  * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
  * --no-install`) for any range beyond documentation-only edits,
  * the
@@ -119,6 +119,7 @@ export function checks(sha, since, selection = {}) {
     prepareCheck,
     ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--tests', '--no-fail-fast']],
     gameCheck,
+    ['game-pins', 'bun', ['game/app/shells.mjs', '--test']],
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
@@ -385,6 +386,10 @@ async function once(state) {
 }
 
 if (import.meta.main) {
+  if (process.argv.includes('--help')) {
+    console.log('Usage: bun scripts/async.mjs [--once] [--from <rev>] [--worktree <dir>] [--interval <s>] [--branch <ref>] [--tier 1|2] [--newest] [--explain [<rev>]]');
+    process.exit(0);
+  }
   if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);
   mkdirSync(STATE_DIR, { recursive: true });
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
