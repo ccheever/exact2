@@ -1448,3 +1448,6 @@ mod required_tests {
 }
 
 mod handle;
+
+mod builders;
+pub use builders::{PropBuilder, SpriteBuilder};

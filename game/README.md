@@ -173,7 +173,7 @@ impl Game for Example {
     const ID: &'static str = "example";
     type Args = ();
     fn setup(w: &mut World, _: &()) {
-        w.spawn_named("player", (Transform::default(), Mesh::cube(1.0)));
+        w.prop("player", Mesh::cube(1.0)).at(0., 0., 0.).color("#fff");
     }
     fn tick(w: &mut World, _: &Input, _: &()) {
         w.require_mut::<Transform>("player").position.x += w.dt();
@@ -189,6 +189,9 @@ assert!(sim.local_position("player").unwrap().x > 0.0);
   called `emitter::step(w)` to choose their order; they never step twice a tick.
 - `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
   singleton data. Their `Data` representation supplies saves, hashes and agent JSON.
+- Spawn literals with `w.prop(name, mesh).at(x, y, z).color("#4d6669")` or
+  `w.sprite(name, texture, [width, height]).at(x, y)`; `.entity()` returns the
+  entity for adding components. Tuples remain available. [Literal builders](recipes/literal-builders.md) shows both.
 - Names and entity handles address the same world: `w.require_mut::<Transform>("fox")`
   names missing targets or components. `w.get::<Transform>("fox")` returns an option.
 - `query().iter()` yields `(Entity, item)` with borrowed references. Consuming
@@ -227,8 +230,7 @@ For a complete small game, start with [the template](new/logic/src/lib.rs) or
 covers borrowing, registration, observation, saving and loading.
 [Game recipes](recipes/README.md) answer one task each with a runnable `Sim` fragment.
 `bun exact.mjs game vocab <Component|verb>` in a generated game shows rustdoc,
-public fields, evaluated defaults and the recipe that uses them.
-[Familiar names](names.md) maps three.js, Unity and Godot, with LÖVE's current tick correspondence.
+fields and evaluated defaults. [Familiar names](names.md) maps three.js, Unity and Godot.
 
 ### Arguments, pause and restart
 

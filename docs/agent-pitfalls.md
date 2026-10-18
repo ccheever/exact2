@@ -1390,6 +1390,11 @@ screen, 2026-10-16.)
   derive `Tint` or `Offset` in `Game::present` instead. `glow_to` retargets the saved
   `Glow`; keep authored material emission constant or the intensity is applied twice.
   [Game pickup recipe](../game/recipes/pickup.md).
+- **Builder hex colours are sRGB; `Material::rgb` is linear.**
+  `prop(...).color("#808080")` converts the channels to about 0.216, not 0.502.
+  [Literal builders](../game/recipes/literal-builders.md) and the builder hash test
+  use the same conversion as the CSS colour library.
+
 - **Older saves refuse to restore after adding a generated model.** `restore` names it:
   ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
   at setup is part of every later save's identity (`game/engine/README.md`, "Saves and

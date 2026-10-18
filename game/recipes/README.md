@@ -6,6 +6,7 @@ They are compiled directly from these pages by `engine/src/recipes.rs`.
 
 | Task | Recipe | Existing game or reference |
 |---|---|---|
+| Spawn props and sprites | [Literal builders](literal-builders.md) | Builder state tests |
 | Follow a player | [Follow camera](follow-camera.md) | Starter |
 | Find and take a pickup | [Pickup and prompt](pickup.md) | Beacons |
 | Display remaining time | [Timer HUD](timer-hud.md) | Starter HUD |
