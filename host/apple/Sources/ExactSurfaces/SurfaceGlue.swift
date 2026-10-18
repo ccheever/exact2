@@ -62,6 +62,11 @@ extension CanvasesHost {
             guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
             return ["ok": e.view.focusCanvas()]
         }
+        // The agent's pad (LLP 1127.003 D3): the world queues it as a host's pad event.
+        if (op == "type" && (request["key"] as? String)?.hasPrefix("Gamepad") == true) || (op == "tap" && request["stick"] != nil) {
+            guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
+            return self.agent(id, request) ?? missing
+        }
         guard ["layout", "state", "tree"].contains(op) else { return ["error": "world does not answer \(op)"] }
         var request = request
         let rect = agent.box(e.view)

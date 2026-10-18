@@ -27,7 +27,10 @@ final class CanvasInputHost {
         inactive = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.blur() }
         focusIfUnheld()
         DispatchQueue.main.async { [weak self] in self?.focusIfUnheld() }
+        CanvasPads.shared.add(self)
     }
+    /// Pads go to the canvas holding the focus, as keys do.
+    var padFocus: Bool { view.map(CanvasInputHost.hasFocus) ?? false }
     private func focusIfUnheld() {
         guard let v = view, let window = v.window, !CanvasInputHost.hasFocus(window) else { return }
         _ = v.focusCanvas()
@@ -107,6 +110,7 @@ final class CanvasInputHost {
             if let c=view.canvases as? CanvasesHost, let e=c.entries[view.id] {c.cancelControls(e)}
             view.canvases?.input(view, ["t": "blur"])
         }
+        CanvasPads.shared.blurred(self)
     }
     func touches(_ values: Set<UITouch>, phase: String, source: NodeView, event: UIEvent? = nil) -> Bool {
         guard let view, phase != "down" || (!view.disabled && !view.inert) else { return false }
