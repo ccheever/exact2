@@ -706,14 +706,16 @@ input viewport, while a finite seekable clock can still advance.
 ## Look frames
 
 Under the agent's clock only, and only in a development build (one baked with
-`EXACT_UPDATE_TRUST=production` refuses every look request by name;
-`development_build()` reads the trust in this crate, and build.rs rebuilds it when
-the trust changes), a canvas answers a few questions about its picture from a look
+`EXACT_UPDATE_TRUST=production` refuses every look request by name; build.rs
+passes the trust to rustc, unset as `development`, and `development_build()` reads
+it, so a rebake with another trust recompiles this crate; `tests/trust.rs` checks
+the rlib a game links against the trust of the run that built it), a canvas answers a few questions about its picture from a look
 frame: the tick the agent's clock has reached, drawn once offscreen at the canvas's
 size with the renderer's probe armed (`renderer/probe.rs`), and read back. A look
 frame runs no simulation tick and moves no hash. A live frame carries none of it:
 each probe hook is one `Option` check, and a record is built only by a closure an
-armed probe calls. Hooks see the last live frame held, with no time passing, and
+armed probe calls. A look frame whose encode fails disarms every instrument, and a
+live frame clears any that are left. Hooks see the last live frame held, with no time passing, and
 the hook clock keeps that frame's time, so the next live frame's delta is the one
 it would have had. A look frame draws every sun caster itself and leaves the static
 shadow cache as the live frames left it. A canvas that draws (web, Apple, a Linux
@@ -735,42 +737,56 @@ until it has, and the driver asks again.
   (`near-white`), more than 5% of pixels clipped (`clipped`), a particle draw
   submitted to the camera of which no fragment is in front of the scene
   (`particles-uncovered`, one a draw, so one covered draw hides no other), and a
-  shadowed sun whose shadow passes drew no caster (`no-shadow-casters`). Each
+  shadowed sun whose shadow passes wrote no texel into its maps
+  (`no-shadow-casters`). Each
   writes a `look: …` line to the world's `logs` once per change; it stays out of
   the world's journal, which a save carries, so a tell never changes a save. A
   measurement a tell reads that the frame could not take is a gap, listed in
-  `look.gaps` (`particles: not measured (…)`, `sun casters: not measured (…)`, an
-  empty readback), and leaves a proof's look unverified, never passed. A reduced
+  `look.gaps` (`particles: not measured (…)`, `sun shadow maps: not measured (…)`,
+  an empty readback), and leaves a proof's look unverified, never passed. A reduced
   frame (`resolution` below 1, a contact sheet's) is a picture and is not judged.
   Tells see brightness and coverage, not colour or composition: a grey meadow, a
   model facing backwards and an overflowing panel take a look at the picture.
 - **Particle coverage** (`quad_coverage.rs`): counted by the particle draws
   themselves. While armed, each particle draw uses the probe variant of its own
   pipeline (`shaders/count.wgsl`, `soft_count.wgsl`): the same vertex path, dot
-  shape, texture alpha and soft fade, blended into the frame as ever, with each
-  fragment in front of the scene that moves an 8-bit pixel (alpha at least 1/255)
-  added to its draw's counter in a storage buffer. A draw that is not submitted, or
-  whose fragments are all transparent, counts nothing. The depth test is the
-  shader's, on the scene's depth, because a fragment's storage writes stand even
-  when a depth test after the shader drops it, and Metal runs that test after a
-  shader that writes memory; so a look frame with particles draws its translucency
-  in its own pass, as soft particles do. It is the same on every host that has
-  fragment storage writes, the web included. GL has none, and a scene copy draws
-  translucency over depth it writes: there the counts are unmeasured.
-- **Shadow casters**: the instances the sun shadow passes drew, from their draw
-  records and the cull's counts for each cascade. A direct frame (no GPU cull, the
-  iOS simulator) draws casters unculled and leaves the count unmeasured.
+  shape, texture alpha and soft fade, blended into the frame as ever. A fragment
+  counts when its contribution is above zero (alpha, times the brightest channel
+  for an additive draw) and it is in front of the scene's depth at one of the
+  samples it covers. A draw that is not submitted, or whose fragments are all
+  transparent, counts nothing. The depth test is the shader's, on the scene's
+  depth, because a fragment's storage writes stand even when a depth test after
+  the shader drops it, and Metal runs that test after a shader that writes memory;
+  so a look frame with particles draws its translucency in its own pass, as soft
+  particles do. build.rs assembles every quad module, validates it with naga, and
+  reflects the probe variants' counter group, from which the renderer takes its
+  layout, binding numbers and entry points. Limits, each a gap or a stated
+  meaning, not an approximation: GL has no fragment storage writes, and a scene
+  copy draws translucency over depth it writes, so there the counts are
+  unmeasured; the fragment's depth is its pixel centre's, compared at each sample
+  it covers; and a contribution too small to change an 8-bit pixel still counts,
+  so `particles-uncovered` means a draw contributed nothing at all.
+- **Shadow casters**: what the sun's shadow passes drew, read from their output.
+  After the passes, a look frame counts on the GPU the texels each cascade's map
+  holds nearer than its clear depth (`shaders/shadow_count.wgsl`, reflected at
+  build), and the tell reads those. The listing's caster instances come from the
+  shadow passes' draw records and the cull's counts for each cascade; a direct
+  frame (no GPU cull, the iOS simulator) draws casters unculled and lists them
+  as unknown.
 - **The cull's account** (cull.wgsl `probe`): after the passes, the cull's own
   functions run once more over every item into a buffer of the look frame's own:
   its world sphere (swept between ticks, skinned), the views whose frustum holds it,
-  and whether the camera's occlusion pyramid hides it.
+  whether the camera's occlusion pyramid hides it, and whether it is a level of
+  detail the frame does not draw.
 - **Draws**: each draw in pass order (occluders, sun shadow cascades, local shadow
   layers, the depth prepass, forward, translucent, post) with its batch (a
   primitive shape, a model and material, a particle look or a sprite's texture),
-  winding, pipeline variant, instances submitted and kept after culling (from the
-  camera's, cascades' and local shadow layers' indirect arguments), a particle
-  draw's counted fragments, whether it covered a sample and what it wrote. A hook's
-  draws, bloom's passes and ambient occlusion are one entry each, marked `summary`.
+  winding (camera-facing for quads), pipeline variant, instances submitted and kept
+  after culling (from the camera's, cascades' and local shadow layers' indirect
+  arguments), a particle draw's counted fragments, whether it covered a sample and
+  the attachments it writes (blended draws and the split translucent pass, whose
+  depth is read-only, write colour alone). A hook's draws, the outline hulls,
+  bloom's passes and ambient occlusion are one entry each, marked `summary`.
   Coverage there is an occlusion query around each draw of the forward and
   translucent passes, sized after the frame's groups are prepared: whether any
   sample passed the depth test, not how many (Metal's visibility results are
@@ -784,7 +800,8 @@ until it has, and the driver asks again.
   culled), `frustum`, `occluded` (dropped by the depth pyramid this frame),
   `outside-cascade <n>` (drawn, beyond every sun cascade), `no-particles` (an
   emitter with none live) or `drawn`. The cull's camera and cascade lists answer
-  for meshes and its account says which test dropped one; the CPU cull answers for
+  for meshes and its account says which test dropped one (`not-drawn` names a level
+  of detail not drawn when the account marks it); the CPU cull answers for
   blended models; for sprites and emitters the quads' own decision this frame
   answers: a texture not resident, outside the view by the quad's own extent about
   its anchor, or drawn.
@@ -794,18 +811,22 @@ until it has, and the driver asks again.
   item, and the displayed geometry of what the cull leaves out (`look_bounds.rs`:
   sprites by their quad about the anchor, emitters by their particles' reach,
   blended models and kept-whole groups by their boxes); in a direct frame, the
-  displayed geometry of all. The reply's `bounds` gives the centre and radius.
-  Presentation only.
+  displayed geometry of all. A skinned model's box there is its joints' spheres in
+  the frame's skin palette, read back, as the cull bounds it. The reply's `bounds`
+  gives the centre and radius; that camera frame's readback counts in
+  `state.world.perf.look`. Presentation only.
 
 The readback is the colour target (its size is `look.readbackBytes`), the particle
-counts, the query results, the cull's account and, for a culled frame, the indirect
+counts, the query results, the cull's account, each cascade's written texels, the
+skin palette where a record is skinned and, for a culled frame, the indirect
 arguments and the camera's compacted lists; `state.world.perf.look` counts the look
 frames and the bytes they read back. `tests/tells.rs` holds the negative controls: a
 near-black scene, a blown-out one, particles spawned under the ground, sparks whose
 fragments are all transparent and a shadowed sun with no caster in reach each trip
-their tell on both paths, and the same scenes corrected trip none; `look.rs`'s
-tests suppress the shadow drawing with the cull intact. `proof-look.test.mjs`
-fails a starter's web proof on buried sparks in the browser.
+their tell on both paths, and the same scenes corrected trip none. `tests/look.rs`
+holds the coverage limits: a square seen only through samples that sample 0 misses,
+and a 0.002-alpha dot added over black, each counted. `proof-look.test.mjs` fails a
+starter's web proof on buried sparks in the browser.
 
 ## Residency across restore
 

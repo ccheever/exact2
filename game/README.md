@@ -416,8 +416,9 @@ the look alone: the simulation result and its failures do not change, and a repi
 records its pins. A look the game intends is silenced by name in `app.json`,
 `"game": {"look": {"silence": ["near-black"]}}`, and still printed and recorded.
 The look passes only when every world any reply showed (a settle's or a state's
-world list, a tree's canvases) was looked at, at its close or in a judged frame, and
-every measurement a tell reads was taken. A world with no picture (the GPU-less host
+world list, a tree's canvases) was looked at, at its close, in a judged frame or by
+a `look(session)` from the game's camera, and every measurement a tell reads was
+taken. A world with no picture (the GPU-less host
 without a GPU, or a model-capable module there: `look: no picture on this host`), a
 drawing canvas with no picture, a look frame that failed, a world shown and never
 looked at, or a gap (`particles: not measured`) leaves it `UNVERIFIED`, named on a
