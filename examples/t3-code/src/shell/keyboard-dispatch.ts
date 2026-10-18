@@ -218,7 +218,7 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
     // ChatView activeThreadSettled: only an explicit settle makes ⇧⌘S un-settle; an automatic one is settled explicitly
     // (a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
     const settled = thread.settledOverride === 'settled';
-    add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
+    add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle-advance', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
     // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
     if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true) {
       const pinned = thread.pinnedAt != null;
