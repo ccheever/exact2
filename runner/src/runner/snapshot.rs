@@ -26,9 +26,6 @@ impl<D: DataSource> Runner<D> {
             .data
             .answer(&mut store, &name, &[Value::Number(now)])
             .map_err(|e| format!("refresh {name}: {e:?}"))?;
-        if !store.take_writes().is_empty() {
-            return Err("snapshot refresh cannot write the store in stage 1".into());
-        }
         let value = match answer {
             Answer::Now(value) => value,
             Answer::Later(request) => {
@@ -38,6 +35,9 @@ impl<D: DataSource> Runner<D> {
                 return Err("asynchronous widget refresh is not implemented".into());
             }
         };
+        if !store.take_writes().is_empty() {
+            return Err("snapshot refresh cannot write the store in stage 1".into());
+        }
         if !value.conforms(&self.plan, ty) {
             return Err(format!(
                 "refresh {name} returned a value outside its declared timeline type"

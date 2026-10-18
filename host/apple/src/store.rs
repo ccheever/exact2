@@ -490,6 +490,17 @@ pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, V
         .collect()
 }
 
+/// Widget builds share one group, explicitly supplied by their signed host.
+/// Other apps keep every existing path and Keychain service.
+pub(crate) fn group_root(app_id: &str) -> Option<std::path::PathBuf> {
+    if std::env::var("EXACT_APP_GROUP_APP").ok().as_deref() != Some(app_id) {
+        return None;
+    }
+    std::env::var_os("EXACT_APP_GROUP_ROOT")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -794,15 +805,4 @@ mod tests {
         );
         assert!(!file.exists());
     }
-}
-
-/// Widget builds share one group, explicitly supplied by their signed host.
-/// Other apps keep every existing path and Keychain service.
-pub(crate) fn group_root(app_id: &str) -> Option<std::path::PathBuf> {
-    if std::env::var("EXACT_APP_GROUP_APP").ok().as_deref() != Some(app_id) {
-        return None;
-    }
-    std::env::var_os("EXACT_APP_GROUP_ROOT")
-        .map(std::path::PathBuf::from)
-        .filter(|p| p.is_absolute())
 }

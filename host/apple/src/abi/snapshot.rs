@@ -32,6 +32,8 @@ impl<D: DataSource> Bridge<D> {
             None => Box::new(MonospaceMeasurer::default()),
         };
         let launch = self.launch_facts.clone();
+        let fonts = self.fonts;
+        let fonts_ctx = self.fonts_ctx;
         let result = exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 PlanBytes::Snapshot(
@@ -54,12 +56,20 @@ impl<D: DataSource> Bridge<D> {
                 None,
                 self.links.clone(),
                 self.fonts.map(|f| (f, self.fonts_ctx)),
-                |_| Ok(()),
+                move |runner| {
+                    if let Some(callback) = fonts {
+                        let stacks = runner.runtime_font_stacks();
+                        install_fonts(runner.plan(), &stacks, callback, fonts_ctx);
+                    }
+                    Ok(())
+                },
             )
         });
         match result {
             Ok((host, batch)) => {
-                self.host = Some(host);
+                self.executor = None;
+                let batch = Host::ending(self.host.replace(host), batch);
+                self.parked.clear();
                 self.emit(batch)
             }
             Err(e) => self.refuse(&format!("{e:?}")),
