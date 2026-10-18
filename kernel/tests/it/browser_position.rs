@@ -12,6 +12,9 @@
 //! or `Chrome 151 content minimum` were measured on 2026-10-18 with Chrome
 //! 151.0.7922.34, including full container and item frames for wrapping
 //! columns, automatic item minima and row controls.
+//! `Chrome 151 shrink-to-fit row max` uses the same version and date for
+//! capped absolute rows, rows inside capped absolute blocks, and controls
+//! for normal flow, no maximum, nowrap, widths below the maximum and columns.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),

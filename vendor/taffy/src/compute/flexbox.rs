@@ -1343,6 +1343,14 @@ fn collect_flex_lines<'a>(
         lines
     } else {
         let main_axis_available_space = match constants.max_size.main(constants.dir) {
+            // EXACT PATCH 47: max-content row width is measured without wrapping;
+            // the maximum clamps that width before the final, definite layout.
+            // Columns still wrap at max-height: MaxContent also represents the
+            // indefinite height offered by ordinary block layout.
+            // https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes
+            Some(_) if constants.is_row && available_space.width == AvailableSpace::MaxContent => {
+                AvailableSpace::MaxContent
+            }
             Some(max_size) => AvailableSpace::Definite({
                 let available = available_space.main(constants.dir).into_option().unwrap_or(max_size);
                 // If the container's main size is not definite then it is at most the max main size,

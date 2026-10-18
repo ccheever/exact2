@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42 and 43 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46 and 47 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1332,6 +1332,24 @@ and positive and negative margins. The added cases had 100 frame mismatches
 before this patch. The nowrap and row defects also reproduce on origin/main
 before patch 45; its available-space floor masked the reported wrapping-column
 case.
+
+## Patch 47: measure a capped row's max-content width without wrapping
+
+`collect_flex_lines` preserves a row's `MaxContent` width constraint when it
+has a maximum. All items contribute to one line, as
+[CSS Flexbox §9.9.1](https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes)
+requires; the existing size clamp then applies the maximum, and the final
+definite layout wraps within that width. Columns retain maximum-based wrapping:
+ordinary block layout also uses `MaxContent` for indefinite vertical space.
+Balanced wrapping is unchanged and remains disabled in the kernel.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+16 full container/item frame cases measured in Chrome 151.0.7922.34 on
+2026-10-18. Absolute rows and rows inside capped absolute blocks are 100×90
+with three 60×30 items; reversed items start at x=40. Controls cover normal
+flow, no maximum in a 100px containing block, nowrap, contents narrower than
+the maximum, and absolute and normal-flow columns in both directions. The
+added cases had 12 frame mismatches before this patch.
 
 ## Cargo workspace boundary
 
