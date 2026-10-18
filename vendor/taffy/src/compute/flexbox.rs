@@ -300,13 +300,17 @@ pub fn compute_flexbox_layout(
     }
 
     debug_log!("FLEX:", dbg:style.flex_direction());
-    drop(style);
 
-    // Normalize the definiteness flags: they only apply to dimensions which were passed in as known
-    // by the parent. Dimensions resolved from the node's own style are always definite.
-    let known_dimensions_are_definite = inputs
+    // Parent flags apply only to supplied dimensions. Resolved preferred sizes are definite.
+    let mut known_dimensions_are_definite = inputs
         .known_dimensions_are_definite
         .zip_map(known_dimensions, |is_definite, known_dimension| is_definite || known_dimension.is_none());
+    // EXACT PATCH 44: equal or inverted height bounds fix a row's used height,
+    // but do not make its automatic cross size definite for flex basis sizing.
+    if style.flex_direction().is_row() && known_dimensions.height.is_none() && clamped_style_size.height.is_none() {
+        known_dimensions_are_definite.height = false;
+    }
+    drop(style);
 
     let mut output = compute_preliminary(
         tree,

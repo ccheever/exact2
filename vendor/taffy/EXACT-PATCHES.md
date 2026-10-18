@@ -1264,6 +1264,29 @@ modes and grid items with `width:max-content;height:max-content`, whose keywords
 are not exposed by the kernel. The grid, column and square stay 200px tall at a
 bounded 200px width.
 
+## Patch 44: distinguish a flex row's used height from a definite height
+
+An absolute box's final layout retains whether its height was known before
+content measurement. Authored heights, opposing insets and resolved ratios stay
+definite; a measured automatic height stays indefinite even after min/max
+clamping. The existing `known_dimensions_are_definite` input carries this
+information through the layout cache. A flex row's equal or inverted height
+bounds also supply only a used height, unless a preferred or caller-supplied
+height makes it definite. Width and column bound promotion are unchanged.
+
+Flex items therefore keep the main sizes determined before final cross-axis
+stretching, as [CSS Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#cross-sizing)
+requires. An absolute auto-height row capped at 100px keeps its two padded
+canvases at 320px wide inside a 640px row; an authored 100px height still gives
+180px items inside a 360px row. No flex-grow-specific rule or saved basis is needed.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_height_bounds_do_not_make_auto_height_definite`:
+36 literal Chrome 151.0.7922.34 cases measured on 2026-10-18, including zero-grow
+and growing canvases, natural and authored border-box ratios, a maximum alone,
+equal and inverted bounds, absolute rows, rows inside absolute blocks and normal
+flow rows. The existing patch 40 and 41 cases retain authored and opposing-inset
+heights, wrapping and auto-margin controls; patch 43's column cases still pass.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
