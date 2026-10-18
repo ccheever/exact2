@@ -379,7 +379,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertNil(host(p).shown(try XCTUnwrap(p.views[4])), "a node no list draws: the ordinary aim")
         // The dispatch log tells one row's switch from another's, and from
         // its cell: the node alone is the list's for all of them.
-        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch"])
+        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch", "target": 13]) // (its control's node: inspect mode selects it)
         XCTAssertEqual(GroupedListHost.part(toggle.contentView) as? [String: AnyHashable], ["row": 12, "part": "cell"])
         XCTAssertNil(GroupedListHost.part(l.collection))
         // A switch not shown is refused, never the row in its place.
@@ -1140,7 +1140,8 @@ final class GroupedListIOSTests: GroupedListFixture {
     /// LLP 1116.002 D2, round 4's countdowns: the commit that lands while a
     /// sheet covers the list (the saved event's refresh, before `then`
     /// closes the form) inserts a row and a sibling section, the "next up"
-    /// card, and grows a row; the sheet holds their boxes until it closes.
+    /// card, and grows a row. The list behind keeps the document's layout
+    /// while the sheet is up, so their boxes apply at once (LLP 1123 D1).
     /// All of it shows on the batch that closes the sheet, not after the
     /// screen is left: a cell first sized to nothing is one UIKit never
     /// shows again, and a box given back to a row that a layout pass in that
@@ -1174,11 +1175,11 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]],
             ["op": "roots", "ids": [95]],
         ]))
-        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, node: route, preceding: nil, owner: owner)
+        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, preceding: nil, owner: owner)
         XCTAssertEqual(p.modals.routes.count, 1, "the sheet is up")
 
         // The refresh, under the sheet: a "next up" section first, a new row
-        // under the others, and row 21 grown. The sheet holds every box.
+        // under the others, and row 21 grown.
         m.sections.insert(.init(view: 69, header: nil, footer: nil, rows: [Row(view: 71, custom: true)]), at: 0)
         m.sections[2].rows.append(Row(view: 80, custom: true, pressable: true))
         let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
@@ -1197,8 +1198,7 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "frame", "id": 80, "x": 16.0, "y": 143.0, "w": 354.0, "h": 73.0],
             ["op": "frame", "id": 81, "x": 16.0, "y": 26.0, "w": 100.0, "h": 21.0],
         ]))
-        for id: UInt32 in [71, 80, 21] { XCTAssertTrue(p.modals.holdsGeometry(id), "the sheet holds #\(id)'s box") }
-        XCTAssertEqual(p.views[80]?.frame.height, 0, "no box yet")
+        XCTAssertEqual(p.views[80]?.frame.height ?? 0, 73, accuracy: 0.5, "the box applies under the sheet")
 
         // The batch that closes it, as navigation's sync does mid-batch; UIKit
         // laid the list out in that batch, carrying its shown rows again.
@@ -1220,9 +1220,9 @@ final class GroupedListIOSTests: GroupedListFixture {
         try shown(80, 72, "the new row")
         try shown(21, 90, "the grown row")
         // The next batch gives the rows back and carries them again at
-        // their boxes, the ones the sheet held.
+        // their boxes.
         p.apply(wireBatch([["op": "props", "id": 95, "set": ["testId": "root"], "clear": [String]()]]))
-        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the replayed box, kept")
+        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the box, kept")
         try shown(21, 90, "the grown row, after a batch")
         try shown(80, 72, "the new row, after a batch")
     }

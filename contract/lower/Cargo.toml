@@ -20,15 +20,21 @@ contract-syntax = { path = "../syntax" }
 contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
+# The route table a warning matches locations against (`lower-replace-root`).
+exact-route = { path = "../../route" }
 exact-motion = { path = "../../motion" }
 exact-num = { path = "../../num" }
 # Which literal is a colour, for the one-scheme warning (LLP 1116.002 D1).
 exact-color = { path = "../../color" }
+# The build's one design evaluator (LLP 1121 D2): `theme` and `app.tamber`.
+exact-tamber = { path = "../../tamber" }
 
 # CLDR script direction is baked per table; no locale data ships in a host.
 icu_locale = "=2.3.0"
 # A declared sound's digest in the plan (LLP 1096 D1).
 sha2 = "0.10"
+# The targets `app.json` ships, which an icon needs a source for (LLP 1121 D10).
+serde_json = "1.0"
 
 [build-dependencies]
 # The kernel schema's style defaults, for `contract vocab`.

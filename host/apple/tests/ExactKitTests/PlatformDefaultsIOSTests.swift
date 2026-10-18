@@ -228,22 +228,24 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(editors[2].isFirstResponder, "Next from the last field puts the keyboard away")
     }
 
-    /// LLP 1115.000 D9.3: the Return key's label is the system's unless
-    /// `enterkeyhint` names another. A `submit` handler does not make it Go,
-    /// which was Safari's rule for a form.
-    func testReturnsLabelIsTheSystemsUnlessTheAuthorNamesOne() throws {
+    /// LLP 1116.019 D5 (replacing LLP 1115.000 D9.3's system label): an
+    /// unsaid Return on a single-line field says Done, which is what it
+    /// does there, and `enterkeyhint` names another. A `submit` handler does
+    /// not make it Go, which was Safari's rule for a form.
+    func testReturnSaysDoneUnlessTheAuthorNamesAnother() throws {
         let (_, fields, editors) = try threeFields()
         fields[0].handlers = ["change", "submit"]
         fields[0].applyProps(set: ["placeholder": "Add"], clear: [])
-        XCTAssertEqual(editors[0].returnKeyType, .default, "a field that submits keeps the system's Return")
+        XCTAssertEqual(editors[0].returnKeyType, .done, "a field that submits says Done too")
+        XCTAssertNil(fields[0].props["enterKeyHint"], "the hint is the host's, not the document's")
         fields[0].applyProps(set: ["enterKeyHint": "go"], clear: [])
         XCTAssertEqual(editors[0].returnKeyType, .go, "an authored Go is Go")
         fields[0].applyProps(set: ["enterKeyHint": "send"], clear: [])
         XCTAssertEqual(editors[0].returnKeyType, .send)
         fields[0].applyProps(set: [:], clear: ["enterKeyHint"])
-        XCTAssertEqual(editors[0].returnKeyType, .default, "the word taken away: the system's again")
-        // The system's label for a search field is Search, as UISearchBar's
-        // own field has it; `enter` asks for the plain key there too.
+        XCTAssertEqual(editors[0].returnKeyType, .done, "the word taken away: Done again")
+        // A search field's is Search, as UISearchBar's own field has it;
+        // `enter` asks for the plain key there too.
         fields[1].applyProps(set: ["type": "search"], clear: [])
         XCTAssertEqual(editors[1].returnKeyType, .search)
         fields[1].applyProps(set: ["enterKeyHint": "enter"], clear: [])
@@ -366,6 +368,28 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         let bare = try XCTUnwrap(commands.first { $0.input == "f" })
         XCTAssertEqual(bare.title, "")
         XCTAssertEqual(commands.count, 3)
+    }
+
+    /// A native button that invokes a popover answers its shortcut with no
+    /// handler, as on the Mac; one whose target names nothing does not.
+    func testAHandlerlessNativeInvokersShortcutIsAKeyCommand() throws {
+        let native: [String: Any] = ["appearance": "auto", "text_color": [0, 0, 0, 255]]
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "control", "handlers": [], "style": native,
+             "props": ["type": "button", "accessibilityRole": "button", "accessibilityKeyShortcuts": "Meta+k", "popovertarget": "more"]],
+            ["op": "create", "id": 3, "kind": "control", "handlers": [], "style": native,
+             "props": ["type": "button", "accessibilityRole": "button", "accessibilityKeyShortcuts": "Meta+j", "popovertarget": "nothing"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["id": "more", "popover": "auto"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 44.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 50.0, "w": 100.0, "h": 44.0],
+        ])
+        let commands = p.shortcutCommands(#selector(UIResponder.resignFirstResponder))
+        XCTAssertNotNil(commands.first { $0.input == "k" }, "it invokes the popover")
+        XCTAssertNil(commands.first { $0.input == "j" }, "it invokes nothing")
     }
 
     /// LLP 1115.000 D12.5: the bar's title is a heading by its role. An

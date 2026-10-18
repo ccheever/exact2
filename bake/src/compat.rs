@@ -123,6 +123,28 @@ pub fn compatibility_id_sources(
     grants: Option<&str>,
     rust_grants: Option<&str>,
 ) -> Result<Compat, String> {
+    compatibility_id_sources_with_entries(
+        app_dir,
+        platform,
+        target,
+        manifest,
+        grants,
+        rust_grants,
+        None,
+    )
+}
+
+/// Reuse entry plans already compiled for source declarations and refresh checks.
+/// With `None`, compatibility generation compiles the manifest's entries itself.
+pub fn compatibility_id_sources_with_entries(
+    app_dir: &Path,
+    platform: &str,
+    target: &str,
+    manifest: &Manifest,
+    grants: Option<&str>,
+    rust_grants: Option<&str>,
+    entries: Option<&std::collections::BTreeMap<String, contract::snapshot::Entry>>,
+) -> Result<Compat, String> {
     // Cargo must rebake even when only the explicit trust selection changes.
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
@@ -159,14 +181,22 @@ pub fn compatibility_id_sources(
         if matches!(platform, "ios" | "macos") {
             crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
         }
+        let compiled;
+        let entries = match entries {
+            Some(entries) => entries,
+            None => {
+                compiled = contract::snapshot::entries(app_dir)?;
+                &compiled
+            }
+        };
         crate::receipt::emit(
             &mut compat,
             &trust,
             app_dir,
-            platform,
-            target,
+            (platform, target),
             manifest,
             Path::new(&out),
+            entries,
         )?;
     }
     Ok(compat)
@@ -217,8 +247,10 @@ fn commands_digest() -> String {
         let shape = match *name {
             "share" => "3",
             "showNotification" => "5",
-            "closeNotification" | "stopSounds" | "playSounds" => "1",
-            "playSound" => "4",
+            "closeNotification" | "stopSounds" => "1",
+            "playSounds" => "1:4|5|6",
+            "playSound" => "6",
+            "sendMIDI" => "3",
             "scrollIntoView" => "4|7",
             "saveFile" => "3|4",
             _ => "positional",
@@ -264,7 +296,7 @@ fn compatibility_with_trust(
     let (channel, origin) = if binary_only {
         (String::new(), None)
     } else {
-        manifest.channel()
+        manifest.channel()?
     };
     if trust == "production"
         && (store != "0" || origin.is_some())
@@ -360,7 +392,10 @@ fn compatibility_with_trust(
         // without the executor refuses the build; a change is a new cohort.
         "typescriptPlacement": manifest.placement("typescript", platform)?,
         "rustPlacement": manifest.placement("rust", platform)?,
-        "dataCrate": data_crate(app_dir)?,
+        // A binary that replaces its Rust module binds the module's ABI,
+        // target and grants above, never the source it was first built
+        // from: an edit there is an update, not a new cohort (LLP 1029.000 §7).
+        "dataCrate": if rust_mode == "off" { data_crate(app_dir)? } else { Value::Null },
         // Each shader's reflected interface digest (LLP 1030 D8) — entry
         // points, bindings, layouts, inputs, outputs, overrides, never the
         // text — so a colour edit does not move the id and a binding edit
@@ -406,6 +441,13 @@ fn compatibility_with_trust(
                 inputs["protocolHandlers"] = handlers.clone();
             }
         }
+    }
+    let widgets = manifest.widgets()?;
+    if !widgets.is_empty() {
+        inputs["widgets"] = json!(widgets
+            .iter()
+            .map(|w| json!({"kind":w.kind,"families":w.families,"title":w.title,"description":w.description}))
+            .collect::<Vec<_>>());
     }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
@@ -502,17 +544,30 @@ fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
         Some(r) => serde_json::Value::String(r?),
         None => serde_json::Value::Null,
     };
+    let toolchain = toolchain().map_or(serde_json::Value::Null, serde_json::Value::String);
+    Ok(
+        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
+    )
+}
+
+/// The toolchain's version line (`$RUSTC --version`), asked once per process and per
+/// `RUSTC`: a process computes many ids, and a compiler does not change under it.
+fn toolchain() -> Option<String> {
+    static ASKED: std::sync::Mutex<Vec<(String, Option<String>)>> =
+        std::sync::Mutex::new(Vec::new());
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
-    let toolchain = std::process::Command::new(rustc)
+    let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, version)) = asked.iter().find(|(name, _)| *name == rustc) {
+        return version.clone();
+    }
+    let version = std::process::Command::new(&rustc)
         .arg("--version")
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .map_or(serde_json::Value::Null, serde_json::Value::String);
-    Ok(
-        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
-    )
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    asked.push((rustc, version.clone()));
+    version
 }
 
 /// Every file under `root`, as paths relative to it, skipping a `target`
@@ -684,6 +739,38 @@ mod tests {
     }
 
     #[test]
+    fn widget_gallery_labels_require_a_new_binary_cohort() {
+        let dir = app("widget-label-cohort");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        manifest.json["widgets"] = serde_json::json!([{"kind":"card","families":["systemSmall"],
+            "component":"Card","props":"Props","refresh":"refresh","preview":{}}]);
+        let build = |manifest: &Manifest| {
+            compatibility_with_trust(
+                &dir,
+                "ios",
+                "aarch64-apple-ios",
+                manifest,
+                Some(""),
+                "development",
+            )
+            .unwrap()
+        };
+        let original = build(&manifest);
+        for key in ["title", "description"] {
+            let mut labelled = manifest.clone();
+            labelled.json["widgets"][0][key] = serde_json::json!("Next trains");
+            assert_ne!(original.id, build(&labelled).id, "{key} is generated Swift");
+        }
+        manifest.json["widgets"][0]["preview"] = serde_json::json!({"title":"new preview"});
+        assert_eq!(
+            original.id,
+            build(&manifest).id,
+            "preview props ride the bundle"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn list_scroll_offset_requires_a_new_binary_cohort() {
         use sha2::{Digest, Sha256};
         let digest = |list_shape: &str| {
@@ -692,8 +779,10 @@ mod tests {
                 let shape = match *name {
                     "share" => "3",
                     "showNotification" => "5",
-                    "closeNotification" | "stopSounds" | "playSounds" => "1",
-                    "playSound" => "4",
+                    "closeNotification" | "stopSounds" => "1",
+                    "playSounds" => "1:4|5|6",
+                    "playSound" => "6",
+                    "sendMIDI" => "3",
                     "scrollIntoView" => list_shape,
                     "saveFile" => "3|4",
                     _ => "positional",
@@ -1165,6 +1254,37 @@ mod tests {
             );
             ids.push(receipt.id);
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_replaceable_rust_module_keeps_its_source_out_of_the_cohort() {
+        let dir = app("rust-source");
+        std::fs::create_dir_all(dir.join("data/src")).unwrap();
+        let mut manifest = Manifest::read(&dir).unwrap();
+        let id = |manifest: &Manifest, source: &str| {
+            std::fs::write(dir.join("data/src/lib.rs"), source).unwrap();
+            let receipt = compatibility_with_trust(
+                &dir,
+                "macos",
+                "aarch64-apple-darwin",
+                manifest,
+                Some(""),
+                "production",
+            )
+            .unwrap();
+            (receipt.id, receipt.inputs["dataCrate"].clone())
+        };
+        manifest.json["deploy"] = serde_json::json!({"signing":{"key":"k","keys":{"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}});
+        manifest.json["rust"] =
+            serde_json::json!({"mode":"native","module":{"package":"app-logic"}});
+        let (before, data) = id(&manifest, "pub const A: u8 = 1;");
+        assert!(data.is_null(), "{data}");
+        assert_eq!(id(&manifest, "pub const A: u8 = 2;").0, before);
+        manifest.json["rust"] = serde_json::json!({"mode":"off","module":{"package":"app-logic"}});
+        let (off, data) = id(&manifest, "pub const A: u8 = 1;");
+        assert!(!data.is_null());
+        assert_ne!(id(&manifest, "pub const A: u8 = 2;").0, off);
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -1,0 +1,25 @@
+# T3 Code's data crate: the Rust half of the app's data source, the chat Markdown, composed with
+# the TypeScript module. It does no I/O when it runs, so every host links it; its build script
+# makes the app's generated sources. @ref LLP 1004 D4.
+[package]
+name = "t3-code-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "T3 Code's chat Markdown: the sources app.ts leaves to Rust"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "t3_code_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-data = { path = "../../../data" }
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+markdown-parse = { path = "../../../apps/markdown/parse" }
+unicode-general-category = "1.1.0"
+
+[build-dependencies]
+exact-bake = { path = "../../../bake" }

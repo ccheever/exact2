@@ -41,7 +41,76 @@ fn fits(px: f64) -> bool {
     size.is_finite() && size > 0.0
 }
 
+/// What Bold Text needs of a boot (LLP 1115.000 D12.3): the person's
+/// setting, and which of the plan's font stacks are the system's (its first
+/// member a generic family, not one the app names).
+pub(super) fn bold_text_facts(
+    kernel: &mut exact_kernel::Kernel,
+    plan: &exact_plan::Plan,
+    on: bool,
+) {
+    system_stacks(kernel, plan, &[]);
+    kernel.set_bold_text(on);
+}
+
+/// Before a commit: a runtime font stack interned since the last says
+/// whether it is the system's ([`system_stacks`]).
+pub(super) fn runtime_stacks(
+    kernel: &mut exact_kernel::Kernel,
+    plan: &exact_plan::Plan,
+    fonts: &crate::bridge::RuntimeFonts,
+) {
+    if plan.stacks.len() + fonts.names().len() != kernel.system_stack_count() {
+        system_stacks(kernel, plan, fonts.names());
+    }
+}
+
+/// Which font stacks are the system's ([`bold_text_facts`]): the plan's,
+/// then the runtime lists a binding interned (`system-ui, sans-serif`), a
+/// list whose first member is a generic family the author did not quote.
+pub(super) fn system_stacks(
+    kernel: &mut exact_kernel::Kernel,
+    plan: &exact_plan::Plan,
+    runtime: &[String],
+) {
+    const GENERICS: [&str; 8] = [
+        "system-ui",
+        "ui-sans-serif",
+        "sans-serif",
+        "ui-serif",
+        "serif",
+        "ui-monospace",
+        "monospace",
+        "ui-rounded",
+    ];
+    let compiled = plan.stacks.iter().map(|stack| {
+        plan.stack_members[stack.members.start as usize..][..stack.members.len as usize]
+            .first()
+            .is_some_and(|m| m.kind != exact_plan::StackMemberKind::Family)
+    });
+    let runtime = runtime.iter().map(|list| {
+        crate::bridge::runtime_family_members(list)
+            .first()
+            .is_some_and(|m| !m.quoted && GENERICS.contains(&m.name.to_ascii_lowercase().as_str()))
+    });
+    kernel.set_system_stacks(compiled.chain(runtime).collect());
+}
+
 impl<D: DataSource> Runner<D> {
+    /// What a document commit tells the kernel beside its ops: the page's
+    /// language and direction. And first, a runtime font stack interned
+    /// since the last commit says whether it is the system's (LLP 1115.000
+    /// D12.3, [`runtime_stacks`]).
+    pub(super) fn document_facts(&mut self) -> (String, exact_kernel::Direction) {
+        runtime_stacks(&mut self.kernel, &self.plan, &self.fonts.borrow());
+        let direction = if self.direction() == "rtl" {
+            exact_kernel::Direction::Rtl
+        } else {
+            exact_kernel::Direction::Ltr
+        };
+        (self.resolved_locale().to_owned(), direction)
+    }
+
     /// The root font size in CSS pixels, as last set; 16 until a host says.
     pub fn root_font_size(&self) -> f64 {
         self.kernel.root_font_size() as f64
@@ -96,6 +165,22 @@ impl<D: DataSource> Runner<D> {
             // the one the tree was laid out at.
             let _ = self.kernel.set_root_font_size(previous);
             self.root_font.host = host;
+        }
+        result.map(Some)
+    }
+
+    /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
+    /// setting, which weights the system font (an authored weight
+    /// included) and leaves a family the app ships alone. A change commits
+    /// every text again, at the weight it now means; the same setting
+    /// commits nothing.
+    pub fn set_bold_text(&mut self, on: bool) -> Result<Option<CommitReceipt>, RunnerError> {
+        if !self.kernel.set_bold_text(on) {
+            return Ok(None);
+        }
+        let result = self.commit_again(Vec::new(), "bold text");
+        if result.is_err() {
+            let _ = self.kernel.set_bold_text(!on);
         }
         result.map(Some)
     }

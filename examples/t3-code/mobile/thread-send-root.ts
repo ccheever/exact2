@@ -1,5 +1,5 @@
 // App-local invocation adapter for pinned ThreadComposer/ThreadDetailScreen Send.
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import type {MobileDraftClient} from './mobile-draft-recovery';
 import {mobileThreadSendRead,mobileThreadSendSubmit,type ThreadSendControllerInput,type ThreadSendCommandContext} from './thread-send-controller';
 import {mobileThreadSendRecoveryRead,mobileThreadSendRecoveryAction,mobileThreadSendRecoveryPresentation,type ThreadSendRecoveryView} from './thread-send-recovery';

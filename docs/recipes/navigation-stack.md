@@ -1,12 +1,12 @@
 # Recipe: a navigation stack
 
 A list that pushes a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
-A second screen is a route (`if` over state gets no Back, links or split). Each route block
-fills its `if`.
+A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
 `aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route without
-one gets the system Back (`contract vocab header`).
+one gets the system Back (`contract vocab header`); iOS titles Back with the
+route's `button id="back"` text.
 
 <!-- check: app -->
 ```contract
@@ -106,11 +106,11 @@ which the swipe down presses.
 ```contract
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
   header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-    button id="back" press=back
-      text "Cancel"
+    button id="back" press=back aria-label="Cancel"
+      image "symbol:close"
     text "New Note" role="heading"
-    button press=save buttonStyle="filled" testId="add-save"
-      text "Save"
+    button press=save buttonStyle="bordered-prominent" aria-label="Save" testId="add-save"
+      image "symbol:checkmark"
   list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
       row
@@ -135,11 +135,13 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- The alert holds text, closing buttons and one Cancel; any other modal is a sheet (`push`,
-  `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
-- Covered routes stay mounted: no two screens share a `testId`. In tests, `clock settle` after a
-  push, sheet or alert; `clock data` before a save's read.
-- A wide window (900 px up) shows the list beside its detail when its rows push (a `link`, or a
-  `press` that writes the router); `follow` replaces it; `navigationSplit="none"` keeps it pushed.
-- A location no route matches keeps its URL and shows not-found with a way home, unless the
-  routes declare `notfound`; a detail whose id names nothing says so.
+- An alert's `aria-label` is its title. Escape/Back chooses Cancel; only written
+  `closedby="any"` dismisses outside. Another modal is a sheet, closed on ok
+  ([after-a-write](after-a-write.md)).
+- Routes stay mounted: use unique `testId`s. `clock settle` follows a push, sheet or alert;
+  `clock data` precedes reading a save.
+- At 900 px up, pushed rows split list and detail; `follow` replaces it and
+  `navigationSplit="none"` keeps it pushed.
+- A run (a workout, a quiz) has one exit, which ends it or asks; no Back leaves it running.
+- An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
+  says so.

@@ -100,7 +100,7 @@ The same invariants, minus the Duo, run everywhere through `prefer segments 2x1 
 
 ## Not doing
 
-Rotation and Split View on the Duo simulator (the 27.1 beta ignores CoreDevice orientation; LLP 1008); a hinge-angle fact; a posture-driven engine policy (an app chooses, as with reduced motion); container queries (LLP 1039 D5); `env(keyboard-inset-*)` (LLP 1008 §9, still not built).
+Rotation and Split View on the Duo simulator (the 27.1 beta ignores CoreDevice orientation; LLP 1008; rotation came later, "As built (rotation)"); a hinge-angle fact; a posture-driven engine policy (an app chooses, as with reduced motion); container queries (LLP 1039 D5); `env(keyboard-inset-*)` (LLP 1008 §9, still not built).
 
 ## As built (core half: D1–D7, D10; 2026-10-02, lane/duo-core)
 
@@ -542,3 +542,16 @@ the agent: the keyboard rises to 346 pt, the viewport goes 428×926 → 428×580
 fields take text, dismiss restores 926 with the sheet at 526; five push → type → dismiss →
 back cycles in 16 s, the keyboard 346 each time, no silence. A non-foldable reports
 `continuous`, 1 × 1, no segments.
+
+## As built (rotation, 2026-10-16)
+
+`smoke duo`'s rotate leg turns the Duo simulator with the vendor HID event Device Hub's
+orientation picker sends (`scripts/duo/hinge_helper.c orient`), at 180°, 130° and 0°:
+right, upside down, left and upright again, each turn confirmed by CoreDevice before the
+session is read. At every turn the session reports the scene's interface orientation and
+the panel and safe area a plain UIKit app reported open and closed (measured 2026-10-15),
+which the turns at 130° expect of the inner panel too; at 130° turned on its side, the
+inner panel's two segments run down it, (0, 0, 669, 455.5) over (0, 495.5, 669, 455.5),
+and duo-lab's Fold panes follow them. On the cover panel an iPhone app keeps its last
+orientation when the device turns upside down. The suite starts and ends with the device
+upright, so the recorded panel applies on a simulator left turned.

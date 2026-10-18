@@ -198,6 +198,14 @@ impl<D: DataSource> Runner<D> {
         token: ReorderToken,
         geometry: ReorderGeometry,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.arrived(|r| r.drop_reorder_now(token, geometry))
+    }
+
+    fn drop_reorder_now(
+        &mut self,
+        token: ReorderToken,
+        geometry: ReorderGeometry,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if self.is_grouped(token) {
             return self.drop_group(token, geometry);
         }
@@ -212,13 +220,17 @@ impl<D: DataSource> Runner<D> {
         // Reset targets join the action's one instance commit. The descriptor is
         // already terminal, so reentry cannot dispatch twice or reacquire it.
         self.reorder_ops.extend(ops);
+        let queued = &self.reorder_ops;
+        self.reorder_kept = exact_kernel::style::wide::Keep::of(|m| {
+            exact_kernel::style::wide::Colors::colors(&queued[..], m)
+        });
         self.set_phase(token, ReorderPhase::Settling);
         let view = self.kernel.node_by_key(token.list).unwrap().id;
         let result = self.dispatch(view, Event::ReorderDrop { item, before });
         if result.is_err() {
             // Action validation/data refusal may precede apply. Do not leak its
             // queued style operations into a later unrelated user action.
-            let ops = std::mem::take(&mut self.reorder_ops);
+            let (ops, _kept) = self.take_reorder_ops();
             self.apply_reorder_ops(ops)?;
         }
         result.map(Some)
@@ -353,6 +365,14 @@ impl<D: DataSource> Runner<D> {
             (r, ops)
         });
         result.map_err(Into::into)
+    }
+    /// The queued patches, taken to be applied, and the keep of their
+    /// colours, for the caller to hold until its commit marks them.
+    pub(super) fn take_reorder_ops(&mut self) -> (Vec<Op>, exact_kernel::style::wide::Keep) {
+        (
+            std::mem::take(&mut self.reorder_ops),
+            std::mem::take(&mut self.reorder_kept),
+        )
     }
     pub(super) fn apply_reorder_ops(
         &mut self,

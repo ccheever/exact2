@@ -3,7 +3,7 @@ import AVFoundation
 import WebKit
 import XCTest
 
-// browser-surface part 3 (capture): the recording (T3BrowserRecorder.swift, assets/browser-recording.js).
+// The recording (T3BrowserRecorder.swift, assets/browser-recording.js).
 // Ported reference tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names:
 // apps/web/src/browser/recordingCompositor.test.ts (7: "recording decorations" 5, "detached recording
 // compositor" 2, the it.each rows as …False / …True). Substitutions: the canvas context is a T3RecordingCanvas
@@ -384,7 +384,7 @@ final class BrowserRecordingTests: XCTestCase {
         XCTAssertNil(arm(page))
         XCTAssertNotNil(capture(page, fps: 30))
         XCTAssertTrue(page.recording.useDecorations(showKeyPresses: true, showMousePresses: true, primaryColor: "#7c3aed"))
-        // A pop-up shares the tab's configuration (and so the handler), as part 1's pop-ups do.
+        // A pop-up shares the tab's configuration (and so the handler), as the Browser tab's pop-ups do.
         let popup = WKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: page.configuration)
         let loaded = RecordingPage.Loaded()
         popup.navigationDelegate = loaded

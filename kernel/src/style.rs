@@ -33,7 +33,7 @@ use handles::calc_handle;
 pub(crate) use handles::{calc_handle_in, resolve_calc, tree_handle, LayoutEnv};
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Region, SegmentVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
@@ -47,9 +47,11 @@ pub mod profiled;
 pub mod relative;
 pub mod roles;
 mod shadow;
+pub mod sides;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
+pub mod theme;
 pub mod wide;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
@@ -77,6 +79,8 @@ pub enum Dimension {
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
+    /// A layout region's inset at an edge plus points (LLP 1123 D10; [`env`]).
+    Region(Region, Edge, f32),
     /// A viewport segment's length (LLP 1078 D3): `env(viewport-segment-<var>
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
@@ -99,6 +103,7 @@ impl Dimension {
             | Dimension::Percent(v)
             | Dimension::Viewport(_, v)
             | Dimension::Env(_, v)
+            | Dimension::Region(_, _, v)
             | Dimension::Segment(_, _, _, v) => v.is_finite(),
             Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
         }
@@ -114,8 +119,7 @@ impl Dimension {
         }
     }
 
-    /// A math function as the dimension it simplifies to ([`calc`]), or
-    /// `None`.
+    /// A math function as the dimension it simplifies to ([`calc`]), or `None`.
     pub fn parse_calc(text: &str) -> Option<Dimension> {
         calc::parse(text).ok().flatten()
     }
@@ -139,9 +143,7 @@ impl Dimension {
     /// [`StyleProps::to_taffy`] substitutes exactly before lowering.
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
-            Dimension::Env(edge, plus) => {
-                Dimension::Points(calc::narrow(f64::from(env.inset(edge)) + f64::from(plus)))
-            }
+            Dimension::Env(..) | Dimension::Region(..) => env::resolve_inset(self, env),
             Dimension::Viewport(unit, n) => Dimension::Points(calc::narrow(
                 f64::from(unit.basis(env)) * f64::from(n) / 100.0,
             )),
@@ -317,11 +319,11 @@ pub enum StyleValue<'a> {
 }
 
 impl StyleValue<'_> {
-    /// Whether this value is a CSS-wide keyword that leaves row `style`
-    /// unset — inherited, else initial — which is what clearing the row
-    /// does: `unset`, and `inherit` on an inherited row (`color:
-    /// currentcolor` is `inherit`). `inherit` on any other row needs its
-    /// parent's value, which no row holds, so it stays refused (feed F1).
+    /// Whether this value leaves row `style` unset — inherited, else
+    /// initial — which is what clearing the row does: an empty string, which
+    /// declares nothing (CSSOM's `setProperty(p, "")`), `unset`, and `inherit`
+    /// on an inherited row (`color: currentcolor` is `inherit`). `inherit` on
+    /// any other row needs its parent's value, which no row holds, so it stays refused (feed F1).
     pub fn unsets(&self, style: StyleId) -> bool {
         let StyleValue::Text(t) = self else {
             return false;
@@ -329,12 +331,12 @@ impl StyleValue<'_> {
         Self::text_unsets(t, style)
     }
 
-    /// [`Self::unsets`] for borrowed text, before a producer allocates a
-    /// style value. Dynamic bindings use this on every changed row.
+    /// [`Self::unsets`] for borrowed text; dynamic bindings ask it of every changed row.
     pub fn text_unsets(t: &str, style: StyleId) -> bool {
         // A metric with no row on this platform (LLP 1115.002 D6).
         let t = metrics::text(t).unwrap_or(t).trim();
-        t.eq_ignore_ascii_case("unset")
+        t.is_empty()
+            || t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
             || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
             // @ref LLP 1034 §8: a bound `normal` follows the surrounding
@@ -724,6 +726,13 @@ impl ColorValue {
     /// The colour under an appearance. A host that paints calls this; the web
     /// host does not, because it hands the pair to the browser.
     pub fn resolve(self, dark: bool) -> Color {
+        if let Some(c) = roles::painted_accent(self, dark) {
+            return c;
+        }
+        // @ref LLP 1095 D4 — a role the theme replaces is what replaces it.
+        if let Some(o) = roles::painted_override(self) {
+            return o.resolve(dark);
+        }
         // @ref LLP 1095 D1 — a reference is what the host reported, else
         // its fallback pair.
         if let Some(c) = roles::reported(self, dark) {
@@ -782,6 +791,14 @@ impl ColorValue {
         // vocabularies (animated terminal runs use hex on every frame).
         if start.starts_with('#') {
             return None;
+        }
+        // @ref LLP 1095 D4 — a theme name, or a role the theme overrides,
+        // reads the colour its entry stands for.
+        if let Some(value) = theme::resolved(text, |value| {
+            ColorValue::parse_light_dark(value)
+                .or_else(|| Color::parse(value).map(ColorValue::Fixed))
+        }) {
+            return value;
         }
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));
@@ -1084,10 +1101,23 @@ fn align_content(v: AlignContent) -> Option<taffy::style::AlignContent> {
     })
 }
 
+impl Overflow {
+    /// CSS Overflow 3 §3.1: visible/clip compute to auto/hidden beside
+    /// a scrolling axis; together they remain non-scrolling.
+    pub fn computed(self, other: Self) -> Self {
+        match self {
+            Self::Visible if !matches!(other, Self::Visible | Self::Clip) => Self::Auto,
+            Self::Clip if !matches!(other, Self::Visible | Self::Clip) => Self::Hidden,
+            value => value,
+        }
+    }
+}
+
 fn overflow(v: Overflow) -> taffy::style::Overflow {
     match v {
         Overflow::Visible => taffy::style::Overflow::Visible,
         Overflow::Hidden => taffy::style::Overflow::Hidden,
+        Overflow::Clip => taffy::style::Overflow::Clip,
         Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
     }
 }
@@ -1242,23 +1272,15 @@ impl StyleProps {
             // scroller scrolls (`sticky.rs`).
             PositionType::Sticky => taffy::style::Position::Relative,
         };
-        let overflow_y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
-            taffy::style::Overflow::Scroll
+        let y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
+            Overflow::Auto
         } else {
-            overflow(self.overflow_y)
+            self.overflow_y
         };
-        // CSS: a visible axis beside a scrolling one computes to auto.
-        let mut overflow_x = overflow(self.overflow_x);
-        let mut overflow_y = overflow_y;
-        use taffy::style::Overflow as O;
-        if overflow_x == O::Visible && overflow_y != O::Visible {
-            overflow_x = O::Scroll;
-        } else if overflow_y == O::Visible && overflow_x != O::Visible {
-            overflow_y = O::Scroll;
-        }
+        let x = self.overflow_x;
         s.overflow = taffy::geometry::Point {
-            x: overflow_x,
-            y: overflow_y,
+            x: overflow(x.computed(y)),
+            y: overflow(y.computed(x)),
         };
         s.scrollbar_width = 0.0;
 
@@ -1343,8 +1365,9 @@ impl StyleProps {
 /// the arena's environment.
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
-        .style(slot)
+        .effective_style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
+    arena.alert_layout(slot, &mut s);
     // HTML's button layout, which Exact's reset of a `<button>` keeps: its
     // automatic inline size is shrink-to-fit, and a block button's content
     // sits in an anonymous flow-root box centred safely in the block axis,
@@ -1355,6 +1378,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         if s.display == taffy::Display::Block {
             s.align_content = Some(taffy::style::AlignContent::SAFE_CENTER);
         }
+    }
+    if let Some(height) = arena.neutral_tab_min_height(slot) {
+        s.min_size.height = length(height);
     }
     // The page reset makes a checkbox border-box for both `appearance:auto`
     // and `none`. With native appearance Chrome additionally ignores its
@@ -1422,33 +1448,11 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.aspect_ratio_content_box = true;
         }
     }
-    // A native tab bar fills the tablist's box, a segmented control its
-    // content box. Its measured height supplies the automatic minimum, so
-    // even a short authored row reserves the control. Its width is the
-    // narrowest the control can be, the automatic minimum width in place of
-    // the hidden tabs' own (LLP 1116.004 D2): UIKit's fits its segments to
-    // any box, so a grouped row's tablist shrinks to the row; AppKit's keeps
-    // its natural width.
-    // An explicit CSS min-height or min-width still owns that constraint; no
-    // natural ratio or preferred width is inferred from this container
-    // measurement.
-    if !arena.node_type(slot).is_replaced()
-        && !matches!(
-            arena.node_type(slot),
-            NodeType::Control | NodeType::NativeView
-        )
-    {
-        if let Some((width, height)) = arena.intrinsic(slot) {
-            if s.min_size.height.is_auto() {
-                s.min_size.height = length(height);
-            }
-            if s.min_size.width.is_auto() {
-                s.min_size.width = length(width);
-            }
-        }
-    }
+    crate::kernel::apply_projection(arena, slot, &mut s);
     // @ref LLP 1075.003 §3.5 — what a native container covers of the box.
     crate::kernel::apply_cover(arena, slot, &mut s);
+    // A grouped list's card and cell margins, as the platform's list has them.
+    crate::grouped::apply_margins(arena, slot, &mut s);
     // @ref LLP 1115.002 D8.2 — the containing block a host gave the subtree.
     crate::kernel::apply_block(arena, slot, &mut s);
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely

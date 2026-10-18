@@ -85,6 +85,9 @@ pub struct Run {
     pub mark: u8,
     /// A Markdown link's target ([`markup::target`]); empty otherwise.
     pub href: String,
+    /// Bold Text weights this run (`TextStyle::bold_text`, LLP 1115.000
+    /// D12.3): a Markdown piece's own weight takes the step too.
+    pub bold_text: bool,
 }
 
 #[cfg(test)]
@@ -104,6 +107,7 @@ impl Clone for Run {
             hang: self.hang,
             mark: self.mark,
             href: self.href.clone(),
+            bold_text: self.bold_text,
         }
     }
 }
@@ -126,6 +130,7 @@ impl Run {
             hang: false,
             mark: 0,
             href: String::new(),
+            bold_text: style.bold_text,
         }
     }
 }
@@ -572,6 +577,11 @@ impl TextEngine {
         Self::with_catalog(catalog::Catalog::new())
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_font_files(paths: &[&Path], sans: &str) -> Self {
+        Self::with_catalog(catalog::Catalog::from_files(paths, sans))
+    }
+
     fn with_catalog(catalog: catalog::Catalog) -> Self {
         Self {
             sans: catalog.sans.clone(),
@@ -933,10 +943,16 @@ impl TextEngine {
         transform: Transform,
         mask: Option<&Mask>,
         clip: (f32, f32, f32, f32),
-    ) {
+    ) -> std::ops::Range<u32> {
         // Glyph positions already carry device scale. The GPU stream is separate
         // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        let height = target.height();
+        let mut rows = if glyph_ts.is_identity() {
+            0..0
+        } else {
+            0..height
+        };
         paragraph.layouts();
         let mut catalog = paragraph.source.catalog.borrow_mut();
         let mut cache = paragraph.ink.borrow_mut();
@@ -967,9 +983,22 @@ impl TextEngine {
             let Some(glyph) = catalog.glyph(key, ink.color) else {
                 return;
             };
+            let gy = y - glyph.top;
+            if glyph_ts.is_identity() {
+                let start = (i64::from(gy) - 1).clamp(0, i64::from(height)) as u32;
+                let end = (i64::from(gy) + i64::from(glyph.pixmap.height()) + 1)
+                    .clamp(0, i64::from(height)) as u32;
+                if start < end {
+                    rows = if rows.is_empty() {
+                        start..end
+                    } else {
+                        rows.start.min(start)..rows.end.max(end)
+                    };
+                }
+            }
             target.draw_pixmap(
                 x + glyph.left,
-                y - glyph.top,
+                gy,
                 glyph.pixmap.as_ref(),
                 &paint,
                 glyph_ts,
@@ -996,6 +1025,7 @@ impl TextEngine {
                 draw(g, baseline, ink);
             }
         }
+        rows
     }
 }
 
@@ -1054,6 +1084,18 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        #[cfg(target_os = "android")]
+        if let Some(text) = crate::canvas::time::format(r) {
+            return Some(text);
+        }
+        let mut request = *r;
+        if r.format.starts_with("date-") || r.format.starts_with("time-") {
+            request.utc_offset = crate::zone::offset_minutes_at(r.time_zone, r.datetime);
+        }
+        exact_kernel::time::english(&request)
+    }
+
     fn button_measure(
         &mut self,
         request: &exact_kernel::ButtonMeasureRequest,
@@ -1068,7 +1110,7 @@ impl TextMeasurer for Measurer {
         &mut self,
         request: &exact_kernel::FieldChromeRequest,
     ) -> exact_kernel::FieldChrome {
-        crate::paint::control::field_chrome(request.font.size)
+        crate::paint::control::field_chrome(request.font.size, request.labelled)
     }
 
     /// The shell's own field measures a field it hosts (LLP 1115.001 D8).
@@ -1231,3 +1273,7 @@ mod text_box_tests;
 #[cfg(test)]
 #[path = "text/balance_tests.rs"]
 mod balance_tests;
+
+#[cfg(test)]
+#[path = "text/live_time_tests.rs"]
+mod live_time_tests;

@@ -107,6 +107,10 @@ pub struct TextStyle {
     pub letter_spacing: f32,
     /// OpenType numeric-feature bitmask.
     pub font_variant_numeric: u8,
+    /// Bold Text weights this run's font (LLP 1115.000 D12.3): its weight is
+    /// stepped already, and a weight a host gives a piece of it itself (a
+    /// Markdown piece's bold) takes the same step ([`crate::bolder`]).
+    pub bold_text: bool,
 }
 
 impl TextStyle {
@@ -156,6 +160,7 @@ impl TextStyle {
             line_height: s.line_height.resolve(s.font_size),
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
@@ -488,6 +493,11 @@ pub struct SymbolRequest<'a> {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// The platform formats an instant on the runner clock (LLP 1126 D6).
+    fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
+        crate::time::english(request)
+    }
+
     /// Revision of host measuring traits (scale, content size, legibility,
     /// appearance). A change invalidates native button offers even if fonts
     /// and the tree stay the same. Hosts without changing traits return zero.
@@ -536,6 +546,11 @@ pub trait TextMeasurer {
 
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
+
+    /// Size presentation-only width candidates without retaining a paragraph artifact.
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        Some(self.measure(request))
+    }
 
     /// Size a kernel-identified paragraph. Existing measurers use the ordinary
     /// synchronous path; callers constructing requests still need no stamp.
@@ -964,6 +979,7 @@ impl TextRows {
             line_height: self.line_height.resolve(self.font_size),
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
@@ -1009,6 +1025,19 @@ impl RunRows {
         // exactly as computed_style does (including arena-only test styles).
         self.take(own, own.mask.union(StyleMask::INHERITED.minus(self.mask)));
         self.mask = self.mask.union(own.mask);
+        self
+    }
+
+    /// The rows set at or above this run.
+    pub fn said(&self) -> StyleMask {
+        self.mask
+    }
+
+    /// `from`'s rows in `mask` taken, as a text style gives them (LLP
+    /// 1115.000 D12.2), and marked set for the runs inside.
+    pub fn fill(mut self, from: &StyleProps, mask: StyleMask) -> Self {
+        self.take(from, mask);
+        self.mask = self.mask.union(mask);
         self
     }
 
@@ -1122,6 +1151,7 @@ mod tests {
             line_height: None,
             letter_spacing: 0.0,
             font_variant_numeric: 0,
+            bold_text: false,
         }
     }
 

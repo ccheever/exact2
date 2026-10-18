@@ -1,5 +1,5 @@
 // Pinned365aa87982 NewTaskDraftScreen local enqueue; native owns interrupted-write recovery.
-// @ref llp/1109.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskSubmitRecover, type MobileNewTaskSubmitResult } from './new-task-submit';
 import { mobileOutboxRead, mobileOutboxSnapshot, mobileOutboxTransferLookup, mobileOutboxTransferStatus,

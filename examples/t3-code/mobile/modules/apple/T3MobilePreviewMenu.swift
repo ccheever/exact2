@@ -1,6 +1,6 @@
 #if os(iOS)
 // Pinned mobile browser/device menu presentation over captured stream targets.
-// @ref llp/1109-t3-code-ios.rfc.md#architecture
+// @ref examples/t3-code/mobile/docs/1130-t3-code-ios.rfc.md#architecture
 import UIKit
 final class T3MobilePreviewMenu: ExactNativeInstance {
     static let factory = ExactNativeFactory { props, events in

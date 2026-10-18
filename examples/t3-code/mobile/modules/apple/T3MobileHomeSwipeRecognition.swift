@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // App-owned recognizers/observations. Never changes Exact's geometry or delegates.
 import UIKit
 

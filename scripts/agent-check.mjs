@@ -4,11 +4,12 @@
 // whose fill is what lies behind it. The host observes (host/web-js/check.js, AgentCheckIOS.swift: its presented
 // boxes, ink, fills, clips and hit tests, and the fill painted under each text, LLP 1116.006 D5); where no fill is
 // known, the background a text stands on is read from a capture's pixels; this file only judges. `check dark` (or `light`) runs it under that `prefers-color-scheme`, `check both` under each.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { MalformedOperation } from './agent-keys.mjs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodePng } from './png.mjs';
+import { decodePng, encodePng, shrink } from './png.mjs';
 
 const SHOWN = 12;
 const OFFSCREEN = 'a column taller than the screen runs past it: let it scroll (`overflow-y: auto`), or give it `flex: 1` and `min-height: 0` under a header instead of `height: 100%`';
@@ -20,8 +21,7 @@ const ROLES = (() => {
   for (const [name, webkit, ios, mac, light, dark, neutralLight, neutralDark] of rows) for (const n of [name, webkit, ios, mac, ios?.replace(/Color$/, '')]) if (n && !byName.has(n)) byName.set(n, { name, apple: { light, dark }, neutral: { light: neutralLight, dark: neutralDark } });
   return byName;
 })();
-/** The column an observation's host draws a role in: a web page says its look (host/web-js/check.js: the neutral one is
- *  every build's, LLP 1115.000 D4), and a host that says none draws Apple's (iOS; a page built `EXACT_WEB_LOOK=apple`). */
+/** Web observations name the neutral column; native Apple observations leave the column unsaid. */
 const columnOf = (obs) => obs.look === 'neutral' ? 'neutral' : 'apple';
 const role = (raw) => (raw && ROLES.get(String(raw).replace(/^-exact-/, ''))?.name) ?? null;
 const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
@@ -51,13 +51,14 @@ function backdrop(png, scale, it) {
 
 /** The contrast a text needs (WCAG 1.4.3, and LLP 1115's platform answers): 4.5:1; 3:1 for large text (24 px, or 18.66 px bold), for a
  *  control's label on its own fill (D3's ink rule), for ink the platform chose (a tab bar's item) and for text in a platform colour (the
- *  secondary label, system red: the platform's palette, as a hand-built app draws it). The platform's tertiary and quaternary labels and its placeholders are its own and not judged,
+ *  secondary label, system red: the platform's palette, as a hand-built app draws it), and for text on an accent fill (LLP 1116.020 D7: a sent
+ *  bubble's white is a filled button's label; a pale accent still fails). The platform's tertiary and quaternary labels and its placeholders are its own and not judged,
  *  nor is a disabled control's label (WCAG's inactive component). */
 function floor(it, scheme, column) {
   if (it.inactive) return null;
   const r = role(it.fgRole) ?? drawnRole(it.fg, scheme, column);
   if (r && /^(tertiary|quaternary)-label$|^placeholder$|^GrayText$/.test(r)) return null;
-  if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^ButtonText$/.test(r))) return 3;
+  if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || it.onAccentFill || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^ButtonText$/.test(r))) return 3;
   return 4.5;
 }
 /** The platform role an ink is, by its value in this scheme and the host's column: UIKit's own labels carry no name, nor
@@ -86,6 +87,8 @@ export function judge(obs, png, { host = 'web' } = {}) {
   const add = (kind, it, detail, hint) => found.push({ kind, id: it.id ?? null, ...(it.of != null ? { of: it.of } : {}), name: it.name, text: it.text, box: [r0(it.x), r0(it.y), r0(it.w), r0(it.h)], detail, ...(hint ? { hint } : {}) });
   const unit = host === 'web' ? 'px' : 'pt';
   for (const it of items) {
+    // Text squeezed to no width (iOS reports it): nothing of it shows, and nothing else of it can be judged.
+    if (it.squeezed) { add('squeezed', it, {}, 'let it keep its words (drop `min-width: 0` or a fixed width beside it), or let the row wrap (`flex-wrap="wrap"`)'); continue; }
     // Covered: something else is over its middle at rest, and no scroller moves it clear.
     if (it.cover && !it.disabled) {
       const what = it.cover.kind === 'keyboard' ? 'the software keyboard' : it.cover.kind === 'sheet' ? 'a sheet' : it.cover.by != null ? { ref: it.cover.by } : it.cover.name;
@@ -98,7 +101,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
     } else if (it.text && it.cut) add('clipped', it, { cut: [r0(it.cut.dx), r0(it.cut.dy)], by: it.cut.by, edge: it.cut.edge, unit }, it.cut.edge ? OFFSCREEN : 'the clipping box is smaller than its content: let it grow, or scroll');
     // LLP 1116.009 D5: a written percentage width and the padding it does not include, past what its parent gives it: the cause, named.
     if (it.padded) add('overflow', it, { past: r0(it.padded.dx), of: it.padded.by, pad: r0(it.padded.pad), written: it.padded.width, unit }, 'drop the width (a block or a stretched flex item fills its parent) or say `box-sizing="border-box"`');
-    else if (it.outX) add('overflow', it, { past: r0(it.outX), width: vp.w, unit }, 'let it wrap or shrink (`min-width: 0`, `flex-wrap: wrap`, `max-width: 100%`), or scroll it inside its own box');
+    else if (it.outX) add('overflow', it, { past: r0(it.outX), width: vp.w, unit }, 'let it wrap (`flex-wrap: wrap` with a `flex-basis` in rem, `min-width: 0`, `max-width: 100%`), or scroll it inside its own box');
     else if (it.spill) add('overflow', it, { past: r0(it.spill.dx), of: it.spill.by, unit }, 'a flex item\'s width stops at its content: let it shrink (`min-width: 0`, a smaller `padding`), or let the row wrap (`flex-wrap: wrap`) or scroll');
     // A target the author sized under the platform's minimum (WCAG 2.5.8's 24 px, with its spacing exception, on the web; 44 pt on iOS).
     if (it.control && it.sized === 'author' && !it.inline && !it.disabled && !covers(it, obs.keyboard) && (it.w < obs.target - 0.5 || it.h < obs.target - 0.5)) {
@@ -113,19 +116,28 @@ export function judge(obs, png, { host = 'web' } = {}) {
       if (bg) {
         const ink = over(it.fg, bg), got = ratio(ink, bg);
         if (got < need - 0.005) add('contrast', it, { got: Math.floor(got * 10) / 10, need, fg: hex(ink), bg: hex(bg), ...(it.bg ? { on: it.on ?? 'page' } : {}) },
-          it.label ? 'name a `color` for the label, or a fill it reads on in this scheme' : role(it.fgRole) ? `-exact-${role(it.fgRole)} is too light for text on this: use -exact-label or -exact-secondary-label, or keep the colour for a fill or a symbol` : 'use a role (`-exact-label`, `-exact-secondary-label`) or a colour that changes with the scheme');
+          it.onAccent || it.onAccentFill ? 'the platform draws a filled button\'s label white on the accent: leave the accent unsaid (the platform\'s blue; a brand is an `app.tamber`)'
+            : it.label ? 'name a `color` for the label, or a fill it reads on in this scheme' : role(it.fgRole) ? `-exact-${role(it.fgRole)} is too light for text on this: use -exact-label or -exact-secondary-label, or keep the colour for a fill or a symbol` : 'use a role (`-exact-label`, `-exact-secondary-label`) or a colour that changes with the scheme');
       }
     }
-    // A card whose fill is what lies behind it, with no border or shadow: invisible.
+    // A card (a filled box holding a text or a control; the hosts report no other fill) whose fill is what lies behind
+    // it, with no border or shadow: invisible. Each side is read across the card's edge, a pixel inside against one
+    // outside. Where the two differ, the edge shows and nothing is found. Where they are alike, the edge does not show
+    // only if the inside one is the card's fill over the outside one, and two such sides are needed: where a view is
+    // drawn over the edge (a panel, a nearer shape, a scrim) or the box is not the shape (a rotated view's box bounds
+    // it), both pixels are something else's (mapapp's park under its panel, photos' hills). A card the host says is
+    // `faded` is not judged: an ancestor's opacity mixes it with what lies behind that ancestor, so no colour can be
+    // expected at its edge.
     // Only where it is presented: under the keyboard the capture shows the keyboard, not the card's edge (unit-converter, round 9).
-    if (it.fill && !it.edge && png && !covers(it, obs.keyboard)) {
+    if (it.fill && !it.edge && !it.faded && png && !covers(it, obs.keyboard)) {
       const v = shown(it, obs.keyboard), on = (x, y) => x >= v.x - 2.5 && x <= v.x + v.w + 2.5 && y >= v.y - 2.5 && y <= v.y + v.h + 2.5;
       const sides = [[it.x + 2, it.y + it.h / 2, it.x - 2, it.y + it.h / 2], [it.x + it.w - 2, it.y + it.h / 2, it.x + it.w + 2, it.y + it.h / 2],
         [it.x + it.w / 2, it.y + 2, it.x + it.w / 2, it.y - 2], [it.x + it.w / 2, it.y + it.h - 2, it.x + it.w / 2, it.y + it.h + 2]]
         .filter(([ix, iy, ox, oy]) => on(ix, iy) && on(ox, oy))
         .map(([ix, iy, ox, oy]) => [pixel(png, scale, ix, iy), pixel(png, scale, ox, oy)]).filter(([a, b]) => a && b);
-      if (sides.length >= 2 && sides.every(([a, b]) => near(a, b, 4))) {
-        const fill = role(it.fillRole), behind = sides[0][1], scheme = obs.scheme ?? 'light';
+      const filled = sides.filter(([a, b]) => near(a, over(it.fill, b), 4));
+      if (filled.length >= 2 && sides.every(([a, b]) => near(a, b, 4))) {
+        const fill = role(it.fillRole), behind = filled[0][1], scheme = obs.scheme ?? 'light';
         const plain = [...ROLES.values()].some((r) => r.name === 'background' && near(behind, parseHex(r[column][scheme]), 3));
         add('card', it, { fill: fill ? `-exact-${fill}` : hex(it.fill), behind: hex(behind) },
           fill === 'secondary-grouped-background' && plain ? 'on a plain page a card is -exact-secondary-background (-exact-secondary-grouped-background is for a -exact-grouped-background page)'
@@ -145,7 +157,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // A control's own text covered with it is one finding: the control's.
   const coveredControls = found.filter((f) => f.kind === 'covered' && items.find((it) => it.id === f.id)?.control);
   const kept = found.filter((f) => !(f.kind === 'covered' && f.text != null && coveredControls.some((c) => c !== f && holds({ x: c.box[0], y: c.box[1], w: c.box[2], h: c.box[3] }, { x: f.box[0], y: f.box[1], w: f.box[2], h: f.box[3] }))));
-  const order = ['covered', 'clipped', 'overflow', 'overlap', 'contrast', 'card', 'target'];
+  const order = ['covered', 'squeezed', 'clipped', 'overflow', 'overlap', 'contrast', 'card', 'target'];
   return kept.sort((p, q) => order.indexOf(p.kind) - order.indexOf(q.kind) || p.box[1] - q.box[1] || p.box[0] - q.box[0]);
 }
 function parseHex(h) { const n = parseInt(String(h).slice(1, 7), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
@@ -162,8 +174,17 @@ function named(id, nodes, fallback) {
 /** Who a finding is about: a control's label by its control, a native view by its kind and text. */
 const who = (f, nodes) => f.of != null && f.text != null ? `${named(f.of, nodes)}'s label ${JSON.stringify(f.text)}` : named(f.id, nodes, f.name ? f.name + (f.text ? ` ${JSON.stringify(f.text)}` : '') : null);
 
+/** The entry of app.json's `verify.accept` that takes a finding as the app's design, or undefined: its kind, and the
+ *  testId of its node or of the control whose label it is (`node`; a non-empty prefix and one trailing `*` match a prefix:
+ *  a bare `*`, which the schema refuses too, matches nothing, so no entry accepts a kind everywhere). */
+export function accepts(entries, f, nodes) {
+  const ids = [f.id, f.of].map((id) => (id == null ? null : nodes.get(id)?.props?.testId)).filter((id) => id != null).map(String);
+  const takes = (node, id) => (/^[^*]+\*$/.test(node) ? id.startsWith(node.slice(0, -1)) : !node.includes('*') && id === node);
+  return entries.find((e) => e.finding === f.kind && ids.some((id) => takes(String(e.node), id)));
+}
+
 /** One line a finding. */
-function line(f, nodes) {
+export function line(f, nodes) {
   const box = `[${f.box[0]},${f.box[1]} ${f.box[2]}×${f.box[3]}]`, d = f.detail;
   const under = (u) => typeof u === 'object' && u ? named(u.ref, nodes) : u;
   const what = {
@@ -174,6 +195,7 @@ function line(f, nodes) {
     contrast: () => `${d.got}:1 (${d.fg} on ${d.bg}${d.on == null ? '' : d.on === 'own' ? ', its own fill' : d.on === 'page' ? ', the page' : `, ${named(d.on, nodes)}'s fill`}), needs ${d.need}:1`,
     card: () => `its fill ${d.fill} is what lies behind it (${d.behind}): it does not show`,
     overlap: () => `overlaps ${named(d.with, nodes)} by ${d.by[0]}×${d.by[1]}`,
+    squeezed: () => 'its box is squeezed to no width, so none of its text shows',
   }[f.kind]();
   return `  ${f.kind.padEnd(8)} ${who(f, nodes)} ${box}: ${what}${f.hint ? `; ${f.hint}` : ''}`;
 }
@@ -187,10 +209,11 @@ function advise(a, width, nodes) {
 }
 
 /** The text a check prints: per scheme, its findings (at most SHOWN, then a count), or one line saying there are none; then its advice. */
-export function report(runs, nodes, host) {
+export function report(runs, trees, host) {
   const out = [];
-  for (const run of runs) {
-    const head = `check ${host} · ${run.scheme}${run.asked && run.asked !== run.scheme ? ` (asked ${run.asked}: the app keeps its own scheme)` : ''}`;
+  for (const [i, run] of runs.entries()) {
+    const nodes = trees[i];
+    const head = `check ${host} · ${run.scheme}${run.asked && run.asked !== run.scheme ? ` (asked ${run.asked}: the app keeps its own scheme)` : ''}${run.accepted?.length ? ` (${run.accepted.length} accepted)` : ''}`;
     if (!run.findings.length) out.push(`${head}: no findings (text fits, nothing covered or overlapping, targets ≥ ${run.target}, no horizontal overflow, contrast ≥ 4.5:1 or 3:1 large, cards show)`);
     else {
       out.push(`${head}: ${run.findings.length} finding${run.findings.length === 1 ? '' : 's'}`);
@@ -203,30 +226,45 @@ export function report(runs, nodes, host) {
 }
 
 /** `check [light|dark|both]` on a session: the host's observation and a capture under each scheme asked, judged; the scheme is put back.
- *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. */
-export async function checkOp(s, args = [], { shots } = {}) {
+ *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. A finding an
+ *  entry of `accept` (app.json `verify.accept`) takes is the run's `accepted`, each with its line and the entry, not a finding. */
+export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
   const word = args[0] ?? 'current';
-  if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new Error('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
+  if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new MalformedOperation('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
   if (!['web', 'ios', 'host-ios'].includes(s.host)) throw new Error(`check: the web and iOS hosts carry it, not ${s.host}`);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   const first = await s.op({ op: 'check' });
   const asked = word === 'both' ? ['light', 'dark'] : word === 'current' ? [first.scheme] : [word];
-  const runs = [];
+  const runs = [], trees = [];
   let preferred = null;
   try {
     for (const scheme of asked) {
       let obs = first;
       if (scheme !== first.scheme || preferred) { await s.prefer({ 'prefers-color-scheme': scheme }); preferred = scheme; obs = await s.op({ op: 'check' }); }
       const path = shots?.(obs.viewport, scheme) ?? resolve(dir, `${scheme}.png`);
-      await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
+      const taken = await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
       const png = decodePng(readFileSync(path));
       runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, viewport: obs.viewport, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice } : {}) });
+      // The tree as this scheme shows it: a view only one scheme shows is named, and accepted, by its own testId.
+      trees.push(new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n])));
+      // A capture kept for a person or an agent to look at is a pixel a point once judged, as `agent`'s are: a third of an iPhone's pixels each way.
+      if (shots && taken?.scale > 1) writeFileSync(path, encodePng(shrink(png, Math.round(png.width / taken.scale), Math.round(png.height / taken.scale))));
     }
   } finally {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});
     rmSync(dir, { recursive: true, force: true });
   }
-  const nodes = new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n]));
-  const runsOut = runs.map((r) => ({ ...r, findings: r.findings.map((f) => ({ ...f, node: who(f, nodes) })) }));
-  return s.tagged({ check: runsOut, text: report(runs, nodes, s.host) });
+  return s.tagged(settle(runs, trees, accept, s.host));
+}
+
+/** The runs judged, each against the tree its own scheme showed (`trees[i]`): what `accept` takes is the run's `accepted`, each
+ *  with its line and the entry; every finding is named. `{check, text}`, as `check` replies. */
+export function settle(runs, trees, accept, host) {
+  for (const [n, r] of runs.entries()) {
+    const nodes = trees[n], taken = r.findings.map((f) => accepts(accept, f, nodes));
+    r.accepted = r.findings.flatMap((f, i) => (taken[i] ? [{ ...f, line: `${line({ ...f, hint: undefined }, nodes)}; accepted: ${taken[i].why}`, accept: taken[i] }] : []));
+    r.findings = r.findings.filter((_, i) => !taken[i]);
+  }
+  const named = (fs, nodes) => fs.map((f) => ({ ...f, node: who(f, nodes) }));
+  return { check: runs.map((r, i) => ({ ...r, findings: named(r.findings, trees[i]), accepted: named(r.accepted, trees[i]) })), text: report(runs, trees, host) };
 }

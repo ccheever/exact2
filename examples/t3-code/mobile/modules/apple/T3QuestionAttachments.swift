@@ -1,5 +1,5 @@
 // Native question intake and local byte pins. Attachment dispatch requires the separate upload owner.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import Foundation
 
 private struct QuestionKey: CodingKey {

@@ -277,3 +277,19 @@ fn a_build_is_stamped_with_its_time_commits_and_kind() {
         String::from_utf8_lossy(&result.stderr)
     );
 }
+
+#[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
+fn a_production_build_compiles_no_inspect_mode() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+        .current_dir(root)
+        .args(["test", "./host/apple/inspect-gate.test.mjs"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

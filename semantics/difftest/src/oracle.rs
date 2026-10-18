@@ -38,6 +38,10 @@ pub struct Oracle {
     /// value, by the state's name. Empty, a fresh install's, unless
     /// [`Oracle::with_store`].
     pub stored: Rc<Vec<(String, TypesId, Value)>>,
+    /// The host builds every tab panel from boot on ([`Case::prerendered`]).
+    ///
+    /// [`Case::prerendered`]: crate::script::Case::prerendered
+    pub prerendered: bool,
 }
 
 /// The sources the runner answers itself, from the host's facts.
@@ -70,13 +74,15 @@ impl Oracle {
             transcript: Rc::default(),
             facts: Rc::default(),
             stored: Rc::default(),
+            prerendered: false,
         }
     }
 
     /// The source a case runs against: the empty store an authored test
     /// starts from, or the device store [`Oracle::with_store`] fills.
     pub fn for_case(plan: &Plan, case: &crate::script::Case) -> Self {
-        let oracle = Oracle::new(plan, crate::seed_of(&case.name));
+        let mut oracle = Oracle::new(plan, crate::seed_of(&case.name));
+        oracle.prerendered = case.prerendered;
         if case.stored {
             oracle.with_store()
         } else {
@@ -128,12 +134,16 @@ impl Oracle {
             transcript: self.transcript.clone(),
             facts: self.facts.clone(),
             stored: self.stored.clone(),
+            prerendered: self.prerendered,
         }
     }
 
     /// The transcript in `Contract.OracleText`'s format.
     pub fn text(&self) -> String {
         let mut out = String::new();
+        if self.prerendered {
+            out.push_str("every-tab\n");
+        }
         for c in self.transcript.borrow().iter() {
             out.push_str("answer ");
             out.push_str(&crate::observe::quote(&c.source));

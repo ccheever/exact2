@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 // FIFO invocation owner. Its lock is the queued-edit coordinator's existing mutex.
 import Foundation
 import CoreFoundation

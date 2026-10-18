@@ -75,8 +75,9 @@ impl Kernel {
         }
         let target = target?;
         let clip = arena.key(arena.parent(target.index)?);
-        let s = arena.style(target.index);
-        let p = arena.style(clip.index);
+        let target_style = arena.effective_style(target.index);
+        let clip_style = arena.effective_style(clip.index);
+        let (s, p) = (&*target_style, &*clip_style);
         if arena.node_type(target.index) != NodeType::View
             || arena.is_inline_run(target.index)
             || arena.node_type(clip.index) != NodeType::View

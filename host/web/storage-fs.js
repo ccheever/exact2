@@ -7,8 +7,8 @@
 import { agentStorageRefusal, directories as roots, now, storageKey } from './storage-environment.js';
 import { coversPath } from './grant-admission.js';
 const rootPaths = Object.values(roots);
-// Calls from one host module retain invocation order. Web Locks still reject
-// conflicts with a live SQLite handle or a mutation in another browser tab.
+// Calls from one host module retain invocation order. Web Locks queue
+// conflicts with a live SQLite handle or another tab, with a bounded wait.
 const mutationTails = new Map();
 
 function failure(message, code) {
@@ -59,7 +59,7 @@ function descendants(path) {
 // A database owns its file exclusively and pins each ancestor with a shared
 // lock. Unrelated files remain usable; replacing an open database or moving its
 // parent fails instead of silently discarding SQLite's later commit.
-export async function lockPaths(appId, paths) {
+export async function lockPaths(appId, paths, timeout = 10000) {
   if (!globalThis.navigator?.locks) throw failure('Web Locks are unavailable');
   const requested = new Map();
   for (let path of paths) {
@@ -71,6 +71,8 @@ export async function lockPaths(appId, paths) {
     }
   }
   const held = [];
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeout);
   async function release() {
     for (const lock of held) lock.release();
     await Promise.all(held.map(lock => lock.done));
@@ -83,12 +85,13 @@ export async function lockPaths(appId, paths) {
       let refused;
       const ready = new Promise((resolve, reject) => { acquired = resolve; refused = reject; });
       const done = navigator.locks.request(`exact-storage:${encodeURIComponent(appId)}:${path}`,
-        { mode, ifAvailable: true }, async lock => {
-          if (!lock) { refused(failure(`storage is busy: ${path}`, 'EBUSY')); return; }
+        { mode, signal: abort.signal }, async () => {
           acquired();
           await lifetime;
         });
-      void done.catch(error => refused(failure(error.message)));
+      void done.catch(error => refused(abort.signal.aborted
+        ? failure(`storage is busy after ${timeout} ms: ${path}; close the other database or tab and retry`, 'EBUSY')
+        : failure(error.message)));
       await ready;
       held.push({ release: unlock, done });
     }
@@ -96,7 +99,7 @@ export async function lockPaths(appId, paths) {
   } catch (error) {
     await release();
     throw error;
-  }
+  } finally { clearTimeout(timer); }
 }
 function requireBelowRoot(path) {
   if (rootPaths.includes(path)) throw failure('operation needs a path below the app root');

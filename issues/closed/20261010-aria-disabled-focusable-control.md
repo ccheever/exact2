@@ -61,11 +61,6 @@ Drive: `bun exact.mjs agent <macos|web> --json --size 520x160 "tap first" "type 
 | The attribute | `bun exact.mjs contract build` with `aria-disabled="true"` on the button | main and #327 alike | `` [lower-unknown-attr] `button` has no attribute `aria-disabled`; `aria-disabled` is ARIA's, and Contract does not carry it yet `` | accepted | record |
 | The web's own behavior | the same three buttons as plain HTML, `<button aria-disabled="true">`, headless Chrome 155 over CDP | — | Tab: First → Check for updates → Last; Shift+Tab back through it; ax: `disabled=true focusable=true` (a `disabled` button: not focusable) | (the reference) | image (left), record |
 
-![X70: Tab from First in Chrome (aria-disabled), Exact web and Exact macOS](https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea11338245556553/fw-issues-20261010/x70-tab-chrome-web-macos.png)
-
-Record (contract, the HTML page, every step's focus and accessibility tree):
-https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea11338245556553/fw-issues-20261010/x70-record.txt
-
 ## Constraints
 
 - `kernel/tables/schema.json` is the one place a new row is declared; the refusal is

@@ -1,8 +1,8 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // T3 Code 365aa87982 archivedThreadList.ts, archivedThreads.ts, useThreadListActions.ts.
 // Presentation over shared validated snapshots and per-environment RPC ownership.
 // Mobile adaptation: stable Archive IO admission and a separate pure projection;
-// warm snapshots retain no grant, handle or promise (LLP1109.009).
+// warm snapshots retain no grant, handle or promise (LLP1130.009).
 import { mobileClient, mobileNative } from './client';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileRelativeTime } from './home';

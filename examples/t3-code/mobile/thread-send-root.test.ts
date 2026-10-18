@@ -1,6 +1,6 @@
 import { mobileNative } from './client';
 import { reviewFileAccess } from './review-owner';
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import {expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {mobileThreadSendRootSnapshot as snapshot,mobileThreadSendRootAction as action,type ThreadSendRootInput,type ThreadSendRootAction} from './thread-send-root';

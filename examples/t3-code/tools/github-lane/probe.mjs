@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Sends each pull request RPC of the fake-github-fixture verb table to lane T3 servers working
+// Sends each pull request RPC to lane T3 servers working
 // on the sandbox, and records what came back, which `gh` calls the server made for it, and, for
 // every write, what GitHub says afterwards (read back with the lane gh, never with the server).
 //

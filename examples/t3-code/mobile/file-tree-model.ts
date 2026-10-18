@@ -1,6 +1,6 @@
 // T3 Code365aa87982 apps/mobile/src/features/files/fileTree.ts (MIT, LICENSE-T3).
 // Bodies preserved; the ProjectEntry type and shared search import are local.
-// @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
+// @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#mobile-presentation
 export interface ProjectEntry { path: string; kind: "file" | "directory"; ignored?: boolean }
 import { normalizeSearchQuery, scoreQueryMatch } from "./shared/composer-editor-menu";
 

@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import {expect,spyOn,test} from 'bun:test';
 import {MobileDraftClient} from './mobile-draft-recovery';
 import {mobileThreadSendCaptureDraft as capture,mobileThreadSendApplyQueuedDraft as apply} from './thread-send-handoff-draft';

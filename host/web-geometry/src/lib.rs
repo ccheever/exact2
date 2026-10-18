@@ -24,17 +24,17 @@ pub static PAGE: GeometryLinks = GeometryLinks::new(
 );
 
 #[cfg(target_arch = "wasm32")]
-fn page_shown(_: &Kernel, _: &Scrolled, view: ViewId) -> bool {
+fn page_shown(_: &Kernel, _: &Scrolled, view: ViewId, first: bool) -> bool {
     #[link(wasm_import_module = "exact_geometry")]
     extern "C" {
-        fn shown(view: u32) -> u32;
+        fn shown(view: u32, first: u32) -> u32;
     }
-    // SAFETY: one view id in, one boolean out; the page calls nothing back.
-    unsafe { shown(view) != 0 }
+    // SAFETY: a view id and a boolean in, one boolean out; the page calls nothing back.
+    unsafe { shown(view, u32::from(first)) != 0 }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn page_shown(_: &Kernel, _: &Scrolled, _: ViewId) -> bool {
+fn page_shown(_: &Kernel, _: &Scrolled, _: ViewId, _: bool) -> bool {
     false
 }
 

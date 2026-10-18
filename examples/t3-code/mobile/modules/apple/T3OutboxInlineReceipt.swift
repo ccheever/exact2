@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 // A local assets-stage identity, distinct from the original server command identity.
 import Foundation
 

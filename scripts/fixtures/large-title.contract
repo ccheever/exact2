@@ -1,8 +1,8 @@
 // LLP 1115.000 D11.1: one stack, no tabs, whose first screen has a large
 // title over a scroller it does not name, the shape `exact new` makes. The
 // title opens expanded and collapses as the content scrolls
-// (NavigationCollapseIOSTests). Under a tab bar UIKit fits a first screen's
-// bar by itself; in a single stack Exact has to ask.
+// (NavigationCollapseIOSTests). UIKit opens it when the stack has its first
+// screen before it enters the window, as the tabs' stacks always did.
 routes nav
   home "/"
 
@@ -13,6 +13,10 @@ component LargeTitle
         column navigationKey=`${e.id}` testId="route-home" position="absolute" inset=0 display="flex" flex-direction="column"
           header testId="header-home" display="flex" align-items="center" padding="8px 16px"
             text "Home" role="heading" aria-level=1
-          scroll testId="home-scroll" flex=1 min-height=0
+          scroll testId="home-scroll" flex=1 min-height=0 overflow-x="hidden"
             text "home top" testId="home-top"
-            column height=1600
+            // Each scroller wider or taller than it scrolls, for a diagonal
+            // agent drag that must move it along its own axis alone.
+            scroll testId="home-strip" overflow-x="scroll" overflow-y="hidden" height=60
+              row width=1200 height=100
+            column height=1600 width=800

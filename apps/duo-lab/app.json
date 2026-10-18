@@ -5,8 +5,6 @@
   "id": "com.exact.duolab",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#f4f1ea",
-  "background_color": "#f4f1ea",
   "app": {
     "id": "com.exact.duolab",
     "name": "Duo Lab"

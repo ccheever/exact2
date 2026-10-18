@@ -257,7 +257,13 @@ impl Value {
         match (row.kind, self) {
             (TypeKind::Number, Value::Number(n)) => !finite || n.is_finite(),
             (TypeKind::Bool, Value::Bool(_)) => true,
-            (TypeKind::String, Value::HeapStr(_) | Value::InlineStr(_)) => true,
+            (TypeKind::String, Value::HeapStr(_) | Value::InlineStr(_)) => {
+                row.fields.is_empty()
+                    || row
+                        .fields
+                        .iter()
+                        .any(|f| plan.str(plan.field(f).name) == self.text())
+            }
             (TypeKind::Unit, Value::Unit) => true,
             (TypeKind::Option, Value::Option(None)) => true,
             (TypeKind::Option, Value::Option(Some(v))) => {
@@ -269,7 +275,9 @@ impl Value {
                     TypeKind::Number => items
                         .iter()
                         .all(|v| matches!(v, Value::Number(n) if !finite || n.is_finite())),
-                    TypeKind::String => items.iter().all(Value::is_str),
+                    TypeKind::String if plan.type_(e).fields.is_empty() => {
+                        items.iter().all(Value::is_str)
+                    }
                     _ => items.iter().all(|v| v.conforms_finite(plan, e, finite)),
                 }
             }),

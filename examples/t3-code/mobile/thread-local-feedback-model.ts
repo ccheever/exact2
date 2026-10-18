@@ -1,5 +1,5 @@
 // App-local pure reuse for ancestor bake GAP001. Original thread-feedback.ts SHA256 e763508bf1ca8ed4a080012f6de3d07b5afa25d0af8db3d72be08f85d2a9e56b.
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 // Codex `/feedback`, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // packages/client-runtime/src/state/threadFeedback.ts (parseCodexFeedbackCommand,
 // codexFeedbackNotice, beginCodexFeedbackSubmission, codexFeedbackMessage, submitCodexFeedback).

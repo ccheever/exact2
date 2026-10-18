@@ -1,6 +1,6 @@
 #if os(iOS)
 // Saved ordinary file Undo ownership; no picker/paste authority or persistent Undo history.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import UIKit
 import CryptoKit
 import CoreFoundation

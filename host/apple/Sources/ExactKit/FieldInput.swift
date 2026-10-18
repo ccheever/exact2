@@ -77,10 +77,14 @@ extension FieldSelections {
         let edit = FieldInput(inputType: type, data: data, cancelable: !ime, isComposing: ime)
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
-        if node.handlers.contains("beforeinput") { onBeforeInput?(node.id, value, selection, edit) }
+        let heard = node.handlers.contains("beforeinput")
+        if heard { onBeforeInput?(node.id, value, selection, edit) }
         let prevented = presenter.defaultPrevented && edit.cancelable
         presenter.defaultPrevented = outer
-        guard !prevented, presenter.views[node.id] === node, ime || node.fieldText == value else { return false }
+        guard !prevented else { return false }
+        // The handler's batch may have removed the field or written its value;
+        // the edit then no longer applies. Without a handler nothing ran.
+        if heard, presenter.views[node.id] !== node || !ime && node.fieldText != value { return false }
         inputDetails[node.id] = edit
         return true
     }

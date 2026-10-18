@@ -440,9 +440,9 @@ impl Calc {
     /// `env(<name> <index>*)`: the variable. One with a fallback makes the
     /// whole value a substitution, which a row holds as written and reads
     /// only once substituted ([`substitutes`]), never a tree.
-    fn env<'i>(&mut self, p: &mut Parser<'i, '_>, _depth: usize) -> Parsed<'i, (Node, Ty)> {
+    fn env<'i>(&mut self, p: &mut Parser<'i, '_>, depth: usize) -> Parsed<'i, (Node, Ty)> {
         self.count(p)?;
-        let (term, fallback) = env_parts(p).map_err(|fail| match fail {
+        let (term, fallback) = env_parts(p, depth).map_err(|fail| match fail {
             // Inside a comparison, or unlinked, as the comparison's refusal
             Fail::Env(e) if self.comparisons > 0 && e != EnvRefusal::Unlinked => {
                 p.new_custom_error(Fail::Why(e.reason()))
@@ -468,7 +468,9 @@ pub(crate) fn substitutes(text: &str) -> Result<bool, Refused> {
             match token.clone() {
                 Token::Function(name) if name.eq_ignore_ascii_case("env") => {
                     let (_, fallback) = p
-                        .parse_nested_block(|p| env_parts(p).map_err(|f| p.new_custom_error(f)))
+                        .parse_nested_block(|p| {
+                            env_parts(p, depth).map_err(|f| p.new_custom_error(f))
+                        })
                         .map_err(fail)?;
                     *found |= fallback.is_some();
                 }
@@ -510,36 +512,48 @@ pub(crate) fn substitutes(text: &str) -> Result<bool, Refused> {
 
 /// An `env()` block's variable and its fallback's tokens, as written; the
 /// block's contents, after `env(`.
-pub(super) fn env_parts(p: &mut Parser<'_, '_>) -> Result<(EnvTerm, Option<String>), Fail> {
-    // The variable's name and indices, from their tokens
-    let words = p
+pub(super) fn env_parts(
+    p: &mut Parser<'_, '_>,
+    depth: usize,
+) -> Result<(EnvTerm, Option<String>), Fail> {
+    // The variable's name, as CSS decodes it, and its indices, from their
+    // tokens: never joined as text and split again, so an escaped space or
+    // no-break space stays in the name it belongs to
+    let (name, indices) = p
         .parse_until_before(Delimiter::Comma, |p| {
-            let mut words = Vec::new();
+            let (mut name, mut indices) = (None, Vec::new());
             while let Ok(token) = p.next() {
-                words.push(match token {
-                    Token::Ident(name) => name.to_string(),
+                let word = match token {
+                    Token::Ident(text) if name.is_none() => text.to_string(),
+                    // An index, `+0` as CSS's integers allow; a negative one
+                    // as written, which `env::named` refuses
                     Token::Number {
-                        int_value: Some(n),
-                        has_sign: false,
-                        ..
-                    } => n.to_string(),
-                    // An index another way: `env::term` names the fault
+                        int_value: Some(n), ..
+                    } if *n >= 0 => n.to_string(),
+                    // Anything else as written, which `env::named` refuses
                     t => cssparser::ToCss::to_css_string(t),
-                });
+                };
+                match name {
+                    None => name = Some(word),
+                    Some(_) => indices.push(word),
+                }
             }
-            Ok::<_, ParseError<'_, ()>>(words)
+            Ok::<_, ParseError<'_, ()>>((name, indices))
         })
         .map_err(|_| Fail::Why(refusal::SYNTAX))?;
-    let term = match env::term(&format!("env({})", words.join(" ")))? {
+    let name = name.ok_or(EnvRefusal::UnknownVariable)?;
+    let indices: Vec<&str> = indices.iter().map(String::as_str).collect();
+    let term = match env::named(&name, &indices)? {
         Dimension::Env(edge, _) => EnvTerm::Inset(edge),
         Dimension::Segment(var, x, y, _) => EnvTerm::Segment(var, x, y),
+        Dimension::Region(region, edge, _) => EnvTerm::Region(region, edge),
         _ => return Err(Fail::Why(refusal::NOT_A_LENGTH)),
     };
     let fallback = match p.next() {
         Err(_) => None,
         Ok(Token::Comma) => {
             let start = p.position();
-            declaration_value(p, 0, true)?;
+            declaration_value(p, depth, true)?;
             let tokens = p
                 .slice_from(start)
                 .trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
@@ -570,6 +584,18 @@ fn declaration_value(p: &mut Parser<'_, '_>, depth: usize, top: bool) -> Result<
             | Token::CloseParenthesis
             | Token::CloseSquareBracket
             | Token::CloseCurlyBracket => return Err(syntax()),
+            // A fallback's own `env()` names a variable too
+            Token::Function(name) if name.eq_ignore_ascii_case("env") => {
+                if depth == MAX_DEPTH {
+                    return Err(syntax());
+                }
+                p.parse_nested_block(|p| {
+                    env_parts(p, depth + 1)
+                        .map(|_| ())
+                        .map_err(|f| p.new_custom_error(f))
+                })
+                .map_err(fail)?;
+            }
             Token::Function(_)
             | Token::ParenthesisBlock
             | Token::SquareBracketBlock

@@ -65,10 +65,14 @@ impl<D: DataSource> Runner<D> {
         }
         let previous = self.time;
         self.time = time;
-        let which = (0..self.plan.resources.len())
+        let which: Vec<usize> = (0..self.plan.resources.len())
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .collect();
-        let result = self.recommit(which, "time");
+        let result = if which.is_empty() && !self.live_times.is_empty() {
+            self.tick_live_times()
+        } else {
+            self.recommit(which, "time")
+        };
         if result.is_err() {
             self.time = previous;
         }
@@ -117,7 +121,11 @@ impl<D: DataSource> Runner<D> {
             })
             .collect();
         if which.is_empty() && written.is_none() {
-            return Ok(None);
+            return if self.live_times.is_empty() {
+                Ok(None)
+            } else {
+                self.tick_live_times()
+            };
         }
         let result = self.commit_again(which, "place");
         if result.is_err() {
@@ -144,6 +152,16 @@ impl<D: DataSource> Runner<D> {
             drop(queue);
             wake();
         })));
+    }
+
+    /// Every topic a current answer watches, once each, sorted: what a host
+    /// that announces on its own behalf (a document watch, LLP 1069.010.000
+    /// D1) must listen for after a commit.
+    pub fn watched_topics(&self) -> Vec<String> {
+        let mut topics: Vec<String> = self.watching.iter().flatten().cloned().collect();
+        topics.sort();
+        topics.dedup();
+        topics
     }
 
     /// Whether a topic was announced since the last [`Runner::apply_announced`].

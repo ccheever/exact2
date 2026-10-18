@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobilePendingTaskEditorsHydrate as hydrate, mobilePendingTaskEditorsCreate as create,

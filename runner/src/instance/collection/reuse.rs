@@ -325,9 +325,11 @@ impl Collection {
         // Every binding of the row, evaluated against the new item: what a
         // create emits, less what the row already shows.
         let full = std::mem::replace(&mut u.full, true);
+        let around = std::mem::replace(&mut u.theme, self.around.clone());
         let body = &u.sites.deps.bodies[self.region.0 as usize];
         let updated = update_row(u, row, frames, !0, body);
         u.full = full;
+        u.theme = around;
         updated?;
         views::rekey(u, mounted.wrapper, text);
         mounted.position = position;

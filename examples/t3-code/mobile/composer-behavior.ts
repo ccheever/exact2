@@ -1,7 +1,7 @@
 import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftCurrent, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
 import { mobileComposerTarget, mobileComposerTargetCurrent } from './composer-target';
 // Pinned365aa87982 ComposerTextView key commands and followUpBehavior.ts.
-// @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#settings-ownership
 import type { T3Client } from './shared/client';
 import { arr, obj } from './shared/domain';
 import { stage } from './shared/composer-controls';

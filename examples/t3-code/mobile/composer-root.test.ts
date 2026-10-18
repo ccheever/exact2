@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import {expect,test} from 'bun:test';
 import {mobileComposerRootSnapshot as snapshot,mobileComposerRootAction as action,type ComposerRootInput} from './composer-root';
 import {MobileDraftClient,mobileDraftRecoveryHandles} from './mobile-draft-recovery';

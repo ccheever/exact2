@@ -3,23 +3,23 @@
 // live host's DOM at the same URL once the runtime is ready. A difference
 // names the view. What the browser owns after layout — a symbol's sized
 // source, a surface's pixel size, focus — is left out of both sides.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
-import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
+import { chromium, DESKTOP_INPUT, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need, notApplicable } from '../../../scripts/coverage.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 // The shell as a default build ships it (look.mjs): what the stylesheet's own tests below draw on.
-const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'), DEFAULT_LOOK);
+const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'));
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
@@ -166,20 +166,16 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
-    `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
-    '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
-  { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
-  const lines = [];
-  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
-  const exited = new Promise((ok) => child.on('exit', ok));
+  const { cdp, lines } = await browser();
+  lines.length = 0;
+  // A browser context of its own: no cookie, storage, cache or history of another test's
+  const { browserContextId } = await cdp.send('Target.createBrowserContext');
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
     const tab = async (scripts, onNew) => {
-      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId });
       const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
       const call = (method, params) => cdp.send(method, params, sessionId);
+      await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
       await call('Page.enable');
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
       await call('Emulation.setScriptExecutionDisabled', { value: !scripts });
@@ -209,12 +205,38 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     };
     await drive(tab);
   } finally {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    await Promise.race([exited, Bun.sleep(2000)]);
+    await cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {});
     server?.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
+
+/** The file's one Chrome, launched at its first document and again after it exits (Bun kills it when a test times out): a
+ * launch per test cost 0.17 s each. `lines` holds the stderr received since the current test reset it, which can include the
+ * end of the previous test's. */
+let launched = null;
+function browser() {
+  if (launched) return launched;
+  const started = launched = (async () => {
+    const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
+    const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
+      DESKTOP_INPUT,
+      `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
+      '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
+    { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    const lines = [];
+    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
+    const exited = new Promise((ok) => child.on('exit', ok));
+    exited.then(() => { if (launched === started) launched = null; });
+    const close = async () => {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      await Promise.race([exited, Bun.sleep(2000)]);
+      rmSync(profile, { recursive: true, force: true });
+    };
+    return { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines, close };
+  })();
+  return started;
+}
+afterAll(async () => { if (launched) await (await launched).close(); });
 
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 
@@ -300,7 +322,7 @@ check(`a press before the glue runs is captured, replays once, and a later one i
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
     await live.until("document.documentElement.style.colorScheme === 'dark'", 'the replayed press');
     await live(settled);
-    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(setScheme\)/.test(l)).length;
+    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(chooseScheme\)/.test(l)).length;
     expect(await presses()).toBe(1);
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
     // After adoption a press is the runtime's own: once.
@@ -459,7 +481,8 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
       }));
       const page = exact.documentPage.connect({ views, log: line => __logs.push(line),
         dispatch: (id, kind, value) => __events.push([id, kind, value]) });
-      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+      globalThis.__adopted = []; // what the caller's completion saw (glue.js activates navigation there)
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}, undefined, () => __adopted.push([page.adopted, page.holding])); };`,
   };
   await withDocument('/', async tab => {
     const live = await tab(true);
@@ -477,6 +500,7 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
     await live.until('globalThis.__loads === 1', 'interaction runtime');
     await live('__release()');
     expect(await live('exact.documentPage.holding')).toBe(true);
+    expect(await live('__adopted')).toEqual([]); // a composition defers the adoption and its completion
     await live(`(() => { const el = document.querySelector('input'); el.value = '東京';
       el.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
       el.dispatchEvent(new InputEvent('input',{bubbles:true})); el.setSelectionRange(1,1);
@@ -484,6 +508,7 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
       document.querySelector('button').click(); })()`);
     await live.until('!exact.documentPage.holding && __events.length === 3', 'semantic replay');
     expect(await live('__events')).toEqual([[2,23,'東京'],[2,7,''],[3,0,'']]);
+    expect(await live('__adopted')).toEqual([[true, false]]); // once, after the held batches applied
     expect(await live('__logs')).toEqual([]);
     expect(await live("[document.querySelector('input').value,document.querySelector('input').selectionStart,document.activeElement.localName]")).toEqual(['東京',1,'input']);
     expect(await live('__loads')).toBe(1);
@@ -820,8 +845,8 @@ browserCheck('a determinate progress is the accent over the system fill in light
 });
 
 browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
-  const css = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
-  const html = `<!doctype html><style>${css}</style><style>.authored {background-color:rgb(20,40,60)}</style>
+  const css = SHIPPED.match(/<style>([\s\S]*?)<\/style>/)[1];
+  const html = `<!doctype html><style>${css}</style><style>#exact-root#exact-root .authored {background-color:rgb(20,40,60)}</style>
     <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
       <section id="home" navigationKey="0"><button>Home</button></section>
       <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>
@@ -966,7 +991,9 @@ async function withFocusContract(target, webDist, contract, drive) {
   try {
     const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
     writeFileSync(source, contract);
-    const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    const compiler = resolve(app.target, 'debug/contract');
+    const built = spawnSync(compiler, ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    if (built.error) throw built.error;
     if (built.status !== 0) throw new Error(built.stderr);
     let server;
     let options = { plan, webDist: target === 'wasm' ? resolve(webDist) : undefined };

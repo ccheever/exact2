@@ -1,6 +1,6 @@
 // Ordinary Voice publication only; native rich Voice still requires an awaited CAS outcome.
-// @ref llp/1109.008-mobile-voice.decision.md#draft-and-selection
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#draft-and-selection
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client } from './shared/client';
 import { ClientError } from './shared/protocol';
 import type { MobileComposerTarget } from './composer-target';

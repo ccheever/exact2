@@ -77,20 +77,6 @@ component RingProbe
 | Same, web | `bun exact.mjs agent web --size 420x320` with the same operations (no `window`) | Chrome 154 (the agent's) | same | Chrome's focus outline on each focused field | the same way to draw none | images 1-3 (left) |
 | The vocabulary | `bun scripts/exact.mjs contract vocab outline`; `contract build` of `textarea value=t input=w outline="none" testId="x"` | any | same | "`outline` is not a tag or an attribute"; ``[lower-unknown-attr] `textarea` has no attribute `outline` `` | accepted on `input` and `textarea` | transcript |
 
-Image 1: the bare textarea focused.
-
-![X61: bare textarea focused, web vs macOS](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-bare.png)
-
-Image 2: the `appearance="none"` textarea focused.
-
-![X61: appearance=none textarea focused, web vs macOS](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-none.png)
-
-Image 3: the bare input focused.
-
-![X61: bare input focused, web vs macOS](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-input.png)
-
-Transcript (the contract, the commands, the agent's replies and the compiler's refusal): https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x61-ops.txt
-
 Seen first in an app whose reference removes the ring with `outline-none` and draws focus on the card around its composer and its settings preview field. The composer is focused most of the time the app is used, so the extra ring is the most visible difference from the reference on its main screen.
 
 ### Acceptance criteria

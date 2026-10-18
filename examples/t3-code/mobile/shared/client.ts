@@ -3,7 +3,7 @@
 // Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.
 // Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.
 // Mobile history ownership: invocation-local tokens and captured transfer cleanup.
-// @ref llp/1109.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership
 import { snapshotShortcut } from './snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from './snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';

@@ -1,7 +1,7 @@
 #if os(iOS)
 // Adapted from T3 Code (MIT), pinned365aa87982 T3ComposerEditorView.swift.
 // Copyright T3 Code contributors. MIT license: examples/t3-code/mobile/LICENSE-T3.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-focus-restoration
 import UIKit
 
 final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDelegate, UIGestureRecognizerDelegate {

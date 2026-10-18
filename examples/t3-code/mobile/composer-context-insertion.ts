@@ -1,5 +1,5 @@
 // Pure projections adapted from T3 Code365aa87982 use-composer-drafts.ts (MIT, LICENSE-T3).
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { MobileMessageContext } from './mobile-new-task-context';
 import { collectComposerContextReferences } from './composer-editor-document';
 

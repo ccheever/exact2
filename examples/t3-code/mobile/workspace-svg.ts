@@ -1,5 +1,5 @@
 // Workspace SVG shares the root's live route, file authority and existing transports.
-// @ref llp/1109.006-review-and-files.decision.md#workspace-svg-preview-gap
+// @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#workspace-svg-preview-gap
 import { mobileClient, mobileNative, mobileFocusedConnectionFacts } from './client';
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';

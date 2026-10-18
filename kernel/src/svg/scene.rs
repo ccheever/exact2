@@ -282,7 +282,8 @@ pub fn resolve(
     };
     let clip =
         node.style.overflow_x != Overflow::Visible || node.style.overflow_y != Overflow::Visible;
-    let mut inherited = node.computed_style(StyleMask::INHERITED);
+    // As CSS computes it: Bold Text steps each text run, after its cascade.
+    let mut inherited = node.arena.computed_rows(node.slot, StyleMask::INHERITED);
     let mut r = Resolver {
         kernel,
         presented,

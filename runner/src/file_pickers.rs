@@ -186,7 +186,10 @@ pub fn arm<D: DataSource>(
 /// "showOpenFilePicker","id":…,"multiple":false,"agent":true}` (and
 /// `suggestedName` for a save, `available` false for a host that has no
 /// such picker). The reply is `{"refused":"…","view":N?}`, `{"ticket":N}`
-/// or `{"present":true,"view":N,"id":…,…}`.
+/// or `{"present":true,"view":N,"id":…,…}`. `"agent":true,"present":true`
+/// (iOS under `--touch platform`) holds it as under the agent and presents
+/// it too, `{"ticket":N,"present":true,…}`: the host answers the hold with
+/// what the person chose there, as `type @t` or `tap @t cancel` would.
 pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
     let command = field_str(json, "command").unwrap_or_default();
     let Some(kind) = Kind::of(&command) else {
@@ -203,7 +206,14 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
         None => Err(format!("{command} names an element id")),
     };
     let available = !json.contains("\"available\":false");
-    match arm(runner, kind, parsed, field_bool(json, "agent"), available) {
+    let shown = field_bool(json, "agent") && field_bool(json, "present");
+    match arm(
+        runner,
+        kind,
+        parsed,
+        field_bool(json, "agent") && !shown,
+        available,
+    ) {
         Arm::Refused(reason, view) => {
             let mut s = String::from("{\"refused\":");
             quote(&reason, &mut s);
@@ -216,7 +226,13 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
         Arm::Held(ticket) => format!("{{\"ticket\":{ticket}}}"),
         Arm::Present(request, view) => {
             let summary = request.summary();
-            format!("{{\"present\":true,\"view\":{view},{}", &summary[1..])
+            let held = if shown {
+                let ticket = runner.hold(kind.capability(), Some(view), &summary, &[], true);
+                format!("\"ticket\":{ticket},")
+            } else {
+                String::new()
+            };
+            format!("{{{held}\"present\":true,\"view\":{view},{}", &summary[1..])
         }
     }
 }

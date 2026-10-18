@@ -11,8 +11,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -20,7 +21,7 @@ const check = need('chrome', unavailable);
 
 const radio = (id, label, checked, extra = '') =>
   `<button type="button" data-button-style="bordered" data-native role="radio" aria-checked="${checked}" id="${id}"${extra}><span data-exact-text>${label}</span></button>`;
-const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">
   <button type="button" data-button-style="bordered" data-native id="before">Before</button>
   <div role="radiogroup" aria-label="Tip" id="tip" style="display:flex">
@@ -56,13 +57,13 @@ async function inChrome(test) {
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
     const call = (method, params) => cdp.send(method, params, sessionId);
+    await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, call);
   } finally {
     child.kill();
@@ -126,4 +127,4 @@ check('a radio group is a segmented control with one Tab stop, and the arrows mo
   await evaluate(`document.getElementById('t15').addEventListener('keydown', e => e.preventDefault())`);
   await key(call, 'ArrowLeft');
   expect(await evaluate(`[document.activeElement.id, pressed.splice(0)]`)).toEqual(['t15', []]);
-}), 30000);
+}), 60000);

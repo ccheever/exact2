@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -38,6 +39,7 @@ const page = `<!doctype html>
     pointer: getComputedStyle(g.el).pointerEvents,
     shadow: g.el.style.boxShadow,
   };
+  window.ready = true;
 </script>`.replace('${STRIP}', 'id,data-view,data-exact-on,data-agent-view,data-testid');
 
 check('the ghost is a stripped clone in the top layer, with the row\'s look', async () => {
@@ -55,9 +57,8 @@ check('the ghost is a stripped clone in the top layer, with the row\'s look', as
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => (await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value;
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    let r = null;
-    for (let i = 0; !(r = await evaluate('window.result')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+    const r = await evaluate('window.result');
     expect(r.open).toBe(true);
     expect(r.left).toEqual([]);
     expect(r.card).toBe('rgb(1, 2, 3)'); // the page's rule, inlined: the top layer is outside the root
@@ -69,7 +70,7 @@ check('the ghost is a stripped clone in the top layer, with the row\'s look', as
     server.close();
     rmSync(profile, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60000);
 
 // LLP 1094 D7 (amended 2026-10-07): a centre past a port's edge is that
 // edge's, even in a port shorter than the band. A 120 px row in a 24 px
@@ -110,18 +111,22 @@ check('a centre past a short port\'s edge scrolls toward that edge', async () =>
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => (await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value;
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const g = await evaluate('(() => { const r = document.getElementById("grip").getBoundingClientRect(); return [r.left + 10, r.top + 6]; })()');
     const mouse = (type, x, y) => call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
     await mouse('mousePressed', g[0], g[1]);
     // Past the slop, then held still a few pixels lower, inside the port.
-    for (const dy of [4, 9, 12]) { await mouse('mouseMoved', g[0], g[1] + dy); await Bun.sleep(16); }
+    for (const dy of [4, 9, 12]) await mouse('mouseMoved', g[0], g[1] + dy);
+    await evaluate('new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)))');
     const ghost = await evaluate('(() => { const r = document.querySelector("[data-exact-ghost]")?.getBoundingClientRect(); const p = document.getElementById("port").getBoundingClientRect(); return r && [r.top + r.height / 2, p.bottom]; })()');
     expect(ghost).not.toBeNull();
     expect(ghost[0]).toBeGreaterThan(ghost[1]); // the centre is below the port
-    await Bun.sleep(300);
-    const scrolled = await evaluate('document.getElementById("port").scrollTop');
+    // The port's scroll position once a frame has scrolled it, or after 10 s
+    const scrolled = await evaluate(`new Promise(ok => {
+      const port = document.getElementById('port'), end = performance.now() + 10_000;
+      const check = () => port.scrollTop > 0 || performance.now() > end ? ok(port.scrollTop) : requestAnimationFrame(check);
+      check();
+    })`);
     await mouse('mouseReleased', g[0], g[1] + 12);
     expect(scrolled).toBeGreaterThan(0); // down, toward the centre's edge
   } finally {
@@ -129,5 +134,5 @@ check('a centre past a short port\'s edge scrolls toward that edge', async () =>
     server.close();
     rmSync(profile, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60000);
 

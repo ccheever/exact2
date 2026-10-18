@@ -1,5 +1,5 @@
 // Actual native picker intake, with invocation-only IO and immutable retry input.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { FileHoldTarget } from './composer-file-holds-io';
 import type { ThreadSendTransferCompletion } from './thread-send-transfer-model';

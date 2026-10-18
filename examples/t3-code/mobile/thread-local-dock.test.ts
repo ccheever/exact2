@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import {expect,test} from 'bun:test';
 import {mobileThreadLocalDock as project,mobileThreadLocalResetKey as resetKey,type ThreadLocalDockInput} from './thread-local-dock';
 import {collectProviderUsageLimits,type UsageLimitsReport,type UsageLimitsAccount} from './thread-local-usage-model';

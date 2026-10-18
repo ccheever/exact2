@@ -1,5 +1,5 @@
 // Ordinary draft handoff DTOs; pure validation grants no native admission or durability.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import { mobileOutboxCanonicalOrigin, mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import { mobileContextRecordValid } from './mobile-context-record';

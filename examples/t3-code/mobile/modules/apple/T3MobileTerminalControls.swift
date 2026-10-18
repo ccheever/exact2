@@ -1,6 +1,6 @@
 #if os(iOS)
 // Pinned365aa87982 ThreadTerminalRouteScreen toolbar actions; UIKit owns keyboard lifetime.
-// @ref llp/1109.007-mobile-terminal.decision.md#native-renderer
+// @ref examples/t3-code/mobile/docs/1130.007-mobile-terminal.decision.md#native-renderer
 import UIKit
 
 final class T3MobileTerminalAccessory: UIView {

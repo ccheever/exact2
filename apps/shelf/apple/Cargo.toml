@@ -8,10 +8,13 @@ build = "build.rs"
 
 [lib]
 crate-type = ["rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
+exact-apple-update = { path = "../../../host/apple-update" }
 exact-js = { path = "../../../js" }
 
 [build-dependencies]

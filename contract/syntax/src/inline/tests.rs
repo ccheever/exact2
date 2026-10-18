@@ -351,3 +351,59 @@ fn a_statement_let_is_renamed_apart_from_a_replacement_for_the_rest_of_its_block
     assert_eq!(out[0], assign("x", id("a")));
     assert_eq!(out[2], assign("x", id("a")));
 }
+
+/// A tab panel's contents are one arm (LLP 1075.003 §9.14) in typed
+/// expansion as in ordinary: a role passed as a typed prop reaches the
+/// element ascribed, and is still the literal `"tabpanel"`.
+#[test]
+fn a_tab_panel_is_one_arm_in_both_expansions() {
+    let src = "routes nav
+  tab a \"/\"
+  tab b \"/b\"
+
+component App
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      for t in nav.tabs key=t.name
+        Panel(kind=\"tabpanel\", name=t.name)
+
+component Panel
+  props
+    kind: string
+    name: string
+  view
+    column role=kind id=`panel-${name}`
+      Editor()
+
+component Editor
+  state draft = \"\"
+  view
+    text draft
+";
+    let file = crate::parse(src).unwrap();
+    let plain = super::expand(&file).unwrap();
+    let (typed, errors) = super::expand_typed(&file);
+    assert!(errors.is_empty(), "{errors:?}");
+    fn whens(nodes: &[crate::ast::Node]) -> usize {
+        use crate::ast::Node;
+        nodes
+            .iter()
+            .map(|n| match n {
+                Node::Element { children, .. } => whens(children),
+                Node::When {
+                    then, otherwise, ..
+                } => 1 + whens(then) + whens(otherwise),
+                Node::Each { body, .. } => whens(body),
+                Node::Match { some, none, .. } => whens(&some.1) + whens(none),
+                _ => 0,
+            })
+            .sum()
+    }
+    assert_eq!(whens(&plain.root.view), 1);
+    assert_eq!(whens(&typed.root.view), 1);
+    assert_eq!(plain.owners, typed.owners);
+    assert!(matches!(
+        plain.owners.last(),
+        Some(super::Owner::Arm { arm: 0, .. })
+    ));
+}

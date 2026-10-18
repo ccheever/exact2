@@ -4,13 +4,15 @@
 // with a JSON bridge:
 //
 // - page → native (`webkit.messageHandlers.t3terminal`): ready, data, resize, selection, link, composition,
-//   contextmenu, chord, focus, error.
+//   commitComposition, contextmenu, chord, focus, error.
 // - native → page (`t3Terminal.receive(message)`): write, resetAndWrite, theme, font, visible,
-//   focus, chords, clearSelection, readSelection, paste, dispose; `t3Terminal.debug()` answers
-//   the agent's status (ready, grid, visible text, selection, last error).
+//   focus, chords, compositionKey, clearSelection, readSelection, selectAll, scrollToBottom, paste,
+//   pointerRelease, dispose; `t3Terminal.debug()` answers the agent's status (ready, grid, visible
+//   text, selection, last error).
 //
 // Mounting, the setup failure text and the theme fallbacks follow ThreadTerminalDrawer.tsx
-// (:176-215 terminalThemeFromApp, :895-915 the failure text). Which chords the app keeps is the
+// (:176-215 terminalThemeFromApp, :895-915 the failure text; the ANSI palette is 9c161462c9's,
+// :159-203 and :307). Which chords the app keeps is the
 // app's decision (ThreadTerminalDrawer.tsx:745-782 beforeKey); the native view sends the list.
 import type { GhosttyColor, GhosttyTheme } from "../vendor/ghostty/core";
 import {
@@ -18,6 +20,7 @@ import {
   type GhosttyTerminalFont,
 } from "../vendor/ghostty/surface";
 import { observeSelectionActions, resolveSelectionActionPosition } from "../vendor/lib/selectionActions";
+import { holdInlineHangul } from "./inlineHangul";
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
 type Outbound = Record<string, unknown> & { readonly type: string };
@@ -79,8 +82,20 @@ export function terminalInputShortcutData(
   return null;
 }
 
+/** terminalInputShortcutData for a keydown, `composed` when it began while an input method composed.
+ * That key matches by `KeyboardEvent.key` alone, as the reference's drawer reads it on the "Process" key
+ * (keybindings.ts isTerminalClearShortcut): under Korean 2-Set ⌃L is "ㅣ", which ends the composition
+ * and does not clear the screen. */
+export function terminalKeyShortcutData(
+  event: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
+  composed: boolean,
+): string | null {
+  return terminalInputShortcutData(composed ? { key: event.key, code: "", metaKey: event.metaKey, ctrlKey: event.ctrlKey,
+    altKey: event.altKey, shiftKey: event.shiftKey } : event);
+}
+
 /** The composing state of the terminal's input, for the native view (`composition` messages): its key
- * path runs before the input method and must leave a composing key to it (realinput-1011c G1-1, G1-2).
+ * path runs before the input method and must leave a composing key to it.
  * WebKit's own marked-text answer (`hasMarkedText`) waits on an editor state the page sends late, or,
  * in a window that is not key, never. Updates in between change nothing: the input method's text stays
  * in the input until it commits, and the surface sends what it commits (surface.ts onCompositionEnd). */
@@ -101,6 +116,132 @@ export function observeComposition(input: EventTarget, send: (composing: boolean
     input.removeEventListener("blur", end);
   };
 }
+
+type KeyModifiers = Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
+type MarkedKey = KeyModifiers & { readonly code: string };
+
+/** How long a mark waits for its keydown; WebKit sends it as soon as the input method answers. */
+const COMPOSITION_KEY_LIFETIME_MS = 1000;
+
+/** Keys that began while an input method composed text, which the native view marks on their way to
+ * WebKit's keyDown (a ⌃ chord, ⌥Return). Chromium sends a keydown that begins while text is marked
+ * as "Process" (keyCode 229), so the reference's surface never encodes it (surface.ts
+ * isTerminalCompositionKey) while its shortcuts (ThreadTerminalDrawer.handleBeforeKey) still run.
+ * WebKit sends the key's own code when the input method declines it, after any text the input method
+ * committed for it, so the composition can be over by then: unmarked, ⌃C while ㅎ composes would
+ * reach the shell as ^C.
+ * A mark is taken by the next keydown with its modifiers and physical key (`code`; WebKit's "Process"
+ * keydown, keyCode 229, matches any key); marks before it, and a mark whose keydown never came (a menu
+ * took the key), lapse, so a second ⌃C is never mistaken for the first. */
+export class CompositionKeys {
+  private marks: { readonly key: MarkedKey; readonly at: number }[] = [];
+
+  constructor(private readonly now: () => number = () => performance.now()) {}
+
+  /** `code` is the key's `KeyboardEvent.code`, or "" when the native view has no name for it. */
+  mark(key: MarkedKey): void {
+    this.marks.push({ key, at: this.now() });
+  }
+
+  take(event: MarkedKey & Pick<KeyboardEvent, "keyCode">): boolean {
+    const now = this.now();
+    this.marks = this.marks.filter(({ at }) => now - at < COMPOSITION_KEY_LIFETIME_MS);
+    const index = this.marks.findIndex(({ key }) => key.metaKey === event.metaKey && key.ctrlKey === event.ctrlKey &&
+      key.altKey === event.altKey && key.shiftKey === event.shiftKey && (key.code === "" || key.code === event.code || event.keyCode === 229));
+    if (index < 0) return false;
+    this.marks.splice(0, index + 1);
+    return true;
+  }
+
+  /** Whether a mark still waiting for its keydown is ⌥Return's, the Korean input method's Hanja key. */
+  awaitsOptionReturn(): boolean {
+    const now = this.now();
+    return this.marks.some(({ key, at }) => now - at < COMPOSITION_KEY_LIFETIME_MS && key.altKey && !key.metaKey &&
+      !key.ctrlKey && (key.code === "Enter" || key.code === "NumpadEnter"));
+  }
+}
+
+type ConversionInput = EventTarget & { value: string };
+
+/** Leaves the text an input method commits for ⌥Return in the input until the input method has read it.
+ * For ⌥Return the Korean input method commits the composing syllable, reads the text before the caret,
+ * and replaces it with a marked Hanja candidate (韓 for 한) while its candidate list is open. The surface
+ * empties its input on every commit (surface.ts onCompositionEnd); Chromium answers the read from the text
+ * it last knew, so under the reference 한 goes out at the commit and the list opens on 韓. WebKit answers
+ * from the page, where the input is empty by then: the input method finds nothing, declines the key, and
+ * no list opens. So the committed text goes back into the input after the surface has sent it; the
+ * candidate's composition replaces it, and any other key, or leaving the input, empties it again, so
+ * it is never sent twice. */
+export function keepConversionContext(input: ConversionInput, converting: () => boolean): () => void {
+  let kept = false;
+  const end = (event: Event) => {
+    const data = (event as CompositionEvent).data;
+    if (!data || !converting()) return;
+    input.value = data;
+    kept = true;
+  };
+  const start = () => { kept = false; };
+  const release = () => {
+    if (!kept) return;
+    kept = false;
+    input.value = "";
+  };
+  input.addEventListener("compositionend", end);
+  input.addEventListener("compositionstart", start);
+  input.addEventListener("keydown", release);
+  input.addEventListener("blur", release);
+  return () => {
+    input.removeEventListener("compositionend", end);
+    input.removeEventListener("compositionstart", start);
+    input.removeEventListener("keydown", release);
+    input.removeEventListener("blur", release);
+  };
+}
+
+function hexToGhosttyColor(hex: string): GhosttyColor {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+}
+
+// VS Code's default ANSI colors.
+export const TERMINAL_PALETTES = {
+  light: [
+    "#000000",
+    "#cd3131",
+    "#107c10",
+    "#949800",
+    "#0451a5",
+    "#bc05bc",
+    "#0598bc",
+    "#555555",
+    "#666666",
+    "#cd3131",
+    "#14ce14",
+    "#b5ba00",
+    "#0451a5",
+    "#bc05bc",
+    "#0598bc",
+    "#a5a5a5",
+  ].map(hexToGhosttyColor),
+  dark: [
+    "#000000",
+    "#cd3131",
+    "#0dbc79",
+    "#e5e510",
+    "#2472c8",
+    "#bc3fbc",
+    "#11a8cd",
+    "#e5e5e5",
+    "#666666",
+    "#f14c4c",
+    "#23d18b",
+    "#f5f543",
+    "#3b8eea",
+    "#d670d6",
+    "#29b8db",
+    "#e5e5e5",
+  ].map(hexToGhosttyColor),
+};
 
 const LIGHT: GhosttyTheme = {
   background: { r: 255, g: 255, b: 255 },
@@ -131,7 +272,7 @@ function color(value: unknown, fallback: GhosttyColor): GhosttyColor {
     : fallback;
 }
 
-function themeFrom(value: unknown): { theme: GhosttyTheme; dark: boolean } {
+export function themeFrom(value: unknown): { theme: GhosttyTheme; dark: boolean } {
   const record = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
   const dark = record.dark === true;
   const base = dark ? DARK : LIGHT;
@@ -142,6 +283,7 @@ function themeFrom(value: unknown): { theme: GhosttyTheme; dark: boolean } {
       background: color(record.background, base.background),
       foreground: color(record.foreground, base.foreground),
       cursor: color(record.cursor, base.cursor),
+      palette: TERMINAL_PALETTES[dark ? "dark" : "light"],
       ...(typeof selection === "string" ? { selectionBackground: selection } : {}),
     },
   };
@@ -212,10 +354,12 @@ class TerminalPage {
   private readonly pending: Message[] = [];
   private chords: Chord[] = [];
   private bindings: CommandBinding[] = [];
+  private readonly compositionKeys = new CompositionKeys();
   private auth = false;
   private readOnly = false;
   private closePending = false;
   private selectionActions: ReturnType<typeof observeSelectionActions> | null = null;
+  private stopInlineHangul: (() => void) | null = null;
   private visible = true;
   private lastError = "";
   private disposed = false;
@@ -272,6 +416,9 @@ class TerminalPage {
       surface.input.addEventListener("blur", () => post({ type: "focus", focused: false }));
       // After the surface's own listeners, so a commit's data goes out before the state ends.
       observeComposition(surface.input, (composing) => post({ type: "composition", composing }));
+      this.stopInlineHangul = holdInlineHangul(document, surface.input, (data) => { if (!this.readOnly) post({ type: "data", data }); },
+        (composing) => post({ type: "composition", composing }));
+      keepConversionContext(surface.input, () => this.compositionKeys.awaitsOptionReturn());
       for (const message of this.pending.splice(0)) this.receive(message);
       post({ type: "ready", cols: surface.cols, rows: surface.rows });
     } catch (error) {
@@ -288,7 +435,17 @@ class TerminalPage {
   }
 
   private beforeKey(event: KeyboardEvent): boolean {
-    if (this.auth) return event.key !== "Tab";
+    // The input method's key: its shortcuts below still run, as on the reference's "Process" key, and
+    // the surface never encodes it. One the input method declined does nothing else: no keyboard
+    // layout command (⌥Return's line break) and no resend to the app. Chromium's input method ends a
+    // composition on a key it declines; when one keeps composing, the native view commits it as it
+    // stands.
+    const composed = this.compositionKeys.take(event);
+    if (composed && event.keyCode !== 229) {
+      event.preventDefault();
+      post({ type: "commitComposition" });
+    }
+    if (this.auth) return !composed && event.key !== "Tab";
     // A held ⌘W, or one while the close dialog is pending, is swallowed without another close.
     if (preventRepeatedTerminalCloseShortcut(event, this.bindings) || (this.closePending && preventTerminalCloseShortcut(event, this.bindings))) {
       event.stopPropagation();
@@ -306,14 +463,14 @@ class TerminalPage {
       post({ type: "chord", key: event.key, code: event.code, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey });
       return false;
     }
-    const data = terminalInputShortcutData(event);
+    const data = terminalKeyShortcutData(event, composed);
     if (data !== null) {
       event.preventDefault();
       event.stopPropagation();
       if (!this.readOnly) post({ type: "data", data });
       return false;
     }
-    return true;
+    return !composed;
   }
 
   private selection() {
@@ -339,6 +496,11 @@ class TerminalPage {
       this.chords = parseChords(message.chords);
       return null;
     }
+    if (message.type === "compositionKey") {
+      this.compositionKeys.mark({ metaKey: message.metaKey === true, ctrlKey: message.ctrlKey === true,
+        altKey: message.altKey === true, shiftKey: message.shiftKey === true, code: typeof message.code === "string" ? message.code : "" });
+      return null;
+    }
     if (message.type === "keyPolicy") {
       this.bindings = parseCommandBindings(message.keybindings);
       this.readOnly = message.readOnly === true;
@@ -348,6 +510,7 @@ class TerminalPage {
     if (message.type === "dispose") {
       this.disposed = true;
       this.selectionActions?.dispose();
+      this.stopInlineHangul?.();
       surface?.dispose();
       this.surface = null;
       return null;
@@ -386,6 +549,17 @@ class TerminalPage {
         return null;
       case "readSelection":
         return surface.getSelection();
+      case "selectAll":
+        surface.selectAll();
+        return null;
+      case "scrollToBottom":
+        surface.scrollToBottom();
+        return null;
+      // A press that ended outside the page: the reference's dividers are in the same document, so
+      // their release reaches the surface's window listener (surface.ts onWindowPointerRelease).
+      case "pointerRelease":
+        window.dispatchEvent(new Event("pointerup"));
+        return null;
       case "paste": {
         const text = String(message.text ?? "");
         void surface.pasteFromClipboard(() => Promise.resolve(text));

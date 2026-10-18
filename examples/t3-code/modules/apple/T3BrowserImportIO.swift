@@ -7,7 +7,7 @@ import Foundation
 import Security
 import SQLite3
 
-/// The cookie import's reads (browser-surface part 4; MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+/// The cookie import's reads (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 /// apps/desktop/src/preview/BrowserImport/*): the primitives the data module's port of the readers runs on
 /// (browser-import-io.ts `ImportIO`): `stat` (following links), directories, files (staged, read in chunks), a read-only
 /// open (TCC gates the open), `readlink`, read-only SQLite queries and `VACUUM INTO` snapshots, the Keychain's generic

@@ -194,7 +194,7 @@ pub fn follows_accent(id: u8, macos: bool) -> bool {
 /// tinted in its accent). Each reads the nearest `accent-color`
 /// (`--exact-accent`, LLP 1116.001 D2), else the browser's accent. CSS's
 /// `ButtonText` is the tint on iOS and the browser's own keyword here.
-fn web_accent(r: &ColorRole) -> bool {
+pub fn web_accent(r: &ColorRole) -> bool {
     matches!(r.name, "AccentColor" | "LinkText") || (!is_css_system(r) && r.ios == "@tint")
 }
 
@@ -260,6 +260,305 @@ pub fn references(macos: bool) -> Vec<(ColorValue, Box<str>)> {
         }
     }
     out
+}
+
+mod session;
+pub use session::{
+    bind, bound, generation, install, installed, overrides, set_overrides, Installed, Roles,
+    RolesScope,
+};
+
+impl ColorValue {
+    /// What a host is sent for this colour: a role the theme replaces is
+    /// what replaces it (LLP 1095 D4), anything else itself.
+    ///
+    /// A role an Apple platform draws in the view's tint (`AccentColor`,
+    /// `LinkText`, a symbol's default) stays itself: a host makes the theme's
+    /// colour the app's tint, under which an authored `accent-color` still
+    /// wins for its subtree (LLP 1095 D1, the author over the design).
+    #[track_caller]
+    pub fn themed(self) -> ColorValue {
+        match self {
+            ColorValue::Role(id) if tint(id) => self,
+            ColorValue::Role(id) => overridden(id).filter(|o| *o != self).unwrap_or(self),
+            other => other,
+        }
+    }
+}
+
+/// The web's reach (LLP 1095 D4): the overridden roles as `:root` custom
+/// properties the host's own sheet reads (`--exact-<role>`, a CSS system
+/// colour's as `--exact-<name>` in lower case, `AccentColor` as
+/// `--exact-accent`, which an authored `accent-color` redeclares below),
+/// and the page's colour and ground where `CanvasText` and `Canvas` are
+/// replaced. Empty without overrides.
+#[track_caller]
+pub fn theme_css() -> String {
+    let mut out = String::new();
+    for id in 0..=u8::MAX {
+        let Some(role) = role_of(id) else { break };
+        let Some(o) = overridden(id) else { continue };
+        out.push_str(&theme_property(role));
+        out.push(':');
+        crate::gradient::color_css(&mut out, o);
+        out.push(';');
+        match role.name {
+            // A `color` computed here is the root scheme's side, and a
+            // `color-scheme` card would inherit it; the card re-reads the
+            // entry through `--exact-scheme-color` ([`SCHEME_COLOR`]), which
+            // an authored colour unsets ([`scheme_color`]).
+            "CanvasText" => out.push_str(
+                "color:var(--exact-canvas-text);--exact-scheme-color:var(--exact-canvas-text);",
+            ),
+            "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
+            _ => {}
+        }
+    }
+    if out.is_empty() {
+        return out;
+    }
+    // A scheme the element's own style writes (the wasm host's, and a bound
+    // one on the JS target's; its classes are listed by the emitter).
+    let scheme = match overridden_canvas_text() {
+        true => format!("#exact-root [style*=color-scheme]{{{SCHEME_COLOR}}}"),
+        false => String::new(),
+    };
+    format!(":root{{{out}}}{scheme}{}", brand_states())
+}
+
+/// @ref LLP 1129 D2, D3 — what a theme's accent and selection colours
+/// reach on the web beyond the controls. The keyboard's ring is drawn in
+/// the theme's accent, as iOS draws its focus halo in the tint the theme
+/// sets (LLP 1095 D1), and solid: Chrome's `auto` ring ignores its offset
+/// and hugs the control, so in the accent it vanishes on a control the
+/// accent fills. Selected text takes the theme's `Highlight` pair; unsaid,
+/// no `::selection` rule is written, since one changes how an engine draws
+/// an inactive selection.
+fn brand_states() -> String {
+    let said = |name: &str| role(name).is_some_and(|id| overridden(id).is_some());
+    let mut out = String::new();
+    if overridden(accent()).is_some() {
+        // Two ids and nothing else: over the shell's `outline: revert` on
+        // its controls (one id, index.html) and under the author's classes
+        // (two ids and a class), so an authored `outline` wins. An invalid
+        // field keeps its red ring. The bar's Back, and a platform button
+        // the accent fills, which the shell gives no offset, take one.
+        out.push_str(
+            "#exact-root#exact-root :where(:focus-visible:not([aria-invalid=true])),\
+             #exact-root#exact-root [navigationkey]>header::part(back):focus-visible\
+             {outline:2px solid var(--exact-accent)}\
+             #exact-root#exact-root :where(button[data-native]:is([data-button-style=filled],\
+             [data-button-style=bordered-prominent]):focus-visible){outline-offset:2px}",
+        );
+    }
+    if said("Highlight") || said("HighlightText") {
+        out.push_str(
+            "#exact-root ::selection{background-color:var(--exact-highlight,Highlight);\
+             color:var(--exact-highlight-text,HighlightText)}",
+        );
+    }
+    out
+}
+
+/// @ref LLP 1095 D4 — a theme's `CanvasText` is a `color` on the web's root,
+/// which the browser computes on the root's scheme; a `color-scheme` card
+/// reads the entry again on its own, as Apple's does. Written at an id and
+/// a class's specificity: over the page's control reset (`all: unset`, so a
+/// button with a scheme reads it too), under the look's own control colours
+/// and an authored colour on the card.
+pub const SCHEME_COLOR: &str = "color:var(--exact-scheme-color,currentcolor)";
+
+/// The JS target's rule for its classes `.c1`… (`classes[0]`…) that set a
+/// scheme: [`SCHEME_COLOR`] on them. None without a theme.
+pub fn scheme_classes(classes: &[String]) -> String {
+    let schemed: Vec<String> = classes
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.contains("color-scheme:light") || c.contains("color-scheme:dark"))
+        .map(|(i, _)| format!(".c{}", i + 1))
+        .collect();
+    match overridden_canvas_text() && !schemed.is_empty() {
+        true => format!("#exact-root :is({}){{{SCHEME_COLOR}}}", schemed.join(",")),
+        false => String::new(),
+    }
+}
+
+/// The custom property a host's own sheet declares `role`'s override as
+/// ([`theme_css`]): `--exact-accent` for `AccentColor`, a CSS system
+/// colour's in kebab case as the look's sheets spell them
+/// (`--exact-gray-text`), an Exact role's by its name.
+pub fn theme_property(role: &ColorRole) -> String {
+    let name = match role.name {
+        "AccentColor" => "accent".to_string(),
+        n if is_css_system(role) => n.chars().enumerate().fold(String::new(), |mut k, (i, c)| {
+            if c.is_ascii_uppercase() && i > 0 {
+                k.push('-');
+            }
+            k.push(c.to_ascii_lowercase());
+            k
+        }),
+        n => n.to_string(),
+    };
+    format!("--exact-{name}")
+}
+
+thread_local! {
+    static LIVE_PROPERTIES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While the guard lives, an overridden role crosses into CSS as its sheet
+/// property over its value (`var(--exact-label, #…)`), so a development
+/// build's live edit of the override, which sets the property, reaches it
+/// (the JS target, LLP 1121 stage 5). A release build crosses the value.
+pub fn live_properties(on: bool) -> LiveProperties {
+    LiveProperties(LIVE_PROPERTIES.with(|l| l.replace(on)))
+}
+
+/// [`live_properties`]' scope: the setting before, restored when dropped.
+pub struct LiveProperties(bool);
+
+impl Drop for LiveProperties {
+    fn drop(&mut self) {
+        let _ = LIVE_PROPERTIES.try_with(|l| l.set(self.0));
+    }
+}
+
+/// What an authored colour writes beside itself under a theme that replaces
+/// `CanvasText`: [`SCHEME_COLOR`] unset, so its subtree inherits it.
+#[track_caller]
+pub fn scheme_color(style: &super::StyleProps) -> &'static str {
+    match style.mask.has(super::StyleId::TextColor) && overridden_canvas_text() {
+        true => "--exact-scheme-color:initial;",
+        false => "",
+    }
+}
+
+/// Whether the theme replaces `CanvasText`, the page's unsaid text.
+#[track_caller]
+pub fn overridden_canvas_text() -> bool {
+    static ID: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    overridden(*ID.get_or_init(|| role("CanvasText").unwrap_or(u8::MAX))).is_some()
+}
+
+/// A role an Apple platform draws in the view's tint (`AccentColor`,
+/// `LinkText`, `-exact-link`, `-exact-symbol`, `ButtonText`). Of these a
+/// theme may replace only `AccentColor`, which is the app's tint.
+pub fn tint(id: u8) -> bool {
+    follows_accent(id, false) || follows_accent(id, true)
+}
+
+thread_local! {
+    /// The authored `accent-color` around what a painting host paints now
+    /// ([`authored_accent`]).
+    static AUTHORED: std::cell::Cell<Option<ColorValue>> = const { std::cell::Cell::new(None) };
+}
+
+/// A painting host's scope: the nearest `accent-color` its node or an
+/// ancestor authored (the inherited row), which the roles the browser draws
+/// in the accent ([`web_accent`]: `AccentColor`, `LinkText`, `-exact-link`,
+/// `-exact-symbol`) resolve to while it lasts, as the web's
+/// `var(--exact-accent, AccentColor)` reads the nearest one. Restored when
+/// the scope ends.
+///
+/// `accent-color="AccentColor"` keeps the one around, as css.rs leaves
+/// `--exact-accent` inherited for exactly that and Apple's tint stays the
+/// ancestor's; another role (`LinkText`) is the platform's colour, read with
+/// no scope ([`painted_accent`]).
+///
+/// The scope holds a copy of a wide colour id, unmarked (LLP 1121 stage 4):
+/// it lasts only inside one paint call, and the id is the painted node's,
+/// which the kernel the host borrows to paint marks for that whole time.
+pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
+    let accent = match accent {
+        Some(ColorValue::Role(id)) if id == self::accent() => AUTHORED.with(|a| a.get()),
+        other => other,
+    };
+    AccentScope(
+        AUTHORED.with(|a| a.replace(accent)),
+        std::marker::PhantomData,
+    )
+}
+
+/// What [`authored_accent`] restores; the thread's, so it stays on it.
+pub struct AccentScope(
+    Option<ColorValue>,
+    std::marker::PhantomData<std::rc::Rc<()>>,
+);
+
+impl Drop for AccentScope {
+    fn drop(&mut self) {
+        AUTHORED.with(|a| a.set(self.0));
+    }
+}
+
+/// `c` with a role drawn in the accent replaced by `accent`, where the
+/// node's accent is one it or an ancestor authored: what a host keeps to
+/// resolve later, outside the painting scope ([`authored_accent`]).
+pub fn accented(c: ColorValue, accent: Option<ColorValue>) -> ColorValue {
+    let _scope = authored_accent(accent);
+    match (c, AUTHORED.with(|a| a.get())) {
+        (ColorValue::Role(id), Some(a)) if role_of(id).is_some_and(web_accent) => a,
+        _ => c,
+    }
+}
+
+/// `c` under the scope's authored accent, when it is a role drawn in the
+/// accent; the accent itself is resolved with none around (the scope never
+/// holds such a role, [`authored_accent`]).
+pub(crate) fn painted_accent(c: ColorValue, dark: bool) -> Option<super::Color> {
+    let ColorValue::Role(id) = c else { return None };
+    if !role_of(id).is_some_and(web_accent) {
+        return None;
+    }
+    let accent = AUTHORED.with(|a| a.get())?;
+    let _none = authored_accent(None);
+    Some(accent.resolve(dark))
+}
+
+/// What a painting host resolves for `c` under the theme: a replaced
+/// role's colour, and for a tint role the theme's `AccentColor` (an
+/// authored accent is the host's to apply).
+#[track_caller]
+pub fn painted_override(c: ColorValue) -> Option<ColorValue> {
+    let ColorValue::Role(id) = c else { return None };
+    let accent = accent();
+    let id = if id != accent && tint(id) && overridden(accent).is_some() {
+        accent
+    } else {
+        id
+    };
+    match overridden(id).filter(|o| *o != ColorValue::Role(id))? {
+        // A role replaced by a tint role is the tint: the theme's when it sets
+        // one. The tint itself never names one (the compiler refuses it; a
+        // built plan that does is read as no override, so nothing recurses).
+        ColorValue::Role(r) if tint(r) => match id == accent {
+            true => None,
+            false => overridden(accent)
+                .filter(|a| !matches!(a, ColorValue::Role(t) if tint(*t)))
+                .or(Some(ColorValue::Role(r))),
+        },
+        o => Some(o),
+    }
+}
+
+/// `AccentColor`'s id.
+pub fn accent() -> u8 {
+    static ID: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *ID.get_or_init(|| role("AccentColor").unwrap_or(u8::MAX))
+}
+
+/// What the theme replaces a role with, if it does.
+#[track_caller]
+pub fn overridden(id: u8) -> Option<ColorValue> {
+    let roles = bound();
+    if roles.is_empty() {
+        return None;
+    }
+    // One step: an override naming another overridden role reads that one's.
+    match roles.find(id)? {
+        ColorValue::Role(next) => roles.find(next).or(Some(ColorValue::Role(next))),
+        other => Some(other),
+    }
 }
 
 /// Interned `-exact-platform-color()`s. A plan names a few; the runner admits one
@@ -398,6 +697,7 @@ pub fn parse_platform(text: &str) -> Option<ColorValue> {
 /// reads back as itself and not as `AccentColor`, which another platform
 /// resolves differently (the Mac's `linkColor` is not its accent, nor its
 /// symbols' colour).
+#[track_caller]
 pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
     match c {
         ColorValue::Role(id) => {
@@ -405,7 +705,31 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                 out.push_str("transparent");
                 return;
             };
-            if mode == ColorText::Css && web_accent(r) {
+            // @ref LLP 1095 D4 — a role the theme replaces crosses as what
+            // replaces it, on the wire and in CSS.
+            // The browser's accent roles read the nearest `accent-color`
+            // first, so an authored one still wins; the theme's colour is
+            // what they fall back to.
+            let accent = mode == ColorText::Css && web_accent(r);
+            match overridden(id) {
+                // The page's `--exact-accent` is the theme's (theme_css), so
+                // an accent role keeps reading it, an authored one first.
+                _ if accent || tint(id) => {}
+                Some(ColorValue::Role(next)) if next != id => {
+                    return reference_css(out, ColorValue::Role(next), mode)
+                }
+                Some(ColorValue::Role(_)) | None => {}
+                Some(o) if mode == ColorText::Css && LIVE_PROPERTIES.with(|l| l.get()) => {
+                    out.push_str("var(");
+                    out.push_str(&theme_property(r));
+                    out.push_str(", ");
+                    crate::gradient::color_text(out, o, mode);
+                    out.push(')');
+                    return;
+                }
+                Some(o) => return crate::gradient::color_text(out, o, mode),
+            }
+            if accent {
                 let named = r.name != "AccentColor";
                 if named {
                     // An Exact role's name is lower case already.
@@ -442,9 +766,16 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
 impl ColorValue {
     /// What a host without the platform's colour, or with only sRGB, shows:
     /// a reference's fallback (LLP 1095 D1), a wide colour's sRGB clip.
+    #[track_caller]
     pub fn fallback(self) -> ColorValue {
         match self {
-            ColorValue::Role(id) => role_fallback(id),
+            ColorValue::Role(id) => overridden(id).map_or_else(
+                || role_fallback(id),
+                |o| match o {
+                    ColorValue::Role(next) => role_fallback(next),
+                    o => o.fallback(),
+                },
+            ),
             ColorValue::Platform(id) => {
                 platform(id).map_or(ColorValue::Fixed(Color::TRANSPARENT), |p| p.fallback)
             }
@@ -482,6 +813,30 @@ impl ColorValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_themes_accent_and_highlight_reach_the_ring_and_the_selection() {
+        let pair = |l: u32, d: u32| ColorValue::LightDark(Color(l), Color(d));
+        let id = |name: &str| role(name).unwrap();
+        set_overrides(vec![(id("CanvasText"), pair(0x1f2a_22ff, 0xece7_daff))]);
+        let plain = theme_css();
+        assert!(
+            !plain.contains(":focus-visible") && !plain.contains("::selection"),
+            "{plain}"
+        );
+        set_overrides(vec![
+            (id("AccentColor"), pair(0x2f6b_3fff, 0x7cc0_8aff)),
+            (id("Highlight"), pair(0x2f6b_3fff, 0x7cc0_8aff)),
+        ]);
+        let branded = theme_css();
+        assert!(
+            branded.contains("#exact-root#exact-root :where(:focus-visible:not([aria-invalid=true])),#exact-root#exact-root [navigationkey]>header::part(back):focus-visible{outline:2px solid var(--exact-accent)}"),
+            "{branded}"
+        );
+        assert!(branded.contains("#exact-root ::selection{background-color:var(--exact-highlight,Highlight);color:var(--exact-highlight-text,HighlightText)}"), "{branded}");
+        set_overrides(Vec::new());
+        assert_eq!(theme_css(), "");
+    }
 
     #[test]
     fn a_reported_resolution_replaces_the_fallback_until_withdrawn() {

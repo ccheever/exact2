@@ -1,6 +1,6 @@
 #if os(iOS)
 // AttachmentDocument365aa87982: read at most1MiB+1 even when a server ignores Range.
-// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 import Foundation
 
 final class T3MobileDocument {

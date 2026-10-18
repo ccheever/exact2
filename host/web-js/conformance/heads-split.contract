@@ -28,11 +28,12 @@ component HeadsSplit
           column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 background-color="#ffffff"
             if e.name == "items"
               head title="Items" description="All items" canonical="/"
-              button press=detail testId="open-detail"
-                text "Ada"
-                image "symbol:forward-chevron" width=16 height=16
-              button press=commit testId="list-commit"
-                text "Commit from list"
+              list
+                button press=detail testId="open-detail"
+                  text "Ada"
+                  image "symbol:forward-chevron" width=16 height=16
+                button press=commit testId="list-commit"
+                  text "Commit from list"
             if e.name == "person"
               if named
                 head title="Ada"

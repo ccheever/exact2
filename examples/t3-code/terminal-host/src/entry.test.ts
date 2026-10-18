@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
-  terminalInputShortcutData } from "./entry";
+import { CompositionKeys, eventKeyNames, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+  terminalInputShortcutData, terminalKeyShortcutData, themeFrom } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
   metaKey: false,
@@ -64,6 +64,15 @@ describe("terminal readline key policy", () => {
     }
     expect(terminalInputShortcutData(key({ key: "c", code: "KeyC", ctrlKey: true }))).toBeNull();
     expect(terminalInputShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", ctrlKey: true }))).toBeNull();
+  });
+
+  test("a key that began while text composed matches by its key alone, as the reference's Process key", () => {
+    // Korean 2-Set: ⌃L is "ㅣ"; it ends the composition and leaves the screen.
+    expect(terminalKeyShortcutData(key({ key: "ㅣ", code: "KeyL", ctrlKey: true }), true)).toBeNull();
+    expect(terminalKeyShortcutData(key({ key: "ㅣ", code: "KeyL", ctrlKey: true }), false)).toBe("\u000c");
+    // A Latin layout's input method (Kotoeri romaji): ⌃L is "l" and still clears.
+    expect(terminalKeyShortcutData(key({ key: "l", code: "KeyL", ctrlKey: true }), true)).toBe("\u000c");
+    expect(terminalKeyShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", altKey: true }), true)).toBe("\u001bb");
   });
 });
 
@@ -134,7 +143,7 @@ describe("terminalNavigationShortcutData", () => {
   });
 });
 
-describe("the input's composing state (realinput-1011c G1-1, G1-2)", () => {
+describe("the input's composing state", () => {
   test("goes out as states: composing from the first update to the commit, once each, whatever the updates", () => {
     const input = new EventTarget(), states: boolean[] = [];
     const stop = observeComposition(input, (composing) => states.push(composing));
@@ -151,5 +160,139 @@ describe("the input's composing state (realinput-1011c G1-1, G1-2)", () => {
     stop();
     input.dispatchEvent(new Event("compositionstart"));
     expect(states).toHaveLength(6);
+  });
+});
+
+describe("keys that began while text composed", () => {
+  const key = (code: string, init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; keyCode: number }> = {}) =>
+    ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, keyCode: 0, code, ...init });
+
+  test("each mark is taken once, by the next keydown with its modifiers and key", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    // A composing key WebKit still had queued (plain) does not take a ⌃ chord's mark.
+    expect(keys.take(key("KeyG", { keyCode: 229 }))).toBe(false);
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(true);
+    // The second ⌃C, after the commit, is the shell's.
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+    keys.mark(key("Enter", { altKey: true }));
+    expect(keys.take(key("Enter", { altKey: true, shiftKey: true }))).toBe(false);
+    expect(keys.take(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
+  });
+
+  test("a mark is taken by its own key, or by the input method's Process keydown", () => {
+    const keys = new CompositionKeys(() => 0);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    // A ⌃ key whose mark never reached the page (the key went elsewhere) is not taken for it.
+    expect(keys.take(key("KeyD", { ctrlKey: true, keyCode: 68 }))).toBe(false);
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 229 }))).toBe(true);
+    keys.mark(key("KeyK", { ctrlKey: true }));
+    expect(keys.take(key("", { ctrlKey: true, keyCode: 229 }))).toBe(true);
+    // A key the native view has no name for is matched by its modifiers.
+    keys.mark(key("", { ctrlKey: true }));
+    expect(keys.take(key("F13", { ctrlKey: true, keyCode: 124 }))).toBe(true);
+  });
+
+  test("a mark whose keydown never came lapses, and so do marks older than the one taken", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    now = 1000;
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    keys.mark(key("Enter", { altKey: true }));
+    expect(keys.take(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+  });
+});
+
+describe("the text the input method converts for ⌥Return", () => {
+  const key = (code: string, init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) =>
+    ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code, ...init });
+
+  test("only a waiting ⌥Return mark asks for it", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    expect(keys.awaitsOptionReturn()).toBe(false);
+    keys.mark(key("Enter", { altKey: true }));
+    expect(keys.awaitsOptionReturn()).toBe(true);
+    expect(keys.take({ ...key("Enter", { altKey: true }), keyCode: 229 })).toBe(true);
+    expect(keys.awaitsOptionReturn()).toBe(false);
+    keys.mark(key("NumpadEnter", { altKey: true, shiftKey: true }));
+    expect(keys.awaitsOptionReturn()).toBe(true);
+    now = 1000;
+    expect(keys.awaitsOptionReturn()).toBe(false);
+  });
+
+  /** An input that empties itself on every commit, as the surface's does (surface.ts onCompositionEnd). */
+  const surfaceInput = () => {
+    const input = Object.assign(new EventTarget(), { value: "" }), sent: string[] = [];
+    input.addEventListener("compositionend", (event) => {
+      sent.push(input.value || (event as CompositionEvent).data);
+      input.value = "";
+    });
+    return { input, sent };
+  };
+  const end = (data: string) => Object.assign(new Event("compositionend"), { data });
+
+  test("the committed syllable stays in the input until the input method's candidate replaces it", () => {
+    const { input, sent } = surfaceInput();
+    let converting = true;
+    keepConversionContext(input, () => converting);
+    // 2-Set, ⌥Return with 한 composing: the input method commits 한, which goes out, and finds it before the caret.
+    input.value = "한";
+    input.dispatchEvent(end("한"));
+    expect(sent).toEqual(["한"]);
+    expect(input.value).toBe("한");
+    // It replaces 한 with 韓 while its list is open; the key's keydown follows and leaves the composition alone.
+    input.dispatchEvent(new Event("compositionstart"));
+    input.value = "韓";
+    input.dispatchEvent(new Event("keydown"));
+    expect(input.value).toBe("韓");
+    // Picking 韓 commits it, as under the reference: the shell gets 한 then 韓.
+    converting = false;
+    input.dispatchEvent(end("韓"));
+    expect(sent).toEqual(["한", "韓"]);
+    expect(input.value).toBe("");
+  });
+
+  test("a declined key or leaving the input empties it, so the syllable never goes out twice", () => {
+    const { input, sent } = surfaceInput();
+    let converting = true;
+    keepConversionContext(input, () => converting);
+    input.value = "한";
+    input.dispatchEvent(end("한"));
+    converting = false;
+    input.dispatchEvent(new Event("keydown"));
+    expect(input.value).toBe("");
+    converting = true;
+    input.value = "글";
+    input.dispatchEvent(end("글"));
+    input.dispatchEvent(new Event("blur"));
+    expect(input.value).toBe("");
+    expect(sent).toEqual(["한", "글"]);
+    // Any other commit leaves the input as the surface left it.
+    converting = false;
+    input.value = "말";
+    input.dispatchEvent(end("말"));
+    expect(input.value).toBe("");
+  });
+});
+
+describe("the terminal theme", () => {
+  // ThreadTerminalDrawer terminalThemeFromApp: VS Code's 16 ANSI colours for the app's scheme.
+  test("carries VS Code's ANSI palette for the scheme", () => {
+    const dark = themeFrom({ dark: true }).theme.palette;
+    const light = themeFrom({ dark: false }).theme.palette;
+    expect(dark).toHaveLength(16);
+    expect(light).toHaveLength(16);
+    expect(dark?.[2]).toEqual({ r: 0x0d, g: 0xbc, b: 0x79 });
+    expect(dark?.[12]).toEqual({ r: 0x3b, g: 0x8e, b: 0xea });
+    expect(light?.[2]).toEqual({ r: 0x10, g: 0x7c, b: 0x10 });
+    expect(light?.[15]).toEqual({ r: 0xa5, g: 0xa5, b: 0xa5 });
+    // A custom background keeps the scheme's palette.
+    expect(themeFrom({ dark: true, background: { r: 1, g: 2, b: 3 } }).theme.palette).toEqual(dark);
   });
 });

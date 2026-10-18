@@ -142,6 +142,29 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// the tabs and adopted lists hidden for it.
     func inspectionOwns(_ view: UIView) -> Bool { bars.values.contains { $0 === view } || controls.values.contains { $0 === view } }
     func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } || adoptedLists.contains(node.id) }
+    #if EXACT_INSPECT && os(iOS)
+    /// The tab a point in `view` (a segmented control or tab bar standing in
+    /// for a tablist) is over: inspect mode selects it (InspectIOS.swift).
+    func tab(at point: CGPoint, in view: UIView) -> UInt32? {
+        let owner: UInt32? = (view as? ExactSegmentedControl)?.ownerID ?? (view as? ExactTabBar)?.ownerID
+        guard let owner, let ids = members[owner], !ids.isEmpty, view.bounds.width > 0, view.bounds.contains(point) else { return nil }
+        // A tab bar: the item's button under the point, a gap nothing.
+        if view is ExactTabBar {
+            let boxes = InspectHost.buttonBoxes(in: view) // (in item order, right to left too)
+            guard boxes.count == ids.count else { return nil }
+            return boxes.firstIndex { $0.contains(point) }.map { ids[$0] }
+        }
+        // A segmented control: its segments' own boxes (widths by content
+        // when squeezed; `segmentViews`, in segment order), else equal widths.
+        if let control = view as? ExactSegmentedControl {
+            let segments = control.segmentViews
+            if segments.count == ids.count { return segments.firstIndex { $0.convert($0.bounds, to: view).contains(point) }.map { ids[$0] } }
+        }
+        var index = Int(point.x / view.bounds.width * CGFloat(ids.count))
+        if view.effectiveUserInterfaceLayoutDirection == .rightToLeft { index = ids.count - 1 - index }
+        return ids.indices.contains(index) ? ids[index] : nil
+    }
+    #endif
 
     init(_ presenter: Presenter) { self.presenter = presenter; super.init() }
 
@@ -188,11 +211,15 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         tab.props[tab.props["accessibilityRole"] == "radio" ? "accessibilityChecked" : "accessibilitySelected"] == "true"
     }
 
+    /// Whether the owner takes input. `visibility` is read on the owner
+    /// alone: its value is computed, and a box under a hidden one may set it
+    /// back to `visible`.
     private func available(_ owner: UIView) -> Bool {
+        if (owner as? NodeView)?.cssVisibilityHidden == true { return false }
         var ancestor: UIView? = owner
         while let view = ancestor {
-            if view.isHidden || view.alpha <= 0.01 || (view as? NodeView)?.props["inert"] == "true" { return false }
-            ancestor = view.superview
+            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return false }
+            ancestor = presenter.eventParent(of: view)
         }
         return owner.window != nil
     }
@@ -303,7 +330,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let natural = natural(owner.id, control as! UISegmentedControl)
             size = CGSize(width: 1, height: natural.height)
             // The padding and border around the content box layout sent
-            if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.bounds.height - owner.contentBox().height }
+            if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.layoutBounds.height - owner.contentBox().height }
         } else {
             guard owner.bounds.width > 0 else { return }
             // A tab bar lays its items out in any width: none is its narrowest.
@@ -388,13 +415,15 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // A tablist whose place a tab container's bar takes is the container's
         // (LLP 1075.003 §3.7): it is hidden, and projects nothing of its own.
         // A radio group of two or more radios is the same segmented control
-        // (LLP 1116.004 D5.2); it is never a tab bar.
+        // (LLP 1116.004 D5.2); it is never a tab bar. A written `appearance:
+        // none` keeps either one's authored tabs or radios.
         let owners = presenter.carrying("role:tablist").filter {
             $0.props["accessibilityRole"] == "tablist" &&
                 $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0) &&
                 !($0.wrote("appearance") && $0.style["appearance"]?.string == "none")
         } + presenter.carrying("role:radiogroup").filter {
-            $0.props["accessibilityRole"] == "radiogroup" && $0.props["accessibilityOrientation"] != "vertical"
+            $0.props["accessibilityRole"] == "radiogroup" && $0.props["accessibilityOrientation"] != "vertical" &&
+                !($0.wrote("appearance") && $0.style["appearance"]?.string == "none")
         }
         for list in presenter.carrying("role:tablist") {
             let adopted = presenter.navigation.adopts(tablist: list)
@@ -435,14 +464,12 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 let context = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
                 context.delegate = self
                 value.addGestureRecognizer(context)
-                value.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                value.autoresizingMask = [.flexibleWidth, .flexibleTopMargin, .flexibleBottomMargin]
                 owner.addSubview(value)
                 controls[owner.id] = value
                 return value
             }()
             if control.superview !== owner { owner.addSubview(control) }
-            let frame = owner.contentBox()
-            if control.frame != frame { control.frame = frame }
             assign(control, \.isEnabled, available(owner))
             control.accessibilityLabel = owner.props["accessibilityLabel"]
             if control.numberOfSegments != tabs.count {
@@ -464,6 +491,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let pending = control.isTracking || control.selectedSegmentIndex != control.settled
             if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
             if control.selectedSegmentIndex == selected { control.settled = selected }
+            // As wide as the content box and its own height, centred in it
+            // (LLP 1116.019 D1): a taller box (an authored height, a stretch)
+            // does not stretch UIKit's control, as a hand-built screen's
+            // never is.
+            let box = owner.contentBox()
+            let height = min(box.height, natural(owner.id, control).height)
+            let frame = CGRect(x: box.minX, y: box.midY - height / 2, width: box.width, height: height)
+            if control.frame != frame { control.frame = frame }
             owner.bringSubviewToFront(control)
             measure(owner, control)
             // Equal segments where they fit; in a narrower box UIKit gives

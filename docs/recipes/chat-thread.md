@@ -1,6 +1,6 @@
 # Recipe: a chat thread
 
-A transcript that opens at the newest message, over a composer.
+A transcript open at its newest message, over Messages' composer.
 
 ```contract
 routes nav
@@ -24,27 +24,29 @@ component Chat
   action post
     if draft.trim() != "" and not pending(sent)
       send sent = sendMessage(draft.trim())
+    focus("composer")
   action afterSend
     if sendError == ""
       draft = ""
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" interactive-widget="resizes-content"
-      width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` interactive-widget="resizes-content" width="100%" height="100%"
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
           header
-            text "Ada" role="heading" aria-level=2
+            h2 "Ada"
           list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
             for m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
-                row position="relative" overflow="hidden" border-radius=18 max-width="75%"
-                  view position="absolute" inset=0 opacity=(m.mine ? 0.35 : 1)
-                    background-color=(m.mine ? "AccentColor" : "-exact-fill")
-                  text m.body padding="8px 12px" position="relative" overflow-wrap="anywhere" testId=`message-${m.id}`
-          row gap=8 padding="8px 12px" align-items="center"
-            input value=draft input=edit submit=post placeholder="Message"
-              enterkeyhint="send" testId="composer" flex=1 min-width=0
-            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled" aria-label="Send" testId="send"
+                text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="break-word"
+                  background-color=(m.mine ? "AccentColor" : "-exact-fill") color=(m.mine ? "AccentColorText" : "-exact-label")
+                  testId=`message-${m.id}`
+          row align-items="flex-end" margin="6px 12px" padding="4px 4px 4px 12px" border-radius=20
+            border="1px solid -exact-separator"
+            textarea id="composer" value=draft input=edit rows=1 field-sizing="content" max-height=140
+              placeholder="Message" aria-label="Message" testId="composer" flex=1 min-width=0
+              border="none" background-color="transparent"
+            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled"
+              retainFocus=true aria-label="Send" testId="send"
               image "symbol:send"
 ```
 
@@ -55,19 +57,15 @@ export const appId = 'com.example.chat';
 export const grants = '';
 
 const messages: Result<'loadThread'> = [];
-
 const sources: Sources = {
   loadThread: () => messages,
-  sendMessage: ([body]) => {
-    messages.push({ id: String(messages.length + 1), body, mine: true });
-    return { error: '' };
-  },
+  sendMessage: ([body]) => (messages.push({ id: String(messages.length + 1), body, mine: true }), { error: '' }),
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
 ```
 
 ```contract-test
-test "a sent message lands, and the composer clears"
+test "a sent message lands; the composer clears"
   type "composer" "Yes, at noon"
   tap "send"
   clock data
@@ -75,7 +73,7 @@ test "a sent message lands, and the composer clears"
   expect text "message-1" == "Yes, at noon"
 ```
 
-- `appearance="none"`: bubbles are not cells. `scroll-start="end"` opens at the newest row,
-  `scrollFollowEnd=true` follows new ones, `interactive-widget="resizes-content"` keeps the
-  composer above the keyboard. A refusal keeps the draft ([after-a-write](after-a-write.md)).
-- The sent bubble is the accent at 0.35 under the label's ink; solid, `check` fails it.
+- Bubbles are not cells (`appearance="none"`); `scroll-start="end"` opens at the newest;
+  `interactive-widget` keeps the composer over the keyboard; Send keeps it up.
+- Yours: the solid accent under `AccentColorText` (white on iOS; 3:1 in `check`), no name;
+  a group names others'.

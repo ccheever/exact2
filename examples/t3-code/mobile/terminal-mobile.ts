@@ -1,6 +1,6 @@
 import { mobileComposerTargetRequire, mobileComposerTargetCurrent, mobileComposerTargetText, mobileComposerEditContext, mobileComposerNewTaskContext } from './composer-target';
 // Pinned365aa87982 ThreadTerminalRouteScreen over existing terminal metadata/UI/transport owners.
-// @ref llp/1109.007-mobile-terminal.decision.md#root-seam
+// @ref examples/t3-code/mobile/docs/1130.007-mobile-terminal.decision.md#root-seam
 import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
 import { mobileDraftChanged } from './draft';
 import { mobileExternalContextCapture, mobileExternalContextCurrent, mobileExternalContextInsert, mobileExternalContextPersist, mobileExternalContextPreflight } from './composer-external-context';

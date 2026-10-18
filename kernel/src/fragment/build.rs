@@ -288,7 +288,12 @@ impl Builder<'_> {
             if s == self.container {
                 return false;
             }
-            if self.arena.style(s).position_type != PositionType::Static {
+            if self
+                .arena
+                .computed_source(s, crate::StyleId::PositionType)
+                .position_type
+                != PositionType::Static
+            {
                 return true;
             }
             at = self.arena.parent(s);

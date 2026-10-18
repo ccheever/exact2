@@ -1,6 +1,6 @@
 // Ordinary Thread context ownership, adapted from T3 Code (MIT); see LICENSE-T3.
 // Source365aa87982 composerContext.ts/use-composer-drafts.ts; mobile-only persistence seam.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client } from './shared/client';
 import { mobileEditorDocument as sendDocument } from './composer-editor-persistence';
 import { threadSendTransferDecodeCompletion as sendCompletion } from './thread-send-transfer-model';

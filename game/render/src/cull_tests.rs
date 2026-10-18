@@ -490,3 +490,287 @@ fn devices_without_indirect_execution_draw_the_same_pixels_directly() {
     assert!(surface.renderer_for_test().unwrap().cull.direct);
     assert!(culled.data == direct.data, "the direct path changed pixels");
 }
+
+#[test]
+fn cull_lists_preserve_model_slots_across_many_draw_groups() {
+    use crate::{
+        buffers::{bytes, Buffer},
+        cull::{Cull, Group, KEEP_ALL, UNSORTED},
+    };
+    use exact_gpu::wgpu;
+    let Some(gpu) = gpu() else { return };
+    let (device, queue) = (&gpu.device, &gpu.queue);
+    let mut cull = Cull::new(device, None);
+    let mut slots = Vec::new();
+    for group in 0..72 {
+        let start = slots.len() as u32;
+        let count = [1, 31, 63, 64, 65, 129][group % 6];
+        slots.extend((start..start + count).map(|i| i | crate::RENDER_SLOT_BASE));
+        cull.groups.push(Group {
+            batch: group,
+            range: start..start + count,
+            mirrored: false,
+            flags: KEEP_ALL | 1 | ((group as u32 % 8) << 1),
+        });
+    }
+    cull.begin_setup();
+    let mut chunk = 0;
+    for group in 0..cull.groups.len() {
+        let head = cull.group_words(group, chunk);
+        chunk += head[3];
+        cull.words.extend([
+            head[0],
+            head[1],
+            head[2],
+            head[3],
+            36,
+            group as u32 * 36,
+            group as u32 * 24,
+            cull.groups[group].flags,
+            cull.region(group),
+            0,
+            0,
+            0,
+            0,
+            UNSORTED,
+            0,
+            0,
+        ]);
+    }
+    let records = cull.words.len() as u32;
+    for i in 0..slots.len() {
+        cull.words
+            .extend([0, 0, u32::from(i % 5 == 0), 0, 0, 0, 0, 0]);
+    }
+    let skins = cull.words.len() as u32;
+    cull.finish_setup(device, queue, slots.len() as u32, records, skins);
+    assert!(!cull.direct, "this regression requires GPU culling");
+    let frame = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("cull test frame"),
+        size: 4096,
+        usage: wgpu::BufferUsages::UNIFORM,
+        mapped_at_creation: false,
+    });
+    let dummy = Buffer::new(device, 64, wgpu::BufferUsages::STORAGE, "cull test unused");
+    let mut input = Buffer::new(
+        device,
+        slots.len() as u64 * 4,
+        wgpu::BufferUsages::STORAGE,
+        "cull test slots",
+    );
+    input.write(queue, 0, bytes(&slots));
+    cull.bind(
+        device,
+        &frame,
+        [&dummy.raw, &dummy.raw],
+        &dummy.raw,
+        &input.raw,
+        &dummy.raw,
+        None,
+        None,
+    );
+    cull.write_views(queue, &[glam::Mat4::IDENTITY; 4], slots.len() as u32, false);
+    for iteration in 0..3 {
+        let mut encoder = device.create_command_encoder(&Default::default());
+        assert!(cull.encode(&mut encoder, 0, None));
+        queue.submit([encoder.finish()]);
+        let words = |buffer: &wgpu::Buffer| {
+            crate::skinning::tests::read(&gpu, buffer, buffer.size())
+                .chunks_exact(4)
+                .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+                .collect::<Vec<_>>()
+        };
+        let draws = words(&cull.indirect.raw);
+        let compacted = words(&cull.compacted.raw);
+        for view in 0..4 {
+            for (index, group) in cull.groups.iter().enumerate() {
+                let expected: Vec<_> = group
+                    .range
+                    .clone()
+                    .filter(|i| group.flags & (1 << view) != 0 && i % 5 != 0)
+                    .map(|i| i | crate::RENDER_SLOT_BASE)
+                    .collect();
+                let (region, draw) = cull.offsets(view, index);
+                let at = draw as usize / 4;
+                assert_eq!(
+                    &draws[at..at + 5],
+                    &[
+                        36,
+                        expected.len() as u32,
+                        index as u32 * 36,
+                        index as u32 * 24,
+                        if cull.first_instance { region / 4 } else { 0 }
+                    ],
+                    "iteration {iteration}, view {view}, group {index}"
+                );
+                let at = region as usize / 4;
+                assert_eq!(
+                    &compacted[at..at + expected.len()],
+                    expected,
+                    "iteration {iteration}, view {view}, group {index}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn posed_palettes_and_cull_slots_match_cpu_reference() {
+    use crate::{
+        buffers::{bytes, Buffer},
+        cull::{Cull, Group, UNSORTED},
+        skinning::Skinning,
+    };
+    use exact_gpu::wgpu;
+    let Some(gpu) = gpu() else { return };
+    let (device, queue) = (&gpu.device, &gpu.queue);
+    let model = crate::test_model::posable_model();
+    let mut skin = Skinning::new(device, None);
+    let template = skin.add(device, queue, &model)[0];
+    let mut world = World::new(60, 0);
+    let entities: Vec<_> = (0..72).map(|_| world.spawn(Transform::default())).collect();
+    let records: Vec<_> = entities
+        .iter()
+        .map(|e| crate::DrawInstance {
+            data: 0,
+            transform: e.index(),
+            geometry: crate::MeshId(0),
+            material: crate::MaterialId(0),
+            local: Mat4::IDENTITY,
+            skin: Some(template),
+            tint: [1.; 4],
+            glow: [0.; 3],
+        })
+        .collect();
+    let frame = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 4096,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    skin.set(device, queue, &frame, &records).unwrap();
+    skin.feed(queue, &world, &entities, true);
+    let mut cull = Cull::new(device, None);
+    cull.groups.push(Group {
+        batch: 0,
+        range: 0..72,
+        mirrored: false,
+        flags: 1,
+    });
+    cull.begin_setup();
+    let head = cull.group_words(0, 0);
+    cull.words.extend([
+        head[0],
+        head[1],
+        head[2],
+        head[3],
+        3,
+        0,
+        0,
+        1,
+        cull.region(0),
+        0,
+        0,
+        0,
+        0,
+        UNSORTED,
+        0,
+        0,
+    ]);
+    let record_start = cull.words.len() as u32;
+    for (i, e) in entities.iter().enumerate() {
+        cull.words.extend([
+            e.index(),
+            i as u32 + 1,
+            0,
+            0,
+            0.2f32.to_bits(),
+            0.2f32.to_bits(),
+            0,
+            0.3f32.to_bits(),
+        ]);
+    }
+    let skin_start = cull.words.len() as u32;
+    for &offset in &skin.offsets {
+        cull.words.extend([offset & 0x7fffffff, 1, 0, 0]);
+        cull.words
+            .extend(Mat4::IDENTITY.to_cols_array().map(f32::to_bits));
+    }
+    cull.finish_setup(device, queue, 72, record_start, skin_start);
+    let buffer = |data: &[u8]| {
+        let mut b = Buffer::new(
+            device,
+            data.len() as u64,
+            wgpu::BufferUsages::STORAGE,
+            "posed cull reference",
+        );
+        b.write(queue, 0, data);
+        b
+    };
+    // The x=11 records cross the right plane only after the posed hierarchy
+    // moves their bounds; the x=100 records are outside even at the bind origin.
+    let transforms: Vec<f32> = (0..72)
+        .flat_map(|i| [[0., 100., 11.][i % 3], 0., 0., 0., 0., 0., 1., 1., 1., 1.])
+        .collect();
+    let transforms = buffer(bytes(&transforms));
+    let slots: Vec<_> = (0..72).map(|i| i | crate::RENDER_SLOT_BASE).collect();
+    let input = buffer(bytes(&slots));
+    let dummy = buffer(bytes(&[0f32; 16]));
+    cull.bind(
+        device,
+        &frame,
+        [&transforms.raw, &transforms.raw],
+        &dummy.raw,
+        &input.raw,
+        &dummy.raw,
+        Some(&skin.palette.raw),
+        None,
+    );
+    cull.write_views(queue, &[Mat4::from_scale(Vec3::splat(0.1)); 4], 72, false);
+    let mut encoder = device.create_command_encoder(&Default::default());
+    skin.encode(&mut encoder, None);
+    assert!(cull.encode(&mut encoder, 0, None));
+    queue.submit([encoder.finish()]);
+    let read = |b: &wgpu::Buffer| crate::skinning::tests::read(&gpu, b, b.size());
+    let palette = read(&skin.palette.raw);
+    let draws = read(&cull.indirect.raw);
+    let compacted = read(&cull.compacted.raw);
+    let expected = animation::joint_matrix(&model, &animation::bind_pose(&model), 2);
+    let (region, draw) = cull.offsets(0, 0);
+    let word = |b: &[u8], at: usize| u32::from_ne_bytes(b[at..at + 4].try_into().unwrap());
+    eprintln!(
+        "posed cull: {} camera instances; expected 24",
+        word(&draws, draw as usize + 4)
+    );
+    let mut maximum_error = 0f32;
+    for &offset in &skin.offsets {
+        let at = (offset & 0x7fffffff) as usize * 64;
+        let actual: Vec<_> = palette[at..at + 64]
+            .chunks_exact(4)
+            .map(|b| f32::from_ne_bytes(b.try_into().unwrap()))
+            .collect();
+        for (a, b) in actual.iter().zip(expected.to_cols_array()) {
+            assert!(a.is_finite());
+            maximum_error = maximum_error.max((a - b).abs());
+        }
+        if at == 0 {
+            eprintln!(
+                "palette actual={actual:?}; CPU={:?}",
+                expected.to_cols_array()
+            );
+        }
+    }
+    assert!(
+        maximum_error < 2e-5,
+        "palette maximum error {maximum_error}"
+    );
+    assert_eq!(word(&draws, draw as usize + 4), 24);
+    let actual: Vec<_> = (0..24)
+        .map(|i| word(&compacted, region as usize + i * 4))
+        .collect();
+    let expected: Vec<_> = (0..72)
+        .step_by(3)
+        .map(|i| i | crate::RENDER_SLOT_BASE)
+        .collect();
+    assert_eq!(actual, expected);
+}

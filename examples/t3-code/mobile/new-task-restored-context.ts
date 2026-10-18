@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#terminal-draft-publication-and-recovery-coordinator
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#terminal-draft-publication-and-recovery-coordinator
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';
 import { mobileNewTaskDraftLookup } from './mobile-new-task-drafts';

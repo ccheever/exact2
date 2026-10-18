@@ -53,54 +53,83 @@ fn shape(src: &str) -> String {
 
 #[test]
 fn every_corpus_file_and_app_round_trips_through_the_printer() {
-    let mut report = Vec::new();
-    for path in sources().iter() {
-        let name = path
-            .strip_prefix(repo())
-            .unwrap()
-            .display()
-            .to_string()
-            .replace('\\', "/");
-        let src = std::fs::read_to_string(path).unwrap();
-        let formatted = format(&src).unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(shape(&src), shape(&formatted), "{name}: the tree changed");
-        assert_eq!(
-            format(&formatted).unwrap(),
-            formatted,
-            "{name}: not idempotent"
-        );
-        let over = src.lines().filter(|l| l.chars().count() > 100).count();
-        let still_over = formatted
-            .lines()
-            .filter(|l| l.chars().count() > 100)
-            .count();
-        // A used file has no root of its own and does not compile alone;
-        // every other source compiles to the same bytes after formatting.
-        match contract::compile_path(path) {
-            Ok(plan) => {
-                let after = contract::compile_path_source(path, &formatted)
-                    .unwrap_or_else(|e| panic!("{name}: {e}"));
-                assert_eq!(plan.encode(), after.encode(), "{name}: the plan changed");
-                report.push(format!(
-                    "{name}: byte-identical plan; {over} line(s) over 100 columns, {} after formatting; {} -> {} lines",
-                    still_over,
-                    src.lines().count(),
-                    formatted.lines().count()
-                ));
-            }
-            Err(e) => {
-                assert!(
-                    e.id == "analyze-root-props" && name.contains("use/"),
-                    "{name}: {e}"
-                );
-                report.push(format!("{name}: a used file, tree and idempotence only"));
-            }
-        }
-    }
+    // The files are independent: each is checked on a thread of its own, the next file to
+    // whichever thread is free, and the report keeps the files' order
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let sources = sources();
+    let next = AtomicUsize::new(0);
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let mut checked: Vec<(usize, String)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut lines = Vec::new();
+                    loop {
+                        let at = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(path) = sources.get(at) else {
+                            break lines;
+                        };
+                        lines.push((at, round_trip(path)));
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap())
+            .collect()
+    });
+    checked.sort_by_key(|(at, _)| *at);
+    let report: Vec<String> = checked.into_iter().map(|(_, line)| line).collect();
     for line in &report {
         println!("{line}");
     }
     assert!(report.iter().filter(|l| l.contains("apps/")).count() >= 6);
+}
+
+/// One file's three proofs, and its report line.
+fn round_trip(path: &Path) -> String {
+    let name = path
+        .strip_prefix(repo())
+        .unwrap()
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    let src = std::fs::read_to_string(path).unwrap();
+    let formatted = format(&src).unwrap_or_else(|e| panic!("{name}: {e}"));
+    assert_eq!(shape(&src), shape(&formatted), "{name}: the tree changed");
+    assert_eq!(
+        format(&formatted).unwrap(),
+        formatted,
+        "{name}: not idempotent"
+    );
+    let over = src.lines().filter(|l| l.chars().count() > 100).count();
+    let still_over = formatted
+        .lines()
+        .filter(|l| l.chars().count() > 100)
+        .count();
+    // A used file has no root of its own and does not compile alone;
+    // every other source compiles to the same bytes after formatting.
+    match contract::compile_path(path) {
+        Ok(plan) => {
+            let after = contract::compile_path_source(path, &formatted)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(plan.encode(), after.encode(), "{name}: the plan changed");
+            format!(
+                "{name}: byte-identical plan; {over} line(s) over 100 columns, {} after formatting; {} -> {} lines",
+                still_over,
+                src.lines().count(),
+                formatted.lines().count()
+            )
+        }
+        Err(e) => {
+            assert!(
+                e.id == "analyze-root-props" && name.contains("use/"),
+                "{name}: {e}"
+            );
+            format!("{name}: a used file, tree and idempotence only")
+        }
+    }
 }
 
 #[test]

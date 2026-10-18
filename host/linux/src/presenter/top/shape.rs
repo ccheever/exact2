@@ -25,7 +25,7 @@
 //! lowering implies for the shape, leaves Back and Escape alone to cancel
 //! it; `none` refuses those too.
 pub use exact_kernel::confirmation::{alert_text, is_alert};
-use exact_kernel::{ControlKind, Kernel, NodeRef, NodeType, PropId, ViewId};
+use exact_kernel::{ControlKind, Invocation, Kernel, NodeKey, NodeRef, NodeType, PropId, ViewId};
 
 /// One row a person can choose: an alert's button or a menu's item.
 #[derive(Debug, Clone, PartialEq)]
@@ -44,8 +44,8 @@ pub struct Row {
     pub cancel: bool,
     /// `aria-checked`.
     pub checked: bool,
-    /// The `id` of the menu it opens, for a row that opens one.
-    pub opens: Option<String>,
+    /// What it opens, for a row that opens a submenu or a dialog.
+    pub opens: Option<NodeKey>,
 }
 
 /// What the top layer shows for one authored subtree.
@@ -80,7 +80,7 @@ impl Plan {
     }
 }
 
-fn is_button(node: &NodeRef<'_>) -> bool {
+pub(super) fn is_button(node: &NodeRef<'_>) -> bool {
     node.node_type == NodeType::Pressable
         || ControlKind::of(node.node_type, node.props) == Some(ControlKind::Button)
 }
@@ -95,25 +95,10 @@ pub fn is_confirmation(node: &NodeRef<'_>) -> bool {
     is_dialog(node) || node.props.str(PropId::AccessibilityRole) == Some("alertdialog")
 }
 
-/// The `id` a button names: its `commandfor`, else its `popovertarget`.
-fn target<'a>(node: &NodeRef<'a>) -> Option<&'a str> {
-    let named = |id| node.props.str(id).filter(|name: &&str| !name.is_empty());
-    named(PropId::Commandfor).or_else(|| named(PropId::Popovertarget))
-}
-
-/// Whether pressing `row` closes `pop`: `commandfor` with `command="close"`
-/// for a dialog; for a popover its `popovertarget` with
-/// `popovertargetaction="hide"`, or `command="hide-popover"`.
-fn closes(row: &NodeRef<'_>, pop: &NodeRef<'_>) -> bool {
-    let id = pop.props.str(PropId::Id);
-    let command = row.props.str(PropId::Command);
-    if is_dialog(pop) {
-        return row.props.str(PropId::Commandfor) == id && id.is_some() && command == Some("close");
-    }
-    target(row) == id
-        && id.is_some()
-        && (command == Some("hide-popover")
-            || row.props.str(PropId::Popovertargetaction) == Some("hide"))
+/// Whether pressing `row` closes `pop` shown modally or as a popover, as
+/// HTML resolves what it invokes (`Invocation::closes`).
+fn closes(kernel: &Kernel, row: &NodeRef<'_>, pop: &NodeRef<'_>, modal: bool) -> bool {
+    Invocation::of(kernel, row).is_some_and(|i| i.closes(pop, modal))
 }
 
 /// A node's text: a `text`'s own, white space collapsed; else its
@@ -155,7 +140,14 @@ pub(in crate::presenter) fn row(kernel: &Kernel, node: &NodeRef<'_>, cancel: boo
 
 /// The alert `pop` is, or `None` for any other shape. `pressed` says
 /// whether a node has a `press` handler.
-pub fn alert(kernel: &Kernel, pop: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> Option<Plan> {
+/// `modal`: `pop` shows modally, which a `dialog`'s `close` ends, rather than
+/// as a popover, which `hide-popover` ends.
+pub fn alert(
+    kernel: &Kernel,
+    pop: ViewId,
+    pressed: &dyn Fn(ViewId) -> bool,
+    modal: bool,
+) -> Option<Plan> {
     let pop = kernel.node(pop)?;
     if pop.props.str(PropId::AccessibilityRole) != Some("alertdialog")
         || !(is_dialog(&pop) || pop.props.str(PropId::Popover).is_some())
@@ -170,14 +162,14 @@ pub fn alert(kernel: &Kernel, pop: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> 
         .filter(|n| pressed(n.id))
         .collect();
     let cancels: Vec<&NodeRef<'_>> = (children.iter().filter(button))
-        .filter(|n| !pressed(n.id) && closes(n, &pop))
+        .filter(|n| !pressed(n.id) && closes(kernel, n, &pop, modal))
         .collect();
     let texts: Vec<&NodeRef<'_>> = (children.iter())
         .filter(|n| n.node_type == NodeType::Text)
         .collect();
     let enabled = |n: &&NodeRef<'_>| n.props.bool(PropId::Disabled) != Some(true);
     if children.len() != actions.len() + cancels.len() + texts.len()
-        || !actions.iter().all(|n| closes(n, &pop))
+        || !actions.iter().all(|n| closes(kernel, n, &pop, modal))
         || !actions.iter().any(enabled)
     {
         return None;
@@ -220,13 +212,13 @@ pub fn menu(kernel: &Kernel, pop: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> O
         {
             continue;
         }
-        // The menu a row opens: one its `popovertarget` names to show.
-        let opens = (node.props.str(PropId::Popovertarget))
-            .filter(|name| !name.is_empty() && Some(*name) != pop.props.str(PropId::Id))
-            .filter(|_| node.props.str(PropId::Popovertargetaction) != Some("hide"));
+        // What a row opens: another popover, or a dialog by `show-modal`.
+        let opens = (Invocation::of(kernel, &node))
+            .filter(|i| i.opens() && i.target != pop.key)
+            .map(|i| i.target);
         if is_button(&node) && (pressed(node.id) || opens.is_some()) {
             let mut item = row(kernel, &node, false);
-            item.opens = opens.map(str::to_string);
+            item.opens = opens;
             entries.push(Some(item));
         } else if entries.last().is_some_and(Option::is_some) {
             entries.push(None);
@@ -236,4 +228,15 @@ pub fn menu(kernel: &Kernel, pop: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> O
         entries.pop();
     }
     (!entries.is_empty()).then_some(Plan::Menu(entries))
+}
+
+/// Admission for the retained desktop alert path. Windows keep their own kinds.
+pub(crate) fn neutral_alert(kernel: &Kernel, id: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> bool {
+    crate::paint::look::neutral()
+        && kernel.node(id).is_some_and(|n| {
+            n.parent.is_some()
+                && n.props.str(PropId::SemanticTag) == Some("dialog")
+                && n.props.get(PropId::NavigationKey).is_none()
+        })
+        && alert(kernel, id, pressed, true).is_some()
 }

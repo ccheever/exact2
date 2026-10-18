@@ -1,5 +1,5 @@
 // Accept source clipboard kinds at the saved-context boundary without normalizing saved bytes.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { decodeMobileComposerContextRecord } from './composer-context-schema';
 import type { Obj } from './shared/domain';
 

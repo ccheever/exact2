@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import {expect,test} from 'bun:test';
 import {MobileDraftClient,mobileDraftRecoveryHandles} from './mobile-draft-recovery';
 import {mobileThreadLocalCommandClear as clear} from './thread-send-local-clear';

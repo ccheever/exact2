@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 // Native owns accepted FIFO storage work. This owner retains only plain projection data.
 import type { T3Client } from './shared/client';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';

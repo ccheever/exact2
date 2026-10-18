@@ -65,6 +65,14 @@ pub trait MessageSender: Send + Sync {
     fn send_binary(&self, bytes: &[u8]) -> Result<(), HostError>;
     fn close(&self, code: Option<u16>, reason: &str) -> Result<(), HostError>;
     fn buffered_amount(&self) -> usize;
+    /// Messages admitted and not yet handed to the network. A transport
+    /// whose outbound queue also bounds messages closes the connection when
+    /// a send would pass that bound (WHATWG's "full"); a caller that must
+    /// refuse instead checks this first. Zero for a transport with no such
+    /// bound.
+    fn buffered_messages(&self) -> usize {
+        0
+    }
 }
 
 /// An open socket. Dropping it closes the connection.
@@ -770,6 +778,15 @@ mod tests {
         );
         assert_eq!(
             opened("net.websocket ws://127.0.0.1:4350", "ws://127.0.0.1:4351/x"),
+            "denied: net.websocket"
+        );
+        // A scheme-wide line admits any host and port of its scheme alone.
+        assert_eq!(
+            opened("net.websocket ws:", "ws://127.0.0.1:4351/x"),
+            "reached the transport"
+        );
+        assert_eq!(
+            opened("net.websocket wss:", "ws://127.0.0.1:4351/x"),
             "denied: net.websocket"
         );
         assert!(opened(socket, "https://jetstream2.us-east.bsky.network/").contains("ws: or wss:"));

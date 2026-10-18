@@ -4,6 +4,7 @@
 // EXACT_LOOPBACK=1) binds 127.0.0.1 only.
 // Usage: bun host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
+import { createServer as createSocketServer } from 'node:net';
 import { brotliCompress, constants as zlib, gzip } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -29,7 +30,7 @@ const PUBLIC_FILES = new Set([
 // `/gpu/`: each declared GPU module's wasm and its glue (LLP 1009 D6).
 // `/stages/`: the core's staged capabilities, named by digest (LLP 1047.000).
 // `/modules/`: the app's native-module web executor (LLP 1024 D3), page code.
-const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/'];
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/', '/plans/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
@@ -637,9 +638,29 @@ export function serveBuildTree(dist, req, res) {
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
 
-/** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
+const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', ...(rust ? ['rust'] : [])];
+
+/** Capture every bundle asset tree through the owned filesystem reader. */
+export function captureAssets(dir, rust = false) {
+  const files = new Map();
+  for (const tree of assetTrees(rust)) {
+    const captured = filesystem({ op: 'tree', root: resolve(dir, tree), optionalRoot: true }) ?? {};
+    for (const [relative, encoded] of Object.entries(captured)) files.set(`${tree}/${relative}`, Buffer.from(encoded, 'base64'));
+  }
+  return files;
+}
+
+/** Static builds and dev generations authenticate the same captured bytes. */
+export function assetCards(files) {
+  return [...files].map(([name, bytes]) => ({ name, url: `./${name}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }))
+    .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Every file under assets/, deck/, shaders/ and plans/, sorted by name.
+ * Read and digested here, one file at a time: a build of a large asset tree
+ * must not pass every byte through the filesystem reader's reply. */
 export function listAssets(dir, rust = false) {
-  const out = [];
+  const files = [];
   const walk = (sub) => {
     const abs = resolve(dir, sub);
     if (!existsSync(abs)) return;
@@ -648,12 +669,21 @@ export function listAssets(dir, rust = false) {
       if (entry.isDirectory()) walk(rel);
       else if (entry.isFile()) {
         const bytes = readFileSync(resolve(dir, rel));
-        out.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
+        files.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
       }
     }
   };
-  for (const tree of ['assets', 'deck', 'shaders', ...(rust ? ['rust'] : [])]) walk(tree);
-  return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+  for (const tree of assetTrees(rust)) walk(tree);
+  return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Named snapshot plans share the asset roster's authenticated bytes. */
+export function entryPlans(assets) {
+  const plans = Object.fromEntries(assets.flatMap(card => {
+    const kind = /^plans\/([A-Za-z][A-Za-z0-9_-]*)\.plan$/.exec(card.name)?.[1];
+    return kind ? [[kind, card]] : [];
+  }));
+  return Object.keys(plans).length ? { plans } : {};
 }
 
 /** The one web envelope producer for static builds and the live dev overlay.
@@ -669,6 +699,7 @@ export function webEnvelope(app, bytes, assets, live = {}) {
     plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
       formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
     assets,
+    ...entryPlans(assets),
     ...live,
   };
 }
@@ -916,6 +947,28 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 /** A dev loop its launcher started stops when that process is gone, however it ended: `EXACT_LAUNCHER_PID` names
  * it (an app's `exact.mjs`, or the JS loop for the resident producers it starts). A SIGKILL forwards no signal, and
  * an orphaned server keeps its port (chat and onboarding F20). Without the variable a loop runs until stopped. */
+/** A dev loop answers on IPv6's loopback too, the same port: `localhost`
+ * resolves to [::1] first, and the design tool frames the page as
+ * localhost (another site than the tool's 127.0.0.1). Each connection
+ * there is the HTTP server's own. Resolves once it listens, or when there
+ * is no IPv6; rejects (EADDRINUSE) when another server holds the port
+ * there, which a localhost URL would reach instead. */
+export function alsoOnIPv6Loopback(server, port) {
+  const six = createSocketServer((socket) => server.emit('connection', socket));
+  server.on('close', () => six.close());
+  return new Promise((ok, fail) => {
+    six.once('error', (e) => (e.code === 'EADDRINUSE' ? fail(e) : ok(null)));
+    six.listen(port, '::1', () => ok(six));
+  });
+}
+
+/** Whether `port` is free on IPv6's loopback too (no IPv6: yes). */
+export const freeOnIPv6Loopback = (port) => new Promise((ok) => {
+  const t = createSocketServer();
+  t.once('error', (e) => ok(e.code !== 'EADDRINUSE'));
+  t.listen(port, '::1', () => t.close(() => ok(true)));
+});
+
 export function watchLauncher(stop, pid = Number(process.env.EXACT_LAUNCHER_PID)) {
   if (!Number.isInteger(pid) || pid <= 1) return null;
   const timer = setInterval(() => { try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') { clearInterval(timer); stop(); } } }, 1000);

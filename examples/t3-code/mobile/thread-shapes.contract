@@ -1,5 +1,5 @@
 // Strict response shapes for mobile/thread.ts; root resources may import them directly.
-// @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
+// @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#shared-typescript
 shape ThreadCodeToken
   id: string
   text: string

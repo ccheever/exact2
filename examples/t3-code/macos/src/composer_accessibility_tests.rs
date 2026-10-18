@@ -4,11 +4,15 @@
 use super::PLAN;
 use exact_apple::measure::{CMetrics, CRequest, CallbackMeasurer};
 use exact_plan::{Plan, TypesId};
-use exact_runner::{Answer, DataError, DataSource, Request, Store, Value};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store, Value};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 #[derive(Default)]
-struct Replies(HashMap<String, Value>);
+pub(super) struct Replies(
+    pub(super) HashMap<String, Value>,
+    pub(super) Vec<Vec<Value>>,
+);
 
 impl DataSource for Replies {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -18,15 +22,28 @@ impl DataSource for Replies {
             .ok_or_else(|| DataError::UnknownSource(source.to_owned()))
     }
 
-    fn answer(&mut self, _: &mut Store, source: &str, _: &[Value]) -> Result<Answer, DataError> {
+    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        if source == "command" {
+            self.1.push(args.to_vec());
+        }
         Ok(self.0.get(source).cloned().map_or_else(
             || Answer::Later(Request::get("https://fixture.invalid/")),
             Answer::Now,
         ))
     }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        source: &str,
+        args: &[Value],
+        _: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.query(source, args).map(Answer::Now)
+    }
 }
 
-fn set(plan: &Plan, ty: TypesId, value: &mut Value, path: &[&str], next: Value) {
+pub(super) fn set(plan: &Plan, ty: TypesId, value: &mut Value, path: &[&str], next: Value) {
     let index = plan.field_index(ty, path[0]).expect("fixture field exists");
     let Value::Record(fields) = value else {
         panic!("fixture field is a record")
@@ -47,14 +64,51 @@ fn set(plan: &Plan, ty: TypesId, value: &mut Value, path: &[&str], next: Value) 
     *value = Value::record(updated);
 }
 
+/// Resource `name`'s first-frame answer from the app's own data module (app.ts
+/// and the Rust Markdown sources), booted with no native module at date zero,
+/// so its client is disconnected. The plan holds no value for it: `data` is
+/// asked with `wallTime`, and the bake leaves out every answer asked with the
+/// date, directly or through another answer (LLP 1027.000.000 D2). The app boots
+/// once per test process; its answers are kept as bytes, since a `Value` is not
+/// `Send`.
+pub(super) fn first_frame(name: &str) -> Value {
+    static ANSWERS: OnceLock<HashMap<String, Vec<u8>>> = OnceLock::new();
+    let answers = ANSWERS.get_or_init(|| {
+        let mut module = exact_js::Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        // A fixture carries no per-call budget; a loaded test machine is no gate.
+        module.set_budget_ms(f64::INFINITY);
+        module.load().unwrap();
+        let data = t3_code_data::mixed(module, exact_runner::Placement::Main);
+        let measurer = CallbackMeasurer::new(measure, std::ptr::null_mut(), None);
+        let (host, _) =
+            exact_apple::Host::boot(PLAN, data, Box::new(measurer), 1280.0, 840.0).unwrap();
+        let runner = host.runner();
+        let plan = runner.plan();
+        plan.resources
+            .iter()
+            .map(|row| plan.str(row.name))
+            .filter(|name| !runner.resource_is_placeholder(name))
+            .filter_map(|name| {
+                runner
+                    .resource(name)
+                    .map(|value| (name.to_owned(), value.to_bytes()))
+            })
+            .collect()
+    });
+    let bytes = answers
+        .get(name)
+        .unwrap_or_else(|| panic!("the data module answers `{name}` on the first frame"));
+    Value::from_bytes(bytes).unwrap()
+}
+
 impl Replies {
-    fn fixture(&mut self, plan: &Plan, name: &str, fields: &[(&[&str], Value)]) {
+    pub(super) fn fixture(&mut self, plan: &Plan, name: &str, fields: &[(&[&str], Value)]) {
         let resource = plan
             .resources
             .iter()
             .find(|row| plan.str(row.name) == name)
             .unwrap();
-        let mut value = Value::from_bytes(plan.bytes(resource.initial)).unwrap();
+        let mut value = first_frame(name);
         for (path, next) in fields {
             set(plan, resource.ty, &mut value, path, next.clone());
         }
@@ -62,7 +116,7 @@ impl Replies {
     }
 }
 
-extern "C" fn measure(_: *mut std::ffi::c_void, _: *const CRequest) -> CMetrics {
+pub(super) extern "C" fn measure(_: *mut std::ffi::c_void, _: *const CRequest) -> CMetrics {
     CMetrics::default()
 }
 

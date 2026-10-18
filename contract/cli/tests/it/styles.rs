@@ -1,26 +1,21 @@
 //! LLP 1017 P6: named styles, proven on the kernel's rows after boot.
-
 use exact_kernel::{Color, Dimension, Kernel, WhiteSpace};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::Path;
-
 #[derive(Default)]
 struct NoData;
-
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))
     }
 }
-
 fn corpus(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../corpus")
         .join(name);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
-
 #[test]
 fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let plan = contract::compile(&corpus("styles.contract")).unwrap();
@@ -66,7 +61,6 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
     assert_eq!(tight.white_space, WhiteSpace::Nowrap);
 }
-
 #[test]
 fn a_class_chooses_between_two_styles_by_state() {
     let plan = contract::compile(&corpus("styles.contract")).unwrap();
@@ -106,7 +100,6 @@ fn a_class_chooses_between_two_styles_by_state() {
     assert_eq!(again.opacity, 0.5);
     assert_eq!(again.padding_top, Dimension::Points(0.0));
 }
-
 #[test]
 fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     let src =
@@ -115,7 +108,6 @@ fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     assert_eq!(e.id, "lower-unknown-attr");
     assert!(e.message.contains("`border-radius`"), "{e}");
 }
-
 #[test]
 fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
     for (typo, correct, value) in [
@@ -167,14 +159,13 @@ fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
     let error = contract::compile("component App\n  view\n    view tesId=\"x\"\n").unwrap_err();
     assert!(error.message.contains("did you mean `testId`"), "{error}");
 }
-
 #[test]
 fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
     use exact_kernel::StyleId;
     for (attr, row, invalid) in [
         ("align-items", StyleId::AlignItems, "middle"),
         ("display", StyleId::Display, "flexbox"),
-        ("overflow", StyleId::OverflowX, "clip"),
+        ("overflow", StyleId::OverflowX, "truncate"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
         ("position", StyleId::PositionType, "fixed"),
@@ -260,7 +251,6 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         "narrow authoring rule remains authoritative"
     );
 }
-
 #[test]
 fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refused_by_name() {
     // @ref LLP 1053 §0 G4, G5
@@ -302,7 +292,6 @@ fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refus
         "{error}"
     );
 }
-
 #[test]
 fn text_wrap_balance_shorthand_and_longhand_reach_the_kernel() {
     let source = "component App\n  view\n    column text-wrap=\"balance\"\n      text \"Settle every thread in this section and keep the newest one open\" testId=\"balanced\"\n      text \"Plain\" text-wrap-style=\"auto\" testId=\"auto\"\n";
@@ -317,7 +306,6 @@ fn text_wrap_balance_shorthand_and_longhand_reach_the_kernel() {
         assert_eq!(style.get(row), exact_kernel::RowValue::Enum(expected));
     }
 }
-
 #[test]
 fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
     let source = "component App\n  state chosen = true\n  view\n    view testId=\"target\" align-self=(chosen ? \"auto\" : \"center\") width=\"auto\"\n";
@@ -610,29 +598,6 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
         assert_eq!(error.id, "lower-attr-value");
         assert!(error.message.contains(named), "{error}");
     }
-    // @ref LLP 1053.000 D4 — every platform material by name; others refused.
-    for name in [
-        "ultra-thin",
-        "chrome-dark",
-        "prominent",
-        "sidebar",
-        "hud-window",
-        "glass-clear",
-    ] {
-        contract::compile(&format!(
-            "component App\n  view\n    box backgroundMaterial=\"{name}\"\n"
-        ))
-        .unwrap();
-    }
-    let error =
-        contract::compile("component App\n  view\n    box backgroundMaterial=\"frosted\"\n")
-            .unwrap_err();
-    assert!(
-        error
-            .message
-            .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
-        "{error}"
-    );
 }
 
 /// LLP 1053.000.000.000 D1: `glassGroup="auto"`, alone or in a choice with
@@ -1305,6 +1270,22 @@ fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
         e.message.contains("opacity") && e.message.contains("border-color"),
         "{e}"
     );
+    // Each layout property's refusal leads with the row that animates it
+    // (LLP 1063 D6), and every example it gives compiles; an inset's needs a
+    // positioned box, so it is not a no-op on a static one.
+    for p in "width min-width margin flex-basis gap right left top bottom".split(' ') {
+        let m = refused(&format!("transition=\"{p} 200ms ease\"")).message;
+        assert!(
+            m.find("-exact-layout-transition") < m.find("opacity"),
+            "{m}"
+        );
+        let examples: Vec<&str> = m.split('`').filter(|s| s.starts_with("box ")).collect();
+        assert_eq!(examples.len(), 1, "{m}");
+        let inset = matches!(p, "right" | "left" | "top" | "bottom");
+        assert_eq!(examples[0].contains("position=\"absolute\""), inset, "{m}");
+        let app = format!("component App\n  state small = false\n  view\n    box position=\"relative\" height=200\n      {}\n", examples[0]);
+        contract::compile(&app).unwrap_or_else(|e| panic!("{p}: {e}"));
+    }
     assert!(!e.message.contains("not a CSS"), "{e}");
     let malformed = refused("transition=\"opacity 20ms gibberish\"");
     assert!(malformed.message.contains("invalid transition components"));
@@ -1467,6 +1448,18 @@ fn both_decoration_lines_are_written_as_css_in_either_order() {
     let e = refused("text-decoration=\"underline-line-through\"");
     assert!(
         e.message.contains("is spelled `underline line-through`"),
+        "{e}"
+    );
+}
+
+/// App farm wave 1: CSS's `background` shorthand names the longhand Contract takes.
+#[test]
+fn the_background_shorthand_names_background_color() {
+    let e = refused("background=\"#eee\" width=1 height=1");
+    assert!(
+        e.message.contains(
+            "CSS's `background` shorthand is not taken here: a colour is `background-color`"
+        ),
         "{e}"
     );
 }

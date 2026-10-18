@@ -79,6 +79,6 @@ theorem done_focuses {o c args rows c' out}
         exact ⟨rfl, rfl, rfl⟩)
   obtain ⟨hw, hs, hc⟩ := hq
   rw [hs] at hA; cases hA
-  exact ⟨by rw [hsl, hw]; rfl, by rw [hcmd, hc]⟩
+  exact ⟨by rw [hsl, hw]; rfl, by rw [hcmd, hc]; rfl⟩
 
 end VideoPlayer

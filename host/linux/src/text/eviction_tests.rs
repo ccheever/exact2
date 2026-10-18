@@ -1,19 +1,10 @@
 //! A presenter's paint that misses the text cache walks it at most once.
 use super::cache::trim_walks;
 use crate::presenter::{PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource, Value};
-
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
 
 const PARAGRAPHS: usize = 120;
 
-fn fixture() -> Presenter<NoData> {
+fn fixture() -> Presenter<()> {
     let mut source = String::from("component App\n  view\n    column width=\"100%\"\n");
     for i in 0..PARAGRAPHS {
         source.push_str(&format!(
@@ -23,7 +14,7 @@ fn fixture() -> Presenter<NoData> {
     let plan = contract::compile(&source).unwrap();
     let (presenter, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 3000.0),
         1.0,
         std::path::PathBuf::new(),

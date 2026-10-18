@@ -45,10 +45,18 @@ mod frame;
 #[cfg(all(test, target_os = "macos"))]
 mod hdr_tests;
 mod input;
+#[cfg(not(target_arch = "wasm32"))]
+mod readback;
+mod release;
+#[cfg(any(target_os = "android", test))]
+mod ring_order;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
 pub mod shaders;
+mod target;
 mod uniform;
+#[cfg(windows)]
+mod window;
 pub use uniform::FrameUniform;
 
 /// One frame's context.
@@ -190,6 +198,12 @@ impl AssetChanges {
 
 /// What an app implements per canvas.
 pub trait Surface {
+    /// Presented raster size relative to device pixels; layout stays in CSS pixels.
+    /// The compositor stretches it to the canvas box. Finite (0, 1]; invalid values
+    /// use 1. Explicit readback/fixture sizes are unaffected.
+    fn render_scale(&self) -> f32 {
+        1.0
+    }
     /// Device work follows visibility: a hidden chart stops its ticker, a video
     /// stops decoding, and both resume when shown. This never advances saved
     /// state; events still arrive when the agent owns the clock.
@@ -251,9 +265,19 @@ pub trait Surface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
+    /// Whether the last render produced a complete image. On native targets,
+    /// false retains the last image and retries; the browser owns web presentation.
+    fn frame_ready(&self) -> bool {
+        true
+    }
     /// The commands the last `render` recorded were submitted: map what it
     /// copied for reading (a map cannot precede the submit of the copy).
     fn submitted(&mut self) {}
+    /// A display frame the module does not render, the GPU holding as many as
+    /// it may: bring the surface's state up to `frame`, so the next `render`
+    /// has less to do in its display frame. Writes through `queue` land before
+    /// the next rendered frame's commands.
+    fn advance(&mut self, _frame: &Frame, _device: &wgpu::Device, _queue: &wgpu::Queue) {}
     /// A presentation target acquired a device, before its first draw. Its
     /// granted features (e.g. block-compressed textures) choose what to fetch.
     fn device_ready(&mut self, _features: wgpu::Features) {}
@@ -263,10 +287,22 @@ pub trait Surface {
     fn take_error(&mut self) -> Option<SurfaceError> {
         None
     }
+    /// Prefer an sRGB view of an SDR target, offscreen or a window's, letting
+    /// the target encode linear RGB. The surface must honour the format passed
+    /// to `render`.
+    fn srgb_target(&self) -> bool {
+        false
+    }
     /// Draw above SDR white (LLP 1100 D12b): where the platform can, the
     /// target is `Rgba16Float` in extended sRGB, up to [`Frame::headroom`].
     /// Asked once, when the canvas is created.
     fn high_dynamic_range(&self) -> bool {
+        false
+    }
+    /// Every output pixel of this instance has alpha one under its current
+    /// clear/background policy. Evaluated after binding, never by surface type.
+    /// Allows a host to present a full-window canvas beneath its UI.
+    fn opaque(&self) -> bool {
         false
     }
     /// Raw input inside this canvas (LLP 1046.002 S1); app gestures elsewhere are untouched.
@@ -361,7 +397,13 @@ pub struct Registry {
 
 /// The device and every canvas's surface.
 pub struct Module {
+    #[cfg(windows)]
+    window: Option<window::WindowFrame>,
     registry: &'static Registry,
+    #[cfg(not(target_arch = "wasm32"))]
+    pipeline_cache: PipelineCache,
+    #[cfg(not(target_arch = "wasm32"))]
+    cache_artifact: Option<&'static str>,
     gpu: Option<Gpu>,
     instance: Option<wgpu::Instance>,
     device_lost: Arc<AtomicBool>,
@@ -373,6 +415,8 @@ pub struct Module {
     /// The tick's commands, recorded by every canvas rendered since the last
     /// flush (LLP 1009 D7).
     open: Option<frame::Open>,
+    /// Acquisition threads hung up on, with their surfaces ([`release`]).
+    retired: Vec<release::Retired>,
 }
 
 /// The wgpu device.
@@ -393,6 +437,13 @@ struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
     published: Option<String>,
+    /// An acquired image retained while the surface prepares a complete
+    /// frame: it drops before `presentation`, its surface ([`release`]).
+    held: Option<wgpu::SurfaceTexture>,
+    /// Where the frames after an incomplete one render, and what copies a
+    /// complete one into `held` (`Module::render`).
+    #[cfg(not(target_arch = "wasm32"))]
+    scratch: Option<(wgpu::Texture, wgpu::util::TextureBlitter)>,
     presentation: Option<SurfaceRef<wgpu::Surface<'static>>>,
     config: Option<wgpu::SurfaceConfiguration>,
     /// Buffers it renders into instead of a window ([`buffers`]).
@@ -401,6 +452,8 @@ struct Instance {
     /// The next texture, acquired off the presenter's thread (`acquire`).
     #[cfg(not(target_arch = "wasm32"))]
     acquire: acquire::Acquire,
+    #[cfg(not(target_arch = "wasm32"))]
+    readback: Option<readback::Readback>,
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     layer: Option<usize>,
     outstanding: BTreeSet<String>,
@@ -416,10 +469,30 @@ struct Instance {
     each: Vec<Option<ChildTexture>>,
     /// Its target is extended sRGB (LLP 1100 D12b).
     hdr: bool,
+    alpha_modes: Vec<wgpu::CompositeAlphaMode>,
     headroom: f32,
 }
 
+/// The format a window target's frames render in: its sRGB view when the
+/// surface asked for one, else its own.
+pub(crate) fn view_format(config: &wgpu::SurfaceConfiguration) -> wgpu::TextureFormat {
+    config
+        .view_formats
+        .first()
+        .copied()
+        .unwrap_or(config.format)
+}
+
 impl Instance {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn offscreen_format(&self) -> wgpu::TextureFormat {
+        if self.surface.srgb_target() {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        } else {
+            wgpu::TextureFormat::Rgba8Unorm
+        }
+    }
+
     fn has_ring(&self) -> bool {
         #[cfg(target_os = "android")]
         return self.ring.is_some();
@@ -460,7 +533,13 @@ impl Module {
     /// A module with no device yet.
     pub fn new(registry: &'static Registry) -> Module {
         Module {
+            #[cfg(windows)]
+            window: None,
             registry,
+            #[cfg(not(target_arch = "wasm32"))]
+            pipeline_cache: PipelineCache::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            cache_artifact: None,
             gpu: None,
             instance: None,
             device_lost: Arc::new(AtomicBool::new(false)),
@@ -470,12 +549,21 @@ impl Module {
             seekable: false,
             period_ms: 0.0,
             open: None,
+            retired: Vec::new(),
         }
     }
 
     /// Adopt a device (the platform-specific loader made it).
     pub fn set_gpu(&mut self, gpu: Gpu) {
+        #[cfg(windows)]
+        {
+            self.window = None;
+        }
         self.check_device();
+        #[cfg(not(target_arch = "wasm32"))]
+        for inst in self.instances.values_mut() {
+            inst.readback = None;
+        }
         // A frame recorded on another device is never submitted on this one.
         self.open = None;
         self.instance = Some(gpu.instance.clone());
@@ -486,10 +574,14 @@ impl Module {
             #[cfg(target_arch = "wasm32")]
             crate::web::notify_loss(&lost);
         });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.pipeline_cache = PipelineCache::for_module(&gpu.device, self.cache_artifact);
+        }
         for inst in self.instances.values_mut() {
             let format = if let (Some(target), Some(config)) = (&inst.presentation, &inst.config) {
                 target.configure(&gpu.device, config);
-                config.format
+                view_format(config)
             } else {
                 if inst.config.is_some() {
                     continue;
@@ -499,7 +591,7 @@ impl Module {
                 #[cfg(target_arch = "wasm32")]
                 continue;
                 #[cfg(not(target_arch = "wasm32"))]
-                wgpu::TextureFormat::Rgba8Unorm
+                inst.offscreen_format()
             };
             inst.surface.device_ready(gpu.device.features());
             inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
@@ -619,31 +711,15 @@ impl Module {
         else {
             return self.fail("the adapter cannot present to this target");
         };
-        // The browser's canvas default is linear `bgra8unorm`; a native
-        // executor that picked an sRGB format would show every color lighter
-        // (LLP 1009 D1: the browser is the oracle). Prefer a non-sRGB format.
         let caps = target.get_capabilities(&gpu.adapter);
-        if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
-            config.format = *f;
-            config.view_formats = vec![];
-        }
-        // LLP 1100 D12b: extended sRGB continues the 8-bit target's encoding
-        // past 1, so one shader serves both.
         let surface = factory();
-        let hdr = surface.high_dynamic_range()
-            && caps
-                .color_spaces(wgpu::TextureFormat::Rgba16Float)
-                .contains(wgpu::SurfaceColorSpaces::EXTENDED_SRGB);
-        if hdr {
-            config.format = wgpu::TextureFormat::Rgba16Float;
-            config.color_space = wgpu::SurfaceColorSpace::ExtendedSrgb;
-            config.view_formats = vec![];
-        }
+        let hdr = target::configure(&*surface, &gpu.adapter, &caps, &mut config);
         config.present_mode = wgpu::PresentMode::AutoVsync;
         target.configure(&gpu.device, &config);
         let id = self.insert(surface, Some((target, config)))?;
         if let Some(inst) = self.instances.get_mut(&id) {
             inst.hdr = hdr;
+            inst.alpha_modes = caps.alpha_modes;
         }
         Some(id)
     }
@@ -680,6 +756,8 @@ impl Module {
         width: u32,
         height: u32,
     ) -> bool {
+        self.settle(id);
+        self.detach(id);
         self.check_device();
         let Some(gpu) = self.gpu.as_ref() else {
             return self.fail::<()>("no device").is_some();
@@ -693,21 +771,16 @@ impl Module {
                 .fail::<()>("the adapter cannot present to this target")
                 .is_some();
         };
-        let formats = target.get_capabilities(&gpu.adapter).formats;
-        if let Some(f) = formats.iter().find(|f| !f.is_srgb()) {
-            config.format = *f;
-            config.view_formats = vec![];
-        }
+        let caps = target.get_capabilities(&gpu.adapter);
         config.present_mode = wgpu::PresentMode::AutoVsync;
-        target.configure(&gpu.device, &config);
         let features = gpu.device.features();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>(format!("no canvas {id}")).is_some();
         };
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            inst.acquire = Default::default();
-        }
+        inst.alpha_modes = caps.alpha_modes.clone();
+        inst.hdr = target::configure(&*inst.surface, &gpu.adapter, &caps, &mut config);
+        target.configure(&gpu.device, &config);
+        inst.seen = Default::default();
         inst.presentation = Some(SurfaceRef::new(target));
         inst.config = Some(config);
         inst.surface.device_ready(features);
@@ -715,20 +788,11 @@ impl Module {
         true
     }
 
-    /// Drop a canvas's target (its window is going); its state stays.
+    /// Drop a canvas's target (its window is going); its state stays. This
+    /// never waits for the compositor ([`release`]).
     pub fn detach(&mut self, id: u32) {
-        if let Some(inst) = self.instances.get_mut(&id) {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                inst.acquire = Default::default();
-            }
-            inst.presentation = None;
-            inst.config = None;
-            #[cfg(target_os = "android")]
-            {
-                inst.ring = None;
-            }
-        }
+        self.settle(id);
+        self.release(id);
     }
 
     /// Give a canvas made without a target buffers to render into, which a
@@ -736,6 +800,9 @@ impl Module {
     /// (the canvas then needs a window).
     #[cfg(target_os = "android")]
     pub fn attach_buffers(&mut self, id: u32, width: u32, height: u32) -> bool {
+        // A frame rendered into the target these replace is submitted into
+        // it, and presented, first (`detach`).
+        self.settle(id);
         self.check_device();
         let Some(gpu) = self.gpu.as_ref() else {
             return self.fail::<()>("no device").is_some();
@@ -743,18 +810,20 @@ impl Module {
         if let Some(why) = shaders::missing(self.registry.shaders) {
             return self.fail::<()>(why).is_some();
         }
-        let Some(ring) = buffers::Ring::new(gpu, width, height) else {
+        let format = self
+            .instances
+            .get(&id)
+            .map_or(buffers::FORMAT, Instance::offscreen_format);
+        let Some(ring) = buffers::Ring::new(gpu, width, height, format) else {
             return self
                 .fail::<()>("the device cannot render into hardware buffers")
                 .is_some();
         };
         let features = gpu.device.features();
+        self.release(id);
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>(format!("no canvas {id}")).is_some();
         };
-        inst.acquire = Default::default();
-        inst.presentation = None;
-        inst.config = None;
         inst.ring = Some(ring);
         inst.surface.device_ready(features);
         inst.dirty = true;
@@ -770,7 +839,7 @@ impl Module {
         }
         let ring = self.instances.get_mut(&id)?.ring.as_mut()?;
         ring.settle();
-        ring.latest()
+        ring.take()
     }
 
     /// Create surface ownership without a device, target, or registered shaders.
@@ -804,10 +873,15 @@ impl Module {
                 published: None,
                 presentation,
                 config,
+                held: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                scratch: None,
                 #[cfg(target_os = "android")]
                 ring: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 acquire: Default::default(),
+                #[cfg(not(target_arch = "wasm32"))]
+                readback: None,
                 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
                 layer: None,
                 outstanding: BTreeSet::new(),
@@ -819,6 +893,7 @@ impl Module {
                 children_generation: 0,
                 each: Vec::new(),
                 hdr: false,
+                alpha_modes: Vec::new(),
                 headroom: 1.0,
             },
         );
@@ -827,18 +902,16 @@ impl Module {
 
     /// Release presentation resources while preserving every surface's state.
     pub fn lose_device(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.pipeline_cache.invalidate();
+        #[cfg(windows)]
+        {
+            self.window = None;
+        }
         // The recorded frame and its drawables go before their surfaces do.
         self.open = None;
         for inst in self.instances.values_mut() {
-            inst.presentation = None;
-            #[cfg(target_os = "android")]
-            {
-                inst.ring = None;
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                inst.acquire = Default::default();
-            }
+            self.retired.extend(inst.release());
             inst.surface.device_lost();
             inst.answered.clear();
             inst.outstanding.clear();
@@ -1038,7 +1111,7 @@ impl Module {
         inst.surface.asset(name, bytes);
         if let (Some(gpu), Some(config)) = (&self.gpu, &inst.config) {
             inst.surface
-                .prepare_assets(&gpu.device, &gpu.queue, config.format);
+                .prepare_assets(&gpu.device, &gpu.queue, view_format(config));
         }
         inst.drain();
         inst.dirty = true;
@@ -1129,6 +1202,7 @@ impl Module {
     /// Drop a canvas's surface.
     pub fn destroy(&mut self, id: u32) {
         self.settle(id);
+        self.release(id);
         self.instances.remove(&id);
     }
 
@@ -1286,72 +1360,20 @@ impl Module {
     /// surface wants another frame. Nothing before the first bind.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
-        self.check_device();
-        if let Some(why) = shaders::missing(self.registry.shaders) {
-            self.error = why;
-            return None;
-        }
-        self.flush();
-        let gpu = self.gpu.as_ref()?;
-        let Some(inst) = self.instances.get_mut(&id) else {
-            self.error = "no such canvas".into();
-            return None;
-        };
-        if !inst.bound {
-            return None;
-        }
-        let format = inst
-            .config
-            .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
-        inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
-        let frame = Frame {
-            seekable: self.seekable,
-            period_ms: self.period_ms,
-            children_generation: inst.children_generation,
-            shader_generation: shaders::shader_generation(),
-            headroom: 1.0,
-            ..*frame
-        };
         let (width, height) = frame.pixels();
-        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("canvas readback"),
-            size: wgpu::Extent3d {
+        let len = (width as usize)
+            .checked_mul(height as usize)?
+            .checked_mul(4)?;
+        let mut data = vec![0; len];
+        let wants = self.readback_into(id, frame, &mut data)?;
+        Some((
+            fixture::Pixels {
                 width,
                 height,
-                depth_or_array_layers: 1,
+                data,
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&Default::default());
-        let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        let wants =
-            inst.surface
-                .render(&frame, &gpu.device, &gpu.queue, &mut encoder, &view, format);
-        gpu.queue.submit([encoder.finish()]);
-        inst.surface.submitted();
-        let result = fixture::read(gpu, &texture).map(|pixels| (pixels, wants));
-        inst.drain();
-        if let Some(SurfaceError(e)) = inst.surface.take_error() {
-            self.error = e;
-            return None;
-        }
-        match result {
-            Ok((pixels, wants)) => {
-                // The picture was taken: nothing is unshown any more.
-                inst.dirty = false;
-                Some((pixels, wants))
-            }
-            Err(e) => {
-                self.error = e;
-                None
-            }
-        }
+            wants,
+        ))
     }
 }
 
@@ -1377,6 +1399,8 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
+mod pipeline_cache;
+pub use pipeline_cache::PipelineCache;
 mod device;
 pub use device::{
     load_gpu, requested_features, requested_limits, DeviceFailure, DeviceFailureKind,

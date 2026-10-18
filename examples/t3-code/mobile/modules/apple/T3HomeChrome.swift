@@ -1,6 +1,6 @@
 #if os(iOS)
-// @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
-// @ref llp/1109.004-home-projection.decision.md#home-title-fitting
+// @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#semantic-colors
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#home-title-fitting
 // Pinned T3 Code 365aa87982: HomeHeader, WorkspaceConnectionTitle,
 // ThreadNavigationSidebar, and patches/react-native-screens@4.28.0.patch.
 import UIKit

@@ -84,6 +84,17 @@ impl<D: DataSource> Runner<D> {
 }
 
 pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
+    inactive_with(kernel, id, false)
+}
+
+/// Whether `id` lies under a route every host hides: [`inactive`], less the
+/// route a modal sheet covers, which stays shown beneath the sheet
+/// (navigation.js `covered`). What a wake lock reads (LLP 1125 D11).
+pub(crate) fn hidden_route(kernel: &Kernel, id: ViewId) -> bool {
+    inactive_with(kernel, id, true)
+}
+
+fn inactive_with(kernel: &Kernel, id: ViewId, covered_shows: bool) -> bool {
     let node = |id: ViewId| {
         kernel
             .node(id)
@@ -95,7 +106,8 @@ pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
         if let Some(n) = node(at.id) {
             let off = unselected(&node, &n);
             if let Some(route) = off.iter().find(|off| path.contains(off)) {
-                if !beside_a_pane(kernel, &n, *route) {
+                let shown = covered_shows && under_a_sheet(kernel, &node, &n).contains(route);
+                if !shown && !beside_a_pane(kernel, &n, *route) {
                     return true;
                 }
             }
@@ -107,12 +119,14 @@ pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
 }
 
 /// Whether `route`, one the navigation root `root` has not selected, is
-/// shown all the same: it is the first of its stack, and the route the root
-/// selected is in that stack and laid out in a pane a host reported (a
-/// containing block that is the size on both axes, LLP 1115.002 D8.2). A
-/// host that shows a stack's top in a pane of its own shows the stack's
-/// list beside it, live (LLP 1115.002 D4); under a sheet, whose block is a
-/// maximum, the list is covered as before.
+/// shown all the same: it is the first of its stack, laid out in the page,
+/// and the route the root selected is in that stack and laid out in a pane
+/// a host reported (a containing block that is the size on both axes, LLP
+/// 1115.002 D8.2). A host that shows a stack's top in a pane of its own
+/// shows the stack's list beside it, live (LLP 1115.002 D4); under a sheet,
+/// whose block is a maximum, the list is covered as before. A host that
+/// gives the list a block of its own too lays each route out in its own
+/// container (LLP 1123 D2): the route over it covers it.
 fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
     use exact_kernel::BlockAxis;
     let Some(key) = root.1.str(PropId::NavigationKey) else {
@@ -133,6 +147,7 @@ fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
         .filter(|id| key_of(*id).is_some())
         .collect();
     stack.first() == Some(&route)
+        && kernel.host_block(route).is_none()
         && stack
             .iter()
             .find(|id| key_of(**id) == Some(key))
@@ -246,10 +261,63 @@ fn unselected<'a>(
     off
 }
 
+/// The route a navigation root's selected route covers when that route is a
+/// sheet (`navigationPresentation="modal"`): the one before it in its stack,
+/// which every host leaves shown beneath the sheet (navigation.js `covered`),
+/// and, when that one is a split's detail in a pane its host reported (as
+/// [`beside_a_pane`] reads it), the split's list beside it.
+fn under_a_sheet<'a>(
+    kernel: &Kernel,
+    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
+    at: &HeadNode<'a>,
+) -> Vec<ViewId> {
+    use exact_kernel::BlockAxis;
+    let Some(key) =
+        at.1.str(PropId::NavigationBack)
+            .and(at.1.str(PropId::NavigationKey))
+    else {
+        return Vec::new();
+    };
+    let routes = |ids: &[ViewId]| -> Vec<ViewId> {
+        ids.iter()
+            .copied()
+            .filter(|r| node(*r).is_some_and(|(_, p, _)| p.str(PropId::NavigationKey).is_some()))
+            .collect()
+    };
+    let panels = tab_panels(node, &at.2);
+    let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
+        vec![routes(&at.2)]
+    } else {
+        panels
+            .iter()
+            .map(|p| node(*p).map(|(_, _, c)| routes(&c)).unwrap_or_default())
+            .collect()
+    };
+    stacks
+        .iter()
+        .find_map(|rs| {
+            let top = rs.iter().position(|r| {
+                node(*r).is_some_and(|(_, p, _)| p.str(PropId::NavigationKey) == Some(key))
+            })?;
+            let modal = node(rs[top])
+                .is_some_and(|(_, p, _)| p.str(PropId::NavigationPresentation) == Some("modal"));
+            if !modal || top == 0 {
+                return None;
+            }
+            let covered = rs[top - 1];
+            let pane = kernel.host_block(covered).is_some_and(|b| {
+                matches!((b.width, b.height), (BlockAxis::Is(_), BlockAxis::Is(_)))
+            });
+            let list = (top > 1 && pane && kernel.host_block(rs[0]).is_none()).then_some(rs[0]);
+            Some([Some(covered), list].into_iter().flatten().collect())
+        })
+        .unwrap_or_default()
+}
+
 /// A navigation root's tabpanels, in tab order: those its own tablist's
 /// tabs name with `aria-controls` (the browser's `panelsOf`; the Linux
 /// host's `tab_panels`). A tablist inside a route is that route's.
-fn tab_panels<'a>(
+pub(crate) fn tab_panels<'a>(
     node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
     children: &[ViewId],
 ) -> Vec<ViewId> {

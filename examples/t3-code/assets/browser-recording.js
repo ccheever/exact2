@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): the Browser recording's in-page cursor and input overlay (MIT reference,
+// The Browser recording's in-page cursor and input overlay (MIT reference,
 // see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/RecordingCursor.ts installRecordingCursor,
 // RecordingInput.ts recordingKeyLabel / recordingKeysAreSensitive, PickPreload.ts's RECORDING_* channel
 // handlers). A classic script: T3BrowserRecorder.swift evaluates it in the module's own content world

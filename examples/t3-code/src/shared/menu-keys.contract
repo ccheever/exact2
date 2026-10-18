@@ -1,0 +1,90 @@
+// Shared menu keys, matching Base UI Menu at the pinned T3 reference (LICENSE-T3).
+// Public popover triggers show with their real source ID and focus a real enabled row
+// in the same action. KeyMenu observes row focus so hover and arrows share one position.
+// State-owned menus retain the popup/first/last focus entry points below.
+shape KmItem
+  id: string
+  label: string
+
+fn kmIndex(items: KmItem[], current: string): number = items.map((item) => item.id).indexOf(current)
+fn kmAfter(items: KmItem[], current: string): KmItem[] = items.slice(kmIndex(items, current) + 1).concat(items.slice(0, kmIndex(items, current) + 1))
+fn kmLetter(k: string): bool = k.length == 1 and k.trim() != ""
+// The item a key moves the focus to: ↓ the next (the first from the popup), ↑ the previous (the last
+// from the popup), wrapping; Home, End; a letter the next label that starts with it.
+fn kmTarget(items: KmItem[], current: string, k: string): option<KmItem> = k == "ArrowDown" ? first(kmAfter(items, current)) : (k == "ArrowUp" ? items.at(kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1) : (k == "Home" ? first(items) : (k == "End" ? items.at(-1) : (kmLetter(k) ? first(kmAfter(items, current).filter((item) => item.label.toLowerCase().startsWith(k.toLowerCase()))) : none))))
+// Enter or Space activation; state-owned menu triggers use this too.
+fn kmOpenKey(k: string): bool = k == "Enter" or k == " " or k == "Space"
+// ↓ and ↑ on a trigger open its menu too, at the first and the last item (Base UI Menu's trigger).
+fn kmArrow(k: string): bool = k == "ArrowDown" or k == "ArrowUp"
+fn kmTriggerKey(k: string): bool = kmArrow(k) or kmOpenKey(k)
+// Return on a focused row presses it, as Base UI's MenuItem and a native menu do. The Mac host presses a focused
+// menuitem or option on Return itself; a row whose Return does more than its press handles the key with this.
+fn kmReturn(k: string, e: KeyboardEvent): bool = k == "Enter" and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+// One eligible endpoint, or an empty target when there are no rows. Never focus a wrapper
+// for public popover opening: AppKit needs the actual menu item before tracking begins.
+fn kmTriggerTarget(items: KmItem[], k: string): string = (k == "ArrowUp" ? items.slice(-1) : items.slice(0, 1)).map((item) => item.id).join("")
+// The first or the last item, by the sign of a keyboard opening.
+fn kmEnd(items: KmItem[], keyed: number): option<KmItem> = keyed < 0 ? items.at(-1) : first(items)
+// A menu its owner mounts from state: the end a key on its trigger asks for ("first" from Enter, Space
+// or ↓, "last" from ↑, "" for any other key), and the node the owner focuses as it opens the menu (the
+// popup itself after a pointer press, else its `-first` or `-last` box, which hand the focus on). A menu
+// the data module mounts reads the end as it mounts (`kmEndKeyed`); its trigger clears the end as it takes
+// the focus, which a pointer press gives it, rather than on `pointerdown`, which would keep the press from
+// the window's own count (the popover's light dismiss).
+fn kmKeyEnd(k: string): string = k == "ArrowUp" ? "last" : (k == "ArrowDown" or kmOpenKey(k) ? "first" : "")
+fn kmOpenTarget(menuId: string, end: string): string = end == "" ? menuId : `${menuId}-${end}`
+// The `keyed` a freshly mounted menu sees for that end: 1 the first item, -1 the last, 0 the popup.
+fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 0)
+// The pointer focuses the actual row. Bubbling focusin records member rows without
+// consuming the event: dialogMenuEntered above this wrapper still owns dialog lineage.
+// Leaving a highlighted row focuses the popup and clears its current row.
+component KeyMenu
+  props
+    menuId: string
+    items: KmItem[]
+    keyed: number
+    gap: string
+    // A painted popover menu is modal while it shows (Base UI Menu modal): only shortcuts inside it are
+    // heard, so Escape closes the menu before a page's own Escape shortcut runs.
+    modal: bool
+  state current = ""
+  state seen = 0
+  action keys(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey
+      match kmTarget(items, current, k)
+        case some(item)
+          preventDefault()
+          stopPropagation()
+          current = item.id
+          focus(item.id)
+        case none
+  action rowEntered(e: FocusEvent)
+    if kmIndex(items, e.target) >= 0
+      current = e.target
+  action entered
+    current = ""
+    if keyed != seen
+      seen = keyed
+      match kmEnd(items, keyed)
+        case some(item)
+          current = item.id
+          focus(item.id)
+        case none
+  action enteredFirst
+    match first(items)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
+  action enteredLast
+    match items.at(-1)
+      case some(item)
+        current = item.id
+        focus(item.id)
+      case none
+  slot
+  view
+    column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered focusin=rowEntered testId=menuId
+      column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast
+        column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst
+          children

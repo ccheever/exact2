@@ -42,8 +42,14 @@ impl Context {
     /// Copy a serialized environment. See `exact_calc_create` in exact.h.
     pub fn new(handle: u32, values: &[f64]) -> Option<Box<Self>> {
         let calculation = tree(handle)?;
-        if values.len() < 8
-            || !(values.len() - 8).is_multiple_of(4)
+        // The layout regions' count, exactly 0 or 20, then the regions (LLP 1123 D10)
+        let regions = match values.get(8) {
+            Some(&0.0) => 0,
+            Some(&20.0) => 20,
+            _ => return None,
+        };
+        if values.len() < 9 + regions
+            || !(values.len() - 9 - regions).is_multiple_of(4)
             || !values
                 .iter()
                 .all(|v| v.is_finite() && (*v as f32).is_finite())
@@ -63,7 +69,10 @@ impl Context {
         env.viewport_height = values[5] as f32;
         env.cols = values[6] as u8;
         env.rows = values[7] as u8;
-        env.segments = values[8..]
+        let regions = &values[9..9 + regions];
+        env.regions = (regions.len() == 20)
+            .then(|| std::array::from_fn(|r| std::array::from_fn(|e| regions[r * 4 + e] as f32)));
+        env.segments = values[9 + regions.len()..]
             .chunks_exact(4)
             .map(|r| {
                 exact_kernel::style::env::Rect::new(
@@ -107,6 +116,11 @@ pub fn write(out: &mut String, c: Comparison, env: &Env) {
         env.cols,
         env.rows
     );
+    let regions = env.regions.as_ref().map_or(&[][..], |r| r.as_flattened());
+    let _ = write!(out, ",{}", regions.len());
+    for v in regions {
+        let _ = write!(out, ",{v}");
+    }
     for r in &env.segments {
         let _ = write!(out, ",{},{},{},{}", r.x, r.y, r.width, r.height);
     }
@@ -134,7 +148,8 @@ macro_rules! calc_exports {
             values: *const f64,
             count: usize,
         ) -> *mut ::std::ffi::c_void {
-            if values.is_null() || count > 8 + 4 * 255 * 255 {
+            // Eight values, the regions' count and twenty regions, then up to 255×255 segments
+            if values.is_null() || count > 9 + 20 + 4 * 255 * 255 {
                 return ::std::ptr::null_mut();
             }
             // SAFETY: the caller supplies count readable, aligned doubles.
@@ -183,19 +198,64 @@ mod tests {
     #[test]
     fn contexts_keep_their_own_environment_and_validate_the_wire() {
         let n = super::parse("min(50%, 10vw + env(safe-area-inset-top))");
-        let first = super::Context::new(n, &[3., 0., 0., 0., 300., 600., 1., 1.]).unwrap();
+        let first = super::Context::new(n, &[3., 0., 0., 0., 300., 600., 1., 1., 0.]).unwrap();
         for width in 400..1400 {
             let other =
-                super::Context::new(n, &[7., 0., 0., 0., width as f64, 600., 1., 1.]).unwrap();
+                super::Context::new(n, &[7., 0., 0., 0., width as f64, 600., 1., 1., 0.]).unwrap();
             assert!((other.length(400.) - (width as f64 / 10. + 7.).min(200.)).abs() < 0.0001);
             assert_eq!(first.length(400.), 33.);
         }
-        assert!(super::Context::new(0, &[0.; 8]).is_none());
-        assert!(super::Context::new(n, &[0.; 7]).is_none());
+        assert!(super::Context::new(0, &[0.; 9]).is_none());
+        assert!(
+            super::Context::new(n, &[0.; 8]).is_none(),
+            "no region count"
+        );
         for bad in [0., 1.5, 256., f64::INFINITY, f64::NAN] {
-            assert!(super::Context::new(n, &[0., 0., 0., 0., 300., 600., bad, 1.]).is_none());
+            assert!(super::Context::new(n, &[0., 0., 0., 0., 300., 600., bad, 1., 0.]).is_none());
         }
-        assert!(super::Context::new(n, &[0., 0., 0., 0., 300., 600., 2., 1.]).is_none());
+        assert!(super::Context::new(n, &[0., 0., 0., 0., 300., 600., 2., 1., 0.]).is_none());
+    }
+
+    /// LLP 1123 D10: a deferred calculation reads the layout regions the
+    /// snapshot carries, and the safe area without them.
+    #[test]
+    fn a_snapshot_carries_the_layout_regions() {
+        let n = super::parse("min(50%, env(-exact-layout-margins-inset-left))");
+        let mut env = exact_kernel::Env::new(0., 0., 0., 3.);
+        env.viewport_width = 300.;
+        env.viewport_height = 600.;
+        let values = |env: &exact_kernel::Env| -> Vec<f64> {
+            let exact_kernel::Dimension::Compare(c) = exact_kernel::Dimension::parse_calc(
+                "min(50%, env(-exact-layout-margins-inset-left))",
+            )
+            .unwrap() else {
+                panic!("expected comparison");
+            };
+            let mut json = String::new();
+            super::write(&mut json, c, env);
+            let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+            value["env"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect()
+        };
+        let none = super::Context::new(n, &values(&env)).unwrap();
+        assert_eq!(none.length(100.), 3., "the safe area without regions");
+        let mut regions = [[0f32; 4]; 5];
+        regions[1][3] = 20.;
+        let with = super::Context::new(n, &values(&env.with_regions(Some(regions)))).unwrap();
+        assert_eq!(with.length(100.), 20.);
+        assert_eq!(with.length(30.), 15.);
+        let mut short = values(&env.with_regions(Some(regions)));
+        short.pop();
+        assert!(super::Context::new(n, &short).is_none(), "nineteen regions");
+        for count in [-1., 20.5, 4.] {
+            let mut bad = values(&env);
+            bad[8] = count;
+            assert!(super::Context::new(n, &bad).is_none(), "a count of {count}");
+        }
     }
 
     #[test]
@@ -225,7 +285,7 @@ mod tests {
             n,
             "an equal pair shares one"
         );
-        let context = super::Context::new(n, &[0., 0., 0., 0., 0., 0., 1., 1.]).unwrap();
+        let context = super::Context::new(n, &[0., 0., 0., 0., 0., 0., 1., 1., 0.]).unwrap();
         assert_eq!(context.length(40.0), 20.0);
         assert_eq!(context.length(200.0), 30.0);
         assert_eq!(super::parse("10px"), 0);

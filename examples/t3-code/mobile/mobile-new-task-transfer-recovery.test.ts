@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#interrupted-transfer-controls-and-pending-editor-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#interrupted-transfer-controls-and-pending-editor-ownership
 // Sequencing regressions use controlled native replies. Native durability is checked separately.
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';

@@ -267,7 +267,7 @@ export async function ensureProject(conn, workspaceRoot, { title = basename(work
   return project.id;
 }
 
-/** The first typed failure's tag and message (T3Protocol.swift `failure`, in brief). */
+/** The first typed failure's tag and message (transport-wire.ts `failure`, in brief). */
 export function failureMessage(value) {
   const seen = new Set();
   const walk = (node) => {

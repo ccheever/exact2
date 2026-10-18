@@ -179,10 +179,10 @@ subtraction. `x-1` is still subtraction, but spaces make the intention clearer.
 
 Use ordinary decimal numbers, double-quoted strings, and backtick templates.
 Single-quoted strings, exponent notation, digit separators, `null`, and
-`undefined` are not the language's literal forms. Strings accept exactly six
-escapes: `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`. Template text is kept verbatim:
-a backslash there is not an escape. Templates can contain expressions, quoted
-strings, and nested templates. Keep an individual string or template on one
+`undefined` are not the language's literal forms. Strings and template text
+accept the escapes `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`, and a Unicode code
+point as JavaScript writes it, `\u{2011}` or `\u2011`. Templates can contain
+expressions, quoted strings, and nested templates. Keep an individual string or template on one
 source line.
 
 Newlines inside parentheses, brackets, and expression braces continue the same
@@ -374,7 +374,8 @@ derive caption = names.join(", ")
 ```
 
 Callbacks can build records. They cannot return view nodes. Use `for` to build
-repeated UI, not `map`. General closures, reducers, sorting, and arbitrary list
+repeated UI, not `map`. `sortBy(people, person => person.name)` orders a list by one
+key, stably. General closures, reducers, comparator sorts, and arbitrary list
 mutation belong in the data module when the supplied operations do not suffice.
 
 ## Views and repeated content
@@ -536,8 +537,8 @@ is one slot, not named slots or an arbitrary render-function API.
 ## Resources and mutations
 
 A resource is a reactive request to an app data source. The name reads as a value
-of the declared type. When its arguments change, the runtime requests the new
-answer. The source itself is implemented in TypeScript or Rust.
+of the declared type. When its inputs change, the runtime requests an answer
+again. The source itself is implemented in TypeScript or Rust.
 
 A mutation represents an explicitly requested operation. Its name reads as an
 `option<T>`: `none` before an answer, `some(answer)` after one. `send` issues it;
@@ -595,17 +596,19 @@ that settled the answer). It does not run for a failure that brought no answer,
 and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.
-`failed(resource)` asks whether the current resource request failed without an
-answer. Both take the declared name, not an arbitrary value. `failed` does not
-accept a mutation: a mutation whose request fails without an answer stops being
-pending and keeps its previous value, and its `then` does not run. A domain error
-returned in a shaped answer is data to inspect, not a failed transport request.
+`failed(resourceOrMutation)` asks whether its latest admitted request failed
+without an answer. Both take the declared name. A failed mutation keeps its
+previous value and runs no `then`; its next send clears the failure. A domain
+error returned in a shaped answer is data, not a failed request.
 
-`failure(resource)` says why, so the view can tell a lost connection from a bug:
-`none` until the request fails, then `some` of a `Failure` record with a `code`
-from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
-`error`; the grammar says when each applies) and a `message` for a developer.
-The code is the same on every host; the message is not, so branch on the code:
+`failure(resourceOrMutation)` says why: `none` until a request fails, then
+`some` of a `Failure` record. Its `code` preserves a nonempty source `reason`,
+such as a Snapback refusal's `SLOT_FULL`; otherwise it is an infrastructure
+class (`offline`, `timeout`, `refused`, `shape`, `storage`, `error`; the grammar
+says when each applies). `message` is for a developer; `reason` also retains
+the source's domain code, or is empty.
+The code and the reason are the same on every host; the message is not, so
+branch on the code or the reason:
 
 ```contract
 shape Item
@@ -620,11 +623,42 @@ component Items
 
 A data module reports `offline`, `timeout`, `refused` or `storage` only by letting
 the `fetch` or storage rejection reach the runner; an error it throws of its own,
-for an HTTP error status say, is `error`.
+for an HTTP error status or invalid response, is `error`. A read source should
+answer with a new value only when it has validated one. It should let a failed
+refresh fail the resource so Exact can retain the prior answer and expose the
+failure separately. A validated empty collection is a successful answer and may
+replace the old collection. A source may return a shaped domain outcome when that
+outcome is part of the read's meaning; it should not encode an unavailable read
+as a successful empty value just to carry an error message.
 
-Requests use newest-request-wins behavior; stale answers do not overwrite newer
-requests. A failed resource keeps its retained value or placeholder and clears
-pending. A changed argument or explicit refresh allows another attempt.
+Requests use newest-request-wins behavior: stale answers do not overwrite newer
+requests. This determines which answer the runner adopts. It does not guarantee
+that source work stops or undo storage operations already started. A failed
+resource keeps its retained value or placeholder and clears pending. While a
+replacement is pending, the view may still see the previous value, even after
+the request's arguments change.
+
+A private-data view should show a retained value only when its owner and
+authorization match the current screen. An authenticated source must await the
+app's shared current-session helper and verify that the session authorizes the
+principal named by the request. The helper and auth generation are app code, not
+Exact APIs. The app must advance its auth generation and clear its authorized
+principal whenever the principal changes or signs out. A request tied to that
+auth attempt should take the generation as a resource argument and return the
+principal and generation as fields in its answer. The view should show private
+data only when both fields match the currently authorized principal and
+generation. Checking only the owner cannot distinguish signing into A, then B,
+then A again. A pending session resource, or one that is merely not pending, does
+not prove authorization. Put a non-secret account or tenant identifier in the
+resource call; `signedIn: true` does not identify an account.
+
+Before committing a refreshed session or shared owner-sensitive cache write,
+recheck the auth generation when the write commits, including inside queued
+work. When possible, store each owner's data under a separate cache key so a
+valid result for account A can still populate A's cache while the user views
+account B. If writes share a slot, guard the commit by owner and auth generation.
+Do not discard a valid per-owner result only because another owner's request
+became current. A changed input or explicit refresh allows another attempt.
 
 A write log wants every send, not the newest. Declare the mutation `queue`
 (`mutation saved as shape SaveResult queue then afterSave`): one request is in
@@ -635,9 +669,15 @@ stays true while anything waits. Assigning `saved = none` forgets nothing under
 `queue`: every reply still lands. Keep newest-wins for a sign-in or a draft whose
 late reply should be dropped (LLP 1092).
 
-A source sometimes needs current context to answer a question whose last answer
-is still suitable to show. For example, a stored car status may need the current
-minute to decide whether it must be fetched again:
+For a mutation without `queue`, the action that sends `saved` must not also
+assign `saved = none`. Assignments commit after sends, so that reset can discard
+the new reply even when it appears first. Hide a previous error while
+`pending(saved)` instead. `none` means the slot contains no reply, not a failed write; use
+`failure(saved)` for request failure and match the reply for a domain refusal.
+
+A source sometimes needs changing context when deciding whether to refresh an
+answer for the same logical entity. For example, a stored car status may need
+the current minute to decide whether it must be fetched again:
 
 ```text
 resource status = status(car) with minute as shape Status
@@ -645,16 +685,21 @@ resource status = status(car) with minute as shape Status
 
 The source receives `car`, then `minute`; changes to either ask again. `with`
 accepts one or more expressions before `as shape`, and the call may be empty.
-On hosts that persist eligible store-reading answers, a returning launch can
-show the kept answer for the same `car` while the source is unready, even when
-`minute` changed. It stays visible while activation is pending. Another car
-shows the normal fallback. Without `with`, every argument must match. The default
-web JS target keeps no persisted resource answers; see
+Call arguments identify the answer and should include its account or tenant.
+Inputs after `with` are request context: they reach the source and trigger a new
+request, but do not change persisted-answer identity. On hosts that persist
+eligible store-reading answers, a returning launch can show the kept answer for
+the same call arguments while the source is unready, even when a `with` input
+changed. During a live replacement request, the prior displayed value may remain
+visible even when call arguments changed, so private-data views must gate it by
+owner and authorization. Neither call arguments nor `with` make a resource wait
+for an upstream request to succeed. The default web JS target keeps no persisted
+resource answers; see
 [the platform scope](../llp/1027.005-resource-identity-and-request-context.rfc.md#d5--where-it-applies-and-the-gap-it-leaves).
 The minute must already contain the current sample for the first ask; a timer
 can update it thereafter. Use `refresh` or `refreshes` for values whose only job
-is forcing another ask, and keep accounts, tenants and representation choices
-among the call arguments.
+is forcing another ask. Await true asynchronous prerequisites, such as a valid
+session, inside the data source before issuing the dependent request.
 
 Before an answer, a resource holds its baked value, its declared placeholder, or
 its type's zero (`0`, `""`, `false`, `none`, `[]`, or a record of zeros):
@@ -712,26 +757,39 @@ component ReadingList
   resource books = books() as shape Book[]
   resource quote = quote() as shape Quote else empty(text="…")
   mutation saved as shape Saved refreshes books then afterSave
+  derive quoteError = match failure(quote) { case some(f) => f.code == "offline" ? "Check your connection to reload the quote." : "Couldn't reload the quote.", case none => "" }
+  derive saveError = match failure(saved) { case some(_) => "Couldn't save this book. Try again.", case none => "" }
+  action reloadQuote
+    refresh quote
   action edit(value: string)
     draft = value
   action add
-    if draft.trim() != ""
+    if draft.trim() != "" and not pending(saved)
+      notice = ""
       send saved = addBook(draft.trim())
-      draft = ""
   action afterSave
     match saved
       case some(result)
         notice = result.message
+        if result.ok
+          draft = ""
       case none
         notice = ""
   view
     column padding=24 gap=12
       text "Reading list" role="heading" aria-level=1
       text quote.text color="-exact-secondary-label" testId="quote"
+      if quoteError != ""
+        row gap=8
+          text quoteError color="-exact-secondary-label" flex=1 testId="quote-error"
+          button press=reloadQuote testId="retry-quote"
+            text "Try again"
       row gap=8
-        input value=draft input=edit submit=add placeholder="A book" aria-label="New book" testId="title" flex=1
-        button press=add testId="add"
+        input value=draft input=edit submit=add placeholder="A book" aria-label="New book" disabled=pending(saved) testId="title" flex=1
+        button press=add disabled=(draft.trim() == "" or pending(saved)) testId="add"
           text "Add"
+      if saveError != ""
+        text saveError color="-exact-system-red" testId="save-error"
       text notice testId="notice"
       for book in books key=book.id
         text book.title testId=`book-${book.id}`
@@ -788,17 +846,16 @@ const sources: Sources = {
     withBooks(storage, async (db) => {
       await db.execute('INSERT INTO books (title) VALUES (?)', [title]);
       return { ok: true, message: `Added ${title}.` };
-    }).catch((error) => ({ ok: false, message: String(error) })),
-  // The network: only the origin `grants` names. A failure is data here.
+    }),
+  // A failed read must not replace the last quote with an empty one.
   quote: async (): Promise<Result<'quote'>> => {
-    try {
-      const response = await fetch('https://api.quotable.kurokeita.dev/api/quotes/random');
-      if (!response.ok) return { text: '' };
-      const body = (await response.json()) as { quote?: { content?: string } };
-      return { text: body.quote?.content ?? '' };
-    } catch {
-      return { text: '' };
+    const response = await fetch('https://api.quotable.kurokeita.dev/api/quotes/random');
+    if (!response.ok) throw new Error('The quote request failed.');
+    const body: unknown = await response.json();
+    if (body === null || typeof body !== 'object' || !('quote' in body) || body.quote === null || typeof body.quote !== 'object' || !('content' in body.quote) || typeof body.quote.content !== 'string') {
+      throw new Error('The quote response is invalid.');
     }
+    return { text: body.quote.content };
   },
 };
 
@@ -817,8 +874,8 @@ call outside them fails. The capabilities are:
 
 | Grant | Allows |
 |---|---|
-| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains). Native checks each redirect before contact. Web checks the final response URL. On render-server pages, `connect-src` uses app grants: a hop outside the page origin and app grants is blocked before contact (`Network`); a hop the app grants but this source does not can receive a 307 POST body and return to a source-granted final URL, succeeding on web while native refuses. Static and dev pages have no such CSP, so even an app-ungranted hop can be contacted and a return chain can succeed. Without CSP, an ungranted final URL fails after contact, naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
-| `net.websocket wss://api.example.com` | a WebSocket to that origin |
+| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains; `https:` or `http:` for every origin of the scheme, as a CSP scheme source). Native checks each redirect before contact. Web checks the final response URL. On render-server pages, `connect-src` uses app grants: a hop outside the page origin and app grants is blocked before contact (`Network`); a hop the app grants but this source does not can receive a 307 POST body and return to a source-granted final URL, succeeding on web while native refuses. Static and dev pages have no such CSP, so even an app-ungranted hop can be contacted and a return chain can succeed. Without CSP, an ungranted final URL fails after contact, naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
+| `net.websocket wss://api.example.com` | a WebSocket to that origin (`wss:` or `ws:` for every origin of the scheme) |
 | `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
 | `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
 | `secret.keep name` | `store.keepKey(name, pair)` and `store.key(name)`: a P-256 key pair kept by the platform |
@@ -833,8 +890,8 @@ call outside them fails. The capabilities are:
   and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
-  resource's first value into the plan, and a storage call then is refused
-  with `code: 'bake'`. An uncaught storage refusal leaves the resource unbaked;
+  resource's first value into the plan, and a storage or `native.call` then is refused
+  with `code: 'bake'`. An uncaught refusal leaves the resource unbaked;
   its placeholder (or the type's zero) shows until the app asks again at launch.
   Catching that code can also supply a first-frame value, as `books` does.
   Other source errors still fail the build. A source used as an `else` placeholder
@@ -860,9 +917,11 @@ call outside them fails. The capabilities are:
   together in one `transaction`.
 - *SQLite integers are `bigint`.* Convert them (`String(id)`, `Number(n)`)
   before returning; a Contract `number` is not a `bigint`.
-- *A domain failure is data.* `addBook` returns `ok: false` with a message
-  rather than throwing, so the view can say what happened. A thrown error
-  leaves a resource `failed(…)` and a mutation without an answer.
+- *A domain refusal from a write is data.* A write source may return `ok: false`
+  with a message so the view can explain the refusal. A thrown error produces
+  no new mutation reply: the mutation keeps its previous value and runs no
+  `then`. A failed read should fail its resource so Exact retains its last valid
+  answer.
 - *`app.ts` imports local files, and only types from packages.* An `import
   type` (or a name used only as a type) may reach a package's declarations,
   such as the rows `snapback4 types` writes to `snapback/generated/api.ts`,
@@ -889,10 +948,11 @@ bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
-A scratch store is kept between drives on every host, so a second drive with the
-same `--storage demo` opens the list the first one saved: on the web, Chrome's
-profile for that name, served at one origin (Firefox and WebKit drives start
-fresh). A test's `reload` restarts the app on its store within one drive,
+A native scratch store is kept between drives (`--reset-storage` empties it), so a
+second `agent ios --storage demo` opens the list the first one saved. On the web the
+store is Chrome's profile for that name, served at one origin, and starts empty
+each drive: the second drive passes `--keep-storage` to open the saved list
+(Firefox and WebKit drives always start fresh). A test's `reload` restarts the app on its store within one drive,
 including a data module's `secret.keep`.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
@@ -1016,6 +1076,11 @@ Bind a controlled text field's current value and its editing action:
 input value=query input=search placeholder="Search" aria-label="Search"
 textarea value=body input=editBody
 ```
+
+An `input` handler should update raw draft state on every edit so live search,
+validation and button enablement follow typing. A text field fires `change` on
+Enter or blur; its handler should normalize the draft. A textarea commits when
+editing ends. Use `submit` for explicit submission.
 
 A text field is the platform's own by default (LLP 1104): `input` with no type
 or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
@@ -1245,13 +1310,21 @@ and browser history.
 
 A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent`
 sets its resting heights, space-separated: `large` (the default), `medium`, a
-point height (`"300"`), or `fit-content`, the route's content height, which
-follows the content as rows arrive or text wraps. A point height and
-`fit-content` stop at the sheet's tallest and leave out the bottom safe area,
-which UIKit adds below; so under `viewport-fit="cover"` a route that pads
-`env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
+point height (`"300"`), a percentage of the sheet's tallest (`"45%"`, above 0%
+and at most 100%; `"100%"` is `large`), or `fit-content`, the route's content
+height, which follows the content as rows arrive or text wraps. A point height, a
+percentage and `fit-content` stop at the sheet's tallest and leave out the bottom
+safe area, which UIKit adds below; so under `viewport-fit="cover"` a route that
+pads `env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
 expand and shows no grabber; with several (`"300 large"`) it is dragged between
-them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
+them, the first to start. UIKit takes them shortest to tallest, and a point height
+and a share of the tallest cross on some screen (`"300 45%"` is 300 then 360 on an
+800-point sheet, 300 then 270 on a 600-point one), so the heights before `large`
+are of one kind, points or percentages (`medium` is half), each taller than the
+one before, and `large` goes last; a literal that breaks this is refused. A point
+height that a small screen's tallest reaches, with a taller detent after it, is
+left out there, so `"900 large"` on a phone is `large` alone.
+`fit-content` goes alone or as `"fit-content large"`.
 It measures the route laid out on its own with its height left to its
 content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
 rows do not shrink into it, and a percentage `height` or `flex-grow` takes
@@ -1400,8 +1473,9 @@ layout already happened. Geometry reads are not reactive view expressions.
 
 SVG uses SVG's tags and presentation names: `svg`, `g`, `path`, `rect`, gradients,
 masks, filters, text, and the rest of the admitted vocabulary. SVG `text` is
-context-sensitive. `foreignObject` works on the web but is refused on native
-hosts until a native box-in-scene implementation exists.
+context-sensitive. `foreignObject` works on the web, but draws nothing through SVG
+`use`, and is refused on native hosts until a native box-in-scene implementation
+exists.
 
 Canvas has two distinct providers: an app data module can record Canvas 2D calls,
 and an optional GPU module can provide a surface. Contract declares the canvas
@@ -1475,7 +1549,8 @@ attributes. `exactViewport` also carries `prefersReducedMotion`,
 for the app to honor, not automatic engine policy. `displayMode: string` reads
 CSS's current `display-mode`: the browser's media query on the web,
 `fullscreen` or `standalone` for the window on macOS, and `standalone` on
-other native hosts. Available fields are documented beside their source validation and
+other native hosts. `navigationType` is how the browser loaded the page
+(`navigate`, `reload` or `back_forward`), and empty in a native app. Available fields are documented beside their source validation and
 [the viewport design](../llp/1039-viewport-facts.rfc.md); start with [the viewport corpus](../contract/corpus/viewport.contract).
 
 Localized strings live in the app's `strings/<locale>.json` files. Author calls
@@ -1524,7 +1599,8 @@ Do not replace virtual time with sleeps.
 For diagnosis, use `build --json`, `symbols --name <name>`, and
 `build -o /tmp/app.plan --map`, which writes `/tmp/app.plan.map.json`. The
 development source map connects node layout
-to declarations, component calls, and style origins. Then drive the actual app:
+to declarations, component calls, and style origins, and says each source's
+SHA-256 as compiled (`sources`), so a reader can tell a file moved since. Then drive the actual app:
 
 ```sh
 bun scripts/agent.mjs web tree state logs "screenshot /tmp/app.png"
@@ -1541,7 +1617,13 @@ dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`
 an origin, a signing key, and the configured signed streams. Read
 [LLP 1030.000](../llp/1030.000-dev-server-as-deployer.rfc.md) before changing
 trust or publishing. Writing Contract does not require inventing a deployment
-service.
+service. To share an iOS app through AppDrop, add `"appdrop": {}` under
+`deploy`: a deploy whose table has an iOS binary row builds the unsigned `.ipa`
+after the streams and publishes it to AppDrop. The first one creates the link
+and writes it to `deploy.appdrop.url`; commit that, and the install page offers
+it for iOS. Later ones publish the link's next version (`$APPDROP_MANAGE_KEY`,
+or the key the appdrop CLI saved, authorizes it). Bundle-only changes go over
+the air and never reach AppDrop.
 
 ## Where to go next
 

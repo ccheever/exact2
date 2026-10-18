@@ -250,6 +250,80 @@ fn a_block_that_changes_lays_out_its_subtree_alone() {
     );
 }
 
+/// A route with a block inside a box the host replaced whole (a tab not
+/// yet built, LLP 1075.003 §9.12) is not laid out: none of its text is
+/// measured. Given back, it is laid out as one never replaced is.
+#[test]
+fn a_block_in_a_box_replaced_whole_waits_for_the_box() {
+    let counts = Rc::new(RefCell::new(BTreeMap::new()));
+    let mut k = page(&counts);
+    k.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    for (route, _) in ROUTES {
+        k.set_host_block(route, is(300.0, 500.0)).unwrap();
+    }
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(
+        counts.borrow().keys().copied().collect::<String>(),
+        "P",
+        "{:?}",
+        counts.borrow()
+    );
+    k.set_host_cover(3, None).unwrap();
+    counts.borrow_mut().clear();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(
+        counts.borrow().keys().copied().collect::<String>(),
+        "ABS",
+        "{:?}",
+        counts.borrow()
+    );
+    let mut fresh = page(&Rc::new(RefCell::new(BTreeMap::new())));
+    for (route, _) in ROUTES {
+        fresh.set_host_block(route, is(300.0, 500.0)).unwrap();
+    }
+    fresh.compute_layout(1, OFFER).unwrap();
+    for (route, _) in ROUTES {
+        for id in std::iter::once(route).chain(rows_of(route)) {
+            let (a, b) = (k.node(id).unwrap().frame, fresh.node(id).unwrap().frame);
+            assert!(a.bits_eq(b), "{id}: {a:?} {b:?}");
+        }
+        assert_eq!(k.host_block_size(route), fresh.host_block_size(route));
+    }
+}
+
+/// A block shown, then replaced whole (its root, then the box holding it),
+/// then given back: replaced, its frames and used size are zero and sent;
+/// given back, they are what they were, and sent again.
+#[test]
+fn a_shown_block_replaced_whole_is_hidden_and_given_back_as_it_was() {
+    let mut k = laid_out(small());
+    k.set_host_block(3, at_most(300.0, 200.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let shown = k.node(4).unwrap().frame;
+    assert_eq!(k.host_block_size(3), Some((150.0, 40.0)));
+    let key = k.node(3).unwrap().key;
+    for owner in [3, 2] {
+        k.set_host_cover(owner, Some(HostCover::Whole)).unwrap();
+        let receipt = k.compute_layout(1, OFFER).unwrap();
+        assert_eq!(k.host_block_size(3), Some((0.0, 0.0)), "replaced: {owner}");
+        assert_eq!(k.node(4).unwrap().frame.width, 0.0, "replaced: {owner}");
+        assert_eq!(k.laid_out_frame(k.node(4).unwrap().key), None);
+        assert!(receipt.updated.contains(&key), "replaced: {owner}");
+        k.set_host_cover(owner, None).unwrap();
+        let receipt = k.compute_layout(1, OFFER).unwrap();
+        assert_eq!(
+            k.host_block_size(3),
+            Some((150.0, 40.0)),
+            "given back: {owner}"
+        );
+        assert!(
+            k.node(4).unwrap().frame.bits_eq(shown),
+            "given back: {owner}"
+        );
+        assert!(receipt.updated.contains(&key), "given back: {owner}");
+    }
+}
+
 fn laid_out(ops: Vec<Op>) -> Kernel {
     let mut k = Kernel::with_monospace();
     k.apply(0, 1, &ops).unwrap();
@@ -363,7 +437,11 @@ fn refusals_and_a_destroyed_root() {
     let key = k.node(4).unwrap().key;
     let (frame, _) = k.measure_auto_height(key).unwrap();
     assert_eq!((frame.x, frame.y, frame.width), (0.0, 0.0, 400.0));
-    assert_eq!(k.fit_content_height(k.node(3).unwrap().key), None);
+    assert_eq!(
+        k.fit_content_height(k.node(3).unwrap().key),
+        Some(40.0),
+        "a block's root fits its content at the block's width"
+    );
     // A node that is destroyed takes its block with it.
     k.apply(0, 3, &[children(2, []), Op::DestroyView { id: 3 }])
         .unwrap();
@@ -456,4 +534,130 @@ fn block_limits_and_padding_resolve_math_in_the_window_environment() {
         let child = k.node(4).unwrap().frame;
         assert_eq!((child.x, child.y), padding);
     }
+}
+
+#[test]
+fn route_fitting_tracks_retained_sizes_clears_and_its_own_basis() {
+    let mut k = laid_out(small());
+    let fit = |width, height| {
+        Some(HostBlock {
+            width: BlockAxis::Fit(width),
+            height: BlockAxis::Fit(height),
+        })
+    };
+    k.set_host_block(3, fit(400.0, 200.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(k.host_block_size(3), Some((150.0, 40.0)));
+    let size = StyleMask::of(StyleId::Width).union(StyleMask::of(StyleId::Height));
+    let own_size = |width, height| {
+        let mut op = style(3, &[(StyleId::Width, width), (StyleId::Height, height)]);
+        if let Op::SetStyle { patch, .. } = &mut op {
+            patch.written = patch.mask;
+        }
+        op
+    };
+    let changed = |k: &mut Kernel, ops: &[Op], expected| {
+        k.apply(0, k.epoch() + 1, ops).unwrap();
+        let receipt = k.compute_layout(1, OFFER).unwrap();
+        assert_eq!(k.host_block_size(3), Some(expected));
+        assert!(receipt
+            .updated
+            .iter()
+            .all(|key| matches!(k.node_by_key(*key).unwrap().id, 3 | 4)));
+    };
+    changed(&mut k, &[own_size(n(480.0), n(300.0))], (480.0, 300.0));
+    changed(
+        &mut k,
+        &[own_size(
+            StyleValue::Percent(125.0),
+            StyleValue::Percent(150.0),
+        )],
+        (500.0, 300.0),
+    );
+    k.set_host_block(3, fit(200.0, 100.0)).unwrap();
+    changed(&mut k, &[], (250.0, 150.0));
+    // Clearing an authored dimension returns to fitting, while its
+    // declaration intent remains distinct from removing the row.
+    changed(
+        &mut k,
+        &[Op::ClearStyle {
+            id: 3,
+            mask: size,
+            written: true,
+        }],
+        (150.0, 40.0),
+    );
+    assert_eq!(
+        k.node(3).unwrap().style.mask.intersect(size),
+        StyleMask::EMPTY
+    );
+    assert_eq!(k.node(3).unwrap().style.written.intersect(size), size);
+    changed(&mut k, &[own_size(n(480.0), n(300.0))], (480.0, 300.0));
+    changed(
+        &mut k,
+        &[own_size(StyleValue::Auto, StyleValue::Auto)],
+        (150.0, 40.0),
+    );
+    changed(
+        &mut k,
+        &[Op::ClearStyle {
+            id: 3,
+            mask: size,
+            written: false,
+        }],
+        (150.0, 40.0),
+    );
+    assert_eq!(
+        k.node(3).unwrap().style.written.intersect(size),
+        StyleMask::EMPTY
+    );
+    let work = k.tree().work;
+    k.set_host_block(3, fit(200.0, 100.0)).unwrap();
+    assert!(k.compute_layout(1, OFFER).unwrap().updated.is_empty());
+    assert_eq!(
+        k.tree().work,
+        work,
+        "an unchanged block does no layout work"
+    );
+}
+
+/// A sheet whose content decides its height (the `fit-content` detent,
+/// LLP 1075.003 §9.11) fits its content once its route is laid out in its
+/// block (LLP 1123 D2): measured at the block's width, so text wraps as it
+/// will in the block, and whatever the block's height, which the
+/// measurement is for.
+#[test]
+fn a_blocks_root_fits_its_content_at_the_blocks_width() {
+    let mut ops = Vec::new();
+    ops.extend(view(1, NodeType::View, &[(StyleId::Height, n(600.0))]));
+    ops.extend(view(3, NodeType::View, &FILL));
+    ops.extend(view(4, NodeType::View, &[(StyleId::PaddingTop, n(10.0))]));
+    ops.extend(text(5, &"word ".repeat(40)));
+    ops.extend([
+        children(4, [5]),
+        children(3, [4]),
+        children(1, [3]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut k = laid_out(ops);
+    let fit = |k: &mut Kernel| k.fit_content_height(k.node(3).unwrap().key).unwrap();
+    let page = fit(&mut k);
+    k.set_host_block(3, is(300.0, 200.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let wide = fit(&mut k);
+    assert!(
+        wide > page,
+        "narrower than the page, the text wraps more: {wide} > {page}"
+    );
+    k.set_host_block(3, is(150.0, 900.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let narrow = fit(&mut k);
+    assert!(
+        narrow > wide,
+        "and more at half the width: {narrow} > {wide}"
+    );
+    assert!(narrow < 900.0, "the block's height is not the content's");
+    k.set_host_block(3, is(300.0, 50.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(fit(&mut k), wide, "nor its own measure");
 }

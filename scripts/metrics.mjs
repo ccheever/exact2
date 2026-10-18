@@ -706,7 +706,7 @@ if (long) {
     const gate = () => {
       const checks = [
         timed('cargo', ['build', '--all-targets', '--keep-going']),
-        timed('cargo', ['test', '--lib', '--bins', '--tests', '--no-fail-fast']),
+        timed('cargo', ['test', '--tests', '--no-fail-fast']),
         timed('cargo', ['clippy', '--all-targets', '--keep-going', '--', '-D', 'warnings']),
         timed('cargo', ['fmt', '--all', '--', '--check']),
         timed(process.execPath, ['scripts/caps.mjs'], 'caps'),

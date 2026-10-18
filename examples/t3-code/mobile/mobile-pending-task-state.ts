@@ -1,5 +1,5 @@
 // Pinned365aa87982 new-task-flow-provider and pending-task-editor-writes.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { T3Client } from './shared/client';
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
 import { mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';

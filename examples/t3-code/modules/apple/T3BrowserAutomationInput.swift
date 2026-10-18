@@ -2,7 +2,7 @@
 import AppKit
 import WebKit
 
-/// The agent's native input to a page in a window (browser-surface part 5; X1 path B): `NSEvent` mouse and key
+/// The agent's native input to a page in a window (#100: the clone's own WKWebView): `NSEvent` mouse and key
 /// events, trusted in the page, in place of CDP's `Input.dispatchMouseEvent` and the guest's `sendInputEvent`
 /// (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts `performAutomationClick`,
 /// `performAutomationPress`; apps/web/src/components/preview/previewClickFocus.ts). The events go to the page's
@@ -87,7 +87,7 @@ enum T3BrowserAgentCursor {
         let scale = web.pageZoom * web.magnification
         // The page's point in the view's own coordinates, then in its layer's. The layer's axes follow every flipped
         // ancestor (the stage's host is flipped, `T3BrowserView.Host`), which its own `isGeometryFlipped` does not say:
-        // reading that alone put the cursor at the page's height minus the target's y (realinput-1010d RD-3).
+        // reading that alone put the cursor at the page's height minus the target's y.
         let position = web.convertToLayer(NSPoint(x: x * scale, y: web.isFlipped ? y * scale : web.bounds.height - y * scale))
         orient(cursor, down: layerPointsDown(web))
         CATransaction.begin()

@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 // One awaited operation owns its handles. Durable markers hold delivery across restart.
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { ClientError, type Files, type Native } from './shared/protocol';

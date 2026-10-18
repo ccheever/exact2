@@ -1,5 +1,5 @@
 // Durable Send completion over existing mounted CAS / explicit unmounted publication.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client } from './shared/client';
 import type { Native, Files } from './shared/protocol';
 import { ClientError } from './shared/protocol';

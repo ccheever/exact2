@@ -66,6 +66,9 @@ impl DataSource for Later {
     fn grants(&self) -> &'static str {
         "net.fetch https://api.castle.test\n"
     }
+    fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+        Ok(Later)
+    }
 }
 
 fn view(host: &Host<Later>, test_id: &str) -> u32 {
@@ -131,7 +134,7 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
 }
 
 #[test]
-fn module_replacement_preserves_the_owner_of_an_in_flight_post() {
+fn a_dev_module_replacement_swaps_with_a_post_in_flight_and_an_update_refuses() {
     let plan = contract::bake(contract::compile(SRC).unwrap(), Later)
         .unwrap()
         .encode();
@@ -141,12 +144,30 @@ fn module_replacement_preserves_the_owner_of_an_in_flight_post() {
     bridge.input_write(b"ada");
     bridge.dispatch(view(&host, "who"), 1, 3, 0.0);
     bridge.dispatch(view(&host, "login"), 0, 0, 0.0);
-    bridge.input_write(b"candidate");
-    let len = bridge.boot_module([0, 0, 9], Later);
+    assert_eq!(bridge.request_active(1.0), 1);
+    let mut input = plan.clone();
+    input.extend_from_slice(b"module");
+    // An update refuses while a request is out; the running app keeps it.
+    bridge.input_write(&input);
+    let len = bridge.boot_module([plan.len(), 0, 6], Later, false);
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("in-flight"));
-    bridge.input_write(b"{}");
-    let len = bridge.fulfill(1.0, 0, 200, 0, 2, 5.0);
-    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("Signed in as ada"));
+    assert_eq!(bridge.request_active(1.0), 1);
+    // The dev loop's swap does not wait on it, as an app may always have a
+    // request out (LLP 1007 §6), and the new runner carries what was typed.
+    bridge.input_write(&input);
+    let len = bridge.boot_module([plan.len(), 0, 6], Later, true);
+    let out = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert!(out.contains("\"value\":\"ada\""), "{out}");
+    assert!(
+        out.contains("Signed out") && !out.contains("Logging in"),
+        "{out}"
+    );
+    assert_eq!(
+        bridge.request_active(1.0),
+        0,
+        "the old runner's POST is let go"
+    );
 }
 
 #[test]

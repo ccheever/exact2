@@ -22,7 +22,7 @@
 mod layout;
 mod paint;
 pub use layout::{layout_presented, LayoutMotion};
-pub use paint::PaintMotion;
+pub use paint::{still, PaintMotion};
 
 use crate::generated::{
     BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleProps,
@@ -323,6 +323,7 @@ pub fn color_targets(
     if wanted.is_empty() {
         return Vec::new();
     }
+    let s = node.computed_style(crate::StyleMask::EMPTY);
     let text = node.text_color();
     let paint = |id: StyleId| match node.computed(id) {
         crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => color(*c, dark),
@@ -448,7 +449,7 @@ impl Kernel {
         let Some(node) = self.node_by_key(key) else {
             return Vec::new();
         };
-        let s = node.style;
+        let s = node.computed_style(crate::StyleMask::EMPTY);
         let colors = [
             s.border_color_top,
             s.border_color_right,

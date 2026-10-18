@@ -20,18 +20,38 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Why a bake failed, as its build script says it. Every app's build script
+/// ends in `.expect("bake …")`, which prints an error's `Debug`: a `String`'s
+/// quotes and escaped newlines put tsc's diagnostics on one line, so `Debug`
+/// is the text as written.
+pub struct BakeError(pub String);
+
+impl std::fmt::Debug for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n{}", self.0.trim_end())
+    }
+}
+
+impl std::fmt::Display for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BakeError {}
+
 /// An app's Cargo build-script entrypoint. Write the paired artifacts and
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
-pub fn build(app: &Path, platform: &str) -> Result<(), String> {
-    build_sources(app, platform, None, None)
+pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
+    build_sources(app, platform, None, None).map_err(BakeError)
 }
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
 /// never invoke or activate the Rust implementation; first-frame values bake
 /// through TypeScript alone.
-pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), String> {
-    build_sources(app, platform, Some(rust), None)
+pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), BakeError> {
+    build_sources(app, platform, Some(rust), None).map_err(BakeError)
 }
 
 /// Bake a mixed app through its own composer (LLP 1027.002 §5 step 0): the
@@ -44,19 +64,19 @@ pub fn build_mixed_with(
     platform: &str,
     rust: &dyn DataSource,
     rust_sources: &[&str],
-    compose: impl FnOnce(Module) -> Box<dyn DataSource>,
-) -> Result<(), String> {
+    compose: impl Fn(Module) -> Box<dyn DataSource>,
+) -> Result<(), BakeError> {
     let composer = Composer {
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
         compose: Box::new(compose),
     };
-    build_sources(app, platform, Some(rust), Some(composer))
+    build_sources(app, platform, Some(rust), Some(composer)).map_err(BakeError)
 }
 
 /// How a Cargo bake composes the TypeScript module with the app's Rust.
 struct Composer<'a> {
     rust_sources: Vec<String>,
-    compose: Box<dyn FnOnce(Module) -> Box<dyn DataSource> + 'a>,
+    compose: Box<dyn Fn(Module) -> Box<dyn DataSource> + 'a>,
 }
 
 /// A composed source, as `contract::bake` takes it.
@@ -152,6 +172,13 @@ impl Seed {
                     ))
                 })
                 .or_insert(value);
+        }
+        for source in rust_sources {
+            values.entry(source.clone()).or_insert_with(|| {
+                Err(format!(
+                    "`{source}` has no seeded resource; checked by its source declaration"
+                ))
+            });
         }
         Ok(Seed { values })
     }
@@ -309,19 +336,29 @@ fn build_sources(
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
-    let compat = exact_bake::compatibility_id_sources(
+    let compat = exact_bake::compatibility_id_sources_with_entries(
         app,
         platform,
         &target,
         &manifest,
         meta["grants"].as_str(),
         mixed_grants(&meta, rust)?,
+        Some(&baked.entries),
     )?;
-    if compat.inputs["store"]["L"] != "0" {
-        return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
+    // A TypeScript app's update carries its module pair (`typescript/`); a
+    // mixed app's two modules travel as one generation, which no host takes yet.
+    let updating = compat.inputs["store"]["L"] != "0";
+    if updating && rust.is_some() {
+        return Err("a TypeScript and Rust app currently requires deploy.store.<platform> = 0; signed delivery of both modules is not implemented".into());
     }
+    // The Apple entry's host: the update composition when the binary has a store.
+    let host = if updating {
+        "exact_apple_update"
+    } else {
+        "exact_apple"
+    };
     // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
-    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, "exact_apple"));
+    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, host));
     std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]
@@ -385,6 +422,20 @@ fn build_sources(
         // links every capability, as before.
         if let Some(linked) = linked {
             std::fs::write(out.join("linked.rs"), linked).map_err(|e| e.to_string())?;
+            // `include!(concat!(env!("OUT_DIR"), "/host.rs"))` instantiates
+            // the host this compatibility id names.
+            let new = if updating {
+                ""
+            } else {
+                "None, std::ptr::null(), "
+            };
+            std::fs::write(
+                out.join("host.rs"),
+                format!(
+                    "{host}::host!(AppData, PLAN, COMPAT, {new}app_data; linked = EXACT_LINKED);\n"
+                ),
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
     // Each captured source by name, not the app directory: Cargo scans a named
@@ -402,8 +453,21 @@ fn build_sources(
     }
     // And the package declarations the type check read: a changed `.d.ts`
     // checks the app again (LLP 1027 D5, "Type-only package imports").
-    for file in package_declarations(&stage.0)? {
+    // And the package code the bundle captured ("Package code").
+    let code = package_code(&stage.0)?;
+    for file in package_declarations(&stage.0)?.iter().chain(&code.watched) {
         println!("cargo:rerun-if-changed={}", file.display());
+    }
+    println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
+    // An absent file Cargo watches is a missing input, which reran this bake
+    // on every build. The builder says whether the selection exists
+    // (EXACT_BACKEND_SELECTION, as EXACT_ASSET_ROOTS names the asset roots
+    // that do), so its creation still reruns it; a direct Cargo build, which
+    // does not, keeps the watch.
+    println!("cargo:rerun-if-env-changed=EXACT_BACKEND_SELECTION");
+    let selection = root.join(".exact/backend-origin");
+    if selection.exists() || std::env::var_os("EXACT_BACKEND_SELECTION").is_none() {
+        println!("cargo:rerun-if-changed={}", selection.display());
     }
     // And the Contract libraries the app uses, wherever they are installed.
     contract::rerun_if_changed(&root.join("app.contract"));
@@ -423,6 +487,43 @@ fn package_declarations(stage: &Path) -> Result<Vec<PathBuf>, String> {
         .flatten()
         .filter_map(|file| file.as_str().map(PathBuf::from))
         .collect())
+}
+
+/// The package code a bake captured (`__exact_packages.json`, written by
+/// `capturedSources`): each package's installed paths, which Cargo walks
+/// (the link itself included, so a retargeted install is a change), each
+/// captured file where it was read (one reached through a file link has no
+/// installed path), and each package's digest of the files and resolutions
+/// captured, for the receipt.
+struct PackageCode {
+    watched: Vec<PathBuf>,
+    packages: serde_json::Map<String, serde_json::Value>,
+}
+
+fn package_code(stage: &Path) -> Result<PackageCode, String> {
+    let Ok(bytes) = std::fs::read(stage.join("__exact_packages.json")) else {
+        return Ok(PackageCode {
+            watched: Vec::new(),
+            packages: serde_json::Map::new(),
+        });
+    };
+    let record: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let watched = record["packages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|p| p[2].as_array().into_iter().flatten())
+        .chain(
+            record["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|file| &file[2]),
+        )
+        .filter_map(|path| path.as_str().map(PathBuf::from))
+        .collect();
+    let packages = record["digests"].as_object().cloned().unwrap_or_default();
+    Ok(PackageCode { watched, packages })
 }
 
 /// The tools on the producer machine, not on a client.
@@ -481,6 +582,8 @@ pub struct Baked {
     /// The compiler's warnings, each as `contract build` prints it, its file
     /// from the app's directory: the bake's caller says them (LLP 1116.004 D7).
     pub warnings: Vec<String>,
+    /// Snapshot plans compiled alongside the app, reused by bundle generation.
+    pub entries: BTreeMap<String, contract::snapshot::Entry>,
 }
 
 /// A temporary directory we created, cleaned on every success/refusal path.
@@ -565,7 +668,13 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         let dir = root
             .join(path)
             .canonicalize()
-            .map_err(|e| format!("typescript.sources.{name}: {path}: {e}"))?;
+            // Relative to the app's directory, where app.json is: say which (app farm wave 1, five builds).
+            .map_err(|e| {
+                format!(
+                    "typescript.sources.{name}: {path}, resolved from the app's directory {}: {e}",
+                    root.display()
+                )
+            })?;
         let app = root.canonicalize().map_err(|e| e.to_string())?;
         if !dir.is_dir() || dir.starts_with(&app) || app.starts_with(&dir) {
             return Err(format!(
@@ -618,12 +727,10 @@ fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, Str
 }
 
 /// Capture the app-local source graph, and the directories the manifest
-/// mounts beside it. A package's runtime code is never captured: a value
-/// import from `node_modules` fails in the private snapshot until dependency
-/// capture is implemented, and must not silently resolve to unrelated files
-/// on the producer machine. Its declarations are captured for the type check
-/// alone, by the configuration (`typescript.mjs` `stagePackages`; LLP 1027
-/// D5, "Type-only package imports").
+/// mounts beside it. Packages are captured by the configuration: their
+/// declarations for the type check (`typescript.mjs` `stagePackages`; LLP
+/// 1027 D5, "Type-only package imports"), their code file by file as the
+/// bundle reaches it (`capturedSources`; "Package code").
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     let mounts = mounts(root)?;
     let manifest = root.join("app.json");
@@ -691,7 +798,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             let captured = matches!(
                 path.extension().and_then(|s| s.to_str()),
-                Some("ts" | "json" | "contract" | "ttf" | "otf")
+                Some("ts" | "js" | "mjs" | "cjs" | "json" | "contract" | "ttf" | "otf")
             ) || ["assets", "deck", "gpu/shaders"]
                 .iter()
                 .any(|tree| relative.starts_with(tree));
@@ -749,11 +856,10 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             Path::new(name),
             &[],
         )?;
-        result.extend(
-            mounted
-                .into_iter()
-                .filter(|(path, _)| path.extension().is_some_and(|e| e == "ts" || e == "json")),
-        );
+        result.extend(mounted.into_iter().filter(|(path, _)| {
+            path.extension()
+                .is_some_and(|e| ["ts", "js", "mjs", "cjs", "json"].iter().any(|x| e == *x))
+        }));
     }
     Ok(result)
 }
@@ -847,20 +953,21 @@ fn bake_in(
     }
     if [
         "__exact_entry.ts",
+        "__exact_backend_source.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
         "__exact_paths.json",
         "__exact_declarations.json",
+        "__exact_packages.json",
+        "__exact_bundle.mjs",
         "__exact_canvas.js",
         "__exact_canvas.d.ts",
+        "app.js",
     ]
     .iter()
     .any(|name| captured.contains_key(Path::new(name)))
     {
-        return Err(
-            "__exact_entry.ts, __exact_tsconfig.json, __exact_config.mjs, __exact_paths.json, __exact_declarations.json and __exact_canvas.* are reserved for the producer"
-                .into(),
-        );
+        return Err("__exact_* and app.js (the bundle) are reserved for the producer".into());
     }
     for name in previous.keys().filter(|name| !captured.contains_key(*name)) {
         let path = stage.join(name);
@@ -916,7 +1023,16 @@ fn bake_in(
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    let mut declarations = contract::typescript(&plan)?;
+    write_changed(
+        &stage.join("__exact_backend_source.json"),
+        serde_json::to_string(&String::from_utf8_lossy(&captured[Path::new("app.ts")]))
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )?;
+    let exported = contract::design_exports(&app.join("app.contract"));
+    let entries = contract::snapshot::entries(&app)?;
+    let source_plan = contract::snapshot::source_plan(&entries, &plan)?;
+    let mut declarations = contract::typescript_exporting(&source_plan, exported.as_deref())?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
     let app_ts = String::from_utf8_lossy(&captured[Path::new("app.ts")]).into_owned();
@@ -991,10 +1107,25 @@ fn bake_in(
     // The first frame bakes through the declared owners (LLP 1027.002 §5
     // step 0): the app's composer in a Cargo bake; the previous plan's
     // values for the Rust half a development producer cannot run.
+    let mut refresh_module = Module::inspect(bytecode.clone())?;
+    refresh_module.set_budget_ms(f64::INFINITY);
     let plan = match (composer, seed) {
-        (Some(composer), _) => contract::bake(plan, Composed((composer.compose)(module))),
-        (None, Some(seed)) => contract::bake(plan, Seeded { module, seed }),
-        (None, None) => contract::bake(plan, module),
+        (Some(composer), _) => contract::snapshot::bake_app(
+            &entries,
+            plan,
+            Composed((composer.compose)(module)),
+            Composed((composer.compose)(refresh_module)),
+        ),
+        (None, Some(seed)) => contract::snapshot::bake_app(
+            &entries,
+            plan,
+            Seeded { module, seed },
+            Seeded {
+                module: refresh_module,
+                seed,
+            },
+        ),
+        (None, None) => contract::snapshot::bake_app(&entries, plan, module, refresh_module),
     }
     .map_err(|e| {
         source_map
@@ -1003,7 +1134,8 @@ fn bake_in(
     })?
     .encode();
     let source_map = source_map.map(|map| map.json(&plan));
-    let receipt = serde_json::json!({
+    let packages = package_code(stage)?.packages;
+    let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": if draws { 2 } else { 1 },
         "surfaces": surfaces,
         "rustSources": rust_sources,
@@ -1011,8 +1143,12 @@ fn bake_in(
         "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
         "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},
         "web": {"file": "app.js", "sha256": digest(&script), "bytes": script.len()},
-    })
-    .to_string();
+    });
+    // The package code bundled in, by name and version (absent with none).
+    if !packages.is_empty() {
+        receipt["packages"] = packages.into();
+    }
+    let receipt = receipt.to_string();
     Ok(Baked {
         plan,
         script,
@@ -1021,6 +1157,7 @@ fn bake_in(
         receipt,
         source_map,
         warnings,
+        entries,
     })
 }
 
@@ -1096,7 +1233,8 @@ import { configure, check } from './__exact_config.mjs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 const [tsc, root] = process.argv.slice(1);
-configure(process.cwd());
+const {parseSync}=await import(createRequire(resolve(root, 'package.json')).resolve('rolldown/utils'));
+configure(process.cwd(),false,parseSync);
 const libraries = resolve(dirname(createRequire(resolve(root, 'package.json')).resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`)), 'lib');
 try { await check(process.cwd(), tsc, libraries); }
 catch (error) { process.stderr.write(String(error?.message ?? error)); process.exit(3); }
@@ -1121,7 +1259,7 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     if !checked.status.success() {
         let said = String::from_utf8_lossy(&checked.stderr).into_owned();
         return Err(if checked.status.code() == Some(3) {
-            format!("{} refused:\n{said}", tools.tsc.display())
+            format!("the TypeScript does not compile (tsc):\n{said}")
         } else {
             said
         });
@@ -1132,18 +1270,12 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
-import { assertCapturedModule, ambientRefusals, packageImports } from './__exact_config.mjs';
+import { bundleOptions, capturedSources } from './__exact_config.mjs';
 export default {
+  ...bundleOptions,
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
-  plugins: [{ name: 'captured-sources', resolveId: packageImports(process.cwd()), load(id) {
-    assertCapturedModule(process.cwd(), id);
-    return null;
-  }, transform(code, id) {
-    const why = ambientRefusals(process.cwd(), id, code, (c, o) => this.parse(c, o));
-    if (why.length) throw new Error(why.join('\n'));
-    return null;
-  }}],
+  plugins: [capturedSources(process.cwd())],
 };
 "#,
     )
@@ -1160,8 +1292,6 @@ export default {
             "iife",
             "--name",
             "exact",
-            "--platform",
-            "neutral",
             "--file",
             "app.js",
         ],
@@ -1183,6 +1313,7 @@ impl Baked {
         // directory is not a candidate until that complete receipt exists.
         std::fs::create_dir(&output).map_err(|e| e.to_string())?;
         let result = (|| {
+            contract::snapshot::write_entries(&self.entries, &output)?;
             if let Some(map) = &self.source_map {
                 std::fs::write(output.join("app.plan.map.json"), map).map_err(|e| e.to_string())?;
             }

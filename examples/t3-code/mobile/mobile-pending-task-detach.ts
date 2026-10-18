@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#separate-draft-for-newer-retained-edits
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#separate-draft-for-newer-retained-edits
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';

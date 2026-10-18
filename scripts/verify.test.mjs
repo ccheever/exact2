@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, draftFields, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts } from './verify.mjs';
+import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -579,7 +579,8 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.deepEqual([warned(quiet.stderr), warned(quiet.stdout)], [[], []]);
     const clean = verify('--shots', 'out/shots');
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
-    assert.ok(clean.lines.length <= 8, clean.stdout);
+    assert.ok(clean.lines.length <= 9, clean.stdout);
+    assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 4 screens: nothing spills"), clean.stdout);
     assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
     assert.ok(clean.lines.includes('tests: 2 passed, 0 failed'), clean.stdout);
     assert.ok(clean.lines.includes('check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
@@ -660,3 +661,141 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.match(poked.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\) in /);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 300_000); // A new app's offline Cargo resolution and its first web build, then four runs.
+
+// The euxy port (friction item 12): a faithful port's palette and keys are its design. app.json `verify.accept` names a
+// finding by its kind and its node's testId (or its control's, for a label; `*` a prefix), and verify says those apart.
+test('accepted findings: matched by kind and testId, said once as accepted, never counted; an entry that took nothing is named', async () => {
+  const { accepts } = await import('./agent-check.mjs');
+  const nodes = new Map([[234, { id: 234, props: { testId: 'mute-0' } }], [236, { id: 236, props: {} }], [300, { id: 300, props: { testId: 'pattern' } }]]);
+  const entries = [{ finding: 'contrast', node: 'mute-*', why: "the original's dim letters" }, { finding: 'target', node: 'pattern', why: 'the reference trigger' }];
+  assert.equal(accepts(entries, { kind: 'contrast', id: 236, of: 234 }, nodes), entries[0], "a label, by its control's testId");
+  assert.equal(accepts(entries, { kind: 'target', id: 234 }, nodes), undefined, 'another kind on that node is still a finding');
+  assert.equal(accepts(entries, { kind: 'target', id: 300 }, nodes), entries[1]);
+  assert.equal(accepts(entries, { kind: 'target', id: 236 }, nodes), undefined, 'a node with no testId is never accepted');
+  // A bare `*` (or a `*` inside) would accept a kind on every node: it matches nothing, and the manifest refuses it.
+  for (const node of ['*', 'mute*0', 'mute-**']) assert.equal(accepts([{ finding: 'contrast', node, why: 'x' }], { kind: 'contrast', id: 236, of: 234 }, nodes), undefined, node);
+  const { validate } = await import('./app.mjs'), schema = JSON.parse(readFileSync(resolve(import.meta.dir, 'app.schema.json'), 'utf8'));
+  const problems = (node) => validate({ accept: [{ finding: 'contrast', node, why: 'x' }] }, schema.properties.verify, 'verify', schema);
+  assert.deepEqual([problems('mute-*'), problems('mute-0')], [[], []]);
+  for (const node of ['*', 'mute*0', 'mute-**']) assert.equal(problems(node).length, 1, node);
+  const line = (x) => `  contrast mute-0's label "M" [${x},127 13×18]: 1.8:1 (#b4b4ba on #f6f4f4), needs 4.5:1; accepted: the original's dim letters`;
+  const checks = runs(() => []).map((r) => ({ ...r, accepted: [{ line: line(r.size[0] - 73), accept: entries[0] }] }));
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks, shots: [], accept: [...entries, { finding: 'clipped', node: 'gone', why: 'x' }], ms: 1000 });
+  assert.deepEqual(r.lines.slice(1, 6), [
+    'check first screen · 390x844, 1280x900 · light, dark: no findings',
+    'accepted (app.json verify.accept, not counted): 1 finding',
+    line(317),
+    '  accepts nothing: target pattern (no such finding in this run)',
+    '  accepts nothing: clipped gone (no such finding in this run)',
+  ]);
+  assert.equal(r.lines.at(-1), 'verify: clean in 1.0 s');
+});
+
+test('a finding on a view only one scheme shows is accepted by the testId that scheme\'s tree gives it', async () => {
+  const { settle } = await import('./agent-check.mjs');
+  const finding = { kind: 'contrast', id: 7, text: 'Night', box: [0, 0, 40, 18], detail: { got: 1.2, need: 4.5, fg: '#222222', bg: '#000000' } };
+  const runs = [{ scheme: 'light', target: 44, findings: [] }, { scheme: 'dark', target: 44, findings: [finding] }];
+  const trees = [new Map(), new Map([[7, { id: 7, type: 'Text', props: { testId: 'night-badge', text: 'Night' } }]])];
+  const r = settle(runs, trees, [{ finding: 'contrast', node: 'night-badge', why: 'the dark badge' }], 'ios');
+  assert.deepEqual(r.check.map((run) => [run.findings.length, run.accepted.length]), [[0, 0], [0, 1]]);
+  assert.equal(r.check[1].accepted[0].node, 'night-badge');
+  assert.match(r.text, /check ios · dark \(1 accepted\): no findings/);
+});
+
+// LLP 1116.019 D2: each screen again at the largest text size; what spills is said once, where, with a remedy that keeps the
+// text's size, counted in the last line without failing the run (LLP 1116.020 D4).
+test('the largest text size: its findings once each with the screens they were on and a remedy, counted, never failing; a screen it could not read is named', async () => {
+  const { judge, line } = await import('./agent-check.mjs');
+  const { largeRemedy } = await import('./verify.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 4, x: 16, y: 300, w: 0, h: 120, text: 'Party size', squeezed: true },
+    { id: 5, x: 220, y: 300, w: 240, h: 64, control: 'press', sized: 'author', outX: 58 },
+    { id: 6, x: 16, y: 500, w: 200, h: 20, text: 'Fine' },
+    { id: 7, x: 16, y: 600, w: 100, h: 20, text: 'Total due', over: [40, 0] },
+  ] };
+  const nodes = new Map([[4, { id: 4, type: 'Text', props: { text: 'Party size' } }], [5, { id: 5, type: 'View', props: { testId: 'rsvp-maybe' } }]]);
+  const found = judge(obs, null, { host: 'ios' });
+  assert.deepEqual(found.map((f) => f.kind), ['squeezed', 'clipped', 'overflow']);
+  const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
+  const wrap = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
+  assert.equal(lines[0], `  squeezed Text "Party size"#4 [16,300 0×120]: its box is squeezed to no width, so none of its text shows; let it keep its words (no min-width: 0 or px width beside it), or ${wrap}`);
+  assert.match(lines[1], /: its text is 40 pt wider than its box, and spills; let its box grow with its text: no px width or height on it \(a rem size, or none\)$/);
+  assert.equal(lines[2], `  overflow rsvp-maybe [220,300 240×64]: runs 58 pt past the 402-wide viewport's side, and nothing scrolls it; ${wrap}`);
+  for (const l of lines) assert.doesNotMatch(l, /shrink|smaller|font-size/, 'a remedy never asks for a smaller text');
+  const large = [
+    { screen: 'first screen', size: [402, 874], rootFontSize: 53, lines },
+    { screen: 'reply', size: [402, 874], rootFontSize: 53, lines: [lines[2]] },
+    { screen: 'relaunch', error: 'check did not answer\nstack' },
+  ];
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
+  assert.deepEqual(r.lines.slice(1, 6), [
+    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (give the text room; a smaller or fixed font is the tell)',
+    `  (first screen only) ${lines[0].trim()}`,
+    `  (first screen only) ${lines[1].trim()}`,
+    lines[2],
+    '  could not read relaunch: check did not answer',
+  ]);
+  assert.equal(r.lines.at(-1), 'verify: 3 problems (3 at the largest text size; the tests passed) in 2.0 s');
+  assert.equal(r.exit, 0);
+  const both = report({ host: 'ios', built: null, compiler: ['a warning'], tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
+  assert.equal(both.lines.at(-1), 'verify: 4 problems (1 finding, 3 at the largest text size; the tests passed) in 2.0 s');
+  const web = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ screen: 'first screen', size: [390, 844], rootFontSize: 53, lines: [] }], shots: [], ms: 2000 });
+  assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
+});
+
+// LLP 1116.021 follow-up (water-tracker, contacts, round 20): a label a list's row cuts is given an ellipsis or a taller row,
+// never the flex-wrap the row does not take; an iOS test end at a window the phone shows scaled measures no contrast or target.
+test('the largest text size in a list row; a scaled iOS test end', async () => {
+  const { largeRemedy, scaledEnd } = await import('./verify.mjs');
+  const cut = { kind: 'clipped', detail: { cut: [9, 0], by: 3 } }, over = { kind: 'clipped', detail: { need: [4, 0] } };
+  for (const f of [cut, over]) {
+    assert.match(largeRemedy(f, { inRow: true }), /^ask for an ellipsis \(`line-clamp="1"`, or more lines\).*let the row grow taller/);
+    assert.doesNotMatch(largeRemedy(f, { inRow: true }), /flex-wrap/);
+  }
+  assert.match(largeRemedy(cut), /flex-wrap/);
+  assert.match(largeRemedy({ kind: 'clipped', detail: { edge: 'bottom' } }, { inRow: true }), /let the page scroll/);
+  const lines = ['  contrast day-2025-12-30\'s label "2025-12-30" [15,549 34×7]: 1:1 (#000000 on #000000), needs 4.5:1; use a role', '  target   add [300,20 16×16]: …', '  overlap  a [1,1 10×10]: …'];
+  const end = () => [{ screen: 'wide', size: [402, 292.36], scheme: 'light', lines: [...lines], findings: [{ kind: 'contrast' }, { kind: 'target' }, { kind: 'overlap' }], advice: [] }];
+  const [scaled] = scaledEnd(end(), [1100, 800]);
+  assert.deepEqual(scaled.lines, [lines[2]]);
+  assert.deepEqual(scaled.findings, [{ kind: 'overlap' }]);
+  assert.deepEqual(scaled.advice, ["  advice   the test's 1100x800 window is shown scaled to fit the phone (402x292): contrast and target sizes are not measured there (verify web measures them at that size)"]);
+  assert.deepEqual(scaledEnd(end(), undefined)[0].lines, lines, 'the phone\'s own size');
+  assert.deepEqual(scaledEnd(end(), [402, 292.36])[0].lines, lines, 'a size the phone shows unscaled');
+});
+
+
+// LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
+// app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.
+test("fixed type: each fixed font size in the app's Contract, counted; an accepted one listed apart", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      text "Total" font-size=28\n      text "12:00" font-size=72 testId="clock"\n      text "Fine" font-size="1.75rem"\n');
+    writeFileSync(resolve(dir, 'app.test.contract'), 'test "t"\n  expect text "clock" == "12:00"\n');
+    const accept = [{ finding: 'fixed-type', node: 'clock', why: 'a wall clock' }];
+    const fixed = await fixedType(dir, 'ios', accept);
+    assert.deepEqual(fixed.lines, ['  fixed    app.contract:4 text font-size=28: stays 28 pt as Dynamic Type grows; a role (`font="-exact-title1"`) or a `rem` size ("1.75rem") scales']);
+    assert.equal(fixed.accepted.length, 1);
+    const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], fixed, accept, shots: [], ms: 1000 });
+    assert.deepEqual(r.lines.slice(1, 3), ["fixed type: 1 font size the reader's text size does not move", fixed.lines[0]]);
+    assert.ok(r.lines.includes('accepted (app.json verify.accept, not counted): 1 finding'), r.lines.join('\n'));
+    assert.ok(!r.lines.some((l) => l.includes('accepts nothing')), r.lines.join('\n'));
+    assert.equal(r.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 1.0 s');
+    assert.equal(r.exit, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// LLP 1116.021 D6: a symbol sized in points beside text, and a word broken inside, are named beside the fixed sizes.
+test('fixed type: a symbol sized in points and a word broken inside are findings too', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      row\n        image "symbol:delete" width=28\n        text "Bananas"\n      text "October 2026" overflow-wrap="anywhere"\n');
+    const fixed = await fixedType(dir, 'ios', []);
+    assert.deepEqual(fixed.lines, [
+      '  fixed    app.contract:5 image width=28: a symbol sized in points stays small as Dynamic Type grows: leave it unsized (it follows its text), or size it with a text style (`font="-exact-title1"`) or a font-size in rem ("1.75rem")',
+      '  breaks   app.contract:7 text overflow-wrap="anywhere": breaks inside words (Octo/ber); wrap between words (the default) or give the row room',
+    ]);
+    const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], fixed, accept: [], shots: [], ms: 1000 });
+    assert.equal(r.lines[1], "fixed type: 2 findings: a size the reader's text size does not move, or a word broken inside");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

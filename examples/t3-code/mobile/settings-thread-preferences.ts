@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#scoped-server-settings
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#scoped-server-settings
 // Pinned365aa87982 SettingsThreadsRouteScreen, autoSettleSettingsSync and AutoSettleDaysField.
 import { mobileClient } from './client';
 import { obj, type Obj } from './shared/domain';

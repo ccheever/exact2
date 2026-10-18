@@ -198,9 +198,113 @@ pub fn resolve(path: &str, owner: u64) -> std::io::Result<Resolved> {
     })
 }
 
+/// The topic an answer watches for a document (LLP 1069.010.000 D1): the
+/// runner asks it again when the host announces this topic.
+pub fn watch_topic(path: &str, recursive: bool) -> String {
+    format!("{}{path}", if recursive { WATCH_RECURSIVE } else { WATCH })
+}
+
+const WATCH: &str = "doc-watch:";
+const WATCH_RECURSIVE: &str = "doc-watch-recursive:";
+
+/// A document watch, as a host listens for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Watched {
+    /// The topic to announce.
+    pub topic: String,
+    /// The watched `doc:` path, as the answer named it.
+    pub path: String,
+    /// The watched file or folder on disk, as minted.
+    pub real: PathBuf,
+    /// The folder a host's watcher listens to: the folder itself, or a
+    /// file's folder.
+    pub folder: PathBuf,
+    /// The whole subtree, not only a folder's own entries.
+    pub recursive: bool,
+}
+
+/// The real location of a watch topic `owner` may read, or `None` for
+/// another topic, a forgotten handle or a `doc:/<n>` root.
+pub fn watched(topic: &str, owner: u64) -> Option<Watched> {
+    let (path, recursive) = match topic.strip_prefix(WATCH_RECURSIVE) {
+        Some(path) => (path, true),
+        None => (topic.strip_prefix(WATCH)?, false),
+    };
+    let Resolved::Real {
+        path: relative,
+        selected_file,
+        ..
+    } = resolve(path, owner).ok()?
+    else {
+        return None;
+    };
+    let n: usize = path[PREFIX.len()..].split('/').next()?.parse().ok()?;
+    let base = table().get(n - 1)?.as_ref()?.real.clone();
+    let real = if selected_file || relative.is_empty() {
+        base
+    } else {
+        base.join(&relative)
+    };
+    let folder = if real.is_dir() {
+        real.clone()
+    } else {
+        real.parent()?.to_path_buf()
+    };
+    Some(Watched {
+        topic: topic.to_owned(),
+        path: path.to_owned(),
+        real,
+        folder,
+        recursive,
+    })
+}
+
+/// Whether a change at `changed` on disk is in a watch's scope: the file
+/// itself; a folder's own entries; or, recursive, anything beneath it.
+pub fn covers(watch: &Watched, changed: &Path) -> bool {
+    changed == watch.real
+        || if watch.recursive {
+            changed.starts_with(&watch.real)
+        } else {
+            watch.real.is_dir() && changed.parent() == Some(watch.real.as_path())
+        }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_watch_covers_its_file_its_folders_entries_or_its_subtree() {
+        let root = std::env::temp_dir().join(format!("exact-docs-watch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("notes/deep")).unwrap();
+        std::fs::write(root.join("notes/a.md"), "a").unwrap();
+        let folder = mint(&root.join("notes"), 7201).unwrap();
+        let file = open_route(root.join("notes/a.md").to_str().unwrap(), 7201).unwrap();
+        let real = std::fs::canonicalize(root.join("notes")).unwrap();
+        let w = watched(&watch_topic(&folder, false), 7201).unwrap();
+        assert_eq!(
+            (w.real.clone(), w.folder.clone()),
+            (real.clone(), real.clone())
+        );
+        assert!(covers(&w, &real.join("b.md")));
+        assert!(
+            !covers(&w, &real.join("deep/c.md")),
+            "a folder's watch is its own entries"
+        );
+        let r = watched(&watch_topic(&folder, true), 7201).unwrap();
+        assert!(covers(&r, &real.join("deep/c.md")));
+        let f = watched(&watch_topic(&file, false), 7201).unwrap();
+        assert_eq!(f.folder, real);
+        assert!(covers(&f, &real.join("a.md")) && !covers(&f, &real.join("b.md")));
+        assert!(
+            watched(&watch_topic(&folder, false), 7202).is_none(),
+            "another session's"
+        );
+        assert!(watched("meter", 7201).is_none());
+        forget(7201);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn a_document_handle_belongs_to_its_minting_session() {

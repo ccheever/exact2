@@ -28,6 +28,11 @@ enum DisplayPreferences {
     nonisolated(unsafe) static var agentGamut: String? = ExactEnv.agentMode ? "srgb" : nil {
         didSet { changed() }
     }
+    /// What an agent's `prefer` (or a test) set for Bold Text; off from
+    /// launch under the agent (LLP 1069.007 D2).
+    nonisolated(unsafe) static var agentBoldText: Bool? = ExactEnv.agentMode ? false : nil {
+        didSet { changed() }
+    }
     private static let agentChanged = Notification.Name("ExactDisplayPreferencesChanged")
     private static var center: NotificationCenter {
         #if os(macOS)
@@ -67,6 +72,16 @@ enum DisplayPreferences {
         return UIAccessibility.isDarkerSystemColorsEnabled ? "more" : "no-preference"
         #endif
     }
+    /// Bold Text (LLP 1115.000 D12.3): the person's setting, which the
+    /// kernel weights the system font by. The Mac has none.
+    static var boldText: Bool {
+        if let agentBoldText { return agentBoldText }
+        #if os(macOS)
+        return false
+        #else
+        return UIAccessibility.isBoldTextEnabled
+        #endif
+    }
     /// `color-gamut` (LLP 1100 D9). Neither platform reports a rec2020 panel.
     static var gamut: String {
         if let agentGamut { return agentGamut }
@@ -93,32 +108,18 @@ enum DisplayPreferences {
         return UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased().contains("dark") == true
     }
     #endif
-    /// The ABI's form (`exact_set_preferences`): bit 0 reduced motion, bit 1
-    /// reduced transparency, bit 2 contrast more, bit 3 contrast less (both:
-    /// custom), bit 4 a dark system, bit 5 pointer `coarse`, bit 6 pointer
-    /// `none`, bit 7 hover `none` (zero: a mouse, `fine` and `hover`), bits
-    /// 8–9 the gamut (1 P3, 2 rec2020), bit 10 a high dynamic range, bits 11–13 display mode.
+    /// Encode this window's readings with the core's shared wire layout.
     static func bits(systemDark: Bool, view: PlatformView? = nil) -> UInt32 {
-        let contrastBits: UInt32 = switch contrast { case "more": 4; case "less": 8; case "custom": 12; default: 0 }
         #if os(macOS)
         let displayGamut = agentGamut ?? ((view?.window?.screen ?? NSScreen.main)?.canRepresent(.p3) == true ? "p3" : "srgb")
         #else
         let displayGamut = agentGamut ?? ((view?.window?.screen ?? UIScreen.main).traitCollection.displayGamut == .P3 ? "p3" : "srgb")
         #endif
         let high = view.map { DisplayRange.headroom($0) > 1 } ?? highDynamicRange
-        let gamutBits: UInt32 = switch displayGamut { case "p3": 256; case "rec2020": 512; default: 0 }
-        return (reducedMotion ? 1 : 0) | (reducedTransparency ? 2 : 0) | contrastBits | (systemDark ? 16 : 0) | inputBits
-            | gamutBits | (high ? 1024 : 0) | (displayMode(view) << 11)
+        return Preferences(reducedMotion: reducedMotion, reducedTransparency: reducedTransparency,
+            contrast: contrast, dark: systemDark, gamut: displayGamut, highDynamicRange: high,
+            displayMode: Preferences.DisplayMode(rawValue: displayMode(view)) ?? .standalone, boldText: boldText).rawValue
     }
-    /// CSS's `pointer` and `hover` for the primary input: a Siri Remote
-    /// points at nothing, a finger is coarse, and neither hovers.
-    #if os(tvOS)
-    static let inputBits: UInt32 = 64 | 128
-    #elseif os(iOS)
-    static let inputBits: UInt32 = 32 | 128
-    #else
-    static let inputBits: UInt32 = 0
-    #endif
 
     // Same order as runner/src/viewport.rs's DisplayMode (media bits 11–13).
     static let displayModes = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"]
@@ -150,7 +151,8 @@ enum DisplayPreferences {
         // A system appearance change reaches an app as a trait change (the
         // view reports it, ExactViewIOS) or, when made elsewhere, on return.
         let names = [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.reduceTransparencyStatusDidChangeNotification,
-                     UIAccessibility.darkerSystemColorsStatusDidChangeNotification, UIApplication.didBecomeActiveNotification, agentChanged]
+                     UIAccessibility.darkerSystemColorsStatusDidChangeNotification, UIAccessibility.boldTextStatusDidChangeNotification,
+                     UIApplication.didBecomeActiveNotification, agentChanged]
         return names.map { center.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
         #endif
     }
@@ -163,5 +165,29 @@ enum DisplayPreferences {
         #else
         tokens.forEach(center.removeObserver)
         #endif
+    }
+}
+
+extension TextEngine {
+    /// Whether Bold Text weights a run in stack `family` (LLP 1115.000
+    /// D12.3), as the kernel weights its runs: the setting on, and the
+    /// stack the system's, a generic one or a list whose first member is a
+    /// generic family (the catalog's first face, as a compiled or runtime
+    /// list registered it). A Markdown piece's own weight takes the step its
+    /// run's took.
+    package func boldTextSteps(_ family: Int) -> Bool {
+        guard DisplayPreferences.boldText else { return false }
+        guard let faces = catalog[family] else { return family < 8 }
+        return faces.first?.generic != nil
+    }
+
+    /// The kernel's step (`exact_kernel::bolder`), UIKit's as measured: 100
+    /// to 200, 200 to 300, 300 to 400, 400 to 600, 500 to 700, 600 to 800,
+    /// 700 and on to 900; between two hundreds, between their steps.
+    package static func bolder(_ weight: Int) -> Int {
+        let steps = [100, 200, 300, 400, 600, 700, 800, 900, 900, 900, 1000]
+        let w = min(max(weight, 1), 1000), at = w / 100, rest = w % 100
+        if at >= 10 { return 1000 }
+        return steps[at] + (steps[at + 1] - steps[at]) * rest / 100
     }
 }

@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { describe, expect, test } from 'bun:test';
 import { mobileComposerPasteInvoke as invoke, mobileComposerPasteRequest as request, type ComposerPasteStageRequest } from './composer-paste-io';
 import type { EditorPasteProof } from './composer-editor-persistence';

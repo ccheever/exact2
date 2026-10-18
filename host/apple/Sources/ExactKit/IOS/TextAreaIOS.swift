@@ -6,8 +6,64 @@ import UIKit
 // empty field: its Backspace and Return are keys the `key` handlers hear
 // too. A hardware keyboard's keys reach them in `pressesBegan`, before UIKit
 // edits with them (KeyEvents.swift).
+/// Under the agent, the last things that took the focus from Exact's native
+/// editors or took an editor out of its window, so a test can tell UIKit's
+/// resignation of a focused editor from Exact's, and the same editor from a
+/// remounted one (`state`'s `focus.events` and `focus.native`). Each event has
+/// a number, a kind (`resign` or `detach`), the node and the editor's token,
+/// one per native editor and never reused in the process; a resignation says
+/// who called it: `uikit-keyboards` when UIKit's keyboard machinery did with
+/// no Exact frame between (as when the scene moves to the other display of an
+/// iPhone Duo), else `other`.
+enum ResignTrace {
+    nonisolated(unsafe) static var events: [[String: Any]] = []
+    nonisolated(unsafe) private static var seq = 0
+    nonisolated(unsafe) private static var tokens = 0
+    nonisolated(unsafe) private static var tokenKey: UInt8 = 0
+    /// A native editor's token, given on first use.
+    static func token(_ view: UIView) -> Int {
+        if let token = objc_getAssociatedObject(view, &tokenKey) as? Int { return token }
+        tokens += 1
+        objc_setAssociatedObject(view, &tokenKey, tokens, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return tokens
+    }
+    static func resigned(_ view: UIView, node: UInt32?) {
+        guard ExactEnv.agentMode else { return }
+        // UIKit's keyboard machinery, and no frame of the app between it and the
+        // editor's `resignFirstResponder` (this function and that override are
+        // below the override's frames)
+        let frames = Thread.callStackSymbols
+        let app = Bundle.main.executableURL?.lastPathComponent ?? "ExactKit"
+        let uikit: Bool = {
+            guard let k = frames.firstIndex(where: { $0.contains("_UIRemoteKeyboards") }),
+                  let j = frames[..<k].lastIndex(where: { $0.contains("resignFirstResponder") }) else { return false }
+            return !frames[(j + 1)..<k].contains { $0.contains(app) || $0.contains("ExactKit") }
+        }()
+        note(["kind": "resign", "node": node.map { Int($0) } ?? NSNull(), "token": token(view), "by": uikit ? "uikit-keyboards" : "other"])
+    }
+    static func detached(_ view: UIView, node: UInt32?) {
+        guard ExactEnv.agentMode else { return }
+        note(["kind": "detach", "node": node.map { Int($0) } ?? NSNull(), "token": token(view)])
+    }
+    private static func note(_ event: [String: Any]) {
+        seq += 1
+        events.append(event.merging(["seq": seq]) { a, _ in a })
+        if events.count > 16 { events.removeFirst(events.count - 16) }
+    }
+}
+
 final class TextField: UITextField {
     weak var owner: NodeView?
+    override func resignFirstResponder() -> Bool {
+        let wasFirst = isFirstResponder
+        let resigned = super.resignFirstResponder()
+        if resigned, wasFirst { ResignTrace.resigned(self, node: owner?.id) }
+        return resigned
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { ResignTrace.detached(self, node: owner?.id) }
+    }
     /// The hardware key whose handlers ran in `pressesBegan`: UIKit's own
     /// Backspace or Return for it does not run them again.
     var heard: String?
@@ -52,16 +108,19 @@ final class TextField: UITextField {
         return ok
     }
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
     }
     override func deleteBackward() {
+        owner?.presenter?.supersedePress()
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
@@ -97,11 +156,13 @@ package final class TextArea: UITextView {
     package var markup: MarkdownEditing?
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     package override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here;
         // the command's own native insertion bypasses through `applying`.
@@ -113,6 +174,7 @@ package final class TextArea: UITextView {
     }
 
     package override func deleteBackward() {
+        owner?.presenter?.supersedePress()
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
         } else { super.deleteBackward() }
@@ -144,6 +206,7 @@ package final class TextArea: UITextView {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
         let resigned = super.resignFirstResponder()
+        if resigned, wasFirst { ResignTrace.resigned(self, node: owner?.id) }
         // UITextView's editing delegate omits read-only selection sessions.
         // They still blur in HTML, and the app must be able to remove its
         // transient selection surface after focus moves elsewhere.
@@ -158,6 +221,10 @@ package final class TextArea: UITextView {
         }
         #endif
         return resigned
+    }
+    package override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { ResignTrace.detached(self, node: owner?.id) }
     }
     package override var keyCommands: [UIKeyCommand]? {
         #if os(tvOS)
@@ -219,7 +286,7 @@ package final class TextArea: UITextView {
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
-                .foregroundColor: placeholderColor ?? UIColor.placeholderText,
+                .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
             ])
         }
     }
@@ -352,7 +419,10 @@ extension NodeView {
         if isNativeTextControl {
             area.frame = bounds
             if let r = kernelContentBox {
-                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
+                // Layout's inset less what the drawn box lost to the pixel
+                // grid, so the text keeps layout's width (`PixelGridIOS.swift`).
+                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, layoutBounds.height - r.maxY) + bounds.height - layoutBounds.height,
+                                                       right: max(0, layoutBounds.width - r.maxX) + bounds.width - layoutBounds.width)
             }
         } else { area.frame = contentBox() }
         #endif
@@ -393,6 +463,7 @@ extension NodeView {
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()
+        presenter?.revealCaret(of: self)
     }
     package func textViewDidChangeSelection(_ textView: UITextView) {
         presenter?.fieldSelections.changed(self) // a plain textarea's `select` (x2apps codeedit #2)

@@ -129,6 +129,9 @@ struct Mounted {
 }
 #[derive(Debug)]
 pub(crate) struct Collection {
+    /// The app modes around the list (LLP 1121 D5): what a row it mounts
+    /// later, on a report, is in.
+    pub(crate) around: super::theme::Around,
     preview: Option<reorder::Preview>,
     /// The gap a grouped session opens here as its target (LLP 1094 D4).
     incoming: Option<reorder_group::Incoming>,
@@ -405,6 +408,11 @@ impl Collection {
             }
         }
         let mut this = Box::new(Self {
+            // What a later row is in, not the visit's re-theme of the rest.
+            around: super::theme::Around {
+                retheme: false,
+                ..u.theme.clone()
+            },
             preview: None,
             incoming: None,
             hidden: None,
@@ -1151,7 +1159,10 @@ impl Collection {
                 slots.borrow_mut().insert(i as u32, value);
             }
         }
-        let roots = realize(u, None, plan.region(self.region).arms.iter().next(), &inner)?;
+        let around = std::mem::replace(&mut u.theme, self.around.clone());
+        let roots = realize(u, None, plan.region(self.region).arms.iter().next(), &inner);
+        u.theme = around;
+        let roots = roots?;
         let dup = self.dups.get(&position).copied().unwrap_or(0);
         if dup > 0 {
             let ident = self.index.key(position).unwrap_or_default();

@@ -1,6 +1,6 @@
 #if os(iOS)
 // Actual editor registration, coordinator lock, canonical bytes and durable release queue.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import UIKit
 
 @MainActor final class ComposerFileHoldsUIKitTests {

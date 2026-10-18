@@ -1,7 +1,7 @@
 // Rich composer projection, adapted from T3 Code (MIT); see LICENSE-T3.
 // Source365aa87982 composerInlineTokens/contextReferences, nativeMarkdownText,
 // ComposerEditor.tsx and T3ComposerEditor.native.tsx. Source helper bodies retained.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { formatAttachmentSize } from './shared/composer-editor-files';
 import { videoMimeType } from './shared/r4-composer-video';
 import type { Obj } from './shared/domain';

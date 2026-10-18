@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 // Controlled invocation callbacks test the local owner; real draft/RPC/root acceptance is separate.
 import {expect,test} from 'bun:test';
 import {mobileThreadSendLocalCommand as send,mobileThreadLocalCommandsSnapshot as view,

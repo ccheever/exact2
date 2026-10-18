@@ -1,4 +1,4 @@
-// @ref llp/1109.008-mobile-voice.decision.md#draft-and-selection
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#draft-and-selection
 // Actual document/context owners and copied voice controller; native speech/selection are mocked.
 import { beforeEach, expect, test } from 'bun:test';
 import { MobileDraftClient } from './mobile-draft-recovery';

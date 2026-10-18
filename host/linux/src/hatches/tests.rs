@@ -162,10 +162,12 @@ fn diagnostics_are_bounded_refused_past_their_bounds_and_scoped() {
 #[test]
 fn a_call_is_timed_by_site_and_moment_and_a_nested_call_is_charged_to_itself() {
     let mut d = Store::new(true);
-    let outer = d.begin_call();
-    std::thread::sleep(std::time::Duration::from_millis(4));
-    let inner = d.begin_call();
-    std::thread::sleep(std::time::Duration::from_millis(12));
+    // Backdate the calls' starts instead of sleeping: the outer call began
+    // 10 s ago and the inner 9 s ago, so a scheduler stall cannot reorder them
+    let ago =
+        |seconds| std::time::Instant::now().checked_sub(std::time::Duration::from_secs(seconds));
+    let outer = d.begin_call().and(ago(10));
+    let inner = d.begin_call().and(ago(9));
     d.end_call(inner, "element dot", Some(9), "changed", false);
     d.end_call(outer, "app", None, "built", true);
     let p = perf(&d);
@@ -174,7 +176,7 @@ fn a_call_is_timed_by_site_and_moment_and_a_nested_call_is_charged_to_itself() {
         (app["calls"].as_u64(), dot["calls"].as_u64()),
         (Some(1), Some(1))
     );
-    assert!(dot["ms"].as_f64().unwrap() >= 12.0, "{p}");
+    assert!(dot["ms"].as_f64().unwrap() >= 9000.0, "{p}");
     assert!(
         app["ms"].as_f64().unwrap() < dot["ms"].as_f64().unwrap(),
         "the outer call's time is its own: {p}"

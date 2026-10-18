@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 // Pinned365aa87982 state/assets.ts and state/runtime.ts. Root owns scheduling.
 import { obj, str } from './shared/domain';
 import { letGo } from './shared/let-go';

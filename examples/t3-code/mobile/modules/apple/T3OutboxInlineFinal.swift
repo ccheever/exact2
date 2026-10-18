@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 // Derive lifecycle payloads from the immutable native assets acknowledgment, never caller input.
 import Foundation
 

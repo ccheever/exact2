@@ -1,6 +1,6 @@
 #if os(iOS)
 // Pinned365aa87982 use-thread-outbox-drain: flush destination before queue removal.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import Foundation
 
 enum T3OutboxDraftHandoff {

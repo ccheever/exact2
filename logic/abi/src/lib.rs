@@ -213,6 +213,15 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
             w.string(&m.data);
             w.u32(m.coalesced);
         }
+        // A Rust module's stream only listens (LLP 1016.000 D7): a two-way
+        // socket's end crosses as the listener's end, worded as natively.
+        Outcome::Closed { code, reason, .. } => {
+            w.u8(1);
+            w.string(&match reason.is_empty() {
+                true => format!("the socket closed ({code})"),
+                false => format!("the socket closed ({code}: {reason})"),
+            });
+        }
         Outcome::Failed { kind, message } => {
             w.u8(match kind {
                 FailureKind::Network => 1,
@@ -253,6 +262,7 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
             id: r.string().map_err(error)?,
             data: r.string().map_err(error)?,
             coalesced: r.u32().map_err(error)?,
+            binary: None,
         }));
     }
     let kind = match tag {
@@ -383,7 +393,7 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
                 | DataError::DeferredAtBake(s)
-                | DataError::Failed(_, s) => (4, s),
+                | DataError::Failed(_, s, _) => (4, s),
             };
             w.u8(tag);
             w.string(&message);
@@ -396,6 +406,7 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         0 => Ok(Answer::Now(Value::decode(r).map_err(error)?)),
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
+            socket: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,

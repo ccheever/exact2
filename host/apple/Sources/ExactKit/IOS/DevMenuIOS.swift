@@ -112,7 +112,8 @@ final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
 public enum DevMenu {
     static let target = DevMenuTarget()
     nonisolated(unsafe) static weak var sheet: UIAlertController?
-    public static var enabled: Bool { ExactEnv.environment["EXACT_DEV_MENU"] != "0" }
+    /// On in every build, a release one too (LLP 1115 D9), unless `EXACT_DEV_MENU=0` at build or launch.
+    public static var enabled: Bool { ExactEnv.devMenu ?? true }
     /// The session the menu reloads and describes, and the controller that presents the sheet.
     nonisolated(unsafe) static weak var session: ExactSession?
     nonisolated(unsafe) static weak var controller: UIViewController?
@@ -228,7 +229,7 @@ public enum DevMenu {
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
         #endif
         // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
-        if session?.sampler != nil { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
+        if FrameSampler.measured { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         sheet = a
         present(a)

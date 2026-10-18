@@ -7,8 +7,9 @@ import AppKit
 /// model picker's keyboard highlight and their dismissal.
 final class T3Composer {
     var sendShortcut = "enter"
-    /// Lane r8-keys: the surface launcher's letters come before type-to-focus (R8KeysLauncher.swift).
-    var launcher: R8KeysLauncher?
+    /// The surface launcher (hatch `t3-launcher`): its letters are its rows' `aria-keyshortcuts`, which Exact's key
+    /// route presses (shell-panels.contract SurfaceRow), so type-to-focus leaves them alone (`launcherLetter`).
+    private weak var launcher: ExactElement?
     private let changed: (String) -> Void
     private weak var composer: ExactElement?
     private weak var send: ExactElement?
@@ -50,6 +51,8 @@ final class T3Composer {
             measure()
         } else if element.hatch == .t3Send {
             send = element
+        } else if element.hatch == .t3Launcher {
+            launcher = element
         } else if element.hatch == .t3Composer {
             composer = element
             if keyMonitor == nil {
@@ -70,6 +73,7 @@ final class T3Composer {
         }
         if !ended.isEmpty { measure() }
         if send === element { send = nil }
+        if launcher === element { launcher = nil }
         if composer === element {
             composer = nil
             stopMonitoring()
@@ -83,6 +87,7 @@ final class T3Composer {
         anchors.removeAll()
         composer = nil
         send = nil
+        launcher = nil
     }
 
     /// Internal so tests can drive it after moving a trigger.
@@ -112,7 +117,7 @@ final class T3Composer {
 
     /// Internal so focused tests can exercise the actual window/focus guard.
     func handle(_ event: NSEvent) -> NSEvent? {
-        if queuedEditKey(event) { return nil } // thread-commands-and-keys: ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
+        if queuedEditKey(event) { return nil } // ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
         if let routed = editorKey(event) { return routed.event }
         switch action(for: event) {
         case .passThrough: return event
@@ -156,32 +161,31 @@ final class T3Composer {
 
     struct Routed { let event: NSEvent? }
 
-    /// ⇧⌘V pastes inline; a printable key or ⌘V with nothing editable
-    /// focused goes to the composer, which takes focus. Nil passes the event on.
+    /// ⇧⌘V is Paste as Text (T3ComposerPasteHook); a printable key or ⌘V with nothing editable
+    /// focused goes to the composer, which takes focus. Nil leaves the event to
+    /// the others; `Routed` holds what goes on (nil: the key is taken).
     func editorKey(_ event: NSEvent) -> Routed? {
         guard event.type == .keyDown, let composer, composer.isLive, let view = composer.textView, view.isEditable,
               let window = view.window, event.window === window, window.attachedSheet == nil,
               view.isHiddenOrHasHiddenAncestor == false else { return nil }
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        // ⌘B / ⌘I toggle bold and italic when the rich text composer is on (lane r9-input: by key code
-        // under a non-Latin source, ending composition first, R9Input.swift).
-        let chord = R9Input.chordKey(event)
-        if flags == .command, chord == "b" || chord == "i", window.firstResponder === view, editor.styler.richText, R9Input.commitMarkedText(view) {
+        // ⌘B / ⌘I toggle bold and italic when the rich text composer is on (by key code
+        // under a non-Latin source, ending composition first, T3ComposerInput.swift).
+        let chord = T3ComposerInput.chordKey(event)
+        if flags == .command, chord == "b" || chord == "i", window.firstResponder === view, editor.styler.richText, T3ComposerInput.commitMarkedText(view) {
             editor.toggleMark(chord == "b" ? "**" : "*", in: view)
             return Routed(event: nil)
         }
         if flags == [.command, .shift], key == "v", window.firstResponder === view {
-            editor.pastingAsText = true
             view.pasteAsPlainText(nil)
-            editor.pastingAsText = false
             return Routed(event: nil)
         }
-        // realinput-1010-fixes RI-1: a launcher letter goes on to Exact's key route (never type-to-focus).
-        switch launcher?.route(event, typing: window.firstResponder is NSText || window.firstResponder is NSTextField) ?? .none {
-        case .pass: return Routed(event: event)
-        case .taken, .dropped: return Routed(event: nil)
-        case .none: break
+        // A launcher letter goes on to Exact's key route (never type-to-focus), where its
+        // row's shortcut takes it (AppKit runs local monitors in no fixed order).
+        if let launcher, let shown = launcher.view, Self.launcherLetter(event, letters: launcher.data[.surfaceLauncherKeys] ?? "",
+                                                                          live: launcher.isLive && shown.window === window && !shown.isHiddenOrHasHiddenAncestor) {
+            return Routed(event: event)
         }
         guard T3Composer.redirectable(window.firstResponder, in: window), T3Composer.interactive(composer) else { return nil }
         if flags == .command, key == "v" {
@@ -193,10 +197,21 @@ final class T3Composer {
         }
         guard flags.subtracting(.shift).isEmpty, let characters = event.characters, !characters.isEmpty,
               characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && ($0.value < 0xF700 || $0.value > 0xF8FF) }) else { return nil }
+        // The key itself goes on to the prompt, now the first responder, rather than its characters: an input method
+        // composes it there. Inserted as text, the first jamo of Korean 2-Set's 한 stood alone and the input method
+        // went on from the next key (ㅎㅏㄴ).
         window.makeFirstResponder(view)
         view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
-        view.insertText(characters, replacementRange: view.selectedRange())
-        return Routed(event: nil)
+        return Routed(event: event)
+    }
+
+    /// A plain letter (no ⌘, ⌃ or ⌥) the live launcher lists (`data-surface-launcher-keys`, its available rows' letters).
+    static func launcherLetter(_ event: NSEvent, letters: String, live: Bool) -> Bool {
+        guard live, event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let typed = event.charactersIgnoringModifiers, typed.count == 1 else { return false }
+        // A key that types no ASCII letter (Korean 2-Set's ㄹ) is its physical key's, as the shortcut matches it (ShortcutsMac).
+        let key = typed.unicodeScalars.allSatisfy(\.isASCII) ? typed : (T3LatinChords.physicalKeys[event.keyCode] ?? typed)
+        return letters.uppercased().contains(key.uppercased())
     }
 
     /// shouldRedirectInputToComposer: nothing editable or interactive holds
@@ -232,6 +247,7 @@ final class T3Composer {
                     return T3ComposerText.HistoryEntry(id: id, prompt: prompt)
                 }
             }
+            if let literal = request["literal"] as? Bool { editor.styler.literal = literal }
             if let rich = request["richText"] as? Bool { editor.styler.richText = rich }
             if let local = request["localEnvironment"] as? Bool { editor.localEnvironment = local }
             if let contexts = request["contexts"] as? [String: String] { editor.styler.contexts = contexts }
@@ -241,6 +257,7 @@ final class T3Composer {
             value = editor.state
             value["notices"] = editor.takeNotices()
             value["folds"] = editor.folds
+            value["pastes"] = editor.pastedFiles.count
         case "editorEdit": value = editor.edit(request)
         case "editorInsert": value = editor.insert(request)
         case "editorPoke":

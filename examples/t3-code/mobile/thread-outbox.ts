@@ -1,5 +1,5 @@
 // Source365aa87982 pending-thread-feed.ts and ThreadFeed.tsx pending messages.
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import type { T3Client } from './shared/client';
 import { arr, obj, str } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';

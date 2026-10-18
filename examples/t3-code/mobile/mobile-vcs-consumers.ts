@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 // Pinned365aa87982 state/vcs.ts: cached presentation and real settled requests.
 import type { T3Client } from './shared/client';
 import { str, type Obj } from './shared/domain';

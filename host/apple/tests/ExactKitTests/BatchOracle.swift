@@ -54,7 +54,7 @@ struct OracleBatchOp: Decodable {
     enum Kind: String {
         case create, props, style, children, paragraph, frame, content, present, roots, destroy
         case fieldContent, flow, surface, command, hold, collections, region, router, title, language, unknown
-        case svg, animations, canvas2d, reorder, exit, rank
+        case svg, animations, canvas2d, reorder, exit, rank, roles
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion"
     }
     let op: Kind
@@ -73,7 +73,7 @@ struct OracleBatchOp: Decodable {
     var payload: [String: Any] = [:]
 
     enum CodingKeys: String, CodingKey {
-        case op, id, kind, props, set, clear, style, handlers, ids, runs, x, y, w, h, property
+        case op, id, kind, props, set, clear, style, handlers, ids, runs, x, y, w, h, property, roles
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -98,6 +98,7 @@ struct OracleBatchOp: Decodable {
             h = try c.decodeIfPresent(Double.self, forKey: .h) ?? 0
             property = try c.decodeIfPresent(String.self, forKey: .property) ?? ""
         case .destroy: break
+        case .roles: style = try c.decodeIfPresent(OracleNodeStyle.self, forKey: .roles) ?? [:]
         default: payload = try [String: OracleBatchValue](from: decoder).mapValues(\.any)
         }
     }

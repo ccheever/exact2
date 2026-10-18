@@ -8,14 +8,41 @@ import { resolve } from 'node:path';
 
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...opts });
 
+/** The fixtures tests boot (scripts/fixtures), compiled at this commit with `run` and named in `env` as `<prefix>_<KEY>_PLAN`:
+ *  a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale. The snapshot driver's
+ *  entries (LLP 1126.000 WP4) likewise: Caltrain's and the open-question fixture's, each an entry plan, compiled from a
+ *  copy whose manifest carries the test app's identity (`appId`), as the native fixture is: a plan boots in no other app. */
+export function compileFixtures(root, run, env, dir, prefix, appId) {
+  const contract = (args) => run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', ...args]);
+  for (const [name, key] of [['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL']]) {
+    contract([resolve(root, `scripts/fixtures/${name}.contract`), '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`)]);
+  }
+  const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
+  const copies = new Map();
+  for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], [question, 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
+    [question, 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], [question, 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR'], [question, 'gradient-card', 'SNAPSHOT_GRADIENT']]) {
+    let copy = copies.get(app);
+    if (!copy) {
+      copy = resolve(dir, 'entries', app.split('/').pop());
+      mkdirSync(copy, { recursive: true });
+      for (const file of readdirSync(resolve(root, app)).filter(f => f.endsWith('.contract'))) cpSync(resolve(root, app, file), resolve(copy, file));
+      const manifest = JSON.parse(readFileSync(resolve(root, app, 'app.json'), 'utf8'));
+      writeFileSync(resolve(copy, 'app.json'), JSON.stringify({ ...manifest, $schema: undefined, id: appId, app: { ...manifest.app, id: appId } }));
+      copies.set(app, copy);
+    }
+    contract([resolve(copy, 'app.contract'), '--entry', kind, '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${kind}.plan`)]);
+  }
+}
+
 /** The Swift host tests on this Mac, built under `scratch`: each test class
  *  in an `xctest` process of its own, as many at once as there are cores, so
  *  a crash ends its class and not the run. The classes whose files use what
  *  every process on the Mac shares (the general pasteboard, the active app,
  *  the mouse, a capture of the screen) share one process beside them, one
  *  class after another. A window's key status and first responder belong
- *  to its own process. */
-export async function macTests(pkg, scratch, env) {
+ *  to its own process. The Canvas 2D GPU module (`canvasGpu`) is loaded only
+ *  in its own tests' process: loaded, every canvas draws on the GPU. */
+export async function macTests(pkg, scratch, env, canvasGpu) {
   const listed = read('swift', ['test', '--skip-build', '--list-tests', '--scratch-path', scratch], { cwd: pkg, env });
   if (listed.status !== 0) throw new Error(`swift test --list-tests failed: ${listed.stderr}`);
   const classes = [...new Set(listed.stdout.match(/^ExactKitTests\.\w+(?=\/)/gm) ?? [])];
@@ -25,11 +52,14 @@ export async function macTests(pkg, scratch, env) {
     const source = readFileSync(resolve(pkg, 'tests/ExactKitTests', file), 'utf8');
     if (macWide.test(source)) for (const [, name] of source.matchAll(/class (\w+)\s*:\s*XCTestCase/g)) shared.add(`ExactKitTests.${name}`);
   }
+  const gpuClass = 'ExactKitTests.Canvas2DGpuStressTests';
+  shared.delete(gpuClass);
   const groups = [classes.filter(c => shared.has(c)), ...classes.filter(c => !shared.has(c)).map(c => [c])].filter(g => g.length);
   const bundle = resolve(read('swift', ['build', '--show-bin-path', '--scratch-path', scratch], { cwd: pkg, env }).stdout.trim(), 'ExactKitTests.xctest');
   const failed = [];
   const one = (group) => new Promise((done) => {
-    const child = spawn('xcrun', ['xctest', '-XCTest', group.join(','), bundle], { cwd: pkg, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const gpu = group.includes(gpuClass) ? { EXACT_CANVAS_GPU_DYLIB: canvasGpu } : {};
+    const child = spawn('xcrun', ['xctest', '-XCTest', group.join(','), bundle], { cwd: pkg, env: { ...env, ...gpu }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });

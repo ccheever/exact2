@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#information-sources
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#information-sources
 // Disposable app read cache. Preferences, credentials and delivery journals never enter this owner.
 import Foundation
 import CoreFoundation

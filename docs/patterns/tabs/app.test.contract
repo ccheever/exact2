@@ -9,7 +9,7 @@ test "each tab keeps its own stack"
 
 test "a saved place shows under Saved, and stays saved after a relaunch"
   tap "tab-saved"
-  expect text "saved-empty" == "Nothing saved yet. Open a place and tap the bookmark."
+  expect state savedShown == []
   tap "tab-places"
   tap "places-1"
   clock settle
@@ -21,3 +21,20 @@ test "a saved place shows under Saved, and stays saved after a relaunch"
   expect text "about-saved" == "A sunny hillside with a view of downtown."
   reload
   expect state saved.0 == "1"
+
+test "each tab's search filters its own list as you type"
+  type "search-places" "mission"
+  expect tree has "places-1"
+  expect tree missing "places-2"
+  tap "places-1"
+  clock settle
+  tap "save-places"
+  tap "tab-saved"
+  expect tree has "saved-1"
+  type "search-saved" "lands"
+  expect tree missing "saved-1"
+  tap "tab-places"
+  back
+  clock settle
+  expect tree has "places-1"
+  expect tree missing "places-2"

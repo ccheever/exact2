@@ -3,7 +3,7 @@ import AVFoundation
 import WebKit
 import XCTest
 
-// browser-surface part 3 (capture): screenshots, artifact actions, held pages, the separate preview window and the
+// Screenshots, artifact actions, held pages, the separate preview window and the
 // module's capture ops end to end (T3BrowserCapture.swift, T3BrowserSessions.performCapture). Ported reference tests
 // (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names: Manager.test.ts `fitPictureInPictureContentSize` (2)
 // and `recordingFileExtension` (1). The Manager tests of captureScreenshot, revealArtifact, copyArtifactToClipboard and
@@ -74,6 +74,12 @@ final class BrowserCaptureTests: XCTestCase {
         XCTAssertEqual(reply["generation"] as? Int, 4)
         let artifact = value(reply), path = try XCTUnwrap(artifact["path"] as? String)
         XCTAssertTrue(path.hasPrefix(artifacts.path + "/browser-screenshot-127-0-0-1-") && path.hasSuffix(".png"), path)
+        // Manager.ts captureScreenshot: `<millis36>-<first eight characters of a v4 UUID>`, so a second capture in the
+        // same millisecond never replaces the first (Manager.test.ts "screenshot filename collisions").
+        XCTAssertNotNil((path as NSString).lastPathComponent.range(of: #"^browser-screenshot-127-0-0-1-[0-9a-z]+-[0-9a-f]{8}\.png$"#, options: .regularExpression), path)
+        let again = try XCTUnwrap(value(op(["op": "browserScreenshot", "tab": "tab-shot", "generation": 5]))["path"] as? String)
+        XCTAssertNotEqual(again, path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path) && FileManager.default.fileExists(atPath: again))
         XCTAssertEqual(artifact["mimeType"] as? String, "image/png")
         XCTAssertEqual(artifact["tabId"] as? String, "tab-shot")
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
@@ -137,7 +143,7 @@ final class BrowserCaptureTests: XCTestCase {
         again.destroy()
         XCTAssertNotNil(session.web.window, "still held: parked again")
         sessions.parking.release(session, "recording")
-        XCTAssertNil(session.web.window, "released: no window, as before part 3")
+        XCTAssertNil(session.web.window, "released: no window")
         XCTAssertFalse(sessions.parking.parked.contains("tab-held"))
     }
 

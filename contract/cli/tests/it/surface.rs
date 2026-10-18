@@ -288,11 +288,23 @@ fn a_stale_surface_declaration_warns_and_hides_nothing() {
             .unwrap()
     };
     let out = run(&["build", path.to_str().unwrap(), "--json"]);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("type-operand") && !stdout.contains("analyze-surface"),
-        "{stdout}"
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let severities: Vec<(&str, &str)> = reply
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["id"].as_str().unwrap(), d["severity"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        severities,
+        [
+            ("type-operand", "error"),
+            ("analyze-surface-arguments", "warning")
+        ],
+        "under --json the stale declaration's findings are the array's warnings"
     );
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    let out = run(&["build", path.to_str().unwrap()]);
     assert!(String::from_utf8_lossy(&out.stderr)
         .contains("warning: .shells/surfaces.json is older than"));
     // Without the type error the build passes, and `contract rust` writes its shapes either way.
@@ -302,7 +314,9 @@ fn a_stale_surface_declaration_warns_and_hides_nothing() {
     )
     .unwrap();
     let out = run(&["build", path.to_str().unwrap(), "--json"]);
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(reply[0]["severity"], "warning", "{reply}");
+    assert_eq!(reply.as_array().unwrap().len(), 1, "{reply}");
     assert!(out.status.success());
     std::fs::File::options()
         .write(true)
@@ -418,4 +432,53 @@ fn r13_surface_call_corpus_fixtures_roundtrip() {
             p.encode()
         );
     }
+}
+
+#[test]
+fn finite_surface_defaults_include_nested_omitted_fields() {
+    let source = r#"shape Nested
+  one: enum<"a|b","n🥳">
+  maybe: option<enum<"a|b","n🥳">>
+  many: enum<"a|b","n🥳">[]
+shape State
+  state: enum<"a|b","n🥳">
+  nested: Nested
+component App
+  resource hud = exactSurface("world") as shape State
+  view
+    canvas surface=world()
+      text hud.state
+"#;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let default = Value::record(vec![
+        Value::str("a|b"),
+        Value::record(vec![
+            Value::str("a|b"),
+            Value::Option(None),
+            Value::list(vec![]),
+        ]),
+    ]);
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.resource("hud"), Some(&default));
+    for json in ["{}", r#"{"nested":{}}"#] {
+        runner.set_surface_record("world", Some(json)).unwrap();
+        assert_eq!(runner.resource("hud"), Some(&default));
+    }
+    runner
+        .set_surface_record("world", Some(r#"{"state":"n🥳"}"#))
+        .unwrap();
+    let Value::Record(fields) = runner.resource("hud").unwrap() else {
+        panic!("record")
+    };
+    assert_eq!(fields[0], Value::str("n🥳"));
+    assert!(runner
+        .set_surface_record("world", Some(r#"{"state":"invalid"}"#))
+        .is_err());
 }

@@ -44,6 +44,50 @@ final class OwnerTests: XCTestCase {
         XCTAssertEqual(refused, -1)
     }
 
+    private func preservesScheduling(_ refuse: (ExactSession) -> Batch) throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let session = ExactApp.shared.makeSession(label: "busy-scheduling")
+        defer { session.destroy() }
+        session.clock = nil
+        var active = Batch(ops: [], timers: true, motion: true, clock: nil, error: nil,
+            timerDueMs: session.now() + 60_000)
+        active.canvasOwed = true
+        active.canvas = true
+        active.frames = true
+        active.spatial = true
+        session.apply(active)
+        let timer = try XCTUnwrap(session.clockTimer)
+        XCTAssertTrue(session.changesNothing(active))
+        let refused = refuse(session)
+        XCTAssertNotNil(refused.error)
+        session.applyUnlessEmpty(refused)
+        XCTAssertTrue(session.changesNothing(active), "a busy refusal must preserve motion and the owed draw")
+        XCTAssertEqual(session.timerDue, active.timerDueMs)
+        XCTAssertTrue(session.clockTimer === timer)
+        XCTAssertTrue(timer.isValid)
+    }
+
+    func testRegistryBusyBatchPreservesScheduling() throws {
+        try preservesScheduling { _ in
+            Batch.decode(Data(#"{"ops":[],"busy":true,"timers":false,"motion":false,"error":"runtime 1: busy: a call is already in progress on this runtime"}"#.utf8))
+        }
+    }
+
+    func testRuntimeBusyDuringCallMainPreservesScheduling() throws {
+        try preservesScheduling { session in
+            Owner.shared.sync {
+                Owner.shared.callMain {
+                    session.runtime.on {
+                        XCTFail("the owner is already waiting on main")
+                        return Runtime.busy
+                    }
+                }
+            }
+        }
+    }
+
     func testANotificationFromAServedCallbackRunsAfterTheCurrentJob() {
         var order: [String] = []
         Owner.shared.sync {

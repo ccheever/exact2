@@ -31,12 +31,14 @@ fn a_socket_followers_child_in_another_block_is_reported_as_the_rig_animates() {
     let cursor = w.pose_cursor();
     let hash = w.hash();
     let before = w.global(child).unwrap().translation;
+    assert_eq!(w.globals().get(child), w.global(child));
     for _ in 0..6 {
         step(&mut w);
         w.step_clock();
         w.propagate();
     }
     let after = w.global(child).unwrap().translation;
+    assert_eq!(w.globals().get(child), w.global(child));
     let head = socket(&w, rig, "head").unwrap().position;
     assert!(after.x > before.x, "{before:?} -> {after:?}");
     assert!((Vec3::from(after) - (head + Vec3::Y)).length() < 1e-5);

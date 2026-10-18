@@ -16,7 +16,16 @@ extension ControlHost {
         picker.datePickerMode = kind == "date" ? .date : kind == "time" ? .time : .dateAndTime
         picker.timeZone = DateValue.utc
         picker.addTarget(self, action: #selector(dateChanged(_:)), for: .valueChanged)
+        picker.addTarget(self, action: #selector(dateBegan(_:)), for: .editingDidBegin)
         return picker
+    }
+
+    /// The compact picker opens its calendar or wheel: the press's focus
+    /// decision, as a press elsewhere makes it, so the text editing under way
+    /// ends and the keyboard does not stay behind the popover (LLP 1116.019 D5).
+    @objc func dateBegan(_ picker: UIDatePicker) {
+        guard let owner = presenter.views[UInt32(picker.tag)] else { return }
+        owner.focusForPress(target: owner)?.dispatched()
     }
 
     func configureDate(_ picker: UIDatePicker, _ owner: NodeView, accent: UIColor?) {
@@ -125,7 +134,7 @@ final class BoundDatePicker: UIDatePicker {
         words.string = placeholder
         words.font = font
         words.fontSize = font.pointSize
-        words.foregroundColor = UIColor.placeholderText.resolvedColor(with: traitCollection).cgColor
+        words.foregroundColor = ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText).resolvedColor(with: traitCollection).cgColor
         words.contentsScale = window?.screen.scale ?? traitCollection.displayScale
         words.frame = CGRect(x: 0, y: (pill.bounds.height - font.lineHeight) / 2, width: pill.bounds.width, height: font.lineHeight)
     }

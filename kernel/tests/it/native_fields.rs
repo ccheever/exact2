@@ -200,6 +200,7 @@ fn native_typography_stops_authored_wins_and_clear_restores_every_starting_row()
         &[Op::ClearStyle {
             id: 2,
             mask: ancestor.mask,
+            written: false,
         }],
     )
     .unwrap();
@@ -215,6 +216,46 @@ fn native_typography_stops_authored_wins_and_clear_restores_every_starting_row()
     assert_eq!(k.arena().paragraph(slot).strut, runs[0].style);
     assert_eq!(k.arena().paragraph(slot).text_indent, 0.0);
     assert_eq!(k.arena().paragraph(slot).text_align, TextAlign::Left);
+}
+
+#[test]
+fn explicit_clear_bypasses_control_text_start_until_declaration_removal() {
+    let (mut k, _) = tree(FieldChrome::default());
+    k.set_env(env(18.0)).unwrap();
+    let color = StyleId::TextColor;
+    let mask = StyleMask::of(color);
+    patch(&mut k, 1, &[(color, "#123456")]);
+    let platform = k.node(2).unwrap().text_color();
+    k.apply(
+        0,
+        0,
+        &[Op::ClearStyle {
+            id: 2,
+            mask,
+            written: true,
+        }],
+    )
+    .unwrap();
+    for ink in ["#123456", "#654321"] {
+        patch(&mut k, 1, &[(color, ink)]);
+        let field = k.node(2).unwrap();
+        assert!(!field.style.mask.has(color));
+        assert!(field.style.written.has(color) && field.says(color));
+        assert_eq!(field.text_color(), k.node(1).unwrap().text_color());
+        assert_eq!(field.source_of(color), Some(1));
+    }
+    k.apply(
+        0,
+        0,
+        &[Op::ClearStyle {
+            id: 2,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
+    assert_eq!(k.node(2).unwrap().text_color(), platform);
+    assert!(!k.node(2).unwrap().says(color));
 }
 
 #[test]
@@ -740,6 +781,7 @@ fn native_fields_reset_ua_rows_with_and_without_platform_fonts() {
                 &[Op::ClearStyle {
                     id,
                     mask: ancestor.mask,
+                    written: false,
                 }],
             )
             .unwrap();

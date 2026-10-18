@@ -1781,3 +1781,326 @@ fn sha1_is_sha1() {
         "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
     );
 }
+
+/// What `connect_proxy` does once asked: answer with these bytes (tunnelling
+/// to the asked port after a 200), or drip an answer that never ends.
+#[cfg(test)]
+enum ProxyAnswer {
+    Reply(&'static [u8]),
+    Drip,
+}
+
+/// An HTTP CONNECT proxy for one connection: it reports the head it was asked
+/// with, then answers. A tunnel goes to 127.0.0.1 at the asked port whatever
+/// the asked host, so a client that resolved the host itself would never have
+/// reached it.
+#[cfg(test)]
+fn connect_proxy(answer: ProxyAnswer) -> (u16, Receiver<String>, std::thread::JoinHandle<()>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (saw, seen) = channel();
+    let proxy = std::thread::spawn(move || {
+        let mut client = listener.accept().unwrap().0;
+        // A transport regression fails the test rather than hanging it
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            client.read_exact(&mut byte).unwrap();
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8(head).unwrap();
+        saw.send(head.clone()).unwrap();
+        let answer = match answer {
+            ProxyAnswer::Reply(answer) => answer,
+            ProxyAnswer::Drip => {
+                while client.write_all(b"H").is_ok() {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                return;
+            }
+        };
+        client.write_all(answer).unwrap();
+        if !answer.windows(12).any(|w| w == b"HTTP/1.1 200") {
+            return;
+        }
+        let target = head.split(' ').nth(1).unwrap();
+        let port: u16 = target.rsplit(':').next().unwrap().parse().unwrap();
+        // A client that took a malformed answer for a tunnel finds nothing behind it
+        let Ok(upstream) = TcpStream::connect(("127.0.0.1", port)) else {
+            return;
+        };
+        upstream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let (mut client_read, mut upstream_write) =
+            (client.try_clone().unwrap(), upstream.try_clone().unwrap());
+        let up = std::thread::spawn(move || {
+            let _ = std::io::copy(&mut client_read, &mut upstream_write);
+            let _ = upstream_write.shutdown(Shutdown::Write);
+        });
+        let (mut upstream_read, mut client_write) = (upstream, client);
+        let _ = std::io::copy(&mut upstream_read, &mut client_write);
+        let _ = client_write.shutdown(Shutdown::Write);
+        up.join().unwrap();
+    });
+    (port, seen, proxy)
+}
+
+#[cfg(test)]
+fn given(uri: &str) -> TestProxy {
+    TestProxy::Given(ureq::Proxy::new(uri).unwrap())
+}
+
+/// A transport through the proxy at `uri`.
+#[cfg(test)]
+fn through(uri: &str) -> TcpSocketTransport {
+    TcpSocketTransport::with_tls_and_proxy(local_tls().1, given(uri), None)
+}
+
+#[cfg(test)]
+fn open_failure(transport: &TcpSocketTransport, url: &str) -> String {
+    let url = url::Url::parse(url).unwrap();
+    match transport.connect(&url, 1024, &AbortSignal::default()) {
+        Err(HostError::Failed(message)) => message,
+        Err(other) => panic!("a failure, not {other:?}"),
+        Ok(_) => panic!("the open fails"),
+    }
+}
+
+#[test]
+fn a_secure_socket_tunnels_through_the_proxy_without_resolving_its_host() {
+    let (port, _certificate, client, peer) = tls_echo_peer();
+    let (proxy_port, asked, proxy) = connect_proxy(ProxyAnswer::Reply(
+        b"HTTP/1.1 200 Connection Established\r\n\r\n",
+    ));
+    let transport = TcpSocketTransport::with_tls_and_proxy(
+        client,
+        given(&format!("http://127.0.0.1:{proxy_port}")),
+        None,
+    );
+    let url = url::Url::parse(&format!("wss://localhost:{port}/echo")).unwrap();
+    let mut socket = transport
+        .connect(&url, 1024, &AbortSignal::default())
+        .unwrap();
+    assert_eq!(
+        wait(&asked),
+        format!("CONNECT localhost:{port} HTTP/1.1\r\nHost: localhost:{port}\r\n\r\n")
+    );
+    socket.send_text("through").unwrap();
+    assert_eq!(socket.next().unwrap(), text("through"));
+    socket.close(1000, "done").unwrap();
+    assert!(matches!(
+        socket.next(),
+        Ok(Incoming::Closed { code: 1000, .. })
+    ));
+    drop(socket);
+    peer.join().unwrap();
+    proxy.join().unwrap();
+}
+
+#[test]
+fn a_plain_socket_tunnels_with_the_proxys_credentials() {
+    let (port, seen) = peer();
+    let (proxy_port, asked, _proxy) = connect_proxy(ProxyAnswer::Reply(b"HTTP/1.1 200 OK\r\n\r\n"));
+    let transport = through(&format!("http://user:pass@127.0.0.1:{proxy_port}"));
+    // `.invalid` never resolves (RFC 6761): only the proxy can reach it
+    let url = url::Url::parse(&format!("ws://socket.invalid:{port}/hello")).unwrap();
+    transport
+        .connect(&url, 1024, &AbortSignal::default())
+        .unwrap();
+    assert_eq!(
+        wait(&asked),
+        format!("CONNECT socket.invalid:{port} HTTP/1.1\r\nHost: socket.invalid:{port}\r\nProxy-Authorization: Basic dXNlcjpwYXNz\r\n\r\n")
+    );
+    assert!(wait(&seen).contains("/hello"));
+}
+
+#[test]
+fn a_refused_connect_reports_its_status_but_never_its_reason() {
+    let (proxy_port, asked, proxy) = connect_proxy(ProxyAnswer::Reply(
+        b"HTTP/1.1 407 user:secret\r\nProxy-Authenticate: Basic\r\n\r\n",
+    ));
+    let transport = through(&format!("http://user:secret@127.0.0.1:{proxy_port}"));
+    let message = open_failure(&transport, "wss://socket.invalid/");
+    wait(&asked);
+    proxy.join().unwrap();
+    assert!(
+        message.contains(&format!(
+            "the proxy http://127.0.0.1:{proxy_port} refused CONNECT socket.invalid:443 with status 407"
+        )),
+        "{message}"
+    );
+    assert!(!message.contains("secret"), "{message}");
+}
+
+/// The grammar is `connect_status`'s test; this is its end to end
+#[test]
+fn a_malformed_connect_answer_is_not_a_tunnel() {
+    let (proxy_port, asked, proxy) = connect_proxy(ProxyAnswer::Reply(
+        b"HTTP/1.1 200 OK\r\nNot-A-Header\r\n\r\n",
+    ));
+    let transport = through(&format!("http://127.0.0.1:{proxy_port}"));
+    let message = open_failure(&transport, "wss://socket.invalid/");
+    wait(&asked);
+    proxy.join().unwrap();
+    assert!(message.contains("with a malformed head"), "{message}");
+}
+
+#[test]
+fn a_proxy_that_drips_its_answer_fails_at_the_connect_deadline() {
+    let (proxy_port, asked, _proxy) = connect_proxy(ProxyAnswer::Drip);
+    let (_, client, _) = local_tls();
+    let transport = TcpSocketTransport::with_tls_and_proxy(
+        client,
+        given(&format!("http://127.0.0.1:{proxy_port}")),
+        Some(Duration::from_millis(500)),
+    );
+    let started = Instant::now();
+    let message = open_failure(&transport, "wss://socket.invalid/");
+    wait(&asked);
+    assert!(message.contains("within 0.5 s"), "{message}");
+    // The deadline, not the proxy, ends it: not before it, and not long after under load
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= Duration::from_millis(500) && elapsed < Duration::from_secs(10),
+        "{elapsed:?}"
+    );
+}
+
+#[test]
+fn no_proxy_leaves_the_socket_direct_however_long_its_path() {
+    let (_, client, _) = local_tls();
+    let bypassed = ureq::Proxy::builder(ureq::ProxyProtocol::Http)
+        .host("proxy.invalid")
+        .port(1)
+        .no_proxy("127.0.0.1")
+        .build()
+        .unwrap();
+    for path in ["/direct".to_string(), format!("/{}", "a".repeat(70_000))] {
+        let (port, seen) = peer();
+        let transport = TcpSocketTransport::with_tls_and_proxy(
+            Arc::clone(&client),
+            TestProxy::Given(bypassed.clone()),
+            None,
+        );
+        open_on(&transport, port, &path, &AbortSignal::default()).unwrap();
+        assert!(wait(&seen).contains(&path[..20.min(path.len())]));
+    }
+}
+
+#[test]
+fn a_proxy_a_socket_cannot_speak_fails_the_open_rather_than_being_skipped() {
+    for (uri, named) in [
+        (
+            "https://user:secret@proxy.invalid:443",
+            "https://proxy.invalid:443",
+        ),
+        ("socks5://proxy.invalid:1080", "socks5://proxy.invalid:1080"),
+        (
+            "socks5h://proxy.invalid:1080",
+            "socks5h://proxy.invalid:1080",
+        ),
+        (
+            "socks4a://proxy.invalid:1080",
+            "socks4a://proxy.invalid:1080",
+        ),
+    ] {
+        let message = open_failure(&through(uri), "wss://socket.invalid/");
+        assert!(
+            message.contains(&format!("{named} is not an http:// CONNECT proxy")),
+            "{message}"
+        );
+        assert!(!message.contains("secret"), "{message}");
+    }
+}
+
+/// The environment's proxy, read as fetch reads it, in a child test process
+/// of its own, since the environment is the whole process's.
+#[test]
+fn the_environment_names_the_proxy_and_no_proxy_bypasses_it() {
+    let (port, seen) = peer();
+    let (proxy_port, asked, _proxy) = connect_proxy(ProxyAnswer::Reply(b"HTTP/1.1 200 OK\r\n\r\n"));
+    let child = |url: String, no_proxy: &str| {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "transport::websocket::tests::environment_proxy_child",
+                "--ignored",
+                "--test-threads=1",
+            ])
+            .env_remove("HTTPS_PROXY")
+            .env_remove("https_proxy")
+            .env_remove("HTTP_PROXY")
+            .env_remove("http_proxy")
+            .env_remove("all_proxy")
+            .env_remove("no_proxy")
+            .env("ALL_PROXY", format!("http://127.0.0.1:{proxy_port}"))
+            .env("NO_PROXY", no_proxy)
+            .env("IBEX2_WEBSOCKET_PROXY_CHILD_URL", url)
+            .status()
+            .unwrap()
+    };
+    assert!(child(format!("ws://socket.invalid:{port}/proxied"), "localhost").success());
+    assert!(wait(&asked).starts_with(&format!("CONNECT socket.invalid:{port} ")));
+    assert!(wait(&seen).contains("/proxied"));
+    assert!(child(format!("ws://127.0.0.1:{port}/direct"), "127.0.0.1").success());
+    assert!(wait(&seen).contains("/direct"));
+}
+
+#[test]
+#[ignore = "run by the_environment_names_the_proxy_and_no_proxy_bypasses_it in a child process"]
+fn environment_proxy_child() {
+    let url = url::Url::parse(&std::env::var("IBEX2_WEBSOCKET_PROXY_CHILD_URL").unwrap()).unwrap();
+    let (_, client, _) = local_tls();
+    TcpSocketTransport::with_tls_and_proxy(client, TestProxy::Environment, None)
+        .connect(&url, 1024, &AbortSignal::default())
+        .unwrap();
+}
+
+#[test]
+fn informational_answers_before_the_tunnel_are_passed_over() {
+    let (port, seen) = peer();
+    let (proxy_port, asked, _proxy) = connect_proxy(ProxyAnswer::Reply(
+        b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\nHTTP/1.1 200 OK\r\n\r\n",
+    ));
+    let transport = through(&format!("http://127.0.0.1:{proxy_port}"));
+    let url = url::Url::parse(&format!("ws://socket.invalid:{port}/after-hints")).unwrap();
+    transport
+        .connect(&url, 1024, &AbortSignal::default())
+        .unwrap();
+    wait(&asked);
+    assert!(wait(&seen).contains("/after-hints"));
+}
+
+#[test]
+fn a_connect_answer_follows_the_http_1_grammar() {
+    assert_eq!(
+        connect_status(b"HTTP/1.1 200 Connection Established\r\n\r\n"),
+        Some(200)
+    );
+    assert_eq!(connect_status(b"HTTP/1.0 200\r\n\r\n"), Some(200));
+    assert_eq!(connect_status(b"HTTP/1.1 200 \r\n\r\n"), Some(200));
+    // obs-text in a reason and a value, and a folded value, are legal octets
+    assert_eq!(
+        connect_status(b"HTTP/1.1 407 Proxy \xff\r\nVia: a\r\n  b \xfe\r\n\r\n"),
+        Some(407)
+    );
+    for malformed in [
+        &b"HTTP/1.1 200 \x01\r\n\r\n"[..],
+        b"HTTP/1.1 200 OK\r\nVia: a\x7f\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nVia : a\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\n folded-first\r\n\r\n",
+        b"HTTP/1.1 200 OK\nVia: a\r\n\r\n",
+        b"HTTP/1.1 2000\r\n\r\n",
+    ] {
+        assert_eq!(
+            connect_status(malformed),
+            None,
+            "{}",
+            String::from_utf8_lossy(malformed)
+        );
+    }
+}

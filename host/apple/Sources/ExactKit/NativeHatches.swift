@@ -147,6 +147,66 @@ private let hatchRecord: HatchRecordFn = { host, kind, node, scope, scopeLength,
                         text: text.map { Data(bytes: $0, count: Int(textLength)) } ?? Data())
 }
 
+private typealias HatchTamberFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
+
+/// `tamber(host, view, request, len, out, cap) → len` (LLP 1121 D12): a
+/// native module's `ExactTamber`. `request` is `{"names": [..]}`, and since
+/// stage 6 G optionally `"lengths"`, `"numbers"` and `"fonts"` lists; the
+/// answer, `{"inputs", "colors": {name: [[r, g, b, a] × 8] | null}}`, with
+/// `"lengths"` and `"numbers"` maps of numbers and a `"fonts"` map of
+/// `{size, name, weight, italic, system, design}` (the face's PostScript
+/// name, which the library opens at the weight as the host draws it, or for
+/// a system stack, which no name opens, the system font at the weight in
+/// its design) where asked, each colour
+/// resolved for the eight sides a view draws in (bit 0 dark, bit 1 more
+/// contrast, bit 2 elevated) under the view's tint, as extended sRGB
+/// (0–1, past it for a wide colour), as the library cannot read a row's
+/// value; `inputs` folds that tint in. Written into `out` when `cap` holds
+/// it; its length either way.
+private let hatchTamber: HatchTamberFn = { host, view, request, length, out, cap in
+    guard let session = hatchSession(host), let request,
+          let asked = try? JSONSerialization.jsonObject(with: Data(bytes: request, count: Int(length))) as? [String: Any] else { return 0 }
+    var at = view.map { Unmanaged<PlatformView>.fromOpaque($0).takeUnretainedValue() }
+    while let v = at, !(v is NodeView) { at = v.superview }
+    let node = at as? NodeView
+    var measures: [Tambers.Measure: [String: BatchValue?]] = [:]
+    for kind in Tambers.Measure.allCases {
+        for name in asked[kind.rawValue] as? [String] ?? [] { measures[kind, default: [:]][name] = .some(nil) }
+    }
+    guard let answer = Tambers.ask(session, view: node?.id ?? 0, names: asked["names"] as? [String] ?? [], measures: measures) else { return 0 }
+    let colors = answer.colors.mapValues { value -> Any in
+        guard let value else { return NSNull() }
+        return (0..<8).map { side in
+            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0, tint: answer.tints[side])
+                .map { ExactTamber.extended(TextEngine.color($0)) } ?? []
+        }
+    }
+    var reply: [String: Any] = ["inputs": answer.inputs, "colors": colors]
+    for (kind, values) in answer.measures {
+        reply[kind.rawValue] = values.mapValues { value -> Any in
+            switch (kind, value) {
+            case (.fonts, .object(let f)?):
+                guard let size = f["size"]?.number else { return NSNull() }
+                let weight = Int(f["weight"]?.number ?? 400), italic = f["italic"] == .bool(true)
+                let family = Int(f["family"]?.number ?? 0)
+                let font = session.text.font(size: CGFloat(size), weight: weight, family: family, italic: italic)
+                // A system face's name is no name a font opens by: the
+                // library makes the system font at the weight, in its
+                // design (a generic stack's: serif, monospaced, rounded).
+                let generic = family < 8 ? family : session.text.catalog[family]?.first?.generic
+                let design = switch generic { case 3, 4: "serif"; case 5, 6: "monospaced"; case 7: "rounded"; default: "default" }
+                return ["size": size, "name": font.fontName, "weight": weight, "italic": italic,
+                        "system": generic != nil, "design": design]
+            case (_, .number(let n)?): return n
+            default: return NSNull()
+            }
+        }
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: reply) else { return 0 }
+    if let out, data.count <= Int(cap) { data.copyBytes(to: out, count: data.count) }
+    return UInt32(data.count)
+}
+
 /// The diagnostics' call table, which a development build's host table names.
 private let hatchDiagnosticsTable: UnsafeRawPointer = {
     let t = UnsafeMutableRawPointer.allocate(byteCount: 16, alignment: 8)
@@ -159,7 +219,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 96
+    let size = 104
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -168,12 +228,13 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
-    if HatchDiagnostics.measuring { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
+    if HatchDiagnostics.available { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
     t.storeBytes(of: unsafeBitCast(hatchInputText, to: UnsafeRawPointer.self), toByteOffset: 56, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchFrames, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAfter, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchOwns, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchParts, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchTamber, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 
@@ -284,13 +345,17 @@ extension NativeViews {
     /// After the session's module is made: hand it the host's callbacks
     /// when its table has hatches, then let the presenter replay the objects
     /// it built before (a cold launch's, LLP 1075.003 Q3 (c)).
-    func connectHatches(_ connect: HatchConnectFn, _ navigation: HatchNavigationFn, _ route: HatchRouteFn,
-                      _ tabs: (HatchTabsFn, HatchTabContainerFn)?, _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?,
-                      _ module: UnsafeMutableRawPointer) {
+    /// The module's side of the hatch table, given before any hatch is
+    /// called: its frame clock and diagnostics work from here.
+    func openHatches(_ connect: HatchConnectFn, _ module: UnsafeMutableRawPointer) {
         // A new module is a new incarnation: its counts start at nothing.
         session?.hatchDiagnostics.reset()
         takeBreadcrumb()
         connect(module, hatchHostTable)
+    }
+
+    func connectHatches(_ navigation: HatchNavigationFn, _ route: HatchRouteFn, _ tabs: (HatchTabsFn, HatchTabContainerFn)?,
+                        _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?) {
         hatchCalls = (navigation, route)
         tabCalls = tabs
         elementCall = element

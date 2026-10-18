@@ -80,9 +80,86 @@ fn a_node_keeps_which_of_its_rows_its_author_wrote() {
     k.apply(0, 4, &[colour(1, "#222222", false)]).unwrap();
     assert!(wrote(&k, 1).is_empty(), "the winner's bit");
     // A cleared row has no bit.
-    k.apply(0, 5, &[Op::ClearStyle { id: 2, mask: row }])
-        .unwrap();
+    k.apply(
+        0,
+        5,
+        &[Op::ClearStyle {
+            id: 2,
+            mask: row,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert!(wrote(&k, 2).is_empty() && !k.node(2).unwrap().style.mask.has(StyleId::TextColor));
+}
+
+#[test]
+fn explicit_clear_intent_changes_without_an_own_value() {
+    let color = StyleId::TextColor;
+    let row = crate::StyleMask::of(color);
+    let mut ops = create([1, 2, 3], NodeType::View);
+    ops.extend([children(1, &[2]), Op::AttachRoot { id: 1 }]);
+    ops.push(colour(1, "#123456", true));
+    let mut k = kernel(&ops);
+    let clear = |id| {
+        let mut patch = StyleProps::default();
+        patch.written = row;
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let initial = k.node(3).unwrap().text_color();
+    for id in [2, 3] {
+        let before = k.node(id).unwrap().text_color();
+        let receipt = k.apply(0, 2, &[clear(id)]).unwrap();
+        let node = k.node(id).unwrap();
+        assert!(!node.style.mask.has(color));
+        assert!(node.style.written.has(color));
+        assert_eq!(node.text_color(), before);
+        assert!(
+            receipt.touched.contains(&node.key),
+            "intent is observable even at the same color"
+        );
+        assert!(k.apply(0, 3, &[clear(id)]).unwrap().touched.is_empty());
+    }
+    k.apply(0, 3, &[tall(2, 40.0)]).unwrap();
+    assert!(!k.node(2).unwrap().style.mask.has(color));
+    assert!(k.node(2).unwrap().style.written.has(color));
+    k.apply(0, 4, &[colour(1, "#654321", true)]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        k.node(1).unwrap().text_color()
+    );
+    k.apply(0, 5, &[children(1, &[])]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        initial,
+        "detaching does not freeze inherited ink"
+    );
+    k.apply(0, 6, &[children(1, &[2])]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        k.node(1).unwrap().text_color()
+    );
+    k.apply(0, 7, &[colour(2, "#654321", true)]).unwrap();
+    assert!(k.node(2).unwrap().style.mask.has(color));
+    k.apply(0, 8, &[clear(2)]).unwrap();
+    assert!(!k.node(2).unwrap().style.mask.has(color));
+    assert!(k.node(2).unwrap().style.written.has(color));
+    let removed = k
+        .apply(
+            0,
+            9,
+            &[Op::ClearStyle {
+                id: 2,
+                mask: row,
+                written: false,
+            }],
+        )
+        .unwrap();
+    assert!(removed.touched.contains(&k.node(2).unwrap().key));
+    assert!(!k.node(2).unwrap().style.written.has(color));
 }
 
 fn prop(id: u32, prop: PropId, value: &str) -> Op {
@@ -670,4 +747,43 @@ fn continuation_resynchronizes_text_created_in_an_earlier_phase() {
             }
         }
     }
+}
+
+/// @ref LLP 1121 D8 — a node's looks hold the look rows only, set or
+/// cleared (a written-only `width` is refused, as a set one is), each state
+/// once; they go with the node.
+#[test]
+fn looks_take_the_look_rows_only_and_go_with_the_node() {
+    use crate::{LOOK_FOCUS_VISIBLE, LOOK_HOVER};
+    let mut k = kernel(&create([1], NodeType::View));
+    let mut fill = StyleProps::default();
+    fill.set_dynamic(
+        StyleId::BackgroundColor,
+        &StyleValue::Text("#ff0000".into()),
+    )
+    .unwrap();
+    let mut width = StyleProps::default();
+    width.written.set(StyleId::Width);
+    let mut opacity = StyleProps::default();
+    opacity.written.set(StyleId::Opacity);
+    for (looks, ok) in [
+        (vec![(LOOK_HOVER, width)], false),
+        (
+            vec![
+                (LOOK_FOCUS_VISIBLE, fill.clone()),
+                (LOOK_HOVER, fill.clone()),
+            ],
+            false,
+        ),
+        (
+            vec![(LOOK_HOVER, fill.clone()), (LOOK_FOCUS_VISIBLE, opacity)],
+            true,
+        ),
+    ] {
+        let applied = k.apply(1, 2, &[Op::SetLooks { id: 1, looks }]).is_ok();
+        assert_eq!(applied, ok);
+    }
+    assert_eq!(k.node(1).unwrap().looks().len(), 2);
+    k.apply(2, 3, &[Op::DestroyView { id: 1 }]).unwrap();
+    assert!(k.node(1).is_none());
 }

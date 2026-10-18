@@ -1,6 +1,6 @@
 #if os(iOS)
 // Issued picker bytes share the existing deletion mutex/candidates; no persisted picker UI or Undo.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import Foundation
 import CoreFoundation
 import CryptoKit

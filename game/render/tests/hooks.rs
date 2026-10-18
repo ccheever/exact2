@@ -9,8 +9,13 @@ use exact_game_render::{
 use exact_gpu::fixture;
 use exact_gpu::{wgpu, Frame, Surface, Value};
 
-pub struct TestGame;
-impl Game for TestGame {
+pub struct TestGame<const SINGLE: bool = false>;
+impl<const SINGLE: bool> Game for TestGame<SINGLE> {
+    const SAMPLES: exact_game::SceneSamples = if SINGLE {
+        exact_game::SceneSamples::One
+    } else {
+        exact_game::SceneSamples::Four
+    };
     type Args = ();
     const ID: &'static str = "public-render-hooks";
     fn setup(world: &mut World, _: &()) {
@@ -89,7 +94,7 @@ fn pipeline(
             compilation_options: Default::default(),
         }),
         primitive: Default::default(),
-        depth_stencil: (samples == 4).then_some(wgpu::DepthStencilState {
+        depth_stencil: (fragment != "post").then_some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
             depth_write_enabled: Some(true),
             depth_compare: Some(wgpu::CompareFunction::Less),
@@ -116,7 +121,7 @@ struct Gpu {
     fallback: wgpu::TextureView,
 }
 impl Gpu {
-    fn new(gpu: &HookGpu<'_>) -> Self {
+    fn new(gpu: &HookGpu<'_>, samples: u32) -> Self {
         let d = gpu.device;
         let shader = |source: &'static str| {
             d.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -208,9 +213,9 @@ impl Gpu {
             device: d.clone(),
             compute,
             compute_group,
-            opaque: pipeline(d, &shader(DRAW), &read, "fs", 4),
+            opaque: pipeline(d, &shader(DRAW), &read, "fs", samples),
             opaque_group,
-            surface: pipeline(d, &shader(SAMPLE), &sampling, "surface", 4),
+            surface: pipeline(d, &shader(SAMPLE), &sampling, "surface", samples),
             post: pipeline(d, &shader(SAMPLE), &sampling, "post", 1),
             sampling,
             fallback,
@@ -247,12 +252,14 @@ impl<const S: bool, const P: bool, const D: bool> Hooks for TestHooks<S, P, D> {
         world: &RenderWorld<'_>,
     ) -> Result<(), RenderError> {
         assert_eq!(world.tick(), 0);
-        assert_eq!(view.sample_count, 4);
+        assert!(matches!(view.sample_count, 1 | 4));
         self.stages.clear();
         self.stages.push("prepare");
         self.resets += u32::from(view.time.reset);
         self.gpu
-            .update(gpu.device, view.time.shader_generation, || Gpu::new(gpu));
+            .update(gpu.device, view.time.shader_generation, || {
+                Gpu::new(gpu, view.sample_count)
+            });
         Ok(())
     }
     fn needs(&self) -> Needs {
@@ -374,10 +381,14 @@ fn frame() -> Frame {
 }
 #[cfg(not(target_arch = "wasm32"))]
 fn check<const S: bool, const P: bool, const D: bool>() {
+    check_samples::<S, P, D, false>();
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn check_samples<const S: bool, const P: bool, const D: bool, const SINGLE: bool>() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
-    let mut surface = WorldSurface::<TestGame, (), false, TestHooks<S, P, D>>::default();
+    let mut surface = WorldSurface::<TestGame<SINGLE>, (), false, TestHooks<S, P, D>>::default();
     surface.bind(&[], None).unwrap();
     let mut f = frame();
     let hash = surface.sim().unwrap().world().hash();
@@ -463,6 +474,7 @@ fn check<const S: bool, const P: bool, const D: bool>() {
 #[test]
 fn all_stages_and_recovery() {
     check::<true, true, true>();
+    check_samples::<true, true, true, true>();
 }
 #[test]
 fn hdr_post_without_scene_copy() {
@@ -504,12 +516,87 @@ fn rejected_pipeline_update_keeps_last_valid_set() {
     assert!(cache.error().is_none());
 }
 
-struct MaterialGame;
+/// A hook whose one pipeline uses a shader by name, as generated `module()`s do.
+#[derive(Default)]
+struct Named<const REGISTERED: bool> {
+    gpu: exact_game_render::hooks::Pipelines<wgpu::ComputePipeline>,
+}
+impl<const R: bool> Hooks for Named<R> {
+    fn prepare(
+        &mut self,
+        gpu: &HookGpu<'_>,
+        view: &FrameView<'_>,
+        _: &RenderWorld<'_>,
+    ) -> Result<(), RenderError> {
+        self.gpu
+            .update(gpu.device, view.time.shader_generation, || {
+                let name = if R {
+                    "settle_cs"
+                } else {
+                    "settle_unregistered"
+                };
+                let module = gpu
+                    .device
+                    .create_shader_module(exact_gpu::shaders::shader_module(name));
+                gpu.device
+                    .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        label: Some(name),
+                        layout: None,
+                        module: &module,
+                        entry_point: Some("cs"),
+                        compilation_options: Default::default(),
+                        cache: None,
+                    })
+            });
+        Ok(())
+    }
+    fn needs(&self) -> Needs {
+        if self.gpu.pending() {
+            Needs::PENDING
+        } else {
+            Needs::NONE
+        }
+    }
+    fn drawable(&self) -> bool {
+        self.gpu.get().is_some()
+    }
+    fn error(&self) -> Option<&str> {
+        self.gpu.error()
+    }
+}
+
+#[test]
+fn settle_names_a_hook_whose_shader_was_never_registered() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let cs = "@compute @workgroup_size(1) fn cs() {}";
+    exact_gpu::shaders::set_shader("settle_cs", cs.into(), None).unwrap();
+    let mut registered = WorldSurface::<TestGame, (), false, Named<true>>::default();
+    registered.device_ready(wgpu::Features::empty());
+    registered.bind(&[], None).unwrap();
+    registered.settle(&gpu, &frame(), 8).unwrap();
+    // The trial's case: a fixture that never registered the hook's shader
+    // renders without it, and the surface's own error stays empty.
+    let mut unregistered = WorldSurface::<TestGame, (), false, Named<false>>::default();
+    unregistered.device_ready(wgpu::Features::empty());
+    unregistered.bind(&[], None).unwrap();
+    let refused = unregistered.settle(&gpu, &frame(), 8).unwrap_err();
+    assert!(refused.contains("render hook:"), "{refused}");
+    assert!(unregistered.error().is_none());
+}
+
+struct MaterialGame<const OUTLINED: bool = false, const SINGLE: bool = false>;
 #[derive(Default, Args)]
 struct MaterialArgs {
     caster: bool,
 }
-impl Game for MaterialGame {
+impl<const OUTLINED: bool, const SINGLE: bool> Game for MaterialGame<OUTLINED, SINGLE> {
+    const SAMPLES: exact_game::SceneSamples = if SINGLE {
+        exact_game::SceneSamples::One
+    } else {
+        exact_game::SceneSamples::Four
+    };
     type Args = MaterialArgs;
     const ID: &'static str = "custom-material-public-proof";
     fn setup(w: &mut World, args: &MaterialArgs) {
@@ -520,6 +607,12 @@ impl Game for MaterialGame {
                 asset::MeshData {
                     positions: vec![-0.8, -0.8, 0., 0.8, -0.8, 0., 0.8, 0.8, 0., -0.8, 0.8, 0.],
                     normals: [0., 0., 1.].repeat(4),
+                    outline: OUTLINED.then(|| asset::MeshOutline {
+                        width: 0.02,
+                        normals: [0., 0., 1.].repeat(4),
+                        reach: vec![1.; 4],
+                        ..Default::default()
+                    }),
                     uvs: vec![0.; 8],
                     indices: vec![0, 1, 2, 0, 2, 3],
                     bounds: [-0.8, -0.8, 0., 0.8, 0.8, 0.],
@@ -644,11 +737,15 @@ impl<const SHADOWS: bool> Hooks for MaterialHooks<SHADOWS> {
 }
 #[test]
 fn custom_material_uses_engine_instances_and_paired_shadow() {
+    custom_material_samples::<false>();
+    custom_material_samples::<true>();
+}
+fn custom_material_samples<const SINGLE: bool>() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
     let mut surface = WorldSurface::<
-        MaterialGame,
+        MaterialGame<false, SINGLE>,
         exact_game_render::ModelExecutor,
         true,
         MaterialHooks,
@@ -699,4 +796,116 @@ fn custom_material_forward_shaders_sample_the_engine_shadow_maps() {
     eprintln!("lit panel pixels without and with the caster: {open} {shadowed}");
     assert!(open > 200, "{open}");
     assert!(shadowed + 40 < open, "{open} {shadowed}");
+}
+
+#[test]
+fn custom_material_refuses_an_outlined_model_by_name() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut surface = WorldSurface::<
+        MaterialGame<true>,
+        exact_game_render::ModelExecutor,
+        true,
+        MaterialHooks,
+    >::default();
+    surface.device_ready(wgpu::Features::empty());
+    surface.bind(&[Value::Bool(false)], None).unwrap();
+    let _ = fixture::render(&gpu, &mut surface, &frame());
+    let error = &surface.error().unwrap().0;
+    assert!(
+        error.contains("panel.model")
+            && error.contains("mesh")
+            && error.contains("outline with custom material"),
+        "{error}"
+    );
+}
+
+struct Coplanar<const PREPASS: bool, const CUSTOM_FIRST: bool>;
+impl<const PREPASS: bool, const CUSTOM_FIRST: bool> Game for Coplanar<PREPASS, CUSTOM_FIRST> {
+    const ID: &'static str = "coplanar-custom";
+    const SAMPLES: exact_game::SceneSamples = exact_game::SceneSamples::One;
+    const DEPTH_PREPASS: bool = PREPASS;
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        use exact_game::*;
+        let mesh = asset::MeshData {
+            positions: vec![-0.8, -0.8, 0., 0.8, -0.8, 0., 0.8, 0.8, 0., -0.8, 0.8, 0.],
+            normals: [0., 0., 1.].repeat(4),
+            uvs: vec![0.; 8],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            bounds: [-0.8, -0.8, 0., 0.8, 0.8, 0.],
+            ..Default::default()
+        };
+        let builtin = if CUSTOM_FIRST {
+            "zzz.model"
+        } else {
+            "aaa.model"
+        };
+        for name in if CUSTOM_FIRST {
+            ["panel.model", builtin]
+        } else {
+            [builtin, "panel.model"]
+        } {
+            let model = w.generated(name, mesh.clone()).unwrap();
+            w.spawn((
+                Transform::default(),
+                model,
+                Material {
+                    emissive: [2., 0., 0.],
+                    ..Material::rgb(1., 0., 0.)
+                },
+            ));
+        }
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            ambient: 0.,
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn paused(_: &()) -> bool {
+        true
+    }
+}
+fn coplanar<const PREPASS: bool, const FIRST: bool>(gpu: &exact_gpu::Gpu) -> fixture::Pixels {
+    let mut surface = WorldSurface::<
+        Coplanar<PREPASS, FIRST>,
+        exact_game_render::ModelExecutor,
+        true,
+        MaterialHooks,
+    >::default();
+    surface.device_ready(wgpu::Features::empty());
+    surface.bind(&[], None).unwrap();
+    let (image, _) = fixture::render(gpu, &mut surface, &frame()).unwrap();
+    assert!(surface.error().is_none(), "{:?}", surface.error());
+    image
+}
+#[test]
+fn custom_coplanar_ties_keep_both_draw_orders_with_prepass_requested() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let first = coplanar::<false, true>(&gpu);
+    let first_depth = coplanar::<true, true>(&gpu);
+    let last = coplanar::<false, false>(&gpu);
+    let last_depth = coplanar::<true, false>(&gpu);
+    assert_ne!(
+        first.at(32, 32),
+        last.at(32, 32),
+        "fixture must exercise opposite winners"
+    );
+    for y in 0..64 {
+        for x in 0..64 {
+            assert_eq!(
+                first.at(x, y),
+                first_depth.at(x, y),
+                "custom first ({x},{y})"
+            );
+            assert_eq!(last.at(x, y), last_depth.at(x, y), "custom last ({x},{y})");
+        }
+    }
 }

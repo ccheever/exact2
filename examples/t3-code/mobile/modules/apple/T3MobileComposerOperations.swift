@@ -1,5 +1,5 @@
 // App-owned invocation bridge; no reply, promise, timer or native work is retained.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-focus-restoration
 import Foundation
 
 struct T3ComposerOperationFailure: Error {

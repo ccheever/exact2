@@ -1,6 +1,6 @@
 use ComposerActionResult from "./composer-shapes.contract"
 use NewTaskFlowResult from "./new-task-flow.contract"
-// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pure presentation transitions. App retains requests, guards and route commits.
 use ArchiveChromeEvent from "./archive-chrome.contract"
 use AttachmentDocumentAction from "./attachment-document.contract"
@@ -147,7 +147,7 @@ fn gitFormBranches(previous: GitForm, initialBase: string): GitForm = (
   GitForm(previous, branch="", worktreeBranch="", worktreeBase=initialBase)
 )
 
-// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 // Only values move here; the root commits notices, preferences and navigation.
 shape MediaUi
   readAt: number

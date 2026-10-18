@@ -1,5 +1,5 @@
 // Pinned365aa87982 use-thread-outbox-drain: merge once into the real composer owners.
-// @ref llp/1109.005-composer-and-transcript.decision.md#terminal-draft-attachment-handoff
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#terminal-draft-attachment-handoff
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';

@@ -1,5 +1,5 @@
 // App-owned ordinary Thread adapter over the accepted native editor runtime.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type {MobileDraftClient} from './mobile-draft-recovery';
 import {mobileEditorSnapshot,mobileEditorAction,mobileEditorClaimEffect,mobileEditorPrepareImmediate,mobileEditorQueryWake,
   mobileEditorPrepareFiles,mobileEditorCleanupFiles,type EditorPresentation,type EditorProjection,type EditorRouteInput} from './composer-editor-runtime';

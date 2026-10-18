@@ -236,10 +236,34 @@ pub(in crate::presenter) fn symbol(
     rect: Rect4,
     color: [u8; 4],
 ) {
-    let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
+    // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
+    let Some(path) = exact_kernel::symbol_path(role) else {
         return;
     };
-    glyph(backend, d, filled, rect, color);
+    // A translucent colour once over all an icon's paths.
+    let group = path.d.contains(';') && color[3] < 255;
+    if group {
+        backend.push_opacity(f32::from(color[3]) / 255.0);
+    }
+    let paint = if group {
+        [color[0], color[1], color[2], 255]
+    } else {
+        color
+    };
+    for d in path.d.split(';') {
+        glyph_in(
+            backend,
+            d,
+            path.filled,
+            path.even_odd,
+            path.view_box,
+            rect,
+            paint,
+        );
+    }
+    if group {
+        backend.pop_opacity();
+    }
 }
 
 /// A 24-unit path in `rect`: stroked as a symbol role's is, or filled.
@@ -250,21 +274,35 @@ pub(in crate::presenter) fn glyph(
     rect: Rect4,
     color: [u8; 4],
 ) {
+    glyph_in(backend, d, filled, true, "0 0 24 24", rect, color);
+}
+
+/// A path in `rect` under its viewBox, stroked in a role's 24 units, or filled.
+fn glyph_in(
+    backend: &mut dyn Backend,
+    d: &str,
+    filled: bool,
+    even_odd: bool,
+    view_box: &str,
+    rect: Rect4,
+    color: [u8; 4],
+) {
+    let [_, _, bw, _] = crate::paint::view_box(view_box);
     let path = exact_kernel::svg::parse_d(d);
     let paint = SvgPaint {
         path: &path,
         fill: filled.then_some(Ink::Solid(color)),
-        even_odd: true,
+        even_odd,
         stroke: (!filled).then_some(Ink::Solid(color)),
         order: [0, 1, 2],
-        width: 1.1 + 300.0 / 400.0,
+        width: (1.1 + 300.0 / 400.0) * bw / 24.0,
         cap: 1,
         join: 1,
         miter: 4.0,
         dash: Vec::new(),
         phase: 0.0,
     };
-    let ts = Transform::from_translate(rect.0, rect.1).pre_scale(rect.2 / 24.0, rect.3 / 24.0);
+    let ts = crate::paint::fitted(view_box, rect);
     backend.svg_path(&paint, ts);
 }
 

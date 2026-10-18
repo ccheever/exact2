@@ -1,5 +1,5 @@
 // Clipboard boundary adapted from T3 Code365aa87982 contracts/composerContext (MIT, LICENSE-T3).
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { Json, Obj } from './shared/domain';
 
 type Decoder = (value: unknown) => Json;

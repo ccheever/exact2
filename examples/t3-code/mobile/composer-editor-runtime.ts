@@ -1,5 +1,5 @@
 // Inactive app-owned Thread rich editor runtime. No producer or root activation.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { mobileComposerMenuSelection } from './composer-command-selection';
 import { mobileThreadLocalUsageOpen } from './thread-send-local-commands';
 import type { EditorUsageCommand, EditorLocalClear, EditorCommandReceipt } from './composer-editor-owner';

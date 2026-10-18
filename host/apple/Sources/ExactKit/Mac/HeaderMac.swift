@@ -92,6 +92,8 @@ struct WindowHeader {
             for child in children(node) where child.style["display"]?.string != "none" {
                 if child === rule.heading { continue }
                 if child === rule.tap { return "its heading is inside a pressable (#\(child.id)), and a window's title is not pressed" }
+                // LLP 1075.003 §9.15: iOS's custom-view item; the toolbar makes none.
+                if rule.readouts.contains(where: { $0 === child }) { return "it holds a readout (#\(child.id), `role=\"status\"`), which the toolbar has no item for" }
                 if child === rule.search {
                     // A search input the author draws is theirs to draw: the bar's field is AppKit's.
                     if !child.lendsFieldToBar { return "its search field (#\(child.id)) is drawn by the app (`appearance: none`), and a toolbar's is AppKit's own" }
@@ -113,7 +115,7 @@ struct WindowHeader {
                     // that asks first opens the window's alert. Any other
                     // popover is placed against its button's box in the page,
                     // which a bar item does not have.
-                    if child.props["popovertarget"] != nil, child.props["popovertargetaction"] != "hide", !opensFromTheBar(child) {
+                    if child.presenter?.invocation(of: child)?.opensPopover == true, !opensFromTheBar(child) {
                         return "button #\(child.id) opens a popover that is neither a menu nor an alert, which is placed against the button's own box"
                     }
                     if !showable(child) { return "button #\(child.id) shows more than one symbol and its title, which is all a toolbar item shows" }
@@ -149,16 +151,15 @@ struct WindowHeader {
         return tabs.count >= 2 && tabs.allSatisfy(titled) ? tabs : nil
     }
 
-    /// Whether what a button's `popovertarget` opens needs no place in the
-    /// page: a button menu, which is the bar's menu item
-    /// (`MenuHost.toolbarPopover`), or a confirmation in the alert's shape,
-    /// which is a sheet on the window (AlertsMac.swift).
+    /// Whether the popover a button opens needs no place in the page: a
+    /// button menu, which is the bar's menu item (`MenuHost.toolbarPopover`),
+    /// or a confirmation in the alert's shape, which is a sheet on the window
+    /// (AlertsMac.swift).
     static func opensFromTheBar(_ button: NodeView) -> Bool {
         guard let presenter = button.presenter else { return false }
         if presenter.menus.toolbarPopover(of: button) != nil { return true }
-        guard let name = button.props["popovertarget"],
-              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return false }
-        return presenter.alerts.plan(of: pop) != nil
+        guard let invocation = presenter.invocation(of: button), invocation.opensPopover else { return false }
+        return presenter.alerts.plan(of: invocation.target, popover: true) != nil
     }
 
     /// Whether a toolbar item can show all of a button's face: a native
@@ -282,7 +283,7 @@ final class HeaderSearch {
 
     /// The bar lets the field go: its input edits in its page again.
     func release(keeping kept: NodeView? = nil) {
-        if let node, node !== kept { node.reclaimFieldFromBar() }
+        if let node, node !== kept { node.reclaimLentField() }
         (item, node) = (nil, nil)
     }
 

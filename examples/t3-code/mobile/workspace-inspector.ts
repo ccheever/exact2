@@ -1,4 +1,4 @@
-// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pinned365aa87982: AdaptiveWorkspaceLayout focus tokens, ThreadRouteScreen,
 // ThreadInspectorContentStack and workspace-inspector-pane. Root owns the clock,
 // route stack, preferences, actual data and native presentation.

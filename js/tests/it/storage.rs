@@ -145,6 +145,13 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
     assert!(
         text(m.query("work", &args("native", "bake")).unwrap()).contains("unavailable during bake")
     );
+    // The bake links no module: `native.call` throws storage's refusal, and a
+    // source that lets it through leaves its resource to launch (euxy port F1).
+    let src = "shape Result\n  text: string\ncomponent App\n  resource r = work(\"native-direct\", \"x\") as shape Result\n  view\n    text r.text\n";
+    let mut baking = Module::inspect(HBC.to_vec()).unwrap();
+    baking.set_budget_ms(f64::INFINITY);
+    let baked = contract::bake(contract::compile(src).unwrap(), baking).unwrap();
+    assert_eq!(baked.resources[0].initial.len, 0);
     m.activate_for_validation().unwrap();
     // Validation links no module, so the app is told so plainly: `native` is null.
     assert_eq!(
@@ -291,14 +298,20 @@ fn storage_refuses_during_bake_even_if_a_host_configured_it() {
         call(&mut unconfigured, &mut s, "bake", ""),
         "Unavailable:unsupported:storage is unsupported by this host"
     );
-    // A drive that names no scratch store: the web's refusal, word for word.
+    // A drive that names no scratch store reads an empty one (ENOENT), as the web's says it, word for word.
     let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
     agent.bind(&plan());
     agent.activate().unwrap();
-    assert_eq!(
-        call(&mut agent, &mut s, "bake", ""),
-        "Unavailable:agent:storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"
-    );
+    let read = call(&mut agent, &mut s, "bake", "");
+    assert!(read.starts_with("Unavailable:ENOENT:filesystem: no such file or directory: app:/"));
+    assert!(read.ends_with(
+        " (a drive that names no scratch store reads an empty one; --storage <name> names one)"
+    ));
+    // That caught refused read is journaled once, for the driver's note.
+    let said = |j: Vec<String>| j.iter().filter(|l| l.contains("refused (agent)")).count();
+    assert_eq!(said(DataSource::take_logs(&mut agent)), 1);
+    call(&mut agent, &mut s, "bake", "");
+    assert_eq!(said(DataSource::take_logs(&mut agent)), 0, "once a drive");
 }
 
 #[test]
@@ -1085,7 +1098,7 @@ fn storage_refusals_carry_a_stable_code() {
 /// A folder the person chose is reached from TypeScript as from Rust (LLP
 /// 1069.010 D1, files F2): the same `doc:` path, the same grants, the same
 /// executor, and with no app storage at all (a drive with no scratch store),
-/// where an `app:/` path is still refused as `agent`.
+/// where an `app:/` read finds an empty store, as a fresh install's does.
 #[test]
 fn a_document_the_person_chose_is_storage_without_app_directories() {
     let dir = Root::new();
@@ -1103,7 +1116,7 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     agent.activate().unwrap();
     assert_eq!(
         call(&mut agent, &mut s, "doc", &doc),
-        format!("{expected} Unavailable agent")
+        format!("{expected} Unavailable ENOENT")
     );
     let mut m = dir.module();
     m.set_document_owner(9101);

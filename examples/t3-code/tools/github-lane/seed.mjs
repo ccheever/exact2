@@ -77,9 +77,9 @@ export function scenarios({ second }) {
     { key: "second-review", author: "second", branch: "feature/input-validation", title: "Add input validation", body: "Adds a small validator.", from: "c7", files: { "src/validate.js": VALIDATE_V1 }, want: "open", conversation: "review", labels: ["needs-review"] },
     { key: "primary-review", branch: "docs/usage-headings", title: "Tidy the usage headings", body: "Renames two headings.", from: "c7", files: { "docs/usage.md": "# Usage\n\n## Installing\n\nCopy the files.\n\n## Using\n\nCall `greet`.\n" }, want: "open", conversation: "approved", statuses: ok },
     { key: "cross-repo", author: "second", fork: true, branch: "docs/contributing", title: "Add contributing notes", body: "How to send a change.", from: "c7", files: { "CONTRIBUTING.md": "# Contributing\n\nOpen a pull request from a fork.\n" }, want: "open" },
-    // pr-conversation-and-refresh: an approval the branch has moved on from (a stale verdict).
+    // An approval the branch has moved on from (a stale verdict).
     { key: "stale-approval", branch: "feature/trim-input", title: "Trim the input first", body: "Trims the input before checking it.", from: "c7", files: { "src/trim.js": "export const trim = (text) => text.trim();\n" }, want: "open", conversation: "stale-approval", statuses: ok },
-    // pr-writing-and-metadata: the pull requests its drives write to (comments, reviews, edits,
+    // The pull requests its drives write to (comments, reviews, edits,
     // reactions, reviewers, labels), one by each account, so the conversation seeds above stay as they are.
     { key: "writes-second", author: "second", branch: "feature/vowel-count", title: "Count the vowels in a line", body: "Adds a vowel counter.", from: "c7", files: { "src/vowels.js": "export const vowels = (text) => (text.match(/[aeiou]/gi) ?? []).length;\n" }, want: "open", statuses: ok },
     { key: "writes-primary", branch: "docs/vowel-count", title: "Describe the vowel counter", body: "Notes on counting vowels.", from: "c7", files: { "docs/vowels.md": "# Vowels\n\nCall `vowels` with a line of text.\n" }, want: "open", statuses: ok },
@@ -92,7 +92,7 @@ export function scenarios({ second }) {
   return list;
 }
 /**
- * pr-header-actions-and-stacks: pull requests a drive merges, readies, closes, updates and reverts, and a
+ * Pull requests a drive merges, readies, closes, updates and reverts, and a
  * three-layer GitHub stack; seeded only by name (`--only act-merge,…`), each run opening the next
  * generation of any the last drive used up.
  */
@@ -116,7 +116,7 @@ export const ACTION_STACK = ["act-stack-1", "act-stack-2", "act-stack-3"];
 /** A few bytes git reads as binary (a NUL in the first 8000). */
 export const BINARY = "\u0089PNG\r\n\u001a\n\u0000\u0000\u0000\rIHDR\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0001\b\u0006\u0000\u0000\u0000\u001f\u0015\u00c4\u0089";
 /**
- * pr-code-tab: a change read a slice at a time (310 files, past GitHub's 300-file `pr diff`), over 14
+ * A change read a slice at a time (310 files, past GitHub's 300-file `pr diff`), over 14
  * commits, with a rename, a binary file, and a review on lines of a file main already has. Seeded only by
  * name (`--only code-tab`): a drive ticks its files viewed and pushes to it.
  */
@@ -145,7 +145,7 @@ export function codeScenarios() {
   return [{ key: "code-tab", branch: "feature/catalog", title: "Build the catalog", body: "Adds the catalog entries, its module and its notes.", from: "c7", history, files, want: "open", statuses: ok, conversation: "code-review" }];
 }
 export const LABELS = [["area:ui", "1d76db", "Interface"], ["needs-review", "fbca04", "Waiting for a reviewer"], ["priority:high", "b60205", "Do this first"], ["chore", "c5def5", "Housekeeping"],
-  // A name with a space and a slash (pr-writing-and-metadata: `DELETE …/labels/<encoded>`).
+  // A name with a space and a slash (`DELETE …/labels/<encoded>`).
   ["area/docs and help", "0e8a16", "Pages people read"]];
 export const BULK = 105;
 export const bulkBranch = (n) => `chore/note-${String(n).padStart(3, "0")}`;
@@ -367,7 +367,7 @@ export class Seed {
     const extra = generation > 1 ? { [`notes/${spec.key}-${generation}.txt`]: `round ${generation}\n` } : {};
     const parent = spec.after ? this.heads[spec.after]?.sha : this.base[spec.from];
     if (!parent) { this.report.unavailable[spec.key] = `no ${spec.after} to build on`; return null; }
-    // A scenario with a `history` is its commits in order (pr-code-tab); the rest are one commit.
+    // A scenario with a `history` is its commits in order; the rest are one commit.
     const steps = spec.history ?? [[spec.title, spec.files]];
     let head = parent;
     steps.forEach(([message, changed], index) => {
@@ -455,7 +455,7 @@ export class Seed {
   }
 
   /**
-   * pr-code-tab: the second account's review on lines of docs/usage.md (a file main already has, so the
+   * The second account's review on lines of docs/usage.md (a file main already has, so the
    * change has old lines too): one on the new line 5, left open, and one on the old line 5, resolved.
    */
   async codeReviewConversation(pr) {

@@ -263,7 +263,7 @@ fn run_plan<D: DataSource>(
     let (cols, rows) = size
         .or_else(|| interactive.then(crate::term::size).flatten())
         .unwrap_or((80, 24));
-    let mut host = match Host::boot(plan, data, mode, cols, rows) {
+    let mut host = match Host::boot_with_clock(plan, data, mode, cols, rows, interactive) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("boot: {e}");
@@ -289,6 +289,7 @@ fn run_plan<D: DataSource>(
     let flag = woken.clone();
     host.listen(Arc::new(move || flag.store(true, Ordering::SeqCst)));
     let start = Instant::now();
+    host.live_from(start);
     let pump = |host: &mut Host<D>, vt: &mut crate::vt::Vt| {
         if woken.swap(false, Ordering::SeqCst) {
             host.announced();

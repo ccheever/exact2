@@ -6,8 +6,8 @@ import UniformTypeIdentifiers
 import WebKit
 import XCTest
 
-// Task media-actions: T3MediaActions.swift (the media menu, Save, Copy image, Copy path) against a
-// loopback server, and the rendered HTML preview's external hosts (R6MediaPreview.swift). Every
+// T3MediaActions.swift (the media menu, Save, Copy image, Copy path) against a
+// loopback server, and the rendered HTML preview's external hosts (T3MediaPreview.swift). Every
 // pasteboard write goes to the agent's private pasteboard; saves go to a temporary exports/.
 // `T3_MEDIA_ACTIONS_NETWORK=1` adds the public https host (needs the network).
 
@@ -202,7 +202,7 @@ final class MediaActionsTests: XCTestCase {
     func testRenderedHtmlLoadsExternalAssets() throws {
         _ = NSApplication.shared
         let other = try Fixture()
-        let media = R6MediaPreview(agent: true)
+        let media = T3MediaPreview(agent: true)
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 520, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
         let host = NSView(frame: window.contentView!.bounds)
         window.contentView!.addSubview(host)
@@ -256,7 +256,7 @@ _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
 let suite = XCTestSuite(name: "media-actions")
 suite.addTest(XCTestSuite(forTestCaseClass: MediaActionsTests.self))
-suite.addTest(XCTestSuite(forTestCaseClass: MediaFocusTests.self)) // chat-markdown-media-and-code (focus.swift)
+suite.addTest(XCTestSuite(forTestCaseClass: MediaFocusTests.self))
 suite.run()
 let outcome = suite.testRun!
 print("Executed \(outcome.executionCount) tests, with \(outcome.totalFailureCount) failures")

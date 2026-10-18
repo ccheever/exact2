@@ -6,82 +6,90 @@ use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node};
 
 impl Lowerer<'_> {
-    /// A node's class rows as attributes, with a label for the source map:
-    /// a named style's rows as declared; a choice's as one `cond ? A's : B's`
-    /// per row either style sets, where a row only one side sets is `none`
-    /// on the other — an explicit unset the runner clears to the kernel's
-    /// default. Rows the node itself sets are left out.
+    /// A node's class rows as attributes ([`rows`]), from this file's styles.
     pub(crate) fn class_rows(
         &self,
         attrs: &[Attr],
     ) -> Result<Option<(String, Vec<Attr>)>, LowerError> {
-        let Some(c) = attrs.iter().find(|a| a.name == "class") else {
-            return Ok(None);
-        };
-        let own = |name: &str| attrs.iter().any(|a| a.name == name);
-        let style = |name: &str, span| {
-            self.styles.get(name).ok_or_else(|| LowerError {
-                id: "lower-unknown-class",
-                message: format!("`class={name}`: no `style {name}` in this file"),
-                span,
-            })
-        };
-        match &c.value {
-            Expr::Ident(name, _) => {
-                let rows = style(name, c.span)?
-                    .iter()
-                    .filter(|s| !own(&s.name))
-                    .cloned()
-                    .collect();
-                Ok(Some((name.clone(), rows)))
-            }
-            Expr::Ternary(cond, yes, no, span) => {
-                let (Expr::Ident(a, _), Expr::Ident(b, _)) = (&**yes, &**no) else {
-                    return err(
-                        "lower-class-name",
-                        "`class=(cond ? A : B)` chooses between two styles by name",
-                        c.span,
-                    );
-                };
-                let (sa, sb) = (style(a, yes.span())?, style(b, no.span())?);
-                let mut rows: Vec<Attr> = Vec::new();
-                for s in sa.iter().chain(sb) {
-                    if own(&s.name) || rows.iter().any(|r| r.name == s.name) {
-                        continue;
-                    }
-                    let side = |style: &[Attr]| {
-                        style
-                            .iter()
-                            .find(|r| r.name == s.name)
-                            .map_or(Expr::None(*span), |r| r.value.clone())
-                    };
-                    let (va, vb) = (side(sa), side(sb));
-                    // @ref LLP 1069.011 D12 — a prop has no `none` to fall to.
-                    let styleable = matches!(crate::tags::attr(&s.name), Some(crate::tags::AttrTarget::Prop(p)) if p.styleable());
-                    if styleable && (matches!(va, Expr::None(_)) || matches!(vb, Expr::None(_))) {
-                        return err(
-                            "lower-style-prop",
-                            format!("`class=(cond ? {a} : {b})`: `{}` is set by one style and not the other; set it in both or neither", s.name),
-                            s.span,
-                        );
-                    }
-                    // The same literal on both sides is that literal: what lets
-                    // a shared `font-family` be chosen.
-                    let value = match (&va, &vb) {
-                        (Expr::Str(x, _), Expr::Str(y, _)) if x == y => va.clone(),
-                        (Expr::Number(x, _), Expr::Number(y, _)) if x == y => va.clone(),
-                        _ => Expr::Ternary(cond.clone(), Box::new(va), Box::new(vb), *span),
-                    };
-                    rows.push(Attr { value, ..s.clone() });
-                }
-                Ok(Some((format!("{a}/{b}"), rows)))
-            }
-            _ => err(
-                "lower-class-name",
-                "`class=` names a style declared with `style Name`, or chooses between two: `class=(cond ? A : B)`",
-                c.span,
-            ),
+        rows(attrs, &|name| self.styles.get(name).map(Vec::as_slice))
+    }
+}
+
+/// A node's class rows as attributes, with a label for the source map: a
+/// named style's rows as declared; a choice's as one `cond ? A's : B's` per
+/// row either style sets, where a row only one side sets is `none` on the
+/// other — an explicit unset the runner clears to the kernel's default. Rows
+/// the node itself sets are left out. `style` finds a style's rows by name.
+pub(crate) fn rows<'s>(
+    attrs: &[Attr],
+    style: &dyn Fn(&str) -> Option<&'s [Attr]>,
+) -> Result<Option<(String, Vec<Attr>)>, LowerError> {
+    let Some(c) = attrs.iter().find(|a| a.name == "class") else {
+        return Ok(None);
+    };
+    let own = |name: &str| attrs.iter().any(|a| a.name == name);
+    let style = |name: &str, span| -> Result<&'s [Attr], LowerError> {
+        style(name).ok_or_else(|| LowerError {
+            id: "lower-unknown-class",
+            message: format!("`class={name}`: no `style {name}` in this file"),
+            span,
+        })
+    };
+    match &c.value {
+        Expr::Ident(name, _) => {
+            let rows = style(name, c.span)?
+                .iter()
+                .filter(|s| !own(&s.name))
+                .cloned()
+                .collect();
+            Ok(Some((name.clone(), rows)))
         }
+        Expr::Ternary(cond, yes, no, span) => {
+            let (Expr::Ident(a, _), Expr::Ident(b, _)) = (&**yes, &**no) else {
+                return err(
+                    "lower-class-name",
+                    "`class=(cond ? A : B)` chooses between two styles by name",
+                    c.span,
+                );
+            };
+            let (sa, sb) = (style(a, yes.span())?, style(b, no.span())?);
+            let mut rows: Vec<Attr> = Vec::new();
+            for s in sa.iter().chain(sb) {
+                if own(&s.name) || rows.iter().any(|r| r.name == s.name) {
+                    continue;
+                }
+                let side = |style: &[Attr]| {
+                    style
+                        .iter()
+                        .find(|r| r.name == s.name)
+                        .map_or(Expr::None(*span), |r| r.value.clone())
+                };
+                let (va, vb) = (side(sa), side(sb));
+                // @ref LLP 1069.011 D12 — a prop has no `none` to fall to.
+                let styleable = matches!(crate::tags::attr(&s.name), Some(crate::tags::AttrTarget::Prop(p)) if p.styleable());
+                if styleable && (matches!(va, Expr::None(_)) || matches!(vb, Expr::None(_))) {
+                    return err(
+                        "lower-style-prop",
+                        format!("`class=(cond ? {a} : {b})`: `{}` is set by one style and not the other; set it in both or neither", s.name),
+                        s.span,
+                    );
+                }
+                // The same literal on both sides is that literal: what lets
+                // a shared `font-family` be chosen.
+                let value = match (&va, &vb) {
+                    (Expr::Str(x, _), Expr::Str(y, _)) if x == y => va.clone(),
+                    (Expr::Number(x, _), Expr::Number(y, _)) if x == y => va.clone(),
+                    _ => Expr::Ternary(cond.clone(), Box::new(va), Box::new(vb), *span),
+                };
+                rows.push(Attr { value, ..s.clone() });
+            }
+            Ok(Some((format!("{a}/{b}"), rows)))
+        }
+        _ => err(
+            "lower-class-name",
+            "`class=` names a style declared with `style Name`, or chooses between two: `class=(cond ? A : B)`",
+            c.span,
+        ),
     }
 }
 

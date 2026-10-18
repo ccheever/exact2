@@ -1,4 +1,4 @@
-// @ref llp/1109.000-mobile-app-layout.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#decision
 // Viewer sources stay authored/vendor inputs. IIFE assets are generated before capture.
 const VIEWERS: &str = r#"
 import { rolldown } from 'rolldown';
@@ -6,6 +6,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 const app = resolve(process.argv[1]);
+const generated = Bun.spawnSync([process.execPath, resolve(app, '../tools/generate/generate.mjs')], {stdout:'inherit', stderr:'inherit'});
+if (generated.exitCode !== 0) throw Error('Generate pinned app sources before the mobile bake');
 const source = resolve(app, 'browser-mobile-renderer');
 const assets = resolve(app, 'assets/browser-mobile');
 try { await readFile(resolve(source, 'node_modules/effect/package.json')); }

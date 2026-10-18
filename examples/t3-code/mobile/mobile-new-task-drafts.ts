@@ -1,7 +1,7 @@
 import { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 import { mobileDraftAttachmentIds, mobileDraftAttachmentForget } from './draft-attachment-order';
 // App-owned foreground drafts; source365aa87982 use-composer-drafts/new-task-flow-provider.
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
 import { branchState } from './shared/r4-git-branch';
 import { obj, str, type Obj } from './shared/domain';

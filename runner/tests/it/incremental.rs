@@ -231,18 +231,55 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
     })
 }
 
-/// Everything observable after one step, for comparison across modes, and
-/// the tickets of the requests it handed out.
-fn observe<D: DataSource>(r: &mut Runner<D>) -> (String, Vec<u64>) {
+/// Everything observable after one step, for comparison across modes: the
+/// kernel's export as bytes, compared without printing them, and the rest as
+/// text.
+#[derive(Debug, PartialEq)]
+struct Seen {
+    kernel: Result<Vec<u8>, String>,
+    rest: String,
+}
+
+impl Seen {
+    /// Where two observations first differ
+    fn divergence(&self, other: &Seen) -> String {
+        if self.kernel != other.kernel {
+            return match (&self.kernel, &other.kernel) {
+                (Ok(a), Ok(b)) => {
+                    let at = a.iter().zip(b).position(|(x, y)| x != y);
+                    format!(
+                        "kernel exports differ at byte {} (lengths {} and {})",
+                        at.unwrap_or(a.len().min(b.len())),
+                        a.len(),
+                        b.len()
+                    )
+                }
+                (a, b) => format!("full:        kernel {a:?}\nincremental: kernel {b:?}")
+                    .chars()
+                    .take(4000)
+                    .collect(),
+            };
+        }
+        self.rest
+            .lines()
+            .zip(other.rest.lines())
+            .find(|(a, b)| a != b)
+            .map(|(a, b)| format!("full:        {}\nincremental: {}", clip(a), clip(b)))
+            .unwrap_or_default()
+    }
+}
+
+/// What one step left observable, and the tickets of the requests it
+/// handed out.
+fn observe<D: DataSource>(r: &mut Runner<D>) -> (Seen, Vec<u64>) {
     let requests = r.take_requests();
     let tickets = requests.iter().map(|q| q.ticket).collect();
     // Revisions, epochs and measurements included: protocol state is the
     // same in both modes (re-measuring follows inputs that actually changed).
     let collections = r.collections();
-    let seen = format!(
-        "poisoned {}\nkernel {:?}\ncarry {:?}\ncommands {:?}\nrequests {:?}\nsurfaces {:?}\nrouter {:?}\nstore {:?}\ncollections {:?}\njournal {:?}",
+    let rest = format!(
+        "poisoned {}\ncarry {:?}\ncommands {:?}\nrequests {:?}\nsurfaces {:?}\nrouter {:?}\nstore {:?}\ncollections {:?}\njournal {:?}",
         r.is_poisoned(),
-        r.kernel().export(None),
         r.carry(),
         r.take_commands(),
         requests,
@@ -252,7 +289,8 @@ fn observe<D: DataSource>(r: &mut Runner<D>) -> (String, Vec<u64>) {
         collections,
         r.journal().collect::<Vec<_>>(),
     );
-    (seen, tickets)
+    let kernel = r.kernel().export(None).map_err(|e| format!("{e:?}"));
+    (Seen { kernel, rest }, tickets)
 }
 
 fn outcome(result: Result<exact_kernel::CommitReceipt, RunnerError>) -> String {
@@ -399,7 +437,13 @@ fn reorder(full: &mut Runner<Fake>, incremental: &mut Runner<Fake>, y: f64) -> (
 fn lockstep(app: &str, plan: &Plan, seed: u64, steps: usize, deferred: bool) -> usize {
     let mut full = boot(plan, true, deferred);
     let mut incremental = boot(plan, false, deferred);
-    assert_eq!(observe(&mut full), observe(&mut incremental), "{app}: boot");
+    let (seen, handed) = observe(&mut full);
+    let (other, others) = observe(&mut incremental);
+    assert!(
+        (&seen, &handed) == (&other, &others),
+        "{app}: boot diverged (tickets {handed:?} and {others:?}):\n{}",
+        seen.divergence(&other)
+    );
     let mut rng = Rng(seed);
     let mut tickets: Vec<u64> = Vec::new();
     let mut reports: Vec<CollectionFeedback> = Vec::new();
@@ -485,15 +529,10 @@ fn lockstep(app: &str, plan: &Plan, seed: u64, steps: usize, deferred: bool) -> 
         tickets.extend(handed);
         let (other, _) = observe(&mut incremental);
         if seen != other {
-            let diff = seen
-                .lines()
-                .zip(other.lines())
-                .find(|(a, b)| a != b)
-                .map(|(a, b)| format!("full:        {}\nincremental: {}", clip(a), clip(b)));
             panic!(
                 "{app} step {step} ({}) diverged:\n{}",
                 clip(&what),
-                diff.unwrap_or_default()
+                seen.divergence(&other)
             );
         }
         assert!(

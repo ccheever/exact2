@@ -1,5 +1,5 @@
 // Source365aa87982 revision behavior plus app-owned native mount admission.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { expect, test } from 'bun:test';
 import * as editor from './composer-editor-state';
 const at = (end:number) => ({start:end,end});

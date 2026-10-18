@@ -104,6 +104,12 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        "time" => Tag {
+            node_type: NodeType::Text,
+            fixed_styles: &[],
+            fixed_props: &[(PropId::SemanticTag, "time")],
+            positional: None,
+        },
         "text" => Tag {
             node_type: NodeType::Text,
             fixed_styles: &[],
@@ -364,6 +370,8 @@ pub fn prop_ty(prop: PropId) -> PropTy {
 }
 /// Whether an attribute sets style rows.
 pub fn style(name: &str) -> bool {
+    // A state part's row (`:disabled opacity`, LLP 1121 D8) is the row it is.
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     matches!(
         attr(name),
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
@@ -386,6 +394,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         return Some(target);
     }
     Some(match name {
+        "datetime" => AttrTarget::Prop(PropId::Datetime),
+        "format" => AttrTarget::Prop(PropId::TimeFormat),
+        "start" => AttrTarget::Prop(PropId::Start),
+        "end" => AttrTarget::Prop(PropId::End),
         // handlers (the web's events, LLP 1005 §3)
         "loadedmetadata" => AttrTarget::Handler("loadedmetadata"),
         "durationchange" => AttrTarget::Handler("durationchange"),
@@ -458,6 +470,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // DOM's `beforeunload` (studio diary R17): the window is closing or
         // the app quitting; an action that calls `preventDefault()` keeps it.
         "beforeunload" => AttrTarget::Handler("beforeunload"),
+        // @ref LLP 1125 D8 — `MIDIInput`'s event: every mounted element that
+        // declares it hears each message from an input its `midiinputs` lists.
+        "midimessage" => AttrTarget::Handler("midimessage"),
+        "midiinputs" => AttrTarget::Prop(p("midiInputs")),
         // DOM's `wheel` (studio diary R3) and `drop` of files (R19).
         "wheel" => AttrTarget::Handler("wheel"),
         "drop" => AttrTarget::Handler("drop"),
@@ -539,6 +555,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
+        "navigationInitialDetent" => AttrTarget::Prop(p("navigationInitialDetent")),
+        "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
+        // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
+        "wakelock" => AttrTarget::Prop(p("wakelock")),
         // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
         "navigationBar" => AttrTarget::Prop(p("navigationBar")),
@@ -565,6 +585,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
         "aria-busy" => AttrTarget::Prop(p("accessibilityBusy")),
+        "aria-atomic" => AttrTarget::Prop(p("accessibilityAtomic")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
@@ -818,7 +839,12 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
-        "fit" | "objectFit" => "object-fit",
+        "fit" | "objectFit" | "resizeMode" => "object-fit",
+        // React Native's names for CSS's text rows.
+        "numberOfLines" => "line-clamp",
+        "ellipsizeMode" => "text-overflow",
+        "textTransform" => "text-transform",
+        "fontVariant" => "font-variant-numeric",
         // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
         "adjustsFontSizeToFitWidth"
         | "adjustsFontSizeToFit"
@@ -838,9 +864,16 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "statusBarStyle" | "barStyle" | "StatusBar" => "status-bar-style",
+        // Android's view attribute, UIKit's idle timer, Expo's hook (LLP 1125 D11).
+        "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
+            "wakelock"
+        }
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
+        // Web MIDI's handler properties (LLP 1125 D8).
+        "onMIDIMessage" | "onmidimessage" | "midiMessage" => "midimessage",
+        "midiInputs" | "midi-inputs" => "midiinputs",
         // LLP 1081 D2: the names Exact invents are spelled `-exact-`.
         "tint-color" => "-exact-tint-color",
         "exit-animation" => "-exact-exit-animation",
@@ -851,6 +884,11 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "symbol-value" => "-exact-symbol-value",
         "symbol-effect" => "-exact-symbol-effect",
         "press-haptic" => "-exact-press-haptic",
+        // LLP 1061 D7: the pressed paint, and React Native's
+        // `TouchableOpacity`/`TouchableHighlight` props that set it.
+        "press-opacity" | "activeOpacity" => "-exact-press-opacity",
+        "press-background-color" | "underlayColor" => "-exact-press-background-color",
+        "press-color" => "-exact-press-color",
         "content-transition" => "-exact-content-transition",
         "scroll-edge-effect" => "-exact-scroll-edge-effect",
         "hover-effect" => "-exact-hover-effect",
@@ -951,6 +989,8 @@ pub const HEAD_FIELDS: &[&str] = &[
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
     similar(name, |candidate| match attr(candidate) {
+        // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+        _ if candidate == crate::states::PRESS_OPACITY_TO => false,
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
         Some(_) => !style_only,
         None => false,
@@ -969,9 +1009,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "label" => {
             "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
         }
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "heading" => {
-            "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
-        }
+        "heading" => "a heading is `h1` (to `h6` for the level)",
         // The app farm's guesses (round 1): each names the Contract form
         // that does the job.
         "small" | "code" | "pre" | "paragraph" | "subtitle" => {
@@ -1147,8 +1185,7 @@ pub(crate) fn host_transform_recipients(
                     let maybe_absolute =
                         absolute || position.is_some_and(|a| !matches!(&a.value, Expr::Str(_, _)));
                     let scrolls = tag(name).is_some_and(|t| t.node_type.scrolls_by_default())
-                        || rows.iter().any(|a| matches!(a.name.as_str(), "overflow" | "overflow-y")
-                            && !matches!(&a.value, Expr::Str(v, _) if v != "auto" && v != "scroll"));
+                        || crate::overflow::Overflow::of(&rows, "visible").may_scroll_y();
                     let index = boxes.len();
                     boxes.push(BoxSite {
                         key: (*span, *instance),
@@ -1234,6 +1271,44 @@ pub(crate) fn host_transform_recipients(
     recipients
 }
 
+/// @ref LLP 1116.019 D6 — a `color` the author wrote on a symbol `image`
+/// (or its class) is the symbol's colour, as an inline SVG icon drawn in
+/// `currentcolor` follows `color` on the web: the row this returns,
+/// `-exact-tint-color: currentcolor`, said as the `color` was. `None` where
+/// the image names its `-exact-tint-color`, writes no `color`, or is no
+/// symbol (a raster given a tint paints as a silhouette). `rows` are the
+/// author's, its classes' included, without the sheet's.
+pub(crate) fn symbol_ink(
+    tag: &str,
+    positional: &[contract_syntax::Expr],
+    rows: &[contract_syntax::Attr],
+) -> Option<contract_syntax::Attr> {
+    use contract_syntax::{Expr, TemplatePart};
+    fn symbol(source: &Expr) -> bool {
+        match source {
+            Expr::Str(s, _) => s.starts_with("symbol:"),
+            Expr::Template(parts, _) => {
+                matches!(parts.first(), Some(TemplatePart::Text(t)) if t.starts_with("symbol:"))
+            }
+            Expr::Ternary(_, a, b, _) => symbol(a) && symbol(b),
+            _ => false,
+        }
+    }
+    if tag != "image" || !positional.first().is_some_and(symbol) {
+        return None;
+    }
+    if rows.iter().any(|a| a.name == "-exact-tint-color") {
+        return None;
+    }
+    let color = rows.iter().rev().find(|a| a.name == "color")?;
+    Some(contract_syntax::Attr {
+        name: "-exact-tint-color".into(),
+        value: Expr::Str("currentcolor".into(), color.span),
+        span: color.span,
+        written: color.written,
+    })
+}
+
 /// How an element is a flex or grid container, if it is: its tag, or a
 /// literal `display` (LLP 1093 §1).
 pub(crate) fn flex_container<'a>(tag: &'a str, attrs: &[contract_syntax::Attr]) -> Option<&'a str> {
@@ -1306,6 +1381,31 @@ impl crate::Lowerer<'_> {
         locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) {
+        use contract_syntax::Expr;
+        let Some(chosen) = self.link_colour(tag, parent_tag, attrs, children) else {
+            return;
+        };
+        let link = match &chosen {
+            Expr::Str(word, _) if word == "LinkText" => self.fixed(true, "LinkText"),
+            // A value the attribute's own lowering refuses is said there.
+            _ => match self.expr_code(&chosen, scope, locals) {
+                Ok(code) => code,
+                Err(_) => return,
+            },
+        };
+        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
+    }
+
+    /// The colour a link's text takes when its author writes none: `LinkText`,
+    /// or `inherit` where its computed target is empty; `None` for a node that
+    /// is no link's text (a state part's base, LLP 1121 D8, reads it too).
+    pub(crate) fn link_colour(
+        &self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
+    ) -> Option<contract_syntax::Expr> {
         use contract_syntax::{BinOp, Expr, Node, TemplatePart};
         // Texts and images alone, an `if` or a `for` of them included.
         fn words(node: &Node) -> bool {
@@ -1328,114 +1428,31 @@ impl crate::Lowerer<'_> {
             && !children.is_empty()
             && children.iter().all(words);
         if !(run || block) {
-            return;
+            return None;
         }
-        let link = match href.map(|a| &a.value) {
-            Some(Expr::Str(to, _)) if to.is_empty() => return,
+        let span = href.map_or(contract_syntax::Span::default(), |a| a.value.span());
+        let word = |w: &str| Expr::Str(w.into(), span);
+        Some(match href.map(|a| &a.value) {
+            Some(Expr::Str(to, _)) if to.is_empty() => return None,
             // A written target, a template with words of its own, or a
             // block `link` that is its `press`: a link whatever happens.
-            None | Some(Expr::Str(..)) => self.fixed(true, "LinkText"),
+            None | Some(Expr::Str(..)) => word("LinkText"),
             Some(Expr::Template(parts, _))
                 if parts
                     .iter()
                     .any(|p| matches!(p, TemplatePart::Text(t) if !t.is_empty())) =>
             {
-                self.fixed(true, "LinkText")
+                word("LinkText")
             }
             Some(to) => {
-                let span = to.span();
-                let word = |w: &str| Box::new(Expr::Str(w.into(), span));
-                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), word(""), span);
-                let chosen =
-                    Expr::Ternary(Box::new(empty), word("inherit"), word("LinkText"), span);
-                // A value the attribute's own lowering refuses is said there.
-                let Ok(code) = self.expr_code(&chosen, scope, locals) else {
-                    return;
-                };
-                code
+                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), Box::new(word("")), span);
+                Expr::Ternary(
+                    Box::new(empty),
+                    Box::new(word("inherit")),
+                    Box::new(word("LinkText")),
+                    span,
+                )
             }
-        };
-        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
-    }
-
-    /// @ref LLP 1115 D3 — a heading is the platform's text style for its
-    /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
-    /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
-    /// style's size for the root font size and its emphasized weight (LLP
-    /// 1116 D7): bold for a title, whose own weight is regular, as Apple's
-    /// emphasized title styles and the web's headings are; `headline`'s own
-    /// semibold. A level chosen
-    /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
-    /// styles; any other computed level is 2's. Pushed before the author's
-    /// rows, so a written `font-size` or `font-weight` wins; an inherited one
-    /// is unsaid and does not.
-    pub(crate) fn heading_style(
-        &mut self,
-        tag: &str,
-        attrs: &[contract_syntax::Attr],
-        scope: &crate::Scope,
-        locals: u16,
-        bindings: &mut Vec<BindingsRow>,
-    ) -> Result<(), crate::LowerError> {
-        use contract_syntax::Expr;
-        let heading = attrs
-            .iter()
-            .any(|a| a.name == "role" && matches!(&a.value, Expr::Str(v, _) if v == "heading"));
-        if tag != "text" || !heading {
-            return Ok(());
-        }
-        let style = |level: f64| {
-            let name = match level {
-                1.0 => "title1",
-                3.0 => "title3",
-                n if n >= 4.0 => "headline",
-                _ => "title2",
-            };
-            let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
-            let weight =
-                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight;
-            (name, if weight == 400 { 700 } else { weight })
-        };
-        // The level's literal leaves, each mapped; `None` when one is computed.
-        fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {
-            Some(match e {
-                Expr::Number(n, _) => f(*n),
-                Expr::Str(v, _) => f(v.trim().parse().ok()?),
-                Expr::Ternary(c, yes, no, span) => Expr::Ternary(
-                    c.clone(),
-                    Box::new(leaves(yes, f)?),
-                    Box::new(leaves(no, f)?),
-                    *span,
-                ),
-                _ => return None,
-            })
-        }
-        let level = attrs
-            .iter()
-            .find(|a| a.name == "aria-level")
-            .map(|a| &a.value);
-        if level.is_none() {
-            // ARIA's default level, said: a host that reads the level (iOS's
-            // header-shaped route takes only a heading with one) sees 2.
-            let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
-            let level = p("accessibilityHeadingLevel");
-            bindings.push(crate::prop_row(level, expr, crate::IMPLIED));
-        }
-        let span = level.map_or_else(Default::default, |l| l.span());
-        let two = Expr::Number(2.0, span);
-        let level = level
-            .filter(|l| leaves(l, &|_| two.clone()).is_some())
-            .unwrap_or(&two);
-        let size = leaves(level, &|n| {
-            Expr::Str(format!("-exact-{}", style(n).0), span)
         })
-        .expect("literal leaves");
-        let weight =
-            leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
-        for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
-            let expr = self.expr_code(&value, scope, locals)?;
-            bindings.push(crate::style_row(row, expr, crate::IMPLIED));
-        }
-        Ok(())
     }
 }

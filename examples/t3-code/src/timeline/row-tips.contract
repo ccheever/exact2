@@ -1,0 +1,57 @@
+// Tooltips inside a hover-revealed transcript row.
+// Natively one view is hovered at a time: a Tip's own hover box inside the row
+// takes the hover from the row, so the row's actions (opacity 0 until the row is
+// hovered) hid the very tooltip being opened. RowTip reports its hover to the
+// row's owner (the chat column's row and part keys) instead of keeping its own,
+// so the row stays revealed while one of its tooltips is open.
+use TipBubble from "../shell/shell-tip.contract"
+
+component RowTip
+  inject
+    tipEpoch: number
+    tipArm: action
+  props
+    label: string
+    side: string
+    align: string
+    offset: number
+    shown: bool
+    hover: action
+  slot
+  // TooltipScrollDismissArea (shell-tip.contract TimelineTip): the transcript's scroll closes it until the pointer moves.
+  state seen = tipEpoch
+  state focused = false
+  action hovered(over: bool)
+    hover(over)
+    if over
+      tipArm()
+      seen = tipEpoch
+  action moved
+    tipArm()
+    seen = tipEpoch
+  action focusEntered(e: FocusEvent)
+    focused = true
+  action focusLeft(e: FocusEvent)
+    focused = false
+    seen = tipEpoch
+  view
+    box position="relative" hover=hovered pointermove=moved focusin=focusEntered focusout=focusLeft flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+      children
+      if label != ""
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(shown and (focused or seen == tipEpoch)))
+
+// RowTip outside the transcript (the composer's Interrupt and Resume): no scroll closes it.
+component StillRowTip
+  props
+    label: string
+    side: string
+    align: string
+    offset: number
+    shown: bool
+    hover: action
+  slot
+  view
+    box position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+      children
+      if label != ""
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=shown)

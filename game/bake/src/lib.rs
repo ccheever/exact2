@@ -9,6 +9,7 @@ pub use files::{bake_game_level, check_size};
 mod sound;
 pub use sound::sound;
 mod textures;
+mod toon;
 
 /// Import a model into plain Data, refusing unsupported features by name.
 pub fn model(path: impl AsRef<Path>) -> Result<Model, String> {
@@ -132,10 +133,20 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
         }
         let mut parts: Vec<MeshData> = Vec::new();
         for primitive in mesh.primitives() {
-            let data = geometry::primitive(&primitive, &buffers, model.materials.len() as u32 - 1)?;
+            let data = geometry::primitive(&primitive, &buffers, model.materials.len() as u32 - 1)
+                .map_err(|e| {
+                    format!(
+                        "{}: mesh {} ({:?}), primitive {}: {e}",
+                        path.display(),
+                        mesh.index(),
+                        mesh.name(),
+                        primitive.index()
+                    )
+                })?;
             // Merge only primitives with identical material and vertex attribute presence.
             if let Some(old) = parts.iter_mut().find(|m| {
                 m.material == data.material
+                    && toon::same_outline(m.outline.as_ref(), data.outline.as_ref())
                     && m.joints.is_empty() == data.joints.is_empty()
                     && m.weights.is_empty() == data.weights.is_empty()
             }) {
@@ -155,6 +166,12 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
         .filter(|n| reached.contains(&n.index()))
         .map(|n| Node {
             name: n.name().unwrap_or("").into(),
+            posable: n
+                .extras()
+                .as_ref()
+                .and_then(|e| serde_json::from_str::<serde_json::Value>(e.get()).ok())
+                .and_then(|e| e.get("posable").and_then(|v| v.as_bool()))
+                .unwrap_or(false),
             transform: n
                 .transform()
                 .matrix()
@@ -307,6 +324,12 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
             return Err("metersPerUnit must be a positive finite number".into());
         }
         for mesh in &mut model.meshes {
+            if let Some(o) = &mut mesh.outline {
+                o.width *= scale;
+                for r in &mut o.reach {
+                    *r *= scale;
+                }
+            }
             for value in &mut mesh.positions {
                 *value *= scale;
             }

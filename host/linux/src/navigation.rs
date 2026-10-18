@@ -1,4 +1,5 @@
 //! @ref LLP 1038 D6 — the browser's route visibility rule, without a view mirror.
+use exact_kernel::invocation::Action;
 use exact_kernel::{Kernel, PropId, ViewId};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,14 +22,21 @@ pub(crate) fn popover_invoker(kernel: &Kernel, id: ViewId) -> bool {
             || exact_kernel::ControlKind::of(node.node_type, node.props)
                 == Some(exact_kernel::ControlKind::Button)
         {
-            return node
-                .props
-                .str(PropId::Popovertarget)
-                .is_some_and(|target| !target.is_empty());
+            return invocation(kernel, id).is_some_and(|action| !dialog_command(action));
         }
         at = node.parent;
     }
     false
+}
+
+/// What the button `id` invokes, as HTML resolves it.
+fn invocation(kernel: &Kernel, id: ViewId) -> Option<Action> {
+    let node = kernel.node(id)?;
+    exact_kernel::Invocation::of(kernel, &node).map(|i| i.action)
+}
+
+fn dialog_command(action: Action) -> bool {
+    matches!(action, Action::ShowModal | Action::Close)
 }
 
 /// LLP 1035.001 D1, when the root's key matches no route: the stack is left
@@ -153,10 +161,8 @@ impl Navigation {
         }
         match dialog {
             false => popover_invoker(kernel, view).then_some(POPOVER_UNSUPPORTED),
-            true => kernel
-                .node(view)
-                .and_then(|node| node.props.str(PropId::Commandfor))
-                .is_some_and(|target| !target.is_empty())
+            true => invocation(kernel, view)
+                .is_some_and(dialog_command)
                 .then_some(DIALOG_UNSUPPORTED),
         }
     }
@@ -263,6 +269,17 @@ impl Navigation {
     /// [`Navigation::visibility`], and whether what a shell's bar stands
     /// for counts as gone from the page (`lifted`).
     pub(crate) fn visibility_of(&self, kernel: &Kernel, id: ViewId, lifted: bool) -> (bool, bool) {
+        self.visibility_to(kernel, id, lifted, None)
+    }
+
+    /// A separately presented subtree inherits visibility only through its root.
+    pub(crate) fn visibility_to(
+        &self,
+        kernel: &Kernel,
+        id: ViewId,
+        lifted: bool,
+        root: Option<ViewId>,
+    ) -> (bool, bool) {
         // No route, popover or inert node anywhere: nothing to climb for.
         if self.routes.is_empty()
             && (self.lifted.is_empty() || !lifted)
@@ -283,9 +300,30 @@ impl Navigation {
             let gone = closed || lifted && self.lifted.contains(&id);
             result.0 |= hidden || gone;
             result.1 |= inert || gone || node.props.bool(PropId::Inert) == Some(true);
+            if Some(id) == root {
+                break;
+            }
             at = node.parent;
         }
         result
+    }
+}
+
+impl<D: exact_runner::DataSource> crate::Host<D> {
+    pub(crate) fn neutral_dialog_invoker(&self, view: ViewId) -> bool {
+        let kernel = self.kernel();
+        kernel
+            .node(view)
+            .and_then(|node| exact_kernel::Invocation::of(kernel, &node))
+            .filter(|invocation| dialog_command(invocation.action))
+            .and_then(|invocation| kernel.node_by_key(invocation.target))
+            .is_some_and(|n| {
+                crate::presenter::top::shape::neutral_alert(kernel, n.id, &|id| {
+                    self.runner()
+                        .handlers_of(id)
+                        .contains(&exact_plan::EventKind::Press)
+                })
+            })
     }
 }
 

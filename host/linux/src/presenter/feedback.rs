@@ -2,8 +2,9 @@
 //! neutral look (LLP 1115.000 D17): a state adds one thing there, a wash
 //! where a pointer hovers and a stronger one while pressed, and a painted
 //! control is this host's to show them on. Kept on the painter, which reads
-//! them as it walks, and a change of either paints again. A host that does
-//! not paint the neutral look keeps neither.
+//! them as it walks, and a change of either paints again. Material's field
+//! (LLP 1115.001.000 D6) shows the same two as its state layers, and a text
+//! field is one there.
 //!
 //! What presses in a row of a list whose rows are cells answers the same
 //! way (LLP 1115.000 D16): the look's row is this host's to draw too, and a
@@ -14,14 +15,17 @@ impl<D: DataSource> Presenter<D> {
     /// What shows a state at or above `id`: the control (a press on a
     /// button's title is the button's), or the nearest node that presses
     /// when it is in a list's row. A row's own press look replaces the
-    /// wash, as it does on the web: `-exact-press-scale`, or `pointerdown`
+    /// wash, as it does on the web: `-exact-press-scale`, the pressed paint
+    /// (LLP 1061 D7, which `:active` lowers to), or `pointerdown`
     /// or `pointerup` handlers, which draw one. A disabled row shows none.
     fn feedback_at(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.host.kernel();
         let mut at = Some(id);
         while let Some(id) = at {
             let node = kernel.node(id)?;
-            if node.node_type == NodeType::Control {
+            if node.node_type == NodeType::Control
+                || node.node_type == NodeType::TextInput && !crate::paint::look::neutral()
+            {
                 return Some(id);
             }
             if node.node_type != NodeType::TextInput
@@ -30,6 +34,7 @@ impl<D: DataSource> Presenter<D> {
             {
                 let handlers = self.host.runner().handlers_of(id);
                 let own = node.style.written.has(exact_kernel::StyleId::PressScale)
+                    || crate::host::press::paints(node.style)
                     || handlers.contains(&EventKind::Pointerdown)
                     || handlers.contains(&EventKind::Pointerup);
                 let off = node.props.bool(PropId::Disabled) == Some(true);
@@ -42,15 +47,15 @@ impl<D: DataSource> Presenter<D> {
 
     /// Read both again, after anything that moved the pointer or a contact.
     pub(super) fn refresh_feedback(&mut self) {
-        if !crate::paint::look::neutral() {
-            return;
-        }
-        // A finger hovers nothing; a held contact is not also a hover.
-        let hover = match self.hover_point {
-            Some((x, y)) if self.contact.is_none() && !self.direct() => self.hit(x, y),
+        // A finger hovers nothing; a held contact is not also a hover (but
+        // for a `:hover` look, as CSS's is).
+        let hit = match self.hover_point {
+            Some((x, y)) if !self.direct() => self.hit(x, y),
             _ => None,
-        }
-        .and_then(|id| self.feedback_at(id));
+        };
+        let hover = hit
+            .filter(|_| self.contact.is_none())
+            .and_then(|id| self.feedback_at(id));
         let pressed = self
             .contact_hit()
             .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id))
@@ -59,5 +64,69 @@ impl<D: DataSource> Presenter<D> {
             self.brush.feedback = (hover, pressed);
             self.dirty = true;
         }
+        self.refresh_looks(Some(hit));
+    }
+
+    /// The nodes whose `:hover` look holds (LLP 1121 D8): the pointer's hit
+    /// and its ancestors that have one, as CSS's `:hover` matches; none for
+    /// a finger. The focus's `:focus-visible` look holds where its ring
+    /// would show. A node whose looks moved paints again. `hit`: what the
+    /// pointer hovers now, after it moved (`None`: a paint keeps the hover it
+    /// has, its nodes that live).
+    pub(super) fn refresh_looks(&mut self, hit: Option<Option<ViewId>>) {
+        let mut at = hit.flatten().filter(|_| !self.direct());
+        let kernel = self.host.kernel();
+        let mut hovered = Vec::new();
+        if hit.is_none() {
+            hovered = (self.host.looks_shown.0.iter().copied())
+                .filter(|id| kernel.node(*id).is_some())
+                .collect();
+        }
+        while let Some(id) = at {
+            let Some(node) = kernel.node(id) else { break };
+            if node
+                .looks()
+                .iter()
+                .any(|(s, _)| *s == exact_kernel::LOOK_HOVER)
+            {
+                hovered.push(id);
+            }
+            at = node.parent;
+        }
+        let focus = self.focus.filter(|f| self.brush.ringless != Some(*f));
+        let focus = focus.filter(|f| {
+            kernel.node(*f).is_some_and(|n| {
+                n.looks()
+                    .iter()
+                    .any(|(s, _)| *s == exact_kernel::LOOK_FOCUS_VISIBLE)
+            })
+        });
+        let (old, old_focus) = std::mem::replace(&mut self.host.looks_shown, (hovered, focus));
+        let (new, new_focus) = &self.host.looks_shown;
+        let moved: Vec<ViewId> = (old.iter().filter(|id| !new.contains(id)))
+            .chain(new.iter().filter(|id| !old.contains(id)))
+            .chain(
+                [old_focus, *new_focus]
+                    .iter()
+                    .flatten()
+                    .filter(|_| old_focus != *new_focus),
+            )
+            .copied()
+            .collect();
+        // A look painted or taken off is no flow damage's small region.
+        if !moved.is_empty() {
+            self.host.flow_damage.repaint();
+        }
+        for id in moved {
+            if let Some(node) = self.host.kernel().node(id) {
+                let key = node.key;
+                self.host.row_dirty.node(key);
+                self.dirty = true;
+            }
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "looks_tests.rs"]
+mod looks_tests;

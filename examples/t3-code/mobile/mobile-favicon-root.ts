@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 // Root-projected rows own demand. Native virtual-cell lifetimes are not exposed.
 import { arr, obj, str } from './shared/domain';
 import { noteNow, composerNow } from './shared/composer-controls';

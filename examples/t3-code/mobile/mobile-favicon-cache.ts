@@ -1,5 +1,5 @@
 // Pinned365aa87982 projectFaviconCache.ts/projectFavicon.ts (MIT).
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 import { mobileCacheCompareMetadata, mobileCacheReadRevision, type MobileCacheKey, type MobileCacheRecord } from './mobile-client-cache';
 import { letGo } from './shared/let-go';
 

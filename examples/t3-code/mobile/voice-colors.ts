@@ -1,4 +1,4 @@
-// @ref llp/1109.008-mobile-voice.decision.md#presentation
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#presentation
 import { mobileTheme } from './design';
 import { mobileReviewColors } from './review-colors';
 export function mobileVoiceColors(scheme: string, palette = 't3-code') {

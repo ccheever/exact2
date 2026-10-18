@@ -1,5 +1,5 @@
 // Invocation-owned native image-lease adapter. This does not publish composer content.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { EditorPasteProof } from './composer-editor-persistence';
 import { ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';

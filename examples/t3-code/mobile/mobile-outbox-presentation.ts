@@ -1,5 +1,5 @@
 // Source365aa87982 pending-new-tasks-model and pending-thread-feed.
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import { arr, obj } from './shared/domain';
 import { mobileOutboxRootFailure } from './mobile-outbox-root';
 import { mobileClient } from './client';

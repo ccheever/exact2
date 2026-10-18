@@ -399,9 +399,12 @@ final class SurfaceControlTests: XCTestCase {
         let (s,_,_) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
         window.contentView=s.presenter.viewport
-        let agent=s.agentInstance; agent.contact=CGPoint(x:50,y:50)
+        let agent=s.agentInstance
+        let down=agent.contact("down",["id":100,"x":50.0,"y":50.0])
+        XCTAssertEqual(down["delivery"] as? String,"platform"); XCTAssertNotNil(agent.contact)
         let reply=agent.contact("cancel",[:])
         XCTAssertEqual(reply["delivery"] as? String,"platform"); XCTAssertNil(agent.contact)
+        XCTAssertNil(agent.contactWindow)
         withExtendedLifetime(window) {}
     }
     #else

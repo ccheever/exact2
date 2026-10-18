@@ -76,15 +76,17 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
 /// `value` is one: with it HTML's `<progress>` bar, without it the drawn
 /// ring (LLP 1116 D8).
 fn decides_tag(plan: &Plan, node: &exact_plan::NodesRow, p: PropId) -> bool {
-    matches!(p, PropId::Href | PropId::SemanticTag)
-        || p == PropId::Value
-            && node.bindings.iter().any(|b| {
-                let row = plan.binding(b);
-                row.kind == BindingKind::Prop
-                    && row.id == PropId::Type as u16
-                    && literal(plan, plan.code(row.expr))
-                        .is_some_and(|v| v.as_str() == Some("progress"))
-            })
+    matches!(
+        p,
+        PropId::Href | PropId::SemanticTag | PropId::Start | PropId::End
+    ) || p == PropId::Value
+        && node.bindings.iter().any(|b| {
+            let row = plan.binding(b);
+            row.kind == BindingKind::Prop
+                && row.id == PropId::Type as u16
+                && literal(plan, plan.code(row.expr))
+                    .is_some_and(|v| v.as_str() == Some("progress"))
+        })
 }
 
 fn sample(kind: PropKind) -> PropValue {
@@ -123,15 +125,18 @@ pub fn element_children(plan: &Plan, sites: &crate::emit::Sites) -> Vec<Vec<u32>
     out
 }
 
-/// Every node's parts, by node index (`None` for a head, which is no element).
-pub fn project(
+/// The static tree as the kernel holds it: every site a view (`site + 1`)
+/// with its literal rows and props, under its element parent with every
+/// region's arms flattened in; with each node's element children. Its
+/// rows are what the parts are made from, and what the inspect table
+/// (inspect.rs) reads.
+pub fn static_tree(
     plan: &Plan,
     sites: &crate::emit::Sites,
-    warnings: &mut Vec<String>,
-) -> Result<Vec<Option<Parts>>, String> {
+) -> Result<(Kernel, Vec<Vec<u32>>), String> {
     let mut kernel: Kernel = template::kernel();
-    let mut ops = Vec::new();
     let view = |i: usize| -> ViewId { i as u32 + 1 };
+    let mut ops = Vec::new();
     for (i, node) in plan.nodes.iter().enumerate() {
         let node_type = NodeType::from_wire(node.node_type).ok_or("unknown node type")?;
         ops.push(Op::CreateView {
@@ -144,15 +149,15 @@ pub fn project(
             let row = plan.binding(b);
             let code = plan.code(row.expr);
             match (row.kind, literal(plan, code)) {
-                (BindingKind::Prop, Some(v)) => {
-                    let (prop, value) =
-                        bridge::prop_value(row.id, &v).map_err(|e| format!("node {i}: {e:?}"))?;
-                    ops.push(Op::SetProp {
+                (BindingKind::Prop, Some(v)) => match bridge::prop_value(row.id, &v) {
+                    Ok((prop, value)) => ops.push(Op::SetProp {
                         id: view(i),
                         prop,
                         value,
-                    });
-                }
+                    }),
+                    Err(bridge::BridgeError::Unset(_)) => {}
+                    Err(e) => return Err(format!("node {i}: {e:?}")),
+                },
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
                     if decides_tag(plan, node, prop) {
@@ -163,8 +168,15 @@ pub fn project(
                         });
                     }
                 }
-                // `unset`, or `inherit` on an inherited row: no row (feed F1).
-                (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
+                // An explicit clear has no own value but still beats host defaults.
+                (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {
+                    if row.written {
+                        patch
+                            .written
+                            .set(StyleId::from_bit(row.id as u32).ok_or("unknown style")?);
+                        styled = true;
+                    }
+                }
                 // With what the binding says of the row (the author wrote it, or the compiler
                 // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {
@@ -180,6 +192,32 @@ pub fn project(
                 id: view(i),
                 patch: Box::new(patch),
             });
+        }
+        // Its host-known state looks (LLP 1121 D8): literal rows, tokens
+        // kept by name, as its own static rows are.
+        let at = plan.looks.partition_point(|l| (l.node.0 as usize) < i);
+        let mut looks = Vec::new();
+        for look in plan.looks[at..]
+            .iter()
+            .take_while(|l| l.node.0 as usize == i)
+        {
+            let mut patch = exact_kernel::StyleProps::default();
+            for row in look.bindings.iter().map(|b| plan.binding(b)) {
+                let v = literal(plan, plan.code(row.expr)).ok_or("a look's row is literal")?;
+                if bridge::unsets(row.id, &v) {
+                    let style = StyleId::from_bit(row.id as u32).ok_or("unknown style")?;
+                    if row.written {
+                        patch.written.set(style);
+                    }
+                    continue;
+                }
+                bridge::set_binding_style(&mut patch, row, &v, plan)
+                    .map_err(|e| format!("node {i}: {e:?}"))?;
+            }
+            looks.push((look.state, patch));
+        }
+        if !looks.is_empty() {
+            ops.push(Op::SetLooks { id: view(i), looks });
         }
     }
     let tree = element_children(plan, sites);
@@ -197,6 +235,17 @@ pub fn project(
     kernel
         .apply(0, 1, &ops)
         .map_err(|e| format!("kernel refused the static tree: {e:?}"))?;
+    Ok((kernel, tree))
+}
+
+/// Every node's parts, by node index (`None` for a head, which is no element).
+pub fn project(
+    plan: &Plan,
+    sites: &crate::emit::Sites,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Option<Parts>>, String> {
+    let (kernel, tree) = static_tree(plan, sites)?;
+    let view = |i: usize| -> ViewId { i as u32 + 1 };
     // A text folds into its box's content (LLP 1007.001) only when the
     // template holds all of it: no bound row or prop but its text, no
     // handler, and not a repeated row (copies would join one block). A box
@@ -245,6 +294,12 @@ pub fn project(
         let child_may_fold = matches!(tree[i].as_slice(), [c] if may_fold[*c as usize]);
         let mut parts = template::parts_with(&kernel, plan, view(i), may_fold[i], child_may_fold)
             .ok_or("a view the kernel lost")?;
+        if let Some(writes) = exact_runner::press_writes_router(plan, exact_plan::NodesId(i as u32))
+        {
+            parts
+                .props
+                .insert("data-exact-router-press".into(), writes.to_string());
+        }
         // A sampled prop decided the tag; its value is the effect's.
         for b in node.bindings.iter() {
             let row = plan.binding(b);
@@ -392,8 +447,81 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 /// `set_plan_style` is (LLP 1095 D3): a value with a `-exact-platform-color()` is
 /// admitted only as one of the plan's own string literals, and writes what
 /// the literal path writes for each of its functions; any other is refused
-/// (`null`: the row unset).
+/// (an invalid computed declaration: CSS unset, with a diagnostic).
 pub fn color_map(plan: &Plan) -> String {
+    let map = platform_map(plan);
+    match theme_map(plan) {
+        Some(theme) => format!("((T,M)=>v=>M(T(v)))({theme},{map})"),
+        None => map,
+    }
+}
+
+/// @ref LLP 1095 D4 — a bound colour that names a theme entry, or a role the
+/// theme overrides, writes what the literal path writes for the entry: the
+/// kernel's CSS for the colour it stands for. `None` without a theme.
+fn theme_map(plan: &Plan) -> Option<String> {
+    if plan.theme.is_empty() {
+        return None;
+    }
+    let _theme = exact_kernel::style::theme::bind(&exact_runner::bridge::theme_table(plan));
+    let _profiles = exact_kernel::style::profiled::declarations(
+        plan.profiles
+            .iter()
+            .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+    );
+    let (mut names, mut roles) = (Vec::new(), Vec::new());
+    let varying = crate::modes::properties(plan);
+    for row in &plan.theme {
+        let value = plan.str(row.value);
+        let Some(colour) = exact_kernel::ColorValue::parse_light_dark(value)
+            .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed))
+        else {
+            continue;
+        };
+        let role = plan.str(row.role);
+        // The tint's roles stay themselves (`ColorValue::themed`): the page's
+        // `--exact-accent` carries the theme's colour under an authored one.
+        if exact_kernel::style::roles::role(role).is_some_and(exact_kernel::style::roles::tint) {
+            continue;
+        }
+        let mut css = String::new();
+        exact_kernel::gradient::color_css(&mut css, colour);
+        // A token that varies by an app axis is its property (LLP 1121 D7).
+        if let Some((_, prop)) = varying.iter().find(|(n, _)| n == plan.str(row.name)) {
+            css = format!("var({prop})");
+        }
+        names.push(format!(
+            "{}:{}",
+            serde_json::to_string(plan.str(row.name)).unwrap(),
+            serde_json::to_string(&css).unwrap()
+        ));
+        if !role.is_empty() {
+            roles.push(format!(
+                "{}:{}",
+                serde_json::to_string(&role.to_ascii_lowercase()).unwrap(),
+                serde_json::to_string(&css).unwrap()
+            ));
+        }
+    }
+    // A colour function's own text is left whole, as the kernel reads no
+    // name inside one (a `light-dark()` half, LLP 1095 D1), unless it is a
+    // synthetic token's, which is named by that text (LLP 1121 D3); a
+    // gradient's stops and a shadow's colour are components, read as names.
+    // A comment, a `url()` or a quoted string is copied through whole.
+    Some(format!(
+        r#"((N,R,H)=>{{const F=/\/\*[\s\S]*?\*\/|url\(\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w.\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?H(N[t]):Object.hasOwn(R,t.toLowerCase())?H(R[t.toLowerCase()]):t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{if(m[0].slice(-1)!=="("){{o+=M(v.slice(at,m.index))+m[0];at=F.lastIndex;continue}}let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}const f=v.slice(m.index,j);o+=M(v.slice(at,m.index))+(Object.hasOwn(N,f)?H(N[f]):f);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}},{})"#,
+        names.join(","),
+        roles.join(","),
+        // Whether a row read a token, which a mode boundary asks (modes.js).
+        match crate::modes::active(plan) {
+            true => "v=>((globalThis.exact??={}).$th=1,v)",
+            false => "v=>v",
+        }
+    ))
+}
+
+/// [`SYSTEM_COLOR_MAP`] behind the platform-colour gate.
+fn platform_map(plan: &Plan) -> String {
     let admitted: Vec<String> = plan
         .strings
         .iter()
@@ -410,9 +538,10 @@ pub fn color_map(plan: &Plan) -> String {
         return SYSTEM_COLOR_MAP.clone();
     }
     format!(
-        "(P=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?({m})(P[v]):null:({m})(v))({{{}}})",
+        "((P,M)=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?M(P[v]):{refused}:M(v))({{{}}},{m})",
         admitted.join(","),
-        m = SYSTEM_COLOR_MAP.as_str()
+        m = SYSTEM_COLOR_MAP.as_str(),
+        refused = invalid_unset("color")
     )
 }
 
@@ -420,8 +549,7 @@ const PLATFORM: &str = "-exact-platform-color(";
 
 /// A bound row whose code can push a metric's name (LLP 1115.002 D6: a
 /// sheet the compiler wrote, choosing between two by a flag) reads each as
-/// its value in the column of the look this build draws (the neutral
-/// look's, or the web's first under `EXACT_WEB_LOOK=apple`), which is what
+/// its value in the neutral column this build draws, which is what
 /// the kernel reads a literal one as: a number, the row's own CSS text, or
 /// nothing where the look has no row (`null`: the row unset). `None` when
 /// the code names none.
@@ -522,16 +650,94 @@ pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
     )
 });
 
+/// A bound `font` shorthand's text style (LLP 1115.000 D12.2), the weight
+/// and the leading the web's column gives it, as the template writes a
+/// literal one's: `[weight, line-height]` maps, `null` for any other value.
+pub static TEXT_STYLE_ROWS: std::sync::LazyLock<[String; 2]> = std::sync::LazyLock::new(|| {
+    use exact_kernel::style::metrics::Column;
+    use exact_kernel::style::relative::{text_style_leading, text_style_weight};
+    let (mut weights, mut leadings) = (Vec::new(), Vec::new());
+    for (i, s) in exact_kernel::TEXT_STYLES.iter().enumerate() {
+        let weight = text_style_weight(i as u8, Column::Web).to_string();
+        let leading = text_style_leading(i as u8, Column::Web).css();
+        for name in [format!("-exact-{}", s.name), s.alias.to_string()] {
+            if !name.is_empty() {
+                weights.push(format!("{name:?}:{weight:?}"));
+                leadings.push(format!("{name:?}:{leading:?}"));
+            }
+        }
+    }
+    let map = |pairs: &[String]| {
+        format!(
+            r#"(M=>v=>typeof v==="string"?M[v.trim().toLowerCase()]??null:null)({{{}}})"#,
+            pairs.join(",")
+        )
+    };
+    [map(&weights), map(&leadings)]
+});
+
+/// The custom property a bound `font` shorthand writes its style's
+/// `font-weight` or `line-height` to when that longhand is bound as well
+/// (LLP 1115.000 D12.2): the longhand's binding falls back on it.
+pub fn style_fallback(name: &str) -> String {
+    format!("--exact-style-{name}")
+}
+
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
+/// A bound corner's map: a list (white space outside parentheses, or a
+/// `/`) is the elliptical radius no row holds, refused whole with the
+/// journal line rt.js `css` writes for a value a row does not take, as the
+/// kernel refuses it (LLP 1001 §1); one value is the row's. `say` is rt.js's.
+pub fn corner_list(id: StyleId) -> String {
+    format!(
+        r#"v=>{{if(typeof v!=="string")return v;let t=v;while(t!==(t=t.replace(/\([^()]*\)/g,"()")));return /\S[ \t\n\r\f]+\S|\//.test(t.trim())?(say(`unset {}: ${{JSON.stringify(v)}} is not a value it takes`),"unset"):v}}"#,
+        css_property(id)
+    )
+}
+
+// A rejected computed declaration uses CSS unset, while null removes it.
+fn invalid_unset(row: &str) -> String {
+    format!("(()=>{{const e=globalThis.exact;e?.journal?.push(`t=${{e.now?.()??0}} invalid {row} value ${{JSON.stringify(v)}}; unset`);return \"unset\"}})()")
+}
+
 // The bounded cursor vocabulary is the schema's, including dynamic bindings.
 static CURSOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!(
-        "v=>{{if(typeof v!==\"string\")return null;v=v.trim().toLowerCase();return {:?}.includes(v)?v:null}}",
-        StyleId::Cursor.enum_names()
+        "v=>{{if(v==null)return null;if(typeof v===\"string\"){{v=v.trim().toLowerCase();if({:?}.includes(v)||v===\"inherit\"||v===\"unset\")return v}}return {}}}",
+        StyleId::Cursor.enum_names(), invalid_unset("cursor")
     )
+});
+static CLIP_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"v=>v==null||/^\s*(unset\s*$|none\s*$|path\(|url\()/i.test(v)?v:{}"#,
+        invalid_unset("clip-path")
+    )
+});
+static SCHEME_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"v=>v==null?v:v==="light"||v==="dark"?v:/^\s*(normal|inherit|unset)\s*$/i.test(v)?"unset":{}"#,
+        invalid_unset("color-scheme")
+    )
+});
+static CORNER_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"v=>v==null?v:typeof v!=="string"||/-apple-continuous/i.test(v)?{}:v.replace(/-exact-continuous/gi,"superellipse(1.6)")"#,
+        invalid_unset("corner-shape")
+    )
+});
+
+static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let mut initial = String::new();
+    exact_kernel::gradient::color_css(
+        &mut initial,
+        exact_kernel::StyleProps::default()
+            .tint_color
+            .expect("schema initial tint color"),
+    );
+    format!(r#"v=>v==null?v:/^\s*(unset)?\s*$/i.test(v)?{initial:?}:v"#)
 });
 
 fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
@@ -556,12 +762,16 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         map: Some(map),
     };
     Ok(match row {
+        // A mode boundary's tuple: its rows are set in it (LLP 1121 D7).
+        StyleId::Mode => Vec::new(),
         StyleId::FontSize => vec![Write {
             name: "font-size".into(),
             unit: "px".into(),
             map: Some(TEXT_STYLE_MAP.as_str()),
         }],
-        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large'})[v]??null")],
+        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
+        StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
+        StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
             let column = row == StyleId::ColumnGap;
@@ -676,17 +886,17 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // any other shape, which the browser would take, is refused: unset.
         StyleId::ClipPath => vec![with(
             "clip-path",
-            "v=>v==null||/^\\s*(none|path\\(|url\\()/i.test(v)?v:null",
+            &CLIP_MAP,
         )],
         // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
         // radius is not rescaled here, as css.rs scales a static one: a
         // dynamic `-exact-continuous` reaches less far on the web.
         // @ref LLP 1034 §8 — `light` and `dark`; a bound `normal` follows
-        // the surrounding scheme (the property removed), as the kernel unsets
+        // the surrounding scheme (an explicit clear), as the kernel unsets
         // it; anything else is no value it takes.
         StyleId::ColorScheme => vec![with(
             "color-scheme",
-            "v=>v===\"light\"||v===\"dark\"?v:null",
+            &SCHEME_MAP,
         )],
         StyleId::TextWrapStyle => one("text-wrap-style", ""),
         // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
@@ -696,8 +906,17 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         )],
         StyleId::CornerShape => vec![with(
             "corner-shape",
-            "v=>v==null?v:/-apple-continuous/i.test(v)?null:v.replace(/-exact-continuous/gi,\"superellipse(1.6)\")",
+            &CORNER_MAP,
         )],
+        // A bound colour unsets the theme's scheme text for its subtree, as
+        // a literal one does (roles.rs `scheme_color`); a value that unsets
+        // the row (StyleValue::text_unsets) authors none.
+        StyleId::TextColor if exact_kernel::style::roles::overridden_canvas_text() => {
+            let (name, unit) = style_row(id)?;
+            let mut writes = one(name, unit);
+            writes.push(with("--exact-scheme-color", r"v=>v==null||/^\s*(unset|inherit|currentcolor)?\s*$/i.test(v)?null:'initial'"));
+            writes
+        }
         _ => {
             let (name, unit) = style_row(id)?;
             one(name, unit)
@@ -782,7 +1001,11 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
         let mut p = exact_kernel::StyleProps::default();
         p.set_dynamic(row, &v).ok()?;
         let (text, _) = exact_web::css::css_text(&p, &[]);
-        let (name, value) = text.trim_end_matches(';').split_once(':')?;
+        // Not the theme's reset an authored colour writes beside itself.
+        let declaration = text
+            .split(';')
+            .find(|d| !d.starts_with("--exact-scheme-color:"))?;
+        let (name, value) = declaration.split_once(':')?;
         Some((name.to_string(), value.to_string()))
     };
     if let Some((name, value)) = sample(exact_kernel::StyleValue::Number(7.0)) {
@@ -798,7 +1021,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
 
 /// `host/web/src/css.rs` `property`: the row's name with `-` for `_`, but
 /// for the few spelled there.
-fn css_property(id: StyleId) -> String {
+pub(crate) fn css_property(id: StyleId) -> String {
     let name = match id {
         StyleId::TextColor => return "color".into(),
         StyleId::TintColor => return "--exact-tint".into(),
@@ -850,241 +1073,4 @@ pub fn style_marker(id: StyleId) -> (String, String) {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-
-    #[test]
-    fn a_bound_accent_role_leaves_the_inherited_accent_unset() {
-        let writes = style_writes(StyleId::AccentColor as u16, false).unwrap();
-        let values = ["AccentColor", " accentcolor ", "#5856d6", "auto", "inherit"];
-        let maps: Vec<_> = writes
-            .iter()
-            .map(|write| {
-                let map = format!(
-                    "v=>({})(({})(v))",
-                    write.map.unwrap(),
-                    SYSTEM_COLOR_MAP.as_str()
-                );
-                (write.name.as_str(), run(&map, &values))
-            })
-            .collect();
-        assert_eq!(
-            maps,
-            vec![
-                (
-                    "accent-color",
-                    serde_json::json!([
-                        "var(--exact-accent, AccentColor)",
-                        " var(--exact-accent, AccentColor) ",
-                        "#5856d6",
-                        "auto",
-                        "inherit"
-                    ])
-                ),
-                (
-                    "--exact-accent",
-                    serde_json::json!([null, null, "#5856d6", "AccentColor", "inherit"])
-                )
-            ]
-        );
-    }
-
-    #[test]
-    fn balanced_wrap_writes_the_same_property_for_bound_values() {
-        let writes = style_writes(StyleId::TextWrapStyle as u16, false).unwrap();
-        assert_eq!(writes.len(), 1);
-        assert_eq!(writes[0].name, "text-wrap-style");
-        assert_eq!(writes[0].unit, "");
-        assert_eq!(writes[0].map, None);
-    }
-
-    /// LLP 1104 D3: a bound `::placeholder` colour writes css.rs's
-    /// private property, which index.html's `::placeholder` rule reads.
-    #[test]
-    fn a_bound_placeholder_colour_writes_the_private_property() {
-        let writes = style_writes(StyleId::PlaceholderColor as u16, false).unwrap();
-        assert_eq!(writes.len(), 1);
-        assert_eq!(writes[0].name, "--exact-placeholder-color");
-    }
-
-    /// The role's CSS, as the literal path writes it.
-    pub(crate) fn role(name: &str) -> String {
-        let id = exact_kernel::COLOR_ROLES
-            .iter()
-            .position(|r| r.name == name)
-            .unwrap();
-        let mut css = String::new();
-        exact_kernel::gradient::color_css(&mut css, exact_kernel::ColorValue::Role(id as u8));
-        css
-    }
-
-    /// `SYSTEM_COLOR_MAP` run by Bun over each value.
-    fn mapped(values: &[&str]) -> Vec<String> {
-        serde_json::from_value(run(SYSTEM_COLOR_MAP.as_str(), values)).unwrap()
-    }
-
-    /// `map` run by Bun over each value.
-    pub(crate) fn run(map: &str, values: &[&str]) -> serde_json::Value {
-        let script = format!(
-            "console.log(JSON.stringify({}.map({map})))",
-            serde_json::to_string(values).unwrap(),
-        );
-        let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
-            .args(["-e", &script])
-            .output()
-            .expect("bun runs the map (the repo pins it)");
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        serde_json::from_slice(&out.stdout).unwrap()
-    }
-
-    /// LLP 1115 D3: a bound text style is written as css.rs writes a
-    /// literal one; a number is left for the row's `px`.
-    #[test]
-    fn a_bound_text_style_is_its_rem() {
-        let out = run(
-            TEXT_STYLE_MAP.as_str(),
-            &[
-                "-exact-title1",
-                " -Apple-System-Headline ",
-                "1.5rem",
-                "-exact-nope",
-            ],
-        );
-        assert_eq!(
-            out,
-            serde_json::json!(["1.6875rem", "1rem", "1.5rem", "-exact-nope"])
-        );
-    }
-
-    #[test]
-    fn a_computed_transition_is_checked_as_an_authors() {
-        // LLP 1081 D5: the new tint becomes the property the browser
-        // animates; the old spelling, the host's own name (behind a comment
-        // too) and any old name are dropped, as the native parser refuses
-        // them; springs are the engine's.
-        let values = [
-            "-exact-tint-color 1s",
-            "tint-color 1s, opacity 1s",
-            "/**/--exact-tint 1s",
-            "opacity 1s -exact-spring(1, 2, 3), scale 1s",
-            "press-scale 1s",
-            "animation-trigger 1s, --exact-π 1s",
-        ];
-        assert_eq!(
-            run(TRANSITION_MAP.as_str(), &values),
-            serde_json::json!([
-                "--exact-tint 1s",
-                "opacity 1s",
-                "none",
-                "scale 1s",
-                "none",
-                "none"
-            ])
-        );
-    }
-
-    /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a
-    /// bound `normal` (or anything else) removes the property, so the node
-    /// follows its parent's scheme as the kernel's unset row does.
-    #[test]
-    fn a_bound_color_scheme_is_light_dark_or_removed() {
-        let writes = style_writes(StyleId::ColorScheme as u16, false).unwrap();
-        assert_eq!(writes.len(), 1);
-        assert_eq!(writes[0].name, "color-scheme");
-        assert_eq!(
-            run(
-                writes[0].map.unwrap(),
-                &["light", "dark", "normal", "light dark"]
-            ),
-            serde_json::json!(["light", "dark", null, null])
-        );
-    }
-
-    #[test]
-    fn a_bound_role_is_its_css_whole_or_inside_a_composite_value() {
-        let (orange, label, fill) = (role("system-orange"), role("secondary-label"), role("fill"));
-        assert_eq!(
-            mapped(&[
-                " -exact-secondary-label ",
-                "-Exact-System-Orange",
-                "linear-gradient(-exact-system-orange, #fff)",
-                "radial-gradient(circle,-exact-fill 0%,-exact-system-orange 100%)",
-                "0 1px 2px -exact-system-orange, inset 0 0 4px -apple-system-secondary-label",
-                "1px -apple-system-orange",
-            ]),
-            [
-                format!(" {label} "),
-                orange.clone(),
-                format!("linear-gradient({orange}, #fff)"),
-                format!("radial-gradient(circle,{fill} 0%,{orange} 100%)"),
-                format!("0 1px 2px {orange}, inset 0 0 4px {label}"),
-                format!("1px {orange}"),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_role_name_inside_another_token_stays_as_written() {
-        let values = [
-            "context-fill",
-            "var(--exact-label,#000)",
-            "url(label.png)",
-            "url(\"fill (1).png\"), linear-gradient(red, blue)",
-            "image-set(\"background.png\" 1x)",
-            "url(#fill)",
-            "#label",
-            "fill-rule",
-            "labels",
-            "background2",
-            "fill(1)",
-            "/* label */ red",
-            // An Exact role's bare name is no colour (LLP 1081 D2).
-            "system-orange",
-            "linear-gradient(secondary-label, fill)",
-        ];
-        assert_eq!(mapped(&values), values);
-    }
-
-    #[test]
-    fn a_bound_platform_color_is_admitted_only_as_a_plan_literal() {
-        let literal = "-exact-platform-color(ios webJsTestColor, #010203)";
-        let gradient =
-            "linear-gradient(-exact-platform-color(ios webJsTestColor, #010203), -exact-system-orange)";
-        let mut plan = exact_plan::Plan::default();
-        plan.strings.extend([literal.into(), gradient.into()]);
-        let mut css = String::new();
-        exact_kernel::gradient::color_css(
-            &mut css,
-            exact_kernel::ColorValue::parse_light_dark(literal).unwrap(),
-        );
-        assert!(!css.contains("platform-color"), "{css}");
-        let map = color_map(&plan);
-        assert_eq!(
-            run(
-                &map,
-                &[
-                    literal,
-                    gradient,
-                    "-exact-platform-color(ios webJsOtherColor, #010203)",
-                    "linear-gradient(-exact-platform-color(ios webJsTestColor, #010203), #fff)",
-                    " -exact-platform-color(ios webJsTestColor, #010203)",
-                    "-exact-secondary-label"
-                ]
-            ),
-            serde_json::json!([
-                css,
-                format!("linear-gradient({css}, {})", role("system-orange")),
-                null,
-                null,
-                null,
-                role("secondary-label"),
-            ])
-        );
-        // A plan without one writes the plain map.
-        assert_eq!(color_map(&exact_plan::Plan::default()), *SYSTEM_COLOR_MAP);
-    }
-}
+pub(crate) mod tests;

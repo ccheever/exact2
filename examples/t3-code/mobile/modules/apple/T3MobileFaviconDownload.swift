@@ -1,7 +1,7 @@
 import Foundation
 
 // The image response carries its own signed URL. Never use the environment transport's headers.
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 final class T3MobileFaviconDownload: @unchecked Sendable {
     enum Failure: Error, LocalizedError, Equatable {
         case invalidURL, response(Int?), tooLarge, network

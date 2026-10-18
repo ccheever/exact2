@@ -1,5 +1,5 @@
 // Source365aa87982 use-thread-outbox-drain; Contract owns the clock and each invocation.
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import { mobileOutboxBackgroundSaved } from './mobile-outbox-connection';
 import { fleet, environmentKey } from './shared/settings-b-fleet';
 import type { T3Client } from './shared/client';

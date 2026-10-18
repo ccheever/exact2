@@ -16,6 +16,12 @@ use snapback4_device::{
 };
 use wasm_bindgen::prelude::*;
 
+/// The build stamps the actual compiled engine into its wasm artifact.
+#[wasm_bindgen]
+pub fn engine_info() -> String {
+    exact_snapback4_client::engine_info().to_string()
+}
+
 struct Host {
     app_id: String,
     kept: Vec<Change>,
@@ -25,6 +31,8 @@ struct Host {
 impl Core for Host {
     fn call(&mut self, request: Json) -> Result<Json, String> {
         match request["op"].as_str().unwrap_or_default() {
+            "engine_info" => Ok(json!({"ok": snapback4_device::engine::info()})),
+            "engine_headers" => Ok(json!({"ok": snapback4_device::engine::headers()})),
             "open" => self.open(&request),
             "close" => {
                 self.device = None;
@@ -54,7 +62,7 @@ impl Host {
                 .ok_or_else(|| format!("Snapback4 {key} must be nonempty text"))
         };
         if !partition::valid_path(text("path")?) {
-            return Err("Snapback4 needs app:/data/<safe filename>.sqlite".into());
+            return Err(format!("Snapback4 needs app:/data/<safe filename>.sqlite; received {:?}. Use Snapback.partitionName(principal) in TypeScript.", text("path")?));
         }
         let (origin, viewer) = (text("origin")?, text("viewer")?);
         let backend = request

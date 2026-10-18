@@ -419,6 +419,7 @@ impl Rig {
                 let local = b.head - b.parent.map_or(Vec3::ZERO, |p| self.bones[p].head);
                 Node {
                     name: b.name.clone(),
+                    posable: true,
                     parent: b.parent.map(|p| p as u32),
                     transform: Mat4::from_translation(local).to_cols_array(),
                     ..Default::default()

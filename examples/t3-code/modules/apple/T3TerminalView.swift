@@ -12,7 +12,7 @@ import WebKit
 /// `close-pending` (suppress a second close), `terminal-surface` (drawer or panel identity),
 /// `chords` (the development harness's passthrough chords), `fixture` (development harness bytes:
 /// "render", "loopback", "flood").
-/// Session props (task terminal-drawer; T3TerminalSessions.swift): `environment`, `thread` and `terminal`
+/// Session props (T3TerminalSessions.swift): `environment`, `thread` and `terminal`
 /// name a server terminal session, `cwd`, `worktree` and `env` (JSON object) launch it; the view then
 /// shows the session's output, sends what is typed and its grid size to the server, writes the
 /// reference's `[terminal] …` lines (ThreadTerminalDrawer.tsx writeSystemMessage) and, on the tick after
@@ -44,12 +44,23 @@ final class T3TerminalView: ExactNativeInstance {
             if became { focused?() }
             return became
         }
+        /// AppKit sends a ⌃, ⌘ or fn key here before `keyDown` (NSApplication's sendEvent: tries key
+        /// equivalents first), and WKWebView, as first responder, offers it to the input method and the
+        /// page from here, so it never reaches `keyDown`: the key is marked for the page here as well.
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             if routeKey?(event) == true { return true }
+            offeringKey?(event)
             return super.performKeyEquivalent(with: event)
         }
+        var offeringKey: ((NSEvent) -> Void)?
+        /// Whether `event` is one the terminal leaves to its input method's composition (a ⌃ chord or
+        /// ⌥Return while text composes). WKWebView's `hasMarkedText()` answers false until the page has
+        /// sent its editor state, so a reader of the window's keys asks this instead.
+        var composesKey: ((NSEvent) -> Bool)?
         override func keyDown(with event: NSEvent) {
-            if routeKey?(event) != true { super.keyDown(with: event) }
+            guard routeKey?(event) != true else { return }
+            offeringKey?(event)
+            super.keyDown(with: event)
         }
         override func keyUp(with event: NSEvent) {
             if routeKey?(event) != true { super.keyUp(with: event) }
@@ -114,9 +125,12 @@ final class T3TerminalView: ExactNativeInstance {
     private var disposed = false
     private var responderObservation: NSKeyValueObservation?
     private var keyboardMonitor: Any?
+    private var releaseMonitor: Any?
     private var mountedOnce = false
     private var focusPublication: UInt64 = 0
     private var bindings: [T3TerminalKeys.Binding] = []
+    private let inputSource = T3TerminalInputSource()
+    private var inputSourceObserver: NSObjectProtocol?
     private var suppressedKeys: Set<UInt16> = []
     private var authWritten = 0
     private var authFlow = ""
@@ -125,7 +139,7 @@ final class T3TerminalView: ExactNativeInstance {
         sessions.providerAuthCall(payload, done: done)
     }, failure: { [weak self] failed in self?.emit(["type": failed ? "auth-error" : "auth-recovered"]) })
     lazy var actions = T3TerminalActions(view: self)
-    /// The server session this view shows (terminal-drawer), and the renderer's place in its output.
+    /// The server session this view shows, and the renderer's place in its output.
     private let sessions: T3TerminalSessions?
     private(set) var session: T3TerminalSession?
     private var cursor = T3TerminalOutput.Cursor.initial
@@ -156,13 +170,18 @@ final class T3TerminalView: ExactNativeInstance {
         web.setValue(false, forKey: "drawsBackground")
         web.allowsMagnification = false
         web.allowsBackForwardNavigationGestures = false
-        T3WebInspection.mark(web, "terminal") // Safari's Web Inspector in a development build (EXACT2-GAPS X2)
+        T3WebInspection.mark(web, "terminal") // Safari's Web Inspector in a development build (exact2 #101)
         web.focused = { [weak self] in
             guard let self, self.ready else { return }
             self.send(["type": "focus"])
         }
         web.mounted = { [weak self] in self?.windowChanged() }
         web.routeKey = { [weak self] event in self?.routeTerminalKey(event) ?? false }
+        web.offeringKey = { [weak self] event in self?.offerKey(event) }
+        web.composesKey = { [weak self] event in
+            guard let self, !self.disposed, self.ownsNativeFocus, self.composing else { return false }
+            return T3TerminalKeys.composing(event) == .compositionKey
+        }
         web.middlePressed = { [weak self] in self?.focusTerminal() }
         web.setAccessibilityLabel("Terminal")
         // Under the agent the window is often behind others or on another Space; WebKit then
@@ -171,6 +190,8 @@ final class T3TerminalView: ExactNativeInstance {
         // WebKit's own occlusion handling, as a background tab does).
         let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
         if agent, web.responds(to: occlusion) { web.perform(occlusion, with: false) }
+        inputSourceObserver = NotificationCenter.default.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification,
+                                                                     object: nil, queue: .main) { [weak self] _ in self?.inputSourceChanged() }
         T3Terminals.shared.add(self)
         web.load(URLRequest(url: T3TerminalAssets.pageURL))
         bindSession()
@@ -178,7 +199,7 @@ final class T3TerminalView: ExactNativeInstance {
         configureAuthInput()
     }
 
-    // MARK: Session (terminal-drawer)
+    // MARK: Session
 
     var authMode: Bool { !(props["auth-flow"] ?? "").isEmpty }
     var sessionMode: Bool { !authMode && !(props["thread"] ?? "").isEmpty }
@@ -193,6 +214,7 @@ final class T3TerminalView: ExactNativeInstance {
     private func windowChanged() {
         responderObservation = nil
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor); self.keyboardMonitor = nil }
+        if let releaseMonitor { NSEvent.removeMonitor(releaseMonitor); self.releaseMonitor = nil }
         guard let window = web.window else { focusChanged(false); return }
         responderObservation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] _, _ in
             guard let self else { return }
@@ -201,15 +223,30 @@ final class T3TerminalView: ExactNativeInstance {
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             self?.routeTerminalKey(event) == true ? nil : event
         }
+        // The reference's panel, drawer and sidebar dividers share the surface's document, so their
+        // release reaches its window listener, which sends the settled grid to the PTY at once
+        // (surface.ts onWindowPointerRelease). Here they are native views outside this page: every
+        // release in the window is forwarded, after AppKit has dispatched it, so a divider's
+        // `panrelease` has laid out its last size first.
+        releaseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]) { [weak self, weak window] event in
+            if event.window === window { DispatchQueue.main.async { self?.pointerReleased() } }
+            return event
+        }
         if !mountedOnce {
             mountedOnce = true
             if (Int(props["focus-request"] ?? "") ?? 0) > 0 { focusTerminal() }
         }
     }
 
+    private func pointerReleased() {
+        guard !disposed, ready else { return }
+        send(["type": "pointerRelease"])
+    }
+
     private func focusChanged(_ value: Bool, republish: Bool = false) {
         guard !disposed, focused != value || republish else { return }
         focused = value
+        if value { inputSource.focused(web.inputContext?.selectedKeyboardInputSource) }
         // Mount can give this view the responder before Contract installs its message handler.
         // Publish after the mount batch, without delaying or replaying the actual focus request.
         focusPublication &+= 1
@@ -227,20 +264,23 @@ final class T3TerminalView: ExactNativeInstance {
     /// (entry.ts observeComposition) or WebKit's marked text, whichever knows first.
     var composing: Bool { pageComposing || (web as AnyObject as? NSTextInputClient)?.hasMarkedText() == true }
     private var pageComposing = false
-    private(set) var inputMethodOffers = 0
-    private var offeredKey: NSEvent?
+    /// The last key marked for the page as the input method's (`compositionKey`): AppKit can hand it
+    /// to `keyDown` again (WebKit resends a key the page left unhandled).
+    private weak var markedKey: NSEvent?
 
     /// One event owner before AppKit's menu equivalents. The page has the same policy as a
     /// fallback for DOM input; consumed native events never reach it a second time.
     ///
     /// This path runs before the input method (a local monitor, then the key equivalents, both ahead
-    /// of WebKit's keyDown), where Chromium's page sees a key only after it (`realinput-1011c` G1-1,
-    /// G1-2). So while text is composing, a key without ⌘ is the input method's first: the terminal's
-    /// bindings and readline keys never act on it ahead of the composition; ⌥Return (Hanja, a candidate
-    /// list) is offered to the input context here, synchronously, as Chromium's `interpretKeyEvents`;
-    /// a ⌃ chord is offered to the input context too, so conversion and candidate keys stay with
-    /// the input method. Only a declined chord commits and then reaches the terminal's key path.
-    /// The sign-in terminal's Escape commits too, then goes to its PTY (AppKit would dismiss the form).
+    /// of WebKit's keyDown), where Chromium's page sees a key only after it.
+    /// So while text is composing, a key without ⌘ is the input method's: the terminal's bindings and
+    /// readline keys never act on it ahead of the composition, and it goes on to WebKit's keyDown, which
+    /// offers it to the input method once. The view never asks the input context itself: WKWebView is
+    /// an asynchronous text input client, so `NSTextInputContext.handleEvent(_:)` returns false before
+    /// an input method process has answered, while that input method still acts on the key (and the
+    /// keyboard layout's command follows a key it declines). A ⌃ chord or ⌥Return is marked for the
+    /// page on its way to WebKit (`offerKey`), so the page never encodes it (entry.ts `CompositionKeys`).
+    /// The sign-in terminal's Escape commits, then goes to its PTY (AppKit would dismiss the form).
     func routeTerminalKey(_ event: NSEvent) -> Bool {
         guard !disposed, event.window === web.window, event.type == .keyDown || event.type == .keyUp else { return false }
         if event.type == .keyUp { return suppressedKeys.remove(event.keyCode) != nil }
@@ -248,10 +288,9 @@ final class T3TerminalView: ExactNativeInstance {
         guard composing else { return routeKeyDown(event) }
         switch T3TerminalKeys.composing(event) {
         case .chord: return routeKeyDown(event)
-        case .inputContextFirst: return offerToInputMethod(event)
+        case .compositionKey: return false
         case .inputMethod where !(authMode && event.keyCode == 53): return false
-        case .inputMethod, .commitFirst:
-            if T3TerminalKeys.composing(event) == .commitFirst, offerToInputMethod(event) { return true }
+        case .inputMethod:
             suppressedKeys.insert(event.keyCode)
             commitComposition { [weak self] in
                 guard let self, !self.disposed else { return }
@@ -263,23 +302,33 @@ final class T3TerminalView: ExactNativeInstance {
         }
     }
 
+    /// A key on its way to WebKit's keyDown: one that began while text composed and that the terminal
+    /// would otherwise encode is marked as the input method's first. The mark goes to the page ahead of
+    /// the keydown, which WebKit sends only after the input method has answered.
+    private func offerKey(_ event: NSEvent) {
+        guard !disposed, event !== markedKey, ownsNativeFocus, composing, T3TerminalKeys.composing(event) == .compositionKey else { return }
+        markedKey = event
+        let flags = event.modifierFlags
+        send(["type": "compositionKey", "metaKey": flags.contains(.command), "ctrlKey": flags.contains(.control),
+              "altKey": flags.contains(.option), "shiftKey": flags.contains(.shift), "code": T3DeviceKeys.codes[event.keyCode] ?? ""])
+    }
+
+    /// Reconnects the input context to an input method another process selected (T3TerminalInputSource).
+    private func inputSourceChanged() {
+        guard !disposed, let context = web.inputContext else { return }
+        let active = ownsNativeFocus && NSTextInputContext.current === context
+        guard inputSource.changed(to: context.selectedKeyboardInputSource, active: active) else { return }
+        context.deactivate()
+        context.activate()
+    }
+
     /// Commits the marked text as it stands, as WebKit does when a page ends a composition: confirm
     /// it in the page, then tell the input method to drop it. `next` runs once the page's
     /// `compositionend` has sent the text (its message comes back before the script's answer).
-    private func commitComposition(then next: @escaping () -> Void) {
+    private func commitComposition(then next: @escaping () -> Void = {}) {
         (web as AnyObject as? NSTextInputClient)?.unmarkText()
         web.inputContext?.discardMarkedText()
         web.evaluateJavaScript("0") { _, _ in next() }
-    }
-
-    /// The input context's turn before WebKit's, once per key (this path can see a key three times).
-    private func offerToInputMethod(_ event: NSEvent) -> Bool {
-        if let offeredKey, offeredKey === event || (offeredKey.timestamp == event.timestamp && offeredKey.keyCode == event.keyCode) { return false }
-        offeredKey = event
-        inputMethodOffers += 1
-        guard web.inputContext?.handleEvent(event) == true else { return false }
-        suppressedKeys.insert(event.keyCode)
-        return true
     }
 
     private func routeKeyDown(_ event: NSEvent) -> Bool {
@@ -326,7 +375,7 @@ final class T3TerminalView: ExactNativeInstance {
             }
             return true
         }
-        // Explicit harness passthrough keeps the S1 test's unhandled-key path intact.
+        // Explicit harness passthrough keeps the unhandled-key path intact.
         if Self.chords(props["chords"]).contains(where: { text in
             guard let key = T3TerminalKeys.chord(text) else { return false }
             return T3TerminalKeys.Binding(chord: text, command: "", key: key).matches(event)
@@ -390,7 +439,7 @@ final class T3TerminalView: ExactNativeInstance {
         let env = props["env"].flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
         let bound = sessions.bind(self, environment: props["environment"] ?? "", thread: props["thread"] ?? "", terminal: identity,
                                   cwd: props["cwd"] ?? "", worktreePath: props["worktree"] ?? "", env: env,
-                                  providerInstance: props["provider-instance"] ?? "")
+                                  providerInstance: props["provider-instance"] ?? "", readOnly: props["read-only"] == "true")
         session = bound
         // TerminalViewport setup: the retained output as one reset, the error, then exit handling from "closed".
         let initial = bound.output.read(from: .initial)
@@ -475,6 +524,7 @@ final class T3TerminalView: ExactNativeInstance {
             send(["type": "keyPolicy", "keybindings": Self.initial(next)["keybindings"] ?? [],
                   "readOnly": next["read-only"] == "true", "closePending": next["close-pending"] == "true"])
         }
+        if previous["read-only"] != next["read-only"], sessionMode, session != nil { bindSession() }
         synchronizeAuthOutput()
         configureAuthInput()
         if previous["scheme"] != next["scheme"] || previous["terminal-theme"] != next["terminal-theme"] { send(["type": "theme", "theme": Self.theme(next)]) }
@@ -587,6 +637,9 @@ final class T3TerminalView: ExactNativeInstance {
         case "composition":
             pageComposing = body["composing"] as? Bool == true
             return
+        case "commitComposition":
+            commitComposition()
+            return
         case "command":
             guard ownsNativeFocus, let command = body["command"] as? String else { return }
             if command == "terminal.close", body["repeat"] as? Bool == true || props["close-pending"] == "true" { return }
@@ -636,7 +689,7 @@ final class T3TerminalView: ExactNativeInstance {
 
     /// The agent's `type` / `press`: real key events through the app's own dispatch (local
     /// monitors, key equivalents, then the web view as first responder), so a chord the page
-    /// declines reaches the app's key path as a person's would (spike S1, S5).
+    /// declines reaches the app's key path as a person's would.
     override func agentInput(_ input: ExactNativeInput) throws {
         guard let window = web.window else { throw ExactNativeRefusal("the terminal is not in a window") }
         if window.firstResponder !== web { window.makeFirstResponder(web) }
@@ -685,6 +738,8 @@ final class T3TerminalView: ExactNativeInstance {
         focusChanged(false)
         responderObservation = nil
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor); self.keyboardMonitor = nil }
+        if let releaseMonitor { NSEvent.removeMonitor(releaseMonitor); self.releaseMonitor = nil }
+        if let inputSourceObserver { NotificationCenter.default.removeObserver(inputSourceObserver); self.inputSourceObserver = nil }
         send(["type": "dispose"])
         disposed = true
         T3TerminalFixtures.stop(self)
@@ -722,7 +777,7 @@ final class T3Terminals {
                     "text": page["text"] ?? [], "served": view.assets.served.count, "refused": view.assets.refusedURLs, "bridge": Array(view.bridgeLog.suffix(6))] // an Array: an ArraySlice is not JSON, and the status reply would fail
         }
         return ["terminals": entries.sorted { ($0["terminal"] as? String ?? "") < ($1["terminal"] as? String ?? "") },
-                "terminalSessions": T3TerminalSessions.all.flatMap(\.status)] // terminal-drawer: streams, buffers, acknowledgements
+                "terminalSessions": T3TerminalSessions.all.flatMap(\.status)] // streams, buffers, acknowledgements
     }
 }
 #endif

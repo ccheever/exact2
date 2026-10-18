@@ -4,6 +4,7 @@ use crate::{ButtonFaceStyle, ButtonImagePlacement, ControlKind, PressFace};
 
 pub(crate) struct ButtonInputs {
     env: crate::Env,
+    neutral_tab_root: Option<f32>,
     nodes: Vec<ButtonNode>,
 }
 
@@ -18,7 +19,7 @@ struct ButtonNode {
 
 impl ButtonInputs {
     pub(crate) fn matches(&self, arena: &NodeArena, slot: u32) -> bool {
-        if self.env != *arena.env() {
+        if self.env != *arena.env() || self.neutral_tab_root != arena.neutral_tab_root(slot) {
             return false;
         }
         let slots = arena.subtree(slot);
@@ -58,6 +59,34 @@ fn mask(rows: &[StyleId]) -> StyleMask {
 impl NodeArena {
     pub(crate) fn is_native_button(&self, slot: u32) -> bool {
         ControlKind::of(self.node_type(slot), self.props(slot)) == Some(ControlKind::Button)
+    }
+
+    pub(crate) fn neutral_tab_root(&self, slot: u32) -> Option<f32> {
+        (self.is_neutral_tab(slot)
+            && self.is_native_button(slot)
+            && matches!(
+                self.props(slot)
+                    .str(PropId::ButtonStyle)
+                    .unwrap_or("bordered"),
+                "bordered" | "gray"
+            ))
+        .then(|| self.root_font_size())
+    }
+
+    pub(crate) fn neutral_tab_min_height(&self, slot: u32) -> Option<f32> {
+        let root = self.neutral_tab_root(slot)?;
+        let own = self.style(slot);
+        if own.mask.union(own.written).has(StyleId::MinHeight) {
+            return None;
+        }
+        // A known authored height bypasses the intrinsic measurement;
+        // CSS's minimum must also constrain that engine size.
+        crate::style::metrics::length_in(
+            crate::generated::metric::TABBAR_HEIGHT,
+            crate::style::metrics::Column::Neutral,
+            self.computed_source(slot, StyleId::FontSize).font_size,
+            root,
+        )
     }
 
     pub(crate) fn press_face(&self, slot: u32) -> Option<PressFace> {
@@ -121,6 +150,7 @@ impl NodeArena {
     pub(crate) fn button_inputs(&self, slot: u32) -> ButtonInputs {
         ButtonInputs {
             env: self.env.clone(),
+            neutral_tab_root: self.neutral_tab_root(slot),
             nodes: self
                 .subtree(slot)
                 .into_iter()
@@ -151,19 +181,42 @@ impl NodeArena {
             return None;
         }
         let own = self.style(slot);
+        let neutral_tab_root = self.neutral_tab_root(slot);
         let title_mask = mask(TITLE_ROWS);
         let text_style = |child: Option<u32>| {
             let at = child.unwrap_or(slot);
-            let mut style = self.computed_style(at, title_mask);
+            let mut style = self.computed_rows(at, title_mask);
             // Non-inheriting rows (line-clamp) also map from button to title.
             for &row in TITLE_ROWS {
-                if !self.style(at).mask.has(row) && own.mask.has(row) {
+                // A text style the title names gives its own (LLP 1115.000
+                // D12.2).
+                if !self.style(at).mask.has(row)
+                    && own.mask.has(row)
+                    && self.text_style_source(at, row).is_none()
+                {
                     let mut one = StyleMask::EMPTY;
                     one.set(row);
                     style.copy_rows(own, one);
                 }
             }
             style.mask = own.mask.union(self.style(at).mask).intersect(title_mask);
+            // A text style's weight and leading (LLP 1115.000 D12.2) are the
+            // title's as much as its own rows are.
+            for row in [StyleId::FontWeight, StyleId::LineHeight] {
+                if title_mask.has(row) && self.text_style_source(at, row).is_some() {
+                    style.mask.set(row);
+                }
+            }
+            // Bold Text's step (LLP 1115.000 D12.3) on the weight the title
+            // has, the button's included, said so the host paints it.
+            if self.bold_text {
+                let family = self.computed_source(at, StyleId::FontFamily).font_family;
+                let weight = self.emboldened(at, style.font_weight, family);
+                if weight != style.font_weight {
+                    style.font_weight = weight;
+                    style.mask.set(StyleId::FontWeight);
+                }
+            }
             style
         };
         let texts: Vec<_> = self
@@ -188,7 +241,9 @@ impl NodeArena {
                 StyleId::FontSize,
                 StyleId::FontWeight,
             ]));
-        if !symbol.mask.has(StyleId::FontSize) {
+        if !symbol.mask.has(StyleId::FontSize)
+            && !(neutral_tab_root.is_some() && symbol.written.has(StyleId::FontSize))
+        {
             symbol.font_size = title.font_size;
         }
         if !symbol.mask.has(StyleId::FontWeight) {
@@ -210,6 +265,11 @@ impl NodeArena {
             StyleId::ColumnGap,
             StyleId::FlexDirection,
         ]));
+        // The Neutral tab's floor is below an own minimum, including a clear.
+        // Keep this provenance when narrowing the host's configuration rows.
+        if neutral_tab_root.is_some() && own.mask.has(StyleId::MinHeight) {
+            button.mask.set(StyleId::MinHeight);
+        }
         let column = matches!(
             own.flex_direction,
             crate::FlexDirection::Column | crate::FlexDirection::ColumnReverse
@@ -220,11 +280,21 @@ impl NodeArena {
             (StyleId::ColumnGap, own.column_gap)
         };
         Some(ButtonFaceStyle {
+            neutral_tab_root,
             title,
             subtitle: texts.get(1).map(|&c| text_style(Some(c))),
             symbol,
             button,
             image_gap: own.mask.has(gap_row).then_some(gap),
         })
+    }
+}
+
+impl crate::style::wide::Colors for ButtonInputs {
+    fn colors(&self, m: &mut crate::style::wide::WideMark) {
+        for node in &self.nodes {
+            node.style.colors(m);
+            node.inherited.colors(m);
+        }
     }
 }

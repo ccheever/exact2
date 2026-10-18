@@ -1,5 +1,5 @@
 // One foreground ID per containing NewTask flow; no project-slot content transfer.
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
 import { ClientError, type Native, type Files } from './shared/protocol';
 import { isScratch, scratchRootOf } from './shared/r12-threads-scratch';

@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 
 // Compile with the production native-module facade, its generated app keys,
-// T3WindowChrome.swift and T3Menus.swift (see README, palette lane). Real AppKit
+// T3WindowChrome.swift and T3Menus.swift (see README). Real AppKit
 // menus, windows and key events; the quit timers run on an injected clock.
 let exactModule: ExactModule.Type = ExactModule.self
 
@@ -380,7 +380,7 @@ final class MenuTests: XCTestCase {
         let h = Harness()
         XCTAssertTrue(h.hold.handle(keyEvent(.keyDown, "q", 12)))
         XCTAssertFalse(h.hold.handle(keyEvent(.keyDown, "w", 13)))
-        // Korean 2-Set types ㅂ on Q's key: the quit shortcut still holds (X15).
+        // Korean 2-Set types ㅂ on Q's key: the quit shortcut still holds (#110).
         let korean = Harness()
         XCTAssertTrue(korean.hold.handle(keyEvent(.keyDown, "ㅂ", 12)))
         XCTAssertEqual(korean.notifications, [HOLD_DOWN])
@@ -424,23 +424,19 @@ final class MenuTests: XCTestCase {
         T3Menus().pickProjectFavicon(startingAt: root.path, importsRoot: imports) { picked = .some($0) }
         XCTAssertEqual(picked.flatMap { $0 }.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }, imports.appendingPathComponent("icon.png").resolvingSymlinksInPath().path)
     }
-    /// The full-screen fact: the style mask at attach, then did-enter / did-exit, each published.
-    func testFullScreenFactFollowsTheWindowNotifications() {
+    /// Full screen is Contract's `exactViewport().displayMode`, so the
+    /// window chrome publishes only the Mac's locale; it still owns the title row and the traffic lights.
+    func testWindowChromeStatusIsTheLocaleAndKeepsTheTitleRow() {
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
-        let fact = T3FullScreen()
-        var published = 0
-        fact.changed = { published += 1 }
-        fact.attach(window)
-        XCTAssertFalse(fact.fullScreen)
-        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
-        XCTAssertTrue(fact.fullScreen)
-        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
-        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: NSWindow())
-        XCTAssertTrue(fact.fullScreen, "another window's exit is not this one's")
-        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: window)
-        XCTAssertFalse(fact.fullScreen)
-        XCTAssertEqual(published, 3, "attach, enter, exit")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let chrome = T3WindowChrome()
+        XCTAssertEqual(Array(chrome.status.keys), ["systemLocale"], "no native full-screen fact")
+        let toolbar = T3WindowChrome.titleRow(window)
+        XCTAssertTrue(window.toolbar === toolbar)
+        XCTAssertEqual(window.toolbarStyle, .unified)
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        T3WindowChrome.positionControls(in: window)
+        XCTAssertEqual(window.standardWindowButton(.closeButton)?.frame.minX ?? 0, 16, accuracy: 0.5)
         XCTAssertEqual(T3Locale.systemLocale(Locale(identifier: "ko_KR")), "ko-KR")
         XCTAssertEqual(T3Locale.systemLocale(Locale(identifier: "en_GB")), "en-GB")
     }
@@ -490,7 +486,7 @@ final class MenuTests: XCTestCase {
         edit.addItem(.separator())
         edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "")
         bar.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
-        let keys = R8KeysMenus()
+        let keys = T3MenuBar()
         keys.arrange(bar)
         let shown = { edit.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
         XCTAssertEqual(shown(), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Delete", "Select All", "—", "Speech"])
@@ -504,7 +500,7 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(shown(), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Delete", "Select All", "—", "Speech"])
     }
     /// The host's Edit and Help since LLP 1115 D8 (DevMenuMac.swift): Xcode's template, which DesktopApplicationMenu.ts's
-    /// Edit lacks, and a Help menu with the help-book item (adopt-main-fixes-r7).
+    /// Edit lacks, and a Help menu with the help-book item.
     func testTheHostTemplateEditAndHelpShowOnlyTheReferenceItems() {
         _ = NSApplication.shared
         let bar = NSMenu(), edit = NSMenu(title: "Edit"), command = ShortcutHost()
@@ -550,8 +546,8 @@ final class MenuTests: XCTestCase {
                                    characters: "G", charactersIgnoringModifiers: "g", isARepeat: false, keyCode: 5)!
         XCTAssertTrue(bar.performKeyEquivalent(with: key), "a hidden Find still answers the app's chord")
         XCTAssertEqual(ShortcutHost.fired, before + 1)
-        // DesktopApplicationMenu.ts's Help: Check for Updates... alone; the help book is not offered.
-        XCTAssertEqual(shown(help), ["Check for Updates..."])
+        // DesktopApplicationMenu.ts's Help: Check for Updates… alone; the help book is not offered.
+        XCTAssertEqual(shown(help), ["Check for Updates…"])
         XCTAssertTrue(book.isHidden)
         XCTAssertFalse(book.allowsKeyEquivalentWhenHidden, "⇧⌘/ stays AppKit's help search")
     }
@@ -577,7 +573,7 @@ final class MenuTests: XCTestCase {
         menus.presentAlert = { shown.append($0) }
         menus.augment(bar)
         menus.augment(bar)
-        let expected = ["About T3 Code", "Check for Updates...", "—", "Settings…", "—", "Services", "—", "Hide T3 Code", "Hide Others", "Show All", "—", "Quit T3 Code"]
+        let expected = ["About T3 Code", "Check for Updates…", "—", "Settings…", "—", "Services", "—", "Hide T3 Code", "Hide Others", "Show All", "—", "Quit T3 Code"]
         let titles = { app.items.map { $0.isSeparatorItem ? "—" : $0.title } }
         XCTAssertEqual(titles(), expected)
         // The host's next batch puts Settings… back at index 2; the menu is ordered again as it opens.
@@ -586,9 +582,9 @@ final class MenuTests: XCTestCase {
         menus.menuNeedsUpdate(app)
         XCTAssertEqual(titles(), expected)
         XCTAssertTrue(app.delegate === menus)
-        XCTAssertEqual(bar.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "the reference bar has no Go menu (lane r8-keys)")
+        XCTAssertEqual(bar.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "the reference bar has no Go menu")
         let help = bar.items.last!.submenu!
-        XCTAssertEqual(help.items.map(\.title), ["Check for Updates..."])
+        XCTAssertEqual(help.items.map(\.title), ["Check for Updates…"])
         XCTAssertTrue(NSApp.helpMenu === help)
         let item = help.items[0]
         XCTAssertTrue(menus.validateMenuItem(item), "enabled with no window, as the reference's ensureMain does")
@@ -709,5 +705,5 @@ guard let run = suite.testRun, run.executionCount == 47 else { print("Menus: une
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
 
-/// The host's command target (ExactKit's ShortcutHost), named as R8KeysMenus finds it.
+/// The host's command target (ExactKit's ShortcutHost), named as T3MenuBar finds it.
 final class ShortcutHost: NSObject { nonisolated(unsafe) static var fired = 0; @objc func fire(_ sender: Any?) { Self.fired += 1 } }

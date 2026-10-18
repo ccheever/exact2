@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.002-design-system-parity.spec.md#icons-and-imagery
+// @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#icons-and-imagery
 // upstream 365aa87982 AppSymbol.ios.tsx and expo-symbols 58.0.3: size is the view's bounds.
 // GAP 002: the portable symbol role roster cannot express these SF names.
 import UIKit

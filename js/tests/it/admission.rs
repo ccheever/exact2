@@ -152,7 +152,11 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
         .expect("the fixture's Contract compiles")
         .encode();
     let links = Links {
-        io: Some(IoLinks { endow, start }),
+        io: Some(IoLinks {
+            endow,
+            start,
+            ..IoLinks::LINKED
+        }),
         ..Links::ALL
     };
     let mut bridge = Bridge::with_links(links);
@@ -163,14 +167,28 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
     bridge.boot(&plan, data, hooks, 390., 844.);
     let begun = Instant::now();
     let mut pumps = 0;
-    let missing = |bridge: &mut Bridge<D>| {
+    // Which of `rows` the tree does not show loaded. Each pump looks only at the rows still
+    // missing; the loop's end checks every row again, so a row that loaded and then lost its
+    // text fails the drive as before
+    let missing = |bridge: &mut Bridge<D>, rows: &[usize]| {
         let tree = agent(bridge, r#"{"op":"tree"}"#);
-        (0..n)
+        rows.iter()
+            .copied()
             .filter(|i| !tree.contains(&format!("\"{source}-{i} after prefs+labelers #1\"")))
             .collect::<Vec<_>>()
     };
+    // Whether one row shows its text: a read of that row alone, not the whole tree
+    let loaded = |bridge: &mut Bridge<D>, i: usize| {
+        agent(
+            bridge,
+            &format!(r#"{{"op":"tree","target":"r{i}","shallow":true}}"#),
+        )
+        .contains(&format!("\"{source}-{i} after prefs+labelers #1\""))
+    };
+    let every: Vec<usize> = (0..n).collect();
+    let mut left = every.clone();
     let mut gate = false;
-    let left = loop {
+    loop {
         bridge.pump(begun.elapsed().as_secs_f64() * 1e3);
         pumps += 1;
         if !gate {
@@ -179,9 +197,13 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
             GATE.1.notify_all();
             gate = true;
         }
-        let left = missing(&mut bridge);
+        // The whole tree is read only once the first missing row has loaded, to drop every row
+        // that loaded with it; rows load in waves, so most pumps read one row
+        if left.first().is_some_and(|&i| loaded(&mut bridge, i)) {
+            left = missing(&mut bridge, &left);
+        }
         if left.is_empty() || begun.elapsed() > within {
-            break left;
+            break;
         }
         // The next pump only on the executor's wake, as a presenter pumps:
         // progress that needs a wake the executor never sends fails here.
@@ -189,9 +211,10 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
             .recv_timeout(within.saturating_sub(begun.elapsed()))
             .is_err()
         {
-            break missing(&mut bridge);
+            break;
         }
-    };
+    }
+    let left = missing(&mut bridge, &every);
     let logs = agent(&mut bridge, r#"{"op":"logs"}"#);
     let said = logs
         .split("\",\"")

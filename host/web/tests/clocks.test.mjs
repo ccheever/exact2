@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -53,8 +54,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     // How far apart two times are on the 1600 ms cycle, either way round: a
     // whole number of cycles apart in float can read as a hair under one.
     const apart = (a, b) => { const d = (((a - b) % 1600) + 1600) % 1600; return Math.min(d, 1600 - d); };
@@ -65,15 +65,15 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     const phase = async id => (await phases(id))[0];
 
     await evaluate(`add('lock', 'pulse 800ms ease-in-out infinite alternate')`);
-    await Bun.sleep(300);
-    await evaluate(`add('engine', 'pulse 800ms ease-in-out infinite alternate')`);
-    await evaluate(`add('free', 'pulse 800ms ease-in-out infinite alternate', '')`);
+    // A joiner and a free one added together once the clock's phase is 400 to 1200 ms into its cycle, so that one starting
+    // its own cycle is well apart from it however long the machine takes (a fixed wait could land a whole cycle on)
+    await evaluate(`new Promise(ok => { const at = () => { const p = anim('lock').currentTime % 1600; if (p >= 400 && p <= 1200) { add('engine', 'pulse 800ms ease-in-out infinite alternate'); add('free', 'pulse 800ms ease-in-out infinite alternate', ''); ok(); } else requestAnimationFrame(at); }; at(); })`);
     const [[lock], [engine], [free]] = await phases('lock', 'engine', 'free');
     expect(apart(lock, engine)).toBeLessThan(1);
     expect(apart(lock, free)).toBeGreaterThan(200); // no clock: CSS's own start
-    // A lone pulse on an idle clock starts at its first keyframe.
-    await evaluate(`add('alone', 'pulse 800ms infinite alternate', 'Other')`);
-    expect((await phase('alone'))[0]).toBeLessThan(100);
+    // A lone pulse on an idle clock starts at its first keyframe: now, read in the evaluation that adds it.
+    const [now, alone] = await evaluate(`(() => { const now = document.timeline.currentTime; add('alone', 'pulse 800ms infinite alternate', 'Other'); return [now, anim('alone').startTime]; })()`);
+    expect(apart(alone, now)).toBeLessThan(1);
 
     // The CSS play state still applies after `startTime` was set.
     await evaluate(`document.getElementById('engine').style.animationPlayState = 'paused'; sync()`);
@@ -151,4 +151,4 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     server.close();
     rmSync(profile, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60000);

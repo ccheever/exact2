@@ -8,7 +8,6 @@ import CoreText
 import os
 
 /// Which live views carry the few props the chrome passes look for.
-///
 
 package final class Presenter {
     var documentLanguage = ""
@@ -19,7 +18,9 @@ package final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
-    var announcedModal: ObjectIdentifier?
+    /// What VoiceOver was told of the modal and the menus, and the menus a row of which held the focus (`tellLanding`).
+    var toldModal: ObjectIdentifier?, shownMenus: [NodeView] = [], landing = VoiceOverLanding()
+    let menusHeldFocus = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -27,6 +28,8 @@ package final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     package let viewport = PageScrollView(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
+    /// The page viewport's programmatic element reveal, while AppKit owns its interpolation.
+    var pageElementAnimation: UUID?
     lazy var focusEvents = FocusEvents(self)
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
@@ -39,6 +42,7 @@ package final class Presenter {
         chrome.note(view.id, props: view.props)
         if view.disabled { view.showFieldFocus(false) }
         view.syncDisabledLook()
+        view.relook() // a look holds on no disabled node (LLP 1121 D8)
         // HTML's `title`: the platform's tooltip (studio diary R24).
         // An icon-only button's help tag is its label (LLP 1115 wave 1), as
         // a toolbar item's is; settled once the batch has mounted its face.
@@ -140,10 +144,10 @@ package final class Presenter {
     /// its height is `safe-area-inset-top`). @ref LLP 1008 §9
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
-    /// The safe-area insets the kernel was given: the titlebar under
-    /// `viewport-fit=cover`, zero when the viewport is the content view
-    /// below it. Reported to the agent as `env`.
-    var insets = NSEdgeInsetsZero
+    /// The safe-area insets the kernel was given (the titlebar under `viewport-fit=cover`, zero
+    /// when the viewport is the content view below it) and its layout regions (LLP 1123 D10,
+    /// `nil` for none). Reported to the agent as `env`.
+    var insets = NSEdgeInsetsZero, regions: [CGFloat]?
     /// The posture and the viewport segments last told (LLP 1078 D5): flat, unless an agent preferred otherwise.
     var fold = ViewportFold.flat
 
@@ -583,9 +587,10 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        WakeLock.hold(self, false) // the new host's first batch says it again
+        cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
-        pointerHeld = nil
-        pointerSource = nil
+        pointerHeld = nil; pointerPath = []; pointerSource = nil; mouseChain.bubbledPress?.cancel()
         elements.reset()
         resetFlights()
         viewport.invalidateDocumentFit()
@@ -688,10 +693,10 @@ package final class Presenter {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
         if !selectText, menus.focus(target) { return }
-        // A search input the window's toolbar hosts has no box in the page
-        // (LLP 1115.002 D2): the caret goes to its field in the bar.
+        // A search input the window's toolbar hosts, or a prompt's input lent to its
+        // alert, has no box in the page (LLP 1115.002 D2): the caret goes to its field.
         if target.pageField != nil {
-            if !target.formDisabled, toolbar.focusSearch(target), selectText { fieldSelections.selectAll(target) }
+            if !target.formDisabled, toolbar.focusSearch(target) || alerts.focus(target), selectText { fieldSelections.selectAll(target) }
             return
         }
         guard let window = target.window, !target.formDisabled,
@@ -743,8 +748,10 @@ package final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     /// The primary button went down on a node (`true`) or came up (LLP 1005 §3).
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
-    /// The node the primary button went down on, until it comes up.
+    /// The innermost node hearing a pointer event that the button went down on, until it comes up: it hears the drags.
     var pointerHeld: UInt32?
+    /// The nodes from it up that hear `pointerdown` or `pointerup`, innermost first: each hears the up (LLP 1005 §3).
+    var pointerPath: [UInt32] = []
     /// The last input was a pointer's press, not a key: a focus it, or a
     /// handler it ran, moves shows no ring (`:focus-visible`, `FocusMac.swift`).
     var focusByPointer = false
@@ -793,9 +800,11 @@ package final class Presenter {
     /// view (LLP 1063) does not until its exit ends.
     @discardableResult
     func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        if let node = views[id] { mouseChain.bubbledPress?.cancel(in: node) }
         focusEvents.removed(id)
         // A held node that goes has no handler left to hear its up.
         if pointerHeld == id { pointerHeld = nil }
+        pointerPath.removeAll { $0 == id }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
         mouseDrags.height.retire(id)
@@ -811,6 +820,8 @@ package final class Presenter {
         transformBindings.removeValue(forKey: id)
         transformGeometry.retire(id)
         session?.text.readerParagraphs.removeValue(forKey: id)
+        // A view made later may have this one's identifier: its `autofocus` is its own to offer.
+        if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)) }
         let gone = views.removeValue(forKey: id)
         chrome.forget(id)
         scrollers.remove(id)
@@ -826,6 +837,7 @@ package final class Presenter {
     /// The innermost hovered listener, with its listening ancestors below.
     weak var hovered: NodeView?
     var hoveredNodes: [NodeView] = [] // innermost first, the hit's ancestor path
+    var lookHovered: [WeakNodeView] = [] // those whose `:hover` look holds (HoverMac.swift)
     weak var trackedPointerEvent: NSEvent?
     /// The canvas input the tracked move reached through the hit's ancestors.
     weak var trackedCanvas: AnyObject?
@@ -841,14 +853,14 @@ package final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
-    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
+    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false) {
         pressHeld = held; defer { pressHeld = "" }
-        guard let node = textHost(id), !node.inert, !node.disabled,
+        guard let node = textHost(id), !(bubbled ? node.authoredInert : node.inert), !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
-        let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
-        let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
-        if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url) { return }
+        let command = dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
+        let popover = menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
+        if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
         command?()
         popover?()
@@ -921,6 +933,7 @@ package final class Presenter {
         hoverTransition &+= 1
         inlineHoverTransition &+= 1 // cancel an inline enter awaiting its leave callback
         let generation = hoverTransition
+        defer { if hoverTransition == generation { hoverLooks(nodes) } } // LLP 1121 D8 (HoverMac.swift)
         func eligible(_ node: NodeView) -> Bool {
             views[node.id] === node && node.isDescendant(of: viewport) && !node.inert && !node.isHiddenOrHasHiddenAncestor && node.handlers.contains("hover")
         }
@@ -949,21 +962,6 @@ package final class Presenter {
         hoveredNodes.removeAll { !eligible($0) }; hovered = hoveredNodes.first
         guard hoverTransition == generation else { return }
         if let inline, inlineEnabled(inline) { hoverInline(inline) }
-    }
-    /// Native-module hover dispatch uses the same ancestor coverage.
-    func hover(_ view: NodeView, _ over: Bool) {
-        guard views[view.id] === view else { return }
-        if over {
-            var path: [NodeView] = []
-            var current: NSView? = view
-            while let node = current {
-                if let node = node as? NodeView { path.append(node) }
-                current = node.superview
-            }
-            setHoverPath(path)
-        } else {
-            setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
-        }
     }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
@@ -996,7 +994,7 @@ package final class Presenter {
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
-        defer { applyLanguage(batch) }
+        defer { applyLanguage(batch); applyWakeLock(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }
@@ -1083,7 +1081,7 @@ package final class Presenter {
             case .create:
                 let v = NodeView(id: id, kind: op.kind, presenter: self)
                 v.handlers = op.handlers
-                v.applyStyle(op.style)
+                v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
                 views[id] = v
                 elements.created(v)
@@ -1099,7 +1097,7 @@ package final class Presenter {
             case .style:
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
-                v.applyStyle(op.style)
+                v.applyStyle(v.presented(op.style))
                 anchorChanges.note(id, from: old, to: v.style)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6);
@@ -1192,7 +1190,7 @@ package final class Presenter {
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
-                case "opacity": v.presentedAlpha = x; v.alphaValue = v.disabledShown ? x * NodeView.disabledOpacity : x
+                case "opacity": v.presentedAlpha = x; v.alphaValue = v.disabledShown ? x * NodeView.disabledOpacity : x; v.refreshPressOpacity()
                 case "flight": presentFlight(id, x)
                 default: break
                 }
@@ -1209,7 +1207,8 @@ package final class Presenter {
         // shows beyond a document shorter than the viewport, as a browser
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
-        let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
+        let ground = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
+        let color = (root.subviews.first as? NodeView)?.color("background_color", ground) ?? ground
         if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
@@ -1344,6 +1343,11 @@ package final class Presenter {
     var keyViewLoopStale = false
     var keyViewLoopMode: Bool?
     let keyViewBefore = NSMapTable<NSView, NSView>.weakToWeakObjects()
+    /// The control that lost the focus by becoming disabled, while nothing
+    /// has taken it since: HTML's sequential focus navigation starting
+    /// point, which its focus fixup rule leaves there, so Tab goes on from
+    /// the control's place (`tabFromStart`).
+    weak var tabStart: NSView?
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above

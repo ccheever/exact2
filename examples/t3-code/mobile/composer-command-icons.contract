@@ -1,6 +1,6 @@
 // Pinned365aa87982 AppSymbol.ios.tsx uses Tabler for arrow.triangle.pull.
 // Tabler3.44.0 MIT; see assets/LICENSE-Tabler. Paths copied without modification.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 component PullRequestIcon
   props
     size: number

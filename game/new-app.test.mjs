@@ -2,16 +2,16 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, statSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
 import { appVerbs } from '../scripts/app-cli.mjs';
-import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback, withoutMember } from './new.mjs';
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
  * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
-const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
+const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help', 'bun']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -27,14 +27,15 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(agents(), /<!-- exact:begin[^]*`bun exact\.mjs feedback status` says whether this project keeps one\.[^]*<!-- exact:end -->/);
     assert.doesNotMatch(agents(), /first;|before writing code|Read the card|Run `bun exact\.mjs feedback/, 'no ordered preface');
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
-    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), and the three paths of a long temp dir
-    assert.ok(Buffer.byteLength(agents()) <= 1536 + 3 * resolve(import.meta.dir, '..').length, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
+    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), besides the checkout's path in each path it names
+    const checkout = realpathSync(resolve(import.meta.dir, '..')), text = Buffer.byteLength(agents()) - (agents().split(checkout).length - 1) * checkout.length;
+    assert.ok(text <= 1536, `AGENTS.md is ${text} bytes besides the checkout's paths`);
     assert.match(agents(), /exact\.mjs setup --check/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
     assert.ok(launcher.trimEnd().split('\n').length <= 25, `exact.mjs is ${launcher.split('\n').length} lines`);
-    assert.match(launcher.split('\n')[1], /`bun exact\.mjs --help` lists the verbs/);
+    assert.match(launcher.split('\n')[2], /`bun exact\.mjs --help` lists the verbs/);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
@@ -53,19 +54,43 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       [['web-build'], ['field-log']],
       [['test'], testArgs('web'), webBuild],
       [['test', 'web'], testArgs('web'), webBuild],
-      [['test', 'ios'], testArgs('ios'), ios],
+      // An iOS drive shows UIKit's bars, and an Apple agent drive's screenshots are a pixel a point.
+      [['test', 'ios'], [...testArgs('ios'), '--chrome', 'platform'], ios],
       [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600'], ['macos', '--app', 'field-log']],
       [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces'], webBuild],
-      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state'], ios],
-      [['agent', 'ios', '--sim', 'lane', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', 'tree'], [...ios, '--sim', 'lane']],
-      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree']],
-      [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
+      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state', '--chrome', 'platform', '--scale', '1'], ios],
+      [['agent', 'ios', '--sim', 'lane', '--scale', '3', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', '--scale', '3', 'tree', '--chrome', 'platform'], ios],
+      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree', '--chrome', 'platform', '--scale', '1']],
+      [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', resolve(realpathSync(dir), 'app.contract'), '--json']],
+      [['contract', 'types', 'app.contract', '-o', 'app.contract.d.ts'], ['contract', 'types', resolve(realpathSync(dir), 'app.contract'), '-o', resolve(realpathSync(dir), 'app.contract.d.ts')]],
+      [['contract', 'vocab', 'background-color'], ['contract', 'vocab', 'background-color']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir), offline: '1' });
-      assert.deepEqual(result.stderr.trim() ? JSON.parse(result.stderr).args : null, built, `${command.join(' ')} builds first`);
+      assert.deepEqual(result.stderr.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line).args)[0] ?? null, built, `${command.join(' ')} builds first`);
     }
+    // From inside the app, a path from its parent finds the same file; one found nowhere is named.
+    const inside = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'contract', 'build', 'field-log/app.contract'], { cwd: dir, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(inside.stdout).args, ['contract', 'build', resolve(realpathSync(dir), 'app.contract')]);
+    assert.match(inside.stderr, /field-log\/app\.contract is .*field-log\/app\.contract \(the app is /);
+    const nowhere = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'contract', 'build', 'nope.contract'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.match(nowhere.stderr, /no nope\.contract in .* or in the app, /);
+    assert.deepEqual(JSON.parse(nowhere.stdout).args, ['contract', 'build', 'nope.contract']);
+    // App farm wave 1: `test --help` ran the suite, `web --help` started a server. Help builds nothing; a verb whose
+    // script has more to say is asked for its usage alone, and the rest print their line.
+    const helped = (...command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    const testHelp = helped('test', '--help');
+    assert.equal(testHelp.status, 0, testHelp.stderr);
+    assert.match(testHelp.stdout, /^bun exact\.mjs test /);
+    assert.ok(!testHelp.stdout.includes('{'), 'test --help starts no child');
+    for (const command of [['ios', '-h'], ['update', '--help']]) {
+      const said = helped(...command);
+      assert.equal(said.status, 0, said.stderr);
+      assert.match(said.stdout, new RegExp(`^bun exact\\.mjs ${command[0]}(?: |\\n)`));
+      assert.ok(!said.stdout.includes('{'), `${command[0]} --help ran its script`);
+    }
+    assert.match(helped('--help').stdout, /^bun exact\.mjs <verb>[^]*  test +/ );
     // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
     mkdirSync(resolve(dir, 'tests'));
     for (const name of ['b.test.contract', 'a.test.contract']) writeFileSync(resolve(dir, 'tests', name), '');
@@ -75,9 +100,9 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       return result.stdout.trim().split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l).args);
     };
     const tested = (host, file, ...more) => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), file), ...more];
-    assert.deepEqual(files(['test', 'ios', 'tests/b.test.contract', '--size', '800x600']), [tested('ios', 'tests/b.test.contract', '--size', '800x600')]);
+    assert.deepEqual(files(['test', 'ios', 'tests/b.test.contract', '--size', '800x600']), [tested('ios', 'tests/b.test.contract', '--size', '800x600', '--chrome', 'platform')]);
     assert.deepEqual(files(['test', 'macos', 'tests/*.test.contract']), [tested('macos', 'tests/a.test.contract'), tested('macos', 'tests/b.test.contract')]);
-    assert.deepEqual(files(['test', 'ios', '--test', 'field-log/tests/a.test.contract'], parent), [tested('ios', 'tests/a.test.contract')]);
+    assert.deepEqual(files(['test', 'ios', '--test', 'field-log/tests/a.test.contract'], parent), [tested('ios', 'tests/a.test.contract', '--chrome', 'platform')]);
     assert.equal(spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios', 'none/*.test.contract'], { cwd: dir, env: { ...process.env, EXACT2: sdk } }).status, 2);
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
@@ -209,10 +234,12 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.ok(!existsSync(resolve(dir, 'app.json')), 'a game\'s manifest stays optional');
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
-    for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs']) {
+    for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
     }
+    mkdirSync(resolve(sdk, 'snapback4/web'), { recursive: true });
+    writeFileSync(resolve(sdk, 'snapback4/web/device-build.mjs'), 'export function devicePreflight() { throw new Error("a manifest-free game has no Snapback device"); }');
     withCli(sdk);
     const real = realpathSync(dir);
     const drive = (command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
@@ -222,6 +249,7 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
       [['web-build'], ['block-hop']],
       [['agent', 'web', 'tree'], ['web', '--app', 'block-hop', 'tree']],
       [['feedback', 'status'], ['status']],
+      [['contract', 'build', 'app.contract'], ['contract', 'build', resolve(real, 'app.contract')]],
     ]) {
       const result = drive(command);
       assert.equal(result.status, 0, result.stderr);
@@ -245,6 +273,34 @@ test('a new app refuses a name no host crate can carry, and a directory that is 
     mkdirSync(resolve(parent, 'field-log'));
     writeFileSync(resolve(parent, 'field-log/stray'), '');
     assert.throws(() => createApp(resolve(parent, 'field-log')), /not empty/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('exact new names the app and its bundle id before any build, and refuses an id no platform takes', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    assert.throws(() => createApp(dir, { id: 'com.yourcompany.field_log' }), /^Error: exact new --bundle-id com\.yourcompany\.field_log: not a reverse-DNS id;.* as com\.yourcompany\.fieldlog$/);
+    assert.throws(() => createApp(dir, { id: 'fieldlog' }), /not a reverse-DNS id/);
+    assert.throws(() => createApp(dir, { title: 'Field\nLog' }), /--name: give the name people see, on one line/);
+    assert.ok(!existsSync(dir), 'a refused name writes nothing');
+    createApp(dir, { title: 'Field "Log" $5', id: 'com.yourcompany.fieldlog' });
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.deepEqual([manifest.app, manifest.name, manifest.short_name, manifest.id], [{ id: 'com.yourcompany.fieldlog', name: 'Field "Log" $5' }, 'Field "Log" $5', 'Field "Log" $5', 'com.yourcompany.fieldlog']);
+    assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /^export const appId = 'com\.yourcompany\.fieldlog';$/m);
+    const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
+    assert.match(view, /^component FieldLog$/m, 'the component keeps the folder\'s name, which is always an identifier');
+    assert.ok(view.includes('text "Field \\"Log\\" \\$5" role="heading"'), view);
+    // A pattern still sees the named app's files as exact new's, untouched.
+    assert.match(applyPattern(dir, 'one-screen').said, /as Field "Log" \$5 \(com\.yourcompany\.fieldlog\)$/);
+    // The flags name a new app: the CLI refuses them on --update and --game before touching anything.
+    const cli = (...args) => spawnSync(process.execPath, [resolve(import.meta.dir, '../scripts/exact.mjs'), 'new', ...args], { encoding: 'utf8' });
+    const update = cli(dir, '--update', '--bundle-id', 'com.yourcompany.other');
+    assert.deepEqual([update.status, /^update: unknown flag --bundle-id/.test(update.stderr)], [2, true], update.stderr);
+    const game = cli(resolve(parent, 'field-game'), '--game', '--bundle-id', 'com.yourcompany.other');
+    assert.deepEqual([game.status, /--name and --bundle-id name an app; a game/.test(game.stderr)], [1, true], game.stderr);
+    const bare = cli(dir, '--name');
+    assert.deepEqual([bare.status, /--name takes a value, as in --name "Field Log"/.test(bare.stderr)], [1, true], bare.stderr);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
@@ -358,6 +414,66 @@ test('a new app has a Linux host crate, and update adds one to an older app', ()
     assert.ok(readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8').includes('name = "field-log-linux"'));
     assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
     assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'a second update leaves it');
+    // `update --without linux` (the euxy port: an SF Symbol warned for Linux, and removing it by hand took
+    // app.json, the workspace and Cargo.lock): one step, which the next update keeps.
+    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json deploy\.store\.linux, linux\/\)/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "web"\]$/m);
+    assert.ok(!('linux' in JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy.store));
+    assert.doesNotMatch(readFileSync(resolve(dir, 'Cargo.lock'), 'utf8'), /name = "field-log-linux"/);
+    const locked = spawnSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr);
+    assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.throws(() => createApp(dir, { update: true, without: 'web' }), /the web host is the dev loop's/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
+
+test('update --without edits any spelling of the workspace member, and a refusal changes nothing', () => {
+  for (const [text, want] of [
+    ['[workspace]\nmembers = [\'apple\', \'linux\', \'web\']\n', '[workspace]\nmembers = [\'apple\', \'web\']\n'],
+    ['[workspace]\nmembers = ["apple", "./linux/", "web"]\nresolver = "2"\n', '[workspace]\nmembers = ["apple", "web"]\nresolver = "2"\n'],
+    ['[workspace]\nmembers = [\n  "apple", # the Apple host\n  "linux", # Linux, and Android\n  "web",\n]\n', '[workspace]\nmembers = [\n  "apple", # the Apple host\n  "web",\n]\n'],
+    ['[workspace]\nmembers = ["apple", "web", "linux"]\ndefault-members = ["linux", "web"]\n', '[workspace]\nmembers = ["apple", "web"]\ndefault-members = ["web"]\n'],
+    ['[workspace]\nmembers = ["apple", "web"]\n', '[workspace]\nmembers = ["apple", "web"]\n'],
+  ]) assert.equal(withoutMember(text, 'linux'), want, text);
+  assert.equal(withoutMember('[workspace]\nmembers = ["linux-tools", "linux"]\n', 'linux'), '[workspace]\nmembers = ["linux-tools"]\n');
+  // Only the [workspace] table's own keys: another table's `members` is left as written.
+  const metadata = '[workspace.metadata.hosts]\nmembers = ["linux"]\n\n[workspace]\nmembers = ["apple", "linux"]\n\n[package.metadata]\nmembers = ["linux"]\n';
+  assert.equal(withoutMember(metadata, 'linux'), metadata.replace('members = ["apple", "linux"]', 'members = ["apple"]'));
+  // A form it does not read with certainty is refused, naming the edit by hand.
+  for (const [text, why] of [
+    ['[workspace]\n"members" = ["apple", "linux"]\n', /a quoted members key/],
+    ['[workspace]\nmembers = ["apple", "li\\u006eux"]\n', /an escaped string/],
+    ['workspace.members = ["apple", "linux"]\n', /no \[workspace\] header/],
+    ['workspace = { members = ["apple", "linux"] }\n', /no \[workspace\] header/],
+    ['[workspace]\nmembers = ["apple"]\ndefault-members = ["linux"]\n', /default-members would be empty/],
+  ]) assert.throws(() => withoutMember(text, 'linux'), err => why.test(err.message) && /remove "linux" from \[workspace\] members and default-members by hand/.test(err.message), text);
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    // The last native store: deploy would read none as every platform, Linux included.
+    const dir = resolve(parent, 'web-log');
+    createApp(dir);
+    const manifest = resolve(dir, 'app.json'), workspace = resolve(dir, 'Cargo.toml'), lock = resolve(dir, 'Cargo.lock');
+    const app = JSON.parse(readFileSync(manifest, 'utf8'));
+    app.deploy.store = { web: '0', linux: '0' };
+    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
+    const state = () => [manifest, workspace, lock].map(p => readFileSync(p, 'utf8'));
+    const before = state();
+    assert.throws(() => createApp(dir, { update: true, without: 'linux' }), /would name no native platform.*as they were/s);
+    assert.deepEqual(state(), before);
+    assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
+    // A resolve that fails once the crate is aside (a member depends on it): the files, the
+    // lock and the crate all come back, and nothing is left beside them.
+    app.deploy.store = { web: '0', ios: '0', linux: '0' };
+    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
+    const apple = resolve(dir, 'apple/Cargo.toml');
+    writeFileSync(apple, readFileSync(apple, 'utf8').replace('[dependencies]\n', '[dependencies]\nweb-log-linux = { path = "../linux" }\n'));
+    const again = state();
+    assert.throws(() => createApp(dir, { update: true, without: 'linux' }), /Cargo\.toml, app\.json, Cargo\.lock and linux\/ are as they were/);
+    assert.deepEqual(state(), again);
+    assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
+    assert.deepEqual(readdirSync(dir).filter(f => f.startsWith('.linux')), []);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 
@@ -454,4 +570,226 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
+});
+
+// `exact new --snapback` (the author's ruling of 2026-10-12, via the sb4 app farm): the README's setup block, run. The
+// backend is the directory above; the device build is `bun exact.mjs snapback`'s, skipped here (`build: false`).
+test('a new Snapback app is wired to the backend above it, and update follows a moved checkout\'s mount', () => {
+  const root = realpathSync(resolve(import.meta.dir, '..')), parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'app'), manifest = () => JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.throws(() => createApp(dir, { snapback: { port: 'x' } }), /--port: x is not a port/);
+    const said = createApp(dir, { snapback: { port: 4410, build: false } });
+    // No backend server installed above: the schema is written, nothing generated, and it says what to do next.
+    assert.match(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), /^use personas alice, bob[^]*mutation post\(/);
+    assert.match(said, /not installed in .*npm i snapback4@\d+\.\d+\.\d+[^]*bunx snapback4 dev --port 4410/);
+    assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
+    assert.ok(!manifest().typescript.sources.snapback4.startsWith('/'), 'the native bake refuses an absolute mount');
+    assert.equal(manifest().typescript.sources.backend, undefined);
+    readManifest(dir, 'app');
+    // The data module's origin, its grant and the tests' fetch prefixes name the port; its appId is app.json's.
+    const ts = readFileSync(resolve(dir, 'app.ts'), 'utf8'), tests = readFileSync(resolve(dir, 'app.test.contract'), 'utf8');
+    assert.match(ts, /const origin = 'http:\/\/127\.0\.0\.1:4410';[^]*net\.fetch \$\{origin\}\\nsqlite\.open app:\/data/);
+    assert.ok(ts.includes(`export const appId = '${manifest().app.id}'`));
+    assert.match(tests, /^fresh\nepoch now$[^]*fail fetch "backend"/m);
+    const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
+    assert.match(view, /failure\(board\)[^]*f\.reason/);
+    assert.match(view, /resource board = notes\(persona, time.epochAtZero \+ sampledAt\)/);
+    assert.match(view, /action refreshBoard\n    sampledAt = performanceNow\(\)\n    refresh board/);
+    assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/assets\/snapback4\.wasm$/m);
+    assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /this app's data is Snapback 4's[^]*bun exact\.mjs snapback/);
+    // With the server installed above, `snapback` generates the operations once and mounts them; a schema stays the author's.
+    writeFileSync(resolve(parent, 'snapback/schema.q'), 'use personas carol\n');
+    mkdirSync(resolve(parent, 'node_modules/.bin'), { recursive: true });
+    writeFileSync(resolve(parent, 'node_modules/.bin/snapback4'), '#!/bin/sh\n[ "$1" = check ] && mkdir -p snapback/generated && echo "export const api = {};" > snapback/generated/api.ts\n');
+    mkdirSync(resolve(parent, 'node_modules/snapback4/bin'), {recursive: true});
+    writeFileSync(resolve(parent, 'node_modules/snapback4/bin/snapback4.js'), `import {mkdirSync, writeFileSync} from 'node:fs';
+mkdirSync('snapback/generated', {recursive: true});
+writeFileSync('snapback/generated/api.ts', 'export const api = {};');`);
+    assert.match(wireSnapback(dir, { build: false }), /snapback4 check: wrote/);
+    assert.equal(manifest().typescript.sources.backend, '../snapback/generated');
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
+    writeFileSync(resolve(dir, 'app.ts'), readFileSync(resolve(dir, 'app.ts'), 'utf8') + '\n// Another service: net.fetch http://127.0.0.1:44100\n');
+    mkdirSync(resolve(dir, 'tests/nested'), { recursive: true });
+    writeFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'fail fetch "http://127.0.0.1:4410/sync"\n');
+    const changedPort = wireSnapback(dir, { build: false, port: 4411 });
+    assert.match(changedPort, /dev --port 4411/);
+    assert.match(changedPort, /app.ts's origin constant is overridden at bake by .exact\/backend-origin/);
+    assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4410'/);
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "backend"/);
+    assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4410\/sync/);
+    assert.ok(readFileSync(resolve(dir, 'app.ts'), 'utf8').includes('net.fetch http://127.0.0.1:44100'));
+    const portSource = resolve(dir, 'app.ts');
+    writeFileSync(portSource, readFileSync(portSource, 'utf8').replace("const origin = 'http://127.0.0.1:4411'", 'const origin = "http://127.0.0.1:4411/"'));
+    const unchanged = readFileSync(portSource, 'utf8'), mtime = statSync(portSource).mtimeMs;
+    wireSnapback(dir, {build: false, port: 4411});
+    assert.equal(readFileSync(portSource, 'utf8'), unchanged);
+    assert.equal(statSync(portSource).mtimeMs, mtime);
+    wireSnapback(dir, {build: false, port: 4412});
+    assert.equal(readFileSync(portSource, 'utf8'), unchanged);
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "backend"/);
+    assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4410\/sync/);
+    assert.equal(readFileSync(resolve(dir,'.exact/backend-origin'),'utf8').trim(), 'http://127.0.0.1:4412');
+    assert.throws(() => wireSnapback(dir, { build: false, port: 'x' }), /is not a port/);
+    const custom = resolve(parent, 'custom');
+    assert.match(createApp(custom, { snapback: { build: false, port: 4412 } }), /backend already has a schema: kept the greeting app[^]*dev --port 4412/);
+    assert.match(readFileSync(resolve(custom, 'app.ts'), 'utf8'), /http:\/\/127\.0\.0\.1:4412/);
+    writeFileSync(resolve(custom, 'app.ts'), readFileSync(resolve(custom, 'app.ts'), 'utf8').replace('http://127.0.0.1:4412', 'https://api.example.com'));
+    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /not a loopback backend/);
+    writeFileSync(resolve(custom, 'app.ts'), "export const grants = '';\n");
+    assert.match(wireSnapback(custom, { build: false, port: 4413 }), /added http:\/\/127\.0\.0\.1:4413/);
+    assert.match(readFileSync(resolve(custom, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4413';[^]*net.fetch \$\{origin\}/);
+    writeFileSync(resolve(custom, 'app.ts'), "const origin = process.env.BACKEND;\nexport const grants = '';\n");
+    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /origin is not a literal URL/);
+    assert.ok(!readFileSync(resolve(custom, 'app.ts'), 'utf8').includes('api.post'));
+    assert.ok(!readFileSync(resolve(custom, 'app.contract'), 'utf8').includes('Guestbook'));
+    const online = resolve(parent, 'online');
+    createApp(online, { snapback: { online: true, build: false, port: 4414 } });
+    assert.match(wireSnapback(online, { build: false }), /Online-only adapter/);
+    assert.ok(!readFileSync(resolve(online, 'app.ts'), 'utf8').includes('sqlite.open'));
+    const plainOnline = resolve(parent, 'plain-online');
+    createApp(plainOnline);
+    wireSnapback(plainOnline, {build: false, online: true, port: 4414});
+    assert.ok(!readFileSync(resolve(plainOnline, 'app.ts'), 'utf8').includes('sqlite.open'));
+    const rebuilt = wireSnapback(plainOnline, {build:false,rebuild:true});
+    assert.equal(rebuilt.split('\n').length, 1);
+    assert.match(rebuilt, /^Snapback rebuilt: \.\/snapback4 → .*snapback4\/online; \.\/backend → \.\.\/snapback\/generated \(online\)\.$/);
+    const onlineManifest = JSON.parse(readFileSync(resolve(online, 'app.json'), 'utf8'));
+    onlineManifest.typescript.sources.snapback4 = '..\\moved\\snapback4\\online';
+    writeFileSync(resolve(online, 'app.json'), JSON.stringify(onlineManifest));
+    createApp(online, { update: true });
+    assert.equal(realpathSync(resolve(online, JSON.parse(readFileSync(resolve(online, 'app.json'), 'utf8')).typescript.sources.snapback4)), resolve(root, 'snapback4/online'));
+    assert.match(readFileSync(resolve(online, 'AGENTS.md'), 'utf8'), /server-only Snapback adapter/);
+    assert.equal(existsSync(resolve(online, 'assets/snapback4.wasm')), false);
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
+    // The app's exact.mjs runs it, with the app's directory.
+    const sdk = resolve(parent, 'sdk');
+    mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
+    writeFileSync(resolve(sdk, 'scripts/exact.mjs'), 'console.log(JSON.stringify(process.argv.slice(2)));');
+    withCli(sdk);
+    const verb = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'snapback'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(verb.stdout), ['snapback', realpathSync(dir)]);
+    // An appId that disagrees is named. A checkout that moved: update rewrites the mount, as it does the Cargo paths.
+    writeFileSync(resolve(dir, 'app.ts'), ts.replace(/export const appId = '[^']*'/, "export const appId = 'com.example.other'"));
+    assert.ok(wireSnapback(dir, { build: false }).includes(`app.ts must say: export const appId = "${manifest().app.id}"; (it says "com.example.other")`));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest(), typescript: { sources: { ...manifest().typescript.sources, snapback4: '../../moved/exact2/snapback4/ts' } } }, null, 2));
+    const beforeMountRefusal = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    assert.throws(() => wireSnapback(dir, { build: false, port: 9999 }), /refusing to rewrite an edited mount[^]*- snapback4:[^]*\+ snapback4:/);
+    assert.equal(readFileSync(resolve(dir, 'app.ts'), 'utf8'), beforeMountRefusal);
+    const beforeArtifact = ['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(resolve(dir, file), 'utf8'));
+    assert.match(wireSnapback(dir, {build: false, artifactOnly: true}), /mounts kept unchanged/);
+    assert.deepEqual(['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(resolve(dir, file), 'utf8')), beforeArtifact);
+    assert.throws(() => wireSnapback(dir, {build: false, artifactOnly: true, port: 4410}), /cannot also change/);
+    createApp(dir, { update: true });
+    assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
+    // A plain app's notes say how to wire one.
+    const plain = resolve(parent, 'plain');
+    createApp(plain);
+    assert.match(readFileSync(resolve(plain, 'AGENTS.md'), 'utf8'), /exact new <path> --snapback[^]*bun exact\.mjs snapback/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 90_000); // Three offline Cargo resolutions.
+
+
+test('the online scaffold calls existing generated query/mutation handles and preserves authored apps', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-online-'));
+  try {
+    mkdirSync(resolve(parent, 'snapback/generated'), {recursive: true});
+    writeFileSync(resolve(parent, 'snapback/schema.q'), 'use personas carol\n');
+    writeFileSync(resolve(parent, 'snapback/generated/api.ts'), `export const api: Ops = {
+  search: { kind: "query", name: "search" },
+  create: { kind: "mutation", name: "create" },
+};`);
+    const dir = resolve(parent, 'explorer');
+    createApp(dir, {snapback: {online: true, build: false, port: 30126}});
+    const source = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    assert.match(source, /db.read\(api.search, args\)/);
+    assert.match(source, /db.send\(api.create, args\)/);
+    assert.match(source, /ArgsOf<typeof api.create>/);
+    assert.match(source, /'x-snapback-persona': "carol"/);
+    assert.ok(!source.includes('sqlite.open'));
+    const changed = source + '\n// authored fields follow\n';
+    writeFileSync(resolve(dir, 'app.ts'), changed);
+    wireSnapback(dir, {online: true, build: false});
+    assert.equal(readFileSync(resolve(dir, 'app.ts'), 'utf8'), changed);
+    const edited = resolve(parent, 'edited'); createApp(edited);
+    const custom = readFileSync(resolve(edited, 'app.ts'), 'utf8') + '\n// my app source\n';
+    writeFileSync(resolve(edited, 'app.ts'), custom);
+    wireSnapback(edited, {online: true, build: false});
+    assert.equal(readFileSync(resolve(edited, 'app.ts'), 'utf8'), custom);
+    const plain = resolve(parent, 'plain'); createApp(plain);
+    wireSnapback(plain, {online: true, build: false, port: 30126});
+    assert.match(readFileSync(resolve(plain, 'app.ts'), 'utf8'), /db.send\(api.create, args\)/);
+  } finally {rmSync(parent, {recursive: true, force: true});}
+});
+
+test('roster scaffolds seed fresh from a test-relative file and preserve backend fixtures', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-roster-'));
+  const schema = `use personas alice, bob
+table owners:
+  person: principal
+  role: enum('owner', 'reader')
+  label: text 2..80
+  enabled: bool
+  insert <- deny
+  update <- deny
+`;
+  try {
+    mkdirSync(resolve(parent, 'snapback'), {recursive: true});
+    writeFileSync(resolve(parent, 'snapback/schema.q'), schema);
+    const sample = rosterSeeds(schema);
+    assert.match(sample[0].row.id, /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
+    assert.deepEqual(sample, [{table:'owners', row:{id:sample[0].row.id,person:'dev:alice',role:'owner',label:'example',enabled:true}}]);
+    assert.deepEqual(rosterSeeds(schema), sample);
+    const indented = schema.replace(/^  /gm, '    ').replace(/    update <- deny\n$/, '').trimEnd();
+    assert.ok(indented.endsWith('    insert <- deny'));
+    assert.deepEqual(rosterSeeds(indented), sample, 'four-space fields and an EOF deny rule preserve all required fields');
+    assert.deepEqual(rosterSeeds(indented.replaceAll('\n', '\r\n')), sample, 'CRLF does not change the seeded shape');
+    assert.deepEqual(rosterSeeds(indented.replace('    person:', '-- roster membership\n    person:') + ' -- seeded only'), sample, 'comments do not terminate a table or hide its deny rule');
+    assert.deepEqual(rosterSeeds(indented.replace('table owners:', 'table owners: -- roster')), sample);
+    writeFileSync(resolve(parent, 'snapback/schema.q'), indented);
+    const app = resolve(parent, 'roster');
+    const said = createApp(app, {snapback:{online:true,build:false}});
+    assert.match(said, /review the persona, role and field values/);
+    assert.match(readFileSync(resolve(app,'app.test.contract'),'utf8'), /^fresh "seed.json"\n/);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(app,'seed.json'),'utf8')), rosterSeeds(schema));
+    const fixture = [{table:'owners',row:{id:'00000000000000000000000001',person:'dev:bob',role:'reader',label:'Bob',enabled:false}}];
+    writeFileSync(resolve(parent,'seed.json'),JSON.stringify(fixture));
+    const copied = resolve(parent,'copied');
+    createApp(copied,{snapback:{online:true,build:false}});
+    assert.deepEqual(JSON.parse(readFileSync(resolve(copied,'seed.json'),'utf8')),fixture);
+    assert.throws(() => rosterSeeds(schema.replace('person: principal','person: people')), /cannot infer owners.person/);
+    assert.throws(() => rosterSeeds(schema.replace('use personas alice, bob','use identity')), /needs an authenticated principal/);
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+}, 90_000);
+
+test('launchers and generated own commands find pinned Bun with an old PATH', () => {
+  const old = resolve(process.env.HOME, '.bun/bin/bun');
+  if (!existsSync(old)) return;
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-bun-'));
+  try {
+    const dir = resolve(parent, 'pinned'); createApp(dir);
+    const manifestPath = resolve(dir, 'app.json'), manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.commands = {runtime: ['bun', 'runtime.mjs']};
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(resolve(dir, 'runtime.mjs'), 'console.log(JSON.stringify({version:process.versions.bun,bun:process.env.BUN,path:Bun.which("bun")}));');
+    for (const explicit of [false, true]) {
+      const directEnv = {...process.env, PATH: '/usr/bin:/bin'};
+      if (explicit) directEnv.BUN = process.execPath; else delete directEnv.BUN;
+      const direct = spawnSync(resolve(dir, 'exact.mjs'), ['runtime'], {env: directEnv, encoding: 'utf8'});
+      assert.equal(direct.status, 0, direct.stderr);
+      assert.equal(JSON.parse(direct.stdout).version, process.versions.bun);
+      const rootDirect = spawnSync(resolve(import.meta.dirname, '../scripts/exact.mjs'), ['list'], {env: directEnv, encoding: 'utf8'});
+      assert.equal(rootDirect.status, 0, rootDirect.stderr);
+      const env = {...process.env, PATH: `${resolve(process.env.HOME, '.bun/bin')}:/usr/bin:/bin`};
+      if (explicit) env.BUN = process.execPath; else delete env.BUN;
+      const run = spawnSync(old, [resolve(dir, 'exact.mjs'), 'runtime'], {env, encoding: 'utf8'});
+      assert.equal(run.status, 0, run.stderr);
+      const observed = JSON.parse(run.stdout);
+      assert.equal(observed.version, process.versions.bun);
+      assert.equal(realpathSync(observed.bun), realpathSync(process.execPath));
+      assert.equal(realpathSync(observed.path), realpathSync(process.execPath));
+      const root = spawnSync(old, [resolve(import.meta.dirname, '../scripts/exact.mjs'), 'list'], {env, encoding: 'utf8'});
+      assert.equal(root.status, 0, root.stderr);
+    }
+  } finally {rmSync(parent, {recursive: true, force: true});}
 });

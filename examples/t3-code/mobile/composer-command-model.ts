@@ -2,7 +2,7 @@
 // Source365aa87982: composerTrigger.ts, providerSkills.ts, composerThreadItems.ts,
 // use-composer-command-menu.ts, composerSlashSkillSearch.ts and composerContext.ts.
 // Source helper bodies retained; app supplies typed plain values, no React or IO.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { normalizeSearchQuery as normalizeSharedQuery, scoreQueryMatch, contextLabel as sanitizeComposerContextLabel } from './shared/composer-editor-menu';
 
 export interface ComposerSelection { start: number; end: number }

@@ -157,6 +157,7 @@ component Reflow
   state running = true
   state dark = false
   state elapsed = 0
+  state stepped = 0
   state dragonDx = 0
   state dragonDy = 0
   state seed = 1
@@ -192,9 +193,13 @@ component Reflow
     setScheme(next ? "dark" : "light")
   action pause
     running = not running
+  // Advance by the time measured since the last step, so steps a
+  // suspension skipped do not slow the scene
   action step
+    let now = performanceNow()
     if running and (scene == "balls" or scene == "ascii")
-      elapsed = elapsed + 16
+      elapsed = elapsed + (now - stepped)
+    stepped = now
   action dragDragon(dx: number, dy: number)
     dragonDx = min(pageInner, max(0 - pageInner, dragonDx + dx))
     dragonDy = min(dragonHeight, max(0 - dragonHeight, dragonDy + dy))

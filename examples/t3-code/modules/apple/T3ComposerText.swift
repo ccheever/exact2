@@ -142,7 +142,7 @@ enum T3ComposerText {
         if string.contains("[Assistant quote](t3-citation:") {
             for match in citationLink.matches(in: string, range: all) {
                 let query = citationQuery(text.substring(with: match.range(at: 1)))
-                // diff-cite-popover DC-1: a comment the chip carries is its label, and marks its pencil "Edit citation comment".
+                // A comment the chip carries is its label, and marks its pencil "Edit citation comment".
                 links.append(T3ComposerChip(kind: "citation", start: match.range.location, end: NSMaxRange(match.range),
                     label: citationLabel(text: query["text"] ?? "Assistant quote", comment: query["comment"]), detail: query["comment"] == nil ? "" : "comment"))
             }

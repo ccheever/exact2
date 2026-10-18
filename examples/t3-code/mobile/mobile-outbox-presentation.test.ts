@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import type { Native } from './shared/protocol';

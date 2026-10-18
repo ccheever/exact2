@@ -347,6 +347,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     if let Some(e) = error {
         eprintln!("exact: {e}");
     }
+    // The display's clock owns time (the timers RFC, D1)
+    p.set_live_clock(Some(crate::presenter::wall_since(started)));
     let mut input = Input::open();
     let mut vnc = match config.vnc.as_deref() {
         Some(addr) => match Vnc::start(addr, pw, ph) {
@@ -370,6 +372,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         trace_on_signal();
     }
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
+    // The dev plan's modification time and since when it has waited on requests in flight.
+    let mut held: Option<(Option<Vec<(std::path::PathBuf, SystemTime, u64)>>, Instant)> = None;
     // First pixel is the first frame presented (LLP 1026 D11); the update
     // check follows two seconds after it, off the boot path.
     let mut first_pixel: Option<Instant> = None;
@@ -562,13 +566,16 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         if let Some(path) = &config.dev_plan {
             let m = mtime(path);
             if m.is_some() && m != plan_seen {
-                plan_seen = m;
+                plan_seen = m.clone();
                 if let Ok(bytes) = std::fs::read(path) {
                     let t = Instant::now();
                     let module = crate::delivery::Module::local(path, &config.compat);
+                    let let_go = held.as_ref().is_some_and(|(at, t)| {
+                        *at == m && t.elapsed() >= crate::host::LET_GO_AFTER
+                    });
                     match module
                         .map_err(crate::host::HostError::Asset)
-                        .and_then(|module| p.reload_module(&bytes, D::default(), module))
+                        .and_then(|module| p.reload_module(&bytes, D::default(), module, let_go))
                     {
                         Ok(e) => println!(
                             "reloaded {} in {:.1} ms{}",
@@ -579,7 +586,17 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                             e.map(|e| format!(" — {e}")).unwrap_or_default()
                         ),
                         Err(crate::host::HostError::PreparingModule) => plan_seen = None,
+                        // Asked again each turn; after a second it lets the requests go (LLP 1007 §6).
+                        Err(crate::host::HostError::RequestsPending) => {
+                            plan_seen = None;
+                            if held.as_ref().is_none_or(|(at, _)| *at != m) {
+                                held = Some((m.clone(), Instant::now()));
+                            }
+                        }
                         Err(e) => eprintln!("exact: reload: {e}"),
+                    }
+                    if plan_seen.is_some() {
+                        held = None;
                     }
                 }
             }
@@ -661,6 +678,9 @@ fn presented<D: DataSource>(
         v.publish(frame.pixels.clone());
     }
     p.display_complete(&frame);
+    // Its boxes are the ones the pointer rests on now: their hover, and
+    // their `:hover` looks (LLP 1121 D8), follow (#139).
+    p.follow_pointer();
     if first.is_none() {
         *first = Some(Instant::now());
         *check_due = Some(Instant::now() + Duration::from_secs(2));

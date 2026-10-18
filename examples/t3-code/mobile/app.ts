@@ -63,7 +63,7 @@ import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsS
 import { mobileMediaPrepare, mobileMediaForget } from './media-preview';
 import { mobileComposerAttachmentAction, mobileComposerAttachmentPreviews } from './composer-attachments';
 import {mobileComposerAttachmentMenuAction,mobileComposerAttachmentMenuSnapshot} from './composer-attachment-menu';
-// @ref llp/1109.003-pairing-and-transport.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#decision
 import { applyMobileComposerBehavior } from './composer-behavior';
 import { mobileClient, mobileNative, mobileSnapshotRead, mobileSnapshotProjection, mobileCommand, mobilePairingFields } from './client';
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';

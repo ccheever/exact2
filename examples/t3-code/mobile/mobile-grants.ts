@@ -1,6 +1,6 @@
 // Pinned T3 Code365aa87982 packages/contracts/src/auth.ts:
 // AuthStandardClientScopes, legacyParents and sessionGrantsScope.
-// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 import { obj, type Obj } from './shared/domain';
 import { encodeOAuthScope } from './shared/remote-scopes';
 import { bridgeReply, ClientError, reply, type Native } from './shared/protocol';

@@ -1,19 +1,13 @@
 //! Actual presenter failure fallback and physical dispatch over retained pixels.
 use super::*;
 use crate::content_region::ContentRegionRegistration;
-use exact_runner::{DataError, Value};
+use exact_runner::Value;
 use std::time::Instant;
 
 #[path = "fail_backend.rs"]
 mod fail_backend;
 #[path = "projection_discriminator_tests.rs"]
 mod projection_discriminator;
-struct Empty;
-impl DataSource for Empty {
-    fn query(&mut self, n: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(n.into()))
-    }
-}
 const APP: &str = r#"component App
   state title = "old picture"
   state link = "https://old.example/"
@@ -49,14 +43,14 @@ const APP: &str = r#"component App
               text title href=link press=activate testId="paragraph" font-size=20 color="light-dark(#ff0000,#0000ff)"
           text "Preparing content" id="pending" position="absolute"
 "#;
-fn id(p: &Presenter<Empty>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     p.host
         .kernel()
         .node_by_key(p.host.kernel().find_by_test_id(name)[0])
         .unwrap()
         .id
 }
-fn ready(p: &mut Presenter<Empty>) {
+fn ready(p: &mut Presenter<()>) {
     let end = Instant::now() + Duration::from_secs(90);
     while !p.host.content_region().unwrap().receipt().unwrap().current {
         assert!(Instant::now() < end, "font/publication watchdog");
@@ -73,7 +67,7 @@ fn non_cpu_region_refuses_before_plan_font_or_device_work() {
     for choice in [PainterChoice::Auto, PainterChoice::Gpu] {
         let result = Presenter::boot_with_content_region(
             &[],
-            Empty,
+            (),
             (400., 500.),
             1.,
             PathBuf::from("/nonexistent"),
@@ -106,8 +100,8 @@ fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() 
         };
         let source = APP.replace("testId=\"paragraph\"", &format!("testId=\"paragraph\" pointer-events=(title == \"old picture\" ? \"{old}\" : \"{new}\")"));
         let (mut p, error) = Presenter::boot_with_content_region(
-            &contract::compile(&source).unwrap().encode(),
-            Empty,
+            &crate::test_plan(&source),
+            (),
             (400., 500.),
             1.,
             PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -161,8 +155,8 @@ fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() 
 fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
-        Empty,
+        &crate::test_plan(APP),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -280,8 +274,8 @@ fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
 fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pixels() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
-        Empty,
+        &crate::test_plan(APP),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -394,8 +388,8 @@ fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pix
 fn exact_scale_prepared_index_refuses_changed_dpr_before_stale_adoption_or_replay() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
-        Empty,
+        &crate::test_plan(APP),
+        (),
         (400., 500.),
         1.25,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -499,7 +493,7 @@ fn malformed_region_scale_refuses_before_plan_fonts_or_worker_admission() {
     for scale in [0., -1., f32::NAN, f32::INFINITY] {
         let result = Presenter::boot_with_content_region(
             &[],
-            Empty,
+            (),
             (400., 500.),
             scale,
             PathBuf::from("/nonexistent"),
@@ -524,8 +518,8 @@ fn unsupported_region_query_preserves_previous_pixels_and_recovers() {
         .replace("view id=\"owner\"", "view id=\"owner\" scale=ownerScale")
         .replace("button press=hide", "button press=collapse testId=\"collapse\" height=20\n        text \"collapse\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
-        Empty,
+        &crate::test_plan(&app),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -569,8 +563,8 @@ fn uncertain_ink_coordinates_refuse_full_glyph_fallback_and_recover() {
         .replace("view height=600", "view height=600 padding-top=inset")
         .replace("button press=hide", "button press=move testId=\"move\" height=20\n        text \"move\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
-        Empty,
+        &crate::test_plan(&app),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -610,7 +604,7 @@ fn uncertain_ink_coordinates_refuse_full_glyph_fallback_and_recover() {
 }
 
 // Unlike APP's fixed 600px child, all overflow here comes from real text.
-fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
+fn natural_scroll_fixture(short: bool) -> Presenter<()> {
     let tall = "Natural paragraph line with distinct words and wrap. ".repeat(80);
     let app = format!(
         r#"component App
@@ -641,8 +635,8 @@ fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
         if short { "Short paragraph." } else { &tall }
     );
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
-        Empty,
+        &crate::test_plan(&app),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -663,12 +657,12 @@ fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
     p
 }
 
-fn natural_point(p: &mut Presenter<Empty>, port: ViewId) -> (f32, f32) {
+fn natural_point(p: &mut Presenter<()>, port: ViewId) -> (f32, f32) {
     let b = p.box_of(port).unwrap();
     (b.rect.0 + b.rect.2 / 2., b.rect.1 + b.rect.3 / 2.)
 }
 
-fn natural_replace(p: &mut Presenter<Empty>, action: &str) {
+fn natural_replace(p: &mut Presenter<()>, action: &str) {
     let target = id(p, action);
     assert!(p.host.dispatch_at(target, Event::Press, 1.).is_none());
     assert!(p.after_commit().is_none());
@@ -1079,4 +1073,165 @@ fn retained_actions_down_a_pending_b_live_c_never_rebinds_or_implicitly_paints()
     assert_eq!(p.press_at(at.0, at.1, 102.), Some(current));
     assert_eq!(actions::selected(&p), Value::str("changed-0"));
     assert_eq!(b.pixels.data(), b_bytes);
+}
+
+fn focus_region() -> Presenter<()> {
+    let source = APP
+        .replace("testId=\"paragraph\"", "id=\"paragraph\" testId=\"paragraph\" tabindex=0")
+        .replace("text \"Preparing content\" id=\"pending\"", "text \"Preparing content\" id=\"pending\" testId=\"pending\" tabindex=0")
+        .replace("          text \"Preparing content", "              if title != \"old picture\"\n                text \"New descendant\" id=\"new\" testId=\"new\" tabindex=0\n          text \"Preparing content");
+    region_from(&source)
+}
+
+fn region_from(source: &str) -> Presenter<()> {
+    let (p, error) = Presenter::boot_with_content_region(
+        &crate::test_plan(source),
+        (),
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+        ContentRegionRegistration {
+            activate: None,
+            owner: "owner",
+            content: "content",
+            pending: "pending",
+        },
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p
+}
+
+fn focus_refused(p: &mut Presenter<()>, name: &str, reason: &str) {
+    assert_eq!(p.focus_command(&[Value::str(name)]), None, "{name}");
+    assert_ne!(p.focus(), Some(id(p, name)));
+    let journal = crate::agent::handle(p, r#"{"op":"logs"}"#);
+    let expected = format!("focus \"{name}\" refused: {reason}");
+    assert!(
+        journal.contains(&expected.replace('"', "\\\"")),
+        "{journal}"
+    );
+}
+
+#[test]
+fn focus_refuses_initial_pending_content_but_accepts_its_placeholder() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    let pending = id(&p, "pending");
+    assert_eq!(p.focus_command(&[Value::str("pending")]), Some(pending));
+    focus_refused(&mut p, "paragraph", "content region is not live");
+    assert_eq!(p.focus(), Some(pending));
+}
+
+#[test]
+fn focus_refuses_retained_content_and_new_current_descendants() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    let gate = crate::content_region::test_hooks::next_text();
+    assert!(p
+        .host
+        .dispatch_at(id(&p, "replace"), Event::Press, 1.)
+        .is_none());
+    assert!(p.after_commit().is_none());
+    gate.entered();
+    p.frame();
+    focus_refused(&mut p, "new", "content region is not live");
+    focus_refused(&mut p, "paragraph", "content region is not live");
+}
+
+#[test]
+fn focus_refuses_surviving_retained_content() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    focus_refused(&mut p, "paragraph", "content region is not live");
+}
+
+#[test]
+fn tab_skips_retained_content_boxes() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    assert!(p.box_of(id(&p, "paragraph")).is_some());
+    p.blur();
+    assert!(p.move_focus(true, 1.).is_none());
+    assert_eq!(p.focus(), Some(id(&p, "input")));
+}
+
+#[test]
+fn placeholder_focus_follows_successful_acknowledged_region_presentation() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    let initial = p.display_frame().unwrap();
+    assert!(p.display_complete(&initial));
+    ready(&mut p);
+    let pending = id(&p, "pending");
+    p.brush.replace_backend(Box::new(fail_backend::Failure));
+    p.frame();
+    assert!(!p.last_frame_succeeded);
+    assert_eq!(p.focus_command(&[Value::str("pending")]), Some(pending));
+    p.brush.replace_backend(Box::new(Raster::new()));
+    let accepted = p.display_frame().unwrap();
+    assert!(p.last_frame_succeeded);
+    assert_eq!(p.focus_command(&[Value::str("pending")]), Some(pending));
+    assert!(p.display_complete(&accepted));
+    p.blur();
+    focus_refused(&mut p, "pending", "not rendered");
+}
+
+#[test]
+#[ignore = "async lane: retained membership lookup scaling"]
+fn retained_membership_lookup_cost_is_independent_of_paint_order() {
+    let _service = crate::content_region::test_service();
+    let mut nodes = String::from("              view testId=\"first\" width=1 height=1\n");
+    nodes.push_str(&"              view width=1 height=1\n".repeat(3998));
+    nodes.push_str("              view testId=\"last\" width=1 height=1\n");
+    let source = APP
+        .lines()
+        .map(|line| {
+            if line.contains("text title href=link") {
+                nodes.clone()
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect::<String>();
+    let mut p = region_from(&source);
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    assert!(p.last_frame_succeeded);
+    let (first, last) = (id(&p, "first"), id(&p, "last"));
+    assert!(p.brush.region_blocks_action(first));
+    assert!(p.brush.region_blocks_action(last));
+    assert!(!p.brush.region_blocks_action(id(&p, "replace")));
+    let measure = |view| {
+        (0..3)
+            .map(|_| {
+                let started = Instant::now();
+                for _ in 0..4096 {
+                    std::hint::black_box(p.brush.region_blocks_action(std::hint::black_box(view)));
+                }
+                started.elapsed()
+            })
+            .min()
+            .unwrap()
+    };
+    let first_time = measure(first);
+    let last_time = measure(last);
+    eprintln!("retained membership, 4096 lookups: first={first_time:?}, last={last_time:?}");
+    // A generous ratio allows scheduling noise and different index depths;
+    // a scan of 4,000 nodes costs orders of magnitude more at the end.
+    assert!(
+        last_time <= first_time * 32,
+        "first={first_time:?}, last={last_time:?}"
+    );
 }

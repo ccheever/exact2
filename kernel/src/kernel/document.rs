@@ -206,6 +206,9 @@ impl Kernel {
             self.region = None;
         }
         self.receipts.push_back(RetainedReceipt::new(&receipt));
+        if changed {
+            self.wide_changed();
+        }
         receipt
     }
 }

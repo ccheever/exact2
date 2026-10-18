@@ -281,9 +281,13 @@ fn the_cli_emits_types_and_refuses_bad_inputs_without_touching_last_good_output(
     };
     let stdout = invoke(&["types", "app.contract"]);
     assert!(stdout.status.success());
-    assert!(invoke(&["types", "app.contract", "-o", "app.d.ts"])
-        .status
-        .success());
+    let written = invoke(&["types", "app.contract", "-o", "app.d.ts"]);
+    assert!(written.status.success());
+    assert!(written.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&written.stderr),
+        "types: wrote app.d.ts\n"
+    );
     assert_eq!(
         stdout.stdout,
         std::fs::read(fixture.0.join("app.d.ts")).unwrap()
@@ -441,4 +445,224 @@ function mutation() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn build_reports_all_reachable_ambient_apis_before_bake() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write(
+        "app.ts",
+        "import './helper.ts';\nexport const answer = () => Date.now();\n",
+    );
+    fixture.write("helper.ts", "export const value = Math.random();\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", "app.contract", "--json"])
+        .current_dir(&fixture.0)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let found: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(found.iter().all(|d| d["id"] == "analyze-ambient-api"));
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("Date.now()"), "{text}");
+    assert!(text.contains("Math.random()"), "{text}");
+}
+
+#[test]
+fn ambient_check_resolves_extensionless_mounted_modules() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write(
+        "app.json",
+        r#"{"app":{"id":"com.example.mounted","name":"Mounted imports"},"typescript":{"sources":{"backend":"generated"}}}"#,
+    );
+    std::fs::create_dir_all(fixture.0.join("generated")).unwrap();
+    fixture.write("generated/api.ts", "export const value = 42;\n");
+    for import in ["./backend/api", "./backend/api.ts"] {
+        fixture.write(
+            "app.ts",
+            &format!("import {{value}} from '{import}';\nexport const answer = () => value;\n"),
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["build", "app.contract", "--json"])
+            .current_dir(&fixture.0)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{import}: {output:?}");
+        assert_eq!(output.stdout, b"[]\n");
+    }
+}
+
+#[test]
+fn unknown_handlers_continue_through_siblings_children_and_timer_targets() {
+    let source="component App\n  action save\n    let done = true\n  task first mount\n    every(1000, saev)\n  task second mount\n    every(2000, svae)\n  view\n    column\n      button \"Save\" press=saev\n      column\n        button \"Save again\" press=svae\n";
+    let timers = source
+        .replace("press=saev", "press=save")
+        .replace("press=svae", "press=save");
+    let errors = contract::compile_path_source_all(Path::new("app.contract"), &timers, false)
+        .err()
+        .expect("unknown actions refuse");
+    let unknown: Vec<_> = errors
+        .iter()
+        .filter(|e| e.id == "analyze-unknown-action")
+        .collect();
+    assert_eq!(unknown.len(), 2, "{errors:?}");
+    assert!(
+        unknown.iter().all(
+            |e| e.message.contains("save") || e.related.iter().any(|r| r.note.contains("save"))
+        ),
+        "{unknown:?}"
+    );
+}
+
+#[test]
+fn checked_backend_projection_requires_every_contract_key_and_narrows_nullable_values() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "projection.ts",
+        include_str!("../../../../snapback4/online/projection.ts"),
+    );
+    let checked = fixture.check(
+        r#"
+import {pick} from './projection';
+type Note={id:string;body:string;parent:string|null};
+const project=pick<Note>();
+const row={id:'one',body:'hello',parent:null,at:123};
+const note:Note=project(row,'id','body','parent');
+// @ts-expect-error all target keys are required
+project(row,'id','body');
+// @ts-expect-error extra server fields are not Contract keys
+project(row,'id','body','parent','at');
+// @ts-expect-error wrong field type
+project({...row,body:3},'id','body','parent');
+// @ts-expect-error a hidden-parent projection is nullable
+pick<{parent:string}>()(row,'parent');
+"#,
+    );
+    assert!(checked.status.success(), "{checked:?}");
+}
+
+#[test]
+fn types_check_is_read_only_and_build_reports_only_changed_declarations() {
+    let fixture = Fixture::new();
+    fixture.write("app.contract", CONTRACT);
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .current_dir(&fixture.0)
+            .output()
+            .unwrap()
+    };
+    let check = || run(&["types", "--check", "app.contract"]);
+    assert_eq!(check().status.code(), Some(1));
+    assert!(!fixture.0.join("app.contract.d.ts").exists());
+    fixture.write("app.contract.d.ts", "stale");
+    assert_eq!(check().status.code(), Some(1));
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("app.contract.d.ts")).unwrap(),
+        "stale"
+    );
+    // Under --json the array is the whole reply: the declaration is rewritten unsaid.
+    let built = run(&["build", "app.contract", "--json"]);
+    assert!(built.status.success(), "{built:?}");
+    assert_eq!(built.stdout, b"[]\n");
+    assert!(built.stderr.is_empty(), "{built:?}");
+    assert!(check().status.success());
+    fixture.write("app.contract.d.ts", "stale");
+    let built = run(&["build", "app.contract"]);
+    assert!(String::from_utf8_lossy(&built.stderr)
+        .contains("app.contract.d.ts: regenerated, since a source's signature changed"));
+    assert!(check().status.success());
+    let repeated = run(&["build", "app.contract", "--json"]);
+    assert!(repeated.status.success());
+    assert!(repeated.stderr.is_empty());
+    assert!(run(&["types", "app.contract", "-o", "other.d.ts"])
+        .status
+        .success());
+    assert!(
+        run(&["types", "app.contract", "--check", "-o", "other.d.ts"])
+            .status
+            .success()
+    );
+}
+
+/// LLP 1121 D12 (stage 5 commit 4): a data module returning one of the
+/// design's colour tokens checks, and one returning a name the design lacks
+/// fails `tsc` (the stage 5 gate line).
+#[test]
+#[ignore = "async lane: typechecks the design's token union with tsc; bun scripts/async.mjs runs it"]
+fn a_data_module_returning_an_unknown_token_fails_tsc() {
+    let dir = std::env::temp_dir().join(format!("exact-types-tokens-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  brand = #c8102e\n  surface.card = #ffffff\n  space.row = 12px\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column background-color=\"surface.card\" padding=\"space.row\"\n      text \"a\" color=\"brand\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let fixture = Fixture::new();
+    fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+    let module = |token: &str| {
+        format!("import type {{ ColorToken }} from './app.contract';\nexport const badge = (): ColorToken => {token};\n")
+    };
+    let output = fixture.check(&module("\"surface.card\""));
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = fixture.check(&module("\"surface.nonesuch\""));
+    assert!(!output.status.success(), "an unknown token passed tsc");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("error TS"));
+    // Stage 6 G: each kind its own union; a colour is no length.
+    let length = |token: &str| {
+        format!("import type {{ LengthToken }} from './app.contract';\nexport const gap = (): LengthToken => {token};\n")
+    };
+    assert!(fixture.check(&length("\"space.row\"")).status.success());
+    assert!(
+        !fixture.check(&length("\"brand\"")).status.success(),
+        "a colour passed as a length"
+    );
+}
+
+#[test]
+fn mutation_source_types_follow_compiled_sends_in_imported_and_inlined_actions() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "composer.contract",
+        "component Composer\n  props\n    post: action\n  state taps = 0\n  action activate\n    taps = taps + 1\n    post()\n  view\n    button \"Post\" press=activate\n",
+    );
+    fixture.write(
+        "app.contract",
+        "use Composer from \"./composer.contract\"\ncomponent App\n  resource status = status() as shape bool\n  mutation posted as shape bool\n  mutation changed as shape bool\n  action post\n    send posted = post-note()\n  action change\n    send changed = change-note()\n  view\n    column\n      Composer(post=post)\n      Composer(post=post)\n      button \"Change\" press=change\n",
+    );
+    let plan = contract::compile_path(&fixture.0.join("app.contract")).unwrap();
+    let declarations = contract::typescript(&plan).unwrap();
+    assert!(
+        declarations.contains("export type MutationSource = \"change-note\" | \"post-note\";"),
+        "{declarations}"
+    );
+    let plan = contract::compile(
+        "component App\n  resource ready = status() as shape bool\n  view\n    text \"Ready\"\n",
+    )
+    .unwrap();
+    assert!(contract::typescript(&plan)
+        .unwrap()
+        .contains("export type MutationSource = never;"));
 }

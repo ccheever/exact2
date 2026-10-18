@@ -159,11 +159,19 @@ pub fn calls(file: &mut File) -> std::collections::HashSet<String> {
     seen.called
 }
 
+/// Every named type referenced by annotations in `file`.
+pub fn type_names(file: &mut File) -> std::collections::HashSet<String> {
+    let mut seen = Seen::default();
+    walk(file, &Scope::default(), Some(&mut seen)).expect("an empty scope refuses nothing");
+    seen.typed
+}
+
 /// What a collecting walk records.
 #[derive(Default)]
 struct Seen {
     bound: std::collections::HashSet<String>,
     called: std::collections::HashSet<String>,
+    typed: std::collections::HashSet<String>,
 }
 
 fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), SyntaxError> {
@@ -185,6 +193,9 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
         color_profiles: _,
+        // The theme's names are the app's, as roles are (LLP 1095 D4).
+        theme: _,
+        design: _,
         fns,
         tests,
         launch: _,
@@ -276,7 +287,9 @@ impl Rewriter<'_> {
             mutations,
             actions,
             tasks,
+            sequences,
             view,
+            params: _,
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;
@@ -319,6 +332,18 @@ impl Rewriter<'_> {
         for t in tasks {
             self.expr(&mut t.timer.0)?;
             for e in t.gate.iter_mut().chain(t.key.iter_mut()) {
+                self.expr(e)?;
+            }
+        }
+        for q in sequences {
+            let options = q.options.iter_mut().map(|o| &mut o.1);
+            for e in q
+                .gate
+                .iter_mut()
+                .chain(q.key.iter_mut())
+                .chain([&mut q.tracks])
+                .chain(options)
+            {
                 self.expr(e)?;
             }
         }
@@ -374,6 +399,11 @@ impl Rewriter<'_> {
     }
 
     fn ty(&mut self, ty: &mut TypeExpr) -> R {
+        if let TypeExpr::Named(name, _) = ty {
+            if let Some(seen) = self.seen.as_deref_mut() {
+                seen.typed.insert(name.clone());
+            }
+        }
         match ty {
             TypeExpr::Named(name, _) if PRIMITIVES.contains(&name.as_str()) => Ok(()),
             // A type is a shape, never a `fn`: a shape this file sees, else
@@ -402,6 +432,7 @@ impl Rewriter<'_> {
                     Ok(())
                 }
             },
+            TypeExpr::Enum(..) => Ok(()),
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
     }

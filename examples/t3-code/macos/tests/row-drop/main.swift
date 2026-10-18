@@ -2,7 +2,7 @@ import AppKit
 import ObjectiveC
 import XCTest
 
-// legacy-sidebar-full LS-3: a legacy sidebar row's file drop target (T3RowDrop.swift) with real AppKit. The
+// A legacy sidebar row's file drop target (T3RowDrop.swift) with real AppKit. The
 // target is AppKit's drag destination over the row although its `hitTest` gives every click to the row; a file
 // drag rings it and a drop reports the row's key with the dropped files (folders let go, as the row's
 // addFolders does nothing); the queue keeps drops in order per key, and taking a key's drops stages each file

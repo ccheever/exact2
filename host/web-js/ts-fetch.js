@@ -4,8 +4,51 @@ import { FetchError, fetchWith, inOverlay, overlaying, ownWithout, redirectOf } 
 import { tsGrantSet } from './admission-data.js';
 // A stream or an upload takes the redirect mode as `fetch` is called, as Hermes
 // does: a bad one rejects before a file is read or a stream registered.
+// A mutation does one kind of effect (LLP 1016.000 D7): socket operations
+// or a fetch. Whichever comes second refuses, and so does the mutation
+// (ts-data.js). In a module that holds a socket, a mutation's fetch is
+// captured when called and starts after its source returns, so a refused
+// one never starts; a module with none fetches at once, as before.
+export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';
 export function fetch(input, options) {
   if (overlaying.on) return Promise.reject(inOverlay('fetch()'));
+  // A socket's mapper answering a frame makes no fetch (D7).
+  if (answering.mapper) return Promise.reject(new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
+  const call = answering.call;
+  if (call?.mutation) {
+    if (call.socketConflict || call.socketOps?.length) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
+    call.fetched = true;
+    // A stream only registers with its answer, which ts-data.js then refuses;
+    // a body from a file is read after its source returns, and checks then.
+    if (answering.sockets && options?.exactStream === undefined && options?.exactBodyFrom === undefined) {
+      let target, init;
+      try { target = input instanceof Request ? input : String(input); init = captured(options); } catch (e) { return Promise.reject(e); }
+      return Promise.resolve().then(() => {
+        if (call.socketConflict) throw new Error(SOCKET_AND_FETCH);
+        return fetchWith(tsGrantSet, target, init);
+      });
+    }
+    return fetchOf(input, options, call);
+  }
+  return fetchOf(input, options);
+}
+// What `fetch` reads of its options, read now (inherited ones too), with
+// the headers and a body that can change copied.
+const OPTIONS = ['method', 'headers', 'body', 'redirect', 'signal', 'mode', 'credentials', 'cache', 'referrer',
+  'referrerPolicy', 'integrity', 'keepalive', 'priority', 'exactTimeout', 'exactIndependentHttp'];
+function captured(options) {
+  if (options == null) return options;
+  const init = {};
+  for (const key of OPTIONS) { const value = options[key]; if (value !== undefined) init[key] = value; }
+  if (init.headers !== undefined) init.headers = new Headers(init.headers);
+  const body = init.body;
+  if (body instanceof ArrayBuffer) init.body = body.slice(0);
+  else if (ArrayBuffer.isView(body)) init.body = new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength));
+  else if (body instanceof URLSearchParams) init.body = new URLSearchParams(body);
+  else if (typeof FormData === 'function' && body instanceof FormData) { init.body = new FormData(); for (const [k, v] of body) init.body.append(k, v); }
+  return init;
+}
+function fetchOf(input, options, call) {
   if (options?.exactStream === undefined && options?.exactBodyFrom === undefined) return fetchWith(tsGrantSet, input, options);
   let redirect;
   try { redirect = redirectOf(input, options); } catch (e) { return Promise.reject(e); }
@@ -33,7 +76,10 @@ export function fetch(input, options) {
       deadline?.addEventListener('abort', timedOut, { once: true });
       stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
     });
-    return Promise.race([import('./ts-body-from.js'), ended]).finally(stop).then(m => m.fromFile(input, init, redirect, started));
+    return Promise.race([import('./ts-body-from.js'), ended]).finally(stop).then(m => {
+      if (call?.socketConflict) throw new Error(SOCKET_AND_FETCH);
+      return m.fromFile(input, init, redirect, started);
+    });
   }
   return options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
 }
@@ -44,7 +90,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null };
+export const answering = { call: null, sockets: false, mapper: null };
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
@@ -81,7 +127,7 @@ Object.defineProperties(GuardedDate, {
   name: { value: 'Date' }, [Symbol.hasInstance]: { value: v => v instanceof NativeDate },
 });
 const GuardedMath = Object.freeze(Object.create(Object.getPrototypeOf(NativeMath), Object.fromEntries(Reflect.ownKeys(NativeMath).map(k => [k,
-  k === 'random' ? { value: () => { throw new Error('Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument'); } }
+  k === 'random' ? { value: () => { throw new Error('Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument; a roll in the view needs no source (docs/recipes/random-rolls.md)'); } }
     : Object.getOwnPropertyDescriptor(NativeMath, k)]))));
 // Intl.DateTimeFormat defaults an omitted date to the clock: its `format` and
 // `formatToParts` refuse one, through any alias the app can reach.
@@ -128,12 +174,38 @@ export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame,
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.
 const methods = new WeakMap();
-export const appGlobal = new Proxy(globalThis, { get(target, name) {
-  if (name === 'fetch') return fetch;
-  if (Object.hasOwn(guarded, name)) return guarded[name];
-  if (name === 'globalThis' || name === 'self' || name === 'window') return appGlobal;
-  const value = Reflect.get(target, name, target);
-  if (typeof value !== 'function') return value;
-  if (!methods.has(value)) methods.set(value, new Proxy(value, { apply(fn, receiver, args) { return Reflect.apply(fn, receiver === appGlobal ? target : receiver, args); } }));
-  return methods.get(value);
-} });
+// What Hermes's realm lacks and the page has: the global object's other
+// names, the DOM and Node's globals, absent from the module here too, so a
+// test of one (`typeof document`) answers as it does natively
+// (js/bake/src/typescript.mjs `packageRefusals`). This keeps a module
+// portable; it is no security boundary (LLP 1027 D5): the module runs in the
+// page's realm, and its code is the app author's.
+const ABSENT = new Set(['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
+  'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global']);
+export const absent = undefined;
+// Over a target of its own, not the page's global object, whose
+// non-configurable properties (`window`, `document`, `top`) a proxy over it
+// could not report absent.
+const page = globalThis;
+export const appGlobal = new Proxy(Object.create(null), {
+  has(_, name) { return !ABSENT.has(name) && Reflect.has(page, name); },
+  getOwnPropertyDescriptor(_, name) {
+    const found = ABSENT.has(name) ? undefined : Reflect.getOwnPropertyDescriptor(page, name);
+    return found && { ...found, configurable: true };
+  },
+  ownKeys() { return Reflect.ownKeys(page).filter(name => !ABSENT.has(name)); },
+  getPrototypeOf() { return Object.prototype; },
+  set(_, name, value) { return Reflect.set(page, name, value); },
+  defineProperty(_, name, descriptor) { return Reflect.defineProperty(page, name, descriptor); },
+  deleteProperty(_, name) { return Reflect.deleteProperty(page, name); },
+  get(_, name) {
+    if (name === 'fetch') return fetch;
+    if (Object.hasOwn(guarded, name)) return guarded[name];
+    if (ABSENT.has(name)) return undefined;
+    if (name === 'globalThis') return appGlobal;
+    const value = Reflect.get(page, name, page);
+    if (typeof value !== 'function') return value;
+    if (!methods.has(value)) methods.set(value, new Proxy(value, { apply(fn, receiver, args) { return Reflect.apply(fn, receiver === appGlobal ? page : receiver, args); } }));
+    return methods.get(value);
+  },
+});

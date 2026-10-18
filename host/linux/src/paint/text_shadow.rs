@@ -41,7 +41,9 @@ impl Painter {
                 if !super::paints(kernel, run.source, reveal) {
                     return RunLook::default();
                 }
-                // Each row where it is set: no whole style copied per run.
+                // Each row where it is set: no whole style copied per run,
+                // under the run's own accent.
+                let _accent = super::accent_scope(&node);
                 let shadow = node
                     .computed_row(StyleId::TextShadow, |s| s.text_shadow.shadow().copied())
                     .map(|s| {

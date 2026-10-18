@@ -8,15 +8,12 @@
 // focus and every test id are the authored ones, and the kernel lays it out
 // in a containing block (D8.2) whose used size is the sheet's.
 //
-// **Its size.** The block is a maximum on each axis: the content area of
-// the page's window, less this sheet's own rows. With no authored size the
-// route fits its content under it, as a `dialog` does, and its `inset` is
-// not read, since AppKit places the sheet. An authored `width` or `height`
-// is used as written (a percentage is of the maximum) and wins over the
-// content. It does not win over the window: a route wider than the window's
-// content area stops there, where AppKit's own sheet of a fixed size
-// overhangs its parent. A block that *is* the authored size needs that size
-// here, and a host is sent no layout row (`width`, `height`, `inset`).
+// **Its size.** The block fits automatic axes under the content area of
+// the page's window, less this sheet's own rows. Authored dimensions and
+// CSS min/max constraints remain the kernel's: a sheet can overhang its
+// parent, and percentages keep that parent area as their basis. AppKit
+// places the sheet, so the route's `inset` is not read. Ordinary dialogs
+// retain their separate AtMost policy.
 //
 // **Its header**, read by the shared rule (`HeaderRule`), is laid out as
 // SwiftUI lays a sheet's out (measured on macOS 27.0.1,
@@ -86,7 +83,8 @@ struct SheetHeader {
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
         // A push button says words and presses: one that opens a menu, shows no word or is not shown is not one.
         let button = { (node: NodeView) in
-            node.pressable && node.props["popovertarget"] == nil && node.style["display"]?.string != "none" && !words(of: node).isEmpty
+            node.pressable && node.presenter?.invocation(of: node).map({ $0.opens && $0.target.props["popover"] != nil }) != true
+                && node.style["display"]?.string != "none" && !words(of: node).isEmpty
         }
         let cancel = back.flatMap { name in rule.items.first { $0.props["id"] == name && button($0) } }
         let accented = rule.items.filter { $0 !== cancel && prominent.contains($0.face?.style ?? "") && $0.props["destructive"] != "true" }
@@ -376,15 +374,13 @@ extension DialogHost {
         presenter?.covers.report("route-sheet", covers)
     }
 
-    /// The containing block a sheet gives its subtree: a maximum on each
-    /// axis, the content area of the page's window, and for a route less
-    /// its sheet's own rows. Under a maximum the kernel uses an authored
-    /// size as written (D8.2), so nothing here reads the route's rows,
-    /// which a host is not sent.
+    /// The parent supplies the percentage basis and automatic-size ceiling.
+    /// Routes subtract their chrome and retain authored sizes through Fit;
+    /// ordinary dialogs keep AtMost. Layout rows stay in the kernel.
     func block(of entry: Entry) -> HostBlock? {
         guard var most = maximum else { return nil }
         if entry.route, let chrome = entry.sheet?.chrome { most.height = max(0, most.height - chrome.rows) }
-        return .atMost(most)
+        return entry.route ? .fit(most) : .atMost(most)
     }
 
     /// The driver's tap on an authored button a sheet's row stands for:

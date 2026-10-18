@@ -54,7 +54,9 @@ extension Agent {
         let vp = presenter.viewport
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)]]
         let scale = vp.window?.screen.scale ?? vp.traitCollection.displayScale
-        let report = AgreementReport(tolerance: 1 / max(scale, 1))
+        // A pixel, and the layout unit an edge is taken to before it is
+        // rounded to one (`PixelGridIOS.swift`).
+        let report = AgreementReport(tolerance: 1 / max(scale, 1) + 1.0 / 64)
         guard let kernel = kernelFrames() else { return ["error": "layout agree: the runner's frames are unreadable"] }
         guard let exactView = presenter.session?.view else { return ["error": "layout agree: the session has no view"] }
         if exactView.window == nil { report.incomplete("no-window") }
@@ -339,7 +341,6 @@ extension Presenter {
                 continue
             }
             guard seen[id] === v, v.window != nil else { report.skip("offWindow"); continue }
-            if modals.holdsGeometry(id) { report.skip("deferred"); continue }
             if v.placedAncestor != nil { report.skip("placed"); continue }
             if menus.projects(v) || swipeActions.projects(v) || groupedLists?.projects(v) == true { report.skip("projected"); continue }
             if navigation.controllers[id]?.node === v { report.skip("route"); continue }

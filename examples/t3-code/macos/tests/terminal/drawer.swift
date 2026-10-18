@@ -1,13 +1,13 @@
 import AppKit
 import XCTest
 
-// Task terminal-drawer: the native output buffer against the shared vectors (also replayed by
+// The native output buffer against the shared vectors (also replayed by
 // terminal-output.test.ts against the reference port), the attach stream reducer, and a session view
 // writing what is new, the reference's `[terminal] …` lines and its exit report once.
 final class TerminalDrawerTests: XCTestCase {
     private var window: NSWindow!
     private var views: [T3TerminalView] = []
-    private var transport: T3Transport!
+    private var links: T3Links!
     private var sessions: T3TerminalSessions!
 
     override func setUpWithError() throws {
@@ -15,8 +15,8 @@ final class TerminalDrawerTests: XCTestCase {
         setenv("EXACT_ASSETS", app, 1)
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
         if ProcessInfo.processInfo.environment["T3_TERMINAL_HIDDEN"] != "1" { window.orderFrontRegardless() }
-        transport = T3Transport(persistent: false, signals: false, changed: { _ in })
-        sessions = T3TerminalSessions.of(transport)
+        links = T3Links() // no environment linked: nothing is connected
+        sessions = T3TerminalSessions.of(links)
         sessions.detachGrace = 0.1
         drawerMessages = []
         drawerFocusEvents = []
@@ -27,7 +27,7 @@ final class TerminalDrawerTests: XCTestCase {
     override func tearDown() {
         for view in views { view.destroy() }
         views = []
-        transport.destroy()
+        links.destroy()
         window.orderOut(nil)
     }
 
@@ -60,6 +60,21 @@ final class TerminalDrawerTests: XCTestCase {
     private func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags, repeat repeating: Bool = false, characters: String = "") -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                         windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: repeating, keyCode: code)!
+    }
+
+    func testReadOnlySessionSuppressesInputAndResizeAndUpdatesWhenPermissionChanges() throws {
+        let view = mount(extra: ["read-only": "true"])
+        let session = try XCTUnwrap(view.session)
+        XCTAssertTrue(session.readOnly)
+        sessions.write("do not execute\r", to: session, from: view)
+        sessions.resize(session, cols: 100, rows: 30)
+        XCTAssertEqual(session.writes, 0)
+        XCTAssertEqual(session.lastSize.cols, 0)
+        var next = view.props
+        next["read-only"] = "false"
+        try view.setProps(next)
+        XCTAssertTrue(view.session === session)
+        XCTAssertFalse(session.readOnly)
     }
 
     func testTerminalNativeTextInputPreventsComposerTypeToFocus() {
@@ -175,8 +190,8 @@ final class TerminalDrawerTests: XCTestCase {
         XCTAssertEqual(selection.text, "first\nsecond")
         XCTAssertEqual(selection.lineStart, 3); XCTAssertEqual(selection.lineEnd, 4)
         let context = view.actions.makeMenu(T3TerminalActions.menuItems(context: true, hasSelection: false, canAddToChat: true))
-        XCTAssertEqual(context.items.map(\.title), ["Add to chat", "Copy", "Paste"])
-        XCTAssertEqual(context.items.map(\.isEnabled), [false, false, true])
+        XCTAssertEqual(context.items.map(\.title), ["Add to chat", "Copy", "Paste", "Select all", "Jump to latest"])
+        XCTAssertEqual(context.items.map(\.isEnabled), [false, false, true, true, true])
         let popup = view.actions.makeMenu(T3TerminalActions.menuItems(context: false, hasSelection: true, canAddToChat: false))
         XCTAssertEqual(popup.items.map(\.title), ["Copy"])
         view.actions.perform("add-to-chat", selection: selection, request: 0)
@@ -189,6 +204,35 @@ final class TerminalDrawerTests: XCTestCase {
         view.actions.perform("add-to-chat", selection: selection, request: 0)
         XCTAssertEqual(messages("selectionAction").count, 1, "a superseded menu cannot emit a chip")
         XCTAssertTrue(window.firstResponder === composer, "a superseded menu cannot steal focus")
+    }
+
+    /// ThreadTerminalDrawer's Select all and Jump to latest act on the page's whole history, and
+    /// Shift+PageUp reads it without leaving the terminal (surface.ts onKeyDown).
+    func testContextMenuSelectsAllHistoryAndJumpsToLatest() throws {
+        let view = mount()
+        spin(until: { view.ready })
+        view.write((0..<80).map { "line \($0)" }.joined(separator: "\r\n"))
+        spin(until: { text(view).last == "line 79" })
+        view.actions.perform("select-all", selection: nil, request: 0)
+        spin(until: { view.selection.hasPrefix("line 0\n") })
+        XCTAssertTrue(view.selection.hasPrefix("line 0\n"), "the selection starts at the first retained line")
+        XCTAssertTrue(view.selection.hasSuffix("line 79"))
+        let pageUp = "document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', {key: 'PageUp', code: 'PageUp', shiftKey: true, cancelable: true}))"
+        view.web.evaluateJavaScript(pageUp)
+        let atBottom = { () -> Bool? in
+            var result: Bool?, read = false
+            view.debug { result = $0["atBottom"] as? Bool; read = true }
+            self.spin(until: { read }, timeout: 5)
+            return result
+        }
+        spin(until: { atBottom() == false })
+        XCTAssertEqual(atBottom(), false, "Shift+PageUp pages back through history")
+        spin(until: { text(view).last != "line 79" }, timeout: 2)
+        XCTAssertNotEqual(text(view).last, "line 79")
+        view.actions.perform("scroll-to-bottom", selection: nil, request: 0)
+        spin(until: { atBottom() == true && text(view).last == "line 79" })
+        XCTAssertEqual(atBottom(), true, "Jump to latest returns to the current output")
+        XCTAssertEqual(text(view).last, "line 79")
     }
 
     func testAddToChatDoesNotForwardSelectionClearOrFocusAsAnotherCommand() throws {
@@ -391,7 +435,7 @@ final class TerminalDrawerTests: XCTestCase {
         XCTAssertEqual(text(view).filter { $0 == "[terminal] Process exited" }.count, 1)
     }
 
-    /// terminal-links-and-close G1-7: `TerminalWriteInput` bounds `data` at 65,536 UTF-16 units and the reference's client
+    /// `TerminalWriteInput` bounds `data` at 65,536 UTF-16 units and the reference's client
     /// refuses a longer write before sending it ("Schema validation failed", effect's sync encode); a system message's own
     /// line ends are written as CRLFs, so a server's two-line message does not stair-step.
     func testAnOversizedWriteIsRefusedBeforeSendingAndSystemLinesStartAtTheLeftEdge() throws {
@@ -401,7 +445,7 @@ final class TerminalDrawerTests: XCTestCase {
         spin(until: { view.ready })
         sessions.write(String(repeating: "x", count: 65_537), to: session, from: view)
         XCTAssertEqual([session.writes, session.writeFailures], [1, 1])
-        // At the bound it goes on to the transport (here none is connected, so that is what it reports).
+        // At the bound it goes on to the link (here none is connected, so that is what it reports).
         sessions.write(String(repeating: "x", count: 65_536), to: session, from: view)
         XCTAssertEqual([session.writes, session.writeFailures], [2, 2])
         view.systemMessage("Expected a value with a length of at most 65536\n  at [\"data\"]")

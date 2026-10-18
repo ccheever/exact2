@@ -50,6 +50,26 @@ fn refused(body: &str) -> (String, String) {
     (e.id.to_string(), e.message)
 }
 
+/// `open` on a `dialog` is refused, and the error teaches the modal ways to
+/// open and close one: in HTML `open` alone shows it non-modally.
+#[test]
+fn a_dialogs_open_attribute_is_refused_teaching_show_modal() {
+    for open in ["open=true", "open=busy"] {
+        let (id, message) = refused(&format!(
+            "dialog id=\"c\" role=\"alertdialog\" {open}\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\""
+        ));
+        assert_eq!(id, "lower-unknown-attr");
+        for taught in [
+            "non-modal",
+            "showModal(\"id\")",
+            "command=\"show-modal\"",
+            "close(\"id\")",
+        ] {
+            assert!(message.contains(taught), "{message}");
+        }
+    }
+}
+
 #[test]
 fn dialog_close_handler_compiles_with_action_commands() {
     let src = r#"component App
@@ -422,6 +442,82 @@ fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
         !alert.contains("dismissed by a tap outside"),
         "an alert has no outside: {alert}"
     );
+}
+
+/// A prompt (a rename's) is the alert with a text field: `UIAlertController`
+/// with `addTextField`, `NSAlert` with an accessory field. Its field is what
+/// it asks, so a field and its buttons alone are an alert's, implying
+/// `closerequest`; a field in any other shape is refused naming it, as is a
+/// field that is no line of text.
+#[test]
+fn a_prompt_is_the_alert_with_a_text_field() {
+    let open = "dialog id=\"c\" role=\"alertdialog\" aria-label=\"Rename\" testId=\"c\"";
+    let field = "  input value=\"Untitled\" placeholder=\"Name\" aria-label=\"Name\"";
+    let save = "  button press=go commandfor=\"c\" command=\"close\"\n    text \"Save\"";
+    let cancel = "  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\"";
+    for rows in [
+        vec![field, save, cancel],
+        vec!["  text \"Enter a new name.\"", field, save, cancel],
+        // One field at a time: arms of one `if` never show together.
+        vec![
+            "  if busy\n    input type=\"password\" aria-label=\"Password\"\n  else\n    input aria-label=\"Name\"",
+            save,
+            cancel,
+        ],
+    ] {
+        let r = boot(&app(&format!("{open}\n{}", rows.join("\n"))));
+        assert_eq!(
+            node(&r, "c").props.str(PropId::Closedby),
+            Some("closerequest"),
+            "{rows:?}"
+        );
+    }
+    let each = "  for s in items key=s\n    input value=s aria-label=s";
+    for (rows, why) in [
+        (
+            vec![field, save],
+            "a text field belongs to the alert's shape",
+        ),
+        (
+            vec![field, save, save, save, cancel],
+            "a text field belongs to the alert's shape",
+        ),
+        (vec![each, save, cancel], "a text field inside `for`"),
+        (
+            vec![
+                field,
+                "  input type=\"password\" aria-label=\"Password\"",
+                save,
+                cancel,
+            ],
+            "a second text field",
+        ),
+        (
+            vec![
+                "  input type=\"checkbox\" aria-label=\"Again\"",
+                save,
+                cancel,
+            ],
+            "a `input` row is not text, an action or the cancel",
+        ),
+    ] {
+        let (id, message) = refused(&format!("{open}\n{}", rows.join("\n")));
+        assert_eq!(id, "lower-alertdialog", "{rows:?}: {message}");
+        assert!(message.contains(why), "{rows:?}: {message}");
+    }
+    // The count is the shape's, whatever the `id`: one a literal does not
+    // show is no way round it.
+    let computed = "dialog id=(busy ? \"a\" : \"b\") role=\"alertdialog\" aria-label=\"Sign in\"";
+    let two = [
+        field,
+        "  input type=\"password\" aria-label=\"Password\"",
+        save,
+        cancel,
+    ]
+    .join("\n");
+    let (id, message) = refused(&format!("{computed}\n{two}"));
+    assert_eq!(id, "lower-alertdialog", "{message}");
+    assert!(message.contains("a second text field"), "{message}");
 }
 
 #[test]

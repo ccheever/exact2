@@ -2,11 +2,11 @@ import AppKit
 import Foundation
 import XCTest
 
-// 20261005-local-primary-environment: the Local environment switch's stopgap (decision U4; exact2
-// cannot relaunch, issue X45 / #122), the primary's descriptor in the status, the switch read at
-// launch (desktop-settings.json since decision U7: settings.swift; the failed-start test starts from an
+// The Local environment switch's stopgap (exact2
+// cannot relaunch, issues/closed/20261009-native-process-relaunch.md, #122), the primary's descriptor in the status, the switch read at
+// launch (desktop-settings.json: settings.swift; the failed-start test starts from an
 // old t3-code.json, which the attach carries over), and `handleFatalStartupError` (T3LocalFatal.swift). Each test runs its own
-// T3LocalBackend over a real child (a fake `t3` shell script on a lane port) with an HTTP double for
+// T3LocalBackend over a real child (a fake `t3` shell script on a fixed T3_LOCAL_PORT) with an HTTP double for
 // the token exchange and the descriptor; readiness answers at once (FakeProber).
 private final class LocalServer: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -14,7 +14,7 @@ private final class LocalServer: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let body: [String: Any] = request.url!.path == "/oauth/token"
             ? ["access_token": "local-bearer", "token_type": "Bearer"]
-            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.0.46-nightly.20261005.2667"]
+            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.1-nightly.20261018.3302"]
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
         client?.urlProtocolDidFinishLoading(self)
@@ -34,7 +34,7 @@ final class LocalSwitchTests: XCTestCase {
     /// A runtime folder whose `t3` runs `body` after `--version`.
     private func runtime(_ body: String) -> URL {
         let directory = scratch("runtime"), script = directory.appendingPathComponent("t3")
-        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.0.46-nightly.20261005.2667'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
+        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.1-nightly.20261018.3302'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         return directory
     }
@@ -65,7 +65,7 @@ final class LocalSwitchTests: XCTestCase {
     private func alive(_ pid: Int) -> Bool { kill(pid_t(pid), 0) == 0 }
 
     func testTurningOffStopsAServerThatIgnoresSIGTERMWithinTheBound() {
-        // The double ignores SIGTERM: the stop waits 2 s, then SIGKILL (the reference's 2 s grace).
+        // The double ignores SIGTERM: the stop waits 5 s, then SIGKILL (the reference's 5 s grace).
         // Readiness answers at once (FakeProber), so the stop could reach the shell before its `trap`
         // ran and end it on the SIGTERM (~1 run in 5). The double marks the trap; the stop waits for it.
         let trapped = scratch("trap").appendingPathComponent("trapped")
@@ -79,15 +79,16 @@ final class LocalSwitchTests: XCTestCase {
         XCTAssertTrue(until(5) { FileManager.default.fileExists(atPath: trapped.path) }, "the double ignores SIGTERM")
         let (failure, elapsed) = setEnabled(backend, false)
         XCTAssertNil(failure)
-        XCTAssertGreaterThanOrEqual(elapsed, 1.9, "SIGTERM is ignored for 2 s")
+        XCTAssertGreaterThanOrEqual(elapsed, 4.9, "SIGTERM is ignored for 5 s")
         XCTAssertLessThan(elapsed, 5.5, "the stop is bounded")
-        XCTAssertTrue(until(2) { !self.alive(pid) }, "the process is gone")
-        XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "signal=9", "SIGKILL ended it")
         XCTAssertEqual(backend.statusValue()["state"] as? String, "stopped")
         XCTAssertEqual(backend.statusValue()["enabled"] as? Bool, false)
-        // Turning it on again starts a new process and answers once it is ready.
+        // The bounded stop can answer before the old process's exit callback. Turning it back on
+        // immediately waits for that teardown and the new process's readiness, without failing the start.
         let (again, _) = setEnabled(backend, true)
         XCTAssertNil(again)
+        XCTAssertTrue(until(2) { !self.alive(pid) }, "the old process is gone")
+        XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "signal=9", "SIGKILL ended it")
         let next = backend.statusValue()["pid"] as? Int ?? 0
         XCTAssertTrue(next > 1 && next != pid && alive(next), "a new pid")
         XCTAssertEqual(backend.statusValue()["state"] as? String, "ready")
@@ -123,12 +124,27 @@ final class LocalSwitchTests: XCTestCase {
         backend.detach(owner)
     }
 
+    func testALegacyMarkerAloneCannotAdmitADevelopmentBackend() {
+        let resources = scratch("legacy-resources"), home = scratch("unadmitted-home")
+        try! #"{"flavor":"packaged"}"#.write(to: resources.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
+        let backend = T3LocalBackend()
+        backend.environment = { ["T3CODE_HOME": home.path, "T3CODE_PORT": "16497", "PATH": "/usr/bin:/bin"] }
+        backend.bundleInfo = { [:] }
+        backend.resources = { resources }
+        backend.attach(owner, dataRoot: scratch("data"), changed: { _ in })
+        XCTAssertTrue(until(3) { backend.statusValue()["state"] as? String == "refused" })
+        XCTAssertEqual(backend.statusValue()["refused"] as? String, T3LocalPolicy.developmentMissing)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("userdata").path))
+        backend.detach(owner)
+    }
+
     // MARK: handleFatalStartupError
 
     func testPortExhaustionIsFatalWithTheStageAndTheMessageThenQuits() {
         let resources = scratch("resources"), home = scratch("packaged-home")
-        try! #"{"flavor":"packaged"}"#.write(to: resources.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
         let backend = T3LocalBackend()
+        backend.bundleInfo = { ["ExactProtocolHandlers": [["protocol": "t3code", "url": "/open?u=%s"]],
+                               "CFBundleURLTypes": [["CFBundleURLSchemes": ["t3code"]]]] }
         backend.environment = { ["T3CODE_HOME": home.path, "PATH": "/usr/bin:/bin"] }
         backend.resources = { resources }
         backend.canListen = { _, _ in false }

@@ -1,12 +1,109 @@
+//! Every fact a boot takes first lives here, including root size and display scale.
 //! The display preferences (LLP 1061 D4; LLP 1069.000 D1), told to the
 //! running host and kept for the next boot's first frame; the date (LLP
 //! 1027.000.000) and where the viewer is, told to the running host, and
-//! before each boot for its first settle (`set_launch_time`, `set_launch_place`).
+//! before each boot for its first settle (`set_launch_time`, `set_launch_place`);
+//! and the host's live clock while it owns time (the timers RFC, D1), told to the
+//! running host and kept for every boot (`set_live_clock`); and whether the
+//! running plan reads the page's `onLine` (LLP 1069.000 D2).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// 1 when the running plan reads `onLine`, and before boot: the host
+    /// watches the network only then.
+    pub fn reads_on_line(&self) -> u32 {
+        self.host
+            .as_ref()
+            .map_or(1, |h| u32::from(h.runner().reads_page_field("onLine")))
+    }
+
+    /// The running session's role overrides (LLP 1121 stage 5), bound
+    /// around each call to it (`registry::with_entry`).
+    pub fn roles(&self) -> Option<std::rc::Rc<exact_kernel::style::roles::Roles>> {
+        self.host.as_ref().map(|h| h.runner().roles().clone())
+    }
+
+    /// App modes, `axis=value` pins comma-separated in the input buffer
+    /// (LLP 1121 D5), set in one commit; after a `?`, only checked.
+    pub fn set_mode(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        // `?` first: only ask whether they would be taken.
+        let (check, text) = match text.strip_prefix('?') {
+            Some(rest) => (true, rest),
+            None => (false, text),
+        };
+        let pins: Option<Vec<(String, String)>> = text
+            .split(',')
+            .filter(|pin| !pin.is_empty())
+            .map(|pin| {
+                pin.split_once('=')
+                    .map(|(a, v)| (a.to_owned(), v.to_owned()))
+            })
+            .collect();
+        let Some(pins) = pins else {
+            return self.refuse("mode: expected axis=value pins");
+        };
+        let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
+        let out = self.host.as_mut().map_or_else(not_booted, |h| match check {
+            true => h.check_modes(&pins),
+            false => h.set_modes(&pins),
+        });
+        self.emit(out)
+    }
+
+    /// A live design batch or snapshot frame from the dev stream in the
+    /// input buffer (LLP 1121 stage 4), applied in place; returns the batch.
+    pub fn design_rows(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.apply_live(&text));
+        self.emit(out)
+    }
+
+    /// The binding core's answer (LLP 1121 D12, stage 5) to the request in
+    /// the input buffer ([`Host::tamber_json`]), UTF-8 in the output buffer.
+    /// Not a batch: nothing changes.
+    pub fn tamber(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        self.output = match self.host.as_mut() {
+            Some(h) => h.tamber_json(&text),
+            None => exact_runner::agent::error("tamber: not booted"),
+        }
+        .into_bytes();
+        self.output.len() as u32
+    }
+
+    /// The design digest the running app runs (its plan's, or the live
+    /// table's applied since), UTF-8 in the output buffer; empty before
+    /// boot. Not a batch: nothing changes.
+    pub fn design_digest(&mut self) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .map(|h| h.runner().design())
+            .unwrap_or_default()
+            .into_bytes();
+        self.output.len() as u32
+    }
+
+    /// The running plan's digest, UTF-8 in the output buffer; empty before boot.
+    pub fn plan_digest(&mut self) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .map(|h| h.runner().inspection_digest().as_bytes().to_vec())
+            .unwrap_or_default();
+        self.output.len() as u32
+    }
+
     /// The user's display preferences changed or became known (LLP 1061
     /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark
@@ -47,11 +144,16 @@ impl<D: DataSource> Bridge<D> {
     /// Where the viewer is, for the next boot's first settle, as
     /// `set_place` reads it from the input buffer (`locale NUL timeZone NUL
     /// seed`); the running host is not told. A fact that does not validate
-    /// (or a missing seed) leaves the last one.
-    pub fn set_launch_place(&mut self, len: usize) {
+    /// (or a missing seed) leaves the last one and returns a refusal batch.
+    pub fn set_launch_place(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         if let Some(place) = exact_runner::time::Place::launched(text) {
             self.launch_facts.place = Some(place);
+            0
+        } else {
+            // The refusal alone: a reload primes a place while a live host
+            // runs, and its pending work is not this call's to pump (`emit`).
+            self.prepare_error("invalid launch place")
         }
     }
 
@@ -61,5 +163,74 @@ impl<D: DataSource> Bridge<D> {
             preferences: self.preferences,
             ..exact_runner::Viewport::sized(width as f64, height as f64)
         }
+    }
+
+    /// The presenter's clock owns time (`Some`), or the agent's seekable one
+    /// does (`None`): the running runner and every one booted later take it.
+    pub fn set_live_clock(&mut self, wall: Option<LiveClockFn>) {
+        self.live_clock = wall;
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().set_live_clock(wall.map(sampler));
+        }
+    }
+}
+
+impl<D: DataSource> Bridge<D> {
+    /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
+    /// report of the ports or the inputs, or the agent's (`Host::midi`).
+    pub fn midi(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.midi(&text));
+        self.emit(out)
+    }
+}
+
+/// The presenter's clock in the runner's milliseconds (`ExactEnv.wall`).
+pub type LiveClockFn = extern "C" fn() -> f64;
+
+/// The runner's sampler for `wall`.
+pub(super) fn sampler(wall: LiveClockFn) -> Box<dyn FnMut() -> f64> {
+    Box::new(move || wall())
+}
+
+#[cfg(test)]
+#[path = "live_clock_tests.rs"]
+mod live_clock_tests;
+
+impl<D: DataSource> Bridge<D> {
+    /// The root font size in points (LLP 1069.000 D3): a relayout.
+    pub fn set_root_font_size(&mut self, px: f64) -> u32 {
+        if self.host.is_none() {
+            if !px.is_finite() || !(px as f32).is_finite() || px <= 0.0 {
+                return self.refuse("root font size must be finite and positive");
+            }
+            self.launch_layout.root_font_size = Some(px as f32);
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_root_font_size(px));
+        self.emit(out)
+    }
+
+    /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
+    /// hairline.
+    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
+        if self.host.is_none() {
+            if !scale.is_finite() || !(scale as f32).is_finite() || scale <= 0.0 {
+                return self.refuse("display scale must be finite and positive");
+            }
+            self.launch_layout.display_scale = Some(scale as f32);
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_display_scale(scale));
+        self.emit(out)
     }
 }

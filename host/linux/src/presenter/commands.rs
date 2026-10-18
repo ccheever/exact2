@@ -12,6 +12,24 @@ impl<D: DataSource> Presenter<D> {
     /// store (LLP 1030 D7); `setScheme` chooses this painter's `light-dark()`
     /// appearance (LLP 1034 D2); anything else is named.
     pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
+        // Every loop runs this each turn, and a reader's shell is served
+        // before its first: whether a shell keeps the screen on is known.
+        self.wakelock_unavailable();
+        self.run_queued_commands();
+        if self.pending_update {
+            self.pending_update = false;
+            match self.activate_update(data()) {
+                Ok(true) => {}
+                Ok(false) => eprintln!("exact update: nothing is staged"),
+                Err(HostError::PreparingModule) => self.pending_update = true,
+                Err(e) => eprintln!("exact update: activate: {e}"),
+            }
+        }
+    }
+
+    /// [`Presenter::run_commands`] but for activating a staged update, which
+    /// waits for the next full run: it needs a data source.
+    pub(super) fn run_queued_commands(&mut self) {
         for c in std::mem::take(&mut self.commands) {
             match c.name.as_str() {
                 "deliveryCheck" => {
@@ -39,10 +57,13 @@ impl<D: DataSource> Presenter<D> {
                     self.haptic(kind.unwrap_or_default());
                 }
                 // The runner's own (LLP 1096 D9): its table is the record; no output here.
-                "playSound" | "playSounds" | "stopSounds" => {}
+                "playSound" | "playSounds" | "stopSounds" | "sendMIDI" => {}
+                // No MIDI here (LLP 1125 D6); under the agent the runner answered.
+                "requestMIDIAccess" => self.midi_unavailable(),
                 // The runner's own too: it laid out at the app's root font size (LLP 1069.000 D3).
                 "setRootFontSize" => {}
-                // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
+                // Outside a bubbling event (a key's, focus's, the pointer's
+                // or a wheel's, which take theirs), nothing to prevent or stop.
                 "preventDefault" | "stopPropagation" => {}
                 // The shell's share sheet; with no shell, refused into the
                 // journal. Held for the agent like every host (LLP 1069.003 D6).
@@ -96,8 +117,8 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showPopover" | "hidePopover" | "togglePopover") => {
                     self.popover_command(name, &c.args)
                 }
-                "showModal" if self.has_windows() => self.show_modal(&c.args, c.source),
-                "close" if self.has_windows() && !c.args.is_empty() => self.close_modal(&c.args),
+                "showModal" if self.has_windows() || self.neutral_alerts() => self.show_modal(&c.args, c.source),
+                "close" if (self.has_windows() || self.neutral_alerts()) && !c.args.is_empty() => self.close_modal(&c.args),
                 "showModal" => self
                     .host
                     .log("showModal refused: dialogs unsupported on the headless/DRM host"),
@@ -117,16 +138,8 @@ impl<D: DataSource> Presenter<D> {
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
+        // Selection events are queued tasks: the input's commands run first.
         self.drain_field_select_tasks();
         self.dispatch_toggles();
-        if self.pending_update {
-            self.pending_update = false;
-            match self.activate_update(data()) {
-                Ok(true) => {}
-                Ok(false) => eprintln!("exact update: nothing is staged"),
-                Err(HostError::PreparingModule) => self.pending_update = true,
-                Err(e) => eprintln!("exact update: activate: {e}"),
-            }
-        }
     }
 }

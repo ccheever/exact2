@@ -251,6 +251,68 @@ final class NavigationBasicsIOSTests: XCTestCase {
         if #available(iOS 26.0, *) { XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading") }
     }
 
+    /// LLP 1075.003 §9.15: a readout (`role="status"`) after the header's
+    /// buttons is a trailing item with a custom view, as a hand-built bar's
+    /// "● Clock" is: its dot and monospaced text drawn as written, read by
+    /// VoiceOver as static text, the bar's and not the page's; it follows
+    /// the Contract in place, the same item and view.
+    func testAReadoutIsATrailingItemWhoseViewFollowsItInPlace() throws {
+        let session = try fixture("basics-readout")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "open-plain")
+        until("Plain pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let plain = try XCTUnwrap(nav.topViewController as? RouteController)
+        let right = plain.navigationItem.rightBarButtonItems ?? []
+        let item = try XCTUnwrap(right.first, "the readout is after Compose: the rightmost item")
+        XCTAssertEqual(item.accessibilityIdentifier, "readout-plain")
+        XCTAssertTrue(right.contains { $0.accessibilityLabel == "Compose" }, "Compose is still an item")
+        let view = try XCTUnwrap(item.customView as? ReadoutView, "a custom view, not a title or an image")
+        XCTAssertNil(item.action, "nothing presses a readout")
+        func labels() -> [UILabel] { view.subviews.flatMap(\.subviews).compactMap { $0 as? UILabel } }
+        let label = try XCTUnwrap(labels().first)
+        XCTAssertEqual(label.text, "0 sent")
+        XCTAssertEqual(label.font.pointSize, 12)
+        XCTAssertTrue(label.font.fontName.lowercased().contains("menlo"), "the author's font: \(label.font.fontName)")
+        let dot = try XCTUnwrap(view.subviews.flatMap(\.subviews).first { !($0 is UILabel) })
+        view.layoutIfNeeded()
+        XCTAssertEqual(dot.bounds.size, CGSize(width: 7, height: 7), "the dot at its authored size")
+        XCTAssertGreaterThan(view.intrinsicContentSize.width, 7 + 6)
+        XCTAssertTrue(view.isAccessibilityElement)
+        XCTAssertTrue(view.accessibilityTraits.contains(.staticText))
+        XCTAssertEqual(view.accessibilityLabel, "0 composed", "its `aria-label`")
+        // The bar's, not the page's: the agent does not call it unshown.
+        let unshown = session.presenter.navigation.unshownByBar()
+        for shown in ["readout-plain", "readout-text"] { XCTAssertNil(unshown[try node(session, shown).id], "\(shown) is the bar's") }
+        // Nor the subtitle's: the first text after the heading still is.
+        if #available(iOS 26.0, *) { XCTAssertEqual(plain.navigationItem.subtitle, "No Back control") }
+        // The agent's tap on it is a person's: it lands, and nothing is pressed.
+        let tap = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertNil(tap["error"], "\(tap)")
+        XCTAssertEqual(tap["native"] as? String, "bar-readout")
+        try tapNode(session, "compose-plain")
+        until("the readout follows the count") { labels().first?.text == "1 sent" }
+        XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.first === item, "the same item")
+        XCTAssertTrue(item.customView === view, "the same view")
+        XCTAssertEqual(view.accessibilityLabel, "1 composed")
+        // `aria-hidden` on the tabpanel, which UIKit holds the route apart
+        // from, takes the readout off the accessibility tree.
+        let panel = try node(session, "panel-home")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityElementsHidden": "true"], "clear": []]]))
+        until("hidden by its logical ancestor") { !view.isAccessibilityElement }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": [:], "clear": ["accessibilityElementsHidden"]]]))
+        until("shown again") { view.isAccessibilityElement }
+        // A sibling button kept authored lifts the header only in part; the
+        // agent's tap on the readout still lands on the bar's.
+        let compose = try node(session, "compose-plain")
+        session.presenter.apply(wireBatch([["op": "style", "id": Int(compose.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
+        spin(0.2)
+        XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.contains { $0.customView === view } == true, "still the bar's")
+        let partial = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertEqual(partial["native"] as? String, "bar-readout", "\(partial)")
+    }
+
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
@@ -373,7 +435,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let list = try node(session, "list-chat")
         let sv = try XCTUnwrap(list.scroll)
         XCTAssertTrue(journal(session).contains("scrolls its content under the bar"))
-        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always, "UIKit insets it")
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic, "UIKit insets it")
         XCTAssertEqual(list.convert(list.bounds, to: chat.view).minY, 0, accuracy: 0.5, "it starts under the bar")
         XCTAssertEqual(sv.adjustedContentInset.top, chat.view.safeAreaInsets.top, accuracy: 0.5, "inset to the bar's bottom")
         XCTAssertFalse(nav.isNavigationBarHidden)
@@ -412,6 +474,77 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(footer.convert(footer.bounds, to: detail.view).maxY, detail.view.bounds.maxY - detail.view.safeAreaInsets.bottom,
                        accuracy: 0.5, "the footer stays above the tab bar")
         XCTAssertNil(detail.contentScrollView(for: .bottom))
+    }
+
+    /// The bottom edge's scroller may sit deeper than the route's last child
+    /// (LLP 1116 D2, amended): a sheet whose component's root column holds
+    /// its header and then its scroller reaches the edge, as a hand-built
+    /// sheet's scroll view pinned to its view's bottom does. A footer, a
+    /// padding under it, or a sideways scroller does not.
+    func testANestedLastScrollerReachesTheBottomEdge() {
+        let p = Presenter()
+        var next: UInt32 = 0
+        func box(_ parent: NodeView?, y: CGFloat, height: CGFloat, overflow: String? = nil) -> NodeView {
+            next += 1
+            let n = NodeView(id: next, kind: "view", presenter: p)
+            n.frame = CGRect(x: 0, y: y, width: 400, height: height)
+            if let overflow { n.style[overflow == "x" ? "overflow_x" : "overflow_y"] = .string("scroll"); n.syncScroll() }
+            parent?.container.addSubview(n)
+            return n
+        }
+        // The route's cover pads 34 under its child, which stands at the foot
+        // of the content box the cover shortens.
+        let route = box(nil, y: 0, height: 600)
+        route.applyKernelContentBox(CGRect(x: 0, y: 0, width: 400, height: 566), padding: [0, 0, 34, 0])
+        let sheet = box(route, y: 0, height: 566)
+        _ = box(sheet, y: 0, height: 60)
+        let scroller = box(sheet, y: 60, height: 506, overflow: "y")
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller, "the component's scroller reaches the edge")
+        sheet.applyKernelContentBox(CGRect(x: 0, y: 0, width: 400, height: 546), padding: [0, 0, 20, 0])
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a padding under it keeps the cover")
+        sheet.applyKernelContentBox(nil, padding: nil)
+        scroller.frame.size.height = 446
+        let footer = box(sheet, y: 506, height: 60)
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a footer under it keeps the cover")
+        footer.removeFromSuperview()
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "nor does a scroller that ends short of its parent")
+        scroller.frame.size.height = 506
+        scroller.style["overflow_y"] = nil
+        scroller.style["overflow_x"] = .string("scroll")
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a sideways scroller takes no bottom inset")
+        scroller.style["overflow_x"] = nil
+        scroller.style["overflow_y"] = .string("scroll")
+        // The route's child sized to its content, 200 points of a 600-point
+        // route: its scroller ends far above the home indicator.
+        sheet.frame.size.height = 200
+        scroller.frame.size.height = 140
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a route's child short of its content box keeps the cover")
+        sheet.frame.size.height = 566
+        scroller.frame.size.height = 506
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller)
+        // The component's column ends in a row filling it: a side column
+        // beside the scroller reaches the edge too.
+        scroller.removeFromSuperview()
+        let split = box(sheet, y: 60, height: 506)
+        _ = box(split, y: 0, height: 506)
+        let right = box(split, y: 0, height: 506, overflow: "y")
+        right.frame.origin.x = 200
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a row's scroller beside a column keeps the cover")
+        // A full-height row: a column with Save at its foot, and a scroller
+        // beside it. The Save button reaches the edge too: the cover stays.
+        sheet.removeFromSuperview()
+        let row = box(route, y: 0, height: 566)
+        let side = box(row, y: 0, height: 566)
+        _ = box(side, y: 522, height: 44)
+        let beside = box(row, y: 0, height: 566, overflow: "y")
+        beside.frame.origin.x = 200
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a scroller with a sibling beside it in a row keeps the cover")
+        side.removeFromSuperview()
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === beside, "the row's only child spans its bottom edge")
+        // A reversed column: its last child is at its top, above the scroller.
+        _ = box(row, y: 0, height: 60)
+        beside.frame.origin = CGPoint(x: 0, y: 60); beside.frame.size.height = 506
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a last child above its sibling is not at the edge")
     }
 
     /// A route that paints no background shows what the web shows through
@@ -622,6 +755,19 @@ final class NavigationBasicsIOSTests: XCTestCase {
                       "and the stack beneath is as it was")
     }
 
+    /// LLP 1116.020 D2: a presented stack's title is inline at any level, as
+    /// UIKit's sheets and Apple's are; a level-1 heading pushed in the stack
+    /// beneath is large.
+    func testASheetsLevelOneTitleIsInline() throws {
+        let (session, _, _) = try bars("bars-titled-sheet")
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-titled")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.navigationItem.title, "Titled")
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never, "a sheet's title is inline")
+    }
+
 
     /// A scroller UIKit insets lays its content out between those insets
     /// (LLP 1116.000 D1.2): Chat's column, its tall box gone, fills the port
@@ -657,6 +803,81 @@ final class NavigationBasicsIOSTests: XCTestCase {
         list.applyPendingScroll()
         spin(0.3)
         XCTAssertEqual(end.convert(end.bounds, to: chat.view).maxY, bottom - 12, accuracy: 0.5, "at its end, as UIKit insets it")
+    }
+
+    private func bottomToolbar(_ nav: UINavigationController, _ route: RouteController, shown: Bool) {
+        route.toolbarItems = [UIBarButtonItem(title: "Action", style: .plain, target: nil, action: nil)]
+        nav.setToolbarHidden(!shown, animated: false)
+        nav.view.setNeedsLayout()
+        nav.view.layoutIfNeeded()
+        route.host?.reportCovers()
+    }
+
+    func testFullHeightPlainScrollOwnsTheNativeBottomInsetAndReachesItsEnd() throws {
+        // Hostless UIKit does not finish an animated tab selection.
+        let animations = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animations) }
+        let session = try fixture("bottom-plain-end")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        try tapNode(session, "tab-second")
+        until("Second selected") { tabs.selectedIndex == 1 }
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
+        until("Second's scroller is displayed with its tall content") {
+            sv.window != nil && sv.bounds.height > 0 && sv.contentSize.height > sv.bounds.height + 100
+        }
+        UIView.setAnimationsEnabled(animations)
+        bottomToolbar(nav, route, shown: true)
+        until("the toolbar insets the physical scroller") {
+            sv.adjustedContentInset.bottom > self.window!.safeAreaInsets.bottom + 1
+        }
+        XCTAssertTrue(route.edgeScroll === list)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === sv)
+        XCTAssertEqual(list.convert(list.bounds, to: route.view).maxY, route.view.bounds.maxY, accuracy: 0.5)
+        var metrics: [Double]?
+        session.presenter.onScroll = { id, values in if id == list.id { metrics = values } }
+        list.handlers.insert("scroll")
+        list.pendingScrollTop = 100_000
+        list.applyPendingScroll()
+        until("the physical end and its scroll event have settled") {
+            metrics != nil && abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
+        }
+        let event = try XCTUnwrap(metrics), room = list.scrollPortInsets(sv)
+        XCTAssertEqual(event[5], Double(sv.bounds.height - room.top - room.bottom), accuracy: 0.5)
+        XCTAssertEqual(event[3] - event[1] - event[5], 0, accuracy: 0.5)
+        let end = sv.convert(CGPoint(x: 0, y: sv.contentSize.height), to: route.view).y
+        XCTAssertEqual(end, route.view.bounds.maxY - sv.adjustedContentInset.bottom, accuracy: 0.5)
+    }
+
+    func testPlainShortContentRefitsWhenTheToolbarChangesAndKeepsManualInsetRoom() throws {
+        let session = try fixture("bottom-plain-short")
+        let (_, nav, route) = try chat(session)
+        let list = try node(session, "list-chat"), sv = try XCTUnwrap(list.scroll)
+        try tapNode(session, "toggle-short-chat")
+        until("the tall content is gone") { !session.presenter.views.values.contains { $0.props["testId"] == "tall-chat" } }
+        bottomToolbar(nav, route, shown: true)
+        func automaticBottom() -> CGFloat { max(0, sv.adjustedContentInset.bottom - sv.contentInset.bottom) }
+        func fits() -> Bool {
+            abs(sv.contentSize.height + sv.adjustedContentInset.top + sv.adjustedContentInset.bottom - sv.bounds.height) < 0.5
+        }
+        until("short content fits above the toolbar") { automaticBottom() > self.window!.safeAreaInsets.bottom + 1 && fits() }
+        let shown = automaticBottom(), manual = sv.contentInset.bottom, height = sv.contentSize.height
+        let end = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
+        sv.contentInset.bottom += 180 // the keyboard toolbar's manual inset basis
+        sv.layoutIfNeeded()
+        XCTAssertEqual(sv.contentInset.bottom, manual + 180, accuracy: 0.5)
+        XCTAssertEqual(sv.contentSize.height, height, accuracy: 0.5)
+        XCTAssertEqual(sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height, end + 180, accuracy: 0.5)
+        sv.contentInset.bottom = manual
+        bottomToolbar(nav, route, shown: false)
+        until("hiding the toolbar refits short content") { automaticBottom() < shown - 1 && fits() }
+        let hidden = automaticBottom()
+        bottomToolbar(nav, route, shown: true)
+        until("showing the toolbar refits short content") { automaticBottom() > hidden + 1 && fits() }
+        XCTAssertEqual(sv.contentInset.bottom, manual, accuracy: 0.5)
     }
 
     /// A real interactive pop from Photo, driven by a percent-driven

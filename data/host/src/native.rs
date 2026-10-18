@@ -297,20 +297,44 @@ fn document_request(
 ) -> Result<Value, String> {
     let path = text(args, "path")?;
     let (operation, _, data) = operation(op, args)?;
-    fs::run_with_limits(
-        grants,
-        None,
-        Some(&move |path, _access| documents(path, owner)),
-        fs::ResultLimits {
-            bytes: exact_data::storage::MAX_BYTES,
-        },
-        operation,
-        path,
-        None,
-        data.as_deref(),
-    )
-    .map(fs_value)
-    .map_err(error)
+    let run = |operation, data: Option<&[u8]>| {
+        fs::run_with_limits(
+            grants,
+            None,
+            Some(&move |path, _access| documents(path, owner)),
+            fs::ResultLimits {
+                bytes: exact_data::storage::MAX_BYTES,
+            },
+            operation,
+            path,
+            None,
+            data,
+        )
+        .map_err(error)
+    };
+    // A write that expects what it read (@ref LLP 1069.010.000 D2a): the
+    // stat just before the write, as a TypeScript source's prelude does.
+    let expect = &args["expect"];
+    if !expect.is_null()
+        && matches!(
+            operation,
+            FsOp::WriteFile | FsOp::AtomicWriteFile | FsOp::AppendFile
+        )
+    {
+        let (Some(modified), Some(size)) = (expect["modifiedMs"].as_f64(), expect["size"].as_u64())
+        else {
+            return Err("storage: expect must be a stat (modifiedMs and size)".into());
+        };
+        let FsResult::Stat(now) = run(FsOp::Stat, None)? else {
+            return Err("storage: expect: the document has no stat".into());
+        };
+        if now.modified_ms as f64 != modified || now.size != size {
+            return Err(format!(
+                "document ECHANGED: {path} changed on disk since it was read"
+            ));
+        }
+    }
+    run(operation, data.as_deref()).map(fs_value)
 }
 /// [`exact_data::documents`] as ibex2's table.
 fn documents(path: &str, owner: u64) -> Result<fs::DocumentLease, fs::DocumentError> {
@@ -335,11 +359,10 @@ fn documents(path: &str, owner: u64) -> Result<fs::DocumentLease, fs::DocumentEr
 /// refusal, word for word (`storage-environment.js`, `storage-request.js`),
 /// as a TypeScript module's `agent` refusal says it (trivia F7).
 pub(super) fn agent_refusal() -> Outcome {
-    Outcome::Storage(
-        serde_json::to_vec(&json!({"error": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"}))
-            .unwrap(),
-    )
+    Outcome::Storage(serde_json::to_vec(&json!({ "error": AGENT_REFUSAL })).unwrap())
 }
+pub(super) const AGENT_REFUSAL: &str =
+    "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)";
 /// Native disk operations do not need (or initialize) the app storage roots.
 /// Classify malformed disk spellings too: the filesystem adapter refuses them
 /// after source/grant admission, before opening any handle. This is not authority.

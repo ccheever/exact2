@@ -57,13 +57,6 @@ component Heightprobe
 | Close, macOS | then `"clock settle" "tap toggle" "clock +100" "layout plain" "layout both"` | same | same | `plain` 0 px at once; `both` 210 px | both 210 px | record |
 | Same, web | `bun exact.mjs web-build`; `bun exact.mjs agent web …` (the same operations) | Chrome 155 (the agent's) | same | all four 70 px at 100 ms, 280 px at 400 ms | (the reference) | record, film |
 
-![Films, 0–400 ms every 100 ms: Chrome above, macOS below](https://raw.githubusercontent.com/ccheever/exact2/5fa3e970c176bbfeff4c434a67b1efa18396409e/pitfalls-t3/height-transition-web-macos.png)
-
-Record of this contract's run (the table's operations, every `layout` frame on both hosts):
-https://raw.githubusercontent.com/ccheever/exact2/c956e1b6055764dfa2dc72e791245eff6099ca36/pitfalls-t3/height-transition-repro.txt.
-The films came from the same columns in a probe that also had a border row
-(https://raw.githubusercontent.com/ccheever/exact2/b77e4da18b8fe90a1d98252a624f15356ac66983/pitfalls-t3/height-transition-record.txt).
-
 The films are `screenshot film.png over 400 every 100`: a single `screenshot` settles a running
 transition (LLP 1116.003 D8), so it shows every column at 280 on both hosts.
 

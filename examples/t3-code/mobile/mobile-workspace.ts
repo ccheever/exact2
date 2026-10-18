@@ -1,4 +1,4 @@
-// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pinned mobile365aa87982 Stack.workspaceLocationFromState / AdaptiveWorkspaceLayout.
 // Exact route entries cross this seam; React Navigation state never does.
 import { adaptiveWorkspace, adaptiveInspectorResize, type AdaptiveWorkspaceInput } from './adaptive-workspace';

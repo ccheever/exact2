@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// Decision U7 (2026-10-08): the desktop settings live in `<T3 home>/userdata/desktop-settings.json`, as the
+// The desktop settings live in `<T3 home>/userdata/desktop-settings.json`, as the
 // original app keeps them (T3DesktopSettings.swift). The first tests port T3 Code's own with their names
 // (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/settings/DesktopAppSettings.test.ts, the
 // cases that apply on macOS); the rest cover the clone's wiring: the read at attach, the status, the

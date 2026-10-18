@@ -457,3 +457,65 @@ fn the_default_place_reanswers_resolved_locale_when_its_table_changes() {
     r.set_place("en-US", "UTC", None).unwrap();
     assert_eq!(text(&r, "locale"), "en-US");
 }
+
+#[test]
+fn finite_strings_flow_into_navigation_presentation_and_string_commands() {
+    let source = r#"routes nav
+  home "/"
+    item "/item/:item"
+shape Choice
+  value: enum<"draft", "published">
+component App
+  resource choice = exactSurface("world") as shape Choice
+  state label = ""
+  action present(value: enum<"draft", "published">)
+    label = t("hi", name=value)
+    nav = push(nav, path("item", value))
+    postMessage(value, "world")
+  action fromField
+    present(choice.value)
+  action commands(value: enum<"draft", "published">)
+    scrollIntoView(value)
+    scrollBy(value, 1, 2)
+    setSelectionRange(value, 0, 1, value)
+    playSound(value)
+    load(value)
+    fastSeek(value, 0)
+  action tick
+    label = t("hi", name=choice.value)
+  task poll key=choice.value
+    after(1000, tick)
+  view
+    column width=(true ? 100 : choice.value)
+      canvas surface=world()
+      text label testId="label"
+"#;
+    let app = AppDir::new(source, &[("strings/en.json", r#"{"hi":"Hi {name}"}"#)]);
+    let mut r = boot(app.compile().unwrap());
+    r.take_commands();
+    r.act("fromField", vec![]).unwrap();
+    assert_eq!(text(&r, "label"), "Hi draft");
+    assert_eq!(r.take_router_change().unwrap().url, "/item/draft");
+    assert_eq!(
+        r.take_commands().pop().unwrap().args,
+        [Value::str("draft"), Value::str("world")]
+    );
+    r.act("present", vec![Value::str("published")]).unwrap();
+    assert_eq!(text(&r, "label"), "Hi published");
+    assert_eq!(r.take_router_change().unwrap().url, "/item/published");
+    assert!(r.act("present", vec![Value::str("invalid")]).is_err());
+    assert_eq!(text(&r, "label"), "Hi published");
+    // Enum shape fields independently flow through all ordinary string sinks.
+    let fields = source
+        .replace("scrollIntoView(value)", "scrollIntoView(choice.value)")
+        .replace("scrollBy(value,", "scrollBy(choice.value,")
+        .replace(
+            "setSelectionRange(value, 0, 1, value)",
+            "setSelectionRange(choice.value, 0, 1, choice.value)",
+        )
+        .replace("playSound(value)", "playSound(choice.value)")
+        .replace("load(value)", "load(choice.value)")
+        .replace("fastSeek(value,", "fastSeek(choice.value,");
+    let app = AppDir::new(&fields, &[("strings/en.json", r#"{"hi":"Hi {name}"}"#)]);
+    app.compile().unwrap();
+}

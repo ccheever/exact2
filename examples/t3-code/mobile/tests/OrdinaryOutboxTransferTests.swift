@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 // Actual outbox/store bodies and actual durableReplace body, isolated Foundation disk fixture.
 import Foundation
 import Darwin

@@ -8,7 +8,7 @@
 //        machine, so no app's first build compiles them.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Also for its PATH: the pinned binaryen (and Cargo) as every web build has
@@ -76,6 +76,19 @@ function run(cmd, args, options, capture = false) {
   });
 }
 const optimizeAsync = async (input, output, label) => optimized(await run('wasm-opt', [...OPT, input, '-o', output], {}, true), input, output, label);
+// Every build of this checkout that uses a module copies it from here, and
+// builds run at once (conformance's --jobs), while a module taken from the
+// machine's cache is copied here again at each build. So a module is written
+// beside its place by `write` and renamed onto it: a reader copies the old
+// bytes or the new, never a file still being written (a page got an empty
+// motion.wasm, had no motion engine, and its drags did nothing).
+function replace(path, write) {
+  const temp = `${path}.${process.pid}.tmp`, clean = () => rmSync(temp, { force: true });
+  const land = (value) => { try { renameSync(temp, path); return value; } finally { clean(); } };
+  let written;
+  try { written = write(temp); } catch (error) { clean(); throw error; }
+  return written instanceof Promise ? written.then(land, (error) => { clean(); throw error; }) : land(written);
+}
 const cargoWasmArgs = (manifest) => [`+${WEB}`, 'build', '--release', '--target', 'wasm32-unknown-unknown', '--manifest-path', manifest, ...WASM_FLAGS()];
 function cargoWasm(manifest) {
   return spawnSync('cargo', cargoWasmArgs(manifest), { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: TARGET } });
@@ -125,8 +138,8 @@ function module(manifest, name, out, label) {
   mkdirSync(out, { recursive: true });
   if (fresh(done, wasm.replace(/\.wasm$/, '.d'), [manifest])) return done;
   if (cargoWasm(manifest).status !== 0) throw new Error(`${label} did not build`);
-  cpSync(wasm, done);
-  return optimize(done, done, 'module');
+  replace(done, (temp) => optimize(wasm, temp, 'module'));
+  return done;
 }
 
 export function buildModule(app, out = resolve(MODULES, app), draw = false, dir = resolve(root, 'apps', app)) {
@@ -250,12 +263,13 @@ export async function buildFlow({ out = resolve(MODULES, 'flow'), keepFresh = fa
     rmSync(product, { force: true });
   }
   const leaf = at(), taken = leaf.find();
-  if (taken) { cpSync(taken, wasm); held.set(wasm.split('/').at(-1), true); return wasm; }
+  if (taken) { replace(wasm, (temp) => cpSync(taken, temp)); held.set(wasm.split('/').at(-1), true); return wasm; }
   const started = Date.now();
   const r = await run('cargo', [`+${WEB}`, 'build', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '-p', 'exact-textflow', '--bin', 'textflow-web', ...WASM_FLAGS()],
     { cwd: root, env: { ...process.env, CARGO_TARGET_DIR: target } });
   if (r.status !== 0) throw new Error('textflow.wasm did not build');
-  held.set('textflow.wasm', !unoptimized.has(await optimizeAsync(product, wasm, 'textflow.wasm')) && leaf.keep(started));
+  const optimizedFlow = await replace(wasm, async (temp) => !unoptimized.has(await optimizeAsync(product, temp, 'textflow.wasm')));
+  held.set('textflow.wasm', optimizedFlow && leaf.keep(started));
   return wasm;
 }
 
@@ -301,21 +315,60 @@ ${patch}`;
     rmSync(product, { force: true });
   }
   const leaf = at(), taken = leaf.find();
-  if (taken) { cpSync(taken, wasm); held.set(wasm.split('/').at(-1), true); return wasm; }
+  if (taken) { replace(wasm, (temp) => cpSync(taken, temp)); held.set(wasm.split('/').at(-1), true); return wasm; }
   const started = Date.now();
   const r = await run('cargo', cargoWasmArgs(resolve(crate, 'Cargo.toml')), { env: { ...process.env, CARGO_TARGET_DIR: target } });
   if (r.status !== 0) throw new Error(`${name}.wasm did not build`);
-  cpSync(product, wasm);
-  held.set(`${name}.wasm`, !unoptimized.has(await optimizeAsync(wasm, wasm, `${name}.wasm`)) && leaf.keep(started));
+  const optimizedLeaf = await replace(wasm, async (temp) => !unoptimized.has(await optimizeAsync(product, temp, `${name}.wasm`)));
+  held.set(`${name}.wasm`, optimizedLeaf && leaf.keep(started));
   return wasm;
 }
+
+/** `text` without its `// dev-only {` … `// dev-only }` regions: what a
+ * build that is not the dev loop's copies of a runtime file (modes.js's
+ * live table, LLP 1121 stage 4), so no release page carries it. */
+/** A development build's copy of rt.js with inspect mode's two hooks
+ * (LLP 1122 T2b; inspect-dev.js), so rt.js itself, and every other build's
+ * copy, has none: an element's view id (`$exactViewId`), and every `each`
+ * region with its rows and key function (`$exactEaches`), which a
+ * development build's emitter names (regions.rs passes the region id) and
+ * which leaves with its scope. Throws when rt.js no longer has the lines
+ * they hang on. */
+export function withInspectHooks(text) {
+  const hooks = [
+    [/^export function viewId\(e\) \{.*\n/m, (line) => `${line}globalThis.$exactViewId = viewId;\n`],
+    [/^  let rows = new Map\(\), single = false, order = null;\n/m, (line) => `${line}  if (arguments[5] !== undefined) { const e = { region: arguments[5], rows: () => order ?? [], key, live: () => a.isConnected }; (globalThis.$exactEaches ??= new Set()).add(e); onEnd(() => globalThis.$exactEaches.delete(e)); }\n`],
+  ];
+  for (const [at, hook] of hooks) {
+    if (!at.test(text)) throw new Error(`rt.js: inspect mode's hook has no line to hang on (${at})`);
+    text = text.replace(at, hook);
+  }
+  return text;
+}
+export const withoutDev = (text) => text.replace(/^[ \t]*\/\/ dev-only \{.*\n[\s\S]*?^[ \t]*\/\/ dev-only \}.*\n/gm, '');
 
 /** The plan-to-JavaScript compiler (`exact-web-js`) as `[cmd, args]`: its
  * binary when nothing it was built from changed, one kept for the machine,
  * or `cargo run`, whose binary `done()` keeps. */
 const COMPILER = resolve(TARGET_DIR, 'debug/exact-web-js');
 const compilerKept = () => kept({ crate: 'exact-web-js', product: COMPILER, depInfo: `${COMPILER}.d`, group: ['debug'], buildDirs: [resolve(TARGET_DIR, 'debug/build')], stamp: resolve(MODULES, 'kept', 'exact-web-js.json') });
+/** `fresh`, for a compiler binary: also stale after an edit to the lockfile
+ * or to the manifest of the workspace or of any crate it was built from. */
+export function freshCompiler(product) {
+  try {
+    const text = readFileSync(`${product}.d`, 'utf8');
+    const files = text.slice(text.indexOf(': ') + 2).trim().split(/(?<!\\)\s+/).map(f => f.replace(/\\ /g, ' '));
+    const crates = new Set(files.filter(f => f.lastIndexOf('/src/') > 0).map(f => resolve(f.slice(0, f.lastIndexOf('/src/')), 'Cargo.toml')));
+    return fresh(product, `${product}.d`, [resolve(root, 'Cargo.lock'), resolve(root, 'Cargo.toml'), ...crates]);
+  } catch { return false; }
+}
 export function webCompiler() {
+  // The optimised compiler (`host-dev`) the JS dev loop built for its design
+  // reader: a copy it makes for one build while that build is done and
+  // fresh (dev.mjs), the same output, about ten times faster on a large app
+  // (the Bluesky clone: 1.2 s, not 11.8).
+  const fast = process.env.EXACT_WEB_COMPILER;
+  if (fast && existsSync(fast)) return { cmd: fast, pre: [], done() {} };
   if (fresh(COMPILER, `${COMPILER}.d`)) return { cmd: COMPILER, pre: [], done() {} };
   const at = compilerKept();
   const taken = at.find();

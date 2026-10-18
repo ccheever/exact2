@@ -23,6 +23,11 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// The dialog's box as the kernel laid it out: the sheet's height.
     private(set) var box = CGSize.zero
     private var backdropTap: UITapGestureRecognizer?
+    #if os(iOS)
+    /// What the dialog's authored ancestors listen for: the sheet is out of
+    /// the page their recognizers see (`MountRelay`).
+    var relay: MountRelay?
+    #endif
 
     fileprivate init(host: DialogSheets) {
         self.host = host
@@ -49,7 +54,10 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         #else
         // The sheet's surface where the dialog painted none: the platform's
         // (LLP 1115 D2), which UIKit elevates in dark mode.
-        view.backgroundColor = .systemBackground
+        ThemeRoles.adopt(view, from: host?.root)
+        // Its presenter's tint, as the root's (LLP 1095 D4): a sheet sits outside it.
+        if let tint = ThemeRoles.color("AccentColor", in: view) { view.tintColor = tint }
+        view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         scroller.keyboardDismissMode = .interactive
         #endif
         scroller.frame = view.bounds
@@ -95,7 +103,11 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// modal dialog; one wider or taller than the sheet scrolls.
     private func place() {
         guard isViewLoaded, let dialog = scroller.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return }
-        let center = CGPoint(x: max(box.width, scroller.bounds.width) / 2, y: box.height / 2)
+        // Its origin on the pixel grid, as every box's is (`PixelGridIOS.swift`).
+        let s = max(1, view.traitCollection.displayScale), size = dialog.bounds.size
+        let origin = CGPoint(x: PixelGrid.round((max(box.width, scroller.bounds.width) - size.width) / 2, scale: s),
+                             y: PixelGrid.round((box.height - size.height) / 2, scale: s))
+        let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         if dialog.center != center { dialog.center = center }
         let content = CGSize(width: max(box.width, scroller.bounds.width), height: box.height)
         if scroller.contentSize != content { scroller.contentSize = content }
@@ -107,6 +119,8 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
 /// the person sees it until then.
 final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     private weak var presenter: Presenter?
+    /// Its presenter's root: what a sheet's surface resolves the theme by.
+    var root: UIView? { presenter?.root }
     private final class Entry {
         let dialog: NodeView
         weak var parent: UIView?
@@ -142,7 +156,16 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
 
     /// Shown, or still on screen while its sheet leaves.
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
+    /// A dialog's authored parent while it is in its sheet; nil for any other node.
+    func authoredParent(of node: NodeView) -> UIView? { entries.first { $0.dialog === node }?.parent }
     func isOpen(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node && !$0.closing } }
+    func pressLifetime(of view: UIView) -> (() -> Bool)? {
+        guard let entry = entries.first(where: { $0.dialog === view }) else { return nil }
+        return { [weak self, weak entry] in
+            guard let entry, !entry.closing else { return false }
+            return self?.entries.contains { $0 === entry } == true
+        }
+    }
     /// The sheet a new presentation goes over, and the dialog in it: while
     /// one is up only shortcuts inside it are heard (Shortcuts.swift).
     var top: UIViewController? { entries.last { !$0.closing }?.controller }
@@ -172,6 +195,9 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     /// for the sheet and comes back, hidden, when the sheet has gone.
     func show(_ dialog: NodeView, from source: NodeView?, over owner: UIViewController) -> Bool {
         guard let presenter, !owns(dialog), live(dialog), dialog.superview != nil else { return false }
+        // Laid out first: a closed dialog has no box (`MenuHost.layOut`).
+        presenter.menus.layOut(dialog)
+        guard live(dialog), dialog.superview != nil else { return false }
         // The focus moves into the dialog, as `showModal()` moves it: a field
         // editing on the page ends its editing, and takes it back at the close.
         let previous: UIView? = presenter.focusedNode.map { $0.textArea ?? $0.field ?? $0 }
@@ -183,8 +209,12 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         under.accessibilityElementsHidden = true
         dialog.accessibilityViewIsModal = true
         entries.append(entry)
+        presenter.controls.syncShown()
         previous?.resignFirstResponder()
         controller.loadViewIfNeeded()
+        #if os(iOS)
+        controller.relay = MountRelay(presenter, mount: controller.view)
+        #endif
         controller.scroller.addSubview(dialog)
         dialog.isHidden = false
         controller.isModalInPresentation = refuses(dialog)
@@ -210,13 +240,14 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     /// `close(id)`, or the dialog's own `command="close"` button: the sheet
-    /// leaves as UIKit dismisses one, and nothing is cancelled.
+    /// leaves as UIKit dismisses one, without sending a `cancel` event.
     func close(_ dialog: NodeView, animated: Bool = !ExactEnv.agentFreezes) {
         guard let entry = entries.first(where: { $0.dialog === dialog && !$0.closing }) else { return }
         entry.notifyClose = true
         dismiss(entry, animated: animated, cancelled: false)
     }
     private func dismiss(_ entry: Entry, animated: Bool, cancelled: Bool) {
+        if entry.dialog.pressContact?.responderContact?.routesBubbledPress == true { entry.dialog.cancelPressContact() }
         // A finger is taking it down already: UIKit's delegate ends it, and
         // should the finger let it back up, this closes it then.
         if entry.controller.isBeingDismissed, let coordinator = entry.controller.transitionCoordinator, coordinator.isInteractive {
@@ -250,15 +281,18 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     private func ended(_ entry: Entry, cancelled: Bool) {
         guard let at = entries.firstIndex(where: { $0 === entry }) else { return }
         entries.remove(at: at)
+        presenter?.menus.coverClosed()
         let dialog = entry.dialog
         dialog.accessibilityViewIsModal = false
         entry.under?.accessibilityElementsHidden = entry.underHidden
-        // A focus still waiting for the sheet's window has nowhere to go.
+        // A focus or scroll still waiting for the sheet's window has nowhere to go.
         if presenter?.pendingFocusNode?.isDescendant(of: dialog) == true { presenter?.cancelPendingFocus() }
+        presenter?.elementScrolls.cancel(inside: dialog)
         dialog.isHidden = true
         if live(dialog), let parent = entry.parent {
             parent.insertSubview(dialog, at: min(entry.index, parent.subviews.count))
             dialog.frame = entry.frame
+            presenter?.regrid(dialog)
         } else {
             dialog.removeFromSuperview()
         }

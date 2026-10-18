@@ -826,14 +826,14 @@ fn signed_rust_pair_is_deferred_and_failed_live_replacement_keeps_the_old_genera
         bytes: b"fails".to_vec(),
     };
     assert!(presenter
-        .reload_module(&baked, DeferredRust::default(), Some(refused))
+        .reload_module(&baked, DeferredRust::default(), Some(refused), false)
         .is_err());
     assert_eq!(RUST_VALIDATIONS.load(SeqCst), 1);
     assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 1);
     assert_eq!(presenter.host().agent("{\"op\":\"tree\"}"), tree);
     // A plan-only reload keeps the admitted pair and recreates its deferred source.
     presenter
-        .reload_module(&candidate, DeferredRust::default(), None)
+        .reload_module(&candidate, DeferredRust::default(), None, false)
         .unwrap();
     assert_eq!(RUST_VALIDATIONS.load(SeqCst), 2);
     assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 1);
@@ -999,9 +999,12 @@ fn a_live_rust_swap_refuses_before_loading_while_a_request_is_pending() {
         bytes: Vec::new(),
     };
     let error = presenter
-        .reload_module(&plan, source, Some(module))
+        .reload_module(&plan, source, Some(module), false)
         .unwrap_err();
-    assert!(error.to_string().contains("retry after they settle"));
+    assert!(
+        matches!(error, exact_linux::host::HostError::RequestsPending),
+        "{error}"
+    );
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(presenter.host().runner().pending(), pending);
 }

@@ -209,32 +209,35 @@ fn what_is_not_header_shaped_is_no_bar() {
 fn a_pressable_around_the_heading_is_the_title_and_a_tablist_its_segments() {
     let kernel = kernel(view(
         10,
-        vec![Node(
-            11,
-            NodeType::View,
-            HEADER,
-            vec![
-                button(41, &[]),
-                // Pressable, and it holds the heading: the title's group.
-                Node(
-                    42,
-                    NodeType::Pressable,
-                    &[],
-                    vec![view(43, vec![text(12, HEADING)]), text(44, &[])],
-                ),
-                Node(30, NodeType::View, TABLIST, vec![button(32, &[])]),
-                // A button that opens a menu is an item with no `press`.
-                button(50, &[(PropId::Popovertarget, "more")]),
-                // One that only hides a popover is not.
-                button(
-                    51,
-                    &[
-                        (PropId::Popovertarget, "more"),
-                        (PropId::Popovertargetaction, "hide"),
-                    ],
-                ),
-            ],
-        )],
+        vec![
+            Node(
+                11,
+                NodeType::View,
+                HEADER,
+                vec![
+                    button(41, &[]),
+                    // Pressable, and it holds the heading: the title's group.
+                    Node(
+                        42,
+                        NodeType::Pressable,
+                        &[],
+                        vec![view(43, vec![text(12, HEADING)]), text(44, &[])],
+                    ),
+                    Node(30, NodeType::View, TABLIST, vec![button(32, &[])]),
+                    // A button that opens a menu is an item with no `press`.
+                    button(50, &[(PropId::Popovertarget, "more")]),
+                    // One that only hides a popover is not.
+                    button(
+                        51,
+                        &[
+                            (PropId::Popovertarget, "more"),
+                            (PropId::Popovertargetaction, "hide"),
+                        ],
+                    ),
+                ],
+            ),
+            Node(60, NodeType::View, MORE, vec![]),
+        ],
     ));
     let shape = kernel.header_shape(10, None, true, &pressed).unwrap();
     assert_eq!(shape.tap, Some(42));
@@ -247,6 +250,136 @@ fn a_pressable_around_the_heading_is_the_title_and_a_tablist_its_segments() {
         "the tabs are segments, never items"
     );
     assert_eq!(shape.items, vec![41, 50]);
+}
+
+const MORE: &[(PropId, &str)] = &[(PropId::Id, "more"), (PropId::Popover, "auto")];
+const STATUS: &[(PropId, &str)] = &[(PropId::AccessibilityRole, "status")];
+
+/// A readout (`role="status"`, LLP 1075.003 §9.15) is an item on its side of
+/// the heading, in order among the buttons, and no button: nothing presses
+/// it, and what it holds (a dot, a text) is its face, never the subtitle's.
+#[test]
+fn a_readout_is_an_item_that_is_no_button() {
+    let header = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![
+                Node(70, NodeType::Text, STATUS, vec![]),
+                button(41, &[]),
+                text(12, HEADING),
+                button(42, &[]),
+                Node(
+                    71,
+                    NodeType::View,
+                    STATUS,
+                    vec![view(72, vec![]), text(73, &[])],
+                ),
+            ],
+        )],
+    ));
+    let shape = header.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!(shape.leading, vec![70, 41]);
+    assert_eq!(shape.trailing, vec![42, 71], "after the button, as written");
+    assert_eq!(shape.items, vec![41, 42], "nothing presses a readout");
+    // A status around the heading is no readout: its heading is the title.
+    let around = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![Node(71, NodeType::View, STATUS, vec![text(12, HEADING)])],
+        )],
+    ));
+    let shape = around.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!(shape.heading, 12);
+    assert!(shape.trailing.is_empty() && shape.leading.is_empty());
+    // A host's mirror: route > header > [heading, button, status > text].
+    let words = [
+        0,
+        1,
+        fact::HEADER,
+        3,
+        fact::HEADING,
+        0,
+        fact::PRESS,
+        0,
+        fact::STATUS,
+        1,
+        0,
+        0,
+    ];
+    // Two trailing items, the button and the readout; one button.
+    assert_eq!(
+        bars::header_shape_words(&words, 0),
+        Some(vec![1, 2, 2, 0, 0, 0, 0, 2, 1, 3, 4, 3])
+    );
+}
+
+type Props = &'static [(PropId, &'static str)];
+
+/// Whether a header button with no `press` is an item is whether what it
+/// invokes, as HTML resolves it (`exact_kernel::Invocation`), opens a popover.
+#[test]
+fn a_header_button_is_a_menu_item_when_its_invocation_opens_a_popover() {
+    let cases: &[(Props, bool, &str)] = &[
+        (
+            &[
+                (PropId::Commandfor, "more"),
+                (PropId::Command, "toggle-popover"),
+            ],
+            true,
+            "a command-only toggle",
+        ),
+        (
+            &[
+                (PropId::Popovertarget, "more"),
+                (PropId::Popovertargetaction, "HIDE"),
+            ],
+            false,
+            "a hide, in any case",
+        ),
+        (
+            &[(PropId::Popovertarget, "nothing")],
+            false,
+            "a target that names nothing",
+        ),
+        (&[(PropId::Popovertarget, "")], false, "an empty target"),
+        (
+            &[
+                (PropId::Popovertarget, "more"),
+                (PropId::Commandfor, "more"),
+                (PropId::Command, "hide-popover"),
+            ],
+            false,
+            "a commandfor governs its popovertarget",
+        ),
+    ];
+    for (props, menu, why) in cases {
+        let kernel = kernel(view(
+            10,
+            vec![
+                Node(
+                    11,
+                    NodeType::View,
+                    HEADER,
+                    vec![text(12, H1), button(50, props)],
+                ),
+                Node(60, NodeType::View, MORE, vec![]),
+            ],
+        ));
+        let items = kernel
+            .header_shape(10, None, true, &pressed)
+            .map(|s| s.items);
+        assert_eq!(
+            items.is_some_and(|items| items.contains(&50)),
+            *menu,
+            "{why}"
+        );
+    }
 }
 
 #[test]

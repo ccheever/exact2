@@ -41,10 +41,13 @@ final class T3ComposerAttach {
             try FileManager.default.copyItem(at: url, to: staged.appendingPathComponent(id))
         } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
         file["id"] = id
-        // r4-composer: a video's tile shows its first frame and plays from a typed link (T3ComposerVideo.swift).
-        if Self.isVideo(url) {
+        // A video or audio file plays from a typed link beside the copy, whose extension tells AVFoundation its type
+        // (the Contract players, composer-attachments.ts stagedMediaSrc); a video's tile shows its first frame.
+        if Self.isVideo(url) || Self.isAudio(url) {
             let ext = url.pathExtension.lowercased()
             try? FileManager.default.linkItem(at: staged.appendingPathComponent(id), to: staged.appendingPathComponent("\(id).\(ext)"))
+        }
+        if Self.isVideo(url) {
             try? FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
             // The frame at its natural (oriented) size names the preview's; the poster keeps at most 512 px.
             if let frame = Self.firstFrame(of: url), Self.writePNG(Self.scaled(frame, to: 512), to: drafts.appendingPathComponent("\(id).png")) {
@@ -58,6 +61,12 @@ final class T3ComposerAttach {
     static func isVideo(_ url: URL) -> Bool {
         guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
         return type.conforms(to: .movie)
+    }
+
+    /// An audio file AudioPreview plays.
+    static func isAudio(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
+        return type.conforms(to: .audio)
     }
 
     /// prepareVideoFirstFrame: the frame near 0.1 s (the nearest one for a shorter video), oriented.
@@ -96,6 +105,12 @@ final class T3ComposerAttach {
     private func stagedURL(_ request: [String: Any]) -> URL? {
         guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { return nil }
         return staged.appendingPathComponent(id.lowercased())
+    }
+
+    /// A draft file's staged copy, when it is still there (a file chip's preview reads it: T3PanelsNative.swift, T3MediaPreview.swift).
+    func stagedFile(_ id: String) -> URL? {
+        guard let url = stagedURL(["id": id]), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
     }
 
     /// `composerAttachPick`, `composerAttachRead` (a staged file's bytes, once, at send) and `composerAttachRemove`.
@@ -140,17 +155,19 @@ final class T3ComposerAttach {
     }
 
     /// One picked file as the client sees it; images are re-encoded as PNG drafts, plain files staged.
-    func stage(_ url: URL, fileLimit: Int = 0) -> [String: Any] {
+    /// `imageMaxEdge`: the long edge a PNG, JPEG or HEIC image is scaled down to (T3ImageFit), before its size is checked.
+    func stage(_ url: URL, fileLimit: Int = 0, imageMaxEdge: Int = 0) -> [String: Any] {
         let name = url.lastPathComponent
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let kind = Self.kind(of: url)
         if kind == "file" { return stageFile(url, size: size, fileLimit: fileLimit) }
         guard kind == "image" else { return ["kind": kind, "name": name, "sizeBytes": size] }
-        // A PNG keeps its own bytes (and size: the chip and shelf report the file's); other types are re-encoded.
+        // A PNG within the edge keeps its own bytes (and size: the chip and shelf report the file's); other images are re-encoded.
         let original = try? Data(contentsOf: url)
+        let fitted = original.flatMap { T3ImageFit.fit($0, maxEdge: imageMaxEdge) }
         let isPNG = original.map { $0.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) && NSBitmapImageRep(data: $0) != nil } ?? false
-        guard let png = isPNG ? original : NSImage(contentsOf: url).flatMap({ $0.tiffRepresentation }).flatMap({ NSBitmapImageRep(data: $0) })
-                .flatMap({ $0.representation(using: .png, properties: [:]) }) else {
+        guard let png = fitted?.data ?? (isPNG ? original : NSImage(contentsOf: url).flatMap({ $0.tiffRepresentation }).flatMap({ NSBitmapImageRep(data: $0) })
+                .flatMap({ $0.representation(using: .png, properties: [:]) })) else {
             return ["kind": "unreadable", "name": name, "sizeBytes": size]
         }
         guard png.count <= Self.maxImageBytes else { return ["kind": "too-large", "name": name, "sizeBytes": png.count] }
@@ -160,21 +177,23 @@ final class T3ComposerAttach {
             try png.write(to: drafts.appendingPathComponent("\(id).png"), options: .atomic)
         } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
         let base = (name as NSString).deletingPathExtension
-        return ["kind": "image", "id": id, "name": "\(base.isEmpty ? "image" : base).png", "sizeBytes": png.count]
+        // Draft storage is PNG even for GIF/WebP; retain their exclusion from downscaling at upload.
+        return ["kind": "image", "id": id, "name": "\(base.isEmpty ? "image" : base).png", "sizeBytes": png.count,
+                "downscalable": original.map { T3ImageFit.downscalable($0) } ?? false]
     }
 
     func pick(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
-        let fileLimit = request["fileLimit"] as? Int ?? 0
+        let fileLimit = request["fileLimit"] as? Int ?? 0, imageMaxEdge = request["imageMaxEdge"] as? Int ?? 0
         let finish = { (urls: [URL]) in
-            let files = urls.prefix(100).map { self.stage($0, fileLimit: fileLimit) }
+            let files = urls.prefix(100).map { self.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
             reply(["ok": true, "generation": generation, "value": ["files": files]])
         }
         if let imports {
             let urls = (try? FileManager.default.contentsOfDirectory(at: imports, includingPropertiesForKeys: nil))?
                 .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
             // A drive's files are consumed once, like a panel's selection.
-            let picked = urls.map { self.stage($0, fileLimit: fileLimit) }
+            let picked = urls.map { self.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
             for url in urls { try? FileManager.default.removeItem(at: url) }
             return reply(["ok": true, "generation": generation, "value": ["files": picked]])
         }

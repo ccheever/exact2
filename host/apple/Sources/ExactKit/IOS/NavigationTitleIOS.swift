@@ -68,6 +68,8 @@ struct HeaderTitle: Equatable {
             guard !node.isParagraph, passive(node) else { return nil }
             var out: [Glyph] = [], symbols = false
             for child in shown(node) {
+                // A readout beside the glyphs is its own item.
+                if apart.contains(where: { $0 === child }) { continue }
                 guard passive(child) else { return nil }
                 if child.kind == "image", child.props["imageSource"]?.hasPrefix("symbol:") == true {
                     // A symbol source counts toward the shape even while its
@@ -85,23 +87,32 @@ struct HeaderTitle: Equatable {
         func control(_ node: NodeView) -> Bool {
             (node.isButton || node.actsAsButton || node.handlers.contains("press")) && !heading.isDescendant(of: node)
         }
+        func take(_ child: NodeView, _ pieces: [Glyph]) {
+            glyphs = pieces
+            placed.append(child)
+            subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
+            // What it says, as the author named it, else its texts.
+            spoken = child.authoredLabel ?? subtitle
+            rtl = child.style["direction"]?.string == "rtl"
+        }
         func walk(_ node: NodeView) {
             for child in shown(node) {
                 if child === heading { passed = true; continue }
-                if control(child) { continue }
+                // A bar item, a readout among them, is not the title's to read.
+                if control(child) || apart.contains(where: { $0 === child }) { continue }
+                // A box holding one is no avatar; a row of glyphs beside a
+                // readout is still the glyph line, without it; else what it
+                // holds is read alone.
+                if apart.contains(where: { $0.isDescendant(of: child) }) {
+                    if passed, subtitle.isEmpty, let pieces = line(child) { take(child, pieces); continue }
+                    if !(passed && child.channels("background_color") != nil) { walk(child) }
+                    continue
+                }
                 if wrapper != nil, !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) {
                     avatar = face; placed.append(child); continue
                 }
                 if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; placed.append(child); continue }
-                if passed, subtitle.isEmpty, let pieces = line(child) {
-                    glyphs = pieces
-                    placed.append(child)
-                    subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
-                    // What it says, as the author named it, else its texts.
-                    spoken = child.authoredLabel ?? subtitle
-                    rtl = child.style["direction"]?.string == "rtl"
-                    continue
-                }
+                if passed, subtitle.isEmpty, let pieces = line(child) { take(child, pieces); continue }
                 // After the heading, a filled box (a pill, a badge) keeps its
                 // own look: nothing in it is the subtitle.
                 if passed, child.channels("background_color") != nil { continue }
@@ -187,6 +198,10 @@ extension HeaderShape {
 final class HeaderTitleView: UIControl {
     private weak var host: NavigationHost?
     private var tap: UInt32?
+    #if EXACT_INSPECT
+    /// The heading's group this title is drawn from (inspect mode selects it).
+    private(set) var groupId: UInt32?
+    #endif
     let avatar = UIImageView(), title = UILabel(), subtitle = UILabel()
     private let stack = UIStackView(), texts = UIStackView()
     /// The avatar's box, its face's size: the image's own size is not to be
@@ -195,12 +210,19 @@ final class HeaderTitleView: UIControl {
     private lazy var avatarWidth = avatar.widthAnchor.constraint(equalToConstant: BadgeFace.size)
     private lazy var avatarHeight = avatar.heightAnchor.constraint(equalToConstant: BadgeFace.size)
 
+    /// The theme's `secondary-label` on the subtitle, set again when a live
+    /// edit moves the roles (LLP 1121 stage 5).
+    func retheme() {
+        guard let host else { return }
+        subtitle.textColor = ThemeRoles.color("secondary-label", in: host.presenter.root, or: .secondaryLabel)
+    }
+
     init(host: NavigationHost) {
         self.host = host
         super.init(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
         title.font = .preferredFont(forTextStyle: .headline)
         subtitle.font = .preferredFont(forTextStyle: .footnote)
-        subtitle.textColor = .secondaryLabel
+        retheme()
         for label in [title, subtitle] { label.adjustsFontForContentSizeCategory = true; label.lineBreakMode = .byTruncatingTail }
         avatar.contentMode = .scaleAspectFit
         texts.axis = .vertical
@@ -272,6 +294,9 @@ final class HeaderTitleView: UIControl {
         // bar out each time (~1 ms a batch, a fling's every frame).
         if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text { return }
         shown = (group, text)
+        #if EXACT_INSPECT
+        groupId = group.id
+        #endif
         tap = group.tap
         avatar.image = group.avatar?.image
         avatar.isHidden = group.avatar == nil
@@ -321,6 +346,22 @@ extension NavigationHost {
             }
         }
         return out
+    }
+
+    /// Under the agent's chrome, what is painted in the page that the app's
+    /// bars stand for: each route's header its navigation bar projects, and
+    /// the tablist its tab bar does. Empty under `--chrome platform`.
+    func paintedForBars() -> [NodeView] {
+        guard ExactEnv.authoredChrome else { return [] }
+        var out: [NodeView] = []
+        let back = container?.props["navigationBack"]
+        for nav in allNavigations where stacks[ObjectIdentifier(nav)]?.showsBar == true {
+            for (index, controller) in nav.viewControllers.enumerated() {
+                if let c = controller as? RouteController, let shape = HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) { out.append(shape.header) }
+            }
+        }
+        if let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist }) { out.append(list) }
+        return out.filter { $0.window != nil && !$0.isHidden }
     }
 
     /// Whether the platform's bar has a Back button for a pushed route to

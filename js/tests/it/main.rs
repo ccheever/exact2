@@ -10,14 +10,17 @@ mod compress;
 mod ecdsa;
 mod entropy;
 mod forget;
+mod heap;
 mod inputs;
 mod interrupt;
 mod overlay;
 mod pinned_engines;
 mod pure;
 mod render;
+mod socket;
 mod storage;
 mod superseded;
+mod watch;
 mod windows_lean;
 
 /// What a host runs for `dispatch`: its work, or for a re-ask
