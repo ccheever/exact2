@@ -196,6 +196,40 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertTrue(read().contains(7))
     }
 
+    /// A sheet with side insets (a phone in landscape, the iPhone Duo's
+    /// status column) shows its dialog between them and scrolls nothing
+    /// sideways: UIKit adds the insets around the content (`.always`), so the
+    /// content is as wide as what shows between them, not as the sheet.
+    func testASheetWithSideInsetsShowsTheDialogBetweenThemAndNoSidewaysRange() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "a sheet's safe area is its window's") }
+        let dialog = try XCTUnwrap(p.views[2])
+        p.dialogCommand("showModal", "form")
+        let sheet = try sheet(controller)
+        settle { !p.menus.inTransition }
+        sheet.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 40)
+        sheet.view.layoutIfNeeded()
+        let sv = sheet.scroller, inset = sv.adjustedContentInset
+        XCTAssertEqual(inset.left, sheet.view.safeAreaInsets.left, accuracy: 0.5, "UIKit insets the sides")
+        XCTAssertGreaterThanOrEqual(inset.left, 40)
+        XCTAssertLessThan(sheet.box.width, sv.bounds.width - inset.left - inset.right, "the dialog fits between them")
+        func centred(_ why: String) {
+            let shown = dialog.convert(dialog.bounds, to: sheet.view), inset = sv.adjustedContentInset
+            XCTAssertLessThanOrEqual(sv.contentSize.width + inset.left + inset.right, sv.bounds.width + 0.5, "no sideways range, \(why)")
+            XCTAssertEqual(shown.midX, inset.left + (sv.bounds.width - inset.left - inset.right) / 2, accuracy: 0.5, "centred between the insets, \(why)")
+        }
+        centred("both sides")
+        // One side only, as the iPhone Duo's status column is, then none again
+        sheet.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 40)
+        sheet.view.layoutIfNeeded()
+        centred("the right side")
+        sheet.additionalSafeAreaInsets = .zero
+        sheet.view.layoutIfNeeded()
+        centred("no side")
+        p.dialogCommand("close", "form")
+        settle { controller.presentedViewController == nil && !p.menus.inTransition }
+    }
+
     /// A touch in the sheet reaches the dialog's authored ancestors, as DOM's
     /// events bubble out of the top layer: the sheet's view carries their
     /// pointer observer, long press and double tap (`MountRelay`), and a
