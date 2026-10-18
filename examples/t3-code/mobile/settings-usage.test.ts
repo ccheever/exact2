@@ -135,9 +135,9 @@ test('Usage footer keeps daily endpoints and empty presentation separate from ca
     metric:'cost',now,presentations:new Map(),external:false,sources:[{id:'qa',label:'QA',connected:true,summary:{contractVersion:6,sources:[],buckets:[]},error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
   expect([data.chartStart,data.chartEnd]).toEqual(['Oct 31','Nov 2']);
   expect(data.chart.map(period=>[period.id,period.label])).toEqual([['2026-10-31','Oct 31'],['2026-11-01','Nov 1'],['2026-11-02','Nov 2']]);
-  expect(data.chartLegend).toEqual([]);expect(data.total).toBe('$0.00');
+  expect(data.chartLegend).toEqual([]);expect(data.total).toBe('$0.00');expect(data.chartHasActivity).toBe(false);
   const empty=mobileUsagePresentation(null,false);
-  expect([empty.chartStart,empty.chartEnd,empty.chartLegend,empty.chart]).toEqual(['','',[],[]]);
+  expect([empty.chartStart,empty.chartEnd,empty.chartLegend,empty.chart,empty.chartHasActivity]).toEqual(['','',[],[],false]);
 });
 test('Usage footer legend follows merged cost order in both metrics and retains zero providers',()=>{
   const ids=['codex','claude','grok','cursor','opencode','antigravity','unknown'];
@@ -192,18 +192,50 @@ test('compatible zero Usage keeps the reference cost note and literal session wo
       sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
     const cost=mobileUsagePresentation({...input,metric:'cost'},false),tokens=mobileUsagePresentation({...input,metric:'tokens'},false);
     expect(cost.hasUsage).toBe(true);expect(tokens.hasUsage).toBe(true);
+    expect([cost.chartHasActivity,tokens.chartHasActivity]).toEqual([false,false]);
     expect([cost.headlineLabel,cost.headlineValue,cost.headlineDetail,cost.total]).toEqual(['Raw token cost','$0.00*','* if billed at full API rate','$0.00']);
     expect([tokens.headlineLabel,tokens.headlineValue,tokens.headlineDetail,tokens.total]).toEqual(['Processed tokens','0',sessions===1?'Across 1 sessions':'Across 0 sessions','0']);
   }
 });
 test('missing and future Usage summaries cannot publish a headline',()=>{
   const input={tab:'usage',window:mobileUsageWindow(7,now),now,presentations:new Map(),external:false};
-  for(const metric of ['cost','tokens'])for(const summary of [null,{contractVersion:7,sources:[],buckets:[]}]){
+  for(const metric of ['cost','tokens'])for(const summary of [null,{contractVersion:7,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1}],
+    buckets:[{provider:'codex',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T00:00:00.000Z',costUsd:1,totals:{uncachedInputTokens:5}}]}]){
     const data=mobileUsagePresentation({...input,metric,sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
-    expect([data.hasUsage,data.headlineLabel,data.headlineValue,data.headlineDetail,data.total]).toEqual([false,'','','','']);
+    expect([data.hasUsage,data.headlineLabel,data.headlineValue,data.headlineDetail,data.total,data.chartHasActivity]).toEqual([false,'','','','',false]);
   }
   const empty=mobileUsagePresentation(null,false);
-  expect([empty.hasUsage,empty.headlineLabel,empty.headlineValue,empty.headlineDetail,empty.total]).toEqual([false,'','','','']);
+  expect([empty.hasUsage,empty.headlineLabel,empty.headlineValue,empty.headlineDetail,empty.total,empty.chartHasActivity]).toEqual([false,'','','','',false]);
+});
+test('Usage chart activity follows token totals independently of the displayed metric',()=>{
+  for(const row of [
+    {cost:2,tokens:0,active:false,costText:'$2.00',tokenText:'0',costHeight:180,tokenHeight:0},
+    {cost:0,tokens:4,active:true,costText:'$0.00',tokenText:'4',costHeight:0,tokenHeight:180},
+  ])for(const resolution of ['day','hour'] as const){
+    const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1}],
+      buckets:[{provider:'codex',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T00:00:00.000Z',costUsd:row.cost,totals:{uncachedInputTokens:row.tokens}}]};
+    const input={tab:'usage',window:{sinceDay:'2026-10-07',untilDay:'2026-10-07',timeZone:'UTC',resolution,sinceTime:'2026-10-07T00:00:00.000Z',untilTime:'2026-10-07T01:00:00.000Z'},now,presentations:new Map(),external:false,
+      sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+    for(const metric of ['cost','tokens']){
+      const data=mobileUsagePresentation({...input,metric},false);
+      expect(data.chartHasActivity).toBe(row.active);expect(data.total).toBe(metric==='cost'?row.costText:row.tokenText);
+      expect(data.chart).toHaveLength(1);expect(data.chart[0]?.bands.find(band=>band.id==='codex')?.height).toBe(metric==='cost'?row.costHeight:row.tokenHeight);
+      expect([data.chartStart,data.chartEnd]).toEqual(resolution==='day'?['Oct 7','Oct 7']:['12 AM','12 AM']);
+      expect(data.chartLegend.map(provider=>provider.id)).toEqual(['codex']);
+    }
+  }
+});
+test('hourly Usage activity cannot borrow positive daily-only buckets',()=>{
+  const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1}],
+    buckets:[{provider:'codex',model:'qa',day:'2026-10-07',costUsd:1,totals:{uncachedInputTokens:5}}]};
+  const input={tab:'usage',now,presentations:new Map(),external:false,sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  for(const metric of ['cost','tokens']){
+    const window={sinceDay:'2026-10-07',untilDay:'2026-10-07',timeZone:'UTC',sinceTime:'2026-10-07T00:00:00.000Z',untilTime:'2026-10-07T01:00:00.000Z'};
+    const daily=mobileUsagePresentation({...input,metric,window:{...window,resolution:'day'}},false),hourly=mobileUsagePresentation({...input,metric,window:{...window,resolution:'hour'}},false);
+    expect([daily.chartHasActivity,hourly.chartHasActivity]).toEqual([true,false]);
+    expect(hourly.total).toBe(daily.total);expect(hourly.headlineValue).toBe(daily.headlineValue);expect(hourly.chartLegend).toEqual(daily.chartLegend);
+    expect(hourly.chart[0]?.bands.every(band=>band.height===0)).toBe(true);
+  }
 });
 test('mobile USD formatting keeps reference rounding, signed zero, grouping and nonfinite output',()=>{
   expect([0.825,1.275,-0.825,-0.004,-0,0,1_234_567.891,NaN,Infinity,-Infinity].map(formatUsd))
