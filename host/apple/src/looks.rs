@@ -19,6 +19,24 @@ pub(crate) fn press_paint_rows() -> StyleMask {
     .fold(StyleMask::EMPTY, |m, id| m.union(StyleMask::of(id)))
 }
 
+/// Whether the host may paint `property` over `node`'s own: a press's
+/// paint, or a look naming it (set or cleared).
+pub(crate) fn paints_over(node: &NodeRef<'_>, property: exact_motion::Property) -> bool {
+    use exact_motion::Property as P;
+    use StyleId::*;
+    let (rows, row): (&[StyleId], _) = match property {
+        P::Opacity => (&[PressOpacity, PressOpacityTo], Opacity),
+        P::BackgroundColor => (&[PressBackgroundColor], BackgroundColor),
+        P::Color => (&[PressColor], TextColor),
+        _ => return false,
+    };
+    rows.iter().any(|r| node.style.mask.has(*r))
+        || node
+            .looks()
+            .iter()
+            .any(|(_, l)| l.mask.union(l.written).has(row))
+}
+
 /// `json`, a node's style dictionary, with its looks as `"looks"`, one
 /// object keyed by state (`hover`, `focus_visible`), each its rows as the
 /// style's own are written (colour pairs, roles; `currentcolor` as the node's
@@ -35,6 +53,17 @@ pub(crate) fn with_looks(
     let mut looks = serde_json::Map::new();
     for (state, look) in node.looks() {
         let mut look = look.env_resolved(env).into_owned();
+        // A side it clears is CSS's initial `currentcolor`, the node's colour.
+        for id in [
+            BorderColorTop,
+            BorderColorRight,
+            BorderColorBottom,
+            BorderColorLeft,
+        ] {
+            if look.written.has(id) && !look.mask.has(id) {
+                look.mask.set(id);
+            }
+        }
         let mask = look.mask;
         let own = |id, c: Option<ColorValue>| {
             if mask.has(id) {
@@ -162,6 +191,7 @@ mod tests {
             .set_dynamic(StyleId::BoxShadow, &StyleValue::Text("none".into()))
             .unwrap();
         hover.written.set(StyleId::Opacity);
+        hover.written.set(StyleId::BorderColorTop);
         let ops = vec![
             Op::CreateView {
                 id: 1,
@@ -186,7 +216,15 @@ mod tests {
             serde_json::json!([255, 0, 0, 255]),
             "{hover}"
         );
-        assert!(hover["box_shadow"].is_null(), "{hover}");
+        assert!(
+            hover.get("box_shadow").is_some_and(|v| v.is_null()),
+            "{hover}"
+        );
         assert_eq!(hover["opacity"], 1, "{hover}");
+        assert_eq!(
+            hover["border_color_top"],
+            serde_json::json!([255, 0, 0, 255]),
+            "a cleared side is currentcolor: {hover}"
+        );
     }
 }

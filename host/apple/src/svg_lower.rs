@@ -659,6 +659,11 @@ fn box_eligible(
     props: &[Property],
     interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
 ) -> bool {
+    // What the host paints over the node's own (a press, a look: LLP 1061
+    // D7, LLP 1121 D8) composes on the engine's sample, so it stays there.
+    if props.iter().any(|p| crate::looks::paints_over(n, *p)) {
+        return false;
+    }
     let s = n.style;
     let turns = props
         .iter()

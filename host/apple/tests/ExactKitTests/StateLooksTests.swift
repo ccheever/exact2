@@ -90,7 +90,8 @@ final class StateLooksTests: XCTestCase {
         XCTAssertEqual(v.style["border_color_top"], ink(green), ":focus-visible")
         v.pressed = true
         XCTAssertEqual(v.style["background_color"], ink(navy), "the press paint over :hover")
-        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.2, accuracy: 1e-6, "from the hover's 0.8 to 0.6")
+        XCTAssertEqual(try XCTUnwrap(lookFade(v)), -0.2, accuracy: 1e-6, "the hover's 0.8 stays beneath")
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.2, accuracy: 1e-6, "and the press takes it to 0.6")
         v.press.start -= 1; v.pressPaint.at -= 1
         v.pressed = false
         XCTAssertEqual(v.style["background_color"], ink(green), "the hover again")
@@ -113,6 +114,11 @@ final class StateLooksTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"], "clear": []]]))
         XCTAssertEqual(v.style["background_color"], ink(blue))
         XCTAssertNil(lookFade(v))
+        // The focus's look goes and comes the same way.
+        v.focusVisible = true
+        XCTAssertEqual(v.style["border_color_top"], ink([0, 0, 0, 255]))
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["disabled"]]]))
+        XCTAssertEqual(v.style["border_color_top"], ink(green))
     }
 
     /// A re-entrant hover (an ancestor's enter replacing the path) publishes
@@ -138,7 +144,22 @@ final class StateLooksTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 1, "style": base(blue).merging(["press_opacity": 0.5]) { $1 }.filter { $0.key != "press_opacity_to" }]]))
         p.setHoverPath([v])
         v.pressed = true
-        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.4, accuracy: 1e-6, "0.8 to 0.4")
+        XCTAssertEqual(try XCTUnwrap(lookFade(v)), -0.2, accuracy: 1e-6, "the hover's 0.8")
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.4, accuracy: 1e-6, "then 0.4, half of it")
+    }
+
+    /// What shows moves mid-press: the press goes on from `-depth × progress`
+    /// of the new depth, so the opacity is the new base's at that progress.
+    func testALookThatGoesMidPressMovesThePressWithIt() throws {
+        let (p, v) = try fixture()
+        p.setHoverPath([v])
+        v.pressed = true
+        v.pressPaint.ease.start -= PressFeedback.duration / 2 // halfway in
+        let progress = Float(v.pressPaint.ease.factor(at: CACurrentMediaTime()))
+        p.setHoverPath([])
+        XCTAssertNil(lookFade(v))
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.fromValue as? Float), -0.4 * progress, accuracy: 0.02, "from 1 at this progress")
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.4, accuracy: 1e-6, "to 0.6")
     }
     #endif
 }

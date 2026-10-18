@@ -3495,7 +3495,13 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - A change of `disabled` shows or drops the looks at once (`relook`).
   - A depth re-aimed mid-ease re-aims from what shows (`segment`).
   - A look's `currentcolor` is the node's colour, and a row a look clears crosses null (an opacity as 1), so the base's goes.
-  - A re-entrant hover publishes only the newer path's looks, and only for views still in the viewport.
+  - A re-entrant hover publishes only the newer path's looks, for views still attached.
+- **Round 2:**
+  - The press's opacity fade is always `-depth × progress` of the press's own ease, held or easing either way. So a look's opacity that comes or goes mid-press moves what shows at once, as on the web and Linux, and the tracked segment is gone.
+  - A side a look clears is the node's colour (`currentcolor`).
+  - An opacity or background track a press row or a look names stays sampled by the engine, not Core Animation, so the additive layers compose on the rendered value.
+  - A sheet's or a popover's own window shows `:hover` looks through its pointer tracking.
+  - QUEUE: looks on an inline run, which have no view; and a look that comes while a track already plays.
 - **Tests:**
   - `StateLooksTests` (Mac and iOS):
     - `:active`'s paint with its absolute 0.6 (depth 0.4) and no dim;
