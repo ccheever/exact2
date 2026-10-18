@@ -135,6 +135,53 @@ fn the_family_size_is_injected_and_no_resource_is_declared() {
             "{members}: {errors:?}"
         );
     }
+    // A sole inject is checked as a written `exactViewport()` is at bake:
+    // a field the fact does not supply, or of another type, is refused.
+    for (shape, edit) in [
+        (
+            "shape Viewport\n  width: number\n  title: string",
+            "does not supply",
+        ),
+        (
+            "shape Viewport\n  width: string",
+            "declare it `width: number`",
+        ),
+        (
+            "shape Viewport\n  prefersReducedMotion: string",
+            "declare it `prefersReducedMotion: bool`",
+        ),
+    ] {
+        let errors = compile(
+            &source(
+                "    column\n      text title",
+                shape,
+                "  inject\n    snapshot_viewport: Viewport\n",
+            ),
+            &widget(),
+        )
+        .unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == "snapshot-viewport" && e.message.contains(edit)),
+            "{shape}: {errors:?}"
+        );
+    }
+    let errors = compile(
+        &source(
+            "    column\n      text title",
+            "",
+            "  inject\n    snapshot_viewport: Props\n",
+        ),
+        &widget(),
+    )
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.id == "snapshot-viewport" && e.message.contains("`title`")),
+        "{errors:?}"
+    );
 }
 
 #[test]

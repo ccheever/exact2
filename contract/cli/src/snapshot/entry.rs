@@ -72,6 +72,42 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
     Ok(())
 }
 
+/// The synthesized `exactViewport()` resource is checked as a written one
+/// is at bake: every field of the inject's shape is one the viewport fact
+/// supplies, with its type (`runner::viewport::FIELDS`).
+fn viewport_shape(shape: &TypeExpr, file: &File, at: Span) -> Result<(), Vec<CompileError>> {
+    let fail = |m: String| vec![refusal("snapshot-viewport", m, at)];
+    let TypeExpr::Named(name, _) = shape else {
+        return Err(fail(format!(
+            "`{}` takes a shape of the viewport's fields (`width`, `height`, …), not `{shape:?}`",
+            super::VIEWPORT_SLOT
+        )));
+    };
+    let Some(declared) = file.shapes.iter().find(|s| &s.name == name) else {
+        return Err(fail(format!("`{}`: declare shape `{name}` with the viewport's fields it reads (`width: number`, `height: number`)", super::VIEWPORT_SLOT)));
+    };
+    for field in &declared.fields {
+        let expected = match field.name.as_str() {
+            "width" | "height" | "horizontalViewportSegments" | "verticalViewportSegments" => {
+                "number"
+            }
+            "prefersReducedMotion" | "prefersReducedTransparency" => "bool",
+            other if exact_runner::viewport::FIELDS.contains(&other) => "string",
+            _ => {
+                return Err(fail(format!("`{}`: `{name}` has a field `{}` the viewport fact does not supply; its fields are {}", super::VIEWPORT_SLOT, field.name, exact_runner::viewport::FIELDS.join(", "))));
+            }
+        };
+        let written = match &field.ty {
+            TypeExpr::Named(n, _) => n.as_str(),
+            _ => "",
+        };
+        if written != expected {
+            return Err(fail(format!("`{}`: `{name}.{}` is `{expected}` in the viewport fact; declare it `{}: {expected}`", super::VIEWPORT_SLOT, field.name, field.name)));
+        }
+    }
+    Ok(())
+}
+
 /// Compile a source-text fixture's entry under the same profile as the bake.
 pub fn compile(src: &str, widget: &Widget) -> Result<Plan, Vec<CompileError>> {
     let file = contract_syntax::parse(src).map_err(CompileError::from)?;
@@ -274,6 +310,7 @@ fn compile_file(
         }
     }
     if let Some((shape, at)) = viewport {
+        viewport_shape(&shape, &file, at)?;
         wrapper.resources.push(contract_syntax::ResourceDecl {
             name: super::VIEWPORT_SLOT.into(),
             source: exact_runner::viewport::SOURCE.into(),
