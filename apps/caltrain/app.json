@@ -29,6 +29,12 @@
         "systemMedium",
         "accessoryRectangular"
       ],
+      "watchFamilies": [
+        "accessoryRectangular",
+        "accessoryCircular",
+        "accessoryInline",
+        "accessoryCorner"
+      ],
       "component": "NextTrains",
       "props": "NextTrainsProps",
       "refresh": "nextTrains",

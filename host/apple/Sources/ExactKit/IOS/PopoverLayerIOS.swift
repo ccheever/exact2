@@ -55,7 +55,9 @@ final class PopoverLayer: UIView {
         // Beside its sheet's card, it is hidden from accessibility with that card when a later sheet covers it.
         let covered = sheet?.viewIfLoaded?.accessibilityElementsHidden ?? false
         if accessibilityElementsHidden != covered { accessibilityElementsHidden = covered }
-        if frame != host.bounds { frame = host.bounds }
+        // Over the document, the page's area: not the bands the viewport is drawn past (LLP 1130).
+        let place = (host as? UIScrollView)?.pageBounds ?? host.bounds
+        if frame != place { frame = place }
     }
 
     override func didMoveToWindow() {

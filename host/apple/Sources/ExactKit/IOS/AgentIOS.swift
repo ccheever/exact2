@@ -234,7 +234,7 @@ extension Agent {
         var keyboard: [String: Any] = ["visible": keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
                                        "policy": presenter.keyboardPolicy, "interactive": presenter.interactiveKeyboardDrag]
         if let top = keyboardTop, let container = keyboardContainer {
-            keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
+            keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.pageOrigin.y)
         }
         #if !os(tvOS)
         if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
@@ -269,7 +269,7 @@ extension Agent {
     static func box(_ bounds: CGRect, of v: UIView, viewport: UIScrollView) -> CGRect {
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = viewport
-        let o = vp.contentOffset
+        let o = vp.pageOrigin
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box
         // where it is seen, through the placement, not the kernel's frame,
         // each corner carried out on its own (`drawnRect`).
@@ -322,7 +322,7 @@ extension Agent {
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
             .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
-        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
+        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.pageSize.width), "h": Agent.r2(vp.pageSize.height)], "env": env, "nodes": nodes]
         // A presentation the platform draws scaled (a floating sheet): its
         // boxes above are the authored frames times `scale`, not the app's doing.
         let scaled = presenter.modals.drawnScales.map { ["route": $0.route.props["navigationKey"] ?? "", "presentation": $0.kind, "scale": (Double($0.scale) * 1000).rounded() / 1000] as [String: Any] }
@@ -338,7 +338,7 @@ extension Agent {
         // real touch's aim is checked against (LLP 1080.000 D4).
         if let w = vp.window, let container = vp.superview {
             let screen = w.screen
-            let origin = container.convert(vp.frame.origin, to: screen.coordinateSpace)
+            let origin = container.convert(presenter.pageFrame.origin, to: screen.coordinateSpace) // the page's area (LLP 1130)
             reply["screen"] = ["w": Agent.r2(screen.bounds.width), "h": Agent.r2(screen.bounds.height), "scale": Agent.r2(screen.scale),
                                "x": Agent.r2(origin.x), "y": Agent.r2(origin.y), "orientation": Agent.orientation(w.windowScene)]
         }
@@ -662,7 +662,7 @@ extension Agent {
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let vp = presenter.viewport
-        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }
         var p = window(CGPoint(x: b.midX, y: b.midY))
         var at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         if req["wheel"] == nil, req["hover"] == nil { awaitAppOverlay(at: p, in: win) }
@@ -869,7 +869,7 @@ extension Agent {
     func addressedPoint(_ v: NodeView, box b: CGRect, in win: UIWindow) -> AddressedAim {
         let vp = presenter.viewport
         let seen = b.intersection(presenter.reach(of: v))
-        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }
         return Agent.addressedAim(v, middle: CGPoint(x: b.midX, y: b.midY), area: seen) { q in
             pressReach(v, at: window(q), in: win)
         }
@@ -880,7 +880,7 @@ extension Agent {
     func offscreen(_ v: NodeView, box b: CGRect, hit: UIView?) -> String? {
         let vp = presenter.viewport
         if presenter.mounts(v), !presenter.reach(of: v).contains(CGPoint(x: b.midX, y: b.midY)) {
-            return "its middle is outside the \(Agent.r2(vp.bounds.width))×\(Agent.r2(vp.bounds.height)) viewport; a finger would scroll it into view first"
+            return "its middle is outside the \(Agent.r2(vp.pageSize.width))×\(Agent.r2(vp.pageSize.height)) viewport; a finger would scroll it into view first"
         }
         return hit == nil ? "its middle is off the window" : nil
     }
@@ -1218,7 +1218,9 @@ extension Agent {
         let presented = req["film"] as? Bool == true ? nil : presentedOverApp()
         let wholeWindow = req["window"] as? Bool == true || presented != nil
         let captureView: UIView = wholeWindow ? (vp.window ?? vp) : vp
-        let size = captureView.bounds.size
+        // The page's picture is its area, whose top-left is a box's (0, 0), not the bands it is drawn past (LLP 1130).
+        let margins = wholeWindow ? .zero : presenter.pageMargins
+        let size = captureView.bounds.inset(by: margins).size
         #if targetEnvironment(simulator)
         // The simulator needs both paths: takeSnapshot alone omits guest
         // text, and drawHierarchy alone rasterizes a blank remote layer —
@@ -1246,10 +1248,10 @@ extension Agent {
             $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
         }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
-            captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            captureView.drawHierarchy(in: CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size), afterScreenUpdates: true)
             UIColor.systemRed.setStroke()
             for node in unshown {
-                let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1)
+                let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1).offsetBy(dx: -captureView.bounds.minX - margins.left, dy: -captureView.bounds.minY - margins.top)
                 let outline = UIBezierPath(rect: r)
                 outline.lineWidth = 2
                 outline.setLineDash([4, 3], count: 2, phase: 0)

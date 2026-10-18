@@ -43,17 +43,6 @@ that service with the app, so the app still needs a terminal to launch.
   `.app`; nothing launches or supervises it. A native module can, and the
   SIGTERM issue above covers stopping it.
 
-## Ruling owed
+## Ruling
 
-1. **Durable handles.** Admit a `doc:` handle that outlives the launch,
-   reversing LLP 1069.010 D1's "for now" and taking `doc:` handles out of
-   DEFERRED's "durable capability grants". Per host: a security-scoped
-   bookmark on Apple (Q2 kept this expressible), a `FileSystemHandle` kept in
-   IndexedDB on Chromium (whose permission the browser may ask for again), a path
-   on Linux. If yes, it needs an RFC under 1069.010 and a trade.
-2. **Change notification.** A `storage.fs` call that reports changes beneath a
-   `doc:` path: FSEvents or `NSFilePresenter` on Apple, inotify on Linux, and on
-   the web Chromium's `FileSystemObserver` where present, otherwise nothing. It
-   is useful within one session, so it does not depend on 1.
-3. **Neither.** A document app keeps a companion, and the docs say so with a
-   recipe for bundling and starting one.
+LLP 1069.010.000 was accepted on 2026-10-15 (its Rulings section). On 2026-10-18 Charlie ruled that the in-repo Markdown and LLP readers are stage 1's user, as the LLP's own §2, §5 and §8 name them, so stage 2 starts now on macOS (the bookmark, `<n>` persistence, `recentDocuments()`, `forgetDocument()`, `doc.keep`), then Linux and the web; iOS stays out. D4's hard rows (another program replacing the file at its path, a move) need the Markdown editor and a fixture, not the reader alone.

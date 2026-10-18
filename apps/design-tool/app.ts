@@ -518,6 +518,11 @@ let heldOps = new Map<string, any[]>();
 let heldReview = new Map<string, any>();
 // The token of the server run whose poll listed them.
 let heldToken = '';
+// The list's revision in that run (tamber/1.12): a poll that names it is
+// answered without the list while it is unchanged.
+let heldAt = { epoch: '', revision: -1 };
+// The list as last sent, and the design read its swatches were drawn from.
+let heldRaw: any[] = [], heldDesign = -1;
 /** A value's sides, light and dark, as swatches show them: `light-dark(a,
  * b)` split at its top-level comma, else one value for both. */
 export function sides(v: string): [string, string] {
@@ -1063,23 +1068,33 @@ const sources: Sources = {
     const gen = ++polls;
     // Another name is another client: what this tool inspects is read again.
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
-    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client } : { after: 0, wait: false, client }, 40000);
+    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
     const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
-    const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; proposals?: any[] };
+    const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
     // The open proposals, each with its proposer, diff and tokens; a
-    // recomputed one says which it replaces, and is reviewed afresh.
-    heldOps = new Map((r.proposals ?? []).map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
-    heldReview = new Map((r.proposals ?? []).map(p => [String(p.proposal), p.review]));
-    heldToken = used;
-    held = (r.proposals ?? []).map(p => ({
-      proposal: String(p.proposal), client: String(p.client ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
-      tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
-      items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
-      ...reviewOf(p),
-    }));
+    // recomputed one says which it replaces, and is reviewed afresh. None
+    // sent: the list is the one this tool has (its revision named), shown
+    // again only when a newer read of the design moves its swatches.
+    const design = Math.max(0, ...snapshots.keys());
+    if (r.proposals || design !== heldDesign) {
+      if (r.proposals) {
+        heldAt = { epoch: String(r.epoch ?? ''), revision: typeof r.held === 'number' ? r.held : -1 };
+        heldRaw = r.proposals;
+        heldToken = used;
+      }
+      heldDesign = design;
+      heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
+      heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review]));
+      held = heldRaw.map(p => ({
+        proposal: String(p.proposal), client: String(p.client ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
+        tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
+        items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
+        ...reviewOf(p),
+      }));
+    }
     // Another run of the server (or another app's, on this port), or more
     // missed than it keeps: its sequence numbers start again, or the list
     // has a gap, so the list starts again. Another run has none of this

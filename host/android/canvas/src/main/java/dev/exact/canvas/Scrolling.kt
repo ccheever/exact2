@@ -169,7 +169,9 @@ internal class Scrolling(private val view: ExactView) {
         val links = ArrayList<Link>(w[1])
         // After the claims and the count, the hosted field under the touch ([Fields.under]); then the scrollers.
         var i = 3
-        while (i + 11 <= w.size) {
+        // The words after the scrollers are the module button's ([Native.under]).
+        val end = minOf(w.size, 3 + 11 * w[1])
+        while (i + 11 <= end) {
             val s = scrollers.getOrPut(w[i]) { Scroller(w[i]) }
             if (!s.told) { s.rev = w[i + 2]; s.nowX = f(w[i + 3]); s.nowY = f(w[i + 4]); s.maxX = f(w[i + 5]); s.maxY = f(w[i + 6]) }
             s.flags = (s.flags and 3) or (w[i + 1] and 4)

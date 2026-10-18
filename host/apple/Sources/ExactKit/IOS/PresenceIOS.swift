@@ -63,7 +63,7 @@ extension Presenter {
         return (Array(live) + leaving.values.map(\.view)).filter { $0.window != nil }.map { view in
             let viewport = self.viewport
             let r = view.convert(view.surface?.frame ?? view.bounds, to: viewport)
-            return ["id": Int(view.id), "x": r.minX - viewport.contentOffset.x, "y": r.minY - viewport.contentOffset.y,
+            return ["id": Int(view.id), "x": r.minX - viewport.pageOrigin.x, "y": r.minY - viewport.pageOrigin.y,
                     "w": r.width, "h": r.height, "opacity": view.alpha, "exiting": isLeaving(view)]
         }
     }

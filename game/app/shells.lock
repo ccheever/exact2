@@ -400,6 +400,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
  "exact-tamber",
  "icu_locale",
  "serde_json",
@@ -1098,6 +1099,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1174,6 +1176,7 @@ name = "exact-tamber"
 version = "0.1.0"
 dependencies = [
  "exact-color",
+ "exact-motion",
  "exact-num",
  "serde_json",
 ]
@@ -1208,6 +1211,8 @@ dependencies = [
  "exact-route",
  "exact-runner",
  "exact-textflow",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

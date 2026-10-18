@@ -234,8 +234,12 @@ export function join(build, selected, map, { read = readFileSync, served = null,
     rows: rows.map(r => {
       const b = bound.get(r.name);
       const origin = b?.origin ?? null;
-      // A state part's row, where it is written (the map's `state` and `at`).
-      const part = b?.state ? { state: b.state, at: b.at ?? null } : {};
+      // A state part's row, where it is written (the map's `state` and `at`); an
+      // own or class row, the attribute it came from and that file's digest as
+      // compiled: `set-row`'s address (LLP 1122 D6, tamber/1.12).
+      const sha = f => (map.sources ?? []).find(s => s.file === f)?.sha256;
+      const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr } : {};
+      const part = b?.state ? { state: b.state, at: b.at ?? null } : written;
       const { unread, ...row } = r;
       const offered = editable({ ...row, ...part }, origin, params, unread);
       return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };
@@ -248,7 +252,7 @@ export function sitesAt(map, source) {
   if (!map || !source) return [];
   const here = x => x && x.file === source.file && x.line === source.line && x.col === source.col;
   // A node, or a state part's row it lowered (`uses` names that row's own place).
-  return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => here(b.at)) ? [site] : []);
+  return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => b.state && here(b.at)) ? [site] : []);
 }
 
 /** Whether a report is the build's latest: its plan, design and pin

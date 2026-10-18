@@ -470,9 +470,31 @@ flag. A failed write returns an error to the caller. ActivityKit's `isStale` is 
 fact. Rendering across a compatibility-changing binary update remains subject
 to LLP 1126.001 §5 Q6's pending ruling.
 
+`bun host/apple/build.mjs --watchos --no-install` builds a watch simulator
+companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
+--watch-sim <watch udid>` installs it on an existing, booted pair and opens its
+placeholder gallery. Add a complication through the watch face's editor.
+The watch extension keeps the accessory families (`accessoryCircular`,
+`accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
+`accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
+families; `families` still names its iOS families. An app with `app.ts` has all
+watch entries omitted with a message, including its Rust refreshes, until the
+watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
+refresh against the watch's own App Group and store. No account transfer is
+performed. The watch app is a placeholder gallery until the live driver lands.
+For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
+optional image. Only that leaf and image survive the inline archive; a
+container's background and layout do not. The bake evaluates the preview at
+225 × 26, 168 × 11.5 and 13.5 × 13.5 pt; at runtime the driver checks the actual
+size and props.
+A violation refuses the bake with an edit, or logs the entry name and renders
+“Open <app>” at runtime, including in the gallery (LLP 1126 D4). See
+Apple's [inline family](https://developer.apple.com/documentation/widgetkit/widgetfamily/accessoryinline).
+
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers
-fail with an edit. A snapshot declares no resource. The one fact a render reads
+fail with an edit. The author declares no resource; the bake synthesizes the
+`exactViewport` resource for the size inject. The one fact a render reads
 is the family's size, through the reserved inject `snapshot_viewport`: write
 `inject` with `snapshot_viewport: <shape>` on the entry's component (or one it
 uses; every injecting component names one shape), and the entry's plan

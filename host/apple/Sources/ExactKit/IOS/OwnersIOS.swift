@@ -49,7 +49,7 @@ extension Presenter {
     /// popover's layer there.
     func reach(of view: UIView) -> CGRect {
         let mount = port(of: view)
-        guard mount !== viewport, let window = viewport.window else { return CGRect(origin: .zero, size: viewport.bounds.size) }
+        guard mount !== viewport, let window = viewport.window else { return CGRect(origin: .zero, size: viewportSize) }
         let shown = mount.convert(mount.bounds, to: nil).intersection(window.bounds)
         return viewportPoints(viewport.convert(shown, from: nil))
     }
@@ -348,7 +348,7 @@ extension Presenter {
     /// A rectangle in the viewport's coordinates, less its scrolling: where
     /// a person sees it in the viewport, as the runner reads a top-layer box.
     func viewportPoints(_ rect: CGRect) -> CGRect {
-        rect.offsetBy(dx: -viewport.contentOffset.x, dy: -viewport.contentOffset.y)
+        rect.offsetBy(dx: -viewport.pageOrigin.x, dy: -viewport.pageOrigin.y)
     }
 }
 #endif

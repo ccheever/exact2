@@ -130,6 +130,9 @@ final class NodeExtras {
     weak var nativeScrollDelegate: (any UIScrollViewDelegate)?
     /// Content room implemented as native insets, not a smaller CSS viewport.
     var nativeScrollContentInsets = UIEdgeInsets.zero
+    /// The status bar's and the home indicator's bands its scroll view
+    /// reaches into past its box, inset by as much (LLP 1130 D3).
+    var pageBand = UIEdgeInsets.zero
     var scrollWritten: String?
     /// A hatched node whose hatch undoes its own additions: its row may be
     /// reused (LLP 1075.003.000.000 §8).
@@ -254,8 +257,12 @@ extension NodeView {
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses), or past native content room.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat {
-        scrollOrigin > 0 ? sv.adjustedContentInset.top : extras?.nativeScrollContentInsets.top ?? 0
+        scrollOrigin > 0 ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + pageBand.top
     }
+    /// Its page band (`NodeExtras.pageBand`), zero for most.
+    var pageBand: UIEdgeInsets { extras?.pageBand ?? .zero }
+    /// Its scroll view's frame: its bounds, and the band past them.
+    var scrollFrame: CGRect { bounds.inset(by: UIEdgeInsets(top: -pageBand.top, left: 0, bottom: -pageBand.bottom, right: 0)) }
     /// Native padding and footer space are content, unlike a bar or keyboard.
     package func scrollPortInsets(_ sv: UIScrollView) -> UIEdgeInsets {
         let inset = sv.adjustedContentInset, content = extras?.nativeScrollContentInsets ?? .zero
@@ -267,7 +274,7 @@ extension NodeView {
     /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
     /// scroll by the bar and the home indicator, as a table view's does not.
     func scrollFloor(_ sv: UIScrollView) -> CGFloat {
-        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height }
+        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height - pageBand.top - pageBand.bottom }
         return max(0, sv.bounds.height - top - bottom)
     }
 }

@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
@@ -139,6 +140,7 @@ class InputsTest {
             .put("ButtonDefaults.ContentPadding.top", padding.calculateTopPadding().value)
             .put("ButtonDefaults.ContentPadding.end", padding.calculateEndPadding(LayoutDirection.Ltr).value)
             .put("ButtonDefaults.ContentPadding.bottom", padding.calculateBottomPadding().value)
+            .put("CheckboxDefaults.StrokeWidth", CheckboxDefaults.StrokeWidth.value)
         File(out, "defaults.json").writeText(defaults.toString(2))
     }
 

@@ -76,7 +76,7 @@ final class GpuModule {
         } catch { return refusal(error.localizedDescription) }
         return nil
     }
-    /// The bake's GPU digest (bake/src/receipt.rs, `code_digest`): the bytes,
+    /// The bake's GPU digest (update/src/gpu.rs, `code_digest`): the bytes,
     /// less a signed 64-bit Mach-O's code signature and the three sizes that
     /// follow it, so a re-signer (AppDrop) keeps it and a code change does not.
     static func codeDigest(_ bytes: Data) -> String {

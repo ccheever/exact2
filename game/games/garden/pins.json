@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0x567fb953a3936f0f",
-    "5136": "0x84bdee160cf25b17"
+    "0": "0x29b11e0dee0c4fd5",
+    "5136": "0xbc5d77669a63bf80"
   },
   "saves": {
-    "continuation": "5a046649280711d724f813aeeaee0ad7fbec58293f5ab8e471525898d8b203b0"
+    "continuation": "772c6045728b74b0ab4b5d5c8d16a11903a966a69ebdd1ddc80e28a8d3178d54"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bfb4f8bd735014f8c7fd487a5ccde96a38eab900e46a3cb5797ef398c6b7b669",
+  "inputs": "d91ebf882d7024ac0cca68a1774f52489dbc02b80b95eff79f5861e270762a6b",
+  "sourceInputs": "acacf66ba9637ab5c827403b62f47c55f446b23bcfcd819a13d8e6b6b696fbe5",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "390a4390a7dd132542e0d9b888b6dd618b75c00c",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
 }

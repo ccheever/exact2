@@ -48,7 +48,10 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
    `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
    every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
-   module's SHA-256;
+   module's product digest. The shared Linux/Android loader checks baked cards against that digest: on
+   macOS, signed 64-bit Mach-O code omits the signature and normalizes its three size fields, matching
+   the definition in `update/src/gpu.rs` through a parity-tested host copy; other files hash whole. Completed development receipts always
+   bind the whole file. Both the process cache and Android's persistent cache distinguish these digests;
 2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
    its own name, the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`, and a GPU module's shaders
    (`gpu/shaders/*.wgsl`, as a Linux bake packs them) to `app/build/<app>/rust/assets/app/shaders/`, where the host
@@ -57,11 +60,15 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
    the module unstripped, since the host opens it by path and checks its digest; with `-Pcompose=1` when the plan's
    uses name `dates` (a date or time control), which links Compose Material 3 for its pickers; and with the Kotlin
-   in the app's `modules/android`, its hatches, compiled in,
+   in the app's `modules/android`, its hatches and module roster, compiled in,
 
 and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
 `app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
+
+A component fixture may compile the real app's Kotlin with
+`ORG_GRADLE_PROJECT_modulesDir=<absolute path to the app's modules/android>`. The default
+is the built app's own `modules/android`; this override avoids copying a provider into fixtures.
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
 `bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
@@ -453,6 +460,15 @@ clock, or show its own (`ExactPicker.show`). `apps/native-fixture/modules/androi
 under `ExactHatch`, gives its `due` pickers titles, no weekends and a 24-hour clock, and hosts a dial at `spin` that
 turns on exact2's clock and stops at a tap. `bun scripts/exact.mjs hatch <word> <app>` writes the class for an app
 with an `android/` crate.
+
+An app's optional native module views (LLP 1024) live in the same `modules/android` source directory. Define
+`class exact.app.Modules : dev.exact.canvas.NativeModules` with a `modules: Map<String, NativeModule>` roster;
+the APK resolves it only at the first module view. Each module creates and updates its real Android `View`.
+`events(view, emit)` binds before its first update; call `emit("change", value)` or `emit("input", value)` with
+string values, `emit("message", payload)` with the guest message, `emit("load", "")`, or `emit("press", "")`.
+Retired bindings and events for an old node allocation are ignored. A module button receives `performClick()`
+for an unscrolled tap that no long press took, at its painted position so a platform popup can anchor to it. Native drags, arbitrary
+pointer forwarding and zero-size service modules are not implemented by this button seam.
 
 ## Text fields (LLP 1115.001 D8)
 

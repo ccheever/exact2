@@ -166,7 +166,7 @@ extension NodeView {
     /// fixed gradient.
     var fixedGradientPort: CGRect? {
         guard let port = presenter?.viewport, window != nil else { return nil }
-        return port.convert(port.bounds, to: self)
+        return port.convert(port.pageBounds, to: self) // the page's area, not the bands it is drawn past
     }
 
     /// The fixed gradient aimed again at where the viewport now is. Every
