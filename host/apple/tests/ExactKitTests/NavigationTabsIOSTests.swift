@@ -230,6 +230,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, true)
         try tapNode(session, "tabs-at-top")
         let window = try XCTUnwrap(self.window)
+        guard window.safeAreaInsets.top > 0 else {
+            throw XCTSkip("no status bar above the content to protect it from: the iPhone Duo's is in a side column")
+        }
         until("headerless top tab content clears the status bar") {
             abs(list.convert(list.bounds, to: window).minY) < 0.5 &&
                 tab.convert(tab.bounds, to: window).minY >= window.safeAreaInsets.top - 0.5

@@ -207,11 +207,15 @@ final class DialogSheetIOSTests: XCTestCase {
         p.dialogCommand("showModal", "form")
         let sheet = try sheet(controller)
         settle { !p.menus.inTransition }
-        sheet.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 40)
+        // Add side insets the dialog still fits between, beside any the sheet already has (the iPhone Duo's status column)
+        let sv = sheet.scroller, own = sv.adjustedContentInset
+        let side = min(40, ((sv.bounds.width - own.left - own.right - sheet.box.width) / 3).rounded(.down))
+        XCTAssertGreaterThan(side, 0, "the dialog fits in the sheet with room beside it")
+        sheet.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: side, bottom: 0, right: side)
         sheet.view.layoutIfNeeded()
-        let sv = sheet.scroller, inset = sv.adjustedContentInset
+        let inset = sv.adjustedContentInset
         XCTAssertEqual(inset.left, sheet.view.safeAreaInsets.left, accuracy: 0.5, "UIKit insets the sides")
-        XCTAssertGreaterThanOrEqual(inset.left, 40)
+        XCTAssertGreaterThanOrEqual(inset.left, side)
         XCTAssertLessThan(sheet.box.width, sv.bounds.width - inset.left - inset.right, "the dialog fits between them")
         func centred(_ why: String) {
             let shown = dialog.convert(dialog.bounds, to: sheet.view), inset = sv.adjustedContentInset
@@ -220,7 +224,7 @@ final class DialogSheetIOSTests: XCTestCase {
         }
         centred("both sides")
         // One side only, as the iPhone Duo's status column is, then none again
-        sheet.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 40)
+        sheet.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: side)
         sheet.view.layoutIfNeeded()
         centred("the right side")
         sheet.additionalSafeAreaInsets = .zero

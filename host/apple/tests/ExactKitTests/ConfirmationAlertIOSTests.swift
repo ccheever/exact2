@@ -260,7 +260,8 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         settle { !p.menus.inTransition }
         let box = alert.view.convert(alert.view.bounds, to: nil)
         print("alert: \(box) in \(window!.bounds)")
-        XCTAssertEqual(box.midX, window!.bounds.midX, accuracy: 2, "centred")
+        // UIKit centres it between the window's side insets: the iPhone Duo's status column reaches into this window
+        XCTAssertEqual(box.midX, window!.bounds.inset(by: window!.safeAreaInsets).midX, accuracy: 2, "centred")
         XCTAssertEqual(box.midY, window!.bounds.midY, accuracy: 40, "centred")
     }
 
