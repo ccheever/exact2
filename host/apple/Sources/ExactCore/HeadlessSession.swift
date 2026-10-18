@@ -229,6 +229,11 @@ public final class HeadlessSession {
                 } else { nodes[op.id]?.content = nil }
             case .flow:
                 nodes[op.id]?.flow = (op.payload["shapes"] as? [[String: Any]] ?? []).compactMap(TextFlowShape.init)
+            // A motion property's presentation value: `opacity` is a static
+            // row the serializer leaves to presentation (`style.rs`), so the
+            // model keeps it as the row it is; the others are motion, which a
+            // snapshot has none of.
+            case .present where op.property == "opacity": nodes[op.id]?.style["opacity"] = .number(op.x)
             case .roots: roots = op.ids
             case .destroy: nodes[op.id] = nil
             case .language:
@@ -321,7 +326,7 @@ fileprivate final class HeadlessLines {
                 let end = clamped ? Self.kept(line, range: range, source: source) : NSMaxRange(range)
                 let suffix = clamped ? "…" : ""
                 let shown = NSRange(location: range.location, length: end - range.location)
-                let painted = clamped ? source.substring(with: shown) + suffix : Self.ink(source.substring(with: shown))
+                let painted = Self.ink(source.substring(with: shown)) + suffix
                 var segments: [HeadlessSession.Segment] = [], from = range.location
                 for (run, runEnd) in ends.enumerated() where runEnd > from && from < end {
                     let to = min(runEnd, end)
@@ -330,7 +335,7 @@ fileprivate final class HeadlessLines {
                     from = to
                 }
                 if let tail = segments.popLast() {
-                    segments.append(.init(run: tail.run, text: clamped ? tail.text + suffix : Self.ink(tail.text), range: tail.range))
+                    segments.append(.init(run: tail.run, text: Self.ink(tail.text) + suffix, range: tail.range))
                 } else if clamped {
                     segments.append(.init(run: 0, text: suffix))
                 }
@@ -348,36 +353,39 @@ fileprivate final class HeadlessLines {
     /// end, `TextEngine.clampedLine`), with trailing breaks and spaces removed.
     /// A truncated line's run still reports the string range of the run it
     /// was cut from, so a run's end says nothing about what was kept: a
-    /// glyph covers the characters up to the next glyph's index (the least
-    /// index above its own, whatever the visual order), and a run's last
-    /// glyph the composed character sequence at its index. The token's own
-    /// glyph is attributed to the index of the first character it displaced,
-    /// so it is told apart by what it is: the font's "…" where the source
-    /// has none.
+    /// glyph covers the characters up to the next glyph's index in the line
+    /// (sorted, whatever the visual order; the token's counts, so a ligature
+    /// before it keeps both its characters), and the line's last glyph the
+    /// composed character sequence at its index. The token's own glyph is
+    /// attributed to the index of the first character it displaced, so it
+    /// is told apart by what it is: the font's "…" (the missing glyph when
+    /// the face has none) where the source has no "…".
     private static func kept(_ line: CTLine, range: NSRange, source: NSString) -> Int {
         let breaks: Set<Int> = [9, 10, 13, 32, 0x2028, 0x2029]
         var stripped = NSMaxRange(range)
         while stripped > range.location && breaks.contains(Int(source.character(at: stripped - 1))) { stripped -= 1 }
-        var kept = range.location
+        var glyphs: [(index: Int, token: Bool)] = []
         for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
             let count = CTRunGetGlyphCount(run)
             guard count > 0 else { continue }
             var indices = [CFIndex](repeating: 0, count: count)
             CTRunGetStringIndices(run, CFRange(location: 0, length: count), &indices)
-            var glyphs = [CGGlyph](repeating: 0, count: count)
-            CTRunGetGlyphs(run, CFRange(location: 0, length: count), &glyphs)
+            var ids = [CGGlyph](repeating: 0, count: count)
+            CTRunGetGlyphs(run, CFRange(location: 0, length: count), &ids)
             var token: CGGlyph = 0
             if let font = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName as String] {
                 var ellipsis: UniChar = 0x2026
                 CTFontGetGlyphsForCharacters(font as! CTFont, &ellipsis, &token, 1)
             }
-            let shown = zip(indices, glyphs)
-                .filter { index, glyph in index >= range.location && index < stripped && !(glyph == token && token != 0 && source.character(at: index) != 0x2026) }
-                .map(\.0).sorted()
-            for (i, index) in shown.enumerated() {
-                let end = i + 1 < shown.count ? shown[i + 1] : NSMaxRange(source.rangeOfComposedCharacterSequence(at: index))
-                kept = max(kept, min(max(end, index + 1), stripped))
+            for (index, glyph) in zip(indices, ids) where index >= range.location && index < stripped {
+                glyphs.append((index, glyph == token && source.character(at: index) != 0x2026))
             }
+        }
+        glyphs.sort { $0.index < $1.index }
+        var kept = range.location
+        for (i, glyph) in glyphs.enumerated() where !glyph.token {
+            let end = i + 1 < glyphs.count ? glyphs[i + 1].index : NSMaxRange(source.rangeOfComposedCharacterSequence(at: glyph.index))
+            kept = max(kept, min(max(end, glyph.index + 1), stripped))
         }
         while kept > range.location && breaks.contains(Int(source.character(at: kept - 1))) { kept -= 1 }
         return kept
