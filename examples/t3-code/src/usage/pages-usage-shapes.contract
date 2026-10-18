@@ -14,12 +14,16 @@ shape UsageSeries
   line: string
   light: string
   dark: string
+  // Its figures are still coming in: the series is muted.
+  loading: bool
 shape UsageChart
   ticks: UsageTick[]
   series: UsageSeries[]
   start: string
   middle: string
   end: string
+  // False while unlabeled placeholder gridlines stand in for a scale with nothing to show yet.
+  labeled: bool
 shape UsageSegment
   key: string
   label: string
