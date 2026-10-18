@@ -821,6 +821,126 @@ fn intrinsic_flex_height_bounds_do_not_make_auto_height_definite() {
     check_intrinsic_flex_rows(&cases);
 }
 
+// Chrome 151.0.7922.34, 2026-10-18: bounded column widths size intrinsic
+// heights. Grid alignment comes from the parent's justify-items:start.
+#[test]
+fn intrinsic_flex_column_height_uses_bounded_width() {
+    use crate::browser_cases::{css_rows as rows, lay_out_as, props};
+    use exact_kernel::{Offer, Op, StyleId, StyleValue};
+
+    let cases: &[(&str, NodeType, f32, Frames)] = &[
+        (
+            "grid",
+            NodeType::Canvas,
+            100.0,
+            &[
+                [0.0, 0.0, 800.0, 50.0],
+                [0.0, 0.0, 100.0, 50.0],
+                [0.0, 0.0, 100.0, 50.0],
+            ],
+        ),
+        (
+            "grid",
+            NodeType::View,
+            100.0,
+            &[
+                [0.0, 0.0, 800.0, 100.0],
+                [0.0, 0.0, 100.0, 100.0],
+                [0.0, 0.0, 100.0, 100.0],
+            ],
+        ),
+        (
+            "flex",
+            NodeType::Canvas,
+            200.0,
+            &[
+                [0.0, 0.0, 800.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+            ],
+        ),
+        (
+            "flex",
+            NodeType::View,
+            200.0,
+            &[
+                [0.0, 0.0, 800.0, 200.0],
+                [0.0, 0.0, 200.0, 200.0],
+                [0.0, 0.0, 200.0, 200.0],
+            ],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for &(mode, kind, width, frames) in cases {
+        for (direction, maximum) in [
+            ("column", width),
+            ("column", width / 2.0),
+            ("column-reverse", width),
+        ] {
+            let mut parent = if mode == "grid" {
+                rows("display:grid;justify-items:start")
+            } else {
+                rows("display:flex;flex-direction:column")
+            };
+            if mode == "grid" {
+                parent.extend([
+                    (
+                        StyleId::GridTemplateColumns,
+                        StyleValue::Text("800px".into()),
+                    ),
+                    (
+                        StyleId::GridTemplateRows,
+                        StyleValue::Text("max-content".into()),
+                    ),
+                ]);
+            }
+            let alignment = if mode == "grid" {
+                "start"
+            } else {
+                "flex-start"
+            };
+            let item = format!(
+                "display:flex;flex-direction:{direction};min-width:{width}px;max-width:{maximum}px;align-self:{alignment}"
+            );
+            let mut k = lay_out_as(
+                props(&rows("width:800px;height:600px")),
+                vec![(2, 1, parent), (3, 2, rows(&item))],
+                &[],
+                &[],
+                NodeType::View,
+            );
+            let leaf = if kind == NodeType::Canvas {
+                ""
+            } else {
+                "width:100%;aspect-ratio:1"
+            };
+            k.apply(
+                0,
+                2,
+                &[
+                    Op::CreateView {
+                        id: 4,
+                        node_type: kind,
+                    },
+                    Op::SetStyle {
+                        id: 4,
+                        patch: Box::new(props(&rows(leaf))),
+                    },
+                    Op::SetChildren {
+                        id: 3,
+                        children: vec![4],
+                    },
+                ],
+            )
+            .unwrap();
+            k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+            let want: Vec<_> = (2..).zip(frames.iter().copied()).collect();
+            failures.extend(mismatches(&format!("{mode}; {kind:?}; {item}"), &k, &want));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 // Chrome 151.0.7922.34, 2026-10-18: cross-axis auto margins and wrapping
 // prevent a definite container height from sizing intrinsic contributions.
 #[test]

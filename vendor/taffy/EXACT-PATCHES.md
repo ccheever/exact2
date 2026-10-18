@@ -1236,12 +1236,15 @@ fresh ones bit for bit.
 
 ## Patch 43: keep height bounds indefinite during intrinsic flex sizing
 
-Equal or inverted min/max bounds no longer supply known dimensions in
-`ContentSize`. Intrinsic main-size probes also leave a bounds-only cross size
-unknown under `InherentSize`, which a block parent uses to measure its children.
-This prevents premature stretch and ratio transfer. Authored sizes and dimensions
-supplied by the caller remain intact, including the clamped final height an
-absolute box receives in `ContentSize`. Block and root size promotion are unchanged.
+Equal or inverted width bounds remain known in both sizing modes so they can
+size a column's height. Height bounds do not supply a known height while the
+inline size is unresolved in `ContentSize` or an intrinsic width probe. The latter
+includes `InherentSize`, which a block parent uses to measure its children.
+This prevents premature stretch and ratio transfer during width measurement
+without discarding a column's bounded width during height measurement. Authored
+sizes and dimensions supplied by the caller remain intact, including the clamped
+final height an absolute box receives in `ContentSize`. Block and root size
+promotion are unchanged.
 
 **Held by** `browser_replaced::constraints::intrinsic_flex_height_bounds_do_not_make_auto_height_definite`:
 12 literal Chrome 151.0.7922.34 cases measured on 2026-10-18. Absolute flex rows
@@ -1251,6 +1254,15 @@ border-box ratios. Their final height stays 100px. Normal rows in a definite
 800px parent keep 400px items. Floated rows were also measured at 640/320px in
 Chrome; the kernel has no float style row. Patches 40 and 41 retain their
 definite-height, auto-margin and wrapping controls.
+
+`intrinsic_flex_column_height_uses_bounded_width` holds 12 further Chrome cases:
+max-content grid rows sized by bounded columns with canvases and percentage-width
+squares, plus non-stretched flex-parent controls. Equal and inverted width bounds
+and `column-reverse` retain the width used for height measurement. Taffy's
+`bounded_column_width_sizes_content_and_max_content_grid_height` holds both sizing
+modes and grid items with `width:max-content;height:max-content`, whose keywords
+are not exposed by the kernel. The grid, column and square stay 200px tall at a
+bounded 200px width.
 
 ## Cargo workspace boundary
 
