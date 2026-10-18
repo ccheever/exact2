@@ -949,7 +949,10 @@ impl Feed {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
                 }
                 self.dimensions[slot] = dimensions(mesh);
-                if !visible || w.get::<Material>(e).is_some_and(|m| m.color[3] < 1.) {
+                if !visible
+                    || w.get::<Material>(e)
+                        .is_some_and(|m| (0.0..1.0).contains(&m.color[3]))
+                {
                     continue;
                 }
                 let viewmodel = w.has::<ViewModel>(e);

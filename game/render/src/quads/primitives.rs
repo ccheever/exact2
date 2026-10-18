@@ -40,13 +40,17 @@ impl Primitives {
                     self.meshes[i].entity == p.entity
                         && !matches!(self.meshes[i].value, Mesh::Asset(_))
                 })
-                && w.get::<Material>(p.entity).is_some_and(|m| m.color[3] < 1.)
+                && w.get::<Material>(p.entity)
+                    .is_some_and(|m| (0.0..1.0).contains(&m.color[3]))
         });
         for item in &self.meshes {
             if matches!(item.value, Mesh::Asset(_)) {
                 continue;
             }
-            let Some(material) = w.get::<Material>(item.entity).filter(|m| m.color[3] < 1.) else {
+            let Some(material) = w
+                .get::<Material>(item.entity)
+                .filter(|m| (0.0..1.0).contains(&m.color[3]))
+            else {
                 continue;
             };
             item.value.validate().map_err(RenderError::scene)?;
