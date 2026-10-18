@@ -561,6 +561,7 @@ fn r14_unprepared_particle_draw_names_the_refusal() {
         wgpu::TextureFormat::Rgba8Unorm,
     );
     r.quads.order.push(crate::quads::Order {
+        viewmodel: false,
         kind: crate::quads::Kind::Particle(false, u32::MAX, false, false),
         depth: 0.,
         layer: 0,

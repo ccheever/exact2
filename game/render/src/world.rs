@@ -704,12 +704,13 @@ impl Feed {
             let has_offsets = w.query::<&exact_game::Offset>().iter().next().is_some();
             let globals = w.globals();
             let world_pose = |e| {
-                if has_offsets {
-                    scene::drawn(w, e)
-                } else {
-                    globals.get(e)
-                }
-                .map(scene::decompose)
+                scene::primitive_endpoint(w, e, || {
+                    if has_offsets {
+                        scene::drawn(w, e)
+                    } else {
+                        globals.get(e)
+                    }
+                })
             };
             let rebuilt = initial
                 || parent_changed

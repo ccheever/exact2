@@ -690,6 +690,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let record = &self.models.records
                 [(self.slot_list[slot as usize] - crate::RENDER_SLOT_BASE) as usize];
             self.quads.order.push(crate::quads::Order {
+                viewmodel: self.batches[index].viewmodel,
                 kind: crate::quads::Kind::Model(index, slot),
                 depth,
                 layer: 0,

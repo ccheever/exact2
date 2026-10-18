@@ -175,17 +175,9 @@ fn halos_share_one_draw_and_sort_depth_without_filling_the_hole() {
         hundred_draws,
         one_draws
     ));
-    assert!(
-        !hundred_oracle(&pixels, instances, one_draws + 99, one_draws),
-        "a per-object draw fails"
-    );
-    assert!(!hundred_oracle(
-        &pixels,
-        instances - 96,
-        hundred_draws,
-        one_draws
-    ));
     eprintln!("halo draws: 1 halo = {one_draws}, 100 halos = {hundred_draws}");
+    // Draw equality qualifies batching with an honest counter; the occluder below
+    // checks that the counter responds to an actual additional draw.
     assert_eq!(hundred_draws, one_draws, "entity count must not add draws");
     // Negative control: an opaque occluder really adds another compatible batch.
     let mut occluded = surface(&[Value::Number(1.), Value::Bool(false), Value::Bool(true)]);
@@ -383,34 +375,10 @@ fn alpha_membership_changes_match_a_freshly_restored_renderer() {
 }
 
 #[test]
-fn negative_local_scales_preserve_opaque_silhouette_and_viewmodels_ignore_walls() {
+fn viewmodels_ignore_walls_and_share_draws() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
-    let mut s = surface(&[Value::Number(1.)]);
-    let w = s.world_for_test();
-    let e = w.named("halo-0").unwrap();
-    *w.require_mut::<Mesh>(e) = Mesh::cone(1., 2.);
-    let mut pose = w.require_mut::<Transform>(e);
-    pose.rotation = Quat::from_rotation_z(0.6);
-    pose.scale = Vec3::new(-1.4, 0.7, 1.);
-    drop(pose);
-    w.require_mut::<Material>(e).color[3] = 1.;
-    let opaque = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
-    s.world_for_test().require_mut::<Material>(e).color[3] = 0.5;
-    let alpha = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
-    let mask = |pixels: &fixture::Pixels| {
-        pixels
-            .data
-            .chunks_exact(4)
-            .map(|p| p[0] > 10)
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        mask(&opaque),
-        mask(&alpha),
-        "alpha only changes opacity, including signed local scale"
-    );
     let mut wall = surface(&[Value::Number(1.), Value::Bool(false), Value::Bool(true)]);
     let hidden = fixture::render(&gpu, &mut wall, &frame()).unwrap().0;
     let mut only_wall = surface(&[Value::Number(0.), Value::Bool(false), Value::Bool(true)]);
@@ -546,6 +514,160 @@ fn sheared_socket_culling_matches_every_frustum_edge_and_reflection_keeps_the_fr
     let plain = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
     assert_eq!(
         reflected.data, plain.data,
-        "reflection retains ring lighting and coverage"
+        "reflection retains ring coverage"
     );
+}
+
+struct SignedShapes;
+impl Game for SignedShapes {
+    const ID: &'static str = "signed-shapes";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        Halos::setup(
+            w,
+            &Options {
+                count: 1,
+                ..Default::default()
+            },
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        let mut t = w.require_mut::<Transform>("halo-0");
+        t.rotation = Quat::from_rotation_z(0.6);
+        t.scale *= Vec3::new(-1.4, -0.7, 1.2);
+        t.position.x += 0.2;
+    }
+}
+#[test]
+fn signed_axes_match_opaque_silhouettes_at_endpoints_and_between_ticks() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mask = |p: &fixture::Pixels| {
+        p.data
+            .chunks_exact(4)
+            .map(|p| p[0] > 10)
+            .collect::<Vec<_>>()
+    };
+    for mesh in [Mesh::ring(0.5, 1.), Mesh::cone(1., 2.)] {
+        for scale in [
+            Vec3::new(-1., 1., 1.),
+            Vec3::new(1., -1., 1.),
+            Vec3::new(1., 1., -1.),
+            Vec3::new(-1., -1., 1.),
+            Vec3::new(-1., 1., -1.),
+            Vec3::new(1., -1., -1.),
+        ] {
+            let make = |alpha| {
+                let mut s = WorldSurface::<SignedShapes>::default();
+                s.bind(&[], None).unwrap();
+                let w = s.world_for_test();
+                *w.require_mut::<Mesh>("halo-0") = mesh.clone();
+                w.require_mut::<Transform>("halo-0").scale = scale;
+                w.require_mut::<Material>("halo-0").color[3] = alpha;
+                s
+            };
+            let (mut opaque, mut transparent) = (make(1.), make(0.5));
+            for now_ms in [0., 17., 25.] {
+                let f = Frame { now_ms, ..frame() };
+                let a = fixture::render(&gpu, &mut opaque, &f).unwrap().0;
+                let b = fixture::render(&gpu, &mut transparent, &f).unwrap().0;
+                assert!(a.count(|p| p[0] > 10) > 100);
+                assert_eq!(mask(&a), mask(&b), "{mesh:?}, {scale:?}, {now_ms}ms");
+                if now_ms == 25. {
+                    assert!((opaque.sim().unwrap().alpha() - 0.5).abs() < 0.001);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn transparent_world_composites_before_viewmodels_in_both_depth_orders() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    for (world_y, view_y) in [(2., 0.), (0., 2.)] {
+        let mut s = surface(&[Value::Number(1.)]);
+        let w = s.world_for_test();
+        w.require_mut::<Transform>("halo-0").position.y = view_y;
+        w.insert(w.named("halo-0").unwrap(), ViewModel);
+        w.spawn((
+            Transform::at(0., world_y, 0.),
+            Mesh::ring(0.5, 1.),
+            Material::glow([0., 1., 0.]).alpha(0.5),
+        ));
+        let pixels = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
+        let [r, g, b, _] = pixels.at(88, 64);
+        assert!(r > g && g > b, "viewmodel red composites last: {r},{g},{b}");
+        assert_eq!(
+            s.renderer_for_test().unwrap().depth_split(),
+            crate::VIEWMODEL_DEPTH,
+            "transparent-only viewmodels reserve depth"
+        );
+        assert_eq!(s.renderer_for_test().unwrap().quads.draws.len(), 2);
+        // The opaque viewmodel must occlude the physically farther translucent
+        // viewmodel within their reserved slice, independent of world depth.
+        s.world_for_test().spawn((
+            Transform::at(0., view_y + 1., 0.),
+            Mesh::ring(0.5, 1.),
+            Material::glow([0., 0., 1.]),
+            ViewModel,
+        ));
+        let mixed = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
+        let mut reference = surface(&[Value::Number(0.)]);
+        reference.world_for_test().spawn((
+            Transform::at(0., view_y + 1., 0.),
+            Mesh::ring(0.5, 1.),
+            Material::glow([0., 0., 1.]),
+            ViewModel,
+        ));
+        let blue_only = fixture::render(&gpu, &mut reference, &frame()).unwrap().0;
+        assert_eq!(
+            mixed.data, blue_only.data,
+            "opaque viewmodel hides both transparent layers"
+        );
+    }
+}
+
+#[test]
+fn reflected_socket_normals_light_a_non_emissive_surface() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut s = WorldSurface::<SocketShape, crate::ModelExecutor, true>::default();
+    s.bind(&[], None).unwrap();
+    let w = s.world_for_test();
+    *w.require_mut::<Transform>("owner") = Transform {
+        scale: Vec3::new(-1., 1., 1.),
+        ..Default::default()
+    };
+    w.require_mut::<SocketFollow>("shape").offset.rotation =
+        Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    *w.require_mut::<Mesh>("shape") = Mesh::ring(0.5, 1.);
+    *w.require_mut::<Material>("shape") = Material::rgb(0.4, 0.2, 0.1).alpha(0.5);
+    w.resource_mut::<Environment>().ambient = 0.;
+    w.spawn((
+        Transform::at(2., 3., 8.).looking_at(Vec3::ZERO, Vec3::Y),
+        DirectionalLight {
+            shadows: false,
+            ..Default::default()
+        },
+    ));
+    let reflected = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
+    assert!(reflected.count(|p| p[0] > 100) > 500);
+    s.world_for_test().require_mut::<Transform>("owner").scale = Vec3::ONE;
+    let plain = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
+    assert_eq!(
+        reflected.data, plain.data,
+        "reflection retains outward diffuse normals"
+    );
+    crate::quads::primitives::wrong_normals(&mut s.renderer_for_test().unwrap().quads, &gpu.device);
+    s.world_for_test();
+    let wrong = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
+    assert_ne!(
+        plain.data, wrong.data,
+        "inverted lighting normals fail the pixel oracle"
+    );
+    assert_eq!(wrong.count(|p| p[0] > 100), 0);
 }

@@ -1,4 +1,4 @@
-use super::{feed, Kind, Order, Quad, NO_LOOK};
+use super::{feed_with_pose, Kind, Order, Quad, NO_LOOK};
 use crate::{
     shapes,
     world::{dimensions, Shape},
@@ -33,7 +33,15 @@ impl Primitives {
         parent_changed: bool,
     ) -> Result<(), RenderError> {
         self.hz = w.hz();
-        feed(w, &mut self.meshes, initial, next_tick, parent_changed);
+        feed_with_pose(
+            w,
+            &mut self.meshes,
+            initial,
+            next_tick,
+            parent_changed,
+            true,
+            crate::world::scene::primitive_pose,
+        );
         self.items.retain(|_, p| {
             self.meshes
                 .binary_search_by_key(&p.entity.index(), |m| m.entity.index())
@@ -163,6 +171,7 @@ impl Primitives {
                 ));
                 order.push(Order {
                     kind: Kind::Particle(false, NO_LOOK, false, p.viewmodel),
+                    viewmodel: p.viewmodel,
                     depth: -f.view.transform_point3((a + b + c) / 3.).z,
                     layer: 0,
                     slot: p.entity.index(),
@@ -171,4 +180,34 @@ impl Primitives {
             }
         }
     }
+}
+
+#[cfg(test)]
+pub(crate) fn wrong_normals(q: &mut super::Quads, d: &exact_gpu::wgpu::Device) {
+    use exact_gpu::wgpu;
+    let source = [
+        include_str!("../shaders/frame.wgsl"),
+        include_str!("../shaders/tone.wgsl"),
+        include_str!("../shaders/quad.wgsl"),
+        include_str!("../shaders/particle.wgsl"),
+    ]
+    .concat()
+    .replace(
+        "normalize(cross(right.xyz, up.xyz))",
+        "-normalize(cross(right.xyz, up.xyz))",
+    );
+    let shader = d.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("wrong primitive normals control"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    q.particle_pipelines = Some(std::array::from_fn(|i| {
+        super::pipeline(
+            d,
+            q.cache.as_ref(),
+            &shader,
+            &[&q.layout],
+            i + 2,
+            (q.samples, None),
+        )
+    }));
 }

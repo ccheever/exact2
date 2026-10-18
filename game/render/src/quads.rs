@@ -1,5 +1,5 @@
 //! Separate sprite/particle arenas and one total order shared with blended models.
-mod primitives;
+pub(crate) mod primitives;
 
 use crate::{
     buffers::{bytes, Buffer},
@@ -37,14 +37,16 @@ impl Kind {
 pub(crate) struct Order {
     pub kind: Kind,
     pub depth: f32,
+    pub viewmodel: bool,
     pub layer: i32,
     pub slot: u32,
     pub index: usize,
 }
 impl Order {
     fn compare(a: &Self, b: &Self) -> std::cmp::Ordering {
-        b.depth
-            .total_cmp(&a.depth)
+        a.viewmodel
+            .cmp(&b.viewmodel)
+            .then_with(|| b.depth.total_cmp(&a.depth))
             .then(a.layer.cmp(&b.layer))
             .then(a.slot.cmp(&b.slot))
             .then(a.kind.rank().cmp(&b.kind.rank()))
@@ -800,6 +802,7 @@ impl Quads {
                         false,
                     ),
                     depth: -f.view.transform_point3(position).z,
+                    viewmodel: false,
                     layer: e.layer,
                     slot: item.entity.index(),
                     index,
@@ -858,6 +861,7 @@ impl Quads {
                     self.order.push(Order {
                         kind: Kind::Sprite(index),
                         depth: -f.view.transform_point3(center).z,
+                        viewmodel: false,
                         layer: s.layer,
                         slot: item.entity.index(),
                         index: at,
@@ -890,6 +894,7 @@ impl Quads {
             self.order.push(Order {
                 kind: Kind::Child(child),
                 depth: -p.placement.depth,
+                viewmodel: false,
                 layer: 0,
                 slot: u32::from(child),
                 index,
@@ -1072,6 +1077,26 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
     parent_changed: bool,
     visible_only: bool,
 ) {
+    feed_with_pose(
+        w,
+        items,
+        initial,
+        next_tick,
+        parent_changed,
+        visible_only,
+        crate::world::scene::pose,
+    );
+}
+#[allow(clippy::too_many_arguments)]
+fn feed_with_pose<T: exact_game::Component + Clone>(
+    w: &World,
+    items: &mut Vec<Item<T>>,
+    initial: bool,
+    next_tick: bool,
+    parent_changed: bool,
+    visible_only: bool,
+    pose: fn(&World, Entity) -> Option<Transform>,
+) {
     let revision = w.revision::<T>();
     // Compact once, then append arrivals. Never shift the tail for each removal.
     items.retain_mut(|i| {
@@ -1081,7 +1106,7 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
         if visible_only && !w.is_visible(i.entity) {
             return false;
         }
-        let Some(pose) = crate::world::scene::pose(w, i.entity) else {
+        let Some(pose) = pose(w, i.entity) else {
             return false;
         };
         if next_tick {
@@ -1108,7 +1133,7 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
         if visible_only && !w.is_visible(entity) {
             continue;
         }
-        if let Some(pose) = crate::world::scene::pose(w, entity) {
+        if let Some(pose) = pose(w, entity) {
             items.push(Item {
                 entity,
                 poses: [pose; 2],
@@ -1354,6 +1379,7 @@ mod retained_tests {
                 rows.push(Order {
                     kind,
                     depth: 3.,
+                    viewmodel: false,
                     layer: 1,
                     slot: 7,
                     index,
