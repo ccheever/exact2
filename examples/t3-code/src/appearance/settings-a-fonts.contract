@@ -8,9 +8,9 @@
 // ↓/↑ walk the matches (past either end back to none, loopFocus), and Return picks the lit row.
 // A pick gives the focus back to the trigger, as Base UI's popup does to its trigger as it closes. The trigger is not
 // disabled while the write is in flight: a disabled control cannot hold the focus, so the window would keep it.
-use CoreOption from "../settings/settings-core.contract"
+use CoreOption from "../settings/settings-core-shared.contract"
 use dbStep from "../diff/diff.contract"
-use CorePalette from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
 use CoreIcon, CorePaintIcon from "../settings/settings-core.contract"
 
 component FontFamilyPicker

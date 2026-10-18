@@ -20,7 +20,7 @@ export interface Activity { id: string; label: string; body: string; icon: strin
   detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string;
   /** V2ItemInspector's search results and file change, a subagent's avatar and live start. */
   results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number; diffRunId?: string; diffPath?: string;
-  startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string;
+  startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string; modelLine?: string; effort?: string; speed?: string; speedLabel?: string;
   /** A thread read's label in parts: `<linkPrefix> “<linkTitle>”`, the title opening linkThreadId. */
   linkPrefix?: string; linkTitle?: string; linkThreadId?: string }
 export interface Message { id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;

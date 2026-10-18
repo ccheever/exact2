@@ -1,13 +1,7 @@
 use LucideCheck, LucideChevronDown, LucideChevronRight from "./settings-icons.contract"
 
-shape CoreOption
-  id: string
-  value: string
-  label: string
-  detail: string
-  icon: string
-  selected: bool
-  disabled: bool
+use CoreOption from "./settings-core-shared.contract"
+
 shape InheritanceOverride
   id: string
   label: string

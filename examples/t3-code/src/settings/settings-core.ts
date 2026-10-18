@@ -10,6 +10,7 @@ import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
 import { ClientError, providerAvailable, type Native } from '../client/protocol';
 import { projectIdentity, providerBadge } from '../client/presentation';
 import { traitsDisplay } from '../composer/composer-controls-model';
+import { resolveTextGenerationSelection } from './text-generation-model';
 import type { T3Client } from '../client/client';
 import { duplicateTheme, parseThemeFile, type CustomTheme } from '../appearance/settings-themes';
 import { themeRoles } from '../appearance/settings-appearance';
@@ -293,7 +294,7 @@ const WRITING_STYLE_LABELS: Record<string, string> = { repo_conventions: 'Reposi
 export function formatSettingValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sidebarAutoSettleAfterDays' ? 'Never'
     : key === 'defaultModelSelection' ? 'Automatic' : key === 'sourceControlWriterModelSelection' ? 'Text generation model'
-    : key === 'defaultThreadEnvMode' || key === 'worktreeSubmodules' ? 'Inherit' : 'Not set';
+    : key === 'reviewGuideModelSelection' ? 'Source control writer model' : key === 'defaultThreadEnvMode' || key === 'worktreeSubmodules' ? 'Inherit' : 'Not set';
   if (typeof value === 'boolean') return value ? 'On' : 'Off';
   if (typeof value === 'number') return key === 'sidebarAutoSettleAfterDays' ? `${value} ${value === 1 ? 'day' : 'days'}` : String(value);
   if (typeof value === 'string') {
@@ -367,28 +368,37 @@ const BACKGROUND = { balanced: ['Balanced', 'Pauses probes for idle clients, loc
 /** ProviderModelPicker + TraitsPicker rows: an advertised model and its reasoning effort (the picker's catalog is settings-model-picker.ts). */
 function modelControl(context: ServerContext, selection: Obj | null, textGeneration: boolean): Partial<CoreRow> {
   const providers = context.providers.filter(provider => providerAvailable(provider) && (!textGeneration || provider.supportsTextGeneration !== false));
+  if (textGeneration) {
+    // resolveAppModelSelectionState: a missing saved model gets the driver's text generation default.
+    const resolved = resolveTextGenerationSelection(selection, providers);
+    return resolved ? traitsControl(context, resolved.provider, resolved.model, resolved.options) : { kind: 'text-only', label: 'No text generation providers available.' };
+  }
   const chosen = selection && providers.find(provider => provider.instanceId === selection.instanceId && arr(provider.models).some(model => model.slug === selection.model));
   const provider = chosen || providers[0];
-  if (!provider) return { kind: 'text-only', label: textGeneration ? 'No text generation providers available.' : 'No providers available' };
+  if (!provider) return { kind: 'text-only', label: 'No providers available' };
   const models = arr(provider.models);
   const model = chosen ? models.find(entry => entry.slug === selection!.model)! : models.find(entry => entry.isDefault === true) || models[0];
+  return traitsControl(context, provider, model, arr(chosen ? selection!.options : []));
+}
+/** The model trigger and its TraitsPicker for one resolved instance, model and saved options. */
+export function traitsControl(context: { providers: Obj[] }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
   // TraitsPicker: every select trait in its own section (Reasoning, Service Tier), radio rows with a Default badge.
-  const descriptors = arr(obj(model?.capabilities).optionDescriptors).filter(descriptor => descriptor.type === 'select' && arr(descriptor.options).length > 0);
-  const selections = arr(chosen ? selection!.options : []);
-  const current = (descriptor: Obj) => str(selections.find(entry => entry.id === descriptor.id)?.value,
+  const descriptors = arr(obj(model?.capabilities).optionDescriptors).filter(descriptor => descriptor.type === 'boolean' || descriptor.type === 'select' && arr(descriptor.options).length > 0);
+  const choices = (descriptor: Obj) => descriptor.type === 'boolean' ? [{ id: 'true', label: 'On' }, { id: 'false', label: 'Off' }]
+    : arr(descriptor.options).filter(entry => !Array.isArray(descriptor.promptInjectedValues) || !descriptor.promptInjectedValues.some(value => value === entry.id));
+  const current = (descriptor: Obj) => descriptor.type === 'boolean' ? String(selections.find(entry => entry.id === descriptor.id)?.value ?? descriptor.currentValue ?? false) : str(selections.find(entry => entry.id === descriptor.id)?.value,
     str(arr(descriptor.options).find(entry => entry.isDefault === true)?.id, str(arr(descriptor.options)[0]?.id)));
   const effort = descriptors.find(descriptor => ['reasoningEffort', 'effort'].includes(str(descriptor.id)));
   const effortValue = effort ? current(effort) : '';
-  // buildTraitsTriggerDisplay over every trait (TraitsPicker with the setting's options): "Medium · 1M";
-  // a Fast or Ultrafast Codex tier draws its bolt instead of a label.
+  // buildTraitsTriggerDisplay over every trait (TraitsPicker with the setting's options): "Medium · 1M", "High Fast".
   const display = traitsDisplay(str(provider.driver), arr(obj(model?.capabilities).optionDescriptors), selections);
   const traits = descriptors.flatMap((descriptor, index) => [option(`section:${str(descriptor.id)}`, str(descriptor.label, str(descriptor.id)), false, { icon: index ? 'section-rule' : 'section', disabled: true }),
-    ...arr(descriptor.options).map(entry => option(`${str(descriptor.id)}=${str(entry.id)}`, str(entry.label, str(entry.id)), current(descriptor) === entry.id,
+    ...choices(descriptor).map(entry => option(`${str(descriptor.id)}=${str(entry.id)}`, str(entry.label, str(entry.id)), current(descriptor) === entry.id,
       { detail: str(entry.description), icon: entry.isDefault === true ? 'default' : '' }))]);
   return {
     value: `${str(provider.instanceId)}|${str(model?.slug)}`, label: str(model?.name, str(model?.slug)), driver: str(provider.driver),
     badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor,
-    value2: effortValue, label2: display.label, icon: display.speed,
+    value2: effortValue, label2: display.label,
     options2: traits,
   };
 }
@@ -626,7 +636,7 @@ function modelValue(raw: string, part: string, key: string, context: ServerConte
     if (!control.options2?.some(entry => entry.value === pick && !entry.icon.startsWith('section'))) throw new ClientError('Choose a supported reasoning effort.');
     const [id, value] = [pick.slice(0, pick.indexOf('=')), pick.slice(pick.indexOf('=') + 1)];
     const previous = current !== null && obj(current).instanceId === instanceId && obj(current).model === model ? arr(obj(current).options) : [];
-    return { instanceId: instanceId!, model: model!, options: [...previous.filter(entry => entry.id !== id).map(entry => ({ id: str(entry.id), value: entry.value as Json })), { id, value }] };
+    return { instanceId: instanceId!, model: model!, options: [...previous.filter(entry => entry.id !== id).map(entry => ({ id: str(entry.id), value: entry.value as Json })), { id, value: value === 'true' ? true : value === 'false' ? false : value }] };
   }
   const separator = raw.indexOf('|');
   const instanceId = raw.slice(0, separator), model = raw.slice(separator + 1);

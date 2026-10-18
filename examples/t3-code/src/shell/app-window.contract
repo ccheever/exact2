@@ -350,6 +350,7 @@ component T3Window
     wizardSteps = data.look.wizardSteps // the setup wizards' step list and panel follow the theme (ui/wizard.tsx)
     wizardPanel = data.look.wizardPanel
     still = viewport.prefersReducedMotion
+    corePal = settingsCore.palette // Settings' palette, for rows drawn outside the General route (the writer model's TraitsPicker)
     hoverTipAt
     hoverTip
     hoverShown

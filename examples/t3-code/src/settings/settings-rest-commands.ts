@@ -181,7 +181,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
       return '';
     }
     let patch: Obj;
-    try { patch = op === 'fetch-interval' ? fetchIntervalPatch(settings, str(input.value)) : scopedPatch(settings, projectId, str(input.key), str(input.value)); }
+    try { patch = op === 'fetch-interval' ? fetchIntervalPatch(settings, str(input.value)) : scopedPatch(settings, projectId, str(input.key), str(input.value), arr(config.providers)); }
     catch (error) { throw new ClientError(error instanceof Error ? error.message : 'Could not save this setting.'); }
     if (op === 'fetch-interval' && projectId) throw new ClientError('This setting is environment-wide and cannot be overridden by a project.');
     const updated = await access.request('server.updateSettings', { patch }, true);
