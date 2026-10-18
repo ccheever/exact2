@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0xe4a8cfcdccd41d7a",
-    "1080": "0xf0f3b95bede822ab"
+    "0": "0x68106967367bba41",
+    "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "50332b6ed849e8302c6419e7b1462f8216f138eab6f053a355099d78b415788d"
+    "continuation": "7cfc13bfeda8f51585e4a1fde5918f13fdf9f402c3d5fb1c3fbd4df85afe091b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "9de1f8789b9a95b5d64d23a2f6b50b4dfc92b003b5b1516d98062c48d5b9fec9",
+  "inputs": "1020be63841b6e4e57e739f05987c2f5bbdb17ca09901788b6ce1eaba8f986e3",
+  "sourceInputs": "05fdee0304c4ca9e3e4de6cfe39d976c04fe77873ed113b63ef3233a0a7137c6",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "00a6faa5be52b79ab0916fb4466260872d91ee3d",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
 }
