@@ -63,6 +63,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "shellView",
             "shellDetails",
             "chatCanvas",
+            "threadFind",
             "terminalDrawer", // the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
             "prList",
@@ -159,10 +160,11 @@ impl DataSource for Markdown {
                 ));
             }
         }
-        Ok(Value::record(vec![Value::list(documents)]))
+        Ok(find_documents(documents, messages, args))
     }
 }
 
+include!("markdown_find.rs");
 include!("pierre_icons.rs");
 include!("markdown_tables.rs");
 include!("markdown_table_align.rs");

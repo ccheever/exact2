@@ -1,3 +1,4 @@
+use FindPart, FindParts, FindToken from "./thread-find.contract"
 // App-local chat typography over the existing portable Markdown parser.
 use FileTypeIcon from "../shared/timeline-files.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
@@ -26,6 +27,7 @@ shape ChatRun
   label: string
   // A media run inside a link's text: the link's destination (MarkdownAnchor's `<a>` around the `<img>`); "" elsewhere.
   link: string
+  findParts: FindPart[]
 shape ChatCell
   id: string
   runs: ChatRun[]
@@ -66,9 +68,11 @@ shape ChatBlock
   // -1 where the checkbox is GFM's disabled one (the transcript, a read-only file).
   task: string
   taskOffset: number
+  findParts: FindPart[]
 shape ChatDocument
   id: string
   blocks: ChatBlock[]
+  titleParts: FindPart[]
 
 // A fenced block's highlight (timeline-highlight.ts), matched to the parsed
 // block by its exact text.
@@ -494,17 +498,22 @@ component ChatRuns
   view
     for run in runs key=run.id
       if run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-        text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+          FindParts(parts=run.findParts)
       if run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
-        text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+          FindParts(parts=run.findParts)
       if not run.mono
         if (run.kind == "link" or run.kind == "link-start") and run.href != ""
-          text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+          text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+            FindParts(parts=run.findParts)
         if (run.kind == "link" or run.kind == "link-start") and run.href == ""
-          text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+          text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+            FindParts(parts=run.findParts)
         if run.kind != "link" and run.kind != "link-start"
           if ms < 0
-            text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+              FindParts(parts=run.findParts)
           else
             text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
@@ -570,27 +579,32 @@ component FlowRuns
         // key, at the focused link (external-link-menu.ts). A code span is part of its link (`.chat-markdown
         // code` inside the `<a>`, after the favicon).
         if run.kind == "link-start" and linkRun(run, chips)
-          link href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start"
+          link href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
             if webLink(run.href)
               box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
                 TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
             if not run.mono
-              text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+              text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+                FindParts(parts=run.findParts)
             else
-              text run.text margin-top="0.153125rem" font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+              text margin-top="0.153125rem" font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+                FindParts(parts=run.findParts)
         // A web or fragment link's later word or code span: its press and menu are the link's. Only a web link's is a Tab
         // stop (as it was); a fragment's is not, the `<a>` being one stop (its link node above).
         if run.kind == "link" and linkRun(run, chips) and pressLink(run.href)
           box press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) tabindex=(webLink(run.href) ? 0 : -1) aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
             if not run.mono
-              text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+              text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+                FindParts(parts=run.findParts)
             else
-              text run.text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+              text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+                FindParts(parts=run.findParts)
         // Any other code span (one in a pull request link too); a mailto, irc or xmpp link's later one is hidden as its
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
         if run.mono and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
-            text run.text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#fafafa, #ffffff08)") color="light-dark(#27272a, #f5f5f5)"
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#fafafa, #ffffff08)") color="light-dark(#27272a, #f5f5f5)"
+              FindParts(parts=run.findParts)
         if not run.mono and (run.kind == "file" or chipAccent(run.kind) != "")
           if chips.filter((chip) => chip.href == run.href and run.href != "").length > 0
             for chip in chips.filter((chip) => chip.href == run.href) key=chip.id
@@ -611,8 +625,9 @@ component FlowRuns
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
         // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
         if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0
-          link href=run.link press=linkOpen("link", run.link) contextmenu=linkMenu(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0
-            text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+          link href=run.link press=linkOpen("link", run.link) contextmenu=linkMenu(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
+            text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+              FindParts(parts=run.findParts)
         // A pull request link in a pull request's text (its chip names the card's target).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0)
           for chip in chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
@@ -622,7 +637,8 @@ component FlowRuns
         // `label`, and an `<a>` with no href shows none).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))
           if ms < 0
-            text run.text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+              FindParts(parts=run.findParts)
           else
             text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
@@ -655,14 +671,16 @@ component PrLinkRun
   action open(e: MouseEvent)
     local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}\n${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`)
   view
-    button id=`pr-link-${chip.id}` press=open contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer"
+    button id=`pr-link-${chip.id}` press=open contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer" title=""
       if run.kind == "link-start" and chip.detail == ""
         box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
           TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
       if chip.detail == "commit"
-        text run.text white-space="pre" flex-shrink=0 font-family="ui-monospace" font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+        text white-space="pre" flex-shrink=0 font-family="ui-monospace" font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+          FindParts(parts=run.findParts)
       else
-        text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+        text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+          FindParts(parts=run.findParts)
 
 // ContextChip's per-kind accent (oklch(0.62 C H)): a fill of the accent at
 // 11%, a border mixing it 34% into the border colour and text mixing it 22%
@@ -686,7 +704,8 @@ component ContextChipBox
           FileTypeIcon(token=run.icon, size=14)
         else
           TimelineIcon(name=chipIcon(run.kind), size=14, color=chipInk(run.kind))
-        text run.text min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(run.kind)
+        text min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(run.kind)
+          FindParts(parts=run.findParts)
 
 // MarkdownFileLink: a workspace file as a mention chip (12pt medium, 17pt
 // tall, 6pt radius, teal-tinted border and fill) with its Pierre icon.
@@ -919,14 +938,16 @@ component CodeBlock
       if code.filter((hl) => hl.code == block.text).length == 0
         if wrap
           if ms < 0
-            text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+              FindParts(parts=block.findParts)
           else
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
               MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             if ms < 0
-              text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+                FindParts(parts=block.findParts)
             else
               text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
                 MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
@@ -935,7 +956,8 @@ component CodeBlock
           text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
             for token in hl.tokens key=token.id
               if ms < 0
-                text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
+                text color=synColor(token.cls) font-style=synSlant(token.cls)
+                  FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
               else
                 text color=synColor(token.cls) font-style=synSlant(token.cls)
                   MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
@@ -944,7 +966,8 @@ component CodeBlock
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
               for token in hl.tokens key=token.id
                 if ms < 0
-                  text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
+                  text color=synColor(token.cls) font-style=synSlant(token.cls)
+                    FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
                 else
                   text color=synColor(token.cls) font-style=synSlant(token.cls)
                     MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
@@ -1162,7 +1185,8 @@ component CellRuns
     row width=0 min-width="100%" max-width="6250rem" min-height="1.21875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible")
       for run in runs key=run.id
         if run.mono
-          text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+          text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+            FindParts(parts=run.findParts)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) != ""
@@ -1171,7 +1195,8 @@ component CellRuns
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
-          text run.text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+          text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+            FindParts(parts=run.findParts)
 
 // A column's sizing cell (the widest cell's runs, unseen, asking for their width capped at 24rem): an image is the same
 // picture, so the column takes its width; no preview, menu or node id of its own.
@@ -1186,7 +1211,8 @@ component CellSizer
     row width="auto" min-width=0 max-width="22.5rem" min-height="1.21875rem" flex-wrap="nowrap" align-items="center" overflow="hidden" opacity=0
       for run in runs key=run.id
         if run.mono
-          text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-width=1 border-style="solid"
+          text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-width=1 border-style="solid"
+            FindParts(parts=run.findParts)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) != ""
@@ -1199,7 +1225,8 @@ component CellSizer
               for entry in urls.filter((entry) => entry.id == chip.target and entry.url != "") key=entry.id
                 image entry.url aria-hidden=true flex-shrink=0 max-width="22.5rem" max-height="30rem" object-fit="contain"
         if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked").length > 0)
-          text run.text min-width=0 font-size="0.75rem" line-height=1.625 white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+          text min-width=0 font-size="0.75rem" line-height=1.625 white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+            FindParts(parts=run.findParts)
 
 // The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
 component TableIconButton

@@ -1,3 +1,4 @@
+use ThreadFindView, ThreadFindBar from "../timeline/thread-find.contract"
 use SettingsCore from "../settings/settings-core.contract"
 use Settings from "../shared/shapes.contract"
 use Snapshot from "../shared/shapes.contract"
@@ -55,6 +56,7 @@ use DialogFinalFocus from "../shared/dialog-trap.contract"
 // The conversation column: header, transcript (or the empty thread), composer stack and alerts.
 component ChatColumn
   inject
+    threadFind: ThreadFindView
     rem: number
     // Ends a citation's placement (app.contract citePlace): the reader's wheel or a minimap jump moves the transcript.
     citeEnd: action
@@ -234,8 +236,12 @@ component ChatColumn
   // details popover (below), and any other popup that overflows the column's foot, runs over an open drawer as the
   // reference's portaled popups do.
   view
-    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"
+    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") hatch="t3-frame" data-frame="chat"
       ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
+      if threadFind.open
+        box position="absolute" top=64 right=12 width=min(280, max(0, conversationWidth - 24)) z-index=39
+          for focus in [threadFind.focus] key=focus
+            ThreadFindBar(find=threadFind, local=chatLocal)
       if hero
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
           EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
@@ -250,7 +256,7 @@ component ChatColumn
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
-          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=transcriptScrolled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=(fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest) id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold and not threadFind.open) reachend=releaseFold scroll=transcriptScrolled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=(fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest) id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
               TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
@@ -314,7 +320,7 @@ component ChatColumn
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
-        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=max(0, (canvas.ready ? canvas.cardHeight : viewport.height - 76) - (threadFind.open ? 48 : 0)), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

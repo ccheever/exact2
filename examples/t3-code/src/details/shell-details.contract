@@ -1,3 +1,4 @@
+use ThreadFindView from "../timeline/thread-find.contract"
 // ThreadDetailsPanel / ThreadDetailsCard (MIT reference, see LICENSE-T3:
 // chat/ThreadDetailsCard.tsx, threadDetailsCardLayout.ts, ThreadDetailsSection.tsx,
 // threadDetailsPanelStyles.ts, BranchToolbar panel rows, OpenInPicker,
@@ -42,6 +43,8 @@ use kmTriggerTarget from "../shared/menu-keys.contract"
 // under the floating player, which closes it on its own press; a press beside the column closes it too
 // (app-window.contract outsidePressDown).
 component ThreadDetailsPanel
+  inject
+    threadFind: ThreadFindView
   props
     details: ShellDetails
     // ThreadDetailsCard's density (chat-canvas-view.ts): full, compact or essential.
@@ -61,11 +64,13 @@ component ThreadDetailsPanel
       // topmost popup); the first declared Escape would otherwise close the card under it. The card's menus are modal
       // popovers, which take Escape themselves.
       button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open ? "" : "Escape") testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
-      column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
+      column position="absolute" top=(threadFind.open ? "6.75rem" : "3.75rem") right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
         DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, act=act, local=local, still=still)
 
 // The inline presentation: an aside pinned 12pt from the canvas's top right, as tall as its content.
 component ThreadDetailsInline
+  inject
+    threadFind: ThreadFindView
   props
     details: ShellDetails
     density: string
@@ -76,7 +81,7 @@ component ThreadDetailsInline
     // prefers-reduced-motion: the running automation's dot stays still.
     still: bool
   view
-    column position="absolute" top="4rem" right="0.75rem" width="17.5rem" max-height=maxHeight z-index=20 box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="complementary" aria-label="Thread details" testId="thread-details-inline"
+    column position="absolute" top=(threadFind.open ? "7rem" : "4rem") right="0.75rem" width="17.5rem" max-height=maxHeight z-index=20 box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="complementary" aria-label="Thread details" testId="thread-details-inline"
       DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, act=act, local=local, still=still)
 
 // ThreadDetailsPanel's rows by density: `full` everything; `compact` without the Run on and workspace rows,

@@ -1,3 +1,4 @@
+import { threadFindEvent } from '../timeline/thread-find-runtime';
 import { snapshotShortcut } from '../snapshot/snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from '../snapshot/snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
@@ -524,6 +525,7 @@ export class T3Client {
           break;
         }
         through = Math.max(through, seq);
+        if (threadFindEvent(this, entry)) continue;
         if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); samples++; continue; } // settings-a-telemetry.ts
         if (key === WORKTREE_SETUP_KEY) { worktreeSetupEvent(this, entry); continue; } // timeline-worktree.ts
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
@@ -939,12 +941,12 @@ export class T3Client {
     if (op === 'delete-archived-thread') delete this.local.drafts[`${this.environmentId}:${id}`];
   }
 
-  async history(native: Native): Promise<void> {
+  async history(native: Native, throughEntryId = ''): Promise<void> {
     if (!this.thread?.hasMore || !this.thread.historyCursor || this.historyLoading) return;
     const epoch = this.threadEpoch, id = this.threadId, cursor = this.thread.historyCursor;
     this.historyLoading = true;
     try {
-      const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}`);
+      const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}${throughEntryId ? `&throughEntryId=${encodeURIComponent(throughEntryId)}` : ''}`);
       if (epoch === this.threadEpoch && id === this.threadId && this.thread?.historyCursor === cursor) this.thread = mergeHistory(this.thread, page);
     } finally { this.historyLoading = false; }
   }

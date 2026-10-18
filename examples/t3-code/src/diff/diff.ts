@@ -1,3 +1,4 @@
+import { DiffFind, markDiffRows, findGap } from './diff-find';
 // Changes panel state and projection, adapted from T3 Code (MIT); see LICENSE-T3.
 // Sources: apps/web/src/components/DiffPanel.tsx, diffPanelStore.ts, components/diffs/*
 // and the served @pierre/diffs rendering (stacked/split rows, bars). The panel passes
@@ -24,6 +25,7 @@ import { utilityPlacement, type LineDrag } from './diff-line-drag';
 export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn'; runId: string; filePath: string; baseRef: string | null };
 /** View preferences mirror the reference defaults: stacked, wrapped, whitespace ignored, tree hidden, files collapsed. */
 export class DiffState {
+  find = new DiffFind();
   selections: Record<string, DiffSelection> = {};
   layout: 'stacked' | 'split' = 'stacked';
   wrap = true;
@@ -313,6 +315,14 @@ export function diffSnapshot(client: T3Client, now: number) {
   const state = client.diffState, selection = currentSelection(client), turns = turnSummaries(client.projection);
   // Outside git nothing is listed, not even files a fetch before the status arrived returned.
   const notGit = diffNotGit(client), files = notGit ? [] : diffFiles(client), lazy = state.lazy, scope = state.scopeKey, section = reviewSection(client);
+  state.find.reset(scope);
+  state.find.search(files.map(file => ({ path: file.path, lines: reviewLinesOf(state, file) })));
+  const findMatch = state.find.active;
+  if (state.find.open && findMatch) {
+    state.expanded[`${scope}::${findMatch.path}`] = true;
+    const file = files.find(file => file.path === findMatch.path), gap = file && findMatch.context ? findGap(file, findMatch.line) : null;
+    if (gap) { const key = `${scope}::${findMatch.path}::${gap.gap}`, previous = state.expansions[key]; state.expansions[key] = { fromStart: Math.max(previous?.fromStart ?? 0, gap.through), fromEnd: previous?.fromEnd ?? 0 }; }
+  }
   const gitSource = selection.kind !== 'turn' && state.source !== null;
   const turn = turns.find(entry => entry.runId === selection.runId);
   const scopeLabel = selection.kind === 'unstaged' ? 'Uncommitted' : selection.kind === 'branch' ? 'Changes'
@@ -366,7 +376,7 @@ export function diffSnapshot(client: T3Client, now: number) {
       }
     };
     const push = (row: Row | { left: Row; right: Row }, key: string) => {
-      if (++rows > ROW_LIMIT) return;
+      if (++rows > (state.find.open ? 100_000 : ROW_LIMIT)) return;
       const common = { ...base, id: `line:${file.path}:${key}`, path: file.path, expanded, gutter, pinned: utility.pinned };
       if ('left' in row) {
         items.push({ ...common, kind: 'split', leftTone: row.left.tone, leftNumber: row.left.number, leftSegments: row.left.segments, rightTone: row.right.tone, rightNumber: row.right.number,
@@ -419,6 +429,7 @@ export function diffSnapshot(client: T3Client, now: number) {
   // The Changes header's "<head> → <base>" and its picker, for the branch source that answered (DiffPanel selectedGitSource).
   const branchSource = selection.kind === 'branch' && !notGit && state.source?.kind === 'branch-range' ? state.source : null;
   const picker = baseRefView(state.baseRefs, branchSource?.cwd ?? '', branchSource?.headRef ?? null, selection.kind === 'branch' ? selection.baseRef : null);
+  const marked = markDiffRows(items, state.find);
   return {
     diffCompare: !!branchSource?.baseRef, diffHead: branchSource?.headRef || 'HEAD', diffBase: branchSource?.baseRef ?? '',
     diffBaseRefs: picker.rows, diffBaseAutomatic: picker.automatic, diffBaseEmpty: picker.empty,
@@ -428,7 +439,7 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffCanRefresh: selection.kind !== 'turn' && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
     // The size banner shows only for a truncated preview the panel cannot read file by file (older servers).
     // A project outside git reads as the centred empty state, as DiffPanel's !isGitRepo branch, not as an error.
-    diffTruncated: (state.truncated && !lazy) || rows > ROW_LIMIT, diffEmpty: notGit || (!client.diffLoading && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
+    diffTruncated: (state.truncated && !lazy) || rows > (state.find.open ? 100_000 : ROW_LIMIT), diffEmpty: notGit || (!client.diffLoading && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
     diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffText.trim() || lazy ? 'No patch available for this selection.' : 'No net changes in this selection.',
     diffAdditions: additions, diffDeletions: deletions, diffAdditionsText: `+${compactCount(additions)}`, diffDeletionsText: `-${compactCount(deletions)}`,
     diffAllCollapsed: files.every(file => (state.expanded[`${scope}::${file.path}`] ?? state.defaultExpanded) !== true),
@@ -436,7 +447,7 @@ export function diffSnapshot(client: T3Client, now: number) {
       additions: file.additions, deletions: file.deletions, markdown: /\.(md|mdx|markdown)$/i.test(file.path) })),
     diffTreeRows: diffTreeRows(entries, closed, state.treeSelected), diffTreeLabel: `${section.title} files`,
     diffTreeFolders: collectDirectoryPaths(entries.map(entry => entry.path)).length > 0, diffTreeAllOpen: allDirectoriesExpanded(entries.map(entry => entry.path), closed),
-    diffItems: items, diffCommentOpen: draft !== null,
+    diffItems: marked.items, diffFind: state.find.view(marked.target), diffCommentOpen: draft !== null,
     diffLoadingLabel: selection.kind === 'turn' ? 'Loading checkpoint diff...' : selection.kind === 'unstaged' ? 'Loading uncommitted changes...' : 'Loading changes...',
   };
 }

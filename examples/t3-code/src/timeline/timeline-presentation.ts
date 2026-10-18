@@ -1,3 +1,5 @@
+import { focusDiffFind } from '../diff/diff-find';
+import { threadFindAction, threadFindExpanded } from './thread-find-runtime';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
@@ -99,11 +101,16 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // the composer's drafts (pages-pr-detail.ts)
   if (op === 'pr-ui-select') return surfaceLocal(client, native, 'linked-pr-open', stackLayerTarget(value), ''); // a stack layer beside a thread
   if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // the panel header's menu choices
+  if (op === 'pr-code-find-focus') { focusDiffFind(client, 'pr', id); return ''; }
   if (op.startsWith('pr-code-')) return prCodeLocalFor(client, native, op.slice(8), id, value); // the Code tab's presses (pages-pr-code.ts)
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // git-route.ts
   if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId),
     openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });
   const view = timelineView(client);
+  if (op === 'find-focus') { focusDiffFind(client, null); return ''; }
+  if (op === 'diff-find-focus') { focusDiffFind(client, 'panel'); return ''; }
+  if (op.startsWith('diff-find-')) { client.diffState.find.action(op.slice(10), value); return ''; }
+  if (op.startsWith('find-')) return threadFindAction(client, op.slice(5), value);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
   if (op === 'history') {
     const threadId = client.threadId;
@@ -299,7 +306,7 @@ export function transcriptRows(client: T3Client): Message[] {
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
-    expandedRuns: open('fold'), expandedAttempts: open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
+    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads };
   return rows.map(row => present(row, context));

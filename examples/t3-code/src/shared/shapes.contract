@@ -1,3 +1,4 @@
+use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
 use CodeHighlight from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/markdown.contract"
 use MarkdownEnv from "../timeline/markdown.contract"
@@ -246,13 +247,13 @@ shape DiffItem
   markdown: bool
   tone: string
   number: string
-  segments: DiffSegment[]
+  segments: FindDiffSegment[]
   leftTone: string
   leftNumber: string
-  leftSegments: DiffSegment[]
+  leftSegments: FindDiffSegment[]
   rightTone: string
   rightNumber: string
-  rightSegments: DiffSegment[]
+  rightSegments: FindDiffSegment[]
   label: string
   gutter: number
   // diff-review: a line's side and number for selection and comments (split: left/right), file marks, gap expansion, comment entries.
@@ -447,6 +448,7 @@ shape Snapshot
   diffBaseEmpty: bool
   diffAllCollapsed: bool
   diffFiles: DiffFile[]
+  diffFind: DiffFindView
   diffItems: DiffItem[]
   diffTreeRows: DiffTreeRow[]
   diffTreeLabel: string
