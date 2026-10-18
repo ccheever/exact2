@@ -258,10 +258,10 @@ impl NavPlace {
         span: Span,
     ) -> Option<Vec<Attr>> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
-        let route = matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
-            && has("navigationKey")
-            && !has("navigationBack");
-        if !route || has("background-color") || !scrolls_a_grouped_list(tag, attrs, children) {
+        if !self.is_route(attrs)
+            || has("background-color")
+            || !scrolls_a_grouped_list(tag, attrs, children)
+        {
             return None;
         }
         let role = Attr {
@@ -288,9 +288,7 @@ impl NavPlace {
     /// is not a sheet, or already says its ground.
     pub(crate) fn sheet_page(&self, attrs: &[Attr], span: Span) -> Option<Vec<Attr>> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
-        let route = matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
-            && has("navigationKey")
-            && !has("navigationBack");
+        let route = self.is_route(attrs);
         let modal = attrs
             .iter()
             .rev()
@@ -308,6 +306,15 @@ impl NavPlace {
             written: crate::IMPLIED,
         };
         Some([&[role][..], attrs].concat())
+    }
+
+    /// Whether an element here with `attrs` is a route: a child of the
+    /// navigation root or of a `role="tabpanel"` in it, with a `navigationKey`.
+    fn is_route(&self, attrs: &[Attr]) -> bool {
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
+            && has("navigationKey")
+            && !has("navigationBack")
     }
 
     /// The place of `tag`'s children, or the refusal of a route `tag` that
@@ -338,6 +345,52 @@ impl NavPlace {
                     .find(|a| a.name == "navigationBar")
                     .map_or(span, |a| a.span),
             );
+        }
+        // A sheet opens at one of its own heights, which its route says; a
+        // list the compiler cannot read is given the benefit of the doubt
+        // (iOS journals a miss).
+        if let Some(a) = attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == "navigationInitialDetent")
+        {
+            if !self.is_route(attrs) {
+                return err(
+                    "lower-attr-value",
+                    "`navigationInitialDetent` is read only on a route (an element with a `navigationKey`, a child of the navigation root or of a `role=\"tabpanel\"` in it), beside its `navigationDetent`: move both onto the sheet's route",
+                    a.span,
+                );
+            }
+            // Empty, as `navigationDetent=""` is, it is unsaid: the first.
+            if matches!(&a.value, Expr::Str(word, _) if !word.is_empty() && !crate::vocab::detent_word(word))
+            {
+                return err(
+                    "lower-attr-value",
+                    "`navigationInitialDetent` takes one word of the route's `navigationDetent`, the height its sheet opens at",
+                    a.span,
+                );
+            }
+            let detents = attrs.iter().rev().find(|a| a.name == "navigationDetent");
+            // The words, and whether the route wrote them.
+            let heights = match detents.map(|a| &a.value) {
+                Some(Expr::Str(s, _)) if !s.trim().is_empty() => Some((s.as_str(), true)),
+                Some(Expr::Str(..)) | None => Some(("large", false)),
+                Some(_) => None,
+            };
+            if let (Expr::Str(word, _), Some((heights, written))) = (&a.value, heights) {
+                if !word.is_empty() && !heights.split(' ').any(|w| w == word) {
+                    let said = if written {
+                        format!("`navigationDetent=\"{heights}\"`")
+                    } else {
+                        "`large` alone, as the route says no `navigationDetent`".into()
+                    };
+                    return err(
+                        "lower-attr-value",
+                        format!("`navigationInitialDetent=\"{word}\"` is not one of this sheet's heights, {said}; it names the one of them the sheet opens at"),
+                        a.span,
+                    );
+                }
+            }
         }
         // @ref LLP 1116.006 D2 — the split's placeholder is a box in the root route; a route
         // marked so would never show.

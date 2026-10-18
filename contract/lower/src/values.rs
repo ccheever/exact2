@@ -1084,14 +1084,11 @@ pub(crate) fn check_prop_value(
     // of the sheet's maximum (§9.13).
     if prop == PropId::NavigationDetent {
         if let Expr::Str(s, _) = value {
-            if let Some(word) = s.split(' ').filter(|w| !w.is_empty()).find(|w| {
-                !matches!(*w, "large" | "medium" | "fit-content")
-                    && !w.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
-                    && !w.strip_suffix('%').is_some_and(|p| {
-                        p.parse::<f64>()
-                            .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
-                    })
-            }) {
+            if let Some(word) = s
+                .split(' ')
+                .filter(|w| !w.is_empty())
+                .find(|w| !vocab::detent_word(w))
+            {
                 return err(
                     "lower-attr-value",
                     format!(

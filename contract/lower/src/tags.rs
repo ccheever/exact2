@@ -543,6 +543,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
+        "navigationInitialDetent" => AttrTarget::Prop(p("navigationInitialDetent")),
         "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
         // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
         "wakelock" => AttrTarget::Prop(p("wakelock")),

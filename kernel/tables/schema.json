@@ -1572,6 +1572,12 @@
       "name": "fontShorthand",
       "kind": "bool",
       "_comment": "@ref LLP 1115.000 D12.2: the node's text style was named through the `font` shorthand (or a type token), which resets the weight and the leading as CSS's shorthand does, so the style's beat an inherited `font-weight` and `line-height`; a bare `font-size` naming a style fills only what nothing above says. Set by Contract, never written by an author (`contract/lower/src/shorthands.rs`)."
+    },
+    {
+      "id": 271,
+      "name": "navigationInitialDetent",
+      "kind": "str",
+      "_comment": "@ref LLP 1115 §2 (what the author writes wins): the word of a sheet route's `navigationDetent` the sheet opens at; unsaid, the first (the shortest), as UIKit opens a sheet at its smallest detent. UIKit's `selectedDetentIdentifier`, React Navigation's `sheetInitialDetentIndex`; iOS reads it when the detents are set, hosts whose sheets have one height ignore it."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
