@@ -24,3 +24,6 @@ pub mod door_message {}
 /// Save and restore an opaque slot.
 #[doc = include_str!("../../recipes/save-slot.md")]
 pub mod save_slot {}
+/// Inspect defaults before spawning a component.
+#[doc = include_str!("../../recipes/component-values.md")]
+pub mod component_values {}

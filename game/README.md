@@ -226,6 +226,8 @@ For a complete small game, start with [the template](new/logic/src/lib.rs) or
 [Beacons](games/beacons/logic/src/lib.rs). The [engine reference](engine/README.md)
 covers borrowing, registration, observation, saving and loading.
 [Game recipes](recipes/README.md) answer one task each with a runnable `Sim` fragment.
+`bun exact.mjs game vocab <Component|verb>` in a generated game shows rustdoc,
+public fields, evaluated defaults and the recipe that uses them.
 
 ### Arguments, pause and restart
 

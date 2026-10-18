@@ -638,6 +638,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact new <path> --game      a new game (game/README.md): a Rust world under
                                Contract's menus, with the same exact.mjs verbs;
                                --assets declares game.assets
+  exact game vocab [<name>]   component fields, evaluated defaults and World verbs, from rustdoc
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
   exact tamber check|eval|ir|fmt <app>  the app's design (app.tamber): checked,
@@ -990,6 +991,7 @@ async function main(argv) {
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
   if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(helpText(verb) ?? USAGE);
+  if (verb === 'game' && name === 'vocab') return import('../game/vocab.mjs').then(m => m.main(rest));
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).

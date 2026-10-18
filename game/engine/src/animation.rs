@@ -62,15 +62,22 @@ macro_rules! playback {
 }
 playback!(Animation, Blend, Animator);
 
+/// Saved single-clip playback. Call animation::step in tick before reading markers or root motion.
 #[derive(Clone, Debug, Data)]
 pub struct Animation {
+    /// Clip name in the entity's baked model.
     pub clip: String,
+    /// Playback position in clip seconds.
     pub time: f32,
     /// Whether this controller has successfully sampled; saved across restore.
     pub sampled: bool,
+    /// Clock multiplier; negative runs backward.
     pub speed: f32,
+    /// Wrap at the clip boundary when true.
     pub looping: bool,
+    /// Authored (clip seconds, event name) pairs.
     pub markers: Vec<(f32, String)>,
+    /// Extracted root motion and this tick's crossed markers.
     pub playback: Playback,
 }
 impl Default for Animation {
@@ -108,11 +115,16 @@ impl Animation {
         self
     }
 }
+/// Saved blend between clips along a scalar axis. Call animation::step explicitly in tick.
 #[derive(Default, Clone, Debug, Data)]
 pub struct Blend {
+    /// Extracted root motion and this tick's crossed markers.
     pub playback: Playback,
+    /// Animator parameter name, or empty to use axis directly.
     pub parameter: String,
+    /// Position along the clip knots; units are the author's.
     pub axis: f32,
+    /// Ascending (axis position, clip name) knots.
     pub clips: Vec<(f32, String)>,
 }
 impl Blend {
@@ -312,13 +324,19 @@ impl State {
         self
     }
 }
+/// Saved state-machine playback. Call animation::step explicitly in tick; no scheduler runs it.
 #[derive(Default, Clone, Debug, Data)]
 pub struct Animator {
+    /// Extracted root motion and this tick's crossed markers.
     pub playback: Playback,
     from_motion: Vec3,
+    /// Authored playback states in index order.
     pub states: Vec<State>,
+    /// Index of the active state.
     pub current: u32,
+    /// Seconds spent in the current state.
     pub since: f32,
+    /// Saved named number, bool and trigger parameters.
     pub params: Vec<(String, Param)>,
     from: Vec<f32>,
     // Saved pre-overlay sample: fades must never feed a layer back into itself.
@@ -489,11 +507,16 @@ impl Animator {
         Ok(())
     }
 }
+/// Saved two-bone inverse-kinematics intent, applied by animation::step after clip layers.
 #[derive(Default, Clone, Debug, Data)]
 pub struct Ik {
+    /// Root, middle and tip node names in the imported model.
     pub chain: [String; 3],
+    /// Model-local tip target in metres.
     pub target: Vec3,
+    /// Model-local bend-plane point in metres.
     pub pole: Vec3,
+    /// Blend weight from zero (off) to one (full IK).
     pub weight: f32,
 }
 #[derive(Default)]

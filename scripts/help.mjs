@@ -263,6 +263,15 @@ Android Hermes bundle (bun <exact2>/scripts/hermes-android.mjs build, once).
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs android && bun exact.mjs agent android tree',
   },
+  game: {
+    line: 'game vocab: fields, defaults and recipes',
+    usage: 'bun exact.mjs game vocab [<name>] [--json]',
+    flags: [['--json', 'structured declarations, fields, defaults and recipe links']],
+    body: `No name lists components, resources and World verbs. A name also accepts Type::method.
+Requires the SDK Rust toolchain; Cargo reuses its compiled inputs. Writes generated
+artifacts under game/target only. Ports none. Runs to completion.`,
+    example: 'bun exact.mjs game vocab Follow',
+  },
   contract: {
     line: 'the Contract compiler: build, types, vocab, fmt, symbols …',
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
@@ -456,9 +465,8 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
     'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
     ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
-    '',
     'bun exact.mjs <verb> --help: flags and an example;',
-    'bun exact.mjs <verb> --help all: every other flag and the ports it opens. Read it only for a flag not above.',
+    'bun exact.mjs <verb> --help all: every flag and port.',
   ].join('\n');
 }
 
