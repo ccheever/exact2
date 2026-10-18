@@ -324,7 +324,7 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
                 |p| {
                     let q = crate::Vec2::new(crate::Vec2::new(p.x, p.z).length(), p.y);
                     let k1 = crate::Vec2::new(0., height * 0.5);
-                    let k2 = crate::Vec2::new(*radius, *height);
+                    let k2 = crate::Vec2::new(-radius, *height);
                     let ca = crate::Vec2::new(
                         q.x - q.x.min(if q.y < 0. { *radius } else { 0. }),
                         q.y.abs() - height * 0.5,

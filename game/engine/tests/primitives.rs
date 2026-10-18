@@ -73,3 +73,87 @@ fn adding_primitives_preserves_the_existing_asset_variant_hash_ordinal() {
         "the ordinal is part of the simulation hash"
     );
 }
+
+struct ConeRays;
+impl Game for ConeRays {
+    const ID: &'static str = "cone-rays";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named("camera", (Transform::default(), Camera::orthographic(4.)));
+        w.spawn_named("cone", (Transform::default(), Mesh::cone(1., 2.)));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn cone_picks_side_cap_inside_and_transformed_rays() {
+    let mut sim = Sim::<ConeRays>::new(()).unwrap();
+    sim.viewport(400., 400.);
+    for transform in [
+        Transform::default(),
+        Transform {
+            position: Vec3::new(2., -1., 3.),
+            rotation: Quat::from_rotation_z(0.7),
+            scale: Vec3::new(2., 1.5, 0.5),
+        },
+    ] {
+        *sim.world().require_mut::<Transform>("cone") = transform;
+        let affine = Affine3A::from_scale_rotation_translation(
+            transform.scale,
+            transform.rotation,
+            transform.position,
+        );
+        for (origin, direction, expected) in [
+            (
+                Vec3::new(2., 0., 0.),
+                -Vec3::X,
+                Some(Vec3::new(0.5, 0., 0.)),
+            ),
+            (
+                Vec3::new(0.25, -3., 0.),
+                Vec3::Y,
+                Some(Vec3::new(0.25, -1., 0.)),
+            ),
+            (Vec3::ZERO, Vec3::X, Some(Vec3::new(0.5, 0., 0.))),
+            (Vec3::new(2., 0., 0.), Vec3::Z, None),
+        ] {
+            let eye = affine.transform_point3(origin);
+            let direction = affine.transform_vector3(direction).normalize();
+            let up = if direction.dot(Vec3::Y).abs() > 0.99 {
+                Vec3::Z
+            } else {
+                Vec3::Y
+            };
+            *sim.world().require_mut::<Transform>("camera") =
+                Transform::at(eye.x, eye.y, eye.z).looking_at(eye + direction, up);
+            let hit = sim.pick(Vec2::splat(200.));
+            if let Some(point) = expected {
+                let hit = hit.expect("ray hits cone surface");
+                let point = affine.transform_point3(point);
+                assert!(
+                    (hit.point - point).length() < 0.002,
+                    "{:?} != {point:?}",
+                    hit.point
+                );
+            } else {
+                assert!(hit.is_none(), "outside ray misses");
+            }
+        }
+    }
+}
+
+#[test]
+fn parent_v4_asset_save_loads_with_its_original_hash() {
+    // Written by dd5a46579's World::save with Asset at ordinal 5, before this lane.
+    let bytes = include_bytes!("fixtures/asset-v4.bin");
+    let mut w = World::new(120, 7);
+    w.register::<Transform>()
+        .register::<Mesh>()
+        .register::<Material>();
+    w.load(bytes).unwrap();
+    assert_eq!(w.hash(), 0x70e72ecb97148060);
+    assert_eq!(
+        w.require::<Mesh>("legacy-asset").clone(),
+        Mesh::asset("crate.model")
+    );
+    assert_eq!(w.save(), bytes);
+}

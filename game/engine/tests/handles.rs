@@ -51,3 +51,27 @@ fn handle_verbs_match_explicit_writes_and_keep_row_leases() {
     assert_eq!(a.require::<Glow>("beacon").0.start_tick, 1);
     assert_eq!(a.require::<Glow>("beacon").0.target, 0.5);
 }
+
+#[test]
+fn query_rows_report_the_required_entity_handle_constructors() {
+    let w = world();
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        for mut glow in w.query::<&mut Glow>() {
+            glow.glow_to(1., 1.);
+        }
+    }))
+    .unwrap_err();
+    let message = panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap();
+    assert!(message.contains("entity-handle-required"));
+    for constructor in [
+        "World::get_mut",
+        "World::require_mut",
+        "World::nearest_xz_mut",
+    ] {
+        assert!(message.contains(constructor));
+    }
+}

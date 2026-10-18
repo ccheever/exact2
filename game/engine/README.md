@@ -157,7 +157,7 @@ actual displacement and contact state. Collision movement uses the separate
 new followers and preserves saved poses. It then steps after each tick. Call
 `scene::follow(w)` inside the tick to choose an earlier order; it will not step
 twice. Primitive dimensions belong to `Mesh`;
-`Collider::of(&mesh)` supplies matching collision geometry.
+`Collider::of(&mesh)` supplies matching collision geometry for cube, cuboid, sphere, capsule, cylinder and plane. Ring, torus and cone require an explicitly authored collider.
 
 Retarget a glow through its row handle: `w.require_mut::<Glow>("beacon").glow_to(1.0, 0.5)`,
 or `beacon.glow_to(1.0, 0.5)` on the row from `nearest_xz_mut`. Handles also offer
