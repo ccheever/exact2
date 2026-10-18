@@ -116,6 +116,7 @@ component SettingsWindow
     coreChange: action
     coreNavigateRoot: action
     coreScope: action
+    coreNoticeScope: action
     coreThemeDialog: action
     sourceControl: SourceControlPage
     modalError: string
@@ -311,7 +312,7 @@ component SettingsWindow
                 if settingsMenu != ""
                   button press=coreMenuClose position="absolute" left=0 top=0 width="100%" height="100%" z-index=40 background-color="#00000000" aria-label="Close menu" aria-keyshortcuts="Escape" testId="settings-menu-backdrop" title=""
                 if settingsCore.showScope or settingsRoute == "general" or settingsRoute == "appearance"
-                  SettingsCoreBody(reduced=viewport.prefersReducedMotion, core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, dialog=coreThemeDialog)
+                  SettingsCoreBody(reduced=viewport.prefersReducedMotion, core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, noticeChoose=coreNoticeScope, dialog=coreThemeDialog)
                 if settingsRoute == "source-control"
                   SourceControlPanel(data=sourceControl, busy=commandPending, error=modalError, rest=rest, restInput=restInput, restLocal=restLocal)
                 if settingsRoute == "integrations"
@@ -335,7 +336,7 @@ component SettingsWindow
                 if settingsRoute == "providers"
                   ProvidersPanel(page=providerPage, scheme=scheme, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAddingLive)
                 if settingsRoute == "projects"
-                  ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
+                  ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreNoticeScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                     for row in settingsCore.projectModel key=row.id
                       CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section="project-defaults", pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
                 if modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen

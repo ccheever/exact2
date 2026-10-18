@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings › Providers shows the environment its scope selector chose (found
 // by #312): T3 Code 1e2ecbd975 routes/settings.providers.tsx:7-30. This Mac (the focused
 // connection) has Codex signed in; a second, background environment has not. Before the fix the page
@@ -49,7 +50,7 @@ function servers() {
 /** The second environment as the fleet knows it once its transport synchronized (settings-b-fleet.ts). */
 function background(second: Backend, phase: 'connected' | 'reconnecting' = 'connected', projects: Obj[] = []) {
   fleet.entries.set(KEY, { key: KEY, origin: ORIGIN, environmentId: 'env2', phase, message: '', traceId: '', generation: 3, synchronized: phase === 'connected' ? 3 : -1,
-    lastEvent: 0, subscriptions: {}, config: second.config, shell: { ...initialShell(), projects }, scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
+    lastEvent: 0, subscriptions: {}, config: second.config, shell: { ...initialShell(), projects }, scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true });
 }
 /** The providerPage resource's arguments (app.contract): selection, active, revision, clock, then the scope. */
 const page = async (native: Native, files: Parameters<typeof answer>[3], machine: string, extra: string[] = ['', '', '']) =>

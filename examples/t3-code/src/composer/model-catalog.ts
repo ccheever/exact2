@@ -1,5 +1,6 @@
 // T3's model picker catalog: ModelPickerContent.tsx (rail, filtering, legacy
-// section), modelOrdering.ts, modelPickerSearch.ts and shared searchRanking.ts.
+// section), modelOrdering.ts, and modelPickerSearch.ts and shared searchRanking.ts
+// as of 9c161462c9.
 // Browsing and searching never change the composer's selection; only a chosen
 // row commits one (`command("model", …)`).
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -21,6 +22,7 @@ type Item = { id: string; name: string; shortName: string; subProvider: string; 
 export { pickerReady };
 
 const normalize = (value: string) => value.trim().toLowerCase();
+/** scoreSubsequenceMatch with ignorePosition: gaps and span only. */
 function subsequence(value: string, query: string): number | null {
   let at = 0, first = -1, previous = -1, gaps = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -28,28 +30,32 @@ function subsequence(value: string, query: string): number | null {
     if (first === -1) first = index;
     if (previous !== -1) gaps += index - previous - 1;
     previous = index; at += 1;
-    if (at === query.length) return first * 2 + gaps * 3 + (index - first + 1 - query.length) + Math.min(64, value.length - query.length);
+    if (at === query.length) return gaps * 3 + (index - first + 1 - query.length);
   }
   return null;
 }
+/** scoreQueryMatch with ignorePosition: the match tier alone, so equal matches keep the catalog's order. */
 function scoreField(value: string, token: string, base: number): number | null {
   if (!value || !token) return null;
-  const penalty = Math.min(64, Math.max(0, value.length - token.length));
   if (value === token) return base;
-  if (value.startsWith(token)) return base + 2 + penalty;
-  const boundary = [' ', '-', '_', '/'].map(marker => { const at = value.indexOf(marker + token); return at < 0 ? -1 : at + marker.length; })
-    .filter(at => at >= 0);
-  if (boundary.length) return base + 4 + Math.min(...boundary) * 2 + penalty;
-  const includes = value.indexOf(token);
-  if (includes >= 0) return base + 6 + includes * 2 + penalty;
+  if (value.startsWith(token)) return base + 2;
+  if ([' ', '-', '_', '/'].some(marker => value.includes(marker + token))) return base + 4;
+  if (value.includes(token)) return base + 6;
   const fuzzy = token.length >= 3 ? subsequence(value, token) : null;
   return fuzzy === null ? null : base + 100 + fuzzy;
 }
 const searchText = (item: Item) => normalize([item.name, item.shortName, item.subProvider, item.driver, item.providerName].filter(Boolean).join(' '));
-/** scoreModelPickerSearch: every token must match a field; favorites get a 24-point boost. */
+const modelName = (name: string) => normalize(name).replace(/\s+/gu, ' ');
+/**
+ * scoreModelPickerSearch: a query that is exactly the model's name or short
+ * name ranks above every token match (favorites too); otherwise every token
+ * must match a field, and favorites get a 24-point boost.
+ */
 export function scoreModel(item: Item, query: string): number | null {
   const tokens = normalize(query).split(/\s+/u).filter(Boolean);
   if (!tokens.length) return 0;
+  const joined = tokens.join(' ');
+  if (joined === modelName(item.name) || joined === modelName(item.shortName)) return -1000;
   const fields = [item.name, ...(item.shortName ? [item.shortName] : []), ...(item.subProvider ? [item.subProvider] : []),
     item.driver, item.providerName].map(normalize).concat(searchText(item));
   let score = 0;
@@ -166,9 +172,10 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const original = (item: Item) => (instanceOrder.get(item.providerId) ?? 0) * 10000 + item.order;
   let list: Item[];
   if (searching) {
-    list = items.map(item => ({ item, score: scoreModel(item, query), tie: searchText(item) }))
-      .filter((entry): entry is { item: Item; score: number; tie: string } => entry.score !== null)
-      .sort((a, b) => a.score - b.score || Number(b.item.favorite) - Number(a.item.favorite) || a.tie.localeCompare(b.tie))
+    // rankModelPickerSearch: best match first; equal matches keep the catalog's own (newest-first) order.
+    list = items.map((item, order) => ({ item, score: scoreModel(item, query), order }))
+      .filter((entry): entry is { item: Item; score: number; order: number } => entry.score !== null)
+      .sort((a, b) => a.score - b.score || Number(b.item.favorite) - Number(a.item.favorite) || a.order - b.order)
       .map(entry => entry.item);
   } else if (selected === 'favorites') {
     list = items.filter(item => item.favorite).sort((a, b) => original(a) - original(b));

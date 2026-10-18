@@ -5,7 +5,7 @@ export interface BridgeReply {
   ok: boolean;
   generation: number;
   value?: unknown;
-  error?: { kind: string; message: string; uncertain: boolean; reason?: string; detail?: string };
+  error?: { kind: string; message: string; uncertain: boolean; reason?: string; detail?: string; context?: Record<string, string> };
 }
 export interface Native {
   available: boolean;
@@ -23,9 +23,11 @@ export class ClientError extends Error {
   /** A typed server error's own fields (PullRequestOperationError.reason "not-found", .detail); '' otherwise. */
   readonly reason: string;
   readonly detail: string;
-  constructor(message: string, readonly kind = 'client', readonly uncertain = false, typed: { reason?: string; detail?: string } = {}) {
+  /** Its context fields (ProjectReadFileError.failure, .resolvedPath); empty otherwise. */
+  readonly context: Record<string, string>;
+  constructor(message: string, readonly kind = 'client', readonly uncertain = false, typed: { reason?: string; detail?: string; context?: Record<string, string> } = {}) {
     super(message);
-    this.reason = typed.reason ?? ''; this.detail = typed.detail ?? '';
+    this.reason = typed.reason ?? ''; this.detail = typed.detail ?? ''; this.context = typed.context ?? {};
   }
 }
 export function reply(value: unknown): BridgeReply {
@@ -40,6 +42,7 @@ export function reply(value: unknown): BridgeReply {
       kind: str(error.kind, 'transport'), message: str(error.message, 'The connection failed.'),
       uncertain: error.uncertain === true,
       ...(str(error.reason) ? { reason: str(error.reason) } : {}), ...(str(error.detail) ? { detail: str(error.detail) } : {}),
+      ...(Object.keys(obj(error.context)).length ? { context: Object.fromEntries(Object.entries(obj(error.context)).filter(([, value]) => typeof value === 'string')) as Record<string, string> } : {}),
     } }),
   };
 }

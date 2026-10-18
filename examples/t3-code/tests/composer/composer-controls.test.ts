@@ -44,7 +44,7 @@ describe('sticky model and next-turn selection', () => {
     await command('runtime', '', 'approval-required');
     expect(native.committed.length).toBe(before);
     expect(client.error).toBe('');
-    expect(snapshot(client).composer).toMatchObject({ traitsLabel: 'Low', traitsSpeed: '', runtimeLabel: 'Supervised' });
+    expect(snapshot(client).composer).toMatchObject({ traitsLabel: 'Low', runtimeLabel: 'Supervised' });
     // A thread event re-reads the thread's own selection; the staged choice still owns the composer.
     native.emit('thread', { kind: 'event', sequence: 2, event: { id: 'e2', type: 'thread.updated', threadId: 't1', occurredAt: at, payload: {} } });
     await client.refresh(native, storage());
@@ -63,11 +63,11 @@ describe('sticky model and next-turn selection', () => {
     const menu = traitsMenu([effort, fast], [{ id: 'fastMode', value: true }]);
     expect(menu.items.filter(item => item.descriptor === 'fastMode').map(item => [item.kind, item.label, item.selected])).toEqual([
       ['divider', '', false], ['header', 'Fast mode', false], ['option', 'On', true], ['option', 'Off', false]]);
-    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium', speed: 'fast' });
-    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal', speed: '' });
+    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium Fast' });
+    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal' });
     const tier = { id: 'serviceTier', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'priority', label: 'Fast' }, { id: 'flex', label: 'Ultrafast' }] };
-    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium', speed: 'ultrafast' });
-    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On', speed: '' });
+    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium Ultrafast' });
+    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On' });
   });
   test('a started thread locks the picker to its driver; drafts are unrestricted', async () => {
     const { client, command } = await opened();

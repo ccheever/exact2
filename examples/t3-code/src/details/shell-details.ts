@@ -21,7 +21,6 @@ import { prRowsView, emptyPrRows } from '../panel/pr-surface'; // the pull reque
 import { EDITOR_DEFINITIONS } from '../shared/editors';
 import { openInView } from '../connections/remote-open'; // OpenInPicker's remote Open: deep links for environments on other machines
 import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // ThreadAutomationsPanel
-import { versionCard } from '../connections/server-update-notices'; // the version-differ card
 import { autoBalanceState } from '../composer/auto-balance';
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
@@ -141,7 +140,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const balance = autoBalanceState(client); // the Run on row reads "Auto balance" (a scale) while the draft is automatic
   if (balance.automatic) Object.assign(env, { envLabel: balance.label, envKind: 'scale' });
   return {
-    ...versionCard(client), // server-update-notices.ts: the version-differ card
+    versionClient: '', versionServer: '', versionLabel: '',
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
     // The panel names the workspace kind only when it is not the project folder.
     folderLabel: creating ? 'Create' : worktree ? 'Worktree' : '', cwd,

@@ -1,3 +1,4 @@
+import { providerWritable } from './provider-permissions';
 // Settings › Providers shows one environment at a time, the one the settings scope selector chose
 // (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/routes/settings.providers.tsx:7-30, "Providers
 // are machine state"; SettingsScopeContext.tsx's `environment`, the connected target with the primary
@@ -106,7 +107,7 @@ export function providersRoute(client: T3Client, environmentId: string): Provide
   const host = providersHost(client, environmentId);
   if (host === client) return undefined;
   return { host, native: native => routedNative(host, native),
-    requireWrite: () => { if (!host.writable) throw new ClientError(host.ready ? 'Wait for synchronization and check your connection permissions.' : 'Reconnect before making changes.'); } };
+    requireWrite: () => { if (!providerWritable(host)) throw new ClientError(host.ready ? 'Wait for synchronization and check your connection permissions.' : 'Reconnect before making changes.'); } };
 }
 
 /** The page's `upkeep:` ops (args[4] names its environment); Update all and the launch prompt cover every environment. */

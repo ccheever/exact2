@@ -200,6 +200,8 @@ final class T3ComposerEditor {
         }
         value["focused"] = textView.map { $0.window?.firstResponder === $0 } ?? false
         value["empty"] = textView?.string.isEmpty ?? true
+        // The selection's start in UTF-16 units, as TypeScript indexes the text.
+        value["caret"] = textView?.selectedRange().location ?? 0
         return value
     }
 
@@ -317,7 +319,9 @@ final class T3ComposerEditor {
         if request["pad"] as? Bool == true, start > 0, !T3ComposerText.isBlank(text.character(at: start - 1)) { replacement = " " + replacement }
         if request["extendSpace"] as? Bool == true, replacement.hasSuffix(" "), end < text.length, text.character(at: end) == 32 { end += 1 }
         if request["focus"] as? Bool != false, let window = view.window, window.firstResponder !== view { window.makeFirstResponder(view) }
-        let applied = apply(NSRange(location: start, length: end - start), replacement, in: view)
+        // `caret` places the caret in the new text (an effort step keeps it on the same character); else it follows the replacement.
+        let caret = (request["caret"] as? Int).map { max(0, min($0, text.length - (end - start) + (replacement as NSString).length)) }
+        let applied = apply(NSRange(location: start, length: end - start), replacement, in: view, caret: caret)
         if applied, let then = request["then"] as? String, !then.isEmpty { _ = press(then) }
         return ["applied": applied, "caret": view.selectedRange().location]
     }

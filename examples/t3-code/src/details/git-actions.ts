@@ -1,3 +1,4 @@
+import { can, requirePermission } from '../connections/command-permissions';
 // The workspace card's Git actions, adapted from T3 Code (MIT; see
 // LICENSE-T3): apps/web/src/components/GitActionsControl.tsx (panel display mode:
 // the split quick action, its options menu, the commit, default-branch and publish
@@ -148,6 +149,7 @@ async function runWithConfirmation(client: T3Client, native: Native, action: str
 
 /** `shell:git-*` from the card and its dialogs (server writes). */
 export async function gitCommand(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  requirePermission(client.scopes, 'source-control:write');
   const state = gitState(client);
   if (id && state.cwd && id !== state.cwd) throw new ClientError('The workspace changed. Try again.');
   if (op === 'quick') {
@@ -299,6 +301,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
   if (state.success && state.success.at === 0 && moved) state.success.at = now;
   // An unstamped success has not been shown yet, so it cannot have expired.
   if (state.success && (state.success.cwd !== cwd || (state.success.at !== 0 && now - state.success.at >= SUCCESS_VISIBLE_MS))) state.success = null;
+  const writable = can(client, 'source-control:write');
   const busy = !!run?.running, hasRemote = status?.hasPrimaryRemote === true;
   const quick = quickAction(status, busy, status?.isDefaultRef === true, hasRemote);
   const progress = run ? progressPresentation(run) : null;
@@ -310,11 +313,11 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
   const chosen = providers.find(option => option.value === form.provider && option.ready) ?? providers.find(option => option.ready) ?? providers.find(option => option.value === (form.provider || 'github'))!;
   const repository = form.repository ?? (chosen.account ? `${chosen.account}/` : '');
   return {
-    repo: status?.isRepo !== false, initLabel: state.initPending ? 'Initializing...' : 'Initialize Git', initPending: state.initPending,
-    quickLabel: quick.label, quickIcon: quickActionIcon(quick, status), quickDisabled: quick.disabled, quickHint: quick.disabled ? (quick.hint ?? 'This action is currently unavailable.') : '',
+    writable, repo: status?.isRepo !== false, initLabel: state.initPending ? 'Initializing...' : 'Initialize Git', initPending: state.initPending,
+    quickLabel: quick.label, quickIcon: quickActionIcon(quick, status), quickDisabled: !writable || quick.disabled, quickHint: quick.disabled ? (quick.hint ?? 'This action is currently unavailable.') : '',
     progress: !!progress, progressStatus: progress?.status ?? '', progressOutput: progress?.output ?? '', progressElapsed: progress ? (progress.startedAt > 0 ? formatElapsed(progress.startedAt, now) : '0s') : '',
     success: !progress && !!state.success, successTitle: state.success?.title ?? '', successDescription: state.success?.description ?? '',
-    menuDisabled: busy, menuOpen: !busy && branchState(client).open === 'menu',
+    menuDisabled: !writable || busy, menuOpen: writable && !busy && branchState(client).open === 'menu',
     menu: [...items.map(item => ({ id: item.id as string, label: item.label, icon: item.icon, disabled: item.disabled, reason: menuReason(item, status, busy, hasRemote) })),
       ...(status?.isRepo === true && !hasRemote ? [{ id: 'publish', label: 'Publish repository...', icon: 'cloud-upload', disabled: busy, reason: '' }] : [])],
     menuPublish: status?.isRepo === true && !hasRemote, notes: menuNotes(status, error),

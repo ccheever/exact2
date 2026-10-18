@@ -225,6 +225,7 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
         Value::Bool(false),
         Value::str(""),
         Value::Number(-1.0),
+        Value::Number(0.0),
     ])
 }
 

@@ -61,6 +61,7 @@ const TEXT = 'Here is the shot:\n\n![Shot](docs/shot.png)\n\nA logo in a line: !
 function chatClient() {
   const signed: unknown[] = [];
   const client = {
+    scopes: ['filesystem:read'],
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, connection: 'connected', origin: 'http://127.0.0.1:16482', generation: 1, draftKey: 'env:t1',
     local: { composerControls: {} },
     projection: { visibleTurnItems: [{ item: { type: 'assistant_message', text: TEXT } }], messages: [], runs: [], thread: { projectId: 'p1' } },

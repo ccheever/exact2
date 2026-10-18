@@ -1,16 +1,15 @@
-// The pooled subscription limits across environments, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// The pooled subscription limits across environments, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // packages/shared/src/usageLimits.ts (CURSOR_USAGE_WINDOWS,
 // cursorUsageWindowDetails, collectExternalUsageLinks, LimitAccount, collectLimitAccounts,
 // collectLimitNotices, LimitPoolMember, LimitPoolWindow, LimitPool, displayLimitWindows,
 // collectLimitPools) and apps/web/src/components/usage/UsageLimitsPooled.tsx (accountInitials,
 // accountHue). Changes: snapshots are the server's JSON as the clone keeps it (`Obj`), read with
 // `str`/`num`/`arr`; `presentations` keeps the reference's shape (an ordered map of environment id
-// to `{ entry: { target: { label } }, serverConfig }`) so its tests port unchanged; accountKey,
-// resetMillis and paceOfShares repeat usage-limits.ts's private helpers (that file is the
-// composer ticket's and is read here only); CHATGPT_USAGE_URL is chatgpt-plan.ts's. The rules are
-// otherwise the reference's.
+// to `{ entry: { target: { label } }, serverConfig }`) so its tests port unchanged; the account keys
+// are usage-limits.ts's (accountKeyResolver), and resetMillis and paceOfShares repeat its private
+// helpers; CHATGPT_USAGE_URL is chatgpt-plan.ts's. The rules are otherwise the reference's.
 import { arr, num, obj, str, type Obj } from '../client/domain';
-import { elapsedShare, limitsNotice, providersWithLimits, type LimitPace, type ResetCreditInput } from './usage-limits';
+import { accountKeyResolver, accountReport, elapsedShare, limitsNotice, nativeReport, providersWithLimits, type LimitPace, type ResetCreditInput } from './usage-limits';
 
 export { CHATGPT_USAGE_URL } from '../providers/chatgpt-plan';
 
@@ -51,17 +50,10 @@ export function collectExternalUsageLinks(presentations: LimitPresentations) {
   return [...links.values()];
 }
 
-/** Prefer the reported email; use an identical credential when no email is available. */
-function accountKey(driver: unknown, email: unknown, limits?: Obj): string | null {
-  const normalizedEmail = str(email).trim().toLowerCase();
-  if (normalizedEmail) return `${str(driver)}:${normalizedEmail}`;
-  return str(limits?.credentialFingerprint) ? `${str(driver)}:credential:${str(limits?.credentialFingerprint)}` : null;
-}
-
 /**
  * One subscription account as the pooled views see it, whichever way it was reported. Matching
- * emails or credentials across environments name one account. Its quota is one bucket, so
- * counting it twice would misstate what is left.
+ * emails or credentials across environments name one account, unless they name different
+ * workspaces. Its quota is one bucket, so counting it twice would misstate what is left.
  */
 export interface LimitAccount {
   readonly key: string;
@@ -124,13 +116,17 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       limits,
     });
   };
+  const resolveKey = accountKeyResolver([...presentations.values()].flatMap(presentation => [
+    ...arr(presentation.serverConfig?.providers).filter(provider => provider.enabled === true).map(nativeReport),
+    ...arr(presentation.serverConfig?.usageLimitSources).flatMap(source => arr(source.accounts)).map(accountReport),
+  ]));
   for (const [environmentId, presentation] of presentations) {
     const label = presentation.entry.target.label;
     for (const provider of providersWithLimits(arr(presentation.serverConfig?.providers))) {
       const limits = obj(provider.usageLimits);
       if (!provider.usageLimits || limitsNotice(limits) !== null) continue;
       const auth = obj(provider.auth);
-      merge(accountKey(provider.driver, auth.email, limits) ?? `${environmentId}:${str(provider.instanceId)}`, {
+      merge(resolveKey(nativeReport(provider)) ?? `${environmentId}:${str(provider.instanceId)}`, {
         key: `${environmentId}:${str(provider.instanceId)}`, driver: str(provider.driver),
         displayName: str(provider.displayName).trim() || null,
         email: str(auth.email) || undefined, plan: str(auth.label) || undefined, accentColor: str(provider.accentColor) || undefined,
@@ -151,8 +147,9 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         const limits = obj(account.usageLimits);
         if (limitsNotice(limits) !== null) continue;
         const creditId = str(obj(limits.resetCredits).nextCreditId);
-        merge(accountKey(account.driver, account.email, limits) ?? `${str(source.id)}:${str(account.id)}`, {
-          key: `${str(source.id)}:${str(account.id)}`, driver: str(account.driver),
+        const key = `${str(source.id)}:${str(account.id)}${str(account.workspaceId) ? `:${str(account.workspaceId)}` : ''}`;
+        merge(resolveKey(accountReport(account)) ?? key, {
+          key, driver: str(account.driver),
           displayName: str(account.email) ? null : str(account.id).replace(/\.json$/i, ''),
           email: str(account.email) || undefined, plan: str(account.plan) || undefined, accentColor: undefined,
           environments: [], sourceLabel,
@@ -244,11 +241,10 @@ function paceOfShares(usedPercent: number, elapsed: number): LimitPace {
 }
 
 /**
- * Accounts grouped by driver, each with its windows pooled by kind and id. Window ids are stable
- * per provider, so a hub row and a native row for the same window land in the same pool; the
- * kind is part of the key because Codex's `primary` is a position, not a duration (five hours on
- * paid plans, a month on Free/Go), and a monthly allowance must not average into a five-hour
- * pool. Pools order by kind, then first appearance.
+ * Accounts grouped by driver, each with its windows pooled (`poolKey`). Window ids are stable per
+ * provider, so a hub row and a native row for the same window land in the same pool; the kind is
+ * part of the key, so a monthly allowance never averages into a five-hour pool. Pools order by
+ * kind, then first appearance.
  *
  * Accounts and columns share the session reset order, soonest first. When no account reports a
  * session window, use the first window by kind instead. Missing reset times sort last, with
@@ -263,7 +259,7 @@ export function collectLimitPools(accounts: readonly LimitAccount[], now: number
   return [...byDriver].map(([driver, members]) => {
     const orderWindow = members.flatMap(account => arr(account.limits.windows)).sort((left, right) => kindRank(left.kind) - kindRank(right.kind))[0];
     const orderReset = (account: LimitAccount) => {
-      const window = arr(account.limits.windows).find(candidate => candidate.kind === orderWindow?.kind && candidate.id === orderWindow?.id);
+      const window = arr(account.limits.windows).find(candidate => orderWindow && poolKey(driver, candidate) === poolKey(driver, orderWindow));
       return (window ? resetMillis(window) : null) ?? Number.POSITIVE_INFINITY;
     };
     const sorted = [...members].sort((left, right) => orderReset(left) - orderReset(right)
@@ -276,18 +272,30 @@ function accountSortName(account: LimitAccount): string {
   return (account.displayName ?? account.email ?? account.key).toLowerCase();
 }
 
+/**
+ * Codex ids are slots, not allowances: a weekly-only plan reports its weekly window as `primary`,
+ * other plans as `secondary`. Its windows pool by kind; other drivers' ids name distinct allowances.
+ */
+function poolKey(driver: string, window: Obj): string {
+  return driver === 'codex' ? str(window.kind) : `${str(window.kind)}:${str(window.id)}`;
+}
+
 function poolWindows(accounts: readonly LimitAccount[], now: number): readonly LimitPoolWindow[] {
   const byKey = new Map<string, LimitPoolMember[]>();
   for (const account of accounts) {
     for (const window of arr(account.limits.windows)) {
-      const key = `${str(window.kind)}:${str(window.id)}`;
+      const pooled = poolKey(account.driver, window);
+      // An account with two windows of one kind keeps the second apart.
+      const key = byKey.get(pooled)?.some(member => member.account === account) ? `${str(window.kind)}:${str(window.id)}` : pooled;
       const list = byKey.get(key);
       if (list) list.push({ account, window }); else byKey.set(key, [{ account, window }]);
     }
   }
-  const pools = [...byKey.values()].map((members): LimitPoolWindow => {
+  const pools = [...byKey].map(([key, members]): LimitPoolWindow => {
     const memberByAccount = new Map(members.map(member => [member.account.key, member]));
     const first = members[0]!.window;
+    // Pooled Codex slots take the pool's own key, so the id stays the same whichever account sorts first.
+    const id = members[0]!.account.driver === 'codex' ? key : str(first.id);
     const usedPercent = members.reduce((sum, member) => sum + num(member.window.usedPercent), 0) / members.length;
     // Pace compares spend against the clock, so it is judged only over the members that have a
     // clock; a window with no reset would otherwise count as spend with no time elapsed and skew
@@ -303,7 +311,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
       return at === null ? [] : [{ member, at, restoresPercent: Math.round(num(member.window.usedPercent) / members.length) }];
     }).sort((left, right) => left.at - right.at);
     return {
-      id: str(first.id), kind: str(first.kind), label: str(first.label), members,
+      id, kind: str(first.kind), label: str(first.label), members,
       columns: accounts.map(account => memberByAccount.get(account.key) ?? { account, window: null }),
       usedPercent: Math.round(usedPercent), remainingPercent: Math.round(100 - usedPercent),
       pace: meanElapsed === null ? null : paceOfShares(timedUsed, meanElapsed), resets,

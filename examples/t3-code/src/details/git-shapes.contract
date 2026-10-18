@@ -60,6 +60,7 @@ shape RunOnOption
   projectId: string
   selected: bool
 shape GitCard
+  writable: bool
   repo: bool
   initLabel: string
   initPending: bool

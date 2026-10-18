@@ -1,9 +1,10 @@
+import { providerWritable } from './provider-permissions';
 // Provider settings upkeep, T3 Code 9c161462c9 (MIT, see LICENSE-T3): the version advisory
 // popover of apps/web/src/components/settings/ProviderInstanceCard.tsx:772-870 (one node for the
 // list row and the editor), providerStatus.ts getProviderVersionAdvisoryPresentation,
 // ProviderSettingsPanel.tsx:723-767 and :1162-1186 (runProviderUpdate, onInstallRecommended,
-// onRunUpdate, isUpdating), ProviderUpdatesAction.tsx:24-112 ("Update all" on every connected
-// environment, one toast) and the `upkeep:` ops that drive them, the ACP section
+// onRunUpdate, isUpdating), ProviderUpdatesAction.tsx (useProviderUpdates and "Update all" on every
+// connected environment, one toast) and the `upkeep:` ops that drive them, the ACP section
 // (acp-sessions.ts) and the custom model editor (custom-model-editor.ts).
 // Changes: pending updates are kept here per connection (the reference's
 // updatingProviderInstanceIds and ProviderUpdatesAction's isPending); an update runs inside its
@@ -61,7 +62,7 @@ const pendingOf = (host: object) => { let set = pendingUpdates.get(host); if (!s
 export function advisoryView(host: UpkeepHost, instanceId: string, provider: Obj | undefined, enabled: boolean, mode: 'list' | 'editor') {
   const compatibility = enabled ? obj(provider?.compatibilityAdvisory) : undefined;
   const presentation = provider ? versionAdvisoryPresentation(provider.versionAdvisory ? obj(provider.versionAdvisory) : undefined, provider.compatibilityAdvisory ? obj(provider.compatibilityAdvisory) : undefined, enabled) : null;
-  const readOnly = !host.writable;
+  const readOnly = !providerWritable(host);
   const hasCompatibilityWarning = compatibility !== undefined && !!str(compatibility.status) && compatibility.status !== 'supported' && compatibility.status !== 'unknown';
   const canInstallRecommended = !readOnly && !!provider && !!str(obj(provider.compatibilityAdvisory).message) && !!str(obj(provider.compatibilityAdvisory).recommendedVersion)
     && obj(provider.versionAdvisory).canInstallVersion === true;
@@ -95,42 +96,50 @@ export function updateTargets(host: UpkeepHost, native: Native | null): UpdateTa
   }
   return targets;
 }
-type Machine = { key: string; label: string; target: UpdateTarget; candidates: Obj[] };
-function machinesOf(targets: readonly UpdateTarget[]): Machine[] {
+/** A connected machine with one-click provider updates (useProviderUpdates' `machines`). */
+export type ProviderUpdateMachine = { key: string; environmentId: string; label: string; target: UpdateTarget; candidates: Obj[] };
+export function providerUpdateMachines(targets: readonly UpdateTarget[]): ProviderUpdateMachine[] {
   return targets.flatMap(target => {
     const candidates = collectProviderUpdateCandidates(target.providers).filter(candidate => canOneClickUpdateProviderCandidate(candidate, target.providers));
-    return candidates.length > 0 ? [{ key: target.key, label: target.label, target, candidates }] : [];
+    return candidates.length > 0 ? [{ key: target.key, environmentId: target.environmentId ?? target.key, label: target.label, target, candidates }] : [];
   });
 }
 /** The Providers header's "Update all": hidden with nothing to update unless a run is in flight. */
 export function updateAllView(host: UpkeepHost, targets: readonly UpdateTarget[] = updateTargets(host, null)) {
-  const machines = machinesOf(targets), pending = updateAllPending.get(host) === true;
+  const machines = providerUpdateMachines(targets), pending = updateAllPending.get(host) === true;
   return { show: machines.length > 0 || pending, pending, label: pending ? 'Updating…' : 'Update all',
     tip: machines.map(machine => `${machine.label}: ${machine.candidates.map(candidate => providerDisplayName(str(candidate.driver))).join(', ')}`).join('\n') };
 }
 
-/** handleUpdate: every outdated provider on every connected machine at once, then one toast. */
+/**
+ * useProviderUpdates' updateAll: every outdated provider on every given machine at once, then
+ * one toast unless `quiet` (Update everything reports its own). Never rejects.
+ */
+export async function updateAllProviders(host: UpkeepHost, machines: readonly ProviderUpdateMachine[], { quiet = false }: { quiet?: boolean } = {}): Promise<ProviderUpdateRun[]> {
+  const runs = await Promise.all(machines.flatMap(({ environmentId, label, target, candidates }) => candidates.map(async (candidate): Promise<ProviderUpdateRun> => {
+    let result: ProviderUpdateRun['result'];
+    try { result = success({ providers: providersOf(await target.request('server.updateProvider', { provider: str(candidate.driver), instanceId: str(candidate.instanceId) })) }); }
+    catch (error) { result = failure(error, letGo(error)); }
+    return { environmentId, machineLabel: label, driver: str(candidate.driver), instanceId: str(candidate.instanceId), result };
+  })));
+  const view = quiet ? null : getProviderUpdateRunToastView(runs);
+  if (view) pushToast(hostClient(host), { kind: view.type === 'success' ? 'success' : view.type === 'error' ? 'error' : view.type === 'loading' ? 'loading' : 'warning', title: view.title, description: view.description, stacked: true });
+  return runs;
+}
+
+/** ProviderUpdatesAction's handleUpdate: one run at a time. */
 export async function runUpdateAll(host: UpkeepHost, targets: readonly UpdateTarget[]): Promise<void> {
   if (updateAllPending.get(host) === true) return;
-  const machines = machinesOf(targets);
+  const machines = providerUpdateMachines(targets);
   if (machines.length === 0) return;
   updateAllPending.set(host, true);
-  try {
-    const runs = await Promise.all(machines.flatMap(({ label, target, candidates }) => candidates.map(async (candidate): Promise<ProviderUpdateRun> => {
-      let result: ProviderUpdateRun['result'];
-      try { result = success({ providers: providersOf(await target.request('server.updateProvider', { provider: str(candidate.driver), instanceId: str(candidate.instanceId) })) }); }
-      catch (error) { result = failure(error, letGo(error)); }
-      return { machineLabel: label, driver: str(candidate.driver), instanceId: str(candidate.instanceId), result };
-    })));
-    const view = getProviderUpdateRunToastView(runs);
-    if (view) pushToast(hostClient(host), { kind: view.type === 'success' ? 'success' : view.type === 'error' ? 'error' : view.type === 'loading' ? 'loading' : 'warning', title: view.title, description: view.description, stacked: true });
-  } finally { updateAllPending.set(host, false); }
+  try { await updateAllProviders(host, machines); } finally { updateAllPending.set(host, false); }
 }
 
 /** runProviderUpdate: one instance on this environment, "Update now" or "Install <recommended>". */
 export async function runProviderUpdate(host: UpkeepHost, target: UpdateTarget, instanceId: string, targetVersion: string): Promise<void> {
   const provider = arr(host.config.providers).find(candidate => candidate.instanceId === instanceId);
-  if (!provider || !host.writable) return;
+  if (!provider || !providerWritable(host)) return;
   const pending = pendingOf(host);
   if (pending.has(instanceId)) return;
   const view = advisoryView(host, instanceId, provider, provider.enabled !== false, 'editor');
@@ -192,7 +201,7 @@ async function copyCommand(host: UpkeepHost, native: Native, instanceId: string)
 
 /** The custom model editor's Save (handleSaveEdit): the edited entry replaces its slug in `config.customModels`, and the editor closes. */
 async function saveCustomModel(host: UpkeepHost, native: Native, instanceId: string, next: ReturnType<typeof customModelEditorOp>): Promise<void> {
-  if (!next || !host.writable) return;
+  if (!next || !providerWritable(host)) return;
   customModelEditorOp(host, host, 'saved', instanceId, '', '');
   try {
     await upsertInstance(host, native, instanceId, (instance, driver) => {
