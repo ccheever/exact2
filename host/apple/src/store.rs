@@ -195,6 +195,8 @@ fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
 /// platform's stores, behind the I/O link (LLP 1047.001), so an archive that
 /// links no I/O names neither them nor the Keychain and files under them.
 pub trait KeptStore {
+    /// Read the same endowed stores again after another session commits.
+    fn snapshot(&self) -> Vec<(String, Vec<u8>)>;
     /// Write one store change.
     fn write(&self, w: &StoreWrite) -> Result<(), String>;
     /// The kept answers the writer failed to write since the last call.
@@ -202,6 +204,9 @@ pub trait KeptStore {
 }
 
 impl KeptStore for Platform {
+    fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
+        snapshot_parts(&self.secrets, &self.kv, &self.prefs)
+    }
     fn write(&self, w: &StoreWrite) -> Result<(), String> {
         Platform::write(self, w).map_err(|e| e.to_string())
     }
@@ -466,32 +471,36 @@ pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, V
     let Some(b) = bindings else {
         return Vec::new();
     };
+    snapshot_parts(&b.secrets, &b.kv, prefs)
+}
+
+fn snapshot_parts(secrets: &Secrets, kv: &Kv, prefs: &Prefs) -> Vec<(String, Vec<u8>)> {
     // What a runner before this one kept is on disk first. No more than the
     // runner keeps together is read, on the thread that boots it.
     flush_kept();
     let mut left = Store::KEPT_TOTAL_BYTES;
-    let kept =
-        b.kv.keys(KEPT)
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|key| {
-                let value = b.kv.get(KEPT, &key).ok().flatten()?;
-                left = left.checked_sub(value.len())?;
-                Some((format!("{}{key}", Store::KEPT), value))
-            })
-            .collect::<Vec<_>>();
-    b.secrets
+    let kept = kv
+        .keys(KEPT)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|key| {
+            let value = kv.get(KEPT, &key).ok().flatten()?;
+            left = left.checked_sub(value.len())?;
+            Some((format!("{}{key}", Store::KEPT), value))
+        })
+        .collect::<Vec<_>>();
+    secrets
         .names()
         .iter()
         .filter_map(|n| {
-            b.secrets
+            secrets
                 .get(n)
                 .ok()
                 .flatten()
                 .map(|v| (n.to_string(), v.into_bytes()))
         })
         .chain(kept)
-        .chain(prefs.read(&b.kv))
+        .chain(prefs.read(kv))
         .collect()
 }
 

@@ -20,7 +20,6 @@ public enum WidgetContainer {
         setenv("EXACT_APP_GROUP_APP", appID, 1)
         if Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil {
             setenv("EXACT_WIDGET_WRITER", appID, 1)
-            _ = storeObserver
         }
     }
     public static var updateBase: URL? { root?.appendingPathComponent("Library/Application Support", isDirectory: true) }
@@ -53,22 +52,16 @@ public enum WidgetContainer {
         statusLock.lock(); lastFailure = error.map(String.init(describing:)); statusLock.unlock()
         if let error { FileHandle.standardError.write(Data("widget generation: \(error)\n".utf8)) }
     }
-    private static var storeGeneration = ""
-    /// A store write a refresh can read advances the counter, then pings; the
-    /// app reloads its timelines through the same demand-loaded artifact.
-    private static let storeObserver: Void = {
-        guard let appID else { return }
-        let name = appID + ".widget-store"
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
-            publisher.async {
-                guard let root, let next = try? String(contentsOf: root.appendingPathComponent("widget-store-generation"), encoding: .utf8), next != storeGeneration else { return }
-                storeGeneration = next
-                DispatchQueue.main.async {
-                    do { try reloadTimelines() } catch { report(error) }
-                }
-            }
-        }, name as CFString, nil, .deliverImmediately)
-    }()
+    private static var storeObserver: WidgetStoreObserver?
+    /// Installed by the running app, never by the extension.
+    package static func observeStore(foreground: Notification.Name, changed: @escaping () -> Void) {
+        guard storeObserver == nil, let root, let appID,
+              Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil else { return }
+        storeObserver = WidgetStoreObserver(root: root, name: appID + ".widget-store", foreground: foreground, changed: changed)
+    }
+    @MainActor package static func reloadAfterStoreChange() {
+        do { try reloadTimelines() } catch { report(error) }
+    }
     /// Copy assets off the first-frame path; first-use framework loading and
     /// WidgetCenter's call run on main. A failed signal stays pending on disk.
     package static func publishAfterFirstPixel(_ assets: AssetResolver) {
@@ -152,6 +145,38 @@ public enum WidgetContainer {
         }
         try Data(digest.utf8).write(to: current, options: .atomic)
         return true
+    }
+}
+
+/// Both a Darwin ping and foreground take this same counter check. The
+/// notification carries no state; coalesced or missed pings are harmless.
+package final class WidgetStoreObserver {
+    private let counter: URL
+    private let name: String
+    private let changed: () -> Void
+    private var generation: UInt64?
+    private var foregroundToken: NSObjectProtocol?
+    package init(root: URL, name: String, foreground: Notification.Name, changed: @escaping () -> Void) {
+        counter = root.appendingPathComponent("widget-store-generation")
+        self.name = name
+        self.changed = changed
+        foregroundToken = NotificationCenter.default.addObserver(forName: foreground, object: nil, queue: .main) { [weak self] _ in self?.check() }
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, observer, _, _, _ in
+            guard let observer else { return }
+            let owner = Unmanaged<WidgetStoreObserver>.fromOpaque(observer).takeUnretainedValue()
+            DispatchQueue.main.async { [weak owner] in owner?.check() }
+        }, name as CFString, nil, .deliverImmediately)
+    }
+    deinit {
+        if let foregroundToken { NotificationCenter.default.removeObserver(foregroundToken) }
+        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), CFNotificationName(name as CFString), nil)
+    }
+    package func check() {
+        precondition(Thread.isMainThread)
+        guard let text = try? String(contentsOf: counter, encoding: .utf8),
+              let next = UInt64(text), next != generation else { return }
+        generation = next
+        changed()
     }
 }
 

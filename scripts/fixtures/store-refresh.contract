@@ -1,0 +1,14 @@
+// A peer's persisted write must update every window without a restart.
+component StoreRefresh
+  state favourite = false persist
+  state local = 0
+  action star
+    favourite = !favourite
+  action increment
+    local = local + 1
+  view
+    column
+      button press=star testId="favourite"
+        text favourite ? "Favourite" : "Not a favourite"
+      button press=increment testId="local"
+        text `${local}`

@@ -407,6 +407,48 @@ impl<D: DataSource> Runner<D> {
         false
     }
 
+    /// A peer committed to the app's store (LLP 1126.001 WP12). The host
+    /// supplies a fresh snapshot; only store readers and persisted slots
+    /// are refreshed. Ordinary window state and pure resources stay local.
+    pub fn store_changed(
+        &mut self,
+        snapshot: Vec<(String, Vec<u8>)>,
+    ) -> Result<CommitReceipt, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        self.store.refresh_snapshot(snapshot);
+        for i in 0..self.slots.len() {
+            if self.plan.slots[i].persist {
+                self.slots[i] = self.restore_persisted(i, self.slots[i].clone());
+            }
+        }
+        let readers: Vec<usize> = self
+            .store_readers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, reads)| {
+                (*reads
+                    && !exact_plan::runner_owned_source(
+                        self.plan.str(self.plan.resources[i].source),
+                    ))
+                .then_some(i)
+            })
+            .collect();
+        self.owe(&readers);
+        self.refresh_next.extend(readers);
+        let result = if self.poisoned {
+            Err(RunnerError::Poisoned)
+        } else {
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+        };
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
+        self.log_outcome("store changed", &result, was_poisoned);
+        result
+    }
+
     /// The data source is ready — a host loaded its TypeScript module after
     /// the first pixel (LLP 1027 D4): every deferred resource shown
     /// from a placeholder is asked again, and every send made before now

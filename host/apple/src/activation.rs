@@ -20,16 +20,50 @@ impl<D: DataSource> Host<D> {
             return self.commit(&[], Some(format!("activate data: {error:?}")));
         }
         self.data_activated = true;
+        let mut receipts = Vec::new();
+        if self.store_refresh_pending {
+            self.store_refresh_pending = false;
+            if let Some(store) = &self.secrets {
+                match self.runner.store_changed(store.snapshot()) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(error) => {
+                        return self.commit(&[], Some(format!("store changed: {error:?}")))
+                    }
+                }
+            }
+        }
         match self.runner.data_ready() {
-            Ok(Some(receipt)) => self.commit(
+            Ok(Some(receipt)) => receipts.push(Timed {
+                at_ms: self.now_ms,
+                receipt,
+            }),
+            Ok(None) => {}
+            Err(error) => return self.commit(&receipts, Some(format!("data ready: {error:?}"))),
+        }
+        self.commit(&receipts, None)
+    }
+
+    /// Re-read the endowed store after a peer commits, without reloading logic.
+    pub fn refresh_store(&mut self) -> String {
+        if !self.data_activated {
+            self.store_refresh_pending = true;
+            return self.commit(&[], None);
+        }
+        let Some(store) = &self.secrets else {
+            return self.commit(&[], None);
+        };
+        match self.runner.store_changed(store.snapshot()) {
+            Ok(receipt) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
                     receipt,
                 }],
                 None,
             ),
-            Ok(None) => self.commit(&[], None),
-            Err(error) => self.commit(&[], Some(format!("data ready: {error:?}"))),
+            Err(error) => self.commit(&[], Some(format!("store changed: {error:?}"))),
         }
     }
 }

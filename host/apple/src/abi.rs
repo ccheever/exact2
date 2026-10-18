@@ -624,6 +624,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A peer published a store revision; first-pixel activation remains separate.
+    pub fn store_changed(&mut self) -> u32 {
+        let out = match &mut self.host {
+            Some(host) => host.refresh_store(),
+            None => not_booted(),
+        };
+        self.emit(out)
+    }
+
     /// Prepare plan + UTF-8 pairing receipt + compiled module from one input buffer.
     /// This is a development-origin API, not an authenticated update channel.
     pub fn prepare_module(

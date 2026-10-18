@@ -416,6 +416,33 @@ impl Store {
             .collect()
     }
 
+    /// Adopt a host snapshot without publishing its values as new writes.
+    /// The open checkpoint can restore it if settlement refuses the change.
+    pub(crate) fn refresh_snapshot(&mut self, snapshot: Vec<(String, Vec<u8>)>) {
+        let next: exact_kernel::SortedMap<_, _> = snapshot
+            .into_iter()
+            .filter(|(name, _)| self.is_granted(name) || Self::runner_owned(name))
+            .collect();
+        let mut names: Vec<String> = self.values.keys().chain(next.keys()).cloned().collect();
+        names.sort();
+        names.dedup();
+        for name in names {
+            if self.values.get(&name) == next.get(&name) {
+                continue;
+            }
+            self.remember(&name);
+            match next.get(&name) {
+                Some(value) => {
+                    self.values.insert(name, value.clone());
+                }
+                None => {
+                    self.values.remove(&name);
+                }
+            }
+        }
+        self.revision += 1;
+    }
+
     /// Everything kept: what a reload carries (`Carried::store`).
     pub fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
         self.values

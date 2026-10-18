@@ -78,3 +78,139 @@ fn a_pending_activation_wakes_the_session_once_the_source_is_ready() {
         "and activates"
     );
 }
+
+struct SharedStoreSource {
+    asks: Arc<Mutex<Vec<String>>>,
+    activated: Arc<AtomicUsize>,
+}
+impl DataSource for SharedStoreSource {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        unreachable!()
+    }
+    fn grants(&self) -> &str {
+        "secret.keep favourite"
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        name: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        self.asks.lock().unwrap().push(name.into());
+        Ok(exact_runner::Answer::Now(Value::record(vec![Value::str(
+            if name == "favourite" {
+                store.get("favourite").unwrap_or("none")
+            } else {
+                "pure"
+            },
+        )])))
+    }
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.activated.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[test]
+fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_session() {
+    use crate::store::{KeptStore, Platform};
+    use exact_runner::StoreWrite;
+    let plan = contract::compile("shape Text\n  value: string\ncomponent App\n  state local = 7\n  state starred = false persist\n  resource favourite = favourite() as shape Text\n  resource pure = pure() as shape Text\n  view\n    text `${favourite.value} ${pure.value} ${starred} ${local}`\n").unwrap().encode();
+    crate::store::PLATFORM
+        .with(|p| *p.borrow_mut() = Some(Arc::new(ibex2::secrets::MemoryStore::new())));
+    let bindings = crate::store::endow("secret.keep favourite").unwrap();
+    crate::store::PLATFORM.with(|p| *p.borrow_mut() = None);
+    let platform = Platform::of(&bindings);
+    let asks = Arc::new(Mutex::new(Vec::new()));
+    let activated = Arc::new(AtomicUsize::new(0));
+    let mut hosts: Vec<_> = (0..2)
+        .map(|_| {
+            Host::boot_stored(
+                &plan,
+                SharedStoreSource {
+                    asks: asks.clone(),
+                    activated: activated.clone(),
+                },
+                Box::new(MonospaceMeasurer::default()),
+                300.0,
+                200.0,
+                None,
+                platform.snapshot(),
+                Some(platform.clone()),
+            )
+            .unwrap()
+            .0
+        })
+        .collect();
+    platform
+        .write(&StoreWrite {
+            name: "favourite".into(),
+            value: Some(b"Before first pixel".to_vec()),
+        })
+        .unwrap();
+    for host in &mut hosts {
+        host.refresh_store();
+        assert_eq!(activated.load(Ordering::SeqCst), 0);
+    }
+    for host in &mut hosts {
+        host.activate_data();
+        assert_eq!(
+            host.runner.resource("favourite"),
+            Some(&Value::record(vec![Value::str("Before first pixel")]))
+        );
+    }
+    let pure_asks = asks.lock().unwrap().iter().filter(|s| *s == "pure").count();
+    platform
+        .write(&StoreWrite {
+            name: "favourite".into(),
+            value: Some(b"Palo Alto".to_vec()),
+        })
+        .unwrap();
+    platform
+        .write(&StoreWrite {
+            name: "exact.state.starred".into(),
+            value: Some(b"true".to_vec()),
+        })
+        .unwrap();
+    for host in &mut hosts {
+        let batch = host.refresh_store();
+        assert!(batch.contains("\"error\":null"), "{batch}");
+        assert_eq!(
+            host.runner.resource("favourite"),
+            Some(&Value::record(vec![Value::str("Palo Alto")]))
+        );
+        assert_eq!(host.runner.persisted("starred"), Some(Value::Bool(true)));
+        assert_eq!(
+            host.runner
+                .carry()
+                .slots
+                .iter()
+                .find(|(name, _)| name == "local")
+                .unwrap()
+                .1,
+            Value::Number(7.)
+        );
+    }
+    platform
+        .write(&StoreWrite {
+            name: "favourite".into(),
+            value: None,
+        })
+        .unwrap();
+    for host in &mut hosts {
+        host.refresh_store();
+        assert_eq!(
+            host.runner.resource("favourite"),
+            Some(&Value::record(vec![Value::str("none")]))
+        );
+    }
+    assert_eq!(
+        asks.lock().unwrap().iter().filter(|s| *s == "pure").count(),
+        pure_asks
+    );
+    assert_eq!(
+        activated.load(Ordering::SeqCst),
+        2,
+        "refresh never activates the data module again"
+    );
+}
