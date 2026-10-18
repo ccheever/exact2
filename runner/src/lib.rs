@@ -125,7 +125,7 @@ pub mod tamber {
         Token, TypeKind as Type,
     };
 }
-pub use store::{Store, StoreError, StoreWrite};
+pub use store::{Store, StoreChange, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;

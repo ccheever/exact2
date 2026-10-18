@@ -24,7 +24,7 @@ impl<D: DataSource> Host<D> {
         }
         self.data_activated = true;
         self.store_activation_pending = true;
-        let mut changed = false;
+        let mut changed = exact_runner::StoreChange::default();
         let mut error = None;
         if self.store_refresh_pending {
             if let Some(read) = self.read_shared_store(false) {
@@ -72,7 +72,7 @@ impl<D: DataSource> Host<D> {
             // A different store receipt cannot discharge the owed data_ready.
             self.runner
                 .adopt_store(read.values.clone())
-                .and_then(|_| self.runner.data_ready_after_store(true))
+                .and_then(|change| self.runner.data_ready_after_store(change))
         } else {
             self.runner.store_changed(read.values.clone())
         };

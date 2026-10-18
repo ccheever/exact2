@@ -362,6 +362,94 @@ fn app_side_writes_publish_without_reasking_a_time_varying_reader() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// A source that is not ready at boot, so the runner keeps its answers, and
+/// whose answer differs on every ask (a server time, a nonce).
+struct DeferredChangingReader {
+    asks: Arc<AtomicUsize>,
+    ready: bool,
+}
+impl DataSource for DeferredChangingReader {
+    fn grants(&self) -> &str {
+        "secret.keep favourite"
+    }
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        unreachable!()
+    }
+    fn ready(&self) -> bool {
+        self.ready
+    }
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.ready = true;
+        Ok(())
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        store.get("favourite");
+        let n = self.asks.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(exact_runner::Answer::Now(Value::record(vec![Value::str(
+            &n.to_string(),
+        )])))
+    }
+}
+
+#[test]
+fn sibling_sessions_keeping_different_answers_do_not_reask_each_other() {
+    use crate::store::{KeptStore, Platform};
+    let plan = contract::compile("shape Text\n  value: string\ncomponent App\n  resource favourite = favourite() as shape Text\n  view\n    text favourite.value\n").unwrap().encode();
+    crate::store::PLATFORM
+        .with(|p| *p.borrow_mut() = Some(Arc::new(ibex2::secrets::MemoryStore::new())));
+    let bindings = crate::store::endow("secret.keep favourite").unwrap();
+    crate::store::PLATFORM.with(|p| *p.borrow_mut() = None);
+    let platform = Platform::of(&bindings);
+    let asks = Arc::new(AtomicUsize::new(0));
+    let mut hosts: Vec<_> = (0..2)
+        .map(|_| {
+            Host::boot_stored(
+                &plan,
+                DeferredChangingReader {
+                    asks: asks.clone(),
+                    ready: false,
+                },
+                Box::new(MonospaceMeasurer::default()),
+                300.0,
+                200.0,
+                None,
+                platform.snapshot(Vec::new()).values,
+                Some(platform.clone()),
+            )
+            .unwrap()
+            .0
+        })
+        .collect();
+    for host in &mut hosts {
+        host.activate_data();
+    }
+    crate::store::flush_kept();
+    let kept = platform.snapshot(Vec::new()).values;
+    assert!(
+        kept.iter().any(|(name, _)| name.starts_with("exact.kept.")),
+        "the sessions keep their answers: {kept:?}"
+    );
+    // Each session keeps its own answer to the one reader; a refresh that
+    // finds the sibling's kept answer must not count it as a reader's input.
+    let mut rounds = Vec::new();
+    for _ in 0..3 {
+        for host in &mut hosts {
+            host.refresh_store();
+            crate::store::flush_kept();
+        }
+        rounds.push(asks.load(Ordering::SeqCst));
+    }
+    assert!(
+        rounds.windows(2).all(|w| w[0] == w[1]),
+        "asks grew round after round: {rounds:?}"
+    );
+}
+
 struct DeferredReader {
     ready: bool,
     later: bool,
