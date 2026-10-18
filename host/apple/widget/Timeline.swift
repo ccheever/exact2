@@ -140,7 +140,7 @@ struct ExactWidgetView: View {
                         .redacted(reason: entry.placeholder ? .placeholder : []).padding(margins)
                 } else { unavailable.padding(margins) }
             }
-        }.containerBackground(.background, for: .widget).privacySensitive()
+        }.containerBackground(.background, for: .widget).privacySensitive(!entry.placeholder)
     }
     private var bodySize: Double {
         let sizes: [DynamicTypeSize: Double] = [.xSmall: 14, .small: 15, .medium: 16, .large: 17, .xLarge: 19, .xxLarge: 21, .xxxLarge: 23, .accessibility1: 28, .accessibility2: 33, .accessibility3: 40, .accessibility4: 47, .accessibility5: 53]
