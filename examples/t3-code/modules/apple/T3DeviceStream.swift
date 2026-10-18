@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-/// A device's live screen (MIT reference, see LICENSE-T3:
+/// A device's live screen (MIT reference 9c161462c9, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts, hubAccess.ts, screenshot.ts;
 /// apps/web/src/components/device/DeviceStreamView.tsx). Hook `t3-media` with
 /// `data-media-kind` "device-ios" / "device-android", `data-device-id`, `data-device-host`,
@@ -17,7 +17,7 @@ import UniformTypeIdentifiers
 /// `presentation.deviceStreams[hostId \0 deviceId]`, the Tools drawer's feeds as
 /// `presentation.deviceTools[hostId \0 deviceId]` (T3DeviceTools.swift).
 enum T3DeviceWire {
-    static let touch: UInt8 = 0x03, button: UInt8 = 0x04, orientation: UInt8 = 0x07, hardwareKeyboard: UInt8 = 0x0d, screenConfig: UInt8 = 0x82
+    static let touch: UInt8 = 0x03, button: UInt8 = 0x04, orientation: UInt8 = 0x07, screenConfig: UInt8 = 0x82, inputAdmitted: UInt8 = 0x83
     static let orientations = ["portrait", "landscape_left", "portrait_upside_down", "landscape_right"]
     static let firstFrameTimeout: TimeInterval = 15
     static let hubBase = "/api/device-hub"
@@ -112,6 +112,8 @@ final class T3DeviceScreenView: NSView {
     private(set) var fold: T3DeviceFold?
     private(set) var duoState = T3DuoControlState()
     private var phoneFailed = false
+    /// A frame has streamed since this view started: a video reconnect keeps it (retainingFrame).
+    private var hasFrame = false
     var screen: (width: Double, height: Double, orientation: String)? { client.screen.map { ($0.width, $0.height, $0.orientation) } }
     var sent: [Data] { client.sent }
 
@@ -129,6 +131,7 @@ final class T3DeviceScreenView: NSView {
         client.onStatus = { [weak self] status, detail in
             guard let self else { return }
             self.status = status; self.detail = detail
+            if status == "streaming" { self.hasFrame = true }
             if status != "connecting" { self.restartNotice = false }
             self.refresh(); self.report()
         }
@@ -172,7 +175,7 @@ final class T3DeviceScreenView: NSView {
     var reportValue: [String: Any] {
         var value: [String: Any] = ["status": status, "detail": detail, "inputConnected": inputConnected, "inputDetail": inputDetail,
                                     "mjpeg": client.mjpeg, "recovered": client.recovered, "phone": showPhone, "phoneUnavailable": phoneUnavailableReason ?? "",
-                                    "restartNotice": restartNotice && retainingAndroidFrame && showPhone, "retaining": retainingAndroidFrame]
+                                    "restartNotice": restartNotice && retainingFrame && showPhone, "retaining": retainingFrame]
         let shown = displayedSize
         if shown.width > 0 { value["width"] = Double(shown.width); value["height"] = Double(shown.height) }
         if let screen = client.screen { value["orientation"] = screen.orientation }
@@ -217,7 +220,9 @@ final class T3DeviceScreenView: NSView {
         return CGRect(x: (bounds.width - fitted.width) / 2, y: (bounds.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
     }
 
-    var retainingAndroidFrame: Bool { platform == "android" && status == "connecting" && inputConnected && client.screen != nil }
+    /// Encoder restarts and video reconnects keep the decoded frame and viewer while input is still
+    /// connected and the next keyframe is on its way.
+    var retainingFrame: Bool { status == "connecting" && hasFrame && inputConnected && client.screen != nil }
 
     var phoneUnavailableReason: String? {
         if isDuo, client.screen?.duo?.supportsHingeAngle != true { return "iPhone Duo 3D requires Device Hub 0.11.0 or newer" }
@@ -228,7 +233,7 @@ final class T3DeviceScreenView: NSView {
     }
 
     var showPhone: Bool {
-        presentation.hasPrefix("phone") && (status == "streaming" || retainingAndroidFrame) && phoneUnavailableReason == nil && window != nil
+        presentation.hasPrefix("phone") && (status == "streaming" || retainingFrame) && phoneUnavailableReason == nil && window != nil
     }
 
     var isDuo: Bool { T3DeviceModels.id(platform: platform, name: deviceName) == "iphone-duo" }
@@ -268,7 +273,7 @@ final class T3DeviceScreenView: NSView {
         if !(showPhone && !isDuo), let view = phone { view.dispose(); view.removeFromSuperview(); phone = nil }
         picture.isHidden = showPhone
         overlay.isHidden = showPhone || !axOverlay
-        if retainingAndroidFrame && showPhone {
+        if retainingFrame && showPhone {
             if restartTimer == nil {
                 let item = DispatchWorkItem { [weak self] in self?.restartTimer = nil; self?.restartNotice = true; self?.report() }
                 restartTimer = item
@@ -350,12 +355,13 @@ final class T3DeviceScreenView: NSView {
     // MARK: Input
 
     func start() {
+        hasFrame = false; phoneFailed = false
         client.start()
         if axSource != nil { axGeneration += 1; pollAx(axGeneration) }
     }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); refresh() }
     func stop() { fold?.stop(); duoView?.dispose(); duoView?.removeFromSuperview(); duoView = nil; client.stop(); inputConnected = false; restartTimer?.cancel(); restartTimer = nil; axGeneration += 1; phone?.dispose(); phone?.removeFromSuperview(); phone = nil }
-    func reconnect() { client.restart() }
+    func reconnect() { phoneFailed = false; client.restart() }
 
     func press(_ action: String) {
         if action == "rotate" { client.rotate() } else { client.pressButton(action) }

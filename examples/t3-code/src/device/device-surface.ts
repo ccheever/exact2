@@ -25,12 +25,12 @@ export type DeviceView = {
   /** 5318d054a5: a local host with no available platform; wizard step 0 also shows the platform check. */
   localPlatformsUnavailable: boolean;
 };
-type DeviceStore = { generation: number; id: string; floor: number; maxSeen: number; state: Obj | null; step: number; pending: string; tried: boolean; listed: boolean };
+type DeviceStore = { generation: number; id: string; floor: number; maxSeen: number; state: Obj | null; step: number; pending: string; tried: boolean; listed: boolean; setupListed: boolean };
 const stores = new WeakMap<T3Client, DeviceStore>();
 function store(client: T3Client): DeviceStore {
   let value = stores.get(client);
   if (!value || value.generation !== client.generation) {
-    value = { generation: client.generation, id: '', floor: value?.maxSeen ?? 0, maxSeen: value?.maxSeen ?? 0, state: null, step: 0, pending: '', tried: false, listed: false };
+    value = { generation: client.generation, id: '', floor: value?.maxSeen ?? 0, maxSeen: value?.maxSeen ?? 0, state: null, step: 0, pending: '', tried: false, listed: false, setupListed: false };
     stores.set(client, value);
   }
   return value;
@@ -75,26 +75,42 @@ const platformName = (platform: string) => platform === 'ios' ? 'iOS' : 'Android
 export function localPlatformsUnavailable(state: Obj | null | undefined): boolean {
   return arr(state?.hosts).some(host => host.kind === 'local' && !arr(host.platforms).some(platform => platform.available === true));
 }
-/** platformSetupStatus. */
+/**
+ * DeviceSetup.tsx deviceHubReadiness (9c161462c9): `hostStatus` only tracks this machine. A machine
+ * without simulator tooling never starts its own hub, so setup and the panel also count remote hosts.
+ */
+export function deviceHubReadiness(state: Obj | null | undefined): { ready: boolean; busy: boolean } {
+  const statuses = Object.values(obj(state?.hostStatuses)).map(status => str(obj(status).status));
+  const ready = str(state?.hostStatus) === 'ready' || statuses.includes('ready');
+  const busy = !ready && [str(state?.hostStatus), ...statuses].some(status => status === 'installing' || status === 'starting');
+  return { ready, busy };
+}
+/** platformSetupStatus (9c161462c9): a platform only remote hosts support names the first of them. */
 export function platformSetupStatus(state: Obj, platform: string): { ready: boolean; message: string } {
-  const availability = arr(state.hosts).flatMap(host => arr(host.platforms)).find(candidate => candidate.platform === platform);
-  if (!availability || availability.available !== true) return { ready: false, message: str(availability?.reason, `${platformName(platform)} support was not detected.`) };
-  if (state.hostStatus === 'ready' && !arr(state.devices).some(device => device.platform === platform)) {
+  const availabilities = arr(state.hosts).flatMap(host => arr(host.platforms).filter(candidate => candidate.platform === platform).map(candidate => ({ candidate, host })));
+  const supporting = availabilities.filter(entry => entry.candidate.available === true).map(entry => entry.host);
+  if (supporting.length === 0) return { ready: false, message: str(availabilities[0]?.candidate.reason, `${platformName(platform)} support was not detected.`) };
+  const statuses = obj(state.hostStatuses);
+  const readyHosts = supporting.filter(host => str(obj(statuses[str(host.id)]).status) === 'ready' || (host.kind === 'local' && state.hostStatus === 'ready'));
+  if (readyHosts.length > 0 && !arr(state.devices).some(device => device.platform === platform)) {
     return { ready: false, message: platform === 'ios' ? 'Xcode is installed, but no iOS Simulator is available. Install a runtime in Xcode Settings → Components.'
       : 'The Android SDK is installed, but no virtual device exists. Create one in Android Studio → Device Manager.' };
   }
-  return { ready: true, message: platform === 'ios' ? 'Xcode and iOS Simulator are available.' : 'The Android SDK and Emulator are available.' };
+  const remote = supporting.every(host => host.kind !== 'local') ? supporting[0] : undefined;
+  const location = remote ? ` on ${str(remote.label)}` : '';
+  return { ready: true, message: platform === 'ios' ? `Xcode and iOS Simulator are available${location}.` : `The Android SDK and Emulator are available${location}.` };
 }
 /** DeviceHubSetupStatus / AgentDeviceSetupStatus labels. */
-export function hubStatusLabel(hostStatus: string, pending: boolean): string {
-  if (!pending && hostStatus !== 'ready') return '';
+export function hubStatusLabel(state: Obj, pending: boolean): string {
+  const hostStatus = str(state.hostStatus);
+  if (!pending && !deviceHubReadiness(state).ready) return '';
   if (!pending) return 'Device hub is ready.';
   return hostStatus === 'installing' ? 'Installing device hub…' : hostStatus === 'starting' ? 'Starting device hub…' : 'Updating device hub…';
 }
 export function agentStatusLabel(state: Obj, pending: boolean): string {
   const hostStatus = str(state.hostStatus);
   if (pending) return hostStatus === 'installing' ? 'Installing agent tools…' : hostStatus === 'starting' ? 'Starting agent tools…' : 'Updating agent access…';
-  if (state.agentAccessEnabled === true && hostStatus === 'ready' && arr(state.hosts).some(host => host.agentDeviceInstalled === true)) return 'Agent tools are ready.';
+  if (state.agentAccessEnabled === true && deviceHubReadiness(state).ready && arr(state.hosts).some(host => host.agentDeviceInstalled === true)) return 'Agent tools are ready.';
   return '';
 }
 const EMPTY_STATE: Obj = { hosts: [], hostStatus: 'disabled', hostStatuses: {}, devices: [], sessions: [], onboardingCompleted: false, agentAccessEnabled: false };
@@ -103,16 +119,23 @@ const EMPTY_STATE: Obj = { hosts: [], hostStatus: 'disabled', hostStatuses: {}, 
  * DevicePanel (1e2ecbd975): each time the panel shows, once the device state has loaded with the hub enabled, it asks
  * the environment for its devices (`device.list`, not awaited: the answer comes back on the state stream), so a hub
  * started a moment ago lists what it found without Refresh devices. `shown`: the Device surface is the panel's
- * visible one; `deviceHidden` ends the stint.
+ * visible one; `deviceHidden` ends the stint. DeviceSetup (9c161462c9) asks too while the wizard is open (`setup`)
+ * with the hub enabled, without a pending state: remote hosts report platforms only after a probe.
  */
-export async function deviceView(client: T3Client, native: Native, shown = false): Promise<DeviceView> {
+export async function deviceView(client: T3Client, native: Native, shown = false, setup = false): Promise<DeviceView> {
   await watchDevice(client, native);
   const value = store(client), state = value.state ?? EMPTY_STATE, hostStatus = str(state.hostStatus, 'disabled');
   if (shown && value.state !== null && hostStatus !== 'disabled' && !value.listed && value.pending === '') {
     value.listed = true;
     void deviceCommand(client, native, 'list', '', '');
   }
-  const enabled = hostStatus !== 'disabled', busy = hostStatus === 'installing' || hostStatus === 'starting';
+  if (!setup || hostStatus === 'disabled') value.setupListed = false;
+  else if (value.state !== null && !value.setupListed) {
+    value.setupListed = true;
+    void probeDevices(client, native);
+  }
+  const enabled = hostStatus !== 'disabled', { ready, busy } = deviceHubReadiness(state);
+  const hubPending = value.pending === 'hub' || (busy && value.pending !== 'agent');
   const statuses = obj(state.hostStatuses);
   const notices = enabled ? arr(state.hosts).flatMap((host): HostNotice[] => {
     const status = obj(statuses[str(host.id)]), kind = str(status.status);
@@ -129,17 +152,16 @@ export async function deviceView(client: T3Client, native: Native, shown = false
       description: `${str(arr(state.hosts).find(host => host.id === device.hostId)?.label)} · ${str(device.version)} · ${device.booted ? 'Running' : 'Stopped'}`,
       action: device.booted ? 'Open' : 'Start' })) }] : [];
   });
-  const hostReady = Object.values(statuses).some(status => obj(status).status === 'ready');
   const unavailable = arr(state.hosts).flatMap(host => arr(host.platforms).filter(platform => platform.available !== true));
   return {
     loaded: value.state !== null, step: value.step, enabled, busy, pending: value.pending, hostStatus,
-    hubStatus: hubStatusLabel(hostStatus, value.pending === 'hub' || (busy && value.pending !== 'agent')), hubReady: hostStatus === 'ready' && value.pending !== 'hub',
+    hubStatus: hubStatusLabel(state, hubPending), hubReady: ready && !hubPending,
     platforms: ['ios', 'android'].map(platform => ({ id: platform, platform: platformName(platform), ...platformSetupStatus(state, platform) })),
     agentEnabled: state.agentAccessEnabled === true, agentStatus: agentStatusLabel(state, value.pending === 'agent'), agentReady: value.pending !== 'agent' && agentStatusLabel(state, false) !== '',
-    failure: hostStatus === 'failed' ? str(state.hostStatusDetail) : '', canContinue: hostStatus === 'ready' && value.pending === '',
+    failure: hostStatus === 'failed' ? str(state.hostStatusDetail) : '', canContinue: ready && value.pending === '',
     doneLabel: value.pending === 'complete' ? 'Saving…' : 'Done', notices, groups,
     empty: groups.length ? '' : hostStatus === 'failed' ? str(state.hostStatusDetail, 'The device hub failed to start.') : 'No simulators or emulators were found on this environment.',
-    hint: hostReady && !arr(state.devices).some(device => device.platform === 'android') && !unavailable.some(platform => platform.platform === 'android')
+    hint: ready && !arr(state.devices).some(device => device.platform === 'android') && !unavailable.some(platform => platform.platform === 'android')
       ? "No Android virtual devices found. Create one in Android Studio's Device Manager, then refresh." : '',
     panelStatus: value.state === null ? 'Finding devices…' : hostStatus === 'installing' ? str(state.hostStatusDetail, 'Installing device support…') : busy ? 'Finding devices…' : '',
     refreshable: value.state !== null && !busy, session: emptyDeviceSession(), localPlatformsUnavailable: localPlatformsUnavailable(state),
@@ -156,10 +178,10 @@ export const emptyDevice = (): DeviceView => ({ loaded: false, step: 0, enabled:
 /** `shelllocal:surface-device-*`: wizard navigation (earlier steps only, never while busy). */
 export async function deviceLocal(client: T3Client, _native: Native, op: string, _id: string, value: string): Promise<string> {
   const current = store(client), state = current.state ?? EMPTY_STATE;
-  const busy = ['installing', 'starting'].includes(str(state.hostStatus)) || current.pending !== '';
+  const { ready, busy: hubBusy } = deviceHubReadiness(state), busy = hubBusy || current.pending !== '';
   if (op === 'step') { const step = Number(value); if (!busy && step >= 0 && step <= current.step) current.step = step; return ''; }
   if (op === 'back') { if (!busy && current.step > 0) current.step--; return ''; }
-  if (op === 'continue') { if (state.hostStatus === 'ready' && current.pending === '' && current.step < 2) current.step++; return ''; }
+  if (op === 'continue') { if (ready && current.pending === '' && current.step < 2) current.step++; return ''; }
   if (op === 'reset') { current.step = 0; return ''; }
   return '';
 }
@@ -169,6 +191,14 @@ export function configureInput(op: string, value: string): Obj {
   if (op === 'agent') return { agentAccessEnabled: value === 'true' };
   if (op === 'complete') return { onboardingCompleted: true };
   throw new ClientError(`Unknown device action: ${op}`);
+}
+/** DeviceSetup's probe: `device.list` without a pending state (useAtomCommand with reportFailure off). */
+async function probeDevices(client: T3Client, native: Native): Promise<void> {
+  const current = store(client);
+  try {
+    const result = await client.restAccess(native).request('device.list', {}, true);
+    if (Array.isArray(result.hosts) && stores.get(client) === current) current.state = result;
+  } catch { /* The state stream carries the next snapshot. */ }
 }
 export async function deviceCommand(client: T3Client, native: Native, op: string, _id: string, value: string): Promise<string> {
   const current = store(client), access = client.restAccess(native);
