@@ -37,7 +37,7 @@ extension Agent {
         #if os(iOS) || os(tvOS)
         // A presentation mounts beside the viewport (LLP 1123 D2): the
         // viewport's area is read from the window, sheets composited
-        if !presenter.modals.mountRoots.isEmpty, let window = view.window {
+        if presenter.surfaces(includingRetiring: true).contains(where: { $0.kind != .document }), let window = view.window {
             // The viewport's area in the window, which the agent's window
             // size can scale (as `screenshot` maps it)
             let area = view.convert(view.bounds, to: window)

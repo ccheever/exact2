@@ -138,7 +138,7 @@ final class DialogSheetIOSTests: XCTestCase {
         // What `tree --ax` reads: the ids of the elements under the session's roots.
         func read() -> [UInt32] {
             p.syncAccessibility()
-            return (p.axElements(roots: [p.viewport] + p.menus.sheets.roots)["elements"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? UInt32 }
+            return (p.axElements(roots: p.accessibilitySurfaces)["elements"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? UInt32 }
         }
         XCTAssertTrue(read().contains(7), "the page's button, before")
         p.dialogCommand("showModal", "nothing")
@@ -154,7 +154,7 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertFalse(sheet.sheetPresentationController?.prefersGrabberVisible ?? true)
         XCTAssertTrue(dialog.accessibilityViewIsModal, "VoiceOver stays in the dialog")
         XCTAssertTrue(p.viewport.accessibilityElementsHidden, "and does not reach the page beneath")
-        XCTAssertTrue(p.menus.sheets.roots == [sheet.view], "the sheet is a root of the tree `tree --ax` reads")
+        XCTAssertTrue(p.surfaces().filter { $0.kind == .dialog }.map(\.view) == [sheet.view], "the sheet is a root of the tree `tree --ax` reads")
         XCTAssertFalse(read().contains(7), "which holds nothing of the page beneath")
         XCTAssertTrue(p.menus.isOpen(dialog))
         XCTAssertEqual(p.menus.observation()?["kind"] as? String, "dialog")

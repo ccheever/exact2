@@ -185,8 +185,7 @@ extension Agent {
                   let property = path.split(separator: ".").first else { return false }
             return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
         }
-        // The document and every presentation's mount (LLP 1123 D2)
-        var pending: [UIView] = [presenter.viewport] + presenter.modals.mountRoots
+        var pending = [presenter.viewport] + presenter.presentations(includingRetiring: true)
         let now = CACurrentMediaTime()
         var moving = false
         Agent.pruneUnbegun(now: now)
@@ -230,7 +229,7 @@ extension Agent {
         if let pending = presenter.pendingFocusObservation {
             focus["pending"] = pending
         }
-        let keyboardContainer = presenter.modals.coordinateView ?? presenter.session?.view
+        let keyboardContainer = presenter.keyboardContainer
         let keyboardTop = keyboardContainer.flatMap { presenter.keyboardGuideTop(in: $0) }
         var keyboard: [String: Any] = ["visible": keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
                                        "policy": presenter.keyboardPolicy, "interactive": presenter.interactiveKeyboardDrag]
@@ -438,7 +437,8 @@ extension Agent {
             above = s.superview
         }
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
-        let inViewport = presenter.port(of: host) === vp
+        let popoverLayer = PopoverLayer.containing(host)
+        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
         var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]
                                                   : ["presentation": true, "sx": 0.0, "sy": 0.0]]
         scroll.append(contentsOf: chain.reversed())
@@ -451,7 +451,8 @@ extension Agent {
         node["clip"] = clip
         // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
         if hiddenBy == nil, !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true { hiddenBy = "visibility" }
-        var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(presenter.reach(of: host)), "clipped": clipped]
+        let reach = popoverLayer.map { box($0) } ?? presenter.reach(of: host)
+        var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(reach), "clipped": clipped]
         if let hiddenBy { visible["hiddenBy"] = hiddenBy }
         if let inertBy { visible["inertBy"] = inertBy }
         node["visible"] = visible
@@ -469,11 +470,7 @@ extension Agent {
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let grouped = presenter.groupedLists?.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
-        var responder: UIResponder? = host
-        while let current = responder {
-            if let vc = current as? UIViewController { native["controller"] = String(describing: Swift.type(of: vc)); break }
-            responder = current.next
-        }
+        if let vc = ViewPresentation.controller(for: host) { native["controller"] = String(describing: Swift.type(of: vc)) }
         if let key = presenter.navigation.routeKey(containing: host) { native["route"] = key }
         if let sheet = presenter.modals.coordinateView, host.isDescendant(of: sheet) { native["presentation"] = presenter.modals.presentation == "fullscreen" ? "fullscreen" : "sheet" }
         if let leaf = host.symbolView {
@@ -869,7 +866,7 @@ extension Agent {
     /// none itself. `v` may be a native view standing for a node (a
     /// grouped list's cell or accessory).
     func obscured(_ v: UIView, at p: CGPoint, hit: UIView) -> String? {
-        if let container = presenter.modals.coordinateView ?? presenter.session?.view,
+        if let container = presenter.keyboardContainer,
            let top = presenter.keyboardGuideTop(in: container), p.y >= container.convert(CGPoint(x: 0, y: top), to: nil).y {
             return "its middle is under the software keyboard; dismiss it or scroll the target above it first (state shows keyboard.top)"
         }
@@ -1279,7 +1276,7 @@ extension Agent {
         // The software keyboard is not in the capture, which UIKit draws in a process of its own, and the app may
         // stand above it (LLP 1102 §3.17): say so, where the image alone reads as a shortened screen. The simulator
         // driver puts the keyboard's pixels in a window capture (`windowTop`, LLP 1116.008 D8; devices.mjs).
-        let container = session.presenter.modals.coordinateView ?? session.view
+        let container = session.presenter.keyboardContainer
         if let top = container.flatMap({ session.presenter.keyboardGuideTop(in: $0) }) {
             var keyboard: [String: Any] = ["visible": true, "top": Agent.r2(top)]
             if let window = keyboardTopForCheck() { keyboard["windowTop"] = Agent.r2(window) }
