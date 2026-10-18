@@ -106,6 +106,13 @@ final class FaceSymbolIOSTests: XCTestCase {
         XCTAssertTrue(home()?.selectedImage?.isSymbolImage == false, "no `.fill` variant: the path in both states")
         XCTAssertEqual(home()?.selectedImage?.size, home()?.image?.size)
         XCTAssertEqual(tabs.viewControllers?.first?.tabBarItem.accessibilityIdentifier, "tab-home", "its test id, not the token")
+        // The size class sizes the glyph: compact, regular, compact again, the faces unchanged.
+        for size in [UIUserInterfaceSizeClass.compact, .regular, .compact] {
+            tabs.tabBar.traitOverrides.horizontalSizeClass = size
+            tabs.tabBar.updateTraitsIfNeeded()
+            let points = FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: size))
+            until("the root tab's path drawn again at \(points) for \(size.rawValue)") { home()?.image?.size.width == points }
+        }
     }
 
     /// A presenter of a tablist of native tabs with these faces.
@@ -139,6 +146,13 @@ final class FaceSymbolIOSTests: XCTestCase {
         XCTAssertTrue(isTemplate(items[0].image), "the tab bar tints it")
         XCTAssertEqual(items[0].image?.size.width, FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: .compact)))
         XCTAssertTrue(items[1].image?.isSymbolImage == true, "an SF Symbol as before")
+        // The size class sizes the glyph: compact, regular, compact again, the faces unchanged.
+        let tabBar = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UITabBar }.first)
+        for size in [UIUserInterfaceSizeClass.compact, .regular, .compact] {
+            tabBar.traitOverrides.horizontalSizeClass = size
+            tabBar.updateTraitsIfNeeded()
+            XCTAssertEqual(tabBar.items?.first?.image?.size.width, FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: size)), "\(size.rawValue)")
+        }
         p = tablist([2: face(token, label: "Reply"), 3: face("map", label: "Map")], selected: false)
         let segments = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
         let image = try XCTUnwrap(segments.imageForSegment(at: 0), "the path, not an empty image")
@@ -146,6 +160,12 @@ final class FaceSymbolIOSTests: XCTestCase {
         XCTAssertEqual(image.size.width, FaceSymbol.defaultPoints.rounded(.up))
         XCTAssertEqual(image.accessibilityLabel, "Reply")
         XCTAssertTrue(segments.imageForSegment(at: 1)?.isSymbolImage == true)
+        // Drawn again at the body size as the text size changes, the faces unchanged.
+        segments.traitOverrides.preferredContentSizeCategory = .accessibilityExtraLarge
+        segments.updateTraitsIfNeeded()
+        let grown = UIFont.preferredFont(forTextStyle: .body, compatibleWith: segments.traitCollection).pointSize.rounded(.up)
+        XCTAssertGreaterThan(grown, FaceSymbol.defaultPoints + 10)
+        XCTAssertEqual(segments.imageForSegment(at: 0)?.size.width, grown, "the path at the control's body size")
         // The agent reads the platform name; for a path, the icon token's name.
         let native = Presenter()
         native.buttonFace = { _ in var f = self.face(self.token, title: "Reply"); f.symbolIcon = "icon.reply"; return f }
@@ -356,6 +376,30 @@ final class FaceSymbolGroupedTests: GroupedListFixture {
         XCTAssertEqual(red.resolvedColor(with: reply.traitCollection), UIColor.systemRed.resolvedColor(with: reply.traitCollection))
         let grey = try XCTUnwrap((try cells { self.pathModel(disabled: true) }.1.contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor)
         XCTAssertEqual(grey.resolvedColor(with: reply.traitCollection), UIColor.tertiaryLabel.resolvedColor(with: reply.traitCollection))
+    }
+
+    /// A path in the accent (`AccentColor`, as GroupedListIOSTests' testASymbolInTheAccentTakesTheCellsTint has
+    /// a symbol, its file at its cap): no colour of its own, so the cell's tint, not the label, as it changes.
+    func testAPathInTheAccentTakesTheCellsTint() throws {
+        let p = presenter { self.pathModel() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:icon||0 0 24 24|M2 2 L22 2 L22 22 L2 22 Z|icons/x.svg"],
+             "style": ["tint_color": ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Reply"], "style": [:]],
+            ["op": "children", "id": 10, "ids": [31, 33]],
+        ]))
+        let row = try cell(p, 10)
+        XCTAssertNil((row.contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor, "the accent is the cell's tint")
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        func shown() throws -> UIColor {
+            row.layoutIfNeeded()
+            func images(_ v: UIView) -> [UIImageView] { ((v as? UIImageView).map { [$0] } ?? []) + v.subviews.flatMap(images) }
+            return try XCTUnwrap(images(row.contentView).first { $0.image?.renderingMode == .alwaysTemplate }, "the path's view").tintColor
+        }
+        for accent in [UIColor.systemTeal, .systemPink] {
+            window.tintColor = accent
+            XCTAssertEqual(try shown().resolvedColor(with: light), accent.resolvedColor(with: light), "drawn in the accent as it changes")
+        }
     }
 
     /// Its size is the cell's Dynamic Type size, drawn again as that changes with no change to the row.

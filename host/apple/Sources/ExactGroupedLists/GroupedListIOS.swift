@@ -901,7 +901,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // sheet's own, each side of a light-dark() pair for its appearance.
         // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
         // tint, which an authored accent-color sets (LLP 1116.004 D2).
-        if let symbol = symbolView(of: id), let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
+        let symbolNode = symbolView(of: id)
+        // A tint that follows the accent leaves the image the cell's tint (nil here, on purpose).
+        let followsAccent = symbolNode.map { $0.style["tint_color"] != nil && $0.followsTint("tint_color") } ?? false
+        if let symbol = symbolNode, let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
             c.imageProperties.tintColor = UIColor { traits in
                 value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
             }
@@ -933,8 +936,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // An untinted symbol is the label colour; a path image takes it as
         // set, as the title takes it where its author gave none (not an
-        // action row's accent title).
-        if path != nil, c.imageProperties.tintColor == nil {
+        // action row's accent title). One that follows the accent keeps the
+        // cell's tint, which an image with no tint of its own is drawn in.
+        if path != nil, c.imageProperties.tintColor == nil, !followsAccent {
             c.imageProperties.tintColor = ThemeRoles.color("label", in: host.presenter.root, or: .label)
         }
         cell.contentConfiguration = c

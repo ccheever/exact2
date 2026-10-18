@@ -28,7 +28,7 @@ final class FaceSymbolTests: XCTestCase {
     static func isTemplate(_ image: NSImage?) -> Bool { image?.isTemplate == true }
     #endif
 
-    /// The face's JSON: a "" symbol with a path is the path's token; a name stays a name; the agent reads "".
+    /// The face's JSON: a "" symbol with a path is the path's token; a name stays a name; the agent reads the icon's name.
     func testAFacesPathIsItsTokenAndDrawsATemplateImage() throws {
         let json = { (o: [String: Any]) in ButtonFace(json: try! JSONSerialization.data(withJSONObject: o)) }
         let svg = json(["button": true, "symbol": "", "symbolPath": Self.square, "symbolViewBox": "0 0 24 24"])
@@ -248,7 +248,7 @@ final class FaceSymbolTests: XCTestCase {
     }
 
     /// The window's sidebar over a compiled app whose first tab is an svg-only icon token: the plan's path,
-    /// sent by the Rust side as `symbolPath`, is the row's installed image; the agent reads "" for it.
+    /// sent by the Rust side as `symbolPath`, is the row's installed image; the agent reads the icon's name (`icon.reply`) for it.
     @MainActor func testASidebarRowsPathIsItsInstalledImageFromThePlan() throws {
         _ = NSApplication.shared
         let dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

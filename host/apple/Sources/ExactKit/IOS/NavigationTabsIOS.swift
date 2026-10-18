@@ -84,6 +84,11 @@ extension NavigationHost {
             tablistAppearanceNone = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
             if ExactEnv.authoredChrome || tablistAppearanceNone { hideTabBar(container) }
             tabController = container
+            // A path's glyph is sized by the size class: the items again as it changes (and once the bar
+            // is in its window, whose traits it then has).
+            container.tabBar.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
+                self?.resyncTabItems()
+            }
             return container
         }()
         mount(holder, in: parent, at: p.root)
@@ -234,13 +239,21 @@ extension NavigationHost {
     /// The items, from the authored tabs: each tab's own item, written in
     /// place when its face changes, so what else the app set on it (a badge)
     /// and a handle to it stay good.
+    /// The items again, from the tabs they were last made from (a size class change).
+    func resyncTabItems() {
+        if let (tabs, navs) = tabItemsSource { syncItems(tabs, navs: navs) }
+    }
+
     private func syncItems(_ tabs: NavigationTabs, navs: [UINavigationController]) {
+        tabItemsSource = (tabs, navs)
         let faces = tabs.tabs.map(TabFace.init)
         // A tab's test id is its item's identifier, which XCUITest and
         // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
         let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base.flatMap { FaceSymbol.isPath($0) ? nil : $0 } ?? face.title }
         // The size class sizes a path's glyph (`FaceSymbol.tabBarPoints`).
-        let traits = tabController?.traitCollection ?? UITraitCollection.current
+        // The bar's traits once it is in its window; before, the page's.
+        let traits = tabController.flatMap { $0.tabBar.window == nil ? nil : $0.tabBar.traitCollection }
+            ?? presenter.session?.view?.traitCollection ?? UITraitCollection.current
         let width = traits.horizontalSizeClass.rawValue
         let signature = zip(faces, ids).map { face, id in "\(width)|\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
@@ -407,6 +420,7 @@ extension NavigationHost {
         tabNavigations = [:]
         tabPanels = []
         tabItems = []
+        tabItemsSource = nil
         tabTint = nil
         adoptedTablist = nil
         tablistAppearanceNone = false
