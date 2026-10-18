@@ -57,6 +57,8 @@ test('offline and unscoped paths never issue a metadata request', async () => {
   const { app, calls } = fixture('@folder', () => { throw Error('must not query'); });
   app.ready = false; expect(await refreshFileMetadata(app, native, 0)).toBe(false);
   app.ready = true; app.scopes = []; expect(await refreshFileMetadata(app, native, 0)).toBe(false);
+  app.scopes = ['orchestration:read']; expect(fileMetadataNeeded(app, 0)).toBe(false);
+  expect(await refreshFileMetadata(app, native, 0)).toBe(false);
   expect(calls).toEqual([]); expect(workspaceFileIcon(app, 'folder', '/repo', 0)).not.toBe('folder');
 });
 test('Markdown links and stored mention records share the same metadata and render resolved folder icons', async () => {

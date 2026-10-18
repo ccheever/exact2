@@ -63,7 +63,7 @@ function known(client: T3Client, path: string, now: number): Entry | undefined {
   return undefined;
 }
 export function fileMetadataNeeded(client: T3Client, now = composerNow(client)): boolean {
-  if (!client.ready || !client.scopes?.some(scope => scope === 'filesystem:read' || scope === 'orchestration:read')) return false;
+  if (!client.ready || !client.scopes?.includes('filesystem:read')) return false;
   const value = store(client);
   return visibleFilePaths(client).some(path => !value.inFlight.has(path) && !known(client, path, now));
 }
