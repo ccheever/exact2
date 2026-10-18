@@ -830,6 +830,7 @@ test "password sessions restore and sign out"
   type "password" "wrong password"
   tap "login"
   clock data
+  expect refusal "signed"
   expect text "auth-error" == "E_AUTH"
   expect text "session" == "Signed out"
   type "password" "correct horse battery staple"
