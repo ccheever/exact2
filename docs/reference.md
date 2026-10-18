@@ -460,26 +460,32 @@ redacted as a placeholder. A render is keyed by the activity, its generation,
 the state's bytes and every fact the session reads (the text size, Bold Text,
 contrast, transparency, the scheme, the display scale, the locale and time
 zone); the eight placements of one push share it. A placement's view answers
-the system's size proposals from the kernel (`ActivityRender`): the Lock
-Screen and the expanded bottom region are as wide as the region; the compact
-regions, the minimal view and the expanded leading, centre and trailing
-regions as wide as their content, by the kernel's shrink-to-fit trial
-(`Kernel::fit_content_box`: the root laid out alone as a flex item in a row
-of the region's width, so an authored width is kept as written, limits and
-percentages resolve against the region, justified content is its own width,
-and a paragraph that wraps is as wide as its widest line, as SwiftUI's
-`Text` reports its own); every placement is as tall as its content, with the
-margins its root resolves. The Lock Screen placement sits inside the
+the system's size proposals from the kernel (`ActivityRender`): the bake
+positions each placement's root absolutely at its region's top left, so in
+the region's viewport CSS 2.1 §10.3.7 gives a `width: auto` root the
+shrink-to-fit width (an authored `width` or `min-width` is kept, past the
+region too; a percentage resolves against the region; `margin: auto` is
+nothing; `flex-basis` does not apply, the root being no flex item), and the
+Lock Screen and expanded bottom roots, which the system sizes, take the
+region through `right: 0`. That one layout is measured and drawn: the region
+reports the root's margin box, a paragraph the region wrapped settles to its
+widest ink line, a content the region cannot hold is cut at the region, and
+each view draws the layout its size was measured from, whatever region's
+proposal last laid the session out. The Lock Screen placement sits inside the
 system's content margins or, where the system gives none, the standard
 layout margin for Live Activities on the Lock Screen, 14 points (Human
 Interface Guidelines, Live Activities: "The standard layout margin for Live
 Activities on the Lock Screen is 14 points"); its root's `background-color`
-is the `activityBackgroundTint`, its `background-image` gradients paint full
-bleed behind the margins, and both unsaid leave the system's material. A
-Live Activity's content is not account content: it stays on a locked phone,
-and a node that says `data-privacy="private"` is redacted there (a widget's
-is the reverse, `public` to stay). A link in the Lock Screen or an expanded
-region is a `Link`; the first link of any placement is its URL.
+is the `activityBackgroundTint`, its `background-image`'s gradient layers
+paint full bleed behind the margins over that tint, and both unsaid leave the
+system's material. A Live Activity's content is account content as a
+widget's is (D8): private on a locked phone but for a node that says
+`data-privacy="public"`, which Caltrain's placements do, a train's departure
+being nobody's account. A link in the Lock Screen or an expanded region is a
+`Link`; the first link of any placement is its URL. The development gallery
+shows the eight placements with the Island's geometry of one device (the
+iPhone 17 Pro's, `IslandGeometry`), its expanded regions allocated together
+as ActivityKit arranges them.
 The sends that start, update and end an activity are LLP 1126.001 WP9.
 
 The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
