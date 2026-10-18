@@ -152,11 +152,126 @@ private struct WidgetGalleryCell: View {
     }
 }
 
+/// A Live Activity entry (LLP 1126.001 WP10): its kind and preview state,
+/// from the bake's `plans/activities.json`.
+struct ActivityEntry {
+    let kind: String
+    let preview: [String: Any]
+    let assets: AssetResolver
+}
+
+/// One activity's render for the gallery: the entry's plan booted with
+/// its preview state (or a state the agent supplies), at the app's clock
+/// and place, in a scheme; the eight placements are laid out from it as
+/// the system lays them out, at the widths the gallery proposes.
+@MainActor
+final class ActivityPreview {
+    let entry: ActivityEntry
+    let render: ActivityRender
+    let state: [String: Any]
+    let scheme: String
+    let environment: (ActivityPlacement) -> SnapshotEnvironment
+    init(_ entry: ActivityEntry, appSession: ExactSession, scheme: String = "light", state supplied: [String: Any]? = nil) throws {
+        self.entry = entry; self.scheme = scheme
+        guard let plan = entry.assets.bytes("plans/\(entry.kind).plan") else {
+            throw HeadlessSession.Failure(description: "missing activity plan: \(entry.kind); rebuild the app")
+        }
+        let place = appSession.launchPlace, clock = appSession.now()
+        let date = Date(timeIntervalSince1970: (appSession.dateNow().epoch + clock) / 1000)
+        let facts = SessionFacts(displayScale: 1, preferences: scheme == "dark" ? [.dark] : [], rootFontSize: Double(SnapshotDriver.bodySize(for: .large)),
+            date: date, clock: clock, timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
+        state = supplied ?? entry.preview
+        render = try ActivityRender(plan: plan, kind: entry.kind, state: try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]), facts: facts, assets: entry.assets)
+        let linkBase = URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), roots = [entry.assets.root]
+        let frozen: Date? = appSession.clock == nil ? nil : date
+        environment = { placement in
+            SnapshotEnvironment(family: .liveActivity, placement: placement, linkBase: linkBase, imageRoots: roots,
+                                rootFontSize: SnapshotDriver.bodySize(for: .large), entryDate: date, frozenDate: frozen)
+        }
+    }
+    func view(_ placement: ActivityPlacement) -> some View {
+        SnapshotActivity.view(render, placement: placement, environment: environment(placement))
+    }
+}
+
+/// The eight placements as the system presents them, in the gallery's own
+/// width: the Lock Screen card at the width the gallery has, the expanded
+/// Island as its regions (leading, centre and trailing on one row, the
+/// bottom under them) in a container of that width, the compact Island as
+/// its two regions around the sensor's obstruction, the minimal view in its
+/// circle. The regions' sizes are what the driver answers to the stand-ins'
+/// proposals, as they are in the extension; no region width is a number
+/// the gallery holds.
+@MainActor
+struct ActivityGalleryView: View {
+    let preview: ActivityPreview
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Lock Screen · \(preview.scheme)").font(.caption).foregroundStyle(.secondary)
+            // The tint stands in for the system's `activityBackgroundTint` (iOS only) over its material.
+            preview.view(.lockScreen)
+                .background(SnapshotActivity.tint(preview.render, dark: preview.scheme == "dark") ?? Color.black.opacity(0.85))
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .environment(\.colorScheme, preview.scheme == "dark" ? .dark : .light)
+            Text("Dynamic Island · expanded").font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 0) {
+                    preview.view(.expandedLeading)
+                    Spacer(minLength: 8)
+                    preview.view(.expandedCenter)
+                    Spacer(minLength: 8)
+                    preview.view(.expandedTrailing)
+                }
+                preview.view(.expandedBottom)
+            }
+            .padding(EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18))
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
+            .environment(\.colorScheme, .dark)
+            Text("Dynamic Island · compact and minimal").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 16) {
+                HStack(spacing: 0) {
+                    preview.view(.compactLeading).padding(EdgeInsets(top: 7, leading: 7, bottom: 7, trailing: 0))
+                    Color.clear.frame(width: 125, height: 37)
+                    preview.view(.compactTrailing).padding(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 7))
+                }
+                .background(Color.black).clipShape(Capsule())
+                preview.view(.minimal)
+                    .padding(7).frame(minWidth: 37, minHeight: 37)
+                    .background(Color.black).clipShape(Capsule())
+            }
+            .environment(\.colorScheme, .dark)
+        }
+    }
+}
+
+@MainActor
+private struct ActivityGalleryCell: View {
+    let entry: ActivityEntry
+    let scheme: String
+    let appSession: ExactSession
+    @State private var preview: ActivityPreview?
+    @State private var failure: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let preview { ActivityGalleryView(preview: preview) }
+            else if let failure { Text(failure).foregroundStyle(.red) }
+            else { ProgressView() }
+        }
+        .task {
+            guard preview == nil, failure == nil else { return }
+            do { preview = try ActivityPreview(entry, appSession: appSession, scheme: scheme) }
+            catch { failure = String(describing: error) }
+        }
+    }
+}
+
 @MainActor
 private struct WidgetGalleryView: View {
     let appSession: ExactSession
     @State private var revision = 0
     private var entries: [WidgetEntry] { WidgetGallery.entries(in: appSession.app.resolver) }
+    private var activities: [ActivityEntry] { WidgetGallery.activities(in: appSession.app.resolver) }
     let close: () -> Void
     var body: some View {
         VStack(spacing: 0) {
@@ -179,6 +294,12 @@ private struct WidgetGalleryView: View {
                             }
                         }
                     }
+                    ForEach(activities, id: \.kind) { entry in
+                        Text("\(entry.kind) (Live Activity)").font(.title2)
+                        ForEach(["light", "dark"], id: \.self) { scheme in
+                            ActivityGalleryCell(entry: entry, scheme: scheme, appSession: appSession)
+                        }
+                    }
                 }.padding().id(appSession.app.resolver.publicationID + String(revision))
             }
         }.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ExactWidgetGeneration"))) { _ in revision += 1 }
@@ -196,7 +317,15 @@ enum WidgetGallery {
             return WidgetEntry(kind: kind, families: families, preview: preview, assets: assets)
         }
     }
-    static var available: Bool { !entries.isEmpty }
+    static func activities(in assets: AssetResolver) -> [ActivityEntry] {
+        guard let data = assets.bytes("plans/activities.json"),
+              let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return values.compactMap { value in
+            guard let kind = value["kind"] as? String, let preview = value["preview"] as? [String: Any] else { return nil }
+            return ActivityEntry(kind: kind, preview: preview, assets: assets)
+        }
+    }
+    static var available: Bool { !entries.isEmpty || !activities(in: ExactApp.shared.resolver).isEmpty }
     #if os(macOS)
     @MainActor private static var window: NSWindow?
     #endif

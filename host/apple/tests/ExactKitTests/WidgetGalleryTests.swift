@@ -28,6 +28,47 @@ final class WidgetGalleryTests: XCTestCase {
         XCTAssertNotNil(widgets())
     }
     #endif
+    /// LLP 1126.001 WP10: the gallery lists an app's activities beside its
+    /// widgets and renders each one's eight placements from its preview
+    /// state, in the gallery's own width.
+    func testActivitiesRenderTheirEightPlacementsInTheGallery() throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let plans = ["departure": "EXACT_SNAPSHOT_DEPARTURE_PLAN", "service-alert": "EXACT_SNAPSHOT_SERVICE_ALERT_PLAN"]
+            .mapValues { URL(fileURLWithPath: ProcessInfo.processInfo.environment[$0] ?? "") }
+        let registry = try JSONSerialization.data(withJSONObject: [
+            ["kind": "departure", "preview": ["station": "Mountain View", "headsign": "San Francisco", "train": 101, "at": 1_787_915_700_000, "status": "On time"]],
+            ["kind": "service-alert", "preview": ["title": "Service delay", "message": "Northbound trains delayed.", "updatedAt": 1_787_915_700_000]],
+        ])
+        let assets = AssetResolver(root: FileManager.default.temporaryDirectory, names: ["plans/activities.json", "plans/departure.plan", "plans/service-alert.plan"], generation: "activities") { name in
+            name == "plans/activities.json" ? registry : try Data(contentsOf: plans[String(name.dropFirst(6).dropLast(5))]!)
+        }
+        let entries = WidgetGallery.activities(in: assets)
+        XCTAssertEqual(entries.map(\.kind), ["departure", "service-alert"])
+        let session = ExactSession(app: ExactApp.shared, label: "activity-gallery", launchPlace: LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_EPOCH": "1787907900000"]))
+        session.clock = 0
+        defer { session.destroy() }
+        for (entry, scheme) in zip(entries, ["light", "dark"]) {
+            let preview = try ActivityPreview(entry, appSession: session, scheme: scheme)
+            XCTAssertEqual(preview.state["station"] as? String ?? preview.state["title"] as? String, entry.kind == "departure" ? "Mountain View" : "Service delay")
+            let renderer = ImageRenderer(content: ActivityGalleryView(preview: preview).frame(width: 362))
+            renderer.scale = 1
+            renderer.proposedSize = ProposedViewSize(width: 362, height: nil)
+            let image = try XCTUnwrap(renderer.cgImage, entry.kind)
+            XCTAssertEqual(image.width, 362)
+            XCTAssertGreaterThan(image.height, 200, "the Lock Screen card, the expanded Island and the compact row stack")
+            XCTAssertGreaterThanOrEqual(preview.render.layoutCount, 8, "each placement laid out at least once: \(preview.render.layoutCount)")
+            let lock = try preview.render.layout(.lockScreen, width: 362 - 32, height: nil)
+            XCTAssertEqual(lock.root.frame.width, 330)
+            XCTAssertGreaterThan(preview.render.size(.compactTrailing, proposal: .unspecified).width, 0)
+        }
+        // A supplied state replaces the preview, as the agent's --state will.
+        let given = try ActivityPreview(entries[0], appSession: session, state: ["station": "Palo Alto", "headsign": "San Jose", "train": 233, "at": 1_787_915_700_000, "status": "Delayed"])
+        let laid = try given.render.layout(.lockScreen, width: 330, height: nil)
+        XCTAssertTrue(laid.snapshot.nodes.values.contains { $0.lines.contains { $0.text == "Palo Alto to San Jose" } })
+    }
+
     func testGivenPropsSkipARefusingRefresh() throws {
         let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_REFUSING_PLAN"]))
         let assets = AssetResolver(root: plan.deletingLastPathComponent(), names: ["plans/refusing.plan"], generation: "refusing") { _ in try? Data(contentsOf: plan) }
