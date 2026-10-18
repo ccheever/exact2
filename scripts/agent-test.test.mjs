@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { disabledExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
+import { disabledExpectation, refusalExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
@@ -169,3 +169,103 @@ component Day
     rmSync(dir, { recursive: true, force: true });
   }
 }, 180_000);
+
+
+test('expect refusal asserts an observed mutation failure and preserves unrelated wiring findings', async () => {
+  const {refusalsOf} = await import('./verify.mjs');
+  const lines=[
+    't=1 refused reply saved; wall 3 ms: Not permitted',
+    't=1 request 4 (saved) failed and is no longer pending: it ends unsent: Not permitted',
+    't=2 refused reply saved; wall 2 ms: outside its shape',
+    't=2 request 5 (saved) failed and is no longer pending: it is not retried: outside its shape',
+    't=3 refused reply other; wall 1 ms: Not permitted',
+    't=3 request 6 (other) failed and is no longer pending: it ends unsent: Not permitted',
+    't=4 showModal absent refused: no dialog has that id',
+    't=5 request 7 (resource) failed and is no longer pending: it keeps its last value: Offline',
+  ];
+  const first=refusalExpectation({lines:lines.slice(0,2)},'saved');
+  expect(first).toEqual({expected:[lines[1],lines[0]]});
+  expect(refusalsOf({lines},first.expected)).toEqual([
+    'refused reply saved; wall 2 ms: outside its shape',
+    'refused reply other; wall 1 ms: Not permitted',
+    'showModal absent refused: no dialog has that id',
+  ]);
+  expect(refusalExpectation({lines},'resource').message).toContain('no refused reply was observed');
+  expect(refusalExpectation({lines:[]},'saved').message).toContain('clock data');
+  // The same assertion cannot consume a refusal before the preceding assertion of the same slot's log cursor.
+  expect(refusalExpectation({lines:lines.slice(2)},'saved').expected).toEqual([lines[3],lines[2]]);
+  const synchronous='t=6 send saved failed: Refused on purpose; it ends unsent';
+  const sync=refusalExpectation({lines:[...lines,synchronous]},'saved');
+  expect(sync).toEqual({expected:[synchronous]});
+  expect(refusalsOf({lines:[synchronous]},sync.expected)).toEqual([]);
+  const repeated=[...lines.slice(0,2),...lines.slice(0,2)];
+  expect(refusalsOf({lines:repeated},first.expected)).toEqual(['refused reply saved; wall 3 ms: Not permitted']);
+  expect(refusalsOf({lines:lines.slice(0,2),host:['exact: refused reply saved; wall 3 ms: Not permitted']},first.expected)).toEqual([]);
+});
+
+
+test('an authored expected refusal keeps a prior send value, skips then, and is accepted by verify', async () => {
+  const {refusalsOf} = await import('./verify.mjs');
+  const dir=mkdtempSync(join(tmpdir(),'exact-expected-refusal-')), dist=join(dir,'dist'), file=join(dir,'app.test.contract');
+  writeFileSync(join(dir,'app.json'),JSON.stringify({name:'Refusal',app:{id:'test.exact.refusal',name:'Refusal'},host:{},deploy:{}}));
+  writeFileSync(join(dir,'app.contract'),`shape Saved
+  value: string
+component App
+  state completions = 0
+  mutation saved as shape Saved then completed
+  derive stored = match saved { case some(value) => value.value, case none => "empty" }
+  derive error = match failure(saved) { case some(value) => value.code, case none => "none" }
+  action completed
+    completions = completions + 1
+  action accept
+    send saved = write(false)
+  action refuse
+    send saved = write(true)
+  view
+    column
+      button "Accept" press=accept testId="accept"
+      button "Refuse" press=refuse testId="refuse"
+      text stored testId="stored"
+      text error testId="error"
+`);
+  writeFileSync(join(dir,'app.ts'),`import type {Answer} from './app.contract.d.ts';
+export const appId='test.exact.refusal';
+export const grants='';
+export const answer: Answer=async(_source,args)=>{
+  if(args[0]) throw Object.assign(new Error('Refused on purpose'),{reason:'DENIED'});
+  return {value:'kept'};
+};
+`);
+  writeFileSync(file,`test "a refused send keeps the previous reply"
+  tap "accept"
+  clock data
+  expect text "stored" == "kept"
+  expect state completions == 1
+  tap "refuse"
+  clock data
+  expect refusal "saved"
+  expect text "stored" == "kept"
+  expect text "error" == "DENIED"
+  expect state completions == 1
+`);
+  const root=new URL('..',import.meta.url).pathname;
+  const build=spawnSync(process.execPath,['host/web-js/build.mjs','refusal','--out',dist,'--render','none'],{cwd:root,env:{...process.env,EXACT_APP_DIR:dir},encoding:'utf8'});
+  expect(build.status,build.stderr).toBe(0);
+  const server=createServer((req,res)=>serveBuildTree(dist,req,res));
+  await new Promise(ok=>server.listen(0,'127.0.0.1',ok));
+  const findings=[], observed=[];
+  try {
+    const r=await runTests({host:'web',file,app:'caltrain',url:`http://127.0.0.1:${server.address().port}/`,atEnd:async(s,t)=>{
+      const logs=await s.logs();
+      observed.push(refusalsOf(logs).length);
+      findings.push(...refusalsOf(logs,t.expectedRefusals));
+      return {};
+    }});
+    expect(r.results.map(t=>t.failures)).toEqual([[]]);
+    expect(r.passed).toBe(1);
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toBeGreaterThan(0);
+    expect(r.results[0].end?.error).toBeUndefined();
+    expect(findings).toEqual([]);
+  } finally { server.close(); rmSync(dir,{recursive:true,force:true}); }
+},180_000);
