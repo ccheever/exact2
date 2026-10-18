@@ -327,7 +327,7 @@ const WEB_HOST_GROUPS = {
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
-  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
+  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-pads.js'],
   gpuModules: ['gpu-modules.js'],
   native: ['native-glue.js'],
   // A development page's frame sampler (LLP 1079 D3); a production build ships none.
