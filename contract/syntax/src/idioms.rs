@@ -144,7 +144,7 @@ pub fn refusal(name: &str) -> Option<String> {
         // writing the view alone dropped the order; named, it kept it. The
         // euxy port built a list the view held last to first by hand.
         "reverse" | "toReversed" => format!(
-            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`); a list the view already holds reads last to first as `range(xs.length).map(i => xs.slice(xs.length - 1 - i, xs.length - i)).flat()`"
+            "`{name}` is refused: a list the view holds reads last to first as `sortBy(xs, (x, i) => i, \"desc\")`, a step an item; a stored order is the data module's: order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
         "reduce" | "reduceRight" => format!(
             "`{name}` is refused (LLP 1017.003): a total is `sum(xs)`, or `sum(xs.map(x => …))` over a field; compute any other fold in the data source and hand the view the result"

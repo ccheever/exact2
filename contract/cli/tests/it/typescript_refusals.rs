@@ -18,8 +18,7 @@ fn refused(expr: &str) -> (String, String) {
 }
 
 /// What `reverse`'s refusal names for a list the view holds.
-const REVERSED: &str =
-    "range(xs.length).map(i => xs.slice(xs.length - 1 - i, xs.length - i)).flat()";
+const REVERSED: &str = "sortBy(xs, (x, i) => i, \"desc\")";
 
 /// The composition is the list last to first, empty included.
 #[test]
@@ -80,7 +79,7 @@ fn each_refused_form_names_an_edit_that_compiles() {
         (
             "xs.reverse()",
             "syntax-method-call",
-            "reads last to first as `range(xs.length).map(i => xs.slice(xs.length - 1 - i, xs.length - i)).flat()`",
+            "reads last to first as `sortBy(xs, (x, i) => i, \"desc\")`",
             REVERSED,
         ),
         (
