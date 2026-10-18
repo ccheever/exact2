@@ -498,3 +498,53 @@ fn round_two_a_dominated_token_an_ambiguous_line_branch_pins_and_an_icon_file() 
         "{svg}"
     );
 }
+
+/// The server keeps the app's params and its own `.contract` files from
+/// one walk of the Contract sources, walked again when one of them is
+/// edited: a param a component gains resolves, a range it narrows refuses,
+/// and a file a new `use` reaches is the server's.
+#[test]
+fn a_contract_edit_is_read_again_by_the_next_request() {
+    let dir = app("walk");
+    let mut s = Serve::start(&dir);
+    let gap = s.ask(json!({"method": "resolve", "token": "PostButton.gap"}));
+    assert!(gap["error"].is_object(), "no param yet: {gap}");
+    let post = VIEW.split("component App").next().unwrap();
+    std::fs::write(
+        dir.join("post.contract"),
+        post.replace(
+            "    fade: duration",
+            "    gap: length = \"radius.md\"  range=\"0..40\"\n    fade: duration",
+        )
+        .replace("range=\"0..40\"  control", "range=\"0..4\"  control")
+        .replace(
+            "    column border-radius",
+            "    column gap=\"param.gap\" border-radius",
+        ),
+    )
+    .unwrap();
+    let gap = s.ask(json!({"method": "resolve", "token": "PostButton.gap"}));
+    assert_eq!(gap["ok"]["token"], "post.contract#PostButton.gap", "{gap}");
+    let wide = s.ask(json!({"method": "propose", "ops": [{"op": "set-param", "name": "PostButton.radius", "value": "8px"}]}));
+    assert!(wide["error"].is_object(), "the narrowed range: {wide}");
+    let files = |s: &mut Serve| s.ask(json!({"method": "hello"}))["ok"]["files"].clone();
+    assert!(files(&mut s).get("badge.contract").is_none());
+    std::fs::write(
+        dir.join("badge.contract"),
+        "component Badge\n  view\n    text \"b\"\n",
+    )
+    .unwrap();
+    let root = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        format!("use Badge from \"./badge.contract\"\n{root}").replace(
+            "      PostButton()\n      PostButton()\n",
+            "      PostButton()\n      PostButton()\n      Badge()\n",
+        ),
+    )
+    .unwrap();
+    assert!(
+        files(&mut s).get("badge.contract").is_some(),
+        "a file a new use reaches"
+    );
+}

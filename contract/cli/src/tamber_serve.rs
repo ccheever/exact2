@@ -173,6 +173,31 @@ struct Rename {
     before: String,
 }
 
+/// A file's length, modification time, device and inode: one the same is
+/// not read again to learn whether its bytes moved.
+type Stamp = (u64, std::time::SystemTime, (u64, u64));
+
+fn stamp(path: &Path) -> Option<Stamp> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.len(), m.modified().ok()?, identity(&m)))
+}
+
+/// The app's Contract sources as one walk found them.
+struct Walk {
+    /// Each source (design files aside) and each path that resolved its
+    /// imports (package manifests, the paths tried), with its bytes'
+    /// digest, and how it looked (`stamp`): an import added or retargeted
+    /// edits one of them. One that looks as it did is not read again.
+    files: Vec<(PathBuf, Option<Stamp>, String)>,
+    /// `node_modules`' entries, which decide which files are a package's.
+    modules: Vec<String>,
+    /// The files and their digests, as one string.
+    key: String,
+    /// The app's own `.contract` files, and whether the graph loaded
+    /// whole ([`crate::tamber_contract::owned`]).
+    owned: (Vec<String>, bool),
+}
+
 struct Server {
     /// The app's directory, canonical.
     dir: PathBuf,
@@ -197,8 +222,14 @@ struct Server {
     /// Contract sources they were read from, with the retention its plan
     /// keeps tokens by (D7), read by the same build.
     synthetic: Option<Synthetic>,
-    /// The app's components' params (LLP 1121 D15), by the same key.
-    params: (String, contract::tamber_params::AppParams),
+    /// The app's components' params (LLP 1121 D15), by the Contract
+    /// sources' key ([`Server::sources_key`]): every read and write asks
+    /// them, and loading them parses the app (~200 ms on the clone).
+    params: std::cell::RefCell<(String, std::rc::Rc<contract::tamber_params::AppParams>)>,
+    /// The Contract sources as last walked ([`Walk`]): every snapshot and
+    /// every request's params ask them, and walking them parses the app
+    /// (~200 ms on the clone).
+    graph: std::cell::RefCell<Option<Walk>>,
     /// The app's own Contract sources at the last read that loaded them
     /// all: a root that stops parsing for a moment keeps its imports.
     contract: std::cell::RefCell<Vec<String>>,
@@ -336,6 +367,7 @@ impl Server {
             client: None,
             synthetic: None,
             params: Default::default(),
+            graph: Default::default(),
             contract: Default::default(),
             scrub: None,
         };
@@ -357,32 +389,7 @@ impl Server {
     /// not kept, and tried again.
     fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
-        let graph = contract::source_graph(&root);
-        let mut key = String::new();
-        for s in &graph.sources {
-            if s.path.extension().is_some_and(|e| e == "tamber") {
-                continue;
-            }
-            key.push_str(&s.path.to_string_lossy());
-            key.push('\0');
-            key.push_str(
-                &std::fs::read(&s.path)
-                    .map(|b| digest(&b))
-                    .unwrap_or_default(),
-            );
-            key.push('\n');
-        }
-        // Whether code beside the app can name a token outside its views
-        // (D7's retention: app.ts, a data crate, app.json's modules or
-        // hatches), which none of the sources say.
-        key.push_str(&format!("bindable {}\n", contract::code_beside(&root)));
-        // What resolved the imports (package manifests, the paths tried).
-        for path in &graph.consulted {
-            key.push_str(&path.to_string_lossy());
-            key.push('\0');
-            key.push_str(&std::fs::read(path).map(|b| digest(&b)).unwrap_or_default());
-            key.push('\n');
-        }
+        let mut key = self.sources_key();
         if let Some(design) = snap
             .iter()
             .find(|(f, _, _)| *f == self.design)
@@ -392,9 +399,6 @@ impl Server {
                 key.push_str(&t.name.value);
                 key.push('\n');
             }
-        }
-        if self.params.0 != key {
-            self.params = (key.clone(), contract::tamber_params::params_of(&root));
         }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
@@ -412,6 +416,85 @@ impl Server {
             self.synthetic = Some((key, exprs.clone(), retention));
             exprs
         })
+    }
+
+    /// The app's Contract sources ([`Walk`]), walked again only when a
+    /// file the last walk listed reads otherwise, or `node_modules` lists
+    /// other entries.
+    fn walk(&self) -> std::cell::Ref<'_, Walk> {
+        let root = self.dir.join("app.contract");
+        let read = |path: &Path| std::fs::read(path).map(|b| digest(&b)).unwrap_or_default();
+        let modules = || -> Vec<String> {
+            let mut names: Vec<String> = std::fs::read_dir(self.dir.join("node_modules"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let fresh = self.graph.borrow().as_ref().is_some_and(|w| {
+            w.files.iter().all(|(path, at, d)| {
+                let now = stamp(path);
+                (now.is_some() && now == *at) || read(path) == *d
+            }) && w.modules == modules()
+        });
+        if !fresh {
+            let graph = contract::source_graph(&root);
+            let files: Vec<(PathBuf, Option<Stamp>, String)> = graph
+                .sources
+                .iter()
+                .map(|s| &s.path)
+                .filter(|p| p.extension().is_none_or(|e| e != "tamber"))
+                .chain(&graph.consulted)
+                .map(|p| (p.clone(), stamp(p), read(p)))
+                .collect();
+            let mut key = String::new();
+            for (path, _, d) in &files {
+                key.push_str(&path.to_string_lossy());
+                key.push('\0');
+                key.push_str(d);
+                key.push('\n');
+            }
+            let owned = crate::tamber_contract::owned(&self.dir, &graph);
+            *self.graph.borrow_mut() = Some(Walk {
+                files,
+                modules: modules(),
+                key,
+                owned,
+            });
+        }
+        std::cell::Ref::map(self.graph.borrow(), |w| w.as_ref().expect("walked above"))
+    }
+
+    /// The key of the app's Contract sources ([`Walk::key`]), and whether
+    /// code beside the app can name a token outside its views (D7's
+    /// retention: app.ts, a data crate, app.json's modules or hatches),
+    /// which none of the sources say.
+    fn sources_key(&self) -> String {
+        let root = self.dir.join("app.contract");
+        format!(
+            "{}bindable {}\n",
+            self.walk().key,
+            contract::code_beside(&root)
+        )
+    }
+
+    /// The app's components' params (D15), loaded again only when its
+    /// Contract sources' key moves.
+    fn app_params(&self) -> std::rc::Rc<contract::tamber_params::AppParams> {
+        let key = self.sources_key();
+        let mut params = self.params.borrow_mut();
+        if params.0 != key {
+            *params = (
+                key,
+                std::rc::Rc::new(contract::tamber_params::params_of(
+                    &self.dir.join("app.contract"),
+                )),
+            );
+        }
+        params.1.clone()
     }
 
     fn state(&self) -> PathBuf {
@@ -570,7 +653,8 @@ impl Server {
             .filter(|n| n.ends_with(".tamber") && *n != self.design)
             .collect();
         others.sort();
-        let contract = crate::tamber_contract::owned_kept(&self.dir, &self.contract);
+        let owned = self.walk().owned.clone();
+        let contract = crate::tamber_contract::owned_kept(&self.dir, owned, &self.contract);
         Ok(std::iter::once(self.design.clone())
             .chain(others)
             .chain(contract)
@@ -714,7 +798,7 @@ impl Server {
     /// two components share is refused, not read as a design token.
     fn lookup(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding, String), Value> {
         let name = required(request, "token")?;
-        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let app = self.app_params();
         let token = match contract_lower::params::resolve(&app.tokens, &app.identities, &name) {
             Ok(p) => p.token.clone(),
             Err(e) if e.id == "tamber-param-ambiguous" => {
@@ -756,11 +840,11 @@ impl Server {
     /// A reply with each param named by its full name (D15), never by its
     /// name below the IR.
     fn present(&self, v: Value) -> Value {
-        let all = contract::tamber_params::params_of(&self.dir.join("app.contract")).tokens;
-        if all.is_empty() {
+        let app = self.app_params();
+        if app.tokens.is_empty() {
             return v;
         }
-        let text = contract_lower::params::shown(&v.to_string(), &all);
+        let text = contract_lower::params::shown(&v.to_string(), &app.tokens);
         serde_json::from_str(&text).unwrap_or(v)
     }
 
@@ -798,7 +882,7 @@ impl Server {
     fn describe(&self, request: &Value) -> Result<Value, Value> {
         // The app's components' params (LLP 1121 D15) fold with the design,
         // so a dial only a param reads is read; listed by full name.
-        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let app = self.app_params();
         let all = app.tokens.as_slice();
         let (snap, folding, design) = self.design_with(request, &app)?;
         let mut ir: Value =
@@ -1063,8 +1147,7 @@ impl Server {
         }
         // A param set or unset by a name the app has (D15), on the line the
         // design already gives it, whichever name that line uses.
-        let _ = self.synthetic(&snap);
-        crate::tamber_ops::param_names(&mut ops, &snap, &self.params.1)?;
+        crate::tamber_ops::param_names(&mut ops, &snap, &self.app_params())?;
         // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
         // a propose would write, which it asks for.
         let texts = !write && request["texts"] == json!(true);
@@ -1134,7 +1217,8 @@ impl Server {
         // The tokens the plan keeps (D7): an edit to one it does not keep
         // (a plain app's token no view names) leaves the plan as it is.
         let retention = self.synthetic.as_ref().and_then(|(_, _, r)| r.clone());
-        let params = crate::tamber_ops::params(&self.params.1);
+        let app = self.app_params();
+        let params = crate::tamber_ops::params(&app);
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
@@ -1142,7 +1226,7 @@ impl Server {
             params: &params,
         };
         let mut planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
-            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &self.params.1)).collect::<Vec<_>>()})
+            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &app)).collect::<Vec<_>>()})
         })?;
         let restores: Vec<(String, Op)> = all_ops
             .iter()

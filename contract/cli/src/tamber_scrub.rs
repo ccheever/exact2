@@ -33,6 +33,8 @@ pub(super) struct Base {
     /// design (then no frame is live).
     exprs: Option<Vec<(String, bool)>>,
     retention: Option<exact_tamber::Retention>,
+    /// The app's params (D15) when it opened.
+    params: std::rc::Rc<contract::tamber_params::AppParams>,
 }
 
 impl Server {
@@ -60,6 +62,7 @@ impl Server {
                 snap,
                 exprs,
                 retention,
+                params: self.app_params(),
             });
         }
         let Some(base) = &self.scrub else {
@@ -70,14 +73,14 @@ impl Server {
                 json!({"message": format!("`{file}`: a scrub edits only the files it opened on (`files`)")}),
             );
         }
-        crate::tamber_ops::param_names(&mut ops, &base.snap, &self.params.1)?;
+        crate::tamber_ops::param_names(&mut ops, &base.snap, &base.params)?;
         let texts: Vec<(String, String)> = base
             .snap
             .iter()
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
         let exprs = base.exprs.clone().unwrap_or_default();
-        let params = crate::tamber_ops::params(&self.params.1);
+        let params = crate::tamber_ops::params(&base.params);
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
@@ -85,7 +88,7 @@ impl Server {
             params: &params,
         };
         let planned = exact_tamber::plan(&texts, &ops, &self.vocab, false, synthetic).map_err(|all| {
-            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| super::located(f, d, &self.params.1)).collect::<Vec<_>>()})
+            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| super::located(f, d, &base.params)).collect::<Vec<_>>()})
         })?;
         let class = match base.exprs {
             Some(_) => planned.class.name(),
@@ -157,14 +160,15 @@ impl Server {
         // its range (D15), as the build checks it.
         // Any write: an unset, a token's or an axis's edit can take a
         // param out of its range or its `when` out of the design too.
-        if !self.params.1.tokens.is_empty() {
+        let app = self.app_params();
+        if !app.tokens.is_empty() {
             let set: Vec<(String, String)> = planned
                 .files
                 .iter()
                 .filter(|(p, _, _)| *p == self.design)
                 .map(|(p, t, _)| (p.clone(), t.clone()))
                 .collect();
-            crate::tamber_ops::param_values(&set, &self.params.1, &self.vocab, &self.dir)?;
+            crate::tamber_ops::param_values(&set, &app, &self.vocab, &self.dir)?;
         }
         Ok(())
     }
