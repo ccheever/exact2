@@ -572,7 +572,7 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
 // Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
-async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js'], files = {}, runtime = false) {
+async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js'], files = {}, runtime = false, drive = null) {
   const { spawn } = await import('node:child_process');
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -603,18 +603,27 @@ async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${server.port}` }, sessionId);
     const result = await cdp.send('Runtime.evaluate', { expression: `(${fixture})()`, awaitPromise: true, returnByValue: true }, sessionId);
     if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
-    return result.result.value;
+    return drive ? await drive(cdp, sessionId, result.result.value) : result.result.value;
   } finally {
     if (child && child.exitCode === null) { const exit = new Promise(r => child.once('exit', r)); child.kill(); await exit; }
     server.stop(true); rmSync(dir, { recursive: true, force: true });
   }
 }
 
-browserTest('flowed links keep press ownership through document capture', async () => {
-  expect(await inChrome(flowInputFixture)).toEqual([
+browserTest('flowed links keep press ownership and native Enter activation', async () => {
+  const result = await inChrome(flowInputFixture, undefined, {}, false, async (cdp, sessionId, deliveries) => {
+    for (const type of ['rawKeyDown', 'keyUp']) await cdp.send('Input.dispatchKeyEvent', {
+      type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
+    }, sessionId);
+    const hash = await cdp.send('Runtime.evaluate', { expression: 'location.hash', returnByValue: true }, sessionId);
+    return { deliveries, hash: hash.result.value };
+  });
+  expect(result.hash).toBe('#story');
+  expect(result.deliveries).toEqual([
     { press: 1, navigate: 0, prevented: true },
     { press: 1, navigate: 0, prevented: true },
     { press: 0, navigate: 1, prevented: true },
+    { press: 0, navigate: 0, prevented: false },
     { press: 0, navigate: 0, prevented: false },
   ]);
 }, 20000);
@@ -668,49 +677,320 @@ ${onKey}
   });
 }
 
-browserTest('a flowed keydown forwards once with capture and bubble handlers', async () => {
-  expect(await inChrome(flowKeyFixture, undefined, {}, true)).toEqual({ events: ['keydown'], deliveries: [
-    { heard: ['column', 'capture', 'bubble'], prevented: false },
-    { heard: ['column'], prevented: false },
-    { heard: ['column', 'capture'], prevented: false },
-    { heard: ['column', 'capture', 'bubble'], prevented: true },
-    { heard: ['column', 'capture', 'bubble'], prevented: true },
-    { heard: ['column', 'capture', 'bubble'], prevented: true },
-  ] });
+browserTest('flowed keys reach ancestors once in both web runtimes', async () => {
+  const results = await inChrome(flowKeyFixture, undefined, {
+    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+  }, true);
+  expect(results.length).toBe(4);
+  for (const { runtime, nested, events, unflowed, flowed } of results) {
+    const capture = ['column', ...(nested ? ['span-capture'] : []), 'capture'];
+    const bubble = [...capture, 'bubble', ...(nested ? ['span'] : []), 'column-bubble', 'native'];
+    const expected = [
+      { heard: bubble, prevented: false },
+      { heard: ['column', 'native'], prevented: false },
+      { heard: [...capture, 'native'], prevented: false },
+      ...Array.from({ length: 3 }, () => ({ heard: bubble, prevented: true })),
+      ...Array.from({ length: 3 }, () => ({ heard: [...capture, 'bubble', 'native-stop'], prevented: false })),
+      { heard: ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native'], prevented: false },
+      { heard: ['up', 'native'], prevented: false },
+      { heard: ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native'], prevented: true },
+      { heard: ['up', 'native-stop'], prevented: false },
+    ];
+    expect({ runtime, nested, deliveries: unflowed }).toEqual({ runtime, nested, deliveries: expected });
+    expect({ runtime, nested, deliveries: flowed }).toEqual({ runtime, nested, deliveries: expected });
+    expect(events).toEqual(['keydown', 'keyup']);
+  }
 }, 60000);
+
+for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest(`flowed keys preserve ${scenario}`, async () => {
+  const results = await inChrome(flowKeyFixture, undefined, {
+    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+  }, true);
+  for (const { runtime, nested, redispatch } of results) {
+    if (scenario === 'redispatch') for (const [first, second] of redispatch) {
+      expect({ runtime, nested, heard: second }).toEqual({ runtime, nested, heard: first });
+    }
+  }
+  if (scenario === 'retained copies') for (const { runtime, nested, retainedCopies } of results) {
+    for (const { site, first, repeats } of retainedCopies) {
+      expect({ runtime, nested, site, repeats }).toEqual({ runtime, nested, site, repeats: [first, first] });
+    }
+  }
+  if (scenario === 'commits') expect(results.map(({ runtime, nested, commits }) => ({ runtime, nested, commits }))).toEqual(
+    results.map(({ runtime, nested }) => ({ runtime, nested,
+      commits: ['column', ...(nested ? ['span-capture'] : []), 'capture', 'bubble', 'up'].map(site => ({ site, writes: 1, bubbles: 1,
+        heard: site === 'up' ? ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native']
+          : ['column', ...(nested ? ['span-capture'] : []), 'capture', 'bubble', ...(nested ? ['span'] : []), 'column-bubble', 'native'],
+      })),
+    })),
+  );
+}, 60000);
+
+browserTest('flowed keys reach page capture consumers once', async () => {
+  const results = await inChrome(flowKeyFixture, undefined, {
+    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+  }, true);
+  for (const { runtime, nested, pageCaptures } of results) {
+    for (const { kind, connected, type, unflowed, first, repeat } of pageCaptures) {
+      expect({ runtime, nested, kind, connected, type, first }).toEqual({ runtime, nested, kind, connected, type,
+        first: { calls: kind === 'trace' || kind === 'reorder' ? 1 : 0, capture: type === 'keydown' ? 1 : 0, bubble: 1, prevented: kind === 'trace' || kind === 'reorder' } });
+      expect(first).toEqual(unflowed);
+      expect(repeat.calls).toBe(1);
+      if (kind === 'shortcuts') expect(repeat.capture).toBe(0); // the now-available shortcut consumes the next dispatch
+    }
+  }
+}, 60000);
+
+browserTest('flowed Enter restores Back focus and Tab normalizes restored stops', async () => {
+  expect(await inChrome(flowFocusFixture)).toEqual(
+    ['link', 'pressable', 'radio', 'tab'].flatMap(kind => [false, true].map(flowed =>
+      kind === 'link' || kind === 'pressable'
+        ? { kind, flowed, pushes: 1, pushedFocus: 'detail-title', returnFocus: 'original', connected: true }
+        : { kind, flowed, stops: [0, -1], connected: true })),
+  );
+}, 20000);
+
+async function flowFocusFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const { createInputHandlers } = await import('/input-glue.js');
+  const root = document.getElementById('root'), results = [];
+  const input = createInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true,
+    inertAncestor: el => el.closest('[inert]'), dispatch() {} });
+  for (const kind of ['link', 'pressable', 'radio', 'tab']) for (const flowed of [false, true]) {
+    const navigation = kind === 'link' || kind === 'pressable';
+    root.innerHTML = '<main navigationBack="back" navigationKey="list"><section navigationKey="list"><header><h1 id="list-title">List</h1></header><div id="context" style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div></section></main>';
+    const nav = root.firstElementChild, page = nav.firstElementChild, context = page.lastElementChild;
+    const paragraph = context.firstElementChild, ball = context.lastElementChild;
+    paragraph.innerHTML = kind === 'link' ? '<a id="original" href="#detail" tabindex="0">flowed link</a>'
+      : kind === 'pressable' ? '<span id="original" tabindex="0" data-exact-on="press">flowed link</span>'
+      : `<span role="${kind === 'radio' ? 'radiogroup' : 'tablist'}"><span id="original" role="${kind}" tabindex="0" aria-${kind === 'radio' ? 'checked' : 'selected'}="true">flowed</span><span id="next" role="${kind}" tabindex="-1" aria-${kind === 'radio' ? 'checked' : 'selected'}="false"> link</span></span>`;
+    const original = paragraph.querySelector('#original'), next = paragraph.querySelector('#next');
+    if (next) original.tabIndex = -1; // the source normalizes the clones' stops before capture restores the originals
+    original.exactFlowEvents = ['keydown'];
+    original.exactHandlers = kind === 'pressable' ? ['press', 'key'] : ['key'];
+    const views = new Map([[1, context], [2, paragraph], [3, ball]]);
+    const request = op => op === 0 ? { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) }
+      : op === 1 ? { prepared: true } : { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 0, width: 70, available: 80, line: 0 }] };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    if (flowed) {
+      flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
+      await flow.settle();
+    }
+    const target = flowed ? paragraph.querySelector(navigation ? '[data-flow-fragment] [tabindex]' : `[data-flow-fragment] [role="${kind}"]`) : original;
+    if (!target || flowed && (target === original || original.isConnected)) throw Error('must start from a flowed clone');
+    let detail, pushes = 0;
+    const push = () => {
+      pushes++;
+      detail = document.createElement('section'); detail.setAttribute('navigationKey', 'detail');
+      detail.innerHTML = '<header><h2 id="detail-title">Detail</h2></header>';
+      nav.append(detail); nav.setAttribute('navigationKey', 'detail'); input.arrive();
+    };
+    original.addEventListener('keydown', e => { if (kind === 'link') { e.preventDefault(); push(); } });
+    if (kind === 'pressable') original.addEventListener('click', push);
+    context.addEventListener('keydown', e => {
+      if (e.exactFlowCapture) return; // the authored ancestor only hears the source, as both runtimes enforce
+      const batch = { ops: [{ op: 'textflow', contexts: [] }] };
+      flow.beforeBatch(batch); ball.remove(); flow.afterBatch(batch);
+    }, true);
+    input.arrive(); target.focus();
+    const event = new KeyboardEvent('keydown', { key: navigation ? 'Enter' : 'Tab', bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    if (navigation) {
+      const pushedFocus = document.activeElement.id;
+      detail?.remove(); nav.setAttribute('navigationKey', 'list'); input.arrive();
+      results.push({ kind, flowed, pushes, pushedFocus, returnFocus: document.activeElement.id, connected: original.isConnected });
+    } else results.push({ kind, flowed, stops: [original.tabIndex, next.tabIndex], connected: original.isConnected });
+    flow.dispose();
+  }
+  return results;
+}
 
 async function flowKeyFixture() {
   const { createTextFlow } = await import('/textflow-glue.js');
-  const { on, onKey, Hosts } = await import('/rt.js');
-  const root = document.getElementById('root'), views = new Map(), heard = [], results = [];
-  root.innerHTML = '<div style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="/story" tabindex="0">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
-  const parent = root.firstElementChild, paragraph = parent.firstElementChild, original = paragraph.firstElementChild, ball = parent.lastElementChild;
-  on(parent, 'keycapture', key => {
-    heard.push('column');
-    if (key === 'x') Hosts.stopPropagation();
-    if (key === 'z') Hosts.preventDefault();
-  }, onKey);
-  // Exact's stopPropagation marks the native event so its default stays available.
-  on(original, 'key', key => { heard.push('bubble'); if (key === 'p') Hosts.preventDefault(); }, onKey);
-  on(original, 'keycapture', key => { heard.push('capture'); if (key === 'y') Hosts.stopPropagation(); if (key === 'Enter') Hosts.preventDefault(); }, onKey);
-  views.set(1, parent); views.set(2, paragraph); views.set(3, ball);
-  const request = op => op === 0 ? { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) }
-    : op === 1 ? { prepared: true } : { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 24, line_height: 24,
-      fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 0, width: 70, available: 80, line: 0 }] };
-  const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
-  flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
-  await flow.settle();
-  const clone = paragraph.querySelector('[data-flow-fragment] a');
-  if (!clone || clone === original) throw Error('fixture must key a flowed clone');
-  clone.focus();
-  for (const key of ['b', 'x', 'y', 'z', 'p', 'Enter']) {
-    heard.length = 0;
-    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
-    clone.dispatchEvent(event);
-    results.push({ heard: [...heard], prevented: event.defaultPrevented });
+  const { createInputHandlers } = await import('/input-glue.js');
+  const { createFrameSampler } = await import('/frames.js');
+  const { groupController } = await import('/group-glue.js');
+  const gpuSource = await fetch('/gpu-glue.js').then(r => r.text());
+  const gpuListen = gpuSource.slice(gpuSource.indexOf('function listen('), gpuSource.indexOf('function agent('));
+  const { on, onKey, Hosts, act, sig, W, Before, After } = await import('/rt.js');
+  const glue = await fetch('/glue.js').then(r => r.text());
+  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  const bindWasm = new Function(`
+    let keyEvent = null;
+    const views = new Map(), callbacks = new Map(), retiredViews = new WeakSet(), inputReady = true, page = null;
+    const send = () => {}, writeIn = s => s, now = () => 0, keyChord = e => e.key;
+    const api = { stopPropagation() { keyEvent.exactStopped = true; }, preventDefault() { keyEvent.preventDefault(); } };
+    const wasm = { exact_dispatch(id, kind, key) { callbacks.get(id)[{ 6: 'key', 44: 'keycapture', 43: 'keyup' }[kind]](key, api); } };
+    ${attach}
+    return (el, handlers) => {
+      const id = views.size + 1; views.set(id, el); callbacks.set(id, handlers);
+      attach(el, id, Object.keys(handlers));
+    };
+  `)();
+  const bindJs = (el, handlers) => {
+    for (const [kind, handler] of Object.entries(handlers)) on(el, kind, key => handler(key, Hosts), onKey);
+  };
+  const root = document.getElementById('root'), results = [];
+  createInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true,
+    inertAncestor: () => false, dispatch() {} });
+  let traces = 0;
+  createFrameSampler({ origin: () => 0, log() {}, gather: () => { traces++; return new Promise(() => {}); }, covers: [], target: 'js' });
+  for (const [runtime, bind] of [['wasm', bindWasm], ['js', bindJs]]) for (const nested of [false, true]) {
+    const views = new Map(), heard = [], writes = sig(0), bubbles = sig(0);
+    let commitAt = null, pageCapture = null;
+    const write = act(() => W(writes, writes() + 1)), count = act(() => W(bubbles, bubbles() + 1));
+    const commitAtSite = site => { if (commitAt === site) write(); };
+    root.innerHTML = '<div style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="#story" tabindex="0">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
+    const parent = root.firstElementChild, paragraph = parent.firstElementChild, original = paragraph.firstElementChild, ball = parent.lastElementChild;
+    bind(parent, {
+      keycapture(key, api) { heard.push('column'); pageCapture?.(); commitAtSite('column'); if (key === 'x') api.stopPropagation(); if (key === 'z') api.preventDefault(); },
+      key() { heard.push('column-bubble'); if (commitAt) count(); }, keyup() { heard.push('column-up'); if (commitAt) count(); },
+    });
+    if (nested) {
+      const span = document.createElement('span'); paragraph.append(span); span.append(original);
+      bind(span, { keycapture() { heard.push('span-capture'); commitAtSite('span-capture'); }, key() { heard.push('span'); }, keyup() { heard.push('span-up'); } });
+    }
+    bind(original, {
+      key(key, api) { heard.push('bubble'); commitAtSite('bubble'); if (key === 'p') api.preventDefault(); },
+      keycapture(key, api) { heard.push('capture'); commitAtSite('capture'); if (key === 'y') api.stopPropagation(); if (key === 'Enter') api.preventDefault(); },
+      keyup(key, api) { heard.push('up'); commitAtSite('up'); if (key === 'y') api.stopPropagation(); if (key === 'p') api.preventDefault(); },
+    });
+    // Exact's stop leaves browser propagation intact; native stops do not.
+    for (const type of ['keydown', 'keyup']) original.addEventListener(type, e => {
+      if (e.key === 'c') { heard.push('native-stop'); e.cancelBubble = true; }
+      if (e.key === 'n' || e.key === 'i') { heard.push('native-stop'); e[e.key === 'n' ? 'stopPropagation' : 'stopImmediatePropagation'](); }
+    });
+    for (const type of ['keydown', 'keyup']) parent.addEventListener(type, () => heard.push('native'));
+    const deliver = target => {
+      const deliveries = [];
+      target.focus();
+      for (const [type, keys] of [['keydown', ['b', 'x', 'y', 'z', 'p', 'Enter', 'n', 'i', 'c']], ['keyup', ['b', 'y', 'p', 'c']]]) for (const key of keys) {
+        heard.length = 0;
+        const event = new KeyboardEvent(type, { key, bubbles: true, cancelable: true });
+        target.dispatchEvent(event);
+        deliveries.push({ heard: [...heard], prevented: event.defaultPrevented });
+      }
+      return deliveries;
+    };
+    const unflowed = deliver(original);
+    views.set(1, parent); views.set(2, paragraph); views.set(3, ball);
+    const request = op => op === 0 ? { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) }
+      : op === 1 ? { prepared: true } : { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 0, width: 70, available: 80, line: 0 }] };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
+    await flow.settle();
+    const clone = paragraph.querySelector('[data-flow-fragment] a');
+    if (!clone || clone === original) throw Error('fixture must key a flowed clone');
+    const flowed = deliver(clone), redispatch = [], commits = [], retainedCopies = [];
+    for (const type of ['keydown', 'keyup']) {
+      const event = new KeyboardEvent(type, { key: 'b', bubbles: true });
+      const deliveries = [];
+      for (let i = 0; i < 2; i++) { heard.length = 0; clone.dispatchEvent(event); deliveries.push([...heard]); }
+      redispatch.push(deliveries);
+    }
+    {
+      // Both listener paths commit through real JS actions and slot writes, with flow.js's hooks.
+      const batch = { ops: [{ op: 'children' }] };
+      const before = () => flow.beforeBatch(batch), after = () => flow.afterBatch(batch);
+      Before.push(before); After.push(after);
+      try {
+        for (const site of ['column', ...(nested ? ['span-capture'] : []), 'capture', 'bubble', 'up']) {
+          await flow.settle();
+          const target = paragraph.querySelector('[data-flow-fragment] a');
+          if (!target || original.isConnected) throw Error('commit case must start with a detached original');
+          commitAt = site; heard.length = 0;
+          const oldWrites = writes(), oldBubbles = bubbles();
+          const event = new KeyboardEvent(site === 'up' ? 'keyup' : 'keydown', { key: 'b', bubbles: true });
+          let retained;
+          original.addEventListener(event.type, copy => { retained = copy; }, { once: true });
+          target.dispatchEvent(event);
+          const first = { writes: writes() - oldWrites, bubbles: bubbles() - oldBubbles, heard: [...heard] };
+          commits.push({ site, ...first });
+          if (!retained || retained === event || !original.isConnected) throw Error('must retain the forwarded copy and restore its original');
+          const repeats = [];
+          for (let i = 0; i < 2; i++) {
+            heard.length = 0;
+            const oldWrites = writes(), oldBubbles = bubbles();
+            original.dispatchEvent(retained);
+            repeats.push({ writes: writes() - oldWrites, bubbles: bubbles() - oldBubbles, heard: [...heard] });
+          }
+          retainedCopies.push({ site, first, repeats });
+        }
+      } finally { Before.splice(Before.indexOf(before), 1); After.splice(After.indexOf(after), 1); }
+    }
+    // Real page consumers see the source before the ancestor makes a shortcut or GPU control available.
+    // The copy must still reach the authored run and the page's bubble listeners.
+    commitAt = null;
+    const pageCaptures = [], button = document.createElement('button'), host = document.createElement('div');
+    button.textContent = 'Shortcut'; root.append(button, host);
+    host.innerHTML = '<canvas></canvas><button data-action="jump">Jump</button>';
+    const entry = { host, el: host.firstElementChild, id: 1, view: 1 }, controls = [];
+    new Function('entry', 'controls', `
+      const live = () => entry, recoveringDevice = null, exact = { now: () => 0 };
+      const inertAncestor = () => false, messages = () => {}, schedule = () => {};
+      const gpu = { gpu_input: (_, json) => { controls.push(JSON.parse(json)); return true; } };
+      ${gpuListen}
+      listen(entry);
+    `)(entry, controls);
+    const owner = { node: host.lastElementChild, name: 'jump', left: 0, top: 0 };
+    const batch = { ops: [{ op: 'children' }] }, before = () => flow.beforeBatch(batch), after = () => flow.afterBatch(batch);
+    Before.push(before); After.push(after);
+    parent.addEventListener('keyup', () => pageCapture?.(), true);
+    let clicks = 0, pageBubbles = 0;
+    button.addEventListener('click', () => clicks++);
+    const bubbled = () => pageBubbles++;
+    for (const type of ['keydown', 'keyup']) document.addEventListener(type, bubbled);
+    try {
+      for (const kind of ['shortcuts', 'gpu', 'trace', 'reorder']) for (const connected of [false, true]) {
+        for (const type of kind === 'gpu' ? ['keydown', 'keyup'] : ['keydown']) {
+          let steps = 0;
+          const group = groupController({ views: new Map([[1, root]]), root, now: () => 0, ready: () => true, inert: () => false,
+            collections: { reorderContact() {}, reorderMapping: () => ({ revision: 1 }), retainInteraction: () => 1, releaseRetainedInteraction() {}, releaseInteraction() {} },
+            request: ({ op }) => { if (op === 'reorder-step') steps++; return { accepted: true, token: 1 }; }, applyBatch() {} });
+          const grip = document.createElement('div'); root.append(grip);
+          group.bind({ el: grip, list: 1 }, { group: 'test', keys: true });
+          if (kind === 'reorder') grip.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+          button.removeAttribute('aria-keyshortcuts'); entry.controls.clear(); entry.controlKeys.clear();
+          pageCapture = () => {
+            if (connected) write();
+            if (kind === 'shortcuts') button.setAttribute('aria-keyshortcuts', 'b');
+            if (kind === 'gpu') (type === 'keydown' ? entry.controls : entry.controlKeys).set(type === 'keydown' ? 1 : 'Space', owner);
+          };
+          const calls = () => kind === 'shortcuts' ? clicks : kind === 'gpu' ? controls.filter(c => c.t === 'control').length : kind === 'trace' ? traces : steps;
+          const event = new KeyboardEvent(type, { key: kind === 'shortcuts' ? 'b' : kind === 'gpu' ? ' ' : kind === 'trace' ? 'T' : 'ArrowDown',
+            code: kind === 'gpu' ? 'Space' : kind === 'trace' ? 'KeyT' : 'KeyB', altKey: kind === 'trace', shiftKey: kind === 'trace', bubbles: true, cancelable: true });
+          let retained;
+          const deliver = (at, e) => {
+            heard.length = 0; pageBubbles = 0;
+            const count = calls(); at.dispatchEvent(e);
+            return { calls: calls() - count, capture: heard.filter(h => h === 'capture').length, bubble: pageBubbles, prevented: e.defaultPrevented };
+          };
+          flow.beforeBatch(batch);
+          const unflowed = deliver(original, new KeyboardEvent(type, event));
+          button.removeAttribute('aria-keyshortcuts'); entry.controls.clear(); entry.controlKeys.clear();
+          flow.afterBatch(batch); await flow.settle();
+          const target = paragraph.querySelector('[data-flow-fragment] a');
+          original.addEventListener(type, e => { retained = e; }, { once: true });
+          const first = deliver(target, event);
+          if (retained === event || original.isConnected !== connected) throw Error('page capture fixture must forward to the expected original');
+          pageCapture = null;
+          flow.beforeBatch(batch); // redispatch the retained copy on the live authored tree
+          const repeat = retained ? deliver(original, retained) : null;
+          pageCaptures.push({ kind, connected, type, unflowed, first, repeat });
+          group.reset(); grip.remove(); flow.afterBatch(batch);
+        }
+      }
+    } finally {
+      pageCapture = null; entry.unlisten(); button.remove(); host.remove();
+      for (const type of ['keydown', 'keyup']) document.removeEventListener(type, bubbled);
+      Before.splice(Before.indexOf(before), 1); After.splice(After.indexOf(after), 1);
+    }
+    results.push({ runtime, nested, events: original.exactFlowEvents, unflowed, flowed, redispatch, commits, retainedCopies, pageCaptures });
+    flow.dispose();
   }
-  flow.dispose();
-  return { events: original.exactFlowEvents, deliveries: results };
+  return results;
 }
 
 // A batch that puts flowed paragraphs back to their text (the JS target's every commit, a topology
@@ -742,7 +1022,7 @@ async function flowInputFixture() {
   globalThis.exact = { wasm: { exact_route_match: () => 1, exact_log() {} }, writeIn: s => s,
     navigate() { navigates++; return { ops: [{ op: 'router' }] }; } };
   createInputHandlers({ root, views, retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });
-  for (const [press, navigate, modified] of [[true, true, false], [true, false, false], [false, true, false], [true, true, true]]) {
+  for (const [press, navigate, modified] of [[true, true, false], [true, false, false], [false, true, false], [true, true, true], [false, false, false]]) {
     presses = navigates = 0;
     root.innerHTML = '<div navigationBack="/" style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="/story">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
     const parent = root.firstElementChild, paragraph = parent.firstElementChild, ball = parent.lastElementChild;
@@ -752,6 +1032,8 @@ async function flowInputFixture() {
     paragraph.style.left = press ? '25px' : '25%';
     const before = paragraph.getBoundingClientRect();
     const original = paragraph.firstElementChild;
+    const native = !press && !navigate;
+    if (native) original.href = '#story';
     original.exactHandlers = press ? ['press'] : [];
     original.exactFlowEvents = press ? ['click'] : [];
     if (press) original.addEventListener('click', e => { presses++; e.preventDefault(); });
@@ -777,7 +1059,10 @@ async function flowInputFixture() {
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: modified });
     clone.dispatchEvent(event);
     results.push({ press: presses, navigate: navigates, prevented: event.defaultPrevented });
-    flow.dispose();
+    if (native) {
+      history.replaceState(null, '', '/');
+      clone.focus(); // the CDP drive presses Enter on the plain flowed link
+    } else flow.dispose();
   }
   return results;
 }

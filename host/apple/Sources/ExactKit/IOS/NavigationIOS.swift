@@ -222,8 +222,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// whether its press navigated.
     var unanimated = false
     /// Whether a reselected tab's scroll to the top (`scrollToTop`) is
-    /// UIKit's animated one: not under the agent's frozen clock, nor in a
-    /// unit test, whose host never moved an animated offset when measured.
+    /// UIKit's animated one: not under the agent's frozen clock, where Exact
+    /// starts no UIKit animation, nor in a test outside an app's scene, where
+    /// UIKit never moves an animated offset.
     var scrollsToTopAnimated = !ExactEnv.agentFreezes
     var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
@@ -406,18 +407,22 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             installTabs(p, tabs, first: first, in: parent)
             return
         }
+        // The stack holds its first routes before its view enters the window,
+        // as the tabs' stacks do (`installTabs`): UIKit shows a root's large
+        // title collapsed when the stack was laid out in the window before it
+        // had that root.
         let nav = makeNavigation(first: first.first?.node)
-        parent.addChild(nav)
-        p.root.addSubview(nav.view)
-        nav.view.setPaintForeground(aboveAuthored: false)
-        nav.view.frame = p.root.bounds
-        nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        nav.didMove(toParent: parent)
         primaryNavigation = nav
         prepareRoutes(first, in: nav)
         nav.setViewControllers(first, animated: false)
         recordOwned(nav)
         watchPops(nav)
+        parent.addChild(nav)
+        nav.view.frame = p.root.bounds
+        nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        p.root.addSubview(nav.view)
+        nav.view.setPaintForeground(aboveAuthored: false)
+        nav.didMove(toParent: parent)
     }
 
     /// A hidden navigation bar needs its availability check here. The
@@ -1072,11 +1077,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             DispatchQueue.main.async { [weak self, weak navigationController] in
                 if let navigationController { self?.settleTablist(navigationController) }
             }
-            // At rest: a large title's insets are sampled now (§9.10). A
-            // stack's first screen was given its scroller before it had a
-            // window, and UIKit showed its large title collapsed: still at
-            // its start, it opens as a new screen does (`restAtStart`).
-            if let route = viewController as? RouteController { restAtStart(route) }
+            // At rest: a large title's insets are sampled now (§9.10).
             coversChanged()
             #if os(iOS)
             presenter.resolveStatusBar(settled: true)

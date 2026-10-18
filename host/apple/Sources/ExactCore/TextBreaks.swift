@@ -7,16 +7,16 @@ import CoreText
 import CExact
 
 /// One paragraph layout's opportunities and where it has got to in them.
-struct LineBreakPlan {
-    var boundaries: [Int] = []
-    var contentEnds: [Int] = []
-    var hardEnds: [Int] = []
-    var boundaryIndex = 0, hardIndex = 0
+package struct LineBreakPlan {
+    package var boundaries: [Int] = []
+    package var contentEnds: [Int] = []
+    package var hardEnds: [Int] = []
+    package var boundaryIndex = 0, hardIndex = 0
 
-    mutating func prepare(_ text: NSString, length: Int) {
+    package mutating func prepare(_ text: NSString, length: Int) {
         (contentEnds, hardEnds) = TextEngine.breakEnds(text, boundaries: boundaries, length: length)
     }
-    mutating func advance(to start: Int) {
+    package mutating func advance(to start: Int) {
         while boundaryIndex < boundaries.count && boundaries[boundaryIndex] <= start { boundaryIndex += 1 }
         while hardIndex < hardEnds.count && hardEnds[hardIndex] <= start { hardIndex += 1 }
     }
@@ -24,7 +24,7 @@ struct LineBreakPlan {
     /// infinite offer): CoreText's own break. A zero-width offer keeps
     /// CoreText's degenerate breaking, as the region worker does, a `normal`
     /// word kept whole.
-    func suggest(_ typesetter: CTTypesetter, start: Int, room: Double, offerWidth: CGFloat, breakWord: Bool, length: Int, text: NSString) -> Int {
+    package func suggest(_ typesetter: CTTypesetter, start: Int, room: Double, offerWidth: CGFloat, breakWord: Bool, length: Int, text: NSString) -> Int {
         guard !boundaries.isEmpty else { return CTTypesetterSuggestLineBreak(typesetter, start, room) }
         if offerWidth <= 0 {
             var count = CTTypesetterSuggestLineBreak(typesetter, start, room)
@@ -43,7 +43,7 @@ struct LineBreakPlan {
     }
     /// The next line's length from `start` in `room`, as `suggest`, where a
     /// soft hyphen's break shows one, which must fit too (`fitSoftHyphen`).
-    mutating func next(_ typesetter: CTTypesetter, source: NSAttributedString, text: NSString, start: Int, room: Double,
+    package mutating func next(_ typesetter: CTTypesetter, source: NSAttributedString, text: NSString, start: Int, room: Double,
                        offerWidth: CGFloat, breakWord: Bool, length: Int) -> Int {
         advance(to: start)
         let plan = self
@@ -61,7 +61,7 @@ struct LineBreakPlan {
     /// is those lines' widest broken greedily, which is still the box's
     /// measure: balancing moves breaks, never the box. Call before the
     /// layout advances this plan; `next` is the layout's own break.
-    func balance(_ limit: Double, length: Int, inset: (Int) -> Double, next: (inout LineBreakPlan, Int, Double) -> Int,
+    package func balance(_ limit: Double, length: Int, inset: (Int) -> Double, next: (inout LineBreakPlan, Int, Double) -> Int,
                  typesetter: CTTypesetter, source: NSAttributedString) -> (until: Int, room: Double, widest: CGFloat)? {
         let until = hardEnds.first ?? length
         func lines(_ limit: Double, widest: (Int, Int) -> Void = { _, _ in }) -> Int {
@@ -87,12 +87,12 @@ struct LineBreakPlan {
 
 extension TextEngine {
     /// The most lines `balance` balances; more break greedily, as in Chromium.
-    static let balanceMaxLines = 6
+    package static let balanceMaxLines = 6
     /// `exact_textflow::balanced_width` over a paragraph's own breaker: the
     /// narrowest limit, to 1/64 pt (a browser layout unit), at which
     /// `lines` (which may stop counting past `balanceMaxLines`) is still what
     /// it is at `limit`; nil for one line or more than `balanceMaxLines`.
-    static func balancedLimit(_ limit: Double, lines: (Double) -> Int) -> Double? {
+    package static func balancedLimit(_ limit: Double, lines: (Double) -> Int) -> Double? {
         guard limit.isFinite, limit > 0 else { return nil }
         let count = lines(limit)
         guard (2...balanceMaxLines).contains(count) else { return nil }
@@ -108,7 +108,7 @@ extension TextEngine {
     /// (CR LF one), in one forward pass. A boundary's own forced break is no
     /// content, and the spaces before it hang (CSS Text 3 §4.1.3): U+0020,
     /// tabs and the other space separators; no-break spaces do not.
-    static func breakEnds(_ text: NSString, boundaries: [Int], length: Int) -> ([Int], [Int]) {
+    package static func breakEnds(_ text: NSString, boundaries: [Int], length: Int) -> ([Int], [Int]) {
         func hangs(_ ch: unichar) -> Bool { hangingSpace(ch) }
         // runStart[e]: where the spaces and tabs ending at e begin.
         var runStart = [Int](repeating: 0, count: length + 1)
@@ -134,10 +134,10 @@ extension TextEngine {
     }
     /// A space that hangs at a line's end: U+0020, a tab, or another Unicode
     /// space separator (Zs) that is not a no-break space (U+00A0, U+2007, U+202F).
-    static func hangingSpace(_ ch: unichar) -> Bool {
+    package static func hangingSpace(_ ch: unichar) -> Bool {
         ch == 0x20 || ch == 0x09 || ch == 0x1680 || (0x2000...0x200A).contains(ch) && ch != 0x2007 || ch == 0x205F || ch == 0x3000
     }
-    static func forcedBreak(_ ch: unichar) -> Bool {
+    package static func forcedBreak(_ ch: unichar) -> Bool {
         ch == 10 || ch == 13 || ch == 0x0B || ch == 0x0C || ch == 0x85 || ch == 0x2028 || ch == 0x2029
     }
 
@@ -145,7 +145,7 @@ extension TextEngine {
     /// from `start` (no further than the next forced break, `hard`): the last
     /// opportunity whose content fits; else the first opportunity, letting
     /// the word overflow (`normal`), or inside it at `fitted` (`break-word`).
-    static func cssBreak(start: Int, fitted: Int, hard: Int, boundaries: [Int], contentEnds: [Int],
+    package static func cssBreak(start: Int, fitted: Int, hard: Int, boundaries: [Int], contentEnds: [Int],
                          from: Int, breakWord: Bool, text: NSString) -> Int {
         var i = from
         while i < boundaries.count && boundaries[i] <= start { i += 1 }
@@ -162,7 +162,7 @@ extension TextEngine {
     /// earlier opportunity, which shows no hyphen, takes the original room;
     /// only the first opportunity falls back to `retry` with the hyphen's
     /// advance taken from the room (a break inside it, or its overflow).
-    static func fitSoftHyphen(start: Int, count: Int, room: Double, boundaries: [Int], source: NSAttributedString,
+    package static func fitSoftHyphen(start: Int, count: Int, room: Double, boundaries: [Int], source: NSAttributedString,
                               typesetter: CTTypesetter, length: Int, retry: (Double) -> Int) -> Int {
         var count = count
         let text = source.string as NSString
@@ -181,17 +181,17 @@ extension TextEngine {
     /// Min-content's pieces of `value`: the text between UAX #14 line-break
     /// opportunities, their hanging spaces dropped (`normal` and `break-word`
     /// alike: CSS counts no break-word break toward min-content).
-    func unbreakablePieces(_ value: String) -> [String] {
+    package func unbreakablePieces(_ value: String) -> [String] {
         Self.pieces(value as NSString, boundaries: lineBoundaries(value as NSString, length: (value as NSString).length))
     }
     /// The same from a worker.
-    static func unbreakablePieces(_ value: String) -> [String] {
+    package static func unbreakablePieces(_ value: String) -> [String] {
         let text = value as NSString
         return pieces(text, boundaries: lineBreaks(text, length: text.length))
     }
     /// A native face's min-content run, using its own control to measure
     /// each candidate so the title/subtitle fonts and chrome stay the OS's.
-    static func widestButtonRun(_ value: String?, whiteSpace: String?, measure: (String) -> CGFloat) -> String? {
+    package static func widestButtonRun(_ value: String?, whiteSpace: String?, measure: (String) -> CGFloat) -> String? {
         guard let value else { return nil }
         if whiteSpace == "nowrap" || whiteSpace == "pre" { return value }
         var widest = "", width: CGFloat = -1
@@ -205,7 +205,7 @@ extension TextEngine {
     /// shared walker's opportunities (`exact_text_line_breaks`), Chrome's, with
     /// CFStringTokenizer's dictionary words inside Thai, Lao, Khmer and Myanmar
     /// runs (TextFlowSource.complexWords). Any thread.
-    static func lineBreaks(_ text: NSString, length: Int) -> [Int] {
+    package static func lineBreaks(_ text: NSString, length: Int) -> [Int] {
         guard length > 0 else { return [0] }
         let string = text as String
         let words = TextFlowSource.complexWords(string)
@@ -221,7 +221,7 @@ extension TextEngine {
         if boundaries.last != length { boundaries.append(length) }
         return boundaries
     }
-    static func pieces(_ text: NSString, boundaries: [Int]) -> [String] {
+    package static func pieces(_ text: NSString, boundaries: [Int]) -> [String] {
         pieceRanges(text, boundaries: boundaries).map { piece in
             let s = text.substring(with: piece.range)
             return piece.hyphenated ? String(s.dropLast()) + "-" : s
@@ -230,7 +230,7 @@ extension TextEngine {
     /// The pieces as UTF-16 ranges of `text`. A piece is `hyphenated` when it
     /// breaks right after a soft hyphen, which then shows as a hyphen
     /// (CSS Text 3 §5.3) and counts toward the piece's width.
-    static func pieceRanges(_ text: NSString, boundaries: [Int]) -> [(range: NSRange, hyphenated: Bool)] {
+    package static func pieceRanges(_ text: NSString, boundaries: [Int]) -> [(range: NSRange, hyphenated: Bool)] {
         guard text.length > 0 else { return [] }
         func trims(_ ch: unichar) -> Bool { hangingSpace(ch) || forcedBreak(ch) }
         var pieces: [(range: NSRange, hyphenated: Bool)] = []

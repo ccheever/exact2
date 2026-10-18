@@ -1,3 +1,4 @@
+//! Every fact a boot takes first lives here, including root size and display scale.
 //! The display preferences (LLP 1061 D4; LLP 1069.000 D1), told to the
 //! running host and kept for the next boot's first frame; the date (LLP
 //! 1027.000.000) and where the viewer is, told to the running host, and
@@ -143,11 +144,16 @@ impl<D: DataSource> Bridge<D> {
     /// Where the viewer is, for the next boot's first settle, as
     /// `set_place` reads it from the input buffer (`locale NUL timeZone NUL
     /// seed`); the running host is not told. A fact that does not validate
-    /// (or a missing seed) leaves the last one.
-    pub fn set_launch_place(&mut self, len: usize) {
+    /// (or a missing seed) leaves the last one and returns a refusal batch.
+    pub fn set_launch_place(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         if let Some(place) = exact_runner::time::Place::launched(text) {
             self.launch_facts.place = Some(place);
+            0
+        } else {
+            // The refusal alone: a reload primes a place while a live host
+            // runs, and its pending work is not this call's to pump (`emit`).
+            self.prepare_error("invalid launch place")
         }
     }
 
@@ -195,3 +201,36 @@ pub(super) fn sampler(wall: LiveClockFn) -> Box<dyn FnMut() -> f64> {
 #[cfg(test)]
 #[path = "live_clock_tests.rs"]
 mod live_clock_tests;
+
+impl<D: DataSource> Bridge<D> {
+    /// The root font size in points (LLP 1069.000 D3): a relayout.
+    pub fn set_root_font_size(&mut self, px: f64) -> u32 {
+        if self.host.is_none() {
+            if !px.is_finite() || !(px as f32).is_finite() || px <= 0.0 {
+                return self.refuse("root font size must be finite and positive");
+            }
+            self.launch_layout.root_font_size = Some(px as f32);
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_root_font_size(px));
+        self.emit(out)
+    }
+
+    /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
+    /// hairline.
+    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
+        if self.host.is_none() {
+            if !scale.is_finite() || !(scale as f32).is_finite() || scale <= 0.0 {
+                return self.refuse("display scale must be finite and positive");
+            }
+            self.launch_layout.display_scale = Some(scale as f32);
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_display_scale(scale));
+        self.emit(out)
+    }
+}

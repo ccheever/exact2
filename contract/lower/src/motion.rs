@@ -339,6 +339,27 @@ pub fn substitute(file: &mut File, tokens: &[(String, String)]) -> Vec<Site> {
     sites
 }
 
+/// `transition`'s refusal of a CSS layout property, `None` for any other
+/// name: `-exact-layout-transition` animates the change instead, a resize
+/// on the box's surface with its children at the final layout, a move as a
+/// translation that carries them (@ref LLP 1063 D6). Each example compiles
+/// (contract/cli/tests/it/styles.rs) and was filmed animating on the web.
+pub(crate) fn layout_property_refusal(property: &str, supported: &str) -> Option<String> {
+    const ROW: &str = "border-radius=22 -exact-layout-transition=\"300ms ease\"";
+    const INSET: &str = "an inset needs `position=\"absolute\"` or `\"relative\"`";
+    let example = match property {
+        "right" | "left" => {
+            let other = if property == "right" { "left" } else { "right" };
+            format!("{INSET}; with the opposite inset fixed and `width` automatic, `box position=\"absolute\" {other}=16 {property}=(small ? 286 : 16) height=44 {ROW}` narrows a capsule from the {property}")
+        }
+        "top" | "bottom" => format!("{INSET}, and moves the box: `box position=\"absolute\" left=16 {property}=(small ? 120 : 16) width=88 height=44 {ROW}` slides a pill, carrying its children"),
+        "width" | "min-width" | "max-width" | "min-height" | "max-height" | "margin"
+        | "padding" | "flex-basis" | "gap" => format!("on each box whose size or place the change moves: `box width=(small ? 88 : 358) height=44 {ROW}` contracts a capsule to a pill, its background, border and radius taking the shown size while its children take the final layout at once"),
+        _ => return None,
+    };
+    Some(format!("`{property}` is a CSS layout property, which `transition` cannot interpolate (that would need layout per frame, which exact2 does not run). Write `-exact-layout-transition` instead, which animates a box's laid-out size and place when a state change moves them (LLP 1063 D6): {example}. `transition` animates {supported}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -615,8 +615,7 @@ fn style_value(
                     let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), -exact-tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry, d; numeric height on admitted height owners";
                     let why = match reason {
                         exact_motion::ParseError::UnknownProperty(property) => {
-                            let layout = matches!(property.as_str(), "width" | "min-width" | "max-width" | "min-height" | "max-height" | "top" | "right" | "bottom" | "left" | "margin" | "padding" | "flex-basis" | "gap");
-                            format!("`{property}` {}: transitions animate {supported}. General layout-property interpolation would require layout per frame and is not implemented; `-exact-layout-transition` animates changes to the laid-out box", if layout { "is a CSS layout property, but exact2 cannot transition it" } else { "is not a supported transition property" })
+                            crate::motion::layout_property_refusal(&property, supported).unwrap_or_else(|| format!("`{property}` is not a supported transition property: transitions animate {supported}"))
                         }
                         other => format!("invalid transition components ({other:?}); supported properties: {supported}"),
                     };
@@ -1085,14 +1084,11 @@ pub(crate) fn check_prop_value(
     // of the sheet's maximum (§9.13).
     if prop == PropId::NavigationDetent {
         if let Expr::Str(s, _) = value {
-            if let Some(word) = s.split(' ').filter(|w| !w.is_empty()).find(|w| {
-                !matches!(*w, "large" | "medium" | "fit-content")
-                    && !w.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
-                    && !w.strip_suffix('%').is_some_and(|p| {
-                        p.parse::<f64>()
-                            .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
-                    })
-            }) {
+            if let Some(word) = s
+                .split(' ')
+                .filter(|w| !w.is_empty())
+                .find(|w| !vocab::detent_word(w))
+            {
                 return err(
                     "lower-attr-value",
                     format!(

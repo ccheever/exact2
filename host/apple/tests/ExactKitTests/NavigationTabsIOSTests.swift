@@ -682,9 +682,15 @@ final class NavigationTabsIOSTests: XCTestCase {
     /// LLP 1115.000 D11.3: the selected tab, tapped again at its stack's
     /// root, scrolls that screen's content to the top, its large title
     /// expanding, as every tab bar app does. The scroller is the route's
-    /// content scroller, the status bar's (D11.1). Another tab's tap only
-    /// selects it, and above the root the router pops (the test above).
+    /// content scroller, the status bar's (D11.1), and it scrolls with
+    /// UIKit's animation, which opens the title as it arrives. Another tab's
+    /// tap only selects it, and above the root the router pops (the test
+    /// above). The agent's frozen clock lands there unanimated
+    /// (PushedTitleIOSTests).
     func testTheSelectedTabTappedAgainAtItsRootScrollsToTheTop() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "UIKit animates a scroll view's offset only in a scene's window")
+        }
         let session = try fixture("tabs-retap")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         tapTab(tabs, 1)
@@ -707,8 +713,6 @@ final class NavigationTabsIOSTests: XCTestCase {
         spin(0.3)
         XCTAssertEqual(css(), 600, accuracy: 0.5, "a tab selected from another keeps its place")
         // The selected tab, tapped again at its root.
-        // (Unanimated: this host never moves UIKit's animated offset.)
-        session.presenter.navigation.scrollsToTopAnimated = false
         tapTab(tabs, 1)
         until("its content scrolled to the top") { abs(css()) < 0.5 && !sv.isDecelerating }
         spin(0.5)

@@ -443,6 +443,156 @@ impl Kernel {
     }
 }
 
+/// Where the platform's own list puts a grouped list's cards and their
+/// content, in points: each card's inset from the list's left and right
+/// edges, and each cell's layout margins, left and right. UIKit chooses
+/// them by the device, the list's width and what lies beside it (16 or 20
+/// points, and none beside the iPhone Duo's side strip), so the host reads
+/// them from its list (`GroupedListIOS.swift`) and the sheet's stand-ins
+/// (`grouped-card-inset`, `grouped-row-inset`, `grouped-row-padding-end`)
+/// give way to them: a custom row's content then starts where a standard
+/// row's text does, at the cell's margin, as UIKit's own content
+/// configurations put it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GroupedMargins {
+    /// The card's left and right insets in the list.
+    pub card: [f32; 2],
+    /// The cell's left and right layout margins.
+    pub cell: [f32; 2],
+}
+
+/// The margins of the list `slot` holds the rows of, when it is a section's
+/// group (not its `header` or `footer`) and the host gave the list some.
+fn group_margins(arena: &NodeArena, slot: u32) -> Option<GroupedMargins> {
+    let margins = arena.grouped_margins(arena.parent(arena.parent(slot)?)?)?;
+    (!is_label(arena, slot)).then_some(margins)
+}
+
+/// Whether a section's part is its `header` or `footer`.
+fn is_label(arena: &NodeArena, slot: u32) -> bool {
+    matches!(
+        arena.props(slot).str(PropId::SemanticTag),
+        Some("header" | "footer")
+    )
+}
+
+/// Whether the swipe `scroll` is a `delete=` row's, which spans the card and
+/// holds the row's insets in its content (`swipe_rows::grouped`): its left
+/// margin is the sheet's swipe margin. A swipe written by hand is styled as
+/// any row, its insets on the scroll.
+fn inset_inside(arena: &NodeArena, scroll: u32) -> bool {
+    let style = arena.style(scroll);
+    arena.props(scroll).str(PropId::SwipeContent).is_some()
+        && !style.written.has(StyleId::MarginLeft)
+        && style.margin_left
+            == crate::style::Dimension::Points(sheet("-exact-grouped-swipe-margin"))
+}
+
+/// The platform's margins in a box's engine style: a group spans its card,
+/// and a row's unsaid inset at each end moves by what the platform's cell
+/// margin has over the sheet's stand-in, on the box the sheet wrote it on: a
+/// row's left margin (after a leading symbol too) and right padding; a
+/// `delete=` row's content's left and right paddings, its swipe spanning the
+/// card. A native button row is the platform's control and keeps its own
+/// padding. An end the author wrote stays the author's.
+pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    use taffy::style::{LengthPercentage as Lp, LengthPercentageAuto as Lpa};
+    use taffy::util::MaybeResolve;
+    if !arena.has_grouped_margins() {
+        return;
+    }
+    if let Some(m) = group_margins(arena, slot) {
+        s.margin.left = Lpa::length(m.card[0]);
+        s.margin.right = Lpa::length(m.card[1]);
+        return;
+    }
+    let Some(parent) = arena.parent(slot) else {
+        return;
+    };
+    let (m, content) = match group_margins(arena, parent) {
+        Some(_) if inset_inside(arena, slot) => return,
+        Some(m) => (m, false),
+        None if inset_inside(arena, parent) => {
+            let named =
+                arena.props(parent).str(PropId::SwipeContent) == arena.props(slot).str(PropId::Id);
+            match arena.parent(parent).and_then(|g| group_margins(arena, g)) {
+                Some(m) if named => (m, true),
+                _ => return,
+            }
+        }
+        None => return,
+    };
+    // A padding moves and stays at zero or more; a margin moves as it is.
+    let padded = |at: Option<f32>, by: f32| at.map(|v| (v + by).max(0.0));
+    let written = &arena.style(slot).written;
+    if content && !written.has(StyleId::PaddingLeft) {
+        let at = s
+            .padding
+            .left
+            .maybe_resolve(None, crate::style::resolve_calc);
+        let by = m.cell[0] - sheet("-exact-grouped-swipe-padding");
+        s.padding.left = padded(at, by).map_or(s.padding.left, Lp::length);
+    } else if !content && !written.has(StyleId::MarginLeft) {
+        let at: Option<f32> = s
+            .margin
+            .left
+            .maybe_resolve(None, crate::style::resolve_calc);
+        let by = m.cell[0] - sheet("-exact-grouped-row-inset");
+        s.margin.left = at.map_or(s.margin.left, |v| Lpa::length(v + by));
+    }
+    let control = ControlKind::of(arena.node_type(slot), arena.props(slot)).is_some();
+    if !control && !written.has(StyleId::PaddingRight) && !written.has(StyleId::MarginRight) {
+        let at = s
+            .padding
+            .right
+            .maybe_resolve(None, crate::style::resolve_calc);
+        let by = m.cell[1] - sheet("-exact-grouped-row-padding-end");
+        s.padding.right = padded(at, by).map_or(s.padding.right, Lp::length);
+    }
+}
+
+/// Whether the margins of a grouped list reach `slot` where it stands: a
+/// list four boxes up at most has them (a `delete=` row's content is the
+/// deepest box `apply_margins` moves).
+pub(crate) fn reached(arena: &NodeArena, slot: u32) -> bool {
+    arena.has_grouped_margins()
+        && std::iter::successors(arena.parent(slot), |s| arena.parent(*s))
+            .take(4)
+            .any(|s| arena.grouped_margins(s).is_some())
+}
+
+/// Style `slot` and what it holds again, as deep as the margins reach from
+/// a section (a `delete=` row's content, three boxes down): what
+/// `apply_margins` gives a box depends on where it stands, and a box's style
+/// is otherwise derived only when its own rows change.
+pub(crate) fn restyle(arena: &NodeArena, layout: &mut dyn crate::layout::LayoutMirror, slot: u32) {
+    fn below(
+        arena: &NodeArena,
+        layout: &mut dyn crate::layout::LayoutMirror,
+        slot: u32,
+        depth: u8,
+    ) {
+        if let Some(node) = arena.taffy(slot) {
+            layout.restyle(arena, slot, node);
+        }
+        if depth > 0 {
+            for &child in arena.children(slot) {
+                below(arena, layout, child, depth - 1);
+            }
+        }
+    }
+    below(arena, layout, slot, 3);
+}
+
+/// A sheet metric's points in this process's column; 0 where it has none.
+fn sheet(name: &str) -> f32 {
+    use crate::style::metrics;
+    match metrics::named(name).map(|m| metrics::value(m, metrics::column())) {
+        Some(crate::generated::MetricValue::Number(n)) => n as f32,
+        _ => 0.0,
+    }
+}
+
 impl NodeArena {
     /// Whether `slot` is a native text field (an unsaid `input` or
     /// `textarea`, LLP 1104 D2) in a grouped list's row, at any depth: the

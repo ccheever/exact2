@@ -273,11 +273,11 @@ async function webBuild(app) {
 }
 
 /** The iOS build a drive needs, or its plan alone (agent-build.mjs): null when fresh, else what it said. */
-async function iosBuild(app, sim) {
+async function iosBuild(app) {
   const { buildFirst } = await import('./agent-build.mjs');
   const said = [], started = Date.now();
   // A native build (or the wait for one) is said as it starts too: it is minutes, and the report comes after it.
-  const code = await buildFirst('ios', app, { sim, say: (line) => { said.push(line); if (/^(building|waiting) for/.test(line)) console.error(line); } });
+  const code = await buildFirst('ios', app, { say: (line) => { said.push(line); if (/^(building|waiting) for/.test(line)) console.error(line); } });
   return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
 }
 
@@ -928,7 +928,7 @@ async function main(argv) {
 
   const last = lastRuns(app)[host];
   console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
-  const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);
+  const built = host === 'web' ? await webBuild(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length); }
   if (built?.code) {

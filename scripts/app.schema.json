@@ -491,6 +491,17 @@
           },
           "additionalProperties": false
         },
+        "android": {
+          "description": "Android: `minimumOS` (default 12).",
+          "type": "object",
+          "properties": {
+            "minimumOS": {
+              "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
+              "enum": ["10", "11", "12", "13", "14", "15", "16"]
+            }
+          },
+          "additionalProperties": false
+        },
         "linux": {
           "description": "The Linux host has no settings yet; an empty object.",
           "type": "object",

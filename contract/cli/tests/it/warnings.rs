@@ -1058,7 +1058,7 @@ fn another_name_no_bar_or_a_sections_own_name_is_not_named() {
         // A section's own name: inside a `section`, or after a heading
         // always shown before it (expense-tracker's "Expenses" list under
         // "By category").
-        "list\n  section\n    header\n      text \"Notes\" role=\"heading\" aria-level=3\n    text \"a\"",
+        "list appearance=\"auto\"\n  section\n    header\n      text \"Notes\" role=\"heading\" aria-level=3\n    text \"a\"",
         "column\n  text \"By folder\" role=\"heading\" aria-level=2\ncolumn\n  text \"Notes\" role=\"heading\" aria-level=2",
         // Not shown with the bar: hidden, in a popover or another route.
         "text \"Notes\" role=\"heading\" display=\"none\"\ncolumn id=\"m\" popover=\"auto\"\n  text \"Notes\" role=\"heading\"",

@@ -796,6 +796,121 @@ fn the_agents_text_is_cut_to_the_room_maxlength_leaves_at_the_caret() {
 }
 
 #[test]
+fn the_agents_fitted_insertion_matches_chromes_value_events_and_caret() {
+    // Chrome 151, CDP Input.insertText: endpoints inside a surrogate pair
+    // advance past it; the caret counts the original insertion's UTF-16 units.
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for (tag, body, limit, start, end, typed, value, caret, data) in [
+        ("input", "abc", 0, 0, 3, "x", "", 0, Some("")),
+        ("textarea", "abcdef", 5, 1, 2, "x", "acdef", 2, Some("")),
+        ("textarea", "abcdef", 5, 1, 2, "xy", "acdef", 3, Some("")),
+        ("textarea", "abcde", 5, 1, 2, "😀", "acde", 3, Some("")),
+        ("textarea", "abcdef", 5, 5, 6, "xy", "abcde", 5, Some("")),
+        ("textarea", "abcdef", 5, 1, 2, "", "acdef", 1, Some("")),
+        ("textarea", "abcde", 5, 1, 2, "x", "axcde", 2, Some("x")),
+        ("textarea", "abcde", 5, 1, 3, "xyz", "axyde", 4, Some("xy")),
+        ("input", "abcde", 5, 1, 3, "xyz", "axyde", 4, Some("xy")),
+        ("textarea", "😀bc", 4, 0, 1, "x", "xbc", 1, Some("x")),
+        ("textarea", "😀bc", 4, 1, 2, "x", "😀bc", 3, None),
+        ("textarea", "a😀bc", 5, 1, 2, "x", "axbc", 2, Some("x")),
+        ("textarea", "a😀bc", 5, 2, 3, "x", "a😀bc", 4, None),
+        ("textarea", "😀bc", 0, 0, 1, "x", "bc", 1, Some("")),
+        ("textarea", "abcde", 5, 1, 1, "xyz", "abcde", 4, None),
+    ] {
+        let source = format!(
+            r#"component App
+  state body = "{body}"
+  state events = ""
+  action before(e: InputEvent)
+    events = `${{events}}before:${{e.inputType}}:${{match e.data {{ case some(data) => data, case none => "null" }}}}|`
+  action edited(v: string, e: InputEvent)
+    body = v
+    events = `${{events}}input:${{e.inputType}}:${{match e.data {{ case some(data) => data, case none => "null" }}}}:${{e.selectionStart}}-${{e.selectionEnd}}|`
+  action selected(e: InputEvent)
+    setSelectionRange("editor", {start}, {end})
+  view
+    column
+      {tag} id="editor" testId="editor" maxlength={limit} value=body beforeinput=before input=edited select=selected
+      text events testId="events"
+"#
+        );
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 600.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.run_commands(<()>::default);
+        let editor = id(&p, "editor");
+        let reply = crate::agent::handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{editor},"text":"{typed}"}}"#),
+        );
+        assert!(!reply.contains("\"error\""), "{reply}");
+        actual.push((
+            p.field_text(editor),
+            p.field_selection(editor),
+            text(&p, "events"),
+            p.edited == Some(editor),
+        ));
+        let input = data.map_or_else(String::new, |data| {
+            format!("input:insertText:{data}:{caret}-{caret}|")
+        });
+        expected.push((
+            value.to_owned(),
+            FieldSelection::caret(caret),
+            format!("before:insertText:{typed}|{input}"),
+            data.is_some(),
+        ));
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn a_rejected_insertion_preserves_an_unchanged_selection_commands_mark() {
+    let source = r#"component App
+  state picks = 0
+  action selected(e: InputEvent)
+    picks = picks + 1
+  action collapse
+    setSelectionRange("editor", 0, 0)
+  view
+    column
+      input id="editor" testId="editor" maxlength=0 select=selected
+      button "Collapse" testId="collapse" press=collapse
+      text `${picks}` testId="picks"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.run_commands(<()>::default);
+    let editor = id(&p, "editor");
+    let reply = crate::agent::handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{editor},"text":"x"}}"#),
+    );
+    assert!(!reply.contains("\"error\""), "{reply}");
+    assert_eq!(p.field_text(editor), "");
+    assert_eq!(p.field_selection(editor), FieldSelection::caret(0));
+    assert_eq!(text(&p, "picks"), "0");
+    p.tap(id(&p, "collapse")).unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "picks"), "0");
+}
+
+#[test]
 fn an_insertion_fits_the_room_the_replaced_selection_leaves() {
     let range = |start, end| FieldSelection {
         start,

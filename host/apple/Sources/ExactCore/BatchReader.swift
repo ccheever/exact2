@@ -3,34 +3,39 @@
 // leave only through the batch boundary. Strings own their bytes before return.
 import Foundation
 
-struct BatchReader {
-    enum Invalid: Error { case wire }
-    let bytes: UnsafeBufferPointer<UInt8>
-    var offset = 0
-    var depth = 0
-    var profileResolver: AssetResolver? = nil
+package struct BatchReader {
+    package enum Invalid: Error { case wire }
+    package let bytes: UnsafeBufferPointer<UInt8>
+    package var offset = 0
+    package var depth = 0
+    package var colorChannels: ((BatchValue, Bool) -> [Double]?)? = nil
+    package var profileResolver: AssetResolver? = nil
 
-    @inline(__always) var byte: UInt8 { offset < bytes.count ? bytes[offset] : 0 }
-    @inline(__always) mutating func whitespace() {
+    package init(bytes: UnsafeBufferPointer<UInt8>, colorChannels: ((BatchValue, Bool) -> [Double]?)? = nil, profileResolver: AssetResolver? = nil) {
+        self.bytes = bytes; self.colorChannels = colorChannels; self.profileResolver = profileResolver
+    }
+
+    @inline(__always) package var byte: UInt8 { offset < bytes.count ? bytes[offset] : 0 }
+    @inline(__always) package mutating func whitespace() {
         while offset < bytes.count {
             let b = bytes[offset]
             if b != 32 && b != 10 && b != 13 && b != 9 { break }
             offset += 1
         }
     }
-    @inline(__always) mutating func take(_ b: UInt8) -> Bool {
+    @inline(__always) package mutating func take(_ b: UInt8) -> Bool {
         whitespace()
         if byte == b && offset < bytes.count { offset += 1; return true }
         return false
     }
-    @inline(__always) mutating func expect(_ b: UInt8) throws {
+    @inline(__always) package mutating func expect(_ b: UInt8) throws {
         guard take(b) else { throw Invalid.wire }
     }
-    mutating func end() throws {
+    package mutating func end() throws {
         whitespace()
         guard offset == bytes.count else { throw Invalid.wire }
     }
-    mutating func literal(_ text: StaticString) throws {
+    package mutating func literal(_ text: StaticString) throws {
         whitespace()
         let matches = text.withUTF8Buffer { word in
             guard word.count <= bytes.count - offset else { return false }
@@ -39,18 +44,18 @@ struct BatchReader {
         }
         guard matches else { throw Invalid.wire }
     }
-    @inline(__always) mutating func null() throws -> Bool {
+    @inline(__always) package mutating func null() throws -> Bool {
         whitespace()
         if byte != 110 { return false }
         try literal("null"); return true
     }
-    mutating func bool() throws -> Bool {
+    package mutating func bool() throws -> Bool {
         whitespace()
         if byte == 116 { try literal("true"); return true }
         try literal("false"); return false
     }
 
-    mutating func string() throws -> String {
+    package mutating func string() throws -> String {
         try expect(34)
         let start = offset
         var ascii = true
@@ -134,7 +139,7 @@ struct BatchReader {
 
     // Validate JSON's grammar before Swift's correctly rounded conversion. An
     // integer accumulator covers the IDs and short integral style/geometry rows.
-    mutating func numberSpan() throws -> Range<Int> {
+    package mutating func numberSpan() throws -> Range<Int> {
         whitespace()
         let start = offset
         if byte == 45 { offset += 1 }
@@ -156,7 +161,7 @@ struct BatchReader {
         }
         return start..<offset
     }
-    func number(_ span: Range<Int>) throws -> Double {
+    package func number(_ span: Range<Int>) throws -> Double {
         var integer: UInt64 = 0
         let negative = bytes[span.lowerBound] == 45
         let first = span.lowerBound + (negative ? 1 : 0)
@@ -176,19 +181,19 @@ struct BatchReader {
         }
         return value
     }
-    mutating func number() throws -> Double { try number(numberSpan()) }
-    mutating func id() throws -> UInt32 {
+    package mutating func number() throws -> Double { try number(numberSpan()) }
+    package mutating func id() throws -> UInt32 {
         let span = try numberSpan()
         // Foundation also accepts integral decimal/exponent spellings.
         guard let n = UInt32(exactly: try number(span)) else { throw Invalid.wire }
         return n
     }
-    mutating func enter(_ delimiter: UInt8) throws {
+    package mutating func enter(_ delimiter: UInt8) throws {
         try expect(delimiter)
         depth += 1
         guard depth <= 512 else { throw Invalid.wire }
     }
-    mutating func object(_ field: (inout BatchReader, String) throws -> Void) throws {
+    package mutating func object(_ field: (inout BatchReader, String) throws -> Void) throws {
         try enter(123)
         if take(125) { depth -= 1; return }
         repeat {
@@ -198,7 +203,7 @@ struct BatchReader {
             try expect(44)
         } while true
     }
-    mutating func array<T>(_ element: (inout BatchReader) throws -> T) throws -> [T] {
+    package mutating func array<T>(_ element: (inout BatchReader) throws -> T) throws -> [T] {
         try enter(91)
         var values: [T] = []
         if take(93) { depth -= 1; return values }
@@ -208,12 +213,12 @@ struct BatchReader {
             try expect(44)
         } while true
     }
-    mutating func strings() throws -> [String: String] {
+    package mutating func strings() throws -> [String: String] {
         var values: [String: String] = [:]
         try object { r, key in values[key] = try r.string() }
         return values
     }
-    mutating func values() throws -> NodeStyle {
+    package mutating func values() throws -> NodeStyle {
         var values: NodeStyle = [:]
         try object { r, key in values[key] = try r.value() }
         return values
@@ -222,7 +227,7 @@ struct BatchReader {
     /// bytes: a list's rows repeat their template's styles, and building a
     /// dictionary of boxed values was most of a row's decode. The span is
     /// validated and found by `skip` (nothing materialized), then looked up.
-    mutating func style() throws -> NodeStyle {
+    package mutating func style() throws -> NodeStyle {
         whitespace()
         let start = offset
         try skip()
@@ -239,7 +244,7 @@ struct BatchReader {
         if !hasICC { StyleCache.shared.put(span, style) }
         return style
     }
-    mutating func value() throws -> BatchValue {
+    package mutating func value() throws -> BatchValue {
         whitespace()
         switch byte {
         case 34: return .string(try string())
@@ -258,7 +263,7 @@ struct BatchReader {
     }
     // Unknown fields are validated without materializing arrays/dictionaries or
     // converting their numbers (Foundation likewise ignores out-of-range values).
-    mutating func skip() throws {
+    package mutating func skip() throws {
         whitespace()
         switch byte {
         case 123: try object { r, _ in try r.skip() }
@@ -283,8 +288,8 @@ struct BatchReader {
 /// Decoded style dictionaries by their exact bytes (`BatchReader.style`).
 /// Bounded: when full it starts over. Batches decode on more than one
 /// thread (a session's executor, the main thread), so a lock guards it.
-final class StyleCache: @unchecked Sendable {
-    static let shared = StyleCache()
+package final class StyleCache: @unchecked Sendable {
+    package static let shared = StyleCache()
     private struct Entry { let bytes: [UInt8]; let style: NodeStyle }
     private var entries: [UInt64: Entry] = [:]
     private let lock = NSLock()
@@ -295,14 +300,14 @@ final class StyleCache: @unchecked Sendable {
         for byte in b { h = (h ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
         return h
     }
-    func get(_ b: UnsafeRawBufferPointer) -> NodeStyle? {
+    package func get(_ b: UnsafeRawBufferPointer) -> NodeStyle? {
         let h = Self.hash(b)
         lock.lock(); defer { lock.unlock() }
         guard let e = entries[h], e.bytes.count == b.count,
               e.bytes.withUnsafeBytes({ memcmp($0.baseAddress!, b.baseAddress!, b.count) == 0 }) else { return nil }
         return e.style
     }
-    func put(_ b: UnsafeRawBufferPointer, _ style: NodeStyle) {
+    package func put(_ b: UnsafeRawBufferPointer, _ style: NodeStyle) {
         guard b.count > 2 else { return }
         let h = Self.hash(b)
         lock.lock(); defer { lock.unlock() }

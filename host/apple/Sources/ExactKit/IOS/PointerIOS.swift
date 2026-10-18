@@ -311,7 +311,7 @@ extension NodeView {
         guard let contact = pressContact, !contact.cancelled, contact.incarnation == incarnation else { return }
         contact.cancelled = true
         contact.cancelledByReparenting = reparenting
-        pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil
+        pressed = overlayHoldsPress; inlinePressed = nil; linkPressed = nil; svgPressed = nil
         if let touch = contact.touch { _ = canvasTouches([touch], phase: "cancel", event: nil) }
         if contact.responderUsesCanvas, let touch = contact.touch {
             contact.destination?.touchesCancelled([touch], with: nil)
@@ -431,23 +431,32 @@ extension NodeView {
         let movedByFocus = ownsPress && capturedHit && contact.cancelledByReparenting
             && presenter?.views[id] === self && !disabled && !inert
         guard !contact.cancelled || movedByFocus else { return }
-        guard ownsPress else { contact.destination?.touchesEnded(touches, with: event); return }
+        guard ownsPress else {
+            if touched === self, !pressesAnAncestor, !contact.routesToCanvas, touches.first.map(pressInside) == true {
+                presenter?.menus.activating(from: touched, pressing: nil) { contact.destination?.touchesEnded(touches, with: event) }
+            } else { contact.destination?.touchesEnded(touches, with: event) }
+            return
+        }
         let lands = inside && pressContact === contact && incarnation == contact.incarnation && (!contact.cancelled || movedByFocus) && presenter?.views[id] === self
         // A tap on a list's row selects its cell before the press runs, and
         // the cell stays selected under a screen the press pushed (LLP 1115.000 D16).
         let cells = presenter?.rowCells, screen = cells?.screen(of: self)
         let row = lands ? cells?.select(self) : nil
-        pressed = false
-        if lands { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? []), bubbled: contact.bubbled) }
+        pressed = overlayHoldsPress
+        if lands {
+            presenter?.menus.activating(from: touched, pressing: self) {
+                presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? []), bubbled: contact.bubbled)
+            }
+        }
         if let row { cells?.ran(row, on: screen) }
     }
     package override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         if canvasTouches(touches, phase: "cancel", event: event) { return }
-        if touches.isEmpty { cancelPressContact(); pressed = false; return }
+        if touches.isEmpty { cancelPressContact(); pressed = overlayHoldsPress; return }
         guard let contact = currentPressContact(touches) else { return }
         contact.cancelled = true
         inlinePressed = nil; linkPressed = nil; svgPressed = nil
-        if pressed { pressed = false } else { contact.destination?.touchesCancelled(touches, with: event) }
+        if pressed { pressed = overlayHoldsPress } else { contact.destination?.touchesCancelled(touches, with: event) }
     }
 
     /// A press delivered by the rule a touch gets: to this node when it has
@@ -459,20 +468,48 @@ extension NodeView {
     func activate(at windowPoint: CGPoint) -> NodeView? {
         // An SVG element under the point takes it (LLP 1055.000 D17).
         if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { presenter?.press(element); return self }
-        guard let target = activationTarget(at: windowPoint) else { return nil }
-        let bubbled = (presenter?.pressBox(of: target, from: self) ?? target) !== target
-        if !bubbled, target.isSurfaceControl { return target.control("down") && target.control("up") ? target : nil }
+        let target = activationTarget(at: windowPoint), consumed = controlTakesTouch(at: windowPoint)
+        if target == nil, !takesPress, consumed { return nil }
+        let bubbled = target.map { (presenter?.pressBox(of: $0, from: self) ?? $0) !== $0 } ?? false
+        if let target, !bubbled, target.isSurfaceControl { return target.control("down") && target.control("up") ? target : nil }
         // VoiceOver's activation of a focused opener hands its focus on as a tap's does.
-        let handoff = target.presenter?.beginPress(control: target.textArea ?? target.field ?? target)
+        let handoff = target.flatMap { $0.presenter?.beginPress(control: $0.textArea ?? $0.field ?? $0) }
         defer { handoff?.dispatched() }
-        target.presenter?.press(target.id, bubbled: bubbled)
-        return target
+        let invoker = presenter?.menus.activating(from: self, pressing: target, consumed: consumed) {
+            if let target { target.presenter?.press(target.id, bubbled: bubbled) }
+        }
+        return target ?? invoker
+    }
+
+    /// `handoff`: VoiceOver's activation, which hands the press's focus on as a tap's does (`activate(at:)`).
+    func activateKey(_ name: String, handoff: Bool = false) -> Bool {
+        guard !disabled, name == "Enter" || (name == " " && props["href"] == nil && UIDevice.current.userInterfaceIdiom != .tv) else { return false }
+        #if os(iOS)
+        if kind == "button", let presenter, presenter.invocation(of: self) != nil {
+            guard !inert else { return false }
+            // Keyboard activation has no hit test; menu overlays own only touches.
+            let target = sequence(first: self as UIView, next: { presenter.listenerParent(of: $0) })
+                .compactMap { $0 as? NodeView }.prefix { !$0.disabled && !$0.authoredInert }
+                .first { $0.takesPress(bubbled: presenter.pressBox(of: $0, from: self) !== $0) }
+            let pressHandoff = handoff ? target.map { presenter.beginPress(control: $0.textArea ?? $0.field ?? $0) } : nil
+            defer { pressHandoff?.dispatched() }
+            presenter.menus.activating(from: self, pressing: target) {
+                if let target { presenter.press(target.id, bubbled: presenter.pressBox(of: target, from: self) !== target) }
+            }
+            return true
+        }
+        #endif
+        guard handlers.contains("press") || defaultLink != nil else { return false }
+        presenter?.press(id)
+        return true
     }
     /// Whether a press is this node's own: a `press` handler, a link, a
     /// presented menu's closer, a surface control or a native button that
     /// invokes a command or a popover. A touch stops at the first such node
     /// from the one it hit up; a surface control alone takes no bubbled press.
     var takesPress: Bool { takesPress(bubbled: false) }
+    /// The button over this invoker still holds its press look when a press contact ends.
+    var overlayHoldsPress: Bool { presenter?.menus.overlayHoldsPress(self) ?? false }
     func takesPress(bubbled: Bool) -> Bool {
         handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || (!bubbled && isSurfaceControl)
             || isNativeButton && presenter?.invocation(of: self) != nil
@@ -480,19 +517,7 @@ extension NodeView {
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {
         guard !inert else { return nil }
-        // A native control takes its own hit area; padding that hits its
-        // NodeView forwards the touch. A native button's action still bubbles.
-        if !takesPress, let hit = window?.hitTest(windowPoint, with: nil), hit.isDescendant(of: self) {
-            var at: UIView? = hit, takesHit = false
-            while let cur = at, !(cur is NodeView) {
-                takesHit = takesHit || cur === field || (cur as? UIControl)?.isEnabled == true && !(cur is NativeButtonIOS)
-                #if os(iOS)
-                takesHit = takesHit || (cur as? UITextView)?.isEditable == true
-                #endif
-                at = cur.superview
-            }
-            if at === self, takesHit { return nil }
-        }
+        if !takesPress, controlTakesTouch(at: windowPoint) { return nil }
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled || n.authoredInert { return nil }
@@ -507,8 +532,25 @@ extension NodeView {
         }
         return nil
     }
+    /// A native control takes its own hit area; padding that hits its
+    /// NodeView forwards the touch. A native button's action still bubbles.
+    func controlTakesTouch(at windowPoint: CGPoint) -> Bool {
+        guard let hit = window?.hitTest(windowPoint, with: nil), hit.isDescendant(of: self) else { return false }
+        var at: UIView? = hit, takesHit = false
+        while let cur = at, !(cur is NodeView) {
+            takesHit = takesHit || cur === field || (cur as? UIControl)?.isEnabled == true && !(cur is NativeButtonIOS)
+            #if os(iOS)
+            takesHit = takesHit || (cur as? UITextView)?.isEditable == true
+            #endif
+            at = cur.superview
+        }
+        return at === self && takesHit
+    }
     package override func accessibilityActivate() -> Bool {
-        activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
+        #if os(iOS)
+        if kind == "button", presenter?.invocation(of: self) != nil { return activateKey("Enter", handoff: true) }
+        #endif
+        return activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
     }
 }
 extension NodeView {

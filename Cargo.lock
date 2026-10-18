@@ -706,6 +706,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
  "exact-tamber",
  "icu_locale",
  "serde_json",
@@ -2883,7 +2884,9 @@ dependencies = [
 name = "markdown-data"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-data",
+ "exact-kernel",
  "exact-plan",
  "exact-runner",
  "markdown-parse",

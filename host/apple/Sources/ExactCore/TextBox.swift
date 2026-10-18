@@ -12,7 +12,7 @@ extension TextEngine {
     /// obstacle loses only its own space above the edge, never the
     /// clearance. Answers the top's cut, which a flow's fragments move by.
     @discardableResult
-    func trimTextBox(_ spec: Spec, lines: [CTLine], baselines: inout [CGFloat], lineBottoms: inout [CGFloat], height: inout CGFloat, firstTop: CGFloat = 0) -> CGFloat {
+    package func trimTextBox(_ spec: Spec, lines: [CTLine], baselines: inout [CGFloat], lineBottoms: inout [CGFloat], height: inout CGFloat, firstTop: CGFloat = 0) -> CGFloat {
         guard spec.textBoxTrim != 0, !lines.isEmpty, let root = spec.strut ?? spec.runs.first else { return 0 }
         let (top, bottom) = Self.textBoxTrim((spec.textBoxTrim, spec.textBoxOver, spec.textBoxUnder), root: font(root) as CTFont,
                                              first: baselines[0] - firstTop, last: baselines[baselines.count - 1] - firstTop, height: height - firstTop)
@@ -21,7 +21,7 @@ extension TextEngine {
     }
     /// Lines cut by `(top, bottom)`: baselines and bottoms move up by the
     /// top's cut, the height loses both, and the last bottom is the height.
-    static func trimLines(_ cut: (top: CGFloat, bottom: CGFloat), baselines: inout [CGFloat], lineBottoms: inout [CGFloat], height: inout CGFloat) {
+    package static func trimLines(_ cut: (top: CGFloat, bottom: CGFloat), baselines: inout [CGFloat], lineBottoms: inout [CGFloat], height: inout CGFloat) {
         baselines = baselines.map { $0 - cut.top }
         height = max(0, height - cut.top - cut.bottom)
         lineBottoms = lineBottoms.map { min($0 - cut.top, height) }
@@ -37,7 +37,7 @@ extension TextEngine {
     /// answers for itself.
     /// `box` is `Spec`'s trim, over and under; `first` and `last` the first
     /// and last lines' baselines.
-    static func textBoxTrim(_ box: (trim: Int, over: Int, under: Int), root: CTFont, first: CGFloat, last: CGFloat, height: CGFloat) -> (CGFloat, CGFloat) {
+    package static func textBoxTrim(_ box: (trim: Int, over: Int, under: Int), root: CTFont, first: CGFloat, last: CGFloat, height: CGFloat) -> (CGFloat, CGFloat) {
         var top: CGFloat = 0, bottom: CGFloat = 0
         if box.trim == 1 || box.trim == 3 {
             let over: CGFloat = switch box.over {

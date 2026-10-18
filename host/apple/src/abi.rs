@@ -68,6 +68,7 @@ pub struct Bridge<D: DataSource> {
     /// boots: a runner booted later lays out its first frame with them, not
     /// with a mouse's defaults and then again.
     preferences: exact_runner::Preferences,
+    launch_layout: crate::host::LaunchLayout,
     /// The date and place last told before a boot (`set_launch_time`,
     /// `set_launch_place`): a runner booted later reads them from its first settle.
     launch_facts: exact_runner::time::Launch,
@@ -124,6 +125,7 @@ impl<D: DataSource> Bridge<D> {
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
             preferences: exact_runner::Preferences::NONE,
+            launch_layout: crate::host::LaunchLayout::NONE,
             launch_facts: exact_runner::time::Launch::NONE,
             live_clock: None,
             input: Vec::new(),
@@ -518,6 +520,7 @@ impl<D: DataSource> Bridge<D> {
                 plan,
                 data,
                 measurer,
+                self.launch_layout,
                 self.boot_viewport(width, height),
                 None,
                 snapshot,
@@ -817,6 +820,7 @@ impl<D: DataSource> Bridge<D> {
                 PlanBytes::Copied(&plan),
                 data,
                 measurer,
+                self.launch_layout,
                 self.boot_viewport(width, height),
                 carried.as_ref(),
                 snapshot,
@@ -1244,25 +1248,6 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.resize(width, height));
-        self.emit(out)
-    }
-
-    /// The root font size in points (LLP 1069.000 D3): a relayout.
-    pub fn set_root_font_size(&mut self, px: f64) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_root_font_size(px));
-        self.emit(out)
-    }
-
-    /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
-    /// hairline.
-    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_display_scale(scale));
         self.emit(out)
     }
 

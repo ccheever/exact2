@@ -134,7 +134,7 @@ final class BarTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
 #if os(iOS)
 /// An invoker's pull-down (`MenuHost` overlays): the focus set aside while its
 /// menu shows.
-final class MenuButton: UIButton {
+final class MenuButton: InvokerButton {
     weak var focus: MenuFocus?
     weak var popover: NodeView?
     var toggled: ((Bool) -> Void)?
@@ -156,6 +156,7 @@ final class MenuButton: UIButton {
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
         guard self.menuConfiguration === configuration else { return }
+        releasePress()
         if isMenuOpen { isMenuOpen = false; toggled?(false) }
         let ended: () -> Void = { [weak self] in
             guard let self, self.menuConfiguration === configuration else { return }

@@ -284,6 +284,56 @@ final class ModalDetentIOSTests: XCTestCase {
         XCTAssertEqual(controller.selectedDetentIdentifier, .large, "still large")
     }
 
+    /// `navigationInitialDetent` names the detent the sheet opens at among
+    /// its `navigationDetent`'s, read when the detents are set. Unsaid, or
+    /// naming none the sheet kept (a bound value, journaled), it is the
+    /// first, as UIKit opens a sheet at its smallest; a change to it alone
+    /// leaves the sheet where it is.
+    func testASheetOpensAtTheDetentItsRouteNames() throws {
+        let session = try fixture("detent-initial")
+        try tap(session, "menu")
+        until("the menu is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+        let controller = try XCTUnwrap(sheet()?.sheetPresentationController)
+        let route = try node(session, "route-menu")
+        let set = { (detents: String, initial: String?) in
+            route.props["navigationInitialDetent"] = initial
+            route.props["navigationDetent"] = detents
+            session.presenter.modals.updatePermissions()
+        }
+        for (detents, initial, opened) in [
+            ("medium large", "large", UISheetPresentationController.Detent.Identifier.large),
+            ("300 500 large", "500", .init("authored-1")),
+            ("fit-content large", "fit-content", .init("fit-content-0")),
+            ("medium 100%", "100%", .large),
+            ("medium large", nil, .medium),
+            ("medium large", "", .medium),
+            ("", "large", .large),
+        ] {
+            set(detents, initial)
+            XCTAssertEqual(controller.selectedDetentIdentifier, opened, "\(detents), \(initial ?? "unsaid")")
+        }
+        set("300 500", "45%")
+        XCTAssertEqual(controller.selectedDetentIdentifier, .init("authored-0"), "none of its detents: the first")
+        let journal = session.agent(#"{"op":"logs","since":0}"#)
+        XCTAssertTrue(journal.contains(#"navigationInitialDetent \"45%\" on route"#) && journal.contains("the sheet opens at its first"), journal)
+        XCTAssertFalse(journal.contains(#"navigationInitialDetent \"large\""#), "the platform's large is a sheet's one detent unsaid")
+        XCTAssertFalse(journal.contains(#"navigationInitialDetent \"\""#), "empty is unsaid, as `navigationDetent`'s is")
+        route.props["navigationInitialDetent"] = "500"
+        session.presenter.modals.updatePermissions()
+        XCTAssertEqual(controller.selectedDetentIdentifier, .init("authored-0"), "the initial detent alone changed: still the first")
+        // A route that says no `navigationDetent`, as its sheet is made
+        // (UIKit's `large`, nothing selected): a bound initial detent that
+        // names none is journaled there too.
+        route.props["navigationDetent"] = nil
+        route.props["navigationInitialDetent"] = nil
+        session.presenter.modals.updatePermissions()
+        route.props["navigationInitialDetent"] = "medum"
+        controller.selectedDetentIdentifier = nil
+        session.presenter.modals.updatePermissions()
+        XCTAssertEqual(controller.selectedDetentIdentifier, .large)
+        XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains(#"navigationInitialDetent \"medum\""#), "journaled when the sheet is made")
+    }
+
     /// Mounted, its route in its block (LLP 1123 D2), the sheet still
     /// follows its rows: its content is measured at the block's width,
     /// whatever height the block has.

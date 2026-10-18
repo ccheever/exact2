@@ -1575,30 +1575,36 @@
     },
     {
       "id": 271,
+      "name": "navigationInitialDetent",
+      "kind": "str",
+      "_comment": "@ref LLP 1115 §2 (what the author writes wins): the word of a sheet route's `navigationDetent` the sheet opens at; unsaid, the first (the shortest), as UIKit opens a sheet at its smallest detent. UIKit's `selectedDetentIdentifier`, React Navigation's `sheetInitialDetentIndex`; iOS reads it when the detents are set, hosts whose sheets have one height ignore it."
+    },
+    {
+      "id": 272,
       "name": "datetime",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the time element’s instant in epoch milliseconds."
     },
     {
-      "id": 272,
+      "id": 273,
       "name": "timeFormat",
       "kind": "str",
       "_comment": "@ref LLP 1126 D6: the time element’s named presentation."
     },
     {
-      "id": 273,
+      "id": 274,
       "name": "start",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the progress interval’s start instant in epoch milliseconds."
     },
     {
-      "id": 274,
+      "id": 275,
       "name": "end",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: the progress interval’s end instant in epoch milliseconds."
     },
     {
-      "id": 275,
+      "id": 276,
       "name": "textReservation",
       "kind": "str",
       "measure": true,

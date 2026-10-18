@@ -57,7 +57,7 @@ package final class Owner: @unchecked Sendable {
     }
 
     /// Whether the caller is the owner thread.
-    var isOwner: Bool {
+    package var isOwner: Bool {
         // Set before `init` returns, and never again.
         guard let thread else { return false }
         return pthread_equal(pthread_self(), thread) != 0
@@ -65,7 +65,7 @@ package final class Owner: @unchecked Sendable {
 
     /// Native layout during a served callback must wait before asking the
     /// owner again; otherwise its resize is refused while the view has moved.
-    var isServingMain: Bool { Thread.isMainThread && serving > 0 }
+    package var isServingMain: Bool { Thread.isMainThread && serving > 0 }
 
     private func run() {
         while true {
@@ -86,7 +86,7 @@ package final class Owner: @unchecked Sendable {
     /// Run `body` on the owner and return its result; on the owner, inline.
     /// Main waits, serving the owner's `callMain` requests meanwhile. From a
     /// call main serves for the owner, nothing can run: `busy` answers.
-    func sync<T>(_ body: () -> T, busy: @autoclosure () -> T) -> T {
+    package func sync<T>(_ body: () -> T, busy: @autoclosure () -> T) -> T {
         if isOwner { return body() }
         let main = Thread.isMainThread
         if main && serving > 0 {
@@ -118,7 +118,7 @@ package final class Owner: @unchecked Sendable {
         }
     }
 
-    func sync<T>(_ body: () -> T) -> T {
+    package func sync<T>(_ body: () -> T) -> T {
         sync(body, busy: Owner.unserved())
     }
 
@@ -129,7 +129,7 @@ package final class Owner: @unchecked Sendable {
     /// Run `body` on the owner after the jobs before it, without waiting
     /// (LLP 1072 T3: the collection fill). What it produces goes back to
     /// main by its own publication.
-    func post(_ body: @escaping () -> Void) {
+    package func post(_ body: @escaping () -> Void) {
         lock.lock()
         jobs.append(Job(body))
         lock.unlock()
@@ -138,13 +138,13 @@ package final class Owner: @unchecked Sendable {
 
     /// A notification (T5): on the owner, now; from anywhere else, queued
     /// in order behind the jobs before it, never waited for.
-    func notify(_ body: @escaping () -> Void) {
+    package func notify(_ body: @escaping () -> Void) {
         if isOwner { body() } else { post(body) }
     }
 
     /// A notification (T5): synchronous, unless main is serving a callback
     /// the owner waits on; then it runs after the owner's current job.
-    func syncOrLater(_ body: @escaping () -> Void) {
+    package func syncOrLater(_ body: @escaping () -> Void) {
         if isOwner { body(); return }
         if Thread.isMainThread && serving > 0 {
             lock.lock()

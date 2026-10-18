@@ -4,15 +4,15 @@ import CoreText
 import CExact
 
 /// Owned Swift geometry; counted C pointers exist only inside withCShapes.
-struct TextFlowShape: Equatable {
-    var kind: UInt32
-    var x: Float = 0, y: Float = 0, a: Float = 0, b: Float = 0, radius: Float = 0
-    var pairs: [SIMD2<Float>] = []
-    init(kind: UInt32, x: Float = 0, y: Float = 0, a: Float = 0, b: Float = 0, radius: Float = 0,
+package struct TextFlowShape: Equatable {
+    package var kind: UInt32
+    package var x: Float = 0, y: Float = 0, a: Float = 0, b: Float = 0, radius: Float = 0
+    package var pairs: [SIMD2<Float>] = []
+    package init(kind: UInt32, x: Float = 0, y: Float = 0, a: Float = 0, b: Float = 0, radius: Float = 0,
          pairs: [SIMD2<Float>] = []) {
         self.kind = kind; self.x = x; self.y = y; self.a = a; self.b = b; self.radius = radius; self.pairs = pairs
     }
-    init?(_ wire: [String: Any]) {
+    package init?(_ wire: [String: Any]) {
         func n(_ name: String) -> Float { (wire[name] as? NSNumber)?.floatValue ?? 0 }
         switch wire["kind"] as? String {
         case "Circle": self.init(kind: 0, x: n("cx"), y: n("cy"), a: n("r"))
@@ -26,17 +26,17 @@ struct TextFlowShape: Equatable {
         default: return nil
         }
     }
-    init(_ c: ExactFlowShape) {
+    package init(_ c: ExactFlowShape) {
         self.init(kind: c.kind, x: c.x, y: c.y, a: c.a, b: c.b, radius: c.radius,
                   pairs: c.pairs.map { p in UnsafeBufferPointer(start: p, count: c.count).map { SIMD2($0.x, $0.y) } } ?? [])
     }
-    func translated(_ offset: CGPoint) -> TextFlowShape {
+    package func translated(_ offset: CGPoint) -> TextFlowShape {
         var copy = self
         if kind == 3 || kind == 5 { copy.pairs = pairs.map { $0 + SIMD2(Float(offset.x), Float(offset.y)) } }
         else { copy.x += Float(offset.x); copy.y += Float(offset.y) }
         return copy
     }
-    static func withCShapes<T>(_ shapes: [TextFlowShape], _ body: (UnsafeBufferPointer<ExactFlowShape>) -> T) -> T {
+    package static func withCShapes<T>(_ shapes: [TextFlowShape], _ body: (UnsafeBufferPointer<ExactFlowShape>) -> T) -> T {
         let pairs = shapes.flatMap { $0.pairs.map { ExactFlowPair(x: $0.x, y: $0.y) } }
         return pairs.withUnsafeBufferPointer { buffer in
             var offset = 0
@@ -52,18 +52,18 @@ struct TextFlowShape: Equatable {
 
 /// The only full unwrapped CTLine and Rust prepare per TextShape. O(UTF16 + glyphs)
 /// storage; glyph indices are logical even when a CTRun's visual order is RTL.
-final class TextFlowSource {
-    let line: CTLine
-    let typesetter: CTTypesetter
-    let attributed: NSAttributedString
-    let advances: [Float]
-    let handle: UInt64
-    let utf8Count: Int
-    let utf16Count: Int
-    private(set) var rustBytes = 0
-    var box: (above: CGFloat, below: CGFloat, explicit: Bool)?
-    var ownedBytes: Int { advances.count * MemoryLayout<Float>.stride + rustBytes }
-    init(_ shape: TextShape) {
+package final class TextFlowSource {
+    package let line: CTLine
+    package let typesetter: CTTypesetter
+    package let attributed: NSAttributedString
+    package let advances: [Float]
+    package let handle: UInt64
+    package let utf8Count: Int
+    package let utf16Count: Int
+    private(set) package var rustBytes = 0
+    package var box: (above: CGFloat, below: CGFloat, explicit: Bool)?
+    package var ownedBytes: Int { advances.count * MemoryLayout<Float>.stride + rustBytes }
+    package init(_ shape: TextShape) {
         // Preserve original UTF16 positions while matching the walker's CSS
         // ASCII space/tab collapsing. Continuations become zero-width controls.
         let original = shape.attributed.string as NSString
@@ -104,7 +104,7 @@ final class TextFlowSource {
     }
     /// CoreFoundation's line-break units that start between two Thai, Lao, Khmer
     /// or Myanmar letters: the walker has no dictionary (LLP 1043 §4 C).
-    static func complexWords(_ text: String) -> [UInt32] {
+    package static func complexWords(_ text: String) -> [UInt32] {
         let string = text as NSString, length = string.length
         func complex(_ i: Int) -> Bool {
             switch string.character(at: i) {
@@ -122,7 +122,7 @@ final class TextFlowSource {
         return words
     }
     deinit { exact_textflow_free(handle) }
-    static func advances(_ line: CTLine, text: String) -> [Float] {
+    package static func advances(_ line: CTLine, text: String) -> [Float] {
         let string = text as NSString, length = string.length
         var first = [Int](repeating: 0, count: length)
         var offset = 0
@@ -154,7 +154,7 @@ final class TextFlowSource {
         }
         return table
     }
-    func flow(_ shapes: [TextFlowShape], width: CGFloat, height: CGFloat, fontSize: CGFloat, clamp: Int, direction: Int) -> ([ExactFlowFragment], CGFloat, Bool) {
+    package func flow(_ shapes: [TextFlowShape], width: CGFloat, height: CGFloat, fontSize: CGFloat, clamp: Int, direction: Int) -> ([ExactFlowFragment], CGFloat, Bool) {
         // Each fragment consumes source; at most one per UTF16 unit. Rust owns
         // reusable walker scratch, the view owns only this frame's final CTLines.
         var fragments = [ExactFlowFragment](repeating: ExactFlowFragment(), count: utf16Count + 1)
@@ -174,7 +174,7 @@ final class TextFlowSource {
 extension TextEngine {
     /// Fixed band takes the maximum inline/strut extents across the paragraph.
     /// Explicit CSS line boxes permit fallback ink to overflow without growing.
-    func lineBox(_ spec: Spec, line: CTLine) -> (above: CGFloat, below: CGFloat, explicit: Bool) {
+    package func lineBox(_ spec: Spec, line: CTLine) -> (above: CGFloat, below: CGFloat, explicit: Bool) {
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
         let minimum = strut.map(extents) ?? (0, 0)
@@ -217,7 +217,7 @@ extension TextEngine {
     // can replace a line). Soft-hyphen prefix copies cost O(F * UTF16) in the
     // worst case. CT's internal shaping cost is opaque; the 600-frame test
     // measures it. No shape/frame history enters paragraph residency.
-    func layoutFlow(_ shape: TextShape, width: CGFloat, flow: [TextFlowShape]) -> Paragraph {
+    package func layoutFlow(_ shape: TextShape, width: CGFloat, flow: [TextFlowShape]) -> Paragraph {
         let source = shape.preparedFlow(), spec = shape.spec
         let box = source.box ?? lineBox(spec, line: source.line)
         source.box = box

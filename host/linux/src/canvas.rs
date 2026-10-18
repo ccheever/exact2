@@ -5,7 +5,8 @@
 //! stream that the app's `View` replays in `onDraw`. HWUI (Skia on the
 //! RenderThread, with its glyph atlas) does the drawing; text is drawn with
 //! `Canvas.drawGlyphs` from the same font files Parley shaped with, so
-//! measurement and pixels agree.
+//! measurement and pixels agree (below API 31, which has no `drawGlyphs`,
+//! with each glyph's outline from those files: `canvas/legacy.rs`).
 //! The presenter lives on the Android main thread ([`CanvasHost`]); every
 //! call comes from there.
 //! The stream is `u32` words (floats as bits), little-endian:
@@ -180,6 +181,8 @@ mod journal;
 mod keys;
 #[path = "canvas/layer.rs"]
 mod layer;
+#[path = "canvas/legacy.rs"]
+pub mod legacy;
 #[cfg(target_os = "android")]
 pub use jni_sys;
 #[path = "canvas/picture.rs"]

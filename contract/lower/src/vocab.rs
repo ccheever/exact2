@@ -20,6 +20,18 @@ pub fn accepts(prop: PropId) -> Option<&'static str> {
     }
 }
 
+/// Whether `word` is one of a `navigationDetent`'s heights: `large`,
+/// `medium`, `fit-content`, a positive point height, or a percentage above
+/// 0% and at most 100%.
+pub fn detent_word(word: &str) -> bool {
+    matches!(word, "large" | "medium" | "fit-content")
+        || word.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+        || word.strip_suffix('%').is_some_and(|p| {
+            p.parse::<f64>()
+                .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
+        })
+}
+
 /// The first of a `navigationDetent`'s valid words that is not taller than
 /// the one before it on every screen (LLP 1075.003 §9.13): UIKit takes
 /// detents from shortest to tallest. A point height and a share of the

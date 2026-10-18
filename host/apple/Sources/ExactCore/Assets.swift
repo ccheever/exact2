@@ -3,10 +3,10 @@ import Foundation
 /// One complete generation's resolver. Stored bytes are verified once and
 /// retained; an absent name never falls through to another generation.
 public final class AssetResolver {
-    let root: URL
+    package let root: URL
     private let names: [String]?
     private let read: ((String) throws -> Data?)?
-    var isComplete: Bool { names != nil }
+    package var isComplete: Bool { names != nil }
     private var cache: [String: Data] = [:]
     private var files: [String: URL] = [:]
     private var directory: URL?
@@ -15,7 +15,7 @@ public final class AssetResolver {
     /// The root with its symlinks resolved, once: resolving reads each component.
     private lazy var base = root.standardizedFileURL.resolvingSymlinksInPath()
     package var refusal: String? { lock.lock(); defer { lock.unlock() }; return lastRefusal }
-    var encodedCacheBytes: Int { lock.lock(); defer { lock.unlock() }; return cache.values.reduce(0) { $0 + $1.count } }
+    package var encodedCacheBytes: Int { lock.lock(); defer { lock.unlock() }; return cache.values.reduce(0) { $0 + $1.count } }
 
     /// A complete provider never falls through to the embedded directory.
     public init(root: URL, names: [String], read: @escaping (String) throws -> Data?) {
@@ -24,7 +24,7 @@ public final class AssetResolver {
 
     /// Own verified payloads without retaining texture heap buffers. The private
     /// files live exactly as long as this generation and can be read after loss.
-    init(root: URL, verified: [String: Data]) throws {
+    package init(root: URL, verified: [String: Data]) throws {
         self.root = root; names = Array(verified.keys); read = nil
         for (name, bytes) in verified {
             guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else {
@@ -49,13 +49,13 @@ public final class AssetResolver {
         return url
     }
 
-    init(root: URL) {
+    package init(root: URL) {
         self.root = root; names = nil; read = nil
     }
 
     deinit { if let directory { try? FileManager.default.removeItem(at: directory) } }
 
-    func bytes(_ name: String) -> Data? {
+    package func bytes(_ name: String) -> Data? {
         lock.lock(); defer { lock.unlock() }
         do { return try delivery(name) } catch { lastRefusal = lastRefusal ?? error.localizedDescription; return nil }
     }
@@ -75,7 +75,7 @@ public final class AssetResolver {
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
     }
 
-    func url(_ name: String, maximumBytes: Int? = nil) -> URL? {
+    package func url(_ name: String, maximumBytes: Int? = nil) -> URL? {
         lock.lock(); defer { lock.unlock() }
         guard isComplete else { return embeddedURL(name) }
         if let url = files[name] { return url }
@@ -98,7 +98,7 @@ public final class AssetResolver {
 
     /// The asset's file in the signed bundle, when this is the embedded
     /// generation and the file is there; a complete generation has none.
-    func bundledURL(_ name: String) -> URL? {
+    package func bundledURL(_ name: String) -> URL? {
         lock.lock(); defer { lock.unlock() }
         guard !isComplete, let url = embeddedURL(name), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
@@ -119,7 +119,7 @@ public final class AssetResolver {
     }
 
     /// The same cases and byte limit as gpu::asset_name.
-    static func validAssetName(_ name: String) -> Bool {
+    package static func validAssetName(_ name: String) -> Bool {
         let bytes = Array(name.utf8)
         return !bytes.isEmpty && bytes.count <= 128
             && bytes.allSatisfy { $0 >= 32 && $0 < 127 && $0 != 92 }

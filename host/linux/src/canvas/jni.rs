@@ -135,6 +135,7 @@ macro_rules! canvas_jni {
                 }
                 // The reader hosts the app's text fields (LLP 1115.001 D8).
                 $crate::canvas::field::attach(env, scale);
+                $crate::canvas::legacy::attach(env);
                 let dir = string(env, dir);
                 pipeline_cache();
                 std::env::set_var("HOME", &dir);
@@ -194,6 +195,7 @@ macro_rules! canvas_jni {
                     return;
                 }
                 $crate::canvas::field::attach(env, scale);
+                $crate::canvas::legacy::attach(env);
                 // The environment is set here, before any other thread reads it.
                 let dir = string(env, dir);
                 pipeline_cache();
@@ -848,6 +850,19 @@ macro_rules! canvas_jni {
                 bitmap: jobject,
             ) -> jboolean {
                 flag($crate::canvas::jni::copy_bitmap(env, id as u32, bitmap))
+            }
+
+            /// A glyph by its id below API 31 (`LegacyGlyphs`, `canvas/legacy.rs`).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_LegacyGlyphs_glyph(
+                env: *mut JNIEnv,
+                _class: jclass,
+                font: jobject,
+                index: jint,
+                axes: $crate::canvas::jni_sys::jintArray,
+                id: jint,
+            ) -> $crate::canvas::jni_sys::jintArray {
+                $crate::canvas::legacy::glyph(env, font, index, axes, id)
             }
 
             /// Picture `id` into a GPU buffer the reader wraps as a hardware bitmap.

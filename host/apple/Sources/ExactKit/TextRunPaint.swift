@@ -15,50 +15,7 @@ import UIKit
 
 /// A text node's or run's shadow and stroke rows as they crossed, colours
 /// still light/dark pairs: resolved per appearance by `resolve`.
-struct RunPaintRows: Equatable {
-    /// Offset x, y and blur in points; nil is `none`.
-    var shadow: [Double]?
-    /// The shadow's colour; nil is `currentcolor`.
-    var shadowColor: BatchValue?
-    var strokeWidth: Double = 0
-    /// The stroke's colour; nil is `currentcolor`.
-    var strokeColor: BatchValue?
 
-    init() {}
-    init(_ style: NodeStyle) {
-        for key in ["text_shadow", "text_stroke_width", "text_stroke_color"] {
-            if let value = style[key] { set(key, value) }
-        }
-    }
-
-    /// Whether a colour here is a `light-dark()` pair.
-    var paired: Bool { shadowColor?.isSchemeColor == true || strokeColor?.isSchemeColor == true }
-    /// Whether a colour here is the view's tint (LLP 1095 D8).
-    var namesTint: Bool { shadowColor?.namesTint == true || strokeColor?.namesTint == true }
-
-    /// One row off the wire; false when `key` is not one of these rows.
-    @discardableResult
-    mutating func set(_ key: String, _ value: BatchValue) -> Bool {
-        switch key {
-        case "text_shadow":
-            guard case .object(let o) = value, let offset = o["o"]?.numbers, offset.count == 2 else { shadow = nil; return true }
-            shadow = offset + [max(0, o["b"]?.number ?? 0)]
-            shadowColor = o["c"]
-        case "text_stroke_width": strokeWidth = value.number ?? 0
-        case "text_stroke_color": strokeColor = value.string == nil ? value : nil
-        default: return false
-        }
-        return true
-    }
-
-    /// The shadow (offset x, y, blur, r g b a) and stroke (width, r g b a)
-    /// for an appearance, `currentcolor` being `color`, the text's own.
-    func resolve(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil, color: [Double]) -> (shadow: [Double]?, stroke: [Double]?) {
-        let shade = shadow.map { $0 + (shadowColor?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) }
-        let stroke = strokeWidth > 0 ? [strokeWidth] + (strokeColor?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) : nil
-        return (shade, stroke)
-    }
-}
 
 extension Spec {
     /// Each run's shadow is the paragraph's when they all agree (the cheap
@@ -301,5 +258,14 @@ extension TextLinePaint {
             i = j
         }
         return true
+    }
+}
+
+extension RunPaintRows {
+    var namesTint: Bool { shadowColor?.namesTint == true || strokeColor?.namesTint == true }
+    func resolve(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil, color: [Double]) -> (shadow: [Double]?, stroke: [Double]?) {
+        let shade = shadow.map { $0 + (shadowColor?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) }
+        let stroke = strokeWidth > 0 ? [strokeWidth] + (strokeColor?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) : nil
+        return (shade, stroke)
     }
 }
