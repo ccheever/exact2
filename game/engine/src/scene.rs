@@ -900,8 +900,19 @@ impl World {
         }
         None // A runtime cycle has not yet been repaired by propagate.
     }
+    /// Set a discontinuous local pose with a distinct interpolation start.
+    /// For a landing followed by movement within one tick, `previous` is the
+    /// landing and `current` includes that movement. Descendants inherit the
+    /// start through their current local poses. History is not saved or hashed.
+    pub fn teleport_from(&mut self, e: Entity, previous: Transform, current: Transform) {
+        self.teleport(e, current);
+        if self.contains(e) {
+            self.interpolation_origins.insert(e, previous);
+        }
+    }
     /// Set a local pose, refresh parented globals and mark this entity fresh.
     pub fn teleport(&mut self, e: Entity, transform: Transform) {
+        self.interpolation_origins.remove(&e);
         if self.insert(e, transform) {
             self.mark_fresh(e);
             for (_, follow) in self.query::<&mut Follow>().iter() {

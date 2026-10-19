@@ -390,7 +390,7 @@ fn main() -> ExitCode {
             }
             Err(errors) => {
                 for e in errors {
-                    eprintln!("{e}");
+                    eprintln!("{e}{}", contract::excerpt(&e));
                 }
                 return ExitCode::from(1);
             }

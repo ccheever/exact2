@@ -25,7 +25,10 @@ const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/
 // host writes it (LLP 1061 D7: a blue face, an absolute opacity of 0.6).
 const on = ':not(:disabled,[disabled]:not([disabled="false"]))';
 const hover = at => `${at}:hover${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;--exact-hover-wash:none!important;}`;
-const rules = `@media (hover:hover){${['3', '6', '7', '9'].map(id => hover(`[data-view="${id}"]`)).join('')}}`;
+const rules = `@media (hover:hover){${['3', '6', '7', '9', '11'].map(id => hover(`[data-view="${id}"]`)).join('')}${hover('[data-exact-looks="1"]')}}[data-exact-looks="1"][data-exact-held~=hover]${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;}[data-exact-looks="2"]:focus-visible${on},[data-exact-looks="2"][data-exact-held~=focus-visible]${on}{background-color:rgba(0,255,255,1)!important;}`;
+// A node with its own transition on what its look sets: the wasm host's (a view the looks sheet has rules for) and
+// the JS target's (`data-exact-looks`).
+const eased = 'width:100px;height:40px;background-color:#ffffff;opacity:1;transition:background-color 400ms linear,opacity 400ms linear';
 const press = 'scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.95;--exact-press-background-color:rgba(0,0,255,1);--exact-press-opacity-to:0.6;';
 const page = sheet + `<style id="exact-looks">${rules}</style>
 <div id="exact-root" style="padding:20px">
@@ -36,10 +39,16 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
   <div id="image" class="drawn" data-view="6" data-exact-on="press" style="width:100px;height:40px">i</div>
   <div id="outer" data-view="7" data-exact-on="press" style="padding:10px"><div id="inner" data-view="8" data-exact-on="press" style="width:100px;height:40px">n</div></div>
   <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100px;height:40px">r</div></div></div>
+  <div id="eased" data-view="11" style="${eased}">e</div>
+  <div id="eased-js" data-exact-looks="1" style="${eased}"><span id="eased-js-in">j</span></div>
+  <div id="focused" data-exact-looks="2" tabindex="0" style="${eased}">f</div>
+  <div id="delayed" data-exact-looks="1" style="width:100px;height:40px;background-color:#ffffff;transition:background-color 0s linear 300ms">d</div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   createInputHandlers({ root: document.getElementById('exact-root'), views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
+  // As the wasm glue keeps the looks sheet's rules, by view.
+  document.getElementById('exact-looks').exactRules = new Map([[11, '[data-view="11"]:hover{}']]);
   window.ready = true;
 </script>`;
 
@@ -61,6 +70,90 @@ afterAll(() => {
   server?.close();
   if (profile) rmSync(profile, { recursive: true, force: true });
 });
+
+check('a look snaps through an authored transition, entering and leaving; a base change still eases', async () => {
+  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  const call = (method, params) => cdp.send(method, params, sessionId);
+  const evaluate = async (expression) => {
+    const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
+    return reply.result.value;
+  };
+  try {
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+    const at = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    const mouse = (type, [x, y]) => call('Input.dispatchMouseEvent', { type, x, y, button: 'none', buttons: 0, clickCount: 1 });
+    // What shows right after the edge, and the transitions that started on the node since the last look (none: it
+    // snapped; a transition started and cancelled still counts, by its transitionrun).
+    await evaluate(`window.runs = new Map(); document.addEventListener('transitionrun', e => runs.set(e.target.id, (runs.get(e.target.id) ?? 0) + 1), true)`);
+    const shows = (id) => evaluate(`new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => { const e = document.getElementById('${id}'), s = getComputedStyle(e), n = runs.get('${id}') ?? 0; runs.delete('${id}'); r([s.backgroundColor, Number(s.opacity).toFixed(2), n]); })))`).then(([bg, o, n]) => n ? [bg, o, `${n} transitions`] : [bg, o]);
+    const away = await at('away');
+    for (const id of ['eased', 'eased-js']) {
+      await mouse('mouseMoved', await at(id));
+      expect(await shows(id)).toEqual(['rgb(255, 255, 0)', '0.80']); // into the look, at once
+      await mouse('mouseMoved', away);
+      expect(await shows(id)).toEqual(['rgb(255, 255, 255)', '1.00']); // and out of it, at once
+    }
+    // A pointer crossing is one still change, its mouse events' twins taken as the same edge.
+    await evaluate(`window.pulses = 0; new MutationObserver(r => { pulses += r.filter(m => m.oldValue === null).length; }).observe(document.getElementById('eased-js'), { attributes: true, attributeOldValue: true, attributeFilter: ['data-exact-snap'] })`);
+    await mouse('mouseMoved', await at('eased-js'));
+    await mouse('mouseMoved', away);
+    expect(await evaluate('pulses')).toBe(2);
+    // Moving within the node (onto a child) is no edge: nothing is touched.
+    await mouse('mouseMoved', await at('eased-js'));
+    await evaluate(`window.snaps = 0; new MutationObserver(r => { window.snaps += r.length; }).observe(document.getElementById('eased-js'), { attributes: true, attributeFilter: ['data-exact-snap'] })`);
+    await mouse('mouseMoved', await at('eased-js-in'));
+    expect(await shows('eased-js')).toEqual(['rgb(255, 255, 0)', '0.80']);
+    expect(await evaluate('window.snaps')).toBe(0);
+    await mouse('mouseMoved', away);
+    // A delay alone would hold the look back: it snaps too.
+    await mouse('mouseMoved', await at('delayed'));
+    expect((await shows('delayed'))[0]).toBe('rgb(255, 255, 0)');
+    await mouse('mouseMoved', away);
+    expect((await shows('delayed'))[0]).toBe('rgb(255, 255, 255)');
+    // A click, then a key: the key turns the focused node's focus look on, at once.
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 1, clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 0, clickCount: 1 });
+    await mouse('mouseMoved', away);
+    expect(await evaluate(`[document.activeElement.id, document.activeElement.matches(':focus-visible')]`)).toEqual(['focused', false]);
+    await evaluate(`document.getAnimations().forEach(a => a.finish())`);
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+    expect(await evaluate(`document.getElementById('focused').matches(':focus-visible')`)).toBe(true);
+    expect(await evaluate(`new Promise(r => requestAnimationFrame(() => r((e => [getComputedStyle(e).backgroundColor, e.getAnimations().filter(a => a.transitionProperty).length])(document.getElementById('focused')))))`)).toEqual(['rgb(0, 255, 255)', 0]);
+    await evaluate(`document.getElementById('focused').blur()`);
+    // A pointer's focus shows no focus look: nothing is held still (a base transition there runs on), nor is hovering
+    // a node whose only look is its focus.
+    await evaluate(`window.snapped = 0; new MutationObserver(r => { window.snapped += r.length; }).observe(document.getElementById('focused'), { attributes: true, attributeFilter: ['data-exact-snap'] })`);
+    await mouse('mouseMoved', await at('focused'));
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 1, clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: (await at('focused'))[0], y: (await at('focused'))[1], button: 'left', buttons: 0, clickCount: 1 });
+    await evaluate(`document.getElementById('focused').blur()`);
+    await mouse('mouseMoved', away);
+    expect(await evaluate('window.snapped')).toBe(0);
+    // A focus look: focus coming and going, at once. (Focusing reads style before its focus events come, so a
+    // transition can start there and be ended at once: what shows, not whether one ran, is the check.)
+    await evaluate(`document.getElementById('focused').focus({ focusVisible: true })`);
+    expect(await evaluate(`document.getElementById('focused').matches(':focus-visible')`)).toBe(true);
+    expect((await shows('focused')).slice(0, 2)).toEqual(['rgb(0, 255, 255)', '1.00']);
+    await evaluate(`document.getElementById('focused').blur()`);
+    expect((await shows('focused')).slice(0, 2)).toEqual(['rgb(255, 255, 255)', '1.00']);
+    // A held state's edges (stage 8 E's hold) are held still the same way: hover, and a keyboard's focus look.
+    await evaluate(`exact.hold(document.getElementById('eased-js'), 'hover', () => {})`);
+    expect(await shows('eased-js')).toEqual(['rgb(255, 255, 0)', '0.80']);
+    await evaluate(`exact.hold(null, null)`);
+    expect(await shows('eased-js')).toEqual(['rgb(255, 255, 255)', '1.00']);
+    await evaluate(`exact.hold(document.getElementById('focused'), 'focus-visible', () => {})`);
+    expect(await shows('focused')).toEqual(['rgb(0, 255, 255)', '1.00']);
+    await evaluate(`exact.hold(null, null)`);
+    expect(await shows('focused')).toEqual(['rgb(255, 255, 255)', '1.00']);
+    // A base change still eases as authored.
+    expect(await evaluate(`(e => { getComputedStyle(e).backgroundColor; e.style.backgroundColor = '#000000'; getComputedStyle(e).backgroundColor; return e.getAnimations().filter(a => a.transitionProperty === 'background-color').length; })(document.getElementById('eased'))`)).toBe(1);
+  } finally {
+    await cdp.send('Target.closeTarget', { targetId });
+  }
+}, 30_000);
 
 check('a hover look composes over the base, under the press paint', async () => {
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });

@@ -161,3 +161,94 @@ fn snapping_a_played_transition_retires_its_reader_tracks() {
     assert_eq!(h.presented(target).translate, (50., -20.));
     assert_eq!(h.presented(target).scale, 2.);
 }
+
+/// A look naming opacity that arrives while the reader plays the node's
+/// opacity transition (a `SetLooks` mid-track: a live design's, a new
+/// generation's) takes the track back: the engine samples it from where its
+/// curve is, so the look composes on its sample (LLP 1121 D8, stage 9 G2).
+#[test]
+fn a_look_arriving_mid_track_takes_the_readers_track_back() {
+    use exact_kernel::{Op, StyleId, StyleProps, StyleValue, LOOK_HOVER};
+    use exact_runner::Timed;
+    let source = r#"component App
+  state o = 1
+  action go
+    o = 0.2
+  view
+    box width=400 height=500
+      box testId="target" width=100 height=100 opacity=o transition="opacity 1s linear"
+      button testId="go" press=go
+        text "Go"
+"#;
+    let (mut h, error) = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    h.lowering = true;
+    let target_key = h.kernel().find_by_test_id("target")[0];
+    let target = h.kernel().node_by_key(target_key).unwrap().id;
+    let node = motion_node(target_key);
+    let go = h.kernel().find_by_test_id("go")[0];
+    let go = h.kernel().node_by_key(go).unwrap().id;
+    assert!(h.dispatch_at(go, Event::Press, 0.).is_none());
+    assert!(
+        h.engine.is_played(node, Property::Opacity),
+        "the reader plays it"
+    );
+    // A quarter of the way, still the reader's: the engine presents its target.
+    h.tick(250.);
+    assert!(h.engine.is_played(node, Property::Opacity));
+    assert_eq!(h.presented(target).opacity, 0.2);
+    let epoch = h.lowered_epoch;
+    let mut look = StyleProps::default();
+    look.set_dynamic(StyleId::Opacity, &StyleValue::Number(0.5))
+        .unwrap();
+    let root = h.roots()[0];
+    let receipt = h
+        .runner
+        .kernel_mut()
+        .apply(
+            root,
+            0,
+            &[Op::SetLooks {
+                id: target,
+                looks: vec![(LOOK_HOVER, look)],
+            }],
+        )
+        .unwrap();
+    assert!(h
+        .commit(
+            &[Timed {
+                at_ms: 250.,
+                receipt
+            }],
+            None
+        )
+        .is_none());
+    assert!(
+        !h.engine.is_played(node, Property::Opacity),
+        "the engine's again"
+    );
+    assert!(!h.played.contains_key(&node));
+    assert!(h.lowered_changed[&node] > epoch);
+    let shown = |h: &Host<()>| h.presented(target).opacity;
+    assert!(
+        (shown(&h) - 0.8).abs() < 0.02,
+        "sampled where the curve is: {}",
+        shown(&h)
+    );
+    // It runs on along its curve, to its target at its own end.
+    h.tick(500.);
+    assert!(
+        (shown(&h) - 0.6).abs() < 0.02,
+        "on its curve: {}",
+        shown(&h)
+    );
+    h.tick(1000.);
+    assert_eq!(shown(&h), 0.2);
+}

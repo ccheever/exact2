@@ -80,8 +80,9 @@ on macOS and Linux.
   `layout`'s held answer name the node the state is held on (`node`, `site`, `instance`: the press
   a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
   row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
-  press row it lowered to as `row`). Stage 9's later wire changes add under the same version: D2's
-  `set-row`, D3's `add-param` and `remove-param`.
+  press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
+  `:active` part row is edited by `set-state`). Stage 9's later wire changes add under the same
+  version: D2's `set-row`, D3's `add-param` and `remove-param`.
 
 ## Where it runs
 
@@ -181,8 +182,9 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
-  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its last `held`
-  report's `{state, reason}`, *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
+  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its `held`
+  report's `{state, reason}` on the last hold frame sent it (null until it reports on that frame),
+  *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -1012,9 +1014,24 @@ The tool drives no input into an app; a command changes only what `prefer` would
   the client goes. A build that registers again is sent it again under the same plan (or `hold:
   null` when the server holds none for it); one that runs another plan (a `status` whose
   `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
-  the old site's source location, and when there is not exactly one, the build is sent `hold:
-  null` and every client told (`hold-cleared {build, client, reason}`). Each frame, a replay
-  included, has a new revision. Only a report naming the last hold frame's revision counts (an
+  the old site's source location and call-site chain: a component called at two places is two
+  copies there, one copy a chain (its sites, such as a `button "…"` and its label, told apart by
+  their order). With the same calls in both plans, the copy with that chain; with as many copies,
+  the copy of the same rank in source order where each pair has the same calls' files and
+  components, the copies share calls alike, and each file's calls moved as one edit there moves
+  them (those above it by none, those below by one count of lines), else the unmoved copies kept and the rest so among
+  themselves (one call moved: the one left over); with copies added or removed, the copy whose
+  calls did not move. The correspondence is by places alone (the map
+  carries no other identity of a call or an element), so it is a guess wherever places are
+  reused: calls reordered with their spacing kept, a call or element moved onto another's old
+  place (a line or a column), or a copy added or removed while one keeps its line, can carry
+  the hold to the other copy (where the copies' instance paths differ, the host finds no view
+  for it and lets it go, `gone`); and a slot filled at two outlets is one copy, its outlets told
+  apart by their order. A call moved past another with the lines between them changed clears
+  the hold. When there is not exactly one, the build is sent `hold: null` and every client
+  told (`hold-cleared {build, client, reason}`). Each frame, a replay included, has a new
+  revision, and the build's `held` in a listing is null until it reports on that frame. Only a
+  report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
   and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no
@@ -1043,11 +1060,23 @@ The tool drives no input into an app; a command changes only what `prefer` would
   app's files change, for a new plan, and after a failed read) is left out, and the row is
   read-only, said so; while a new plan's read is out the names stand and no `token` is offered. A
   row whose one name is a param (an inherited or dynamic one) links it by its full name. A client
-  that knows no `param` rung offers no edit for it. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  that knows no `param` rung offers no edit for it. A row a style's state part writes (its map `state` and
+  `at`, the origin `class:<Name>`) answers `{rung: "state", style, state, row, file, text?, token?}`
+  (*1.12*, LLP 1122 T4), the default: the style by the name its file declares it with, the state,
+  the row as its author wrote it under the state (`background-color`, not the press paint's
+  `press_background_color`), the style's file relative to the app (what `set-state` takes), the
+  row's value as written there, and the token its whole value is, offered beside it, never the
+  default (D6). A style outside the app's own Contract sources as the server counts them (a
+  package's, a vendored or linked one included) answers a reason. A held state's rows carry the
+  same where the build names the held node (its `held.site`), whose parts' files count toward
+  `readOnly` too; with none named they are shown, not offered. A state row a node writes itself (no style) is read-only, pointing at
+  `set-row`, unless its whole value is a token, which the token rung offers. Only an `:active`
+  part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
+  `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
-  the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
-  unless it is one token. A row its author wrote on the node or in its class's `style` (*1.12*)
+  the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
+  above). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a

@@ -435,6 +435,7 @@ fn run<D: DataSource + Default>(
     std::env::set_var("EXACT_SCALE", scale.to_string());
     let mut config = crate::app::Config::from_env_static(plan, compat);
     config.scale = scale;
+    config.clock_started = Some(started);
     let booted = trace(c"exact boot", || {
         crate::app::boot_presenter::<D>(&mut config, viewport)
     });

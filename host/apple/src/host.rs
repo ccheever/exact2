@@ -184,6 +184,9 @@ pub struct Host<D: DataSource> {
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
+    /// Committing a presented frame's timers and frame tasks
+    /// ([`Host::frame`]), where nothing but their commits moves the tree.
+    in_frame: bool,
     /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003
     /// §9.11), each with its width, resolved padding, border and bottom cover when last measured.
     fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
@@ -502,6 +505,7 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             layout_withheld: false,
+            in_frame: false,
             fit_routes: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
@@ -1003,7 +1007,10 @@ impl<D: DataSource> Host<D> {
         // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
         self.runner.present_frames(true);
         let a = self.runner.frame(now_ms);
-        self.advanced(a)
+        self.in_frame = true;
+        let out = self.advanced(a);
+        self.in_frame = false;
+        out
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
@@ -1359,9 +1366,16 @@ impl<D: DataSource> Host<D> {
         }
         let seek = self.engine.advance(self.engine_time(self.now_ms));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        // A frame whose commits changed no node (a frame task that only
+        // moved state nothing shows) lays out as a timer with no commit
+        // does: sixty commits a second each cost a whole layout and paint
+        // order walk otherwise. A withheld layout still runs to settle.
+        let inert = self.in_frame
+            && !self.layout_withheld
+            && receipts.iter().all(|t| unchanged(&t.receipt));
         let layout_error = if height_target_error.is_some() {
             height_target_error
-        } else if receipts.is_empty() {
+        } else if inert {
             self.height_layout_if_needed(&mut batch).err()
         } else {
             self.layout(&mut batch).err()
@@ -1393,6 +1407,20 @@ impl<D: DataSource> Host<D> {
         self.present(&mut batch, false);
         self.finish(batch, error)
     }
+}
+
+/// Whether a commit left every node as it was.
+fn unchanged(r: &exact_kernel::CommitReceipt) -> bool {
+    !r.layout_invalidated
+        && r.created.is_empty()
+        && r.destroyed.is_empty()
+        && r.touched.is_empty()
+        && r.exits.is_empty()
+        && r.handoffs.is_empty()
+        && r.display_changed.is_empty()
+        && r.timelines.is_empty()
+        && r.renewed.is_empty()
+        && r.revealed.is_empty()
 }
 
 /// A frame in its parent's space (a root's is absolute).

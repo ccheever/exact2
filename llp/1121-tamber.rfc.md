@@ -3895,3 +3895,54 @@ Built to the approved plan (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 ruling 
   - Tests: an asymmetric bar's pixels (right side up), two opposite-winding paths solid, an accent tint; docs (D10, the known-limits line, stage 6 F3's Apple bullet).
 - **After review round 2 (Astra, Grok):** the image helper is left out of watchOS (it has no image renderer); a centred path icon on iOS shows its em square again whatever the box was before; the widget snapshot places the em square by `object-fit` and meets the viewBox in it, as the page hosts do, and its tint shows through one mask (overlapping paths don't compound a translucent tint); a watch target names its missing `sf` (`tamber-icon-missing`) instead of calling a template no one-colour shape.
 
+
+### Stage 9, commit G1: a look snaps on the web (draft for theme2)
+
+D8 says a look snaps; on both web targets a look is a page rule (`looks::rules`), so a node's own
+`transition` on a property its look sets timed the look both ways.
+- **The input glue** (`host/web/input-glue.js`, both targets): the browser has already moved
+  `:hover` and `:focus-visible` when `pointerover`/`pointerout` (and `mouseover`/`mouseout`, which
+  Firefox sends alone for a scroll under a still pointer; one after its pointer event is the same
+  edge) and `focusin`/`focusout` come. An enabled node with a look for the state whose edge it is
+  (the pointer entering or leaving it, not moving within it, where the pointer can hover; a focus
+  look's node's own `:focus-visible` turning on or off, inside a shadow root too, not a pointer's
+  focus) takes that one style change with its transitions off (`data-exact-snap`, set before any
+  style is read, which the press paint's observer doesn't watch; one forced style for every such
+  node). Focusing reads style before its focus events come, so a focus look's transition can start
+  there and is ended at once by the same still change: what shows is the look, with no frame of the
+  transition. A key that turns `:focus-visible` on for
+  the node already focused (a click, then a key) is held still too, at the window's capture before a
+  shortcut can take the key: Blink and WebKit move it before the key comes, others in its default
+  action. A base change eases as authored. The JS target loads
+  the input piece for a node with a look, as for a key shortcut (after first paint).
+- **Deviation (theme2's 19:55 (b)):** a transition of that node's running across the edge, on any
+  property, ends there (CSS can't hold one property still). QUEUE only if seen in practice.
+- **Not heard:** hover that moves with no event (a node laid out or inserted under a still pointer;
+  WebKit's hover timer), a touch screen's hover that sticks after its up, and an edge before the
+  JS target's input piece has loaded; the look then eases as before.
+- **Tests:** `host/web/tests/looks.test.mjs`: a wasm view and a JS-target node with transitions on
+  what their looks set show the look and the base right after the edge with no transition started;
+  moving onto a child touches nothing; a delay alone snaps; a focus look comes and goes at once, a
+  click then a key included, and a pointer's focus or a hover over a focus-only look touches
+  nothing; a base change still starts its transition.
+
+### Stage 9, commit A2: Apple's control faces draw icon paths (draft for theme2)
+
+Built to the approved plan's point 5 (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 and 17:32 rulings). No plan, schema or wire change: the press face's and a grouped row's JSON gain `symbolPath`/`symbolViewBox` beside a "" `symbol`, as page images carry them since A1.
+
+- **Where a face's symbol travels**: a button face (`button.rs` `face_json`, the kernel's `PressFace.symbol` already the full source) and a grouped row (the kernel's `GroupedRow.icon`, the token form of an svg-only icon, which now makes a standard cell where it made a custom row; `abi/commands.rs`) write the path through one helper (`icon_path::push_json`). Bar, toolbar, tab, segment and title-line faces read the image node, which carries `symbolPath` since A1. An `sf` wins: no path is sent.
+- **Swift** (`FaceSymbol.swift`): an svg-only icon's path travels as a token where a face carries a symbol's name (its equality, caches and drawn source unchanged) and draws as ExactCore's `IconPath` template image, an em square at the point size the site gives an SF Symbol (the configuration's, else the body's; a tab bar's 25, a Mac toolbar's 17). On a face the control tints it as it tints a symbol (D9; LLP 1115 D4); a symbol tint its author wrote on a Mac button face draws it in that colour, as a palette colour draws a symbol. A1's page-image tint-else-colour rule is not applied to faces. Sites: iOS bar items, badge items, readouts and bar faces, the navigation title's glyph line (seated on the cap height), root tabs, segments and their tab bar, button configurations, menu rows, swipe actions, grouped rows; the Mac's toolbar, segments, sidebar rows, button configurations, chooser and shortcut menu items. Snapshot leaves were A1's. A multicolour SVG still needs an `sf` on Apple.
+- **Tests**: `icon_path.rs` and `button.rs` (the JSON carries the path for an svg-only icon, none for an `sf` icon or a role); `tamber_icons.rs` (a grouped row led by an svg-only icon is a standard cell with its icon, an `sf` icon's row its name and no icon); `FaceSymbolTests` (Mac and iOS: a bar or toolbar item, a tab, a segment, a button face, and on iOS a grouped row show a template image for an svg-only icon; an `sf` icon unchanged).
+- **After review round 1 (Astra, Grok):**
+  - An unsaid path on an iOS button takes the title's foreground as an untinted symbol does (UIKit gives a configuration's foreground to symbol images only): the colour UIKit proposes, white on a filled style, greyed when disabled or dimmed; on glass it is drawn in the glass's ink (white on a prominent glass, else the label, grey when disabled) through the button's ink, never the accent. Pixels match an SF Symbol's in the same button, light and dark, enabled and disabled.
+  - A symbol alone on an iOS button: the path takes the size UIKit resolves for a symbol in that configuration (its `buttonSize` too), not the body's.
+  - The Mac's symbol tint on a path keeps the tint's alpha (`sourceIn`): a translucent tint stays translucent, a transparent one draws nothing.
+  - A grouped standard cell gives the path the standard symbol space (`reservedLayoutSize`), so its title aligns with an SF Symbol row's; untinted, the path is the label colour as a symbol is (a destructive row's red, a disabled row's grey as before); its size is the cell's Dynamic Type size, drawn again when that changes.
+  - The agent names a path by the icon token its author wrote (`icon.reply`) in a native button's `symbol` (iOS and Mac) and a sidebar row's: the press face's JSON carries it as `symbolIcon`, which the Apple host reads from the plan's icons table by the icon's source form (no plan or format change); "" where no row names it. Caches keep the token.
+  - Theme2's ruling: where a site gives a symbol no configuration, the path's size is measured, not guessed. An SF Symbol ("square") and the path were drawn side by side at each site and their inked boxes compared, the symbol's point size read against the same symbol drawn at 100 points. iOS 27 simulator (in a scene's window): a tab bar's symbol is 23.3 points at a compact width and 17.2 at a regular width (inline items), so the tab bar's path is 23 or 17 by the size class; a navigation bar item's 21.7 (22); a segment's 16.7 (the body's 17); a symbol-only button's what UIKit resolves (22 regular and large, 19 small). macOS 27: the toolbar's 16.7 (17), measured from a screen capture since AppKit draws a toolbar button through SwiftUI, which no in-process capture reaches; a segment's 13.3 (the system font's 13). The tests keep each measure, the toolbar's by hand (`EXACT_MEASURE_FACE_SYMBOLS=1`).
+  - Tests mount the real faces: the native fixture's bar item and root tab with a path written on their image, native tabs' tab bar and segments, the Mac's toolbar and segments, and the Mac's sidebar over a compiled app with an svg-only icon token (the plan's path and the token's name through the Rust side); a button's pixels beside an SF Symbol's; the Mac's opaque, translucent and transparent tints; the grouped cell's alignment, tint and Dynamic Type; the agent's output.
+- **After review round 2 (Astra, Grok):**
+  - A grouped path whose tint follows the accent (`AccentColor`) keeps the cell's tint, as a symbol's does, not the label colour: an absent tint and one that follows the accent are told apart. Tested with an accent that changes (FaceSymbolGroupedTests; GroupedListIOSTests is at its cap).
+  - Tab bars draw a path again when the size class changes: the in-page bar's items are keyed on the glyph's size and the bar watches the size class; the root tab bar watches it too and reads its own traits once in its window. Tested compact, regular, compact with the faces unchanged, in both.
+  - A symbol segment's path is drawn at the control's body size and again as the text size changes (keyed on that size; the control watches the content size).
+  - The agent's icon name: the source form carries none (the compiler and the runner's bridge expand the name away), so two tokens on one SVG (`icon.reply`, `icon.respond`) give one form and one plan string, and the host reports the first declared, the best it knows. theme2 ruled (21:49) to keep that and QUEUE it, with a build lint for two icon tokens with identical sources as the cheaper real fix.

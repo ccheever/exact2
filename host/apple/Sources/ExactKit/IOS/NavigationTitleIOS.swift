@@ -75,7 +75,7 @@ struct HeaderTitle: Equatable {
                     // A symbol source counts toward the shape even while its
                     // name is blank, so the line keeps its texts and label.
                     symbols = true
-                    if let name = child.props["symbolName"], !name.isEmpty { out.append(Glyph(symbol: name, text: "")) }
+                    if let name = child.faceSymbol { out.append(Glyph(symbol: name, text: "")) }
                 } else if child.isParagraph {
                     if !child.accessibleText.isEmpty { out.append(Glyph(symbol: nil, text: child.accessibleText)) }
                 } else { return nil }
@@ -274,8 +274,14 @@ final class HeaderTitleView: UIControl {
             if let name = glyph.symbol {
                 // A template symbol in the run's font: TextKit tints it with
                 // the run's (dynamic) colour, so it follows the appearance.
-                guard let image = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { continue }
-                let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+                guard let image = FaceSymbol.image(name, points: font.pointSize, configuration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { continue }
+                let attachment = NSTextAttachment(image: image)
+                // An svg-only icon's path (stage 9 A2) is no symbol TextKit
+                // seats on the line: its em square centred on the cap height.
+                if FaceSymbol.isPath(name) {
+                    attachment.bounds = CGRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
+                }
+                let symbol = NSMutableAttributedString(attachment: attachment)
                 symbol.addAttributes(attributes, range: NSRange(location: 0, length: symbol.length))
                 out.append(symbol)
                 out.append(NSAttributedString(string: "\u{2009}", attributes: attributes))

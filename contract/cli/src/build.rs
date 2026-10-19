@@ -128,7 +128,7 @@ fn report_all(
         println!("[{}]", all.join(","));
     } else {
         for error in errors.iter().chain(warnings) {
-            eprintln!("{error}");
+            eprintln!("{error}{}", contract::excerpt(error));
         }
     }
     ExitCode::from(code)
@@ -284,7 +284,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             }
         }
         for warning in &warnings {
-            eprintln!("{warning}");
+            eprintln!("{warning}{}", contract::excerpt(warning));
         }
     }
     ExitCode::SUCCESS

@@ -726,7 +726,7 @@ impl<D: DataSource> Runner<D> {
             _ => None,
         };
         let now_ms = match seed {
-            Seed::Fresh => 0.0,
+            Seed::Fresh => crate::time::launch_clock(),
             Seed::At(now_ms) => now_ms,
             Seed::Carried(carried) => carried.now_ms,
             Seed::Checkpoint(checkpoint) => checkpoint.now_ms,

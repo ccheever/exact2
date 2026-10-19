@@ -166,7 +166,8 @@ extension BatchReader {
         try object { r, key in
             switch key {
             case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
-                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility":
+                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility",
+                 "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
                 try style.set(key, r.value(), colorChannels: r.colorChannels)
             case "line_height": height = try r.value()
             default: try r.skip()
@@ -303,6 +304,11 @@ extension InlineStyle {
                 run.background = try a.map(BatchFields.number); darkBackground = run.background
             }
             guard run.background?.count == 4, darkBackground?.count == 4 else { throw BatchReader.Invalid.wire }
+        case "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
+            let corners = ["border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left"]
+            if run.backgroundRadii.isEmpty { run.backgroundRadii = Array(repeating: InlineRadius(), count: 4) }
+            let i = corners.firstIndex(of: key)!
+            run.backgroundRadii[i] = InlineRadius(value)
         default: paint.set(key, value)
         }
     }

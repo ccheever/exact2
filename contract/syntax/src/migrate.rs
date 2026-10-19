@@ -23,8 +23,12 @@ impl Edit {
 /// errors refuse the migration without changing the source.
 pub fn migrate(src: &str) -> Result<String, Vec<SyntaxError>> {
     let (parsed, edits) = crate::parser::parsed_with_edits(src, 0);
-    if let Err(errors) = parsed {
-        let errors: Vec<_> = errors.into_iter().filter(|e| !is_retired(e.id)).collect();
+    if let Err(partial) = parsed {
+        let errors: Vec<_> = partial
+            .errors
+            .into_iter()
+            .filter(|e| !is_retired(e.id))
+            .collect();
         if !errors.is_empty() {
             return Err(errors);
         }

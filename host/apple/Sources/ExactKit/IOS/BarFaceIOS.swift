@@ -110,7 +110,7 @@ struct ChipFace: Equatable {
                 parts.append(.text(text, font, inked ? pair(child, "text_color") : nil))
                 opacities.append(alpha)
                 lineHeights.append(child.wrote("line_height") ? child.usedLineHeight : nil)
-            } else if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
+            } else if child.kind == "image", let name = child.faceSymbol {
                 let tinted = inked || child.wrote("tint_color")
                 parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), tinted ? pair(child, "tint_color") : nil))
                 opacities.append(alpha)
@@ -164,7 +164,7 @@ struct ChipFace: Equatable {
                     UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
                 })
             case .symbol(let name, let points, let tint):
-                let glyph = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: points))?.withTintColor(ink(tint), renderingMode: .alwaysOriginal)
+                let glyph = FaceSymbol.image(name, points: points, configuration: UIImage.SymbolConfiguration(pointSize: points))?.withTintColor(ink(tint), renderingMode: .alwaysOriginal)
                 return (glyph?.size ?? .zero, { rect in glyph?.draw(in: rect) })
             case .text(let text, let font, let color):
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink(color)]
