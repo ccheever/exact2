@@ -347,16 +347,22 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       warn,
       ...(connect ? { connect } : {}),
       named: served => { names ??= served; },
-      client: (sni, address, stream) => {
+      client: (sni, address, stream, settled) => {
         // (the tool's name only, until the canvas comes through the relay too)
         if (!names || sni !== names.tool) return false;
         const socket = new TLSSocket(stream, { isServer: true, secureContext: context });
         socket.relayed = address;
         socket.on('error', () => socket.destroy());
+        // Settled once its own ClientHello named the tool (the relay's word
+        // for the name checked against the client's), its requests read
+        // only then; failed, if it closes first.
+        socket.once('close', () => settled(false));
+        socket.once('secure', () => {
+          if (socket.servername !== names.tool || socket.destroyed) return socket.destroy();
+          settled(true);
+          http.emit('connection', socket);
+        });
         door.emit('connection', socket);
-        // Its requests only once its own ClientHello named the tool: the
-        // relay's word for the name is checked against the client's.
-        socket.once('secure', () => { if (socket.servername !== names.tool) socket.destroy(); else if (!socket.destroyed) http.emit('connection', socket); });
         return true;
       },
     });

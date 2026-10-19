@@ -225,9 +225,12 @@ statuses:
   account's names there are same-site to yours: nothing here relies on site isolation. The
   canvas through the relay is R1's follow-up; until then its name is closed unanswered. The
   relay's word for a client's name is checked against the client's own ClientHello before any
-  request is read; a relay's refusal at any time stops the connector and cuts every stream
-  (a revoked account); at most 64 relayed streams are carried at once, a client not taken costs
-  the relay a doubling wait, and each connection has 10 s to verify the relay and be greeted.
+  request is read; a relay's refusal on any connection, at any time, stops the connector and cuts
+  every stream it carries (a revoked account; the relay closes the streams it pipes too). At most
+  64 relayed streams are carried at once; only a client whose TLS settled lets the next connection
+  be dialled at once, anything else (a client not taken, one dropped unsettled, a connection that
+  fails) costs a doubling wait; the idle connections are dialled again as carried ones close; each
+  connection has 10 s to verify the relay and be greeted, and as long for any line it starts.
   The connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
 
 ### Pairing (*1.13*)

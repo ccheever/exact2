@@ -7,7 +7,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer as createTCP } from 'node:net';
+import { connect as connectTCP, createServer as createTCP } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect as connectTLS, createServer as createTLS } from 'node:tls';
@@ -26,7 +26,7 @@ afterEach(async () => { for (const c of closing.splice(0)) await c(); });
  * connectors, its public port clients, each handed to an idle connector
  * with `CLIENT <sni> <address>` (the SNI as the client sent it, read by the
  * test from its own record), every byte between them kept. */
-async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, label = null, address = '203.0.113.9', withClient = false } = {}) {
+async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, label = null, address = '203.0.113.9', drop = false } = {}) {
   const idle = [], ungreeted = [], seen = { hellos: [], bytes: [], dials: 0, carried: [] };
   const control = createTLS({ cert: relayCert.cert, key: relayCert.key }, conn => {
     seen.dials++;
@@ -40,6 +40,8 @@ async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, l
       if (!head.startsWith('EXACT-RELAY/1 acct\r\n') || !head.includes(`authorization: Bearer ${TOKEN}\r\n`)) { conn.end('REFUSED no such account\n'); return; }
       if (greet === null) { ungreeted.push(conn); return; } // (a relay that greets nothing, until a client comes)
       conn.write(greet);
+      // (a relay that hands each connection the tool's name and drops it, at once, every time)
+      if (drop) { conn.write(`CLIENT ${TOOL} 203.0.113.9\n`); setImmediate(() => conn.destroy()); return; }
       idle.push(conn);
     };
     conn.on('data', onData);
@@ -65,7 +67,7 @@ async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, l
   await new Promise(ok => control.listen(0, '127.0.0.1', ok));
   await new Promise(ok => pub.listen(0, '127.0.0.1', ok));
   closing.push(() => { for (const c of idle) c.destroy(); control.close(); pub.close(); });
-  return { control: control.address().port, pub: pub.address().port, seen, idle, refuseAll: why => { for (const c of [...idle, ...seen.carried]) c.write(`REFUSED ${why}\n`); } };
+  return { control: control.address().port, pub: pub.address().port, seen, idle, refuseIdle: why => { for (const c of idle) c.write(`REFUSED ${why}\n`); } };
 }
 /** The SNI host name in a ClientHello, or '' (the relay's one read). */
 function sniOf(buf) {
@@ -213,7 +215,8 @@ test('round 1: a relay handing down strangers costs it a doubling wait, never a 
   await until(() => silent.seen.dials === 1);
   await until(() => quiet.live === 0, 2000);
   quiet.close();
-  const long = await fakeRelay({ greet: `READY ${'a'.repeat(2000)}.relay.test ${CANVAS}\n` });
+  // (well-formed names, the line padded past its length: the cap, not the names, refuses it)
+  const long = await fakeRelay({ greet: `READY ${TOOL} ${CANVAS} ${'x'.repeat(2000)}\n` });
   const over = connectRelay(relayOf(long.control), { client: () => true, connect: toRelay(long.control), warn: () => {}, pool: 1, backoffMs: 10_000 });
   await until(() => long.seen.hellos.length === 1);
   await until(() => over.live === 0, 2000);
@@ -235,11 +238,12 @@ test('round 1: the relay\'s word for a name is checked against the client\'s; it
   // Its own name, the address with a CR in it: answered, the address 'unknown'.
   expect(await ask(liar.pub, TOOL)).toContain('{"ok":true}');
   expect(w.got.map(g => g.access.reported)).toEqual(['unknown']);
-  // Revoked at the relay after the greeting: the connector stops, idle and carrying alike.
+  // Revoked at the relay after the greeting (told on an idle connection only): the connector
+  // stops, and itself cuts the stream it carries.
   const held = new Promise(ok => { const s = connectTLS({ host: '127.0.0.1', port: liar.pub, servername: TOOL, ca: devCert.cert }, () => { s.write(`GET /__tamber/events HTTP/1.1\r\nHost: ${TOOL}\r\n\r\n`); }); s.on('close', ok); s.on('end', ok); s.on('error', ok); });
   await until(() => liar.seen.carried.length === 3 && liar.idle.length === POOL);
   const dials = liar.seen.dials;
-  liar.refuseAll('this token was revoked');
+  liar.refuseIdle('this token was revoked');
   await held;
   await new Promise(ok => setTimeout(ok, 400));
   expect(liar.seen.dials).toBe(dials);
@@ -304,4 +308,42 @@ test('round 1: the real wire through the relay: a code names the relay\'s sessio
   expect(tries.map(t => t.status)).toEqual([...Array(9).fill(403), 429]);
   expect(json(tries[9].body).error.message).toMatch(/^pairing is limited through the relay: try again in \d+ s$/);
   expect(logged.some(l => /^tamber: relayed pairing limited \(10 a minute\): try again in \d+ s$/.test(l))).toBe(true);
+});
+
+test('round 2: a relay that hands the tool a client and drops it costs a doubling wait; a line started after the greeting has a deadline', async () => {
+  // Accepted and dropped before its TLS settles, every time: a round of the pool a wait, not a loop.
+  const dropper = await fakeRelay({ drop: true });
+  const c = connectRelay(relayOf(dropper.control), { client: () => true, connect: toRelay(dropper.control), warn: () => {}, backoffMs: 10_000 });
+  closing.push(() => c.close());
+  await new Promise(ok => setTimeout(ok, 900));
+  // (the first pool, then one after 250 ms and one after 500 ms more: three rounds at most)
+  expect(dropper.seen.dials).toBeLessThanOrEqual(3 * POOL);
+  // A line started after the greeting and never finished: cut at its deadline.
+  const partial = await fakeRelay({ greet: `READY ${TOOL} ${CANVAS}\nCLI` });
+  const p = connectRelay(relayOf(partial.control), { client: () => true, connect: toRelay(partial.control), warn: () => {}, pool: 1, greetMs: 150, backoffMs: 10_000 });
+  closing.push(() => p.close());
+  await until(() => partial.seen.hellos.length === 1);
+  await until(() => p.live === 0, 2000);
+});
+
+test('round 2: at most 64 clients carried; as they close the pool is dialled again, so a burst never leaves the door down', async () => {
+  const busy = await fakeRelay(), held = [];
+  const c = connectRelay(relayOf(busy.control), { client: (sni, address, stream, settled) => { held.push(stream); stream.on('error', () => {}); settled(true); return true; }, connect: toRelay(busy.control), warn: () => {}, backoffMs: 50 });
+  closing.push(() => c.close());
+  await until(() => busy.idle.length === POOL);
+  // 70 clients, each handed down an idle connection as one comes (the stand-in names the tool).
+  const clients = [];
+  for (let i = 0; i < 70; i++) {
+    await until(() => busy.idle.length > 0, 3000).catch(() => {});
+    if (!busy.idle.length) break;
+    clients.push(await new Promise(ok => { const x = connectTCP(busy.pub, '127.0.0.1', () => { x.write(Buffer.from(TOOL)); ok(x); }); x.on('error', () => {}); }));
+    await until(() => busy.seen.carried.length === i + 1, 3000);
+  }
+  // (64 carried; the 65th and on handed down but not taken, each a wait)
+  await until(() => c.carried === 64, 3000);
+  expect(clients.length).toBeGreaterThan(64);
+  // Every client gone: the pool whole again.
+  for (const s of clients) s.destroy();
+  for (const s of held) s.destroy();
+  await until(() => c.carried === 0 && busy.idle.length === POOL, 5000);
 });
