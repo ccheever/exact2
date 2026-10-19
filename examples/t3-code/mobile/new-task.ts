@@ -3,7 +3,9 @@ import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import { mobileModelSelectionReady } from './model-availability';
 // Pinned mobile NewTask{Route,Draft,ContextPicker} screens at365aa87982; shared draft and launch ownership.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
-import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftNoteBranch, mobileNewTaskDraftLookup, mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftNoteBranch, mobileNewTaskDraftLookup, mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch, mobileNewTaskDraftCurrent, mobileNewTaskDraftChoicesUpdate } from './mobile-new-task-drafts';
+import { mobileComposerTarget, mobileComposerTargetRequire, mobileComposerTargetCurrent } from './composer-target';
+import { mobileVoiceBlocksSubmission } from './voice-data';
 import { mobileNewTaskTransferBusy } from './new-task-transfer';
 import { mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 import { mobileNewTaskCloneSnapshot } from './new-task-clone';
@@ -35,12 +37,13 @@ export interface NewTaskProject extends NewTaskProjectIcon { id: string; environ
 export interface NewTaskEnvironment { id: string; label: string; machine: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskBranch { key: string; id: string; label: string; badge: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskSnapshot { pendingEditor: boolean; revision: number; environmentId: string; projectId: string; threadId: string; projectTitle: string; environmentLabel: string;
+  planModeEnabled: boolean; interactionMode: string; interactionKey: string; interactionBlocked: boolean; interactionError: string;
   projects: NewTaskProject[]; environments: NewTaskEnvironment[]; branches: NewTaskBranch[]; query: string; branchQuery: string;
   emptyTitle: string; emptyDetail: string; branchEmpty: string; error: string; busy: boolean; branchLoaded: boolean; branchHasMore: boolean;
   canSelect: boolean; canAddProject: boolean; canStartScratch: boolean; scratchTarget: string; hasProjects: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
   composer: ThreadComposerState; }
 export interface NewTaskResult { revision: number; message: string; submitted: boolean; environmentId: string; projectId: string; threadId: string }
-interface TaskState { owner: string; prepare: number; busy: boolean; error: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string;
+interface TaskState { owner: string; prepare: number; busy: boolean; error: string; interactionAttempt: number; interactionError: string; interactionErrorOwner: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string;
   branchCache?: { owner: string; input: MobileVcsRefsInput; context: string }; }
 const states = new WeakMap<T3Client, TaskState>();
 const owner = (client: T3Client) => JSON.stringify([client.generation, client.origin, client.environmentId, client.projectId, client.threadId,
@@ -48,7 +51,7 @@ const owner = (client: T3Client) => JSON.stringify([client.generation, client.or
 function stateFor(client: T3Client) {
   let state = states.get(client);
   if (!state || state.owner !== owner(client)) {
-    state = { owner: owner(client), prepare: 0, busy: false, error: '', branchLoaded: false, branchHasMore: false, canWriteGit: false, branches: [], branchQuery: '' };
+    state = { owner: owner(client), prepare: 0, busy: false, error: '', interactionAttempt: 0, interactionError: '', interactionErrorOwner: '', branchLoaded: false, branchHasMore: false, canWriteGit: false, branches: [], branchQuery: '' };
     states.set(client, state);
   }
   return state;
@@ -56,8 +59,23 @@ function stateFor(client: T3Client) {
 function projectKey(environmentId: string, projectId: string) { return JSON.stringify([environmentId, projectId]); }
 function branchCollectionKey(ref: Obj) { return `branch:${ref.remoteName ?? 'local'}:${str(ref.name)}:${ref.worktreePath ?? ''}`; }
 const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
+export interface NewTaskInteractionPreferences { ready: boolean; serialized: string }
+const unknownInteractionPreferences: NewTaskInteractionPreferences = { ready: false, serialized: '' };
+function interactionPresentation(client: T3Client, preferences: NewTaskInteractionPreferences) {
+  let enabled = false;
+  try {
+    const saved: unknown = JSON.parse(preferences.serialized);
+    enabled = preferences.ready && !!saved && typeof saved === 'object' && !Array.isArray(saved)
+      && obj(saved).ready === true && obj(saved).planModeEnabled === true;
+  } catch { /* Unread or invalid device preferences cannot expose a legacy control. */ }
+  const draft = mobileNewTaskDraftCurrent(client), provider = arr(client.config.providers).find(row => row.instanceId === client.providerId);
+  const planModeEnabled = !!draft && !client.threadId && enabled && provider?.showInteractionModeToggle !== false;
+  return { planModeEnabled, interactionMode: planModeEnabled && draft?.choices?.interactionMode === 'plan' ? 'plan' : 'default',
+    interactionKey: JSON.stringify([mobileComposerTarget(client).owner, client.providerId, preferences.ready, preferences.serialized]) };
+}
 /** Source-derived project chooser. Each action key contains both identities, never a bare cross-environment project id. */
-export function mobileNewTask(query = '', client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskSnapshot {
+export function mobileNewTask(query = '', client: T3Client = mobileClient, background: EnvironmentFleet = fleet,
+  preferences = unknownInteractionPreferences, interactionBlocked = false): NewTaskSnapshot {
   const state = stateFor(client), sources = mobileHomeSources(client, background), needle = query.trim().toLocaleLowerCase();
   const context = draftContext(client), pendingDraft = mobileNewTaskLaunchPendingOwned(client), pendingEditor = mobileNewTaskPendingContext(client);
   if (state.branchCache && (state.branchCache.context !== JSON.stringify(context)
@@ -116,6 +134,8 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
   }
   const originOn = startFromOrigin(client);
   return { pendingEditor: !!pendingEditor, revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
+    ...interactionPresentation(client, preferences), interactionBlocked,
+    interactionError: state.interactionErrorOwner === mobileComposerTarget(client).owner ? state.interactionError : '',
     projectTitle: pendingEditor?.title ?? (str(project?.title) || restored?.title || ''), environmentLabel,
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,
     branchEmpty: state.branchLoaded ? state.error || (state.branchQuery ? 'No matching branches' : 'No branches available') : 'Loading branches…',
@@ -245,10 +265,11 @@ export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Nat
 
 /** Mobile route adapter; all server writes and draft dispatch remain the shared client's. */
 export async function mobileNewTaskAction(kind: string, id: string, value: string, nativeInput: Native | null | undefined, suppliedStorage: Files,
-  client: T3Client = mobileClient, background: EnvironmentFleet = fleet, current: () => boolean = () => true): Promise<NewTaskResult> {
+  client: T3Client = mobileClient, background: EnvironmentFleet = fleet, current: () => boolean = () => true,
+  preferences = unknownInteractionPreferences, interactionBlocked = false): Promise<NewTaskResult> {
   const state = stateFor(client), result = (message = '', submitted = false) => ({ revision: client.revision, message, submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
-  if (mobileNewTaskDraftIsPendingKey(client.draftKey) && kind !== 'draft') return result('Use the pending task editor to save these changes.');
+  if (mobileNewTaskDraftIsPendingKey(client.draftKey) && kind !== 'draft' && kind !== 'interaction') return result('Use the pending task editor to save these changes.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');
   const assertCurrent = () => { if (!current()) throw new ClientError('The new task route changed.', 'superseded'); };
   const base = letGoAware(mobileNative(nativeInput));
@@ -256,6 +277,29 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
     assertCurrent(); const reply = await base.later(request); assertCurrent(); return reply;
   } };
   const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
+  if (kind === 'interaction') {
+    const attempt = ++state.interactionAttempt;
+    const captured = mobileComposerTarget(client);
+    const stillCurrent = () => current() && stateFor(client) === state && mobileComposerTargetCurrent(client, captured);
+    try {
+      assertCurrent();
+      mobileComposerTargetRequire(client, id);
+      if (!id || captured.kind !== 'ordinary' || !mobileNewTaskDraftCurrent(client) || !client.preferencesLoaded)
+        throw new ClientError('Choose the current new task before changing its mode.');
+      if (interactionBlocked || mobileVoiceBlocksSubmission(client)) throw new ClientError('Wait for the current draft import or recording to finish.');
+      if (!interactionPresentation(client, preferences).planModeEnabled) throw new ClientError('Plan mode is not available for this draft.');
+      if (value !== 'plan' && value !== 'default') throw new ClientError('That mode is not supported.');
+      if (!mobileNewTaskDraftChoicesUpdate(client, captured.key, { interactionMode: value })) throw new ClientError('The draft changed.', 'superseded');
+      client.interactionMode = value; state.interactionError = ''; state.interactionErrorOwner = captured.owner; client.revision++;
+      await client.persist(storage);
+      return result();
+    } catch (error) {
+      if (letGo(error)) throw error;
+      const message = stillCurrent() && state.interactionAttempt === attempt ? error instanceof Error ? error.message : 'Could not save the draft mode.' : '';
+      if (message) { state.interactionError = message; state.interactionErrorOwner = captured.owner; client.revision++; }
+      return result(message);
+    }
+  }
   // Keystrokes have their own owner-safe shared reducer path, outside task transitions.
   if (kind === 'draft') {
     assertCurrent();

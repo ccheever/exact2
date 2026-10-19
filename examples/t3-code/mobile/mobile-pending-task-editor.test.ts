@@ -809,3 +809,41 @@ for (const text of ['newest root editor', '']) test(`root Recover opens a separa
   expect(mobileNewTask('', f.client)).toMatchObject({ draft: true, pendingEditor: false, projectTitle: 'Captured project' });
   expect(f.client.local.drafts[f.first.draftKey]).toBe('first recovery'); expect(f.host.state.proof).toEqual(f.proof);
 });
+
+test('NewTask local interaction changes an eligible bound pending editor', async () => {
+  const f = await fixture(), fleet = new EnvironmentFleet();
+  const url = '/new/draft?environmentId=env&projectId=project&pendingTaskId=message';
+  const view = () => mobileNewTaskFlowView('pending-local-interaction', 'draft', url, true, false, f.client, fleet);
+  const initial = view();
+  expect(initial.pendingEditor).toBe(true); expect(initial.needsPrepare).toBe(true);
+  expect((await mobileNewTaskFlowAction(initial.owner, 'draft', 'prepare', '', '', f.host.native, f.storage, f.client, fleet)).message).toBe('');
+  const ready = view();
+  expect(ready.ready).toBe(true); expect(ready.pendingEditor).toBe(true);
+  expect(mobileNewTaskFlowOwns(ready.owner, 'draft', f.client)).toBe(true);
+  expect(f.client).toBeInstanceOf(MobileDraftClient);
+  const record = JSON.stringify(f.host.state.record), calls = f.host.calls.length;
+  const preferences = { ready: true, serialized: JSON.stringify({ ready: true, planModeEnabled: true }) };
+  const response = await mobileNewTaskFlowAction(ready.owner, 'draft', 'interaction', ready.draftOwner, 'plan',
+    f.host.native, f.storage, f.client, fleet, 1791420000000, preferences);
+  const saved = obj(obj(f.disk().mobileNewTaskDrafts).records)[key];
+  expect({ message: response.message, mode: f.client.interactionMode, stored: drafts(f.client).records[key]?.choices?.interactionMode,
+    persisted: obj(obj(saved).choices).interactionMode, recordChanged: JSON.stringify(f.host.state.record) !== record,
+    calls: f.host.calls.slice(calls) }).toEqual({ message: '', mode: 'plan', stored: 'plan', persisted: 'plan', recordChanged: false, calls: [] });
+});
+
+test('NewTask local interaction persists both pending-editor choices locally while offline', async () => {
+  const f = await fixture(), fleet = new EnvironmentFleet();
+  const url = '/new/draft?environmentId=env&projectId=project&pendingTaskId=message';
+  const view = () => mobileNewTaskFlowView('pending-mode-persist', 'pending', url, true, false, f.client, fleet);
+  const initial = view();
+  expect((await mobileNewTaskFlowAction(initial.owner, 'pending', 'prepare', '', '', f.host.native, f.storage, f.client, fleet)).message).toBe('');
+  const ready = view(); expect(ready.ready).toBe(true); f.client.scopes = []; f.client.connection = 'disconnected';
+  const record = JSON.stringify(f.host.state.record), calls = f.host.calls.length, writes = f.writes.length;
+  const preferences = { ready: true, serialized: JSON.stringify({ ready: true, planModeEnabled: true }) };
+  for (const mode of ['plan', 'default']) {
+    expect((await mobileNewTaskFlowAction(ready.owner, 'pending', 'interaction', ready.draftOwner, mode,
+      f.host.native, f.storage, f.client, fleet, 0, preferences)).message).toBe('');
+    expect(obj(obj(obj(obj(f.disk().mobileNewTaskDrafts).records)[key]).choices).interactionMode).toBe(mode);
+  }
+  expect(f.writes.length - writes).toBe(2); expect(JSON.stringify(f.host.state.record)).toBe(record); expect(f.host.calls.slice(calls)).toEqual([]);
+});
