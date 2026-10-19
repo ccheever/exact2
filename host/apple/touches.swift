@@ -9,7 +9,7 @@
 //   {"op":"tap","point":[x,y],"screen":[x,y]?,"display":[w,h]?}
 //                                a tap at a point in the app's scene, points
 //                                → {"done":true,"injected":{"start":ms,"end":ms,"via":…}}
-//   {"op":"drag","point":[x,y],"to":[x,y],"press":s,"velocity":v,"hold":s}
+//   {"op":"drag","point":[x,y],"to":[x,y],"press":s,"velocity":v,"hold":s,"screen":[x,y]?,"screenTo":[x,y]?,"display":[w,h]?}
 //                                one whole gesture (LLP 1080.000 §11): press,
 //                                one straight drag at `v` points per second
 //                                (the header says pixels; on the simulator a
@@ -22,11 +22,12 @@
 //                                landscapeLeft, landscapeRight) → {"device":O}
 //   {"op":"quit"}                ends the test
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
-// sends it through XCTest's own event synthesizer (`Synthesizer`); without
-// it, or when that SPI is missing or refuses it, the public `XCUICoordinate`
-// call makes it; one it has not finished in 5 s fails, never tapped again. A drag
-// is always the public call's: a synthesized one reached the app with its
-// moves batched, faster than asked, and flung further than a finger would.
+// sends it through XCTest's own event synthesizer (`Synthesizer`), and a
+// drag's `screen` and `screenTo` send it there too, built as XCTest's own
+// drag is: a still press, then one move, which the synthesizer plays over
+// its time. Without them, or when that SPI is missing or refuses the touch,
+// the public `XCUICoordinate` call makes it; one the synthesizer has not
+// finished in time fails, never played again.
 // It never launches, activates or terminates the app: the driver launched it.
 import XCTest
 import UIKit
@@ -85,9 +86,17 @@ final class ExactTouches: XCTestCase {
                       let press = req["press"] as? Double, let hold = req["hold"] as? Double, let velocity = req["velocity"] as? Double,
                       [press, hold, velocity].allSatisfy({ $0.isFinite && $0 >= 0 }) else { session.send(["error": "drag needs finite points and non-negative press, hold and velocity"]); continue }
                 guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
+                let start = Date().timeIntervalSince1970 * 1000
+                // Play the drag through the synthesizer, as a tap, on the app's display; the public call is the fallback
+                let fixed = { (key: String) in (req[key] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil } }
+                let size = (req["display"] as? [Double]).flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
+                if let from = fixed("screen"), let to = fixed("screenTo") {
+                    let outcome = Synthesizer.drag(from: from, to: to, press: press, velocity: velocity, hold: hold, display: size.flatMap(Displays.showing))
+                    if outcome == .unfinished { session.send(["error": "XCTest's event synthesizer did not finish the drag in time; nothing more was injected"]); continue }
+                    if outcome == .injected { session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer"]]); continue }
+                }
                 let zero = target.coordinate(withNormalizedOffset: .zero)
                 let from = zero.withOffset(CGVector(dx: p[0], dy: p[1]))
-                let start = Date().timeIntervalSince1970 * 1000
                 if p == q { from.press(forDuration: press + hold) }
                 else { from.press(forDuration: press, thenDragTo: zero.withOffset(CGVector(dx: q[0], dy: q[1])), withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: hold) }
                 session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": "coordinate"]])
@@ -125,6 +134,7 @@ enum Synthesizer {
     private typealias Alloc = @convention(c) (AnyClass, Selector) -> AnyObject
     private typealias InitPath = @convention(c) (AnyObject, Selector, CGPoint, Double) -> AnyObject
     private typealias Lift = @convention(c) (AnyObject, Selector, Double) -> Void
+    private typealias Move = @convention(c) (AnyObject, Selector, CGPoint, Double) -> Void
     private typealias InitRecord = @convention(c) (AnyObject, Selector, NSString, Int) -> AnyObject
     private typealias InitRecordOnDisplay = @convention(c) (AnyObject, Selector, NSString, Int, Int) -> AnyObject
     private typealias Add = @convention(c) (AnyObject, Selector, AnyObject) -> Void
@@ -139,10 +149,28 @@ enum Synthesizer {
 
     enum Outcome { case injected, refused, unfinished, missing }
 
-    /// A touch down at `at`, in portrait screen points, lifted 50 ms later:
-    /// `injected` or `refused` by the completion, `unfinished` when none came
-    /// in 5 s (it may still land), `missing` when this Xcode has no such SPI.
+    /// A touch down at `at`, in portrait screen points, lifted 50 ms later.
     static func tap(_ at: CGPoint, display: Int?) -> Outcome {
+        touch(at, moves: [], lift: 0.05, display: display, within: 5)
+    }
+
+    /// A touch down at `from` (portrait screen points, as `tap`), held `press`
+    /// seconds, moved straight to `to` at `velocity` points a second, held
+    /// `hold` seconds and lifted, on `display`, built as XCTest's own drag
+    /// is: a move that stays where it is at `press`, which keeps the press
+    /// still, and one move to `to`, which the synthesizer plays over its time.
+    static func drag(from: CGPoint, to: CGPoint, press: Double, velocity: Double, hold: Double, display: Int?) -> Outcome {
+        let distance = Double(hypot(to.x - from.x, to.y - from.y)), travel = velocity > 0 ? distance / velocity : 0
+        let moves = (press > 0 ? [(from, press)] : []) + (distance > 0 ? [(to, press + travel)] : [])
+        return touch(from, moves: moves, lift: press + travel + hold, display: display, within: 5 + press + travel + hold)
+    }
+
+    /// One touch: down at `at`, moved to each point at its offset in seconds,
+    /// and lifted at `lift`. `injected` or `refused` by the completion,
+    /// `unfinished` when none came `within` seconds (it may still land),
+    /// `missing` when this Xcode has no such SPI. The completion comes once the
+    /// touch has played.
+    private static func touch(_ at: CGPoint, moves: [(to: CGPoint, offset: Double)], lift: Double, display: Int?, within: Double) -> Outcome {
         let pathClass: AnyClass? = NSClassFromString("XCPointerEventPath"), recordClass: AnyClass? = NSClassFromString("XCSynthesizedEventRecord")
         guard let alloc = imp(pathClass, "alloc", Alloc.self, classMethod: true), let recordAlloc = imp(recordClass, "alloc", Alloc.self, classMethod: true),
               let initPath = imp(pathClass, "initForTouchAtPoint:offset:", InitPath.self),
@@ -150,19 +178,21 @@ enum Synthesizer {
               let add = imp(recordClass, "addPointerEventPath:", Add.self), let synthesizer = imp(XCUIDevice.self, "eventSynthesizer", Get.self),
               let device = synthesizer.1(XCUIDevice.shared, synthesizer.0) else { return .missing }
         let initOnDisplay = imp(recordClass, "initWithName:displayID:interfaceOrientation:", InitRecordOnDisplay.self)
+        let moveTo = imp(pathClass, "moveToPoint:atOffset:", Move.self)
         if display != nil, initOnDisplay == nil { return .missing }
+        if !moves.isEmpty, moveTo == nil { return .missing }
         let syn = NSSelectorFromString("synthesizeEvent:completion:")
         guard let method = class_getInstanceMethod(object_getClass(device), syn) else { return .missing }
         let path = initPath.1(alloc.1(pathClass!, alloc.0), initPath.0, at, 0)
-        up.1(path, up.0, 0.05)
+        if let moveTo { for move in moves { moveTo.1(path, moveTo.0, move.to, move.offset) } }
+        up.1(path, up.0, lift)
         let blank = recordAlloc.1(recordClass!, recordAlloc.0), portrait = UIInterfaceOrientation.portrait.rawValue
         let record = if let display, let initOnDisplay { initOnDisplay.1(blank, initOnDisplay.0, "exact" as NSString, display, portrait) }
             else { initRecord.1(blank, initRecord.0, "exact" as NSString, portrait) }
         add.1(record, add.0, path)
         var result: Bool?
         unsafeBitCast(method_getImplementation(method), to: Synthesize.self)(device, syn, record) { ok, _ in DispatchQueue.main.async { result = ok } }
-        // The completion comes once the tap has been played (0.3 s when it works).
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(within)
         while result == nil, Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
         return result.map { $0 ? .injected : .refused } ?? .unfinished
     }
