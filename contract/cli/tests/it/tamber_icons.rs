@@ -568,3 +568,50 @@ fn warnings_that_change_the_native_app_come_first_and_web_only_symbols_are_one_l
     let (_, warnings) = contract::compile_path_all_warned(&path, false);
     assert!(!warnings.iter().any(contract::web_only), "{warnings:#?}");
 }
+
+/// `contract tamber check` and `eval` read a design's icon SVGs under its
+/// app's `assets/`, as its build does, whatever directory they are run from
+/// and however the design is named: a design with no params is admitted by
+/// compiling a copy, which sees the app's own assets.
+#[test]
+fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
+    let path = app(
+        "verbs",
+        "\"ios\": {}, \"web\": {}",
+        "  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n",
+        &view("symbol:icon.reply"),
+    );
+    let dir = path.parent().unwrap();
+    for (cwd, design) in [
+        (std::env::temp_dir(), dir.join("app.tamber")),
+        (dir.to_path_buf(), PathBuf::from("app.tamber")),
+        (dir.to_path_buf(), PathBuf::from(".")),
+    ] {
+        for verb in ["check", "eval"] {
+            let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+                .args(["tamber", verb])
+                .arg(&design)
+                .current_dir(&cwd)
+                .output()
+                .unwrap();
+            let said = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                out.status.success(),
+                "{verb} {} from {}: {said}",
+                design.display(),
+                cwd.display()
+            );
+            assert!(!said.contains("tamber-icon-svg"), "{said}");
+        }
+    }
+    // An SVG the app lacks is still refused.
+    std::fs::remove_file(dir.join("assets/icons/reply.svg")).unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "eval"])
+        .arg(dir.join("app.tamber"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("tamber-icon-svg"));
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -171,6 +171,7 @@ pub fn run(args: &[String]) -> ExitCode {
     // An app with params or package designs (LLP 1121 D11) is admitted by its own build.
     let refused = match admission(
         &src,
+        path.parent().map(|d| d.join("assets")).as_deref(),
         (!params.is_empty() || app.failed || !app.packages.is_empty()).then_some(built),
     ) {
         Ok(refused) => refused,
@@ -245,6 +246,7 @@ pub fn run(args: &[String]) -> ExitCode {
 #[allow(clippy::type_complexity)]
 fn admission(
     src: &str,
+    assets: Option<&Path>,
     app: Option<PathBuf>,
 ) -> Result<Vec<(Option<PathBuf>, u32, u32, String, String)>, String> {
     if let Some(app) = app {
@@ -273,6 +275,17 @@ fn admission(
                 dir.join("app.contract"),
                 "component App\n  view\n    column\n",
             )
+        })
+        // The design's icons read their SVGs under the app's `assets/`, as
+        // its build reads them: the copy sees the app's own.
+        .and_then(|()| {
+            match assets
+                .and_then(|a| a.canonicalize().ok())
+                .filter(|a| a.is_dir())
+            {
+                Some(assets) => link_dir(&assets, &dir.join("assets")),
+                None => Ok(()),
+            }
         });
     if let Err(e) = made {
         return Err(format!("{}: {e}", dir.display()));
@@ -411,4 +424,12 @@ fn app_contract(input: &Path) -> std::path::PathBuf {
         .parent()
         .unwrap_or(Path::new("."))
         .join("app.contract")
+}
+
+/// `link` naming the directory `target`.
+fn link_dir(target: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    return std::os::windows::fs::symlink_dir(target, link);
 }
