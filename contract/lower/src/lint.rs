@@ -137,21 +137,21 @@ pub(crate) fn react_native(name: &str) -> Option<&'static str> {
 /// (`"padding: 8px; color: red"`) are written back as the attributes, each
 /// one the hint can say in Contract: a name that is an attribute identifier
 /// (a custom property is not), a plain number unquoted as the lexer wants
-/// it. A bare word is `class=` unless it is reserved (`none`, `if`).
+/// it, `!important` dropped. A bare word is `class=` unless it is reserved
+/// (`none`, `if`).
 ///
-/// `!important` is resolved before it is dropped (CSS Cascade 4 §6.1): of
-/// two declarations of one property the important one wins, else the later.
-/// A longhand overrides its shorthand's part whatever the order here, where
-/// CSS goes by importance and order; so a longhand a shorthand beats in CSS
-/// is left out, and the important declarations are written last.
+/// The rewrite is written only for distinct properties that cannot overlap:
+/// CSS resolves a property written twice, or a shorthand beside its longhand,
+/// by importance and order, and Contract's attributes do not, so such a set
+/// gets the hint without a rewrite rather than one that means something else.
 fn style_hint(value: &contract_syntax::Expr) -> String {
     let shared = "a look nodes share is a `style Name` block in the file, named with `class=Name`";
     let contract_syntax::Expr::Str(text, _) = value else {
         return format!("; a node's look is its attributes (`padding=8 color=\"-exact-secondary-label\"`), and {shared}");
     };
-    // Each declaration: its name, its value as a string literal's text or a
-    // bare number, and whether it is important.
-    let mut decls: Vec<(&str, String, bool)> = declarations(text)
+    // Each declaration: its name, and its value as a string literal's text
+    // or a bare number.
+    let decls: Vec<(&str, String)> = declarations(text)
         .into_iter()
         .filter_map(|d| {
             let (name, value) = d.split_once(':')?;
@@ -163,16 +163,16 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
             // space, which mean the same, and every other control character,
             // a quote and a backslash escaped.
             let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
-            let (value, important) = match value.strip_suffix("important").map(str::trim_end) {
-                Some(v) if v.ends_with('!') => (v[..v.len() - 1].trim_end(), true),
-                _ => (value.as_str(), false),
+            let value = match value.strip_suffix("important").map(str::trim_end) {
+                Some(v) if v.ends_with('!') => v[..v.len() - 1].trim_end(),
+                _ => value.as_str(),
             };
             // A number token begins with a digit (`.5` is not one).
             if value.starts_with(|c: char| c.is_ascii_digit())
                 && value.bytes().all(|b| b.is_ascii_digit() || b == b'.')
                 && value.parse::<f64>().is_ok()
             {
-                return Some((name, value.to_string(), important));
+                return Some((name, value.to_string()));
             }
             let value: String = value
                 .chars()
@@ -182,50 +182,16 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
                     c => c.to_string(),
                 })
                 .collect();
-            Some((name, format!("\"{value}\""), important))
+            Some((name, format!("\"{value}\"")))
         })
         .collect();
-    // Of one property, the winner: important, else the last written.
-    let mut i = 0;
-    while i < decls.len() {
-        let later = decls[i + 1..]
-            .iter()
-            .position(|d| d.0 == decls[i].0)
-            .map(|k| i + 1 + k);
-        match later {
-            Some(k) if decls[i].2 && !decls[k].2 => {
-                decls.remove(k);
-            }
-            Some(_) => {
-                decls.remove(i);
-            }
-            None => i += 1,
-        }
-    }
-    // A shorthand that beats a longhand in CSS (important over normal, or
-    // later at one importance) would lose to it here: leave the longhand out.
-    let beaten: Vec<bool> = (0..decls.len())
-        .map(|l| {
-            decls.iter().enumerate().any(|(k, s)| {
-                shorthand_of(s.0, decls[l].0)
-                    && ((s.2 && !decls[l].2) || (s.2 == decls[l].2 && k > l))
-            })
-        })
-        .collect();
-    let decls: Vec<_> = decls
-        .into_iter()
-        .zip(beaten)
-        .filter(|(_, beaten)| !beaten)
-        .map(|(d, _)| d)
-        .collect();
-    let attrs: Vec<String> = decls
+    let distinct = decls
         .iter()
-        .filter(|d| !d.2)
-        .chain(decls.iter().filter(|d| d.2))
-        .map(|(name, value, _)| format!("{name}={value}"))
-        .collect();
+        .enumerate()
+        .all(|(i, a)| decls[i + 1..].iter().all(|b| !overlap(a.0, b.0)));
     let word = text.trim();
-    if !attrs.is_empty() {
+    if !decls.is_empty() && distinct {
+        let attrs: Vec<String> = decls.iter().map(|(n, v)| format!("{n}={v}")).collect();
         format!(
             "; write the declarations as attributes, `{}`: a node's look is its attributes, and {shared}",
             attrs.join(" ")
@@ -237,20 +203,29 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
     }
 }
 
-/// Whether `short` is a CSS shorthand that sets `long`: `padding` sets
-/// `padding-left`, `border-top` sets `border-top-width` (and `border` both),
-/// `inset` the four offsets, `gap` the two gaps; `border` leaves the radii.
-fn shorthand_of(short: &str, long: &str) -> bool {
-    match short {
+/// Whether two CSS properties may set the same thing: one name, one a prefix
+/// of the other at a hyphen (`flex` and `flex-grow`, `border` and
+/// `border-top-left-radius`), or a shorthand whose longhands are named
+/// otherwise. CSS shorthands are not modelled further: a doubtful pair is an
+/// overlap.
+fn overlap(a: &str, b: &str) -> bool {
+    let prefix = |short: &str, long: &str| {
+        long.len() > short.len() && long.starts_with(short) && long.as_bytes()[short.len()] == b'-'
+    };
+    let family = |short: &str, long: &str| match short {
+        "font" => matches!(long, "line-height"),
         "inset" => matches!(long, "top" | "right" | "bottom" | "left"),
         "gap" => matches!(long, "row-gap" | "column-gap"),
-        "border" => long.starts_with("border-") && !long.ends_with("-radius"),
-        _ => {
-            long.len() > short.len() + 1
-                && long.starts_with(short)
-                && long.as_bytes()[short.len()] == b'-'
-        }
-    }
+        "columns" => matches!(long, "column-width" | "column-count"),
+        "flex-flow" => matches!(long, "flex-direction" | "flex-wrap"),
+        "place-items" => matches!(long, "align-items" | "justify-items"),
+        "place-content" => matches!(long, "align-content" | "justify-content"),
+        "place-self" => matches!(long, "align-self" | "justify-self"),
+        "grid-area" => long.starts_with("grid-row") || long.starts_with("grid-column"),
+        "border-radius" => long.starts_with("border-") && long.ends_with("-radius"),
+        _ => false,
+    };
+    a == b || prefix(a, b) || prefix(b, a) || family(a, b) || family(b, a)
 }
 
 /// CSS declarations split at `;` outside quotes and parentheses
