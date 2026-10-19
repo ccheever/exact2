@@ -55,8 +55,7 @@ shape Canvas
   ok: bool
   error: string
   frame: string
-  // The gateway's own page, without the grant: the frame's URL once the
-  // grant has had time to enter.
+  // The gateway's own page, without the grant.
   root: string
 
 shape Client
@@ -677,11 +676,6 @@ component DesignTool
   // or asked for again (a grant enters once).
   state canvasTick = 0
   resource canvasAt = loadCanvas(hello.local, hello.client, hello.epoch, canvasTick) as shape Canvas else empty(ok=true)
-  // The grant leaves the frame's URL (and so the tool's state and tree) once
-  // it has had time to enter: 10 s, inside its 30 s; the page goes on under
-  // the gateway's session.
-  state canvasSettled = ""
-  derive canvasSrc = canvasSettled == canvasAt.frame ? canvasAt.root : canvasAt.frame
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
@@ -815,8 +809,6 @@ component DesignTool
     after(3000, advance)
   // A clients read refused while the poll goes on is asked again, each 3 s
   // (its own count: the poll's answers would put it off for ever).
-  task settleCanvas when canvasAt.frame != "" and canvasSettled != canvasAt.frame key=canvasAt.frame
-    after(10000, settleCanvasNow)
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
 
@@ -842,8 +834,6 @@ component DesignTool
     if not pending(pairedWith) and remoteAt.trim() != "" and remoteCode.trim() != ""
       send pairedWith = pairRemote(remoteAt, remoteCode, person)
       remoteCode = ""
-  action settleCanvasNow
-    canvasSettled = canvasAt.frame
   action reloadCanvas
     canvasTick = canvasTick + 1
   action reloadClients
@@ -1403,7 +1393,7 @@ component DesignTool
                   button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-reload"
                     text "Reload Canvas"
                 if canvasAt.frame != "" and not pending(canvasAt)
-                  iframe src=canvasSrc width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                  iframe src=canvasAt.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
                 else
                   row gap=8 align-items="center" flex-wrap="wrap"
                     text (canvasAt.error != "" ? canvasAt.error : "The canvas comes through the design server's gateway.") color="-exact-secondary-label" flex=1 testId="canvas-remote-none"

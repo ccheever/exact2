@@ -22,8 +22,9 @@ type PairWith = (address: string, code: string, name: string) => Promise<{ ok: b
 let listedBy = '';
 
 /** The frame URL for a gateway's grant (stage 10 C), or why not: only
- * through B's TLS door (a tunnel has no canvas in stage 10: its loopback
- * host is this machine's), the canvas on that door's host over https,
+ * through B's TLS door on another machine (a tunnel has no canvas in stage
+ * 10, and a loopback host, over https or not, is this machine's, where any
+ * port may be another service), the canvas on that door's host over https,
  * another port than the door (another origin, so a framed page cannot
  * reach the tool, which the door serves), at `/canvas/<client>/` and
  * nothing more, the grant as the gateway mints it (43 base64url
@@ -32,8 +33,9 @@ let listedBy = '';
 export function canvasFrame(url: string, grant: string, door: string, client: string): { frame: string; root: string; error: string } {
   let u: URL, d: URL;
   try { u = new URL(url); d = new URL(door); } catch { return { frame: '', root: '', error: 'the design server named no gateway this tool can frame' }; }
-  if (d.protocol !== 'https:' || u.protocol !== 'https:' || u.hostname !== d.hostname || u.port === d.port || u.username || u.password || u.search || u.hash || u.pathname !== `/canvas/${encodeURIComponent(client)}/` || !/^[A-Za-z0-9_-]{43}$/.test(grant))
-    return { frame: '', root: '', error: 'the design server named no gateway this tool can frame (its canvas is https, on its TLS door\'s host and another port)' };
+  const loopback = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|\[::1\])$/;
+  if (d.protocol !== 'https:' || u.protocol !== 'https:' || loopback.test(u.hostname) || u.hostname !== d.hostname || u.port === d.port || u.username || u.password || u.search || u.hash || u.pathname !== `/canvas/${encodeURIComponent(client)}/` || !/^[A-Za-z0-9_-]{43}$/.test(grant))
+    return { frame: '', root: '', error: 'the design server named no gateway this tool can frame (its canvas is https, on its TLS door\'s host, another machine, and another port)' };
   return { frame: `${u.origin}/canvas/${encodeURIComponent(client)}/#g=${grant}`, root: `${u.origin}/`, error: '' };
 }
 

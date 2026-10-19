@@ -136,7 +136,7 @@ test('a canvas frame only on the paired door\'s host, over https, another port, 
   expect(canvasFrame(`https://192.168.1.20:7745${at}`, crypto.randomUUID(), door, client).frame).toBe('');
   // Through a tunnel (plain http to this machine's loopback) there is no canvas: its host is this machine.
   expect(canvasFrame(`https://127.0.0.1:8443${at}`, grant, 'http://127.0.0.1:7744', client).frame).toBe('');
-  // Through a TLS door on loopback (a test's), the canvas beside it.
-  expect(canvasFrame(`https://127.0.0.1:7745${at}`, grant, 'https://127.0.0.1:7743', client).frame).toBe(`https://127.0.0.1:7745${at}#g=${grant}`);
+  // Nor through a TLS door on loopback (a tunnel's far end, say): any other port there may be another service.
+  for (const host of ['127.0.0.1', 'localhost', '[::1]']) expect(canvasFrame(`https://${host}:8443${at}`, grant, `https://${host}:7743`, client).frame).toBe('');
   expect(canvasFrame(`https://192.168.1.20:7745${at}`, 'x#y'.repeat(10), door, client).frame).toBe('');
 });

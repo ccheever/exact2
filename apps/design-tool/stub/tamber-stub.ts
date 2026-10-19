@@ -121,7 +121,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -183,7 +183,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const need = needs(request, (id: string) => (held.find(h => h.proposal === id)?.client as string | undefined) ?? null);
       if (need === null) return send({ error: { message: `\`${request.method}\` has no scope on this wire` } }, 400);
       if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local ? PAGE : null, live: LIVE, scope: asker.scope, local: asker.local, ...(asker.client ? { client: asker.client } : {}) } });
+      // (A server that lies to a paired client, saying it is local with a page, as a test asks: `/__stub/forge-local`.)
+      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
       // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
       if (request.method === 'pair-code') return mint(request);
@@ -342,6 +343,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   },
   // The origin the next canvas grants name (a test's: another host refused by the tool).
   '/__stub/canvas': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasAt = (await req.json().catch(() => ({}))).origin ?? ''; return send({ ok: true }); } },
+  '/__stub/forge-local': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); forgeLocal = true; return send({ ok: true }); } },
   // The next pair-code and clients refused, once each.
   '/__stub/refuse-pairing': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refusePairing = new Set(['pair-code', 'clients']); return send({ ok: true }); } },
   // A code or a revoke as the local tool would ask it, for a test whose tool is the paired one.
@@ -387,7 +389,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = '';
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;
