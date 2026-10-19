@@ -435,14 +435,23 @@ test('pairing end to end: the code names the doors and the fingerprint; the othe
     const minted = await local({ method: 'pair-code', scope: 'propose', name: 'laptop' });
     expect(minted.status).toBe(200);
     expect(minted.body.ok.remote).toEqual([{ origin, fingerprint }, { origin: `http://127.0.0.1:${tunnelPort}`, tunnel: true }]);
-    // The other machine, over TLS: it checks the certificate is the one named before it sends the code.
+    // The other machine, over TLS: on the connection it pairs on, it checks the
+    // certificate is the one named before a byte of the code is sent.
     const { connect: tlsConnect } = await import('node:tls');
-    const seen = await new Promise(ok => { const s = tlsConnect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => { ok(s.getPeerCertificate().fingerprint256); s.end(); }); s.on('error', () => ok(null)); });
-    expect(seen).toBe(fingerprint);
-    const paired = await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: minted.body.ok.code, name: 'laptop' }) });
-    expect(paired.fingerprint).toBe(fingerprint);
-    expect(paired.status).toBe(200);
-    const { token: paired_token, scope } = JSON.parse(paired.text).ok;
+    const body = JSON.stringify({ code: minted.body.ok.code, name: 'laptop' });
+    const answer = await new Promise(ok => {
+      let text = '';
+      const s = tlsConnect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => {
+        if (s.getPeerCertificate().fingerprint256 !== fingerprint) { s.destroy(); return ok(null); }
+        s.write(`POST /__tamber/pair HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+      });
+      s.on('data', d => (text += d));
+      s.on('close', () => ok(text));
+      s.on('error', () => ok(text));
+    });
+    expect(answer).toStartWith('HTTP/1.1 200');
+    const answered = answer.slice(answer.indexOf('\r\n\r\n') + 4); // (its one JSON body, chunked or not)
+    const { token: paired_token, scope } = JSON.parse(answered.slice(answered.indexOf('{'), answered.lastIndexOf('}') + 1)).ok;
     expect(scope).toBe("propose");
     const hello = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired_token, 'content-type': 'application/json' }, body: '{"method":"hello"}' });
     expect(hello.status).toBe(200);

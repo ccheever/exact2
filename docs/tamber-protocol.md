@@ -201,8 +201,8 @@ statuses:
   read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
   `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
   oldest.
-- **`POST /__tamber/pair {code, name?}`** needs no token, and is the one path a remote request
-  reaches without one. It answers `{token, client, scope, expires}` once. A wrong code is 403,
+- **`POST /__tamber/pair {code, name?}`** needs no token, and is the one request of the protocol a
+  remote request makes without one (the design tool's static files aside). It answers `{token, client, scope, expires}` once. A wrong code is 403,
   saying nothing of which codes exist. A wrong attempt can't be told from a guess at any one code,
   so it counts against every live code, and a code with five is burned. A peer gets a burst of
   five attempts, refilled at five a minute; past them, 429 with `retry-after`, whatever the code,
@@ -1312,8 +1312,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 ## The design tool's files (*1.1*)
 
-- **`GET /__tamber/tool/…`** serves the built tool (`target/design-tool-web`) to local requests
-  only. It serves no dot file, and follows no symlink out of the build.
+- **`GET /__tamber/tool/…`** serves the built tool (`target/design-tool-web`) to local requests,
+  and on stage 10 B's remote doors (no design is in it; it pairs before it reads one). It serves no
+  dot file, and follows no symlink out of the build.
 - **`bun exact.mjs tamber tool [<app>] [--via <dev url>]`** serves the tool at the fixed origin
   `http://127.0.0.1:7740`, which the tool's grant names. So one tool runs per machine, on one
   project. With `--via`, port 7740 forwards `/__tamber` to the dev loop that holds the design.

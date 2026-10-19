@@ -251,7 +251,7 @@ export async function openRemote(wire, { remote, tunnel = null }, { say = consol
     origin = at(shown[0] ?? '127.0.0.1');
     say(`  remote (TLS only), bound to ${remote.host.includes(':') ? `[${remote.host}]` : remote.host}:${port}: ${shown.map(at).join(', ') || origin}`);
     say(`  certificate SHA-256 ${certificate.fingerprint}`);
-    say('  a remote client pairs with a code and checks this fingerprint; nothing else is served there');
+    say('  a remote client opens /__tamber/tool/ there, checks this fingerprint and pairs with a code; the app and the token page are not served there');
   }
   if (tunnel != null) {
     // On both loopbacks: a tunnel aimed at `localhost` may reach either,

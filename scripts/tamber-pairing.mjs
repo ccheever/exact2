@@ -336,8 +336,9 @@ export async function pairCode(argv) {
   if (!reply.ok) { console.error(`tamber pair: ${reply.error?.message ?? res.status}`); return 1; }
   console.log(`${reply.ok.code}  (${reply.ok.scope}; until ${reply.ok.expires}, once)`);
   // Where the other machine pairs, and the certificate it checks (the lead's ruling 2).
-  for (const door of reply.ok.remote ?? []) console.log(door.tunnel
-    ? `  or through the trusted tunnel to ${door.origin}: open /__tamber/tool/ at the other machine's end of it`
+  const doors = reply.ok.remote ?? [];
+  for (const door of doors) console.log(door.tunnel
+    ? `  ${doors.some(d => !d.tunnel) ? 'or ' : ''}through the trusted tunnel to ${door.origin}: open /__tamber/tool/ at the other machine's end of it`
     : `  on the other machine open ${door.origin}/__tamber/tool/ and check its certificate's SHA-256 is ${door.fingerprint} before entering the code`);
   return 0;
 }
