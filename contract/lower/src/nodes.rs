@@ -490,17 +490,29 @@ impl Lowerer<'_> {
             {
                 continue;
             }
-            if let Err(e) = self.attr(
-                tag,
-                contract_syntax::payload_control(tag, attrs),
-                a,
-                scope,
-                locals,
-                &mut bindings,
-                &mut handlers,
-                &mut surface,
-                &font,
-            ) {
+            let result = if a.name == "transform"
+                && tag != "svg"
+                && !(svg::is_element(tag) || (tag == "text" && in_svg))
+            {
+                Err(LowerError {
+                    id: "lower-attr-tag",
+                    message: crate::vocab::BOX_TRANSFORM_REFUSAL.into(),
+                    span: a.span,
+                })
+            } else {
+                self.attr(
+                    tag,
+                    contract_syntax::payload_control(tag, attrs),
+                    a,
+                    scope,
+                    locals,
+                    &mut bindings,
+                    &mut handlers,
+                    &mut surface,
+                    &font,
+                )
+            };
+            if let Err(e) = result {
                 self.errors.push(native::name_the_fix(n, e));
             }
             if let Some(origins) = &mut origins {

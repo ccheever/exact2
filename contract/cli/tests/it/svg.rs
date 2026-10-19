@@ -848,6 +848,104 @@ component App
 }
 
 #[test]
+fn box_transforms_report_independent_attribute_refusals() {
+    let errors = |source: &str| {
+        contract::compile_path_source_all(
+            std::path::Path::new("box-transform-diagnostics.contract"),
+            source,
+            false,
+        )
+        .unwrap_err()
+    };
+    let mut failures = Vec::new();
+    let width = "transition=\"width 260ms ease\"";
+    for tag in ["column", "text \"probe\"", "step-strip"] {
+        for transform in [
+            "transform=\"translateX(24px)\"",
+            "transform=(small ? \"translateX(0px)\" : \"translateX(24px)\")",
+        ] {
+            let source =
+                |body: &str| format!("component App\n  state small = true\n  view\n    {body}\n");
+            let width_errors = errors(&source(&format!("{tag} {width}")));
+            let transform_errors = errors(&source(&format!("{tag} {transform}")));
+            if width_errors.len() != 1 || transform_errors.len() != 1 {
+                failures.push(format!(
+                    "{tag} {transform}: {width_errors:?} {transform_errors:?}"
+                ));
+                continue;
+            }
+            let width_error = &width_errors[0];
+            let transform_error = &transform_errors[0];
+            if width_error.id != "lower-attr-value" || transform_error.id != "lower-attr-tag" {
+                failures.push(format!(
+                    "{tag} {transform}: {width_error:?} {transform_error:?}"
+                ));
+            }
+            let mut message = contract_lower::vocab::BOX_TRANSFORM_REFUSAL.to_string();
+            if tag == "step-strip" {
+                message.push_str("; on `step-strip` a name Contract knows binds to the box, not the module (LLP 1024 D1), so give the module prop another name");
+            }
+            if transform_error.message != message {
+                failures.push(format!("{tag} {transform}: {}", transform_error.message));
+            }
+            for (body, expected) in [
+                (
+                    format!("{tag} {width} {transform}"),
+                    [
+                        ("transition", width_error, 4),
+                        ("transform", transform_error, 4),
+                    ],
+                ),
+                (
+                    format!("{tag} {transform} {width}"),
+                    [
+                        ("transform", transform_error, 4),
+                        ("transition", width_error, 4),
+                    ],
+                ),
+                (
+                    format!("column\n      {tag} {width}\n      {tag} {transform}"),
+                    [
+                        ("transition", width_error, 5),
+                        ("transform", transform_error, 6),
+                    ],
+                ),
+                (
+                    format!("column\n      {tag} {transform}\n      {tag} {width}"),
+                    [
+                        ("transform", transform_error, 5),
+                        ("transition", width_error, 6),
+                    ],
+                ),
+            ] {
+                let source = source(&body);
+                let found = errors(&source);
+                if found.len() != expected.len() {
+                    failures.push(format!("{source}\n{found:?}"));
+                    continue;
+                }
+                for (actual, (name, reference, line)) in found.iter().zip(expected) {
+                    let text = source.lines().nth(line as usize - 1).unwrap();
+                    let col = text.find(name).unwrap() as u32 + 1;
+                    if actual.id != reference.id
+                        || actual.message != reference.message
+                        || actual.file != reference.file
+                        || actual.span.source_id != reference.span.source_id
+                        || actual.span.line != line
+                        || actual.span.col != col
+                        || actual.span.end_col != col + name.len() as u32
+                        || !actual.related.is_empty()
+                    {
+                        failures.push(format!("{source}\n{name}: {actual:?}"));
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn svg_transforms_keep_static_dynamic_and_class_rows() {
     let mut r = boot(
         r#"style Shifted
@@ -895,4 +993,12 @@ component App
         "component App\n  view\n    box translate=\"0px 25px\" rotate=15 scale=0.8\n",
     )
     .unwrap();
+    let r =
+        boot("component App\n  view\n    step-strip testId=\"strip\" fx=\"bloom\" offset=\"2\"\n");
+    let k = r.kernel();
+    let node = k.node_by_key(k.find_by_test_id("strip")[0]).unwrap();
+    assert_eq!(
+        node.props.str(PropId::NativeViewProps),
+        Some(r#"{"fx":"bloom","offset":"2"}"#)
+    );
 }
