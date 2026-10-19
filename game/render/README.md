@@ -818,11 +818,14 @@ until it has, and the driver asks again.
   frame's level selection, its distance measured from where the frame drew the
   entity, with the selection's hysteresis, wherever the draw path applies it: a
   direct frame draws level 0 whole and answers `drawn`, or `custom-material` for a
-  kept-whole group); the CPU cull answers for blended models. A model with opaque
-  and blended parts is `drawn` if any part drew; when none did, the word is its
-  opaque parts', noting the blended parts dropped too. For sprites and emitters
-  the quads' own decision this frame answers: a texture not resident, outside the
-  view by the quad's own extent about its anchor, or drawn.
+  kept-whole group); the CPU cull answers for blended models; for sprites and
+  emitters the quads' own decision this frame answers: a texture not resident,
+  outside the view by the quad's own extent about its anchor, or drawn. An
+  entity's word combines all of its drawables: when an opaque part drew, that
+  part's word (`drawn`, `custom-material`, `outside-cascade <n>`); when only a
+  blended part, a sprite or an emitter drew, `drawn`, the reason naming which;
+  when none drew, the first one's word (the mesh's, then the sprite's, then the
+  emitter's), the reason naming the others'.
 - **Views**: the game's camera; an orbit at a yaw, pitch and distance from the
   centre of the scene; or an orthographic plan from above. An orbit or plan first
   reads a camera frame for the scene's bounds: the cull's sphere of every item it
