@@ -152,6 +152,17 @@ for (const [name, files, expect] of cases) {
   const ok = expect ? (code === 1 && out.includes(expect)) : code === 0;
   result(name, ok, `expected ${expect ? `code 1 with "${expect}"` : 'code 0'}, got code ${code}\n${out}`);
 }
+{
+  const dir = repo(crate({ 'app/Cargo.toml': PACKAGE, 'app/src/lib.rs': 'pub fn f() {}\n', 'src/big.js': 'x\n'.repeat(2000) }));
+  const bin = mkdtempSync(join(tmpdir(), 'caps-bin-'));
+  symlinkSync(Bun.which('git'), join(bin, 'git'));
+  const r = spawnSync(process.execPath, [CAPS], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: bin } });
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(bin, { recursive: true, force: true });
+  const out = r.stdout + r.stderr;
+  result('cargo missing from PATH is reported with every other violation',
+    r.status === 1 && /tests:metadata\n.*\n.*cargo/.test(out) && out.includes('cap:lines') && out.includes('2 violations'), `got code ${r.status}\n${out}`);
+}
 async function rejects(action, matches) {
   try { await action(); return false; } catch (error) { return matches(error); }
 }
