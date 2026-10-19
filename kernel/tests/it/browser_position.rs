@@ -41,6 +41,16 @@
 //! 151.0.7922.34. It covers preferred heights in shorter columns, definite
 //! stretch versus wrapping, alignment and auto margins, content minima,
 //! authored widths, shrink opt-outs, padding, borders and row controls.
+//! `Chrome 151 ratio container minimum` uses that version and date for flex,
+//! grid and block items in short columns, including ratio floors, taller
+//! content, percentage children, shrink opt-outs, box sizing and row controls.
+//! `Chrome 151 ratio container content floor` uses that version and date for
+//! content wider or taller than the transfer, specified-size caps, insets,
+//! shrink opt-outs, ratio-2 floors and a flex column inside a row.
+//! `Chrome 151 ratio definite cross` uses that version and date for auto-width
+//! ratio containers in a 50px block and as roots offered 50px. Controls cover
+//! a second ratio, height bounds, wrapping, alignment, column direction,
+//! and flex and grid items.
 //! `Chrome 151 column stretch floor` uses that version and date for RTL
 //! columns with items wider than the line's stretch size. Controls cover
 //! ratios, LTR, fitting items, alignment, explicit widths, padding, borders
@@ -188,6 +198,33 @@ fn check(all: Vec<(String, Vec<String>)>, owed: &[&str]) {
 fn positioned_boxes_roots_and_ratios_match_chrome() {
     let fixture = include_str!("fixtures/browser_position.tsv");
     check(failures(fixture, true), &[]);
+}
+
+/// The same Chrome frames hold when the ratio container is the root in a
+/// 50px offer, where the first layout already reaches the ratio height and
+/// passes it to the item as a definite cross size.
+#[test]
+fn ratio_roots_in_a_definite_offer_match_chrome() {
+    let mut wrong = Vec::new();
+    for case in cases(include_str!("fixtures/browser_position.tsv"))
+        .into_iter()
+        .filter(|case| case.name.starts_with("Chrome 151 ratio definite cross "))
+    {
+        let root = case.nodes[0].2;
+        let nodes = case.nodes[1..]
+            .iter()
+            .map(|(id, parent, css, _)| (id - 1, parent - 1, css_rows(css)))
+            .collect();
+        let want: Vec<_> = case.want[1..]
+            .iter()
+            .map(|(id, frame)| (id - 1, *frame))
+            .collect();
+        let mut k = lay_out_with(props(&css_rows(root)), nodes, &[], &[]);
+        k.compute_layout(1, exact_kernel::Offer::definite(50.0, 600.0))
+            .unwrap();
+        wrong.extend(mismatches(case.name, &k, &want));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// Chrome 151.0.7922.34, 2026-10-18: cross-axis auto margins with negative,

@@ -616,7 +616,7 @@ fn no_name_prints_the_card_and_all_prints_every_table() {
         "persist",
         "negative `min` gives the pad its ± key",
         "symbol roles: back close",
-        "idioms, whole with their code",
+        "idioms with code",
     ] {
         assert!(card.contains(want), "{want} missing:\n{card}");
     }

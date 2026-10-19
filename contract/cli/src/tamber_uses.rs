@@ -513,35 +513,6 @@ pub fn motion_sites(
     Ok(out)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_name_is_matched_whole() {
-        assert!(names(
-            "linear-gradient(90deg, accent.fill, surface.card)",
-            "accent.fill"
-        ));
-        assert!(names("accent.fill", "accent.fill"));
-        assert!(!names("accent.fill-2", "accent.fill"));
-        assert!(!names("my.accent.fill", "accent.fill"));
-        assert!(names("drop-shadow(0 0 4px accent.soft)", "accent.soft"));
-    }
-
-    #[test]
-    fn aliases_close_under_naming() {
-        let table = [
-            ("a".to_string(), vec!["b".to_string()]),
-            ("b".to_string(), vec!["c".to_string()]),
-            ("d".to_string(), vec![]),
-        ];
-        let it = table.iter().map(|(n, v)| (n.as_str(), v.as_slice()));
-        let found = aliases("c", it);
-        assert_eq!(found.into_iter().collect::<Vec<_>>(), ["a", "b"]);
-    }
-}
-
 /// The elements of the app at `app` (every source it loads, a package's
 /// too), each with its component's identity, by walking each view: what
 /// `uses` joins to the map's nodes by span (LLP 1121 stage 9 C2).
@@ -903,4 +874,33 @@ pub fn motion_instances(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_name_is_matched_whole() {
+        assert!(names(
+            "linear-gradient(90deg, accent.fill, surface.card)",
+            "accent.fill"
+        ));
+        assert!(names("accent.fill", "accent.fill"));
+        assert!(!names("accent.fill-2", "accent.fill"));
+        assert!(!names("my.accent.fill", "accent.fill"));
+        assert!(names("drop-shadow(0 0 4px accent.soft)", "accent.soft"));
+    }
+
+    #[test]
+    fn aliases_close_under_naming() {
+        let table = [
+            ("a".to_string(), vec!["b".to_string()]),
+            ("b".to_string(), vec!["c".to_string()]),
+            ("d".to_string(), vec![]),
+        ];
+        let it = table.iter().map(|(n, v)| (n.as_str(), v.as_slice()));
+        let found = aliases("c", it);
+        assert_eq!(found.into_iter().collect::<Vec<_>>(), ["a", "b"]);
+    }
 }
