@@ -61,7 +61,7 @@ async function copies(wasm) {
   const names = ['exact-copy-1', 'exact-copy-2', 'exact-copy-3'];
   const parent = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
-    res.end(`<!doctype html><script>window.words=[];addEventListener('message',e=>{if(e.data?.type!=='exact-build')return;const name=${JSON.stringify(names)}.find(n=>window.frames[n]===e.source);words.push({name:name??null,id:e.data.id,origin:e.origin})})</script>${names.map(n => `<iframe name="${n}" src="${base}/" width="390" height="400"></iframe>`).join('')}`);
+    res.end(`<!doctype html><script>window.words=[];addEventListener('message',e=>{if(e.data?.type!=='exact-build')return;const name=${JSON.stringify(names)}.find(n=>window.frames[n]===e.source);words.push({name:name??null,id:e.data.id,origin:e.origin})})</script>${[...names, 'app-own'].map(n => `<iframe name="${n}" src="${base}/" width="390" height="400"></iframe>`).join('')}`);
   });
   await new Promise(ok => parent.listen(0, '127.0.0.1', ok));
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), ...(wasm ? ['--app', 'theme-fixture', '--wasm'] : []), '--port', String(port)], { cwd: ROOT, env: { ...process.env, ...(wasm ? {} : { EXACT_APP_DIR: app }), EXACT_WEB_DIST: dist, EXACT_TOOL_PORT: String(parent.address().port) }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -84,9 +84,9 @@ async function copies(wasm) {
     const words = () => page.evaluate(() => window.words);
     const byName = ws => Object.fromEntries(ws.filter(w => w.name).map(w => [w.name, w.id]));
     const first = byName(await until(words, ws => Object.keys(byName(ws)).length === 3, 'each copy says its build'));
-    // Three builds, one a frame, each said from the dev loop's origin.
+    // Three builds, one a copy, each said from the dev loop's origin (the app's own frame says its build too).
     expect(new Set(Object.values(first)).size).toBe(3);
-    expect((await words()).every(w => w.origin === base && w.name)).toBe(true);
+    expect((await words()).every(w => w.origin === base)).toBe(true);
     const listed = async () => (await call({ method: 'hello' })).ok.builds;
     const ids = Object.values(first);
     const builds = await until(listed, bs => ids.every(id => bs.find(b => b.id === id)?.status?.location === '/'), 'each copy listed at /');
@@ -95,6 +95,13 @@ async function copies(wasm) {
     await page.evaluate(() => { window.words = []; });
     await page.reload();
     expect(byName(await until(words, ws => Object.keys(byName(ws)).length === 3, 'each copy says its build again'))).toEqual(first);
+    // One copy reloaded alone: its own build again.
+    await page.evaluate(() => { window.words = []; });
+    await page.frame({ name: 'exact-copy-1' }).evaluate(() => location.reload());
+    expect(byName(await until(words, ws => ws.some(w => w.name === 'exact-copy-1'), 'copy 1 says its build again'))).toEqual({ 'exact-copy-1': first['exact-copy-1'] });
+    // Each id kept under its copy's name; a frame the app named otherwise (or a tab) keeps the one id, as before.
+    const keys = await page.frame({ name: 'app-own' }).evaluate(() => Object.keys(sessionStorage).filter(k => k.startsWith('exact.dev.build')).sort());
+    expect(keys).toEqual(['exact.dev.build', ...names.map(n => `exact.dev.build:${n}`)]);
     // Copy 2 routed in place: its state kept (a tap, and a mark on its window), the others where they were.
     const frame = page.frame({ name: 'exact-copy-2' });
     await frame.waitForSelector(`[data-testid="${wasm ? 'page' : 'home'}"]`);

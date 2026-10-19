@@ -1104,9 +1104,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
-  - A web page in a frame its parent names (the design tool's copies, *1.14*, LLP 1122 T7)
-    keeps its id under that name, since a tab's same-origin frames share its storage; the page
-    only reads the name, which never enters the app's URL. A framed page posts `{type:
+  - A web page in a frame its parent names `exact-copy-<n>` (the design tool's copies, *1.14*,
+    LLP 1122 T7) keeps its id under that name, since a tab's same-origin frames share its
+    storage. The page only reads the name, which never enters the app's URL, is never sent, and
+    ties nothing; a frame of any other name keeps the tab's one id. A framed page posts `{type:
     "exact-build", id}` to its parent each time it registers, so the page framing it finds which
     frame is which build by the message's source (the id grants nothing without the nonce).
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs

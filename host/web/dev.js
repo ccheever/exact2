@@ -361,9 +361,10 @@ if (es) {
   let applying = null;
   // The tab's own id, kept across its reloads (sessionStorage); a duplicated
   // tab, which copies that storage, takes another when this one answers.
-  // A named frame's (the design tool's copies, LLP 1122 T7, which share the
-  // tab's storage) is kept under its name, which the page only reads.
-  const framed = globalThis.parent != null && globalThis.parent !== globalThis, buildKey = framed && globalThis.name ? `exact.dev.build:${globalThis.name}` : "exact.dev.build";
+  // A copy the design tool frames (LLP 1122 T7: same-origin frames share the
+  // tab's storage) keeps its own under the frame's name, `exact-copy-<n>`,
+  // which the page only reads; any other name is the app's, left alone.
+  const framed = globalThis.parent != null && globalThis.parent !== globalThis, buildKey = framed && /^exact-copy-\d{1,2}$/.test(globalThis.name ?? "") ? `exact.dev.build:${globalThis.name}` : "exact.dev.build";
   const buildId = (async () => {
     const fresh = () => `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`;
     let id;
