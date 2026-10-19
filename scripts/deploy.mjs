@@ -578,16 +578,16 @@ export function materializeSnapshot(snapshot, run, app, cache = null) {
   // A game without its own Cargo.lock resolves against the captured SDK lock
   // (game/app/shells.lock), still locked and offline.
   if (manifest.game) gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
-  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
-  // node_modules is an output, never captured; a TypeScript app's bake runs
-  // Rolldown from it and ships SQLite WASM out of it. Install exactly what the
-  // captured bun.lock pins, from Bun's cache, into the captured tree.
+  // node_modules is an output, never captured: a TypeScript app's bake runs Rolldown from it, ships SQLite WASM out of it,
+  // and a module package's crate is under it (LLP 1133.001 D9). Install exactly what the captured bun.lock pins, from
+  // Bun's cache, into the captured tree, before the Cargo closure is asserted.
   for (const root of new Set([exactRoot, workspace])) {
     if (!existsSync(resolve(root, 'package.json')) || !existsSync(resolve(root, 'bun.lock'))) continue;
     const installed = spawnSync(process.execPath, ['install', '--frozen-lockfile', '--prefer-offline'], {
       cwd: root, env: sealedSourceEnv(sourceRoot), stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
     if (installed.status !== 0) refuse(`${root}: bun install --frozen-lockfile failed in the captured source: ${(installed.stderr || installed.stdout || installed.error?.message || '').trim()}`);
   }
+  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
   // Every Contract file the bake will read is in the captured tree: an
   // installed library that still leads outside it is live bytes (LLP 1091 D10).
   assertCapturedContractSources(contractSources(dir, exactRoot, sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: capture.compilerTarget }), capture.compiler), sourceRoot);

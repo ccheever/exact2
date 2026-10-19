@@ -368,6 +368,8 @@ export function parseFlags(argv) {
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
     else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; native hosts).
+    else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
   }
   if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);

@@ -2,7 +2,10 @@
   "kind": "implementation",
   "implements": "@exact/geolocation@^1.0",
   "platform": "apple",
-  "targets": ["ios", "macos"],
+  "targets": [
+    "ios",
+    "macos"
+  ],
   "shapes": {
     "AppleLocation": {
       "altitude": "option<number>",
@@ -32,7 +35,17 @@
   },
   "names": [],
   "views": [],
-  "hatches": ["locationManager"],
-  "sources": { "swift": ["."] },
-  "artifacts": []
+  "hatches": [
+    "locationManager"
+  ],
+  "sources": {
+    "swift": [
+      "Geolocation.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "GeolocationModule",
+  "plist": {
+    "NSLocationTemporaryUsageDescriptionDictionary": "requestPreciseLocation.purposeKey"
+  }
 }

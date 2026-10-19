@@ -23,6 +23,8 @@ pub struct Device {
     pub name: &'static str,
     /// iOS `Info.plist` usage keys, each given the purpose text.
     pub ios: &'static [&'static str],
+    /// iOS `Info.plist` keys set to true.
+    pub ios_flags: &'static [&'static str],
     /// macOS `Info.plist` usage keys.
     pub macos: &'static [&'static str],
     /// The macOS hardened-runtime entitlement: without it a notarised build is
@@ -52,6 +54,7 @@ pub struct Device {
 const ROW: Device = Device {
     name: "",
     ios: &[],
+    ios_flags: &[],
     macos: &[],
     hardened: None,
     web: None,
@@ -93,12 +96,12 @@ pub const DEVICES: &[Device] = &[
         web: Some("geolocation"),
         ..ROW
     },
-    // Approximate location (LLP 1133.002 D7): the same keys; what it adds per
-    // host (iOS's `NSLocationDefaultAccuracyReduced`, Android's coarse
-    // permission alone) comes with each host's implementation.
+    // Approximate location (LLP 1133.002 D7): the same keys, and on iOS the
+    // prompt opens with precise off (macOS has no such key).
     Device {
         name: "geolocation-approximate",
         ios: &["NSLocationWhenInUseUsageDescription"],
+        ios_flags: &["NSLocationDefaultAccuracyReduced"],
         macos: &[
             "NSLocationUsageDescription",
             "NSLocationWhenInUseUsageDescription",

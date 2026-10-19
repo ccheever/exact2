@@ -59,6 +59,8 @@ public enum ExactEnv {
         return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
     }
     public static let agentMode = environment["EXACT_AGENT"] == "1"
+    /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
+    static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
     /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
     /// agent carrier, UIKit's own transitions, presentations and keyboard
     /// animations keep their natural timing — the ordinary app with a

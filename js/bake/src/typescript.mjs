@@ -921,14 +921,69 @@ export function moduleInterfaces(app) {
   return [...out.values()];
 }
 
-/** Each extension's web implementation the app's packages carry (LLP 1133.001
- * D4: the one the interface carries; an app's choice of another is later):
+/** The implementation bound to interface `iface` for `target` (LLP 1133.001
+ * D4): the one `app.json` names for the target, else the app's one direct
+ * dependency that implements it there, else the one the interface carries;
+ * `null` for none. Each choice is checked against the interface's version. */
+export function implementationFor(app, iface, target) {
+  const read=(path)=>{ try { return JSON.parse(readFileSync(path,'utf8')); } catch { return null; } };
+  const located=(name)=>{
+    for (let dir=app; ; dir=dirname(dir)) {
+      const root=join(dir,'node_modules',name), pkg=read(join(root,'package.json'));
+      const main=typeof pkg?.exports==='string' ? pkg.exports : pkg?.exports?.['.'];
+      const at=typeof main==='string' ? main : main?.contract ?? main?.default;
+      if (pkg && typeof at==='string' && /(^|\/)exact\.json$/.test(at)) { const json=read(resolve(root,at)); return json && {name,dir:dirname(resolve(root,at)),json}; }
+      if (dirname(dir)===dir) return null;
+    }
+  };
+  const covers=(i)=>i?.json?.kind==='implementation' && String(i.json.implements ?? '').replace(/@[^@]*$/,'')===iface.name && (i.json.targets ?? []).includes(target);
+  const checked=(i)=>{
+    const range=String(i.json.implements).slice(iface.name.length+1), version=read(join(iface.root,'package.json'))?.version;
+    if (range && version && !Bun.semver.satisfies(version,range)) throw new Error(`bake-implementation-mismatch: ${i.name ?? iface.name} implements ${i.json.implements}, and the installed ${iface.name} is ${version}`);
+    return i;
+  };
+  const manifest=read(join(app,'app.json')), named=manifest?.implementations?.[iface.name]?.[target];
+  if (named) {
+    const i=located(named);
+    if (!covers(i)) throw new Error(`bake-implementation-missing: app.json names ${named} for ${iface.name} on ${target}, and ${i ? `it does not implement it for ${target}` : 'it is not installed'}`);
+    return checked(i);
+  }
+  const deps=Object.keys(read(join(app,'package.json'))?.dependencies ?? {}).filter(n=>n!==iface.name).map(located).filter(covers);
+  if (deps.length>1) throw new Error(`bake-implementation-ambiguous: ${deps.map(d=>d.name).join(' and ')} each implement ${iface.name} for ${target}; name one in app.json: "implementations": { "${iface.name}": { "${target}": "${deps[0].name}" } }`);
+  if (deps.length) return checked(deps[0]);
+  const carried=iface.implementations.find(i=>(i.json.targets ?? []).includes(target));
+  return carried ? checked({name:iface.name,...carried}) : null;
+}
+
+/** The Swift implementations the app's interfaces carry for `target` (`ios`,
+ * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
+ * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
+ * its class, and its source files. */
+export function appleImplementations(app, target) {
+  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
+  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+    const impl=implementationFor(app,i,target);
+    const files=impl?.json.platform==='apple' && impl.json.sources?.swift;
+    if (!impl || !files?.length || !impl.json.class) return [];
+    const extension=i.name.split('/').at(-1);
+    // An Info.plist dictionary keyed by each literal strings key the app passes at `name.option` (LLP 1133.002 D10).
+    const plist=Object.entries(impl.json.plist ?? {}).map(([key,at])=>{
+      const [name,option]=at.split('.'), keys=new Set();
+      for (const [,inside] of named.matchAll(new RegExp(`\\b${name}\\s*\\(([^)]*)\\)`,'g')))
+        for (const [,,value] of inside.matchAll(new RegExp(`\\b${option}\\s*[=:]\\s*(["'])([^"']+)\\1`,'g'))) keys.add(value);
+      return {key,keys:[...keys].sort()};
+    }).filter(p=>p.keys.length);
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist}];
+  });
+}
+
+/** Each extension's web implementation, as bound (LLP 1133.001 D4):
  * extension name to the implementation's JavaScript entry. */
 export function webImplementations(app) {
   const out=new Map();
-  for (const {name,implementations} of moduleInterfaces(app)) {
-    const web=implementations.find(i=>i.json.platform==='web'), file=web?.json.sources?.javascript?.[0];
-    if (file) out.set(name.split('/').at(-1),resolve(web.dir,file));
+  for (const iface of moduleInterfaces(app)) {
+    const web=implementationFor(app,iface,'web'), file=web?.json.sources?.javascript?.[0];
+    if (file) out.set(iface.name.split('/').at(-1),resolve(web.dir,file));
   }
   return out;
 }
@@ -966,18 +1021,29 @@ export function moduleBinding(name, declaration, implementations) {
     const verb=entry.source ? 'source' : 'send';
     lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(entry.answers)}> {`,
       `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options });`, '}');
+    // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
+    if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(entry.answers)} {`,
+      `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
   }
   lines.push(
     'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
     '  const via = (globalThis as any).__exact_module;',
     '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
     '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw new Error(t || "the module did not answer"); }));',
-    '  return answer.then((v: any) => {',
-    '    if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 1 && typeof v.error === "string") {',
-    '      throw Object.assign(new Error(`${body.extension}.${body.source ?? body.send}: ${v.error}`), { code: v.error });',
-    '    }',
-    '    return v;',
-    '  });',
+    '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
+    '}',
+    'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
+    '  const now = (globalThis as any).__exact_module_sync;',
+    '  let v: any;',
+    '  try { v = now ? now(body) : { error: "NotSupportedError" }; }',
+    '  catch (e: any) { throw Object.assign(new Error(`${body.extension}.${body.sync}: NotSupportedError (${e?.message ?? e})`), { code: "NotSupportedError" }); }',
+    '  return answered(v, `${body.extension}.${body.sync}`);',
+    '}',
+    'function answered(v: any, name: string): any {',
+    '  if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 1 && typeof v.error === "string") {',
+    '    throw Object.assign(new Error(`${name}: ${v.error}`), { code: v.error });',
+    '  }',
+    '  return v;',
     '}', '');
   return lines.join('\n');
 }

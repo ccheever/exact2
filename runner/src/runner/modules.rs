@@ -33,7 +33,9 @@ use crate::request::{Answer, Dispatch, Outcome, Reply, Request, Response, Work};
 use crate::HoldAnswer;
 use exact_plan::{ModulesRow, TypesId, Value};
 use serde_json::{json, Map, Value as Json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+mod bound;
 use std::sync::{Arc, Mutex};
 
 /// The continuation tokens the runner keeps for its held module requests:
@@ -54,6 +56,10 @@ pub(super) struct Extensions {
     /// Held requests answered, with whether the host has dispatched them.
     released: Vec<(u64, Outcome, bool)>,
     next: u64,
+    /// The extensions the host's own implementations answer (`bound.rs`).
+    bound: BTreeSet<String>,
+    /// The bound live sources that have had a reader, until released.
+    live: BTreeSet<String>,
 }
 
 /// A module request the runner holds for the agent.
@@ -129,13 +135,23 @@ impl Extensions {
 
 impl<D: DataSource> Runner<D> {
     /// What answers resource `i`, whose source `source` is a module's name.
-    pub(super) fn module_answer(&mut self, i: usize, source: &str) -> Result<Answer, RunnerError> {
+    pub(super) fn module_answer(
+        &mut self,
+        i: usize,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, RunnerError> {
         let resource = self.plan.str(self.plan.resources[i].name).to_string();
         let row = self.module_row(source);
         let key = self.key(&row);
         // The readers of a module's source are asked again when what it
-        // answers changes (`announce`).
+        // answers changes (`announce`, or the bound module's own topic).
         self.store.observe_topic(&key);
+        if self.bound(&row) {
+            self.log(format!("query {resource}: {key} (native)"));
+            let args = self.args_json(&row, args);
+            return Ok(Answer::Later(self.bound_request(&row, args)));
+        }
         let answer = match self.decide(&row, false) {
             Decision::Now(json) => {
                 self.log(format!("query {resource}: {key} (substituted)"));
@@ -161,6 +177,10 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Answer, DataError> {
         let row = self.module_row(source);
         let key = self.key(&row);
+        if self.bound(&row) {
+            let args = self.args_json(&row, args);
+            return Ok(Answer::Later(self.bound_request(&row, args)));
+        }
         let timeout = self.timeout(&row, &self.args_json(&row, args));
         match self.decide_timed(&row, true, timeout) {
             Decision::Now(json) => {
@@ -202,7 +222,7 @@ impl<D: DataSource> Runner<D> {
 
     /// [`Self::decide`], where a value ticket that would wait `timeout=0`
     /// fails `TIMEOUT` at once (D2: an eligible cached fix, or none).
-    fn decide_timed(&mut self, row: &ModulesRow, send: bool, timeout: Option<f64>) -> Decision {
+    fn decide_timed(&self, row: &ModulesRow, send: bool, timeout: Option<f64>) -> Decision {
         match self.decide(row, send) {
             Decision::Hold(Waits::Value) if timeout == Some(0.0) => {
                 Decision::Now(json!({ "error": "TIMEOUT" }))
@@ -214,6 +234,9 @@ impl<D: DataSource> Runner<D> {
     /// Value tickets whose timeout has passed on the agent's clock (§6):
     /// each fails `TIMEOUT`, its ticket retired.
     pub(super) fn module_deadlines(&mut self, now_ms: f64) {
+        if !self.native_slot().synced() {
+            self.publish_sync();
+        }
         let due: Vec<(u64, u64)> = (self.extensions.held.iter())
             .filter(|h| h.deadline.is_some_and(|d| d <= now_ms))
             .map(|h| (h.token, h.hold))
@@ -277,7 +300,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// §6's transitions for a read (or a send) of `row` now.
-    fn decide(&mut self, row: &ModulesRow, send: bool) -> Decision {
+    fn decide(&self, row: &ModulesRow, send: bool) -> Decision {
         let sub = self.substitute(row);
         let permission = &sub["permission"];
         if let Some(name) = permission["name"].as_str() {
@@ -307,7 +330,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// What answers `row` once its permission allows it.
-    fn decide_value(&mut self, row: &ModulesRow, sub: &Json, send: bool) -> Decision {
+    fn decide_value(&self, row: &ModulesRow, sub: &Json, send: bool) -> Decision {
         if !send {
             return Decision::Now(
                 self.value_of(row)
@@ -506,6 +529,13 @@ impl<D: DataSource> Runner<D> {
             _ => return None,
         };
         let key = format!("{extension}.{declared}");
+        // A bound module answers it: the handler, past this admission.
+        if self.extensions.bound.contains(extension) {
+            if !send {
+                self.bound_read(&key);
+            }
+            return None;
+        }
         let now = |answer: Json| Dispatch::Run(Work::Now(Box::new(move || response(&answer))));
         let Some(row) = self
             .plan
@@ -856,6 +886,7 @@ impl<D: DataSource> Runner<D> {
     /// Held module requests whose request is gone (superseded, its reader
     /// released, a refused commit): retired with their tickets (§6).
     pub(super) fn retire_modules(&mut self) {
+        self.release_idle();
         let gone: Vec<u64> = (self.extensions.held.iter())
             .filter(|h| h.reply.is_none())
             .filter(|h| !self.pending.iter().any(|p| p.continuation == Some(h.token)))
@@ -875,6 +906,7 @@ impl<D: DataSource> Runner<D> {
             queue.push(key.to_owned());
         }
         drop(queue);
+        self.publish_sync();
         self.native_slot().changed("");
     }
 
@@ -917,8 +949,9 @@ impl<D: DataSource> Runner<D> {
             let extension = self.plan.str(row.extension).to_owned();
             let declared = self.plan.str(row.declared).to_owned();
             let key = self.key(row);
+            let bound = self.extensions.bound.contains(&extension);
             let entry = out.entry(extension.clone()).or_insert_with(
-                || json!({ "bound": false, "preferred": {}, "readers": {}, "held": [] }),
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
             );
             if let Some(name) = self.substitute(row)["permission"]["name"].as_str() {
                 entry["permission"] = json!(self.permission_state(name));

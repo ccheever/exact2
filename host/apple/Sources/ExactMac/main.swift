@@ -112,6 +112,15 @@ final class Adapter: ExactSessionDelegate {
         guard !target.isEmpty else { return }
         // A link beside a document the person chose (LLP 1069.010 D1).
         if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return }
+        // The app's settings (LLP 1133.002 D11): macOS has no page per app, so
+        // Privacy & Security's Location Services, the one permission a module
+        // asks for today. Under the agent, journaled only.
+        if target == "app-settings:" {
+            let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            session.log("openURL app-settings: opens \(pane)\(agentMode ? " (not under the agent)" : "")")
+            if !agentMode, let url = URL(string: pane) { NSWorkspace.shared.open(url) }
+            return
+        }
         let url = URL(string: target)
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil

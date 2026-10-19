@@ -1,11 +1,19 @@
 import type { Answer, Sources } from './app.contract.d.ts';
-import { watchPosition } from '@exact/geolocation';
+import { geolocationStatusSync, watchPosition } from '@exact/geolocation';
 
 // The suite writes the id `exact new` gave the app.
 export const appId = '__APP_ID__';
 export const grants = 'device.geolocation purpose.geolocation';
 
 const sources: Sources = {
+  // The synchronous form: a cheap read where the host has a synchronous path (Apple), else NotSupportedError.
+  statusNow: () => {
+    try {
+      return { text: geolocationStatusSync({}).state };
+    } catch (e) {
+      return { text: `error ${(e as { code?: string }).code}` };
+    }
+  },
   spot: async ([watching]) => {
     if (!watching) return { text: 'off' };
     try {

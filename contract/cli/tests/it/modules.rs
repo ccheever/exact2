@@ -505,3 +505,113 @@ fn fmt_keeps_a_dotted_keyword_tight() {
         "{out}"
     );
 }
+
+/// LLP 1133.001 D4: a host that binds the extension sends its names to the
+/// native slot, the substitute set aside: no ticket, the module answers,
+/// and a call's options travel as written.
+#[test]
+fn a_bound_module_answers_through_the_native_slot() {
+    use std::sync::{Arc, Mutex};
+    let app = App::new("bound");
+    let plan = app.compile(APP).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let asked: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = asked.clone();
+    r.native_slot().host(Some(Arc::new(move |body: Vec<u8>, reply: exact_runner::Reply| {
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        seen.lock().unwrap().push(v.to_string());
+        let answer = match (v["source"].as_str(), v["send"].as_str()) {
+            (Some("geolocationStatus"), _) => serde_json::json!({ "available": true, "state": "granted", "accuracy": "precise" }),
+            (_, Some("getCurrentPosition")) => serde_json::json!({ "coords": { "latitude": 35.0, "longitude": 139.0, "accuracy": 10 }, "timestamp": 1 }),
+            _ => serde_json::json!({}),
+        };
+        reply.send(exact_runner::Outcome::Response(exact_runner::Response { status: 200, headers: Vec::new(), body: answer.to_string().into_bytes() }));
+    })));
+    r.bind_extensions(&["geolocation"]);
+    r.apply_announced();
+    let pump = |r: &mut exact_runner::Runner<NoData>| {
+        for out in r.take_requests() {
+            let exact_runner::Dispatch::Run(exact_runner::Work::Later(work)) =
+                r.native_work(&out.request)
+            else {
+                panic!("a bound name goes to the native slot");
+            };
+            let (tx, rx) = std::sync::mpsc::channel();
+            work(exact_runner::Reply::new(move |o| tx.send(o).unwrap()));
+            r.fulfill(out.ticket, rx.recv().unwrap()).unwrap();
+        }
+    };
+    pump(&mut r);
+    let show = |r: &exact_runner::Runner<NoData>, name: &str| {
+        format!("{:?}", r.resource(name).or(r.slot(name)))
+    };
+    assert!(
+        show(&r, "status").contains("\"granted\""),
+        "{}",
+        show(&r, "status")
+    );
+    r.act("locate", Vec::new()).unwrap();
+    pump(&mut r);
+    assert!(
+        show(&r, "located").contains("35.0"),
+        "{}",
+        show(&r, "located")
+    );
+    assert!(r.device_holds().is_empty(), "no ticket: the module answers");
+    let calls = asked.lock().unwrap().clone();
+    assert!(
+        calls.iter().any(|c| c.contains("\"maximumAge\":600000")
+            && c.contains("\"desiredAccuracy\":\"threeKilometers\"")),
+        "the call's options travel: {calls:?}"
+    );
+}
+
+#[test]
+fn a_synchronous_form_answers_from_the_substitute_until_its_module_is_bound() {
+    use std::sync::Arc;
+    let app = App::new("sync");
+    let plan = app.compile(APP).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.native_slot().host_call(Some(Arc::new(|_: &[u8]| {
+        Ok(br#"{"state":"module"}"#.to_vec())
+    })));
+    r.advance(0.0).unwrap();
+    let call = r
+        .native_slot()
+        .hosted_call()
+        .expect("the host's call, behind the runner's answers");
+    let now = |body: &str| String::from_utf8(call(body.as_bytes()).unwrap()).unwrap();
+    let status = r#"{"extension":"geolocation","sync":"geolocationStatusSync","args":{}}"#;
+    let position = r#"{"extension":"geolocation","sync":"getCurrentPositionSync","args":{"maximumAge":600000}}"#;
+    assert!(now(status).contains("\"prompt\""), "{}", now(status));
+    // While `prompt` a cached fix is never answered: the request would ask.
+    assert_eq!(now(position), r#"{"error":"POSITION_UNAVAILABLE"}"#);
+    let grant = r#"{"op":"prefer","permission":{"geolocation":"granted"}}"#;
+    r.extension_agent(grant).unwrap().1.unwrap();
+    let paris = r#"{"op":"prefer","extension":{"geolocation.watchPosition":{"coords":{"latitude":48.8566,"longitude":2.3522}}}}"#;
+    r.extension_agent(paris).unwrap().1.unwrap();
+    assert!(now(status).contains("\"granted\""), "{}", now(status));
+    assert!(now(position).contains("48.8566"), "{}", now(position));
+    assert_eq!(
+        now(r#"{"extension":"geolocation","sync":"where","args":{}}"#),
+        r#"{"error":"NotSupportedError"}"#
+    );
+    // Anything else is the host's module's own call.
+    assert_eq!(now(r#"{"op":"level"}"#), r#"{"state":"module"}"#);
+    r.bind_extensions(&["geolocation"]);
+    assert_eq!(now(status), r#"{"state":"module"}"#);
+}

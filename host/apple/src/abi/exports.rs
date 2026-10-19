@@ -704,6 +704,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.midi(len), |n| n)
         }
 
+        /// The extensions the app's module composes, a name a line in the
+        /// input buffer (LLP 1133.001 D4).
+        #[no_mangle]
+        pub extern "C" fn exact_bind_extensions(rt: u32, len: usize) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.bind_extensions(len), |_| ())
+        }
+
         /// The agent's `prefer extension` in the input buffer (LLP 1124 D7).
         #[no_mangle]
         pub extern "C" fn exact_extension(rt: u32, len: usize) -> u32 {

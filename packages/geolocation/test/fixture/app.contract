@@ -10,6 +10,7 @@ component Fixture
   resource status = geolocationStatus() as shape GeolocationStatus else empty()
   // Data code's read of `watchPosition` (app.ts), while `watching`.
   resource spot = spot(watching) as shape Spot
+  resource now = statusNow() as shape Spot
   mutation once as shape GeolocationPosition
   mutation precise as shape GeolocationStatus
   action locate
@@ -32,6 +33,7 @@ component Fixture
         case none
           text "" testId="once-error"
       text spot.text testId="spot"
+      text now.text testId="status-now"
       match failure(precise)
         case some(f)
           text f.code testId="precise-error"

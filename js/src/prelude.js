@@ -1211,6 +1211,16 @@
       "fetch, or share the resolved value rather than the promise. Storage is different: an answer queued behind another's " +
       "storage turn waits for it"));
   }
+  var nativeCall = global.__exact_module_sync = function (request) { // `native.call`, and a module binding's synchronous form (LLP 1133.002 D14)
+    if (overlaying) throw inOverlay("native.call()");
+    if (currentCall === background) {
+      journal("data: native.call() called from background work: it was never run");
+      throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
+    }
+    if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
+    try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
+    catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
+  };
   // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id
   // (a value given at once too: see its end) — then it drains microtasks and asks
   // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
@@ -1224,16 +1234,6 @@
     var result;
     currentCall = call;
     try {
-      var nativeCall = function (request) {
-        if (overlaying) throw inOverlay("native.call()");
-        if (currentCall === background) {
-          journal("data: native.call() called from background work: it was never run");
-          throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
-        }
-        if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
-        try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
-        catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
-      };
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the
       // build's, so asking `available` marks the answer as the device's: the

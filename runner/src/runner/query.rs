@@ -84,7 +84,7 @@ impl<D: DataSource> Runner<D> {
         // A native module's source is the module's, never the app data's
         // (LLP 1133.002 D13).
         if self.plan.module_named(&source).is_some() {
-            return self.module_answer(i, &source);
+            return self.module_answer(i, &source, args);
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));

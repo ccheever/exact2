@@ -8,31 +8,14 @@
 //
 // usage: bun packages/geolocation/test/web.mjs [chromium] [firefox] [webkit]
 //   (every engine by default; `bunx playwright@1.63.0 install firefox webkit` first)
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { extname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { dirname, extname, join, resolve } from 'node:path';
+import { checker, makeFixture, root, run } from './fixture.mjs';
 
-const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 const engines = process.argv.slice(2).length ? process.argv.slice(2) : ['chromium', 'firefox', 'webkit'];
 const { chromium, firefox, webkit } = await import(resolve(root, 'node_modules/playwright-core/index.mjs'));
 
-const run = (cmd, args, cwd) => {
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')}: ${r.stdout}\n${r.stderr}`);
-};
-
-// The fixture: an app `exact new` made, its files replaced by the fixture's.
-const dir = mkdtempSync(join(tmpdir(), 'exact-geolocation-')), app = join(dir, 'geofixture');
-run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
-for (const f of ['app.contract', 'app.ts', 'strings']) cpSync(join(here, 'fixture', f), join(app, f), { recursive: true });
-rmSync(join(app, 'app.test.contract'), { force: true });
-const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
-writeFileSync(join(app, 'app.ts'), readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id));
-const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
-manifest.dependencies = { ...manifest.dependencies, '@exact/geolocation': `file:${pkg}` };
-writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
-run('bun', ['install'], app);
+const { app } = makeFixture();
 run('bun', ['exact.mjs', 'web-build', '--render', 'none'], app);
 
 const dist = join(app, 'target/web-dist');
@@ -54,11 +37,7 @@ const count = () => {
   g.clearWatch = (...a) => { globalThis.__geo.clears++; return c(...a); };
 };
 
-let failed = 0;
-const check = (engine, name, ok, detail) => {
-  if (!ok) failed++;
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${engine} ${name}${ok ? '' : `: ${detail}`}`);
-};
+const { check, failed } = checker();
 
 for (const engine of engines) {
   const browser = await { chromium, firefox, webkit }[engine].launch();
@@ -91,6 +70,8 @@ for (const engine of engines) {
     await page.goto(origin);
     const granted = await until(page, 'status', t => t === 'true granted unknown');
     check(engine, 'state granted', granted === 'true granted unknown', granted);
+    const now = await until(page, 'status-now', t => t !== '');
+    check(engine, 'a synchronous form is NotSupportedError on the web', now === 'error NotSupportedError', now);
 
     await page.getByTestId('locate').click();
     const once = await until(page, 'once', t => t.startsWith('48.8566'));
@@ -118,6 +99,6 @@ for (const engine of engines) {
   }
 }
 server.stop();
-rmSync(dir, { recursive: true, force: true });
-console.log(failed ? `${failed} failed` : 'all passed');
-process.exit(failed ? 1 : 0);
+rmSync(dirname(app), { recursive: true, force: true });
+console.log(failed() ? `${failed()} failed` : 'all passed');
+process.exit(failed() ? 1 : 0);

@@ -44,6 +44,15 @@
         }
       ]
     },
+    "implementations": {
+      "description": "The implementation each module interface binds on a target (LLP 1133.001 D4), where the build cannot choose alone: {\"@exact/geolocation\": {\"web\": \"@fast/geolocation-web\"}}. Unnamed, a target binds the app's one direct dependency that implements the interface there, else the one the interface carries; two such dependencies are bake-implementation-ambiguous.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] },
+        "additionalProperties": { "type": "string" }
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,

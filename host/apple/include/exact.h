@@ -613,6 +613,9 @@ uint32_t exact_midi(ExactRuntime rt, size_t len);
 /* @ref LLP 1124 D7: the agent's `prefer extension`, JSON in the input buffer:
  * a native module source's preferred value. Returns the batch length. */
 uint32_t exact_extension(ExactRuntime rt, size_t len);
+/* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
+ * line in the input buffer: the runner sends their names to the module. */
+void exact_bind_extensions(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev
