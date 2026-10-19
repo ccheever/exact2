@@ -655,3 +655,101 @@ test('round 3 of E1: the real wire through the tunnel to a sandboxed page: the l
     expect(six.status).not.toBe(403);
   } finally { await doors.close(); await wire.close(); }
 });
+
+// Stage 11's window (a fix): a client that is not local (paired, through
+// B's door or a tunnel) reads no directory of this machine: not the app's,
+// as given or real, nor the home directory. `hello`'s `app` is the
+// directory's name for it; the local tool's stays the path. Through the
+// real design server (`contract tamber serve --stdio`, the Rust path), with
+// a package whose component has params, so `uses` and `explain` name files
+// in it, and refusals with spans.
+test('no answer to a remote client names this machine\'s directories', async () => {
+  const { homedir } = await import('node:os');
+  const { realpathSync } = await import('node:fs');
+  const { basename } = await import('node:path');
+  const root = new URL('..', import.meta.url).pathname;
+  mkdirSync(join(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(join(root, 'target', 'tamber-paths-'));
+  const pkg = join(dir, 'node_modules/@acme/reading');
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(join(pkg, 'package.json'), '{"name":"@acme/reading","version":"1.0.0","exports":{".":"./index.contract"}}');
+  writeFileSync(join(pkg, 'index.contract'), 'component ReadingCard\n  params\n    inset: length = "4px"\n  view\n    column background-color="reading.card" padding="param.inset"\n      text "x"\n');
+  writeFileSync(join(pkg, 'reading.tamber'), 'tamber reading\n\ntheme\n  reading.card = #112233\n');
+  writeFileSync(join(dir, 'app.contract'), 'use ReadingCard from "@acme/reading"\ncomponent App\n  view\n    column background-color="brand"\n      ReadingCard()\n');
+  writeFileSync(join(dir, 'app.tamber'), 'tamber t\n\ntheme\n  brand = reading.card\n');
+  let doors = null;
+  const wire = tamberServer({ appDir: dir, log: () => {}, remote: () => doors?.list() ?? [] });
+  const warned = [];
+  doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 }, tunnel: 0 }, { say: () => {}, warn: l => warned.push(l) });
+  const machine = [...new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir())])];
+  try {
+    await wire.ready;
+    const { origin, fingerprint } = doors.info();
+    const port = Number(new URL(origin).port), tunnelPort = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    let token = null;
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const local = async body => {
+      let text = '';
+      const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+      const res = { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } };
+      queueMicrotask(() => req.end(JSON.stringify(body)));
+      await wire.handle(req, res, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+      return JSON.parse(text);
+    };
+    // The local tool's hello: the app's path, as before.
+    expect((await local({ method: 'hello' })).ok.app).toBe(dir);
+    const minted = await local({ method: 'pair-code', scope: 'write', name: 'laptop' });
+    const { connect: tlsConnect } = await import('node:tls');
+    const pairBody = JSON.stringify({ code: minted.ok.code, name: 'laptop' });
+    const answer = await new Promise(ok => {
+      let text = '';
+      const s = tlsConnect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => {
+        expect(s.getPeerCertificate().fingerprint256).toBe(fingerprint);
+        s.write(`POST /__tamber/pair HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(pairBody)}\r\nConnection: close\r\n\r\n${pairBody}`);
+      });
+      s.on('data', d => (text += d));
+      s.on('close', () => ok(text));
+      s.on('error', () => ok(text));
+    });
+    const answered = answer.slice(answer.indexOf('\r\n\r\n') + 4);
+    const paired = JSON.parse(answered.slice(answered.indexOf('{'), answered.lastIndexOf('}') + 1)).ok.token;
+    const files = (await local({ method: 'hello' })).ok.files;
+    const asked = [
+      { method: 'hello', client: 'laptop' },
+      { method: 'describe' },
+      { method: 'resolve', token: 'ReadingCard.inset' },
+      { method: 'explain', token: 'ReadingCard.inset' },
+      { method: 'explain', token: 'reading.card' },
+      { method: 'uses', token: 'ReadingCard.inset' },
+      { method: 'uses', token: 'brand' },
+      // Refused: a package's Contract file is no file of the app's own.
+      { method: 'propose', ops: [{ op: 'set-row', file: 'node_modules/@acme/reading/index.contract', at: { line: 5, col: 5 }, sha256: '0'.repeat(64), row: 'padding_top', value: '8px' }] },
+      // The checker's refusal, with its file and spans.
+      { method: 'propose', ops: [{ op: 'set-token', name: 'brand', value: 'nowhere.at.all' }] },
+      { method: 'transaction', client: 'laptop', files, ops: [{ op: 'set-token', name: 'brand', value: 'nowhere.at.all' }] },
+    ];
+    const replies = [];
+    for (const request of asked) {
+      const r = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired, 'content-type': 'application/json' }, body: JSON.stringify(request) });
+      replies.push([request, r]);
+    }
+    const by = m => replies.find(([q]) => q.method === m)[1];
+    expect(JSON.parse(by('hello').text).ok.app).toBe(basename(dir));
+    const sites = JSON.parse(replies[5][1].text).ok.sites;
+    expect(sites.length).toBeGreaterThan(0);
+    expect(new Set(sites.map(s => s.file))).toEqual(new Set(['node_modules/@acme/reading/index.contract']));
+    expect(JSON.parse(replies[8][1].text).error).toBeDefined();
+    // Through the tunnel, and the event stream's long poll, too.
+    replies.push([{ method: 'hello', via: 'tunnel' }, await send(false, tunnelPort, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired, 'content-type': 'application/json' }, body: '{"method":"hello"}' })]);
+    expect(JSON.parse(replies.at(-1)[1].text).ok.app).toBe(basename(dir));
+    replies.push([{ path: '/__tamber/events' }, await send(true, port, { method: 'POST', path: '/__tamber/events', headers: { 'x-exact-tamber-token': paired, 'content-type': 'application/json' }, body: '{"after":0,"wait":false}' })]);
+    for (const [request, r] of replies) {
+      expect([request, r.status !== undefined]).toEqual([request, true]);
+      for (const m of machine) expect([request, r.text.includes(m)]).toEqual([request, false]);
+    }
+  } finally {
+    await doors.close();
+    await wire.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 600_000);

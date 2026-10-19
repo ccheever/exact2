@@ -481,7 +481,6 @@ pub fn motion_sites(
     let root = crate::app_root(app).map_err(first)?;
     let (_, sources) = crate::sources::load(app, &src, &root).map_err(first)?;
     let dir = app.parent().unwrap_or(app);
-    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     let mut out = Vec::new();
     for site in &sources.motion {
         let via = if site.tokens.iter().any(|t| t == token) {
@@ -492,13 +491,7 @@ pub fn motion_sites(
                 None => continue,
             }
         };
-        let path = sources.path(site.span);
-        let shown = path
-            .strip_prefix(dir)
-            .or_else(|_| path.strip_prefix(&canonical))
-            .unwrap_or(path)
-            .display()
-            .to_string();
+        let shown = shown(sources.path(site.span), dir);
         let mut v = json!({
             "site": Value::Null,
             "row": match site.component {
@@ -551,11 +544,66 @@ fn elements(
         {
             return Err(format!(
                 "{} changed while it was read: ask again",
-                path.display()
+                shown(path, app.parent().unwrap_or(app))
             ));
         }
     }
     Ok((file, sources))
+}
+
+/// `path` as an answer names it: relative to the app's directory `dir`
+/// (as given, or canonical: a temporary directory may be reached through a
+/// link), never the machine's absolute path, which a remote client must not
+/// see; a file outside the app keeps only its name after its package's
+/// directory where it has one, else its last component.
+pub fn shown(path: &std::path::Path, dir: &std::path::Path) -> String {
+    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let path_canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    for (p, d) in [
+        (path, dir),
+        (path, canonical.as_path()),
+        (path_canonical.as_path(), canonical.as_path()),
+    ] {
+        if let Ok(rest) = p.strip_prefix(d) {
+            return rest.to_string_lossy().replace('\\', "/");
+        }
+    }
+    if path.is_relative() {
+        return path.to_string_lossy().replace('\\', "/");
+    }
+    // Outside the app (a package linked from elsewhere): from its
+    // `node_modules` on where the path has one, else the file's name.
+    let text = path_canonical.to_string_lossy().replace('\\', "/");
+    match text.rfind("/node_modules/") {
+        Some(i) => text[i + 1..].to_string(),
+        None => path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+    }
+}
+
+/// Every `file` in an answer's `sites` (any depth) as [`shown`] names it
+/// (stage 11's window: an absolute path leaked the machine's directories).
+pub fn relative_files(sites: &mut [Value], dir: &std::path::Path) {
+    sites.iter_mut().for_each(|v| relative(v, dir));
+}
+
+/// [`relative_files`] of one value.
+fn relative(v: &mut Value, dir: &std::path::Path) {
+    match v {
+        Value::Object(o) => {
+            for (k, x) in o.iter_mut() {
+                match (k.as_str(), &*x) {
+                    ("file", Value::String(f)) => {
+                        *x = Value::from(shown(std::path::Path::new(f), dir))
+                    }
+                    _ => relative(x, dir),
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| relative(x, dir)),
+        _ => {}
+    }
 }
 
 /// Each element of `nodes` (recursively), with `f`.

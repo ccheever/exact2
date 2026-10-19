@@ -263,8 +263,10 @@ pub(crate) fn icon_uses(
         .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
     let map: Value = serde_json::from_str(&map.json(&plan.encode()))
         .map_err(|e| json!({"message": format!("source map: {e}")}))?;
-    let sites = contract::tamber_uses::icon_sites(&dir.join("app.contract"), &map, &reads, &params)
-        .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+    let mut sites =
+        contract::tamber_uses::icon_sites(&dir.join("app.contract"), &map, &reads, &params)
+            .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+    contract::tamber_uses::relative_files(&mut sites, dir);
     let aliases: Vec<&str> = icons
         .iter()
         .filter(|i| *i != name)

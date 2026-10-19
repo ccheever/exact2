@@ -837,3 +837,69 @@ fn a_contract_only_write_is_refused_when_the_servers_state_is_a_packages() {
     assert!(refused.to_string().contains("read-only"), "{refused}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Stage 11's window (a fix): a site's file is the app's name for it,
+/// `node_modules/@acme/reading/index.contract`, as `explain` gives it, never
+/// the machine's absolute path, which a remote client must not see: no
+/// answer holds the app's directory, as given or canonical.
+#[test]
+fn no_answer_names_the_machines_directories() {
+    let dir = app("pkg-paths", "tamber t\n\ntheme\n  brand = reading.card\n");
+    with_reading(&dir, "tamber reading\n\ntheme\n  reading.card = #112233\n");
+    let at = dir.join("node_modules/@acme/reading");
+    std::fs::write(at.join("index.contract"), "component ReadingCard\n  params\n    inset: length = \"4px\"\n  view\n    column background-color=\"reading.card\" padding=\"param.inset\"\n      text \"x\"\n").unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let mut answers = Vec::new();
+    for request in [
+        json!({"method": "hello", "client": "one"}),
+        json!({"method": "describe"}),
+        json!({"method": "uses", "token": "ReadingCard.inset"}),
+        json!({"method": "uses", "token": "reading.card"}),
+        json!({"method": "uses", "token": "brand"}),
+        json!({"method": "explain", "token": "ReadingCard.inset"}),
+        json!({"method": "explain", "token": "reading.card"}),
+        json!({"method": "resolve", "token": "ReadingCard.inset"}),
+        json!({"method": "propose", "ops": [{"op": "set-param", "name": "ReadingCard.inset", "value": "8px"}]}),
+        json!({"method": "transaction", "client": "one", "files": {"app.tamber": super::tamber_serve::digest(&file)}, "ops": [{"op": "set-token", "name": "brand", "value": "#445566"}]}),
+    ] {
+        let (answer, events) = s.ask(request.clone());
+        assert!(answer.get("ok").is_some(), "{request}: {answer}");
+        answers.push((request, answer, events));
+    }
+    // `uses` on the package component's param: its sites in the package's
+    // file, named from the app's directory.
+    let sites = answers[2].1["ok"]["sites"].as_array().unwrap();
+    assert!(!sites.is_empty(), "{}", answers[2].1);
+    for site in sites {
+        assert_eq!(
+            site["file"], "node_modules/@acme/reading/index.contract",
+            "{site}"
+        );
+    }
+    let brand = answers[4].1["ok"]["sites"].as_array().unwrap();
+    assert!(
+        brand.iter().all(|x| x["file"] == "app.contract"),
+        "{}",
+        answers[4].1
+    );
+    let canonical = dir.canonicalize().unwrap();
+    for (request, answer, events) in &answers {
+        let text = format!("{answer} {events:?}");
+        for d in [&dir, &canonical] {
+            assert!(!text.contains(&*d.to_string_lossy()), "{request}: {text}");
+        }
+    }
+    // A read error's message names the file from the app's directory too.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let (unread, _) = s.ask(json!({"method": "describe"}));
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let text = unread.to_string();
+    assert!(unread.get("error").is_some(), "{text}");
+    assert!(text.contains("app.tamber"), "{text}");
+    for d in [&dir, &canonical] {
+        assert!(!text.contains(&*d.to_string_lossy()), "{text}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

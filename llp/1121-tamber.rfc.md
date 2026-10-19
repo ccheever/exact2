@@ -4605,6 +4605,30 @@ the loopback rewrite is functional, not a security boundary; the hosted relay is
 
 **Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
 
+**A fix after the close (in stage 11's window, no version change): no answer names the machine's directories.**
+`uses` gave a site's `file` as the source map's absolute path for a package's file and, past a link such as macOS's
+`/tmp`, for the app's own. A remote client saw the machine's directories. Every site file in `uses` and in
+`explain`'s icon sites is now named from the app's directory, as `explain` names a param's file
+(`node_modules/@acme/reading/index.contract`), by one helper (`tamber_uses::shown`); a package linked from outside
+the app keeps its path from `node_modules` on. A transaction's refusal names its file the same way. As a backstop,
+the server drops the app's directory, as given or canonical, from every answer's text, so a read error says
+`app.tamber: Permission denied`. Test: `tamber_serve_packages.rs` `no_answer_names_the_machines_directories`:
+`uses` on a package component's param gives the relative path, and ten answers and their events, plus a read error,
+hold neither form of the directory. It fails without the fix, checked by hand.
+The JS server (theme2's ruling: leaking local directories to remote clients is a fix): `hello`'s `app` stays the
+path for the local client, which `tamber tool` tells its own server by, and is the directory's name for any other
+(paired, through B's door or a tunnel; stage 10c's relay has no door on main yet). Every reply, stream event and
+long poll a client that is not local gets has the app's directory (as given and real) and the home directory
+dropped (a selection's source in a package was the map's absolute path). docs/tamber-protocol.md says so. Test:
+`tamber-remote.test.mjs`'s `no answer to a remote client names this machine's directories`, through the real design
+server with the app under the home directory. A paired client through B's TLS door asks hello, describe, resolve,
+explain, uses, a refused `set-row` on a package's file and a checker refusal with spans (`propose`, `transaction`),
+then hello through the tunnel and a long poll. No reply holds the app's or the home directory in either form,
+`hello.app` is the name, `uses` names `node_modules/@acme/reading/index.contract`, and the local hello is unchanged.
+It fails without the fix, checked by hand. `outline`, which takes `uses`'s sites, reads a file named from the app's
+directory as well as the map's own (its path, as given and real), so the design tool's outline of a token's sites
+still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it).
+
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 
 Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57
