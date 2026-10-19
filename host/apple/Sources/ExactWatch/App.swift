@@ -118,7 +118,13 @@ private struct LiveRoot: View {
         let facts = SessionFacts(displayScale: scale, preferences: scheme == .dark ? [.dark] : [],
                                  rootFontSize: Double(rootFontSize), date: Date(), clock: 0)
         do {
-            let session = try HeadlessSession(plan: nil, size: size, facts: facts, assetRoot: Bundle.main.bundleURL)
+            // The app's watch entry (`ExactWatchPlan`, LLP 1126.002 D4): its own live plan, booted
+            // from its bytes, which opens no update store.
+            guard let name = Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") as? String else {
+                throw HeadlessSession.Failure(description: "this app declares no watch entry (app.json `watch`)")
+            }
+            let plan = try Data(contentsOf: Bundle.main.bundleURL.appendingPathComponent(name))
+            let session = try HeadlessSession(plan: plan, size: size, facts: facts, assetRoot: Bundle.main.bundleURL)
             let live = try LiveModel(session: session, zero: start)
             live.onPress = { _ in WKInterfaceDevice.current().play(.click) }
             var ticks = 0

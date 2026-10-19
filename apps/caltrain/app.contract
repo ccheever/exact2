@@ -52,7 +52,6 @@ shape DeliveryState
 // CSS's `pointer` (Media Queries 4): a TV remote points at nothing.
 shape Viewport
   pointer: string
-  width: number
 
 // @ref LLP 1126.001 WP9 — tokens are asynchronous device facts, including after a relaunch.
 shape ActivityHandle
@@ -123,8 +122,6 @@ component Caltrain
   resource delivery = exactDelivery() as shape DeliveryState
   resource viewport = exactViewport() as shape Viewport
   derive tv = viewport.pointer == "none"
-  // A watch's screen: the next trains and a station list, nothing else.
-  derive watch = viewport.width < 300
 
   action tick
     nowMs = seededEpoch + performanceNow()
@@ -193,10 +190,8 @@ component Caltrain
     // Text is sized in em from this root: 16 on a phone or a desktop, 24 on
     // a TV (pointer none), read across a room.
     main testId="caltrain-main" viewport-fit="cover" width="100%" height="100%" font-size=(tv ? 24 : 16) background-color=canvasColor
-      if watch
-        WatchHome(station=station, screen=screen, nowMs=nowMs, query=query, northBoard=northBoard, southBoard=southBoard, nearby=nearby, matches=matches, allStations=allStations, openStations=openStations, selectStation=selectStation, setQuery=setQuery, goHome=goHome)
       // @ref LLP 1020 D6 — the iframe screen is outside the live canvas.
-      else if screen == "web-deck"
+      if screen == "web-deck"
         section role="region" aria-label="Deck fixture" testId="deck-screen" padding-top="calc(env(safe-area-inset-top) + 20px)" padding-right="calc(env(safe-area-inset-right) + 20px)" padding-bottom="calc(env(safe-area-inset-bottom) + 20px)" padding-left="calc(env(safe-area-inset-left) + 20px)" gap=12
           row align-items="center" justify-content="space-between"
             text "Web deck" font-size="1.25em" font-weight=700 color="#ffffff"
@@ -441,60 +436,6 @@ component DirectionCard
           row gap=8 align-items="center" focus=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
             text countdownText(d.at, nowMs) font-size="1.75em" font-weight=700 testId=`countdown-${d.id}`
             text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size="0.8125em" color="#666666"
-
-// The watch: the station and its next two trains each way, or the station list.
-component WatchHome
-  inject
-    accent: string
-  props
-    station: Station
-    screen: string
-    nowMs: number
-    query: string
-    northBoard: Departure[]
-    southBoard: Departure[]
-    nearby: Station[]
-    matches: Station[]
-    allStations: Station[]
-    openStations: action
-    selectStation: action
-    setQuery: action
-    goHome: action
-  view
-    scroll width="100%" height="100%" testId="watch-scroll"
-      column gap=8 padding=4 box-sizing="border-box" testId="watch-home"
-        if screen == "home"
-          text station.name font-size="1.25em" font-weight=700 color="#ffffff" role="heading" aria-level=1 testId="station-name"
-          WatchBoard(title="North", board=northBoard.slice(0, 2), nowMs=nowMs, testId="watch-north")
-          WatchBoard(title="South", board=southBoard.slice(0, 2), nowMs=nowMs, testId="watch-south")
-          button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=10 background-color="#333333"
-            text "Change station" font-size="0.875em" font-weight=600 color="#ffffff"
-        else
-          input value=query input=setQuery placeholder="Search" aria-label="Search stations" testId="station-search" padding=8 border-radius=10 background-color="#333333" color="#ffffff"
-          for s in (query == "" ? allStations : matches) key=s.id
-            button press=selectStation(s.id) aria-label=s.name testId=`station-${s.id}` padding-top=6 padding-bottom=6 width="100%" text-align="start"
-              text s.name font-size="0.9375em" color="#ffffff"
-          button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="stations-back" padding=8 border-radius=10 background-color="#333333"
-            text "Back" font-size="0.875em" color="#ffffff"
-
-component WatchBoard
-  inject
-    accent: string
-  props
-    title: string
-    board: Departure[]
-    nowMs: number
-    testId: string
-  view
-    column gap=2 testId=testId
-      text title font-size="0.75em" font-weight=700 color=accent
-      if board.isEmpty()
-        text "No more trains" font-size="0.8125em" color="#aaaaaa"
-      else
-        for d in board key=d.id
-          row gap=6 align-items="baseline" testId=`watch-dep-${d.id}`
-            text countdownText(d.at, nowMs) font-size="1.25em" font-weight=700 color="#ffffff" testId=`watch-countdown-${d.id}`
-            text `min · ${formatTime(d.at, 0, "short")}` font-size="0.75em" color="#aaaaaa"
 
 component StationRow
   props

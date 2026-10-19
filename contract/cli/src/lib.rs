@@ -591,6 +591,30 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
         .map(|(plan, _)| plan)
 }
 
+/// Compile an app's watch entry (LLP 1126.002 D4): its own file, whose first
+/// component is the root, as a whole live plan with the main plan's checks,
+/// as a terminal entry is its own file (LLP 1101 D2).
+pub fn compile_watch(app: &Path, entry: &manifest::WatchEntry) -> Result<Plan, Vec<CompileError>> {
+    let path = app.join(&entry.source);
+    let src = read_source(&path).map_err(|e| vec![e])?;
+    let (file, _) = sources::load(&path, &src, &app_root(&path)?)?;
+    if file.components.first().map(|c| c.name.as_str()) != Some(entry.component.as_str()) {
+        return Err(vec![CompileError {
+            pass: "watch",
+            id: "watch-component".to_owned(),
+            message: format!(
+                "app.json's watch.component is `{}`, which is not the first component of {}; make it the first, or name the first",
+                entry.component, entry.source
+            ),
+            span: Span::default(),
+            file: Some(path.clone().into_boxed_path()),
+            related: Box::default(),
+        }]);
+    }
+    compile_path_checked(&path, &src, false, true, contract_lower::Profile::Web)
+        .map(|(plan, _)| plan)
+}
+
 /// The buttons whose `aria-keyshortcuts` chord types a key the game's
 /// `Actions` also bind (LLP 1132 D11), as warnings: on every host the
 /// shortcut takes that press, the key with exactly the chord's modifiers,
