@@ -445,6 +445,66 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(heard, ["input - **one** 4 "])
     }
 
+    /// Tab and Shift-Tab leave the editor along the key-view loop with its
+    /// source as it was, as a plain textarea's do; an app that prevents the
+    /// `key` keeps the focus and makes its own edit.
+    func testTabMovesTheFocusUnlessTheAppTakesTheKey() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = p.viewport
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "input", "props": ["value": "before"]],
+            ["op": "create", "id": 3, "kind": "textarea", "props": ["id": "editor", "value": "- one", "markup": "markdown"], "handlers": ["input", "key"]],
+            ["op": "create", "id": 4, "kind": "input", "props": ["value": "after"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 24.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 300.0, "h": 120.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 180.0, "w": 200.0, "h": 24.0],
+        ]))
+        let f = try XCTUnwrap(p.views[3]?.textArea as? TextArea)
+        let before = try XCTUnwrap(p.views[2]?.field), after = try XCTUnwrap(p.views[4]?.field)
+        XCTAssertNotNil(f.markup)
+        var heard: [String] = [], prevent = false
+        p.onKey = { _, press in
+            heard.append(press.chord)
+            guard prevent else { return }
+            p.defaultPrevented = true
+            p.fieldSelections.setRangeText(["editor", "\t"])
+        }
+        p.fieldSelections.onReplacement = { _, value, _ in heard.append("input \(value)") }
+        // As the session's monitor routes a key, then AppKit when it was not taken.
+        func tab(shift: Bool) throws {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? .shift : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                       windowNumber: window.windowNumber, context: nil, characters: shift ? "\u{19}" : "\t",
+                                                       charactersIgnoringModifiers: shift ? "\u{19}" : "\t", isARepeat: false, keyCode: 48))
+            p.flushKeyViewLoop()
+            if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
+        }
+        let caret = NSRange(location: 2, length: 0)
+        for (shift, target) in [(false, after), (true, before)] {
+            XCTAssertTrue(window.makeFirstResponder(f))
+            f.setSelectedRange(caret)
+            try tab(shift: shift)
+            XCTAssertTrue(window.firstResponder === target.currentEditor(), shift ? "Shift-Tab reaches the field before" : "Tab reaches the field after")
+            XCTAssertEqual(f.string, "- one")
+        }
+        XCTAssertEqual(heard, ["Tab", "Shift+Tab"])
+        heard.removeAll()
+        prevent = true
+        XCTAssertTrue(window.makeFirstResponder(f))
+        f.setSelectedRange(caret)
+        try tab(shift: false)
+        XCTAssertTrue(window.firstResponder === f, "the app took the key")
+        XCTAssertEqual(f.string, "- \tone")
+        XCTAssertEqual(heard, ["Tab", "input - \tone"])
+    }
+
     func testCommandSeamRejectsBrokenRangesInsteadOfSplittingSurrogates() {
         XCTAssertNil(MarkupEdit(source: "🎉", object: ["replacements": [[1, 2, "x"]], "selection": [0, 0]]))
         XCTAssertNil(MarkupEdit(source: "abcd", object: ["replacements": [[1, 3, "x"], [2, 4, "y"]], "selection": [0, 0]]))

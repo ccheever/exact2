@@ -101,12 +101,11 @@ package final class TextArea: NSTextView {
         owner.restyleDecorations()
     }
 
-    package override func insertTab(_ sender: Any?) {
-        if markup != nil { super.insertTab(sender) } else { window?.selectNextKeyView(self) }
-    }
-    package override func insertBacktab(_ sender: Any?) {
-        if markup != nil { super.insertBacktab(sender) } else { window?.selectPreviousKeyView(self) }
-    }
+    /// Tab and Shift-Tab move the focus, the Markdown editor's too, as the
+    /// web's textarea does; an app that wants a tab or an indent prevents
+    /// the `key` and calls `setRangeText` (LLP 1045 D6).
+    package override func insertTab(_ sender: Any?) { window?.selectNextKeyView(self) }
+    package override func insertBacktab(_ sender: Any?) { window?.selectPreviousKeyView(self) }
 
     /// Return: the app's `beforeinput` first, then the Markdown editor's
     /// list continuation, else a line break (LLP 1045 D6).
