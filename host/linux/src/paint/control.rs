@@ -1,8 +1,9 @@
 //! Form controls, painted (LLP 1069.001 D7): this host has no platform
 //! controls to show. Where it has no platform at all (the Linux desktop,
 //! Windows) each is the web's neutral look's (`neutral.rs`; LLP 1115.000
-//! D17). Under the Material look a checkbox is Material's (`material.rs`).
-//! Else, which is Android's reader until its other controls are Material's,
+//! D17). Under the Material look a checkbox and a radio are Material's
+//! (`material.rs`). Else, which is Android's reader until its other controls
+//! are Material's,
 //! a checkbox is Chrome's rounded square, a radio its circle and a switch a
 //! pill with a thumb, filled with `accent-color`, else the platform's accent
 //! where the host reported one ([`accents`]). `appearance: none` draws
@@ -426,10 +427,13 @@ pub(super) fn paint(
         }
         return;
     }
-    let role = node.props.str(PropId::AccessibilityRole);
-    let checkbox = role != Some("switch") && node.props.str(PropId::Type) != Some("radio");
-    if checkbox && look::material() {
-        return super::material::checkbox(backend, node, content, ts, dark, on, scale);
+    let switch = node.props.str(PropId::AccessibilityRole) == Some("switch");
+    let radio = node.props.str(PropId::Type) == Some("radio");
+    if look::material() && !switch {
+        return match radio {
+            true => super::material::radio(backend, node, content, ts, dark, on, scale),
+            false => super::material::checkbox(backend, node, content, ts, dark, on, scale),
+        };
     }
     let disabled = node.props.bool(PropId::Disabled) == Some(true);
     let (accent, on_accent) = accents(accent(node, dark), dark);

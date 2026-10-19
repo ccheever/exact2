@@ -173,13 +173,18 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name, i
   const layers = {};
   const rv = visual(ref, ground, density);
   const cv = visual(cand, ground, density);
-  // Geometry: the layout box, the visual box and its corners, each text's box.
+  // Geometry: the layout box, the visual box and its corners, each text's box; what is inside the layout box from its
+  // origin, so that where the box is is said once. A control Compose puts in its 48 dp minimum touch box, which Exact
+  // answers apart from layout (§5 Q5), is not compared by where it is (the manifest's `placed`).
   const geo = [];
   const edge = (what, a, b) => geo.push({ what, reference: round(a), candidate: round(b), ok: a != null && b != null && Math.abs(a - b) <= LIMIT.geometry });
-  for (const k of ['x', 'y', 'w', 'h']) edge(`layout ${k}`, ref.facts.layout[k], cand.facts.layout[k]);
+  const [ro, co] = [ref.facts.layout, cand.facts.layout];
+  for (const k of specimen.placed ? ['w', 'h'] : ['x', 'y', 'w', 'h']) edge(`layout ${k}`, ro[k], co[k]);
+  const from = (box, o) => ({ ...box, x: box.x - o.x, y: box.y - o.y });
   if (!cv) geo.push({ what: 'visual box', reference: rv, candidate: null, ok: false, note: 'nothing drawn' });
   else {
-    for (const k of ['x', 'y', 'w', 'h']) edge(`visual ${k}`, rv[k], cv[k]);
+    const [a, b] = [from(rv, ro), from(cv, co)];
+    for (const k of ['x', 'y', 'w', 'h']) edge(`visual ${k}`, a[k], b[k]);
     if (rv.corners || cv.corners) {
       ['top-left', 'top-right', 'bottom-right', 'bottom-left'].forEach((c, i) => edge(`corner ${c}`, rv.corners?.[i] ?? null, cv.corners?.[i] ?? null));
     }
@@ -194,10 +199,11 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name, i
     // Where both sides name a text's lines, its height is the line model's (Compose's line height, Exact's
     // paragraph centred on its line) and what places it is the baseline.
     const lines = t.lines?.length && other.lines?.length;
-    for (const k of lines ? ['x', 'w'] : ['x', 'y', 'w', 'h']) edge(`text "${t.text}" ${k}`, t.box[k], other.box[k]);
+    const [a, b] = [from(t.box, ro), from(other.box, co)];
+    for (const k of lines ? ['x', 'w'] : ['x', 'y', 'w', 'h']) edge(`text "${t.text}" ${k}`, a[k], b[k]);
     if (lines) {
       edge(`text "${t.text}" lines`, t.lines.length, other.lines.length);
-      t.lines.forEach((l, i) => edge(`text "${t.text}" baseline ${i + 1}`, l.baseline, other.lines[i]?.baseline ?? null));
+      t.lines.forEach((l, i) => edge(`text "${t.text}" baseline ${i + 1}`, l.baseline - ro.y, other.lines[i] ? other.lines[i].baseline - co.y : null));
     }
     texts.push({ text: t.text, ref: t.box, cand: other.box });
   }
