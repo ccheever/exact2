@@ -713,10 +713,16 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
         || envelope.stream.compatibility_id != compat.id
         || envelope.stream.seq == 0
     {
-        return Err(
-            "publisher receipt does not name this app, channel, cohort and a published sequence"
-                .into(),
-        );
+        return Err(format!(
+            "publisher receipt names {} {} {} seq {}; this binary is {} {} {}",
+            envelope.app_id,
+            envelope.stream.channel,
+            envelope.stream.compatibility_id,
+            envelope.stream.seq,
+            baked.embedded.app_id,
+            baked.embedded.channel,
+            compat.id
+        ));
     }
     if envelope.plan.sha256 != compat.embedded["plan"]["sha256"]
         || envelope.plan.bytes != plan.len() as u64
