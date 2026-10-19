@@ -154,7 +154,13 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     for (const [ctx, id] of Object.entries(was?.parked ?? {})) if (!used.has(id) && !parked.some(([, p]) => p === id) && col.modes.some((x: any) => x.modeId === id)) parked.push([ctx, id]);
     // Only modes a pull made (the ids it kept for contexts) go; one the person added stays.
     const ours = new Set(Object.values(prior));
-    for (const m of [...col.modes]) if (!used.has(m.modeId) && !parked.some(([, p]) => p === m.modeId) && ours.has(m.modeId)) did(col.removeMode(m.modeId));
+    for (const m of [...col.modes]) {
+      if (used.has(m.modeId) || parked.some(([, p]) => p === m.modeId) || !ours.has(m.modeId)) continue;
+      // A mode that goes with values of variables Tamber did not make: refused, named (the whole pull undone).
+      const theirs = variables.filter((x: any) => x.variableCollectionId === col.id && !x.getSharedPluginData?.(KEY, 'token') && x.valuesByMode?.[m.modeId] !== undefined).map((x: any) => x.name);
+      if (theirs.length) throw new Error(`the mode \`${m.name}\` this pull drops holds values of variables Tamber did not make (${theirs.join(', ')}): move them, then pull`);
+      did(col.removeMode(m.modeId));
+    }
     // Names in two steps, each first to a name no mode has or will have, so
     // two modes trading names never ask for one another still has.
     // (each parked name its own, within Figma's 40 characters, told apart from the others and the plan's)

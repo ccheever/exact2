@@ -132,3 +132,14 @@ test('light contexts that differ only by an axis under scheme=dark are one light
   // Contexts the light mode stands for are no context the design dropped.
   expect(contextsMoved(plan, real)).toEqual({ added: [], removed: [] });
 });
+
+test('quick re-check: a light mode\'s edit is checked against each light context it stands for', () => {
+  const real = JSON.parse(REAL);
+  const plan = pull(real, 10);
+  const red = { r: 1, g: 0, b: 0, a: 1 };
+  const figma = held(plan, (_c, v, m, x) => (v === 'accent/fill' && m === 'light' ? red : x));
+  // The design moves only the twin (dim's light): the light mode's edit conflicts there.
+  const moved = JSON.parse(REAL);
+  tokensOf(moved)['dark-style=dim, light']['accent.fill'].$value = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' };
+  expect(conflicts(plan, moved, figma).map(c => [c.mode, c.context, c.figmaOnly ?? false])).toEqual([['light', 'dark-style=black, light', true], ['light', 'dark-style=dim, light', false]]);
+});

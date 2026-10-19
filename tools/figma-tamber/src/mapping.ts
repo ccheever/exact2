@@ -331,12 +331,15 @@ export function conflicts(plan: Plan, fresh: Json, now: Record<string, Record<st
   for (const c of plan.collections) {
     for (const v of c.variables) {
       for (const mode of c.modes) {
-        const context = c.contexts[mode], was = v.values[mode], figma = now[c.name]?.[v.name]?.[mode];
+        const was = v.values[mode], figma = now[c.name]?.[v.name]?.[mode];
         if (figma === undefined || same(was, figma)) continue;
-        const t = design[context]?.[v.token], f = t && toFigma(t);
-        const value = f && !('why' in f) ? f.value : undefined;
-        if (value === undefined) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: true });
-        else if (!same(figma, value)) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: false, ...(same(was, value) ? { figmaOnly: true } : {}) });
+        // (a light mode stands for its twins too: each is a context the pull writes)
+        for (const context of [c.contexts[mode], ...(c.also?.[mode] ?? [])]) {
+          const t = design[context]?.[v.token], f = t && toFigma(t);
+          const value = f && !('why' in f) ? f.value : undefined;
+          if (value === undefined) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: true });
+          else if (!same(figma, value)) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: false, ...(same(was, value) ? { figmaOnly: true } : {}) });
+        }
       }
     }
   }

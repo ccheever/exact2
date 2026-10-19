@@ -736,3 +736,13 @@ test('theme2 18:54: in the split layout, Light values that differ for a token ar
   const out = tokensOf(JSON.parse(chosen.source));
   expect([out['dark-style=black, light']['accent.fill'].$value.hex, out['dark-style=dim, light']['accent.fill'].$value.hex]).toEqual(['#ff0000', '#ff0000']);
 });
+
+test('quick re-check: a mode the pull drops with values of the person\'s variables is refused, named; a light edit is checked against every twin', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], dimLight = col.modes.find((m: any) => m.name === 'dark-style=dim, light').modeId;
+  const mine = f.figma.variables.createVariable('local/gutter', col, 'FLOAT');
+  mine.setValueForMode(dimLight, 8);
+  await expect(send({ type: 'apply', text: REAL }, 'applied')).rejects.toThrow(/local\/gutter/);
+  expect(col.modes.some((m: any) => m.modeId === dimLight)).toBe(true);
+});
