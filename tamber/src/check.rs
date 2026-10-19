@@ -26,6 +26,10 @@ pub struct Checked {
     pub values: Vec<Value>,
     /// The dials it depends on, in declaration order.
     pub dials: Vec<String>,
+    /// The dials its own values name, in declaration order: what it reads
+    /// itself, where `dials` is every dial its value moves with, through
+    /// the tokens it names too.
+    pub reads: Vec<String>,
     /// The tokens its values name, the default's and every `when` line's,
     /// by their names here, in declaration order.
     pub names: Vec<String>,
@@ -66,6 +70,8 @@ struct Checker<'a> {
     used: Vec<BTreeSet<usize>>,
     /// Per token, the tokens its values named as they folded.
     refs: Vec<BTreeSet<usize>>,
+    /// Each token's dials its own values name, by index.
+    reads: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
     /// Tokens refused as declared, which are not folded.
     refused: Vec<bool>,
@@ -100,6 +106,7 @@ pub(crate) fn check(
         named_length: &named_length,
         used: vec![BTreeSet::new(); design.tokens.len()],
         refs: vec![BTreeSet::new(); design.tokens.len()],
+        reads: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
         refused: vec![false; design.tokens.len()],
         refused_names: HashSet::new(),
@@ -147,6 +154,7 @@ pub(crate) fn check(
                 kind: c.kinds[i],
                 values,
                 dials: Vec::new(),
+                reads: Vec::new(),
                 names: Vec::new(),
                 fixed,
                 pairs,
@@ -163,6 +171,10 @@ pub(crate) fn check(
         .into_iter()
         .map(|(i, mut token)| {
             token.dials = c.used[i]
+                .iter()
+                .map(|&d| design.dials[d].name.value.clone())
+                .collect();
+            token.reads = c.reads[i]
                 .iter()
                 .map(|&d| design.dials[d].name.value.clone())
                 .collect();
@@ -1275,7 +1287,10 @@ impl Names for Scope<'_, '_> {
                 })
                 .ok_or_else(quiet);
         }
-        if let Some((_, value)) = c.dials.get(name) {
+        if let Some((d, value)) = c.dials.get(name) {
+            if let Some(&i) = c.stack.last() {
+                c.reads[i].insert(*d);
+            }
             return Ok(match value {
                 DialValue::Color(f) => Named::Color(f.clone()),
                 DialValue::Number(n) => Named::Number(*n),

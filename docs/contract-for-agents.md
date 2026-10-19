@@ -3538,6 +3538,25 @@ design's `params` block (`PostButton.radius = 8px`, `when` lines too), which
 every instance shares; the design server's `set-param` writes it,
 `unset-param` takes it back to the component's default, and a line naming no
 param of the app is warned of.
+A package can ship a design (LLP 1121 D11): a file named for the last part of
+its `package.json` name (`@exact/reading` → `reading.tamber`) beside its entry
+file (what `exports` maps `.` to, else `index.contract`), or the file its
+`package.json` `"tamber"` names inside the package. It starts `tamber reading`
+and holds one `theme` block of tokens named `reading.…`, which the package's
+views name. An app that uses the package gets them. The app's design sets one
+by its full name (`reading.card = #abcdef` in `app.tamber`), which replaces the
+package's, `when` lines and all. A package's design declares no axes, dials,
+`component`, params, icons or `exports` (`tamber-package-block`; its `when`
+lines name the app's axes), declares only `reading.…` names and none of the
+base names (`tamber-package-name`), and a token in it names only tokens the
+same file declares, roles, and the base names `space.xs`…`space.xl` and
+`radius.sm`…`radius.full`, which the app's design defines until the base scale
+ships (`tamber-unknown-token`). An app can't use two packages whose names end
+alike (`@acme/reading` and `@other/reading`) when both ship a design. A
+refusal points at its line in the package's file. `contract tamber
+check|eval|ir|gen` read the app's design alone, so an app token naming a
+package token fails there; check the whole with `contract build` (and
+`contract types`, which lists the package tokens the build keeps).
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
