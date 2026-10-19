@@ -584,3 +584,18 @@ test('round 11: an alias is judged by what it reads once the pull is written, an
   expect(fill.valuesByMode[mode.modeId].type).toBeUndefined();
   expect(tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source))[mode.name]['accent.fill']).toEqual(tokensOf(JSON.parse(TEXT))[mode.name]['accent.fill']);
 });
+
+test('round 11 (Grok): an alias to a token the design drops is listed and written as the design\'s literal, never left pointing nowhere', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], mode = col.modes[0], fill = f.variables.find(v => v.name === 'accent/fill');
+  const soft = f.variables.find(v => v.name === 'accent/soft');
+  soft.valuesByMode[mode.modeId] = fill.valuesByMode[mode.modeId];
+  fill.valuesByMode[mode.modeId] = { type: 'VARIABLE_ALIAS', id: soft.id };
+  const dropped = variant(doc => { for (const c of Object.values<any>(doc.modifiers.mode.contexts)) delete c[0].accent.soft; });
+  const checked = await send({ type: 'check', text: dropped }, 'checked');
+  expect(checked.aliases.map((a: any) => a.variable)).toEqual(['accent/fill']);
+  await send({ type: 'apply', text: dropped }, 'applied');
+  expect(fill.valuesByMode[mode.modeId].type).toBeUndefined();
+  expect(f.variables.includes(soft)).toBe(false);
+});

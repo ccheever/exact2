@@ -70,8 +70,9 @@ async function aliasAfter(v: any, modeId: string, context: string, next: Map<str
     seen.add(value.id);
     const target = await figma.variables.getVariableByIdAsync(value.id);
     if (!target) return undefined;
+    // (a Tamber variable the pull removes, its token dropped: the alias would go nowhere)
     const token = target.getSharedPluginData?.(KEY, 'token');
-    if (token && next.get(token)?.[context] !== undefined) return next.get(token)![context];
+    if (token) return next.get(token)?.[context];
     const col = await collectionOf(target.variableCollectionId, collections);
     if (!col) return undefined;
     value = target.valuesByMode[col.modes.find((m: any) => m.name === mode)?.modeId ?? col.defaultModeId];
