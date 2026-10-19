@@ -104,6 +104,28 @@ pub(super) fn stepped(src: &str, ops: &[Op], vocab: &Vocab) -> Option<String> {
         let (target, group) = &groups[k];
         for op in group {
             doc.apply(&design, op).ok()?;
+            // Stepping parses the whole text again before the next operation:
+            // a line this one wrote that does not parse is refused there. The
+            // lines it can write are its target's, which parse as they would
+            // in the text when parsed alone in their block.
+            let (head, from, to) = match target {
+                Target::Dial(n) => {
+                    let line = design.dials.iter().find(|d| d.name.value == *n)?.name.line;
+                    ("dials", line, line)
+                }
+                Target::Token(i) => {
+                    let t = &design.tokens[*i];
+                    let last = t.whens.last().map_or(t.name.line, |w| w.line);
+                    // (Its new `when` line is entered below, one past the last.)
+                    let new = matches!(op, Op::SetToken { when, .. } if !when.is_empty() && !t.whens.iter().any(|w| same_conds(&w.conds, when)));
+                    ("theme", t.name.line, last + u32::from(new))
+                }
+            };
+            let alone = format!(
+                "tamber t\n\n{head}\n{}\n",
+                doc.lines[from as usize - 1..to as usize].join("\n")
+            );
+            crate::parse(&alone).ok()?;
             // A new `when` line, entered as the parse would read it: at its
             // place among the token's, the lines after it moved down one.
             if let (
@@ -242,7 +264,7 @@ mod tests {
                         }
                     }
                     let value = match pick {
-                        3 => "#fff // a comment".to_string(),
+                        3 => ["#fff // a comment", "x=y z"][rng.next(2)].to_string(),
                         _ => format!("#{:06x}", rng.next(0xff_ffff)),
                     };
                     let at = (rng.next(4) == 0).then(|| rng.next(3));
@@ -273,6 +295,31 @@ mod tests {
         assert!(
             batched > 100 && fell_back > 100,
             "{batched} batched, {fell_back} stepped"
+        );
+    }
+
+    #[test]
+    fn a_line_that_would_not_parse_is_refused_even_when_a_later_operation_rewrites_it() {
+        // `x=y z` is one line and no comment, so `valid` takes it; the dial
+        // line it writes does not parse, which stepping finds as it parses
+        // before the second operation, and the batch must not skip.
+        let src = "tamber t\n\ndials\n  d: number = 1\n\ntheme\n  a = #000000\n";
+        let ops = [
+            Op::SetDial {
+                name: "d".into(),
+                value: "x=y z".into(),
+            },
+            Op::SetDial {
+                name: "d".into(),
+                value: "2".into(),
+            },
+        ];
+        let vocab = Vocab::default();
+        assert!(one_at_a_time(src, &ops, &vocab).is_err());
+        assert_eq!(super::stepped(src, &ops, &vocab), None);
+        assert_eq!(
+            super::super::stepped_all(src, &ops, &vocab),
+            one_at_a_time(src, &ops, &vocab)
         );
     }
 }

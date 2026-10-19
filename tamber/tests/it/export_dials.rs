@@ -444,3 +444,33 @@ fn round_4_a_baseline_whose_references_copy_a_large_tree_is_refused_before_copyi
         "{refused:?}"
     );
 }
+
+/// Judged whole (option B), a dial's change is known before its literal
+/// fallback could stand in the proposal: `a`'s change is the dial's, and
+/// `b`, which reads the dial too, takes its own literal beside it.
+#[test]
+fn a_dials_change_and_another_tokens_literal_land_together() {
+    let design = "tamber t\n\ndials\n  accent: color = #000000\n\ntheme\n  a = accent\n  b = light-dark(accent, #ffffff)\n";
+    let grey =
+        |hex: &str, c: f64| json!({"colorSpace": "srgb", "components": [c, c, c], "hex": hex});
+    let (_, _, import) = edited_in(design, |_, t| {
+        t["a"]["$value"] = grey("#111111", 17.0 / 255.0);
+        t["b"]["$value"] = grey("#222222", 34.0 / 255.0);
+    });
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    assert!(
+        import.ops.contains(&Op::SetDial {
+            name: "accent".into(),
+            value: "#111111".into()
+        }),
+        "{:?}",
+        import.ops
+    );
+    assert!(
+        import.ops.iter().any(
+            |o| matches!(o, Op::SetToken { name, value, .. } if name == "b" && value == "#222222")
+        ),
+        "{:?}",
+        import.ops
+    );
+}

@@ -1410,7 +1410,7 @@ pub fn reimport_against(
                     &mut unmapped,
                     &name,
                     "",
-                    format!("the design would refuse it with the tokens before it ({first})"),
+                    format!("the design would refuse it with the rest of the proposal ({first})"),
                 );
                 continue;
             }

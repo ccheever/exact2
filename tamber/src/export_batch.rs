@@ -27,7 +27,8 @@ pub(crate) struct Judged {
 /// diagnostic on one of their lines), and where a diagnostic is on no line of
 /// theirs (another token's, or the operations' own refusal), halved, the first
 /// half before the second, each on what the taken ones before it made. `Err`
-/// when `base` itself does not check (nothing could be taken).
+/// when `base` itself does not check (nothing could be taken). Checks: the
+/// base's, then one when nothing is refused.
 pub(crate) fn judged(
     base: &str,
     members: &[&[Op]],
@@ -73,9 +74,10 @@ fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
         // Each token a diagnostic is on refused with its own, the rest tried
         // again without them.
         Err(blamed) => {
+            let out: std::collections::HashSet<usize> = blamed.iter().map(|(b, _)| *b).collect();
             let rest: Vec<(usize, &[Op])> = members
                 .iter()
-                .filter(|(k, _)| !blamed.iter().any(|(b, _)| b == k))
+                .filter(|(k, _)| !out.contains(k))
                 .copied()
                 .collect();
             at.refused.extend(blamed);
@@ -123,58 +125,27 @@ fn blamed(
         .iter()
         .map(|d| (d.name.line, d.name.value.as_str()))
         .collect();
-    // A token's index by name, and the tokens its lines name.
-    let index: std::collections::HashMap<&str, usize> = design
-        .tokens
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.name.value.as_str(), i))
-        .collect();
-    let names = |i: usize| -> Vec<usize> {
-        let t = &design.tokens[i];
-        std::iter::once(&t.value.value)
-            .chain(t.whens.iter().map(|w| &w.value.value))
-            .flat_map(|v| {
-                v.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-            })
-            .filter_map(|w| index.get(w).copied())
-            .collect()
-    };
-    // The member a diagnostic is on: its token's or its dial's; for a token
-    // no member is, the one member among what it reads, through tokens no
-    // member is (an unchanged token refused for what a change made of a token
-    // it reads). None: on no member, or on more than one.
+    // The member a diagnostic is on: its token's or its dial's; on no
+    // member's line (an unchanged token refused for what a change made of a
+    // token it reads), none, and the set is halved.
     let on = |line: u32| -> Option<usize> {
         let k = spans.partition_point(|(first, ..)| *first <= line);
         let name = match k.checked_sub(1).map(|k| spans[k]) {
             Some((_, last, name)) if line <= last => name,
-            _ => return owner.get(dials.get(&line)?).copied(),
+            _ => dials.get(&line)?,
         };
-        if let Some(&m) = owner.get(name) {
-            return Some(m);
-        }
-        let (mut seen, mut queue, mut found) =
-            (std::collections::HashSet::new(), vec![index[name]], None);
-        while let Some(i) = queue.pop() {
-            for j in names(i) {
-                if !seen.insert(j) {
-                    continue;
-                }
-                match owner.get(design.tokens[j].name.value.as_str()) {
-                    Some(&m) if found.is_some_and(|f| f != m) => return None,
-                    Some(&m) => found = Some(m),
-                    None => queue.push(j),
-                }
-            }
-        }
-        found
+        owner.get(name).copied()
     };
     let mut out: Vec<(usize, Vec<Diagnostic>)> = Vec::new();
+    let mut at: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     for d in all {
         let k = on(d.line)?;
-        match out.iter_mut().find(|(b, _)| *b == k) {
-            Some((_, ds)) => ds.push(d.clone()),
-            None => out.push((k, vec![d.clone()])),
+        match at.get(&k) {
+            Some(&j) => out[j].1.push(d.clone()),
+            None => {
+                at.insert(k, out.len());
+                out.push((k, vec![d.clone()]));
+            }
         }
     }
     (!out.is_empty()).then_some(out)
@@ -218,6 +189,10 @@ pub(crate) struct Taken<'a> {
 /// lines applied together on `current` and checked once ([`judged`]); a
 /// refused token is reported with its own reason, and each other is asked
 /// (`again`) what the folding makes of its lines, until no token adds a pin.
+/// A token that may be a dial's change (D14) is judged on its own, as its
+/// literal lines are only a fallback for when the dial cannot take it, which
+/// is known after (`export_dials::dials`): beside the others they would stand
+/// for an edit the proposal may not make (its dial unused, say).
 pub(crate) fn rounds(
     names: &[String],
     planned: &mut [Planned],
@@ -226,25 +201,60 @@ pub(crate) fn rounds(
     vocab: &Vocab,
     mut again: impl FnMut(&String, Taken) -> Planned,
 ) {
-    let mut pinned = vec![0u32; planned.len()];
-    let mut done = vec![false; planned.len()];
+    let pending = |p: &Planned| match p {
+        Planned::Kind(_, ops) => !ops.is_empty(),
+        Planned::Colour { ops, why: None, .. } => !ops.is_empty(),
+        _ => false,
+    };
+    let (mut together, mut alone) = (Vec::new(), Vec::new());
+    for (i, p) in planned.iter().enumerate() {
+        match p {
+            Planned::Colour { dial: Some(_), .. } if pending(p) => alone.push(vec![i]),
+            p if pending(p) => together.push(i),
+            _ => {}
+        }
+    }
     let lines: Vec<&str> = current.split('\n').collect();
+    for set in std::iter::once(together).chain(alone) {
+        settle(
+            &set, names, planned, cur, current, &lines, vocab, &mut again,
+        );
+    }
+}
+
+/// [`rounds`] for the tokens `set` (source order).
+#[allow(clippy::too_many_arguments)]
+fn settle(
+    set: &[usize],
+    names: &[String],
+    planned: &mut [Planned],
+    cur: &Folding,
+    current: &str,
+    lines: &[&str],
+    vocab: &Vocab,
+    again: &mut impl FnMut(&String, Taken) -> Planned,
+) {
+    let mut pinned = vec![0u32; set.len()];
+    let mut refused = vec![false; set.len()];
     for _ in 0..4 {
-        // Every pending token's lines are the proposal's, whether or not its
-        // values are settled; those whose values are not are asked.
-        let members: Vec<usize> = (0..planned.len())
-            .filter(|&i| match &planned[i] {
+        // Every member's lines are the proposal's, and every member is asked
+        // what this round's folding makes of them: one settled in a round
+        // before is asked again, as a pin added or a token dropped since may
+        // move what its lines read. A refused one leaves.
+        let members: Vec<usize> = (0..set.len())
+            .filter(|&k| !refused[k])
+            .filter(|&k| match &planned[set[k]] {
                 Planned::Kind(_, ops) => !ops.is_empty(),
-                Planned::Colour { ops, why: None, .. } => !ops.is_empty(),
+                Planned::Colour { ops, why, .. } => why.is_none() && !ops.is_empty(),
                 _ => false,
             })
             .collect();
-        if members.iter().all(|&i| done[i]) {
+        if members.is_empty() {
             return;
         }
         let ops: Vec<&[Op]> = members
             .iter()
-            .map(|&i| match &planned[i] {
+            .map(|&k| match &planned[set[k]] {
                 Planned::Kind(_, ops) | Planned::Colour { ops, .. } => ops.as_slice(),
                 _ => &[],
             })
@@ -252,7 +262,10 @@ pub(crate) fn rounds(
         let Ok(at) = judged(current, &ops, vocab) else {
             return;
         };
-        for (k, all) in &at.refused {
+        // Whether this round changed the proposal (then the next one asks
+        // again; one that changes nothing settles every member).
+        let mut moved = false;
+        for (m, all) in &at.refused {
             let first = all
                 .first()
                 .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
@@ -260,52 +273,59 @@ pub(crate) fn rounds(
                 String::new(),
                 format!("the design would refuse it ({first})"),
             );
-            let i = members[*k];
-            match &mut planned[i] {
+            let k = members[*m];
+            match &mut planned[set[k]] {
                 Planned::Colour { why: w, .. } => *w = Some(why),
                 p => *p = Planned::Report(why.0, why.1),
             }
-            done[i] = true;
+            refused[k] = true;
+            moved = true;
         }
         let made: Vec<&str> = at.text.split('\n').collect();
-        let mut more = false;
-        for &i in &members {
-            if done[i] {
+        for &k in &members {
+            let i = set[k];
+            if refused[k] {
                 continue;
             }
             let index = match &planned[i] {
                 Planned::Kind(index, _) | Planned::Colour { index, .. } => *index,
                 _ => continue,
             };
-            let unchanged = block(&lines, &cur.design.tokens[index])
+            let unchanged = block(lines, &cur.design.tokens[index])
                 == block(&made, &at.folding.design.tokens[index]);
             let taken = Taken {
                 folding: &at.folding,
                 unchanged,
-                rounds: pinned[i],
+                rounds: pinned[k],
             };
             match (again(&names[i], taken), &mut planned[i]) {
-                (Planned::Done, _) => done[i] = true,
+                (Planned::Done, _) => {}
                 (Planned::Cleared, Planned::Colour { ops, .. }) => {
                     ops.clear();
-                    done[i] = true;
+                    moved = true;
                 }
                 (Planned::Pins(pins), Planned::Colour { ops, .. }) => {
                     ops.extend(pins);
-                    pinned[i] += 1;
-                    more = true;
+                    pinned[k] += 1;
+                    moved = true;
                 }
                 (Planned::Report(block, why), Planned::Colour { why: w, .. }) => {
                     *w = Some((block, why));
-                    done[i] = true;
+                    refused[k] = true;
+                    moved = true;
+                }
+                (Planned::Kind(index, ops), Planned::Kind(_, was)) => {
+                    moved |= ops != *was;
+                    planned[i] = Planned::Kind(index, ops);
                 }
                 (answer, p) => {
                     *p = answer;
-                    done[i] = true;
+                    refused[k] = true;
+                    moved = true;
                 }
             }
         }
-        if !more {
+        if !moved {
             return;
         }
     }
