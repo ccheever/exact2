@@ -61,7 +61,7 @@ export function install(exact) {
     if (el.hasAttribute('inert')) props.inert = true;
     // A disabled control, as the runner's tree gives its `disabled` prop (LLP 1116.010 D3: `expect disabled`, and a press refused the same on every host).
     // `aria-disabled` is its own prop, as the runner gives it: it reads as disabled, but a press still dispatches.
-    if (el.matches(':disabled')) props.disabled = true;
+    if (el.matches(':disabled, [disabled]')) props.disabled = true; // a box's own `disabled`, which `:disabled` does not match
     if (el.getAttribute('aria-disabled') === 'true') props.accessibilityDisabled = true;
     if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
     if (el.getAttribute('aria-modal') === 'true' && !sheet) props.accessibilityModal = true;
