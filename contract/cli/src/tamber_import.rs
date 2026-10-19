@@ -15,6 +15,36 @@ use std::process::ExitCode;
 const USAGE: &str =
     "usage: contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or directory> | astryx <resolved theme json> [--app <app dir>] [--prefix <prefix>]";
 
+/// One import planned in a process of its own (stage 10b; the lead's
+/// 12:31Z ruling): a paired client's file is read here, never in the shared
+/// `tamber serve`, so whatever it costs, the wire's watchdog can stop it.
+/// Stdin is `{request, design}` (the design's text, null with none), the
+/// argument the design file (its kept exports beside it); stdout `{ok}` or
+/// `{error}`, as `import-plan` answers on the serve.
+pub fn plan_alone(args: &[String]) -> ExitCode {
+    use std::io::Read;
+    let [design] = args else {
+        eprintln!("usage: contract tamber import-plan <design file>");
+        return ExitCode::from(2);
+    };
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        return ExitCode::from(2);
+    }
+    let reply = match serde_json::from_str::<Value>(&input) {
+        Ok(v) => {
+            let kept = crate::tamber_export::kept(Path::new(design));
+            match plan(&v["request"], v["design"].as_str(), &kept) {
+                Ok(ok) => json!({ "ok": ok }),
+                Err(error) => json!({ "error": error }),
+            }
+        }
+        Err(e) => json!({"error": {"message": format!("not JSON: {e}")}}),
+    };
+    println!("{reply}");
+    ExitCode::SUCCESS
+}
+
 pub fn run(args: &[String]) -> ExitCode {
     let (mut kind, mut source, mut app, mut prefix) = (None, None, None, None);
     let mut i = 0;

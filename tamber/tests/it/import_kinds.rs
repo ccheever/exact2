@@ -362,6 +362,13 @@ fn each_importer_maps_what_the_source_means_or_reports_it() {
         "{:?}",
         i.unmapped
     );
+    // Tokens Studio's stack keeps its own quotes.
+    let files = vec![(
+        "t.json".to_string(),
+        r#"{"f": {"type": "fontFamilies", "value": "\"A  B\", serif"}}"#.to_string(),
+    )];
+    let i = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    assert!(accepted(&i).contains("ds.f"), "{:?}", i.unmapped);
 }
 
 /// Review round 1 (Grok): chains of references, a leading over a token, and

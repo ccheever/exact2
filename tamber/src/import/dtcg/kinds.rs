@@ -195,8 +195,11 @@ fn family(ty: &str, v: &Value) -> Result<String, String> {
     };
     // A name a design's quotes can't hold (a quote, a backslash, a control
     // character) is no family it reads: reported, never written broken.
+    // Tokens Studio's stack is CSS as written: its quotes are its own, only
+    // a control character refused there.
     let held = |m: &str| !m.chars().any(|c| c == '"' || c == '\\' || c.is_control());
     if !match v {
+        Value::String(s) if ty == "fontFamilies" => !s.chars().any(char::is_control),
         Value::String(s) => held(s),
         Value::Array(a) => a.iter().filter_map(Value::as_str).all(held),
         _ => true,

@@ -95,6 +95,8 @@ import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMa
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
+import { planAlone } from './tamber-isolate.mjs';
+import { importReview, marked } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
@@ -154,7 +156,7 @@ function spawnContract(appDir) {
  * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`); `canvas(pairing)`
  * makes that gateway (scripts/tamber-canvas.mjs; null for none), which
  * `canvas` answers once its port is open (`openCanvas`). */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = pairing => canvasGateway({ pairing }) }) {
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = pairing => canvasGateway({ pairing }), importLimits }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -1116,7 +1118,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // One file (`source`, `name`), or several (`sources`). A `baseline` (the export the client pulled) is taken when this run gave it
     // out, is kept, or is the design's own (stage 10b). Held on the design text it was planned and marked on, else planned again.
     for (let tries = 0; ; tries++) {
-      const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) });
+      // (planned in a process of its own, watched: scripts/tamber-isolate.mjs)
+      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, designPath(appDir) ?? resolve(appDir, design), importLimits);
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
       const { ops, review } = importReview(planned.ok);
       if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
@@ -1453,28 +1456,6 @@ const revertKey = o => /^(un)?set-state$/.test(o.op) ? editKey(o.file, { what: '
   // An axis's values each their own item, as a token's `when`s are.
   when: ['set-token', 'unset-token-when'].includes(o.op) ? o.when : /axis-value/.test(o.op) ? [{ axis: o.axis, value: o.value }] : [],
 });
-
-/** An importer's proposal (`contract tamber import`'s JSON) as one held
- * proposal's operations: the tokens, then each role override as its own
- * items, for the review to leave off until ticked (accepting some items
- * recomputes); and the review the tool reads. */
-function importReview(imported) {
-  const ops = [...imported.ops];
-  const offers = imported.offers.map(o => {
-    const items = o.ops.map((op, k) => ops.length + k);
-    ops.push(...o.ops);
-    return { role: o.role, token: o.token, items, note: o.note };
-  });
-  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...marked(ops, imported.dials, imported.pins) } };
-}
-/** A re-import's dial changes and marked pins (stage 10b), when it has any,
- * each naming the operations it is (`items`), as an offer does. */
-function marked(ops, dials = [], pins = []) {
-  const same = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []), at = test => ops.flatMap((op, i) => (test(op) ? [i] : []));
-  dials = dials.map(d => ({ ...d, items: at(op => op.op === 'set-dial' && op.name === d.dial) }));
-  pins = pins.map(p => ({ ...p, items: at(op => op.op === 'set-token' && op.name === p.token && same(op.when, p.when)) }));
-  return { ...(dials.length ? { dials } : {}), ...(pins.length ? { pins } : {}) };
-}
 
 /** `bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>]
  * [--prefix <p>]`: another system's theme (LLP 1121 D14) as held proposals

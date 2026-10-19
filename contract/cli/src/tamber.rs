@@ -15,12 +15,16 @@ const USAGE: &str = "usage:
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
   contract tamber gen ts|rust <app dir | app.contract | file.tamber> [-o <dir>]   (bindings, in the app's .exact/tamber/)
   contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
+  contract tamber import-plan <design file>   (one import planned alone: {request, design} on stdin, {ok} or {error} out; the wire's)
   contract tamber export dtcg <app dir | app.contract | file.tamber> [-o <file>]   (DTCG 2025.10; its baseline kept in .exact/)
   (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {
     if args.first().is_some_and(|a| a == "serve") {
         return crate::tamber_serve::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "import-plan") {
+        return crate::tamber_import::plan_alone(&args[1..]);
     }
     if args.first().is_some_and(|a| a == "import") {
         return crate::tamber_import::run(&args[1..]);
