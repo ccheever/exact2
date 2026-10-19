@@ -74,14 +74,16 @@ export function planAlone(request, design, limits = {}, appDir = null, who = nul
     released = true;
     queued--;
     if (who !== null) { const n = mine.get(who) - 1; if (n) mine.set(who, n); else mine.delete(who); }
+    who = null; // (nothing of the client's kept while it waits out its turn)
   };
   // The request, let go of as soon as it leaves the queue unplanned (a
   // cancelled import's source is not held until its turn comes).
   let job = request;
+  request = null;
   let answer, expired = false, stopRun = null;
   const reply = new Promise(ok => { answer = ok; });
   // Gone before its turn: out of the queue now; while it runs: stopped.
-  const cancel = () => { if (stopRun) return stopRun(cancelled); if (expired) return; expired = true; job = null; clearTimeout(wait); release(); answer(cancelled); };
+  const cancel = () => { if (stopRun) return stopRun(cancelled); if (expired) return; expired = true; job = null; clearTimeout(wait); pending.delete(cancel); release(); answer(cancelled); };
   pending.add(cancel);
   l.signal?.addEventListener('abort', cancel, { once: true });
   // Each waiting entry expires on its own clock, whatever is ahead of it.

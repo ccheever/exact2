@@ -182,25 +182,30 @@ test('round 3: a re-import with no marks, recomputed after the design moved, is 
 
 test('an import stops with its request or its client: a closed request or a revoked client frees the planner at once', async () => {
   const t0 = Date.now();
-  limits.spawnPlan = () => spawn('sh', ['-c', 'cat > /dev/null; sleep 30'], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+  // Each stand-in planner says when it started and when it exited.
+  const planners = [];
+  limits.spawnPlan = () => { const child = spawn('sh', ['-c', 'cat > /dev/null; sleep 30'], { stdio: ['pipe', 'pipe', 'pipe'], detached: true }); planners.push(new Promise(ok => child.once('exit', ok))); return child; };
+  const started = n => new Promise(ok => { const t = setInterval(() => { if (planners.length >= n) { clearInterval(t); ok(); } }, 10); });
   try {
     // The request closed by its client: the planner stopped, the next import taken at once.
     const closed = new AbortController();
     const left = fetch(`${origin}/__tamber`, { method: 'POST', signal: closed.signal, headers: { 'content-type': 'application/json', 'x-exact-tamber-token': local }, body: JSON.stringify({ method: 'import', client: 'tool', kind: 'shadcn', source: ':root { --primary: #ff0000; }' }) }).catch(() => null);
-    await new Promise(ok => setTimeout(ok, 300));
+    await started(1);
     closed.abort();
     await left;
+    await planners[0]; // (stopped, not left to its 30 s)
     // A paired client revoked while its import runs: answered, not left 30 s.
     const { code } = (await post({ method: 'pair-code', scope: 'propose', name: 'figma' })).ok;
     flags = { allowed: true, local: false, remote: true, peer: `203.0.113.${++peers}` };
     const pair = (await post({ code }, null, '/__tamber/pair')).ok;
     flags = null;
-    await new Promise(ok => setTimeout(ok, 300)); // (the closed one's planner reaped)
+    await new Promise(ok => setTimeout(ok, 100)); // (the closed one's permit back once its close is seen)
     const running = post({ method: 'import', client: 'figma', kind: 'shadcn', source: ':root { --primary: #ff0000; }' }, pair.token);
-    await new Promise(ok => setTimeout(ok, 300));
+    await started(2);
     expect((await post({ method: 'revoke', client: pair.client })).ok).toEqual({ revoked: pair.client });
     const answered = await running;
     expect([answered.status, answered.error?.message]).toEqual([503, 'the import was cancelled']);
+    await planners[1];
   } finally { delete limits.spawnPlan; }
   // The real planner again, its turn not behind a 30 s one.
   await new Promise(ok => setTimeout(ok, 300));

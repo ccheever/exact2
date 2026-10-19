@@ -921,7 +921,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** The proposals held now, as a reconnecting client reads them. */
   // A paired client past its deadline is shown as revoked before its end runs.
   const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
-  async function hold(client, ops, files, replaces, review, requires, scope = 'write') {
+  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined) {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
@@ -959,6 +959,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         if (!planned.ok) return planned;
       }
     }
+    // Its import cancelled while it was planned (an import's `signal`): decided in the same turn as the insert, nothing evicted.
+    if (signal?.aborted) return { status: 503, error: { message: 'the import was cancelled' } };
     delete planned.ok.texts;
     const id = `prop-${epoch}-${++proposalCount}`;
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
@@ -1133,11 +1135,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (!planned.ok.digest) return { status: 409, error: { message: 'the design file is not there: create it, then import' } }; // (no digest, no guard)
       const { ops, review } = importReview(planned.ok);
       if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
-      // Cancelled while planned or held (its request gone, its client ended): never held, or dropped at once, as its client's own drop.
+      // Cancelled while planned or held (its request gone, its client ended): never held.
+      // (answered at once: the hold, when its plan comes back, sees the signal and holds nothing)
       const gone = { status: 503, error: { message: 'the import was cancelled' } };
       if (signal?.aborted) return gone;
-      const held = await hold(request.client, ops, { [relative(appDir, target)]: planned.ok.digest }, undefined, review, undefined, scope);
-      if (held.ok && signal?.aborted) { if (proposals.has(held.ok.proposal)) forget(held.ok.proposal, { client: request.client, reason: 'dropped' }); return gone; }
+      const cut = signal && new Promise(ok => signal.addEventListener('abort', () => ok(gone), { once: true }));
+      const held = await Promise.race([hold(request.client, ops, { [relative(appDir, target)]: planned.ok.digest }, undefined, review, undefined, scope, signal), ...(cut ? [cut] : [])]);
+      if (held === gone) return gone;
       if (held.ok) proposals.get(held.ok.proposal).reimport = true; else if (held.error?.conflict && tries < 2) continue; return held;
     }
   }

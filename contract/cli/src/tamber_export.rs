@@ -183,16 +183,14 @@ fn kept_within(design: &Path, mut left: u64) -> Vec<String> {
         // Every byte read is charged, a file that is not text too; one
         // byte past what is left ends the reading.
         let mut bytes = Vec::new();
-        let n = f
-            .take(left + 1)
-            .read_to_end(&mut bytes)
-            .map_or(0, |n| n as u64);
-        let n = n.max(bytes.len() as u64);
+        let read = f.take(left + 1).read_to_end(&mut bytes);
+        let n = bytes.len() as u64;
         if n > left {
             break;
         }
         left -= n;
-        if let Ok(text) = String::from_utf8(bytes) {
+        // (a read that failed part way is charged, never kept)
+        if let (Ok(_), Ok(text)) = (read, String::from_utf8(bytes)) {
             out.push(text);
         }
     }
