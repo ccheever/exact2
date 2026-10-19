@@ -7,7 +7,6 @@ opaque between the sun and the sand, and a camera that stays inside the glass.
 
 ```rust
 use exact_game::*;
-const GLASS_MIN: Vec3 = Vec3::new(-10., 0., -30.);
 const GLASS_MAX: Vec3 = Vec3::new(10., 8., 6.);
 /// Where the camera rides behind the sub, in metres.
 const BOOM: Vec3 = Vec3::new(0., 1.5, 5.);
@@ -34,7 +33,8 @@ fn tank(w: &mut World) {
 }
 /// Near the front glass, shorten the boom's reach back and lift it by the same
 /// length: the camera stays half a metre inside the glass and keeps aiming at
-/// the sub. The follower eases between points inside, so it never leaves.
+/// the sub, exactly once the follower has caught up with the offset. The
+/// follower eases between points inside, so it never leaves.
 fn fit_boom(w: &World) {
     let sub = w.require::<Transform>("sub").position;
     let back = (GLASS_MAX.z - 0.5 - sub.z).clamp(0., BOOM.z);

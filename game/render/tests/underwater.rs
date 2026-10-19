@@ -149,15 +149,16 @@ fn frame(width: f32, height: f32, now_ms: f64) -> Frame {
         headroom: 1.0,
     }
 }
-/// The frame at `ms` on the simulation clock, and the sub's screen rectangle
-/// (x, y, width, height) in it.
+/// The frame at `ms` on the simulation clock, the sub's screen rectangle
+/// (x, y, width, height) in it, and the simulation's tick, sub and camera
+/// positions as the world reports them after that frame.
 fn shoot(
     gpu: &Gpu,
     exposure: f32,
     opaque_surface: bool,
     ms: f64,
     name: &str,
-) -> (fixture::Pixels, Rect) {
+) -> (fixture::Pixels, Rect, (u64, Vec3, Vec3)) {
     let mut s = WorldSurface::<Tank>::default();
     s.bind(
         &[
@@ -182,7 +183,30 @@ fn shoot(
         .agent(r#"{"op":"layout","entity":"sub","width":192,"height":108}"#)
         .unwrap();
     let sub = json::from_str::<Layout>(&layout).unwrap().entity.screen;
-    (pixels, sub)
+    let mut place = |name: &str| {
+        let reply = s
+            .agent(&format!(r#"{{"op":"state","entity":"{name}"}}"#))
+            .unwrap();
+        let state =
+            json::from_str::<EntityState>(&reply).unwrap_or_else(|e| panic!("{e}: {reply}"));
+        (state.tick, state.entity.components.Transform.position)
+    };
+    let ((tick, sub_at), (_, camera_at)) = (place("sub"), place("camera"));
+    (pixels, sub, (tick, sub_at, camera_at))
+}
+#[derive(Default, Data)]
+struct EntityState {
+    tick: u64,
+    entity: EntityComponents,
+}
+#[derive(Default, Data)]
+struct EntityComponents {
+    components: Components,
+}
+#[derive(Default, Data)]
+#[allow(non_snake_case)]
+struct Components {
+    Transform: Transform,
 }
 #[derive(Default, Data, Debug)]
 struct Rect {
@@ -216,12 +240,20 @@ fn sand(p: &fixture::Pixels) -> f32 {
 #[test]
 fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
     let Some(gpu) = gpu() else { return };
-    let (recipe, _) = shoot(&gpu, 1., false, 0., "underwater");
-    let (dark, _) = shoot(&gpu, 0.25, false, 0., "underwater-exposure-quarter");
-    let (bright, _) = shoot(&gpu, 4., false, 0., "underwater-exposure-4x");
-    let (shaded, _) = shoot(&gpu, 1., true, 0., "underwater-opaque-surface");
+    let (recipe, _, _) = shoot(&gpu, 1., false, 0., "underwater");
+    let (dark, _, _) = shoot(&gpu, 0.25, false, 0., "underwater-exposure-quarter");
+    let (bright, _, _) = shoot(&gpu, 4., false, 0., "underwater-exposure-4x");
+    let (shaded, _, _) = shoot(&gpu, 1., true, 0., "underwater-opaque-surface");
     // Three seconds in, the sub has backed against the front glass.
-    let (glass, sub) = shoot(&gpu, 1., false, 3000., "underwater-at-glass");
+    let (glass, sub, (tick, sub_at, camera_at)) =
+        shoot(&gpu, 1., false, 3000., "underwater-at-glass");
+    // The frame is of the sub at the glass only if the simulation got there.
+    assert_eq!(tick, 3 * u64::from(Tank::HZ), "3 s of ticks");
+    assert_eq!(sub_at.z, GLASS_MAX.z - 1.25, "the sub against the glass");
+    assert!(
+        (camera_at.z - (GLASS_MAX.z - 0.5)).abs() < 0.01,
+        "the camera on the glass's inner face: {camera_at}"
+    );
     let means = [&recipe, &dark, &bright, &glass].map(mean_luminance);
     let sands = [&recipe, &shaded].map(sand);
     eprintln!(
