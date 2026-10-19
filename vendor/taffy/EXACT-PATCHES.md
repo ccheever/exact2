@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57 and 58 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58 and 59 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1915,6 +1915,22 @@ from 100×60 to 100×80; its automatic-height sibling changes from 100×60 to
 percentage bounds, short content, nested flex/grid contents, ratios 2 and 0.5,
 and reversed columns. Non-binding and binding 70px width maxima retain
 40×70 and 70×70 items respectively.
+
+## Patch 60: a cache's measure slots are allocated as they are used
+
+`Cache::measure_entries` held `CACHE_SIZE` (nine) `Option<CacheEntry<Size<f32>>>`
+inline, 360 of a boxed cache's 448 bytes, for a box that is measured under one
+or two inputs before its final layout. It is now a `Vec` of the slots used so
+far, grown three at a time (`reserve_exact`), the entries at the same indices:
+slots fill in cursor order, the cursor skips only a slot whose recently-used
+bit is set (a filled one) and wraps only past the ninth, so slot `i` exists for
+every `i < len()`, and the store either replaces slot `i` or pushes it. Hits,
+eviction and `clear` (which keeps the allocation) answer as before. Euxy's
+first screen: 312 caches of 448 bytes become 312 of 120 and their slots.
+
+**Held by** `tree::cache::tests` (`lazy_storage_preserves_cache_answers_and_clear_state`
+compares every answer with an eagerly stored cache through 240 mixed stores,
+hits and clears) and the kernel's layout tests.
 
 ## Cargo workspace boundary
 
