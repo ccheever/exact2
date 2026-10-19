@@ -8,6 +8,6 @@ use Note from "@exact/notes"
 
 component App
   view
-    column testId="root" width=420 gap=8 background-color="probe.ground"
+    column testId="root" width=360 gap=8 padding-top=120 background-color="probe.ground"
       Card(title="A card")
       Note(body="A note")
