@@ -65,29 +65,31 @@ final class MIDIMacTests: XCTestCase {
     }
 
     /// How late the main queue runs a strict timer's handler: each 10 ms
-    /// beat's lateness, by when it ran. A loaded machine delays every handler
+    /// beat's lateness, by its deadline. A loaded machine delays every handler
     /// on main, a batch's drain among them; a bound adds only the lag seen
     /// while that batch waited. Its own wakeups can run a coalesced drain on
     /// time, so the lone-tick test measures with it only around its wait.
     private final class MainLag {
         private let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
         private var due: Double
-        private(set) var beats: [(at: Double, late: Double)] = []
+        /// Each beat's deadline and how late it ran.
+        private(set) var beats: [(due: Double, late: Double)] = []
         init() {
             due = CACurrentMediaTime() + 0.010
             timer.schedule(deadline: .now() + 0.010, repeating: 0.010, leeway: .nanoseconds(0))
             timer.setEventHandler { [unowned self] in
                 let now = CACurrentMediaTime()
-                beats.append((now, now - due))
+                beats.append((due, now - due))
                 // The expirations this handler stands for keep the timer's phase.
                 due += Double(max(1, timer.data)) * 0.010
             }
             timer.resume()
         }
         func stop() { timer.cancel() }
-        /// The most a beat that ran in `from...to` came late.
+        /// The most a beat due in `from...to` came late: a beat due while a
+        /// batch waited runs late, after the batch, when main is as busy.
         func most(_ from: Double, _ to: Double) -> Double {
-            beats.filter { (from...to).contains($0.at) }.map(\.late).max() ?? 0
+            beats.filter { (from...to).contains($0.due) }.map(\.late).max() ?? 0
         }
         var most: Double { beats.map(\.late).max() ?? 0 }
     }
