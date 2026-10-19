@@ -320,6 +320,21 @@ export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storag
  *  beside the hold under `--touch platform` (Share.swift, DocumentPickers.swift). */
 const HELD_SHEETS = { share: 'share sheet', pick: 'photo or file picker', 'open-file': 'document picker', 'open-directory': 'document picker', 'save-file': 'document picker', export: 'export sheet', auth: 'sign-in sheet' };
 const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
+/** The popover the tap of node `id` left open that UIKit would present as its pull-down (a UIMenu) and the agent
+ *  paints in the page, by its `id`, from the `tree` after the tap; else null. As MenusIOS.swift `sync` decides: an
+ *  invoker at or above `id` opens it by `popovertarget` or `commandfor`; it is no dialog or alert; a native button's
+ *  (`type: button` control) only when it is `role="menu"`. Open is the host's (`decorateTree`). */
+export function paintedMenu(nodes, id) {
+  const by = new Map((nodes ?? []).map((n) => [n.id, n]));
+  let invoker = by.get(id);
+  while (invoker && invoker.props?.popovertarget == null && invoker.props?.commandfor == null) invoker = by.get(invoker.parent);
+  const name = invoker?.props?.popovertarget ?? invoker?.props?.commandfor;
+  if (name == null || invoker.props.popovertargetaction === 'hide' || /^(hide-popover|close|request-close)$/i.test(invoker.props.command ?? '')) return null;
+  const pop = (nodes ?? []).find((n) => n.props?.id === name && n.props?.popover != null);
+  if (!pop || pop.open !== true || pop.props.semanticTag === 'dialog' || pop.props.accessibilityRole === 'alertdialog') return null;
+  const native = invoker.type === 'Control' && invoker.props.type === 'button';
+  return native && pop.props.accessibilityRole !== 'menu' ? null : name;
+}
 // Native and web canvas journals advance their own cursors on every wire read.
 // Advice owns no journal entries: keep its batches until the caller asks for logs.
 const peekedWorldLogs = new WeakMap();
@@ -350,8 +365,16 @@ export function driveNotes(s, { host, storage, origins = [] }) {
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
   let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
-  return async (op) => {
+  return async (op, reply) => {
     if (s.carrier?.installNote) note('install', s.carrier.installNote); // a Release build replaced for the drive (devices.mjs `keepInstalledRelease`)
+    if (s.carrier?.axNote) note('ax', s.carrier.axNote); // the simulator's accessibility, which this drive's touches turned on
+    // The agent paints a menu where the app presents UIKit's pull-down: the euxy port read it as an app bug.
+    // Only a tap that activated (not a hover, wheel, pinch or a contact's phase), and only once.
+    if (op === 'tap' && reply?.tapped != null && ['activation', 'host-activation'].includes(reply.delivery) && reply.phase == null && reply.wheel == null && reply.error == null
+      && ['ios', 'host-ios'].includes(host) && s.carrier?.touch !== 'platform' && !said.has('menu')) {
+      const menu = paintedMenu((await bounded(s.tree(), 3000))?.nodes, reply.tapped);
+      if (menu) note('menu', `the tap opened the popover \`${menu}\` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform`);
+    }
     // A system sheet held for the agent is drawn by no host: a screenshot of it shows the app alone (euxy port).
     if (op === 'screenshot') {
       const ios = ['ios', 'host-ios'].includes(host), real = ios && s.carrier?.touch === 'platform';

@@ -7,7 +7,9 @@
 // `ms` of wall clock or `outBytes` of answer, or when it can't watch it
 // (macOS ignores RLIMIT_AS, so the parent watches; on Linux the limit is set
 // too): 413 or 503, "the source is too costly to read". Imports run one at
-// a time, at most `waiting` queued behind, each waiting at most `waitMs`.
+// a time, at most `waiting` queued behind, each waiting at most `waitMs`;
+// one whose `signal` aborts (its request gone, its client revoked, the
+// server closing) leaves the queue at once, or is stopped if it runs.
 
 import { execFile, spawn } from 'node:child_process';
 import { constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -43,14 +45,16 @@ const residentKb = pid => new Promise(done => {
 // answer goes back as soon as it is known; a killed planner still holds
 // the permit until the kernel has reaped it).
 let last = Promise.resolve(), queued = 0;
-// The planner running now: stopped with the wire (its group is its own, so
-// nothing else would), and when this process exits.
-let running = null;
 const killGroup = child => { if (child?.pid > 1) { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } } };
-export const stopImports = () => killGroup(running);
+// Every import not yet ended, each its cancel: the server's close (and this
+// process's exit) cancels them all, a running one's planner stopped by its
+// own import (never a pid already reaped).
+const pending = new Set();
+export const stopImports = () => { for (const cancel of [...pending]) cancel(); };
 process.once('exit', stopImports);
 const mine = new Map(); // each client's imports outstanding, at most two
 const busy = { status: 503, error: { message: 'imports are busy: try again shortly' } };
+const cancelled = { status: 503, error: { message: 'the import was cancelled' } };
 
 /** `request` (import-plan's) planned alone against the design at `design`
  * (a file of the app at `appDir`, read when its turn comes): `{ok}` or
@@ -59,23 +63,45 @@ const busy = { status: 503, error: { message: 'imports are busy: try again short
 export function planAlone(request, design, limits = {}, appDir = null, who = null) {
   const l = { ...LIMITS, ...limits };
   if (queued > l.waiting || (who !== null && (mine.get(who) ?? 0) >= 2)) return Promise.resolve(busy);
+  if (l.signal?.aborted) return Promise.resolve(cancelled);
   queued++;
   if (who !== null) mine.set(who, (mine.get(who) ?? 0) + 1);
-  let answer, expired = false;
+  // Its place in the queue and its client's count, given back once: when
+  // it ends, or as soon as it leaves the queue unplanned.
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    queued--;
+    if (who !== null) { const n = mine.get(who) - 1; if (n) mine.set(who, n); else mine.delete(who); }
+    who = null; // (nothing of the client's kept while it waits out its turn)
+  };
+  // The request, let go of as soon as it leaves the queue unplanned (a
+  // cancelled import's source is not held until its turn comes).
+  let job = request;
+  request = null;
+  let answer, expired = false, stopRun = null;
   const reply = new Promise(ok => { answer = ok; });
+  // Gone before its turn: out of the queue now; while it runs: stopped.
+  const cancel = () => { if (stopRun) return stopRun(cancelled); if (expired) return; expired = true; job = null; clearTimeout(wait); pending.delete(cancel); release(); answer(cancelled); };
+  pending.add(cancel);
+  l.signal?.addEventListener('abort', cancel, { once: true });
   // Each waiting entry expires on its own clock, whatever is ahead of it.
-  const wait = setTimeout(() => { expired = true; answer(busy); }, l.waitMs);
+  const wait = setTimeout(() => { expired = true; job = null; release(); answer(busy); }, l.waitMs);
   const turn = last.then(async () => {
     clearTimeout(wait);
     if (expired) return;
     // (the whole read within 2 s: a stalled one gives up the turn, answered 503)
     const t = await Promise.race([designText(design, appDir, l.designBytes), new Promise(ok => setTimeout(() => ok({ status: 503, error: { message: 'the design took too long to read' } }), 2000))]);
+    if (expired) return;
     if (!('text' in t)) return answer(t);
-    const [planned, exited] = planOnce(request, design, t.text, l);
+    const [planned, exited, stop] = planOnce(job, design, t.text, l);
+    job = null;
+    stopRun = stop;
     planned.then(answer);
     await exited;
   });
-  last = turn.catch(() => {}).finally(() => { queued--; if (who !== null) { const n = mine.get(who) - 1; if (n) mine.set(who, n); else mine.delete(who); } });
+  last = turn.catch(() => {}).finally(() => { pending.delete(cancel); l.signal?.removeEventListener('abort', cancel); release(); });
   return reply;
 }
 
@@ -90,23 +116,31 @@ async function designText(path, appDir, max) {
     try {
       const st = await file.stat();
       if (!st.isFile()) return { status: 400, error: { message: 'the design is not a regular file' } };
-      const buf = Buffer.alloc(max + 1);
-      const read = await Promise.race([file.read(buf, 0, max + 1, 0), new Promise(ok => setTimeout(() => ok(null), 2000))]);
-      if (!read) return { status: 503, error: { message: 'the design took too long to read' } };
-      if (read.bytesRead > max) return { status: 413, error: { message: `the design is over ${max} bytes` } };
-      return { text: buf.subarray(0, read.bytesRead).toString('utf8') };
+      // Read to its end (one `read` may stop short), past `max` refused, all within 2 s.
+      const buf = Buffer.alloc(max + 1), deadline = Date.now() + 2000;
+      let got = 0;
+      while (got <= max) {
+        const left = deadline - Date.now();
+        let timer;
+        const read = left > 0 && await Promise.race([file.read(buf, got, max + 1 - got, got), new Promise(ok => { timer = setTimeout(() => ok(null), left); })]).finally(() => clearTimeout(timer));
+        if (!read) return { status: 503, error: { message: 'the design took too long to read' } };
+        if (read.bytesRead === 0) break;
+        got += read.bytesRead;
+      }
+      if (got > max) return { status: 413, error: { message: `the design is over ${max} bytes` } };
+      return { text: buf.subarray(0, got).toString('utf8') };
     } finally { await file.close(); }
   } catch (e) {
     return e?.code === 'ENOENT' ? { text: null } : { status: 500, error: { message: `the design can't be read: ${e?.code ?? e?.message}` } };
   }
 }
 
-/** The plan's answer, and when its planner has exited. */
+/** The plan's answer, when its planner has exited, and its stop. */
 function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = contract, probe = residentKb }) {
   const child = spawnPlan(['tamber', 'import-plan', design]);
-  if (!child) return [Promise.resolve({ status: 503, error: { message: 'the compiler is not built yet: try again once the design server is up' } }), Promise.resolve()];
-  running = child;
-  const exited = new Promise(ok => child.on('close', () => { if (running === child) running = null; ok(); }));
+  if (!child) return [Promise.resolve({ status: 503, error: { message: 'the compiler is not built yet: try again once the design server is up' } }), Promise.resolve(), () => {}];
+  const exited = new Promise(ok => child.on('close', ok));
+  let stopping = () => {};
   return [new Promise(done => {
     let out = '', bytes = 0, err = '', settled = false, probing = false, gone = false, blind = null;
     child.on('exit', () => { gone = true; });
@@ -126,6 +160,7 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
       child.stderr.destroy();
       finish(reply);
     };
+    stopping = stop;
     const costly = why => ({ status: 413, error: { message: `the source is too costly to read: ${why}` } });
     const timer = setTimeout(() => stop({ status: 503, error: { message: `the source is too costly to read: reading it took more than ${ms / 1000} s` } }), ms);
     // One probe at a time, the first at once; one that can't read the
@@ -162,7 +197,7 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
     });
     child.stdin.on('error', () => {});
     child.stdin.end(JSON.stringify({ request, design: text }));
-  }), exited];
+  }), exited, reply => stopping(reply)];
 }
 
 /** A source path's files as `import`'s `sources` (`contract tamber

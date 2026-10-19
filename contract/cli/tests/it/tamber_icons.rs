@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+/// The SVG every host but the web draws (`contract_lower`'s `icons::TEMPLATE`).
+const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, with no stroke, transform, opacity or other element";
+
 const REPLY: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M760-200v-160H200Z"/></svg>"#;
 const TWO: &str =
     r#"<svg viewBox="0 0 24 24"><path fill="red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#;
@@ -55,10 +58,44 @@ fn a_shipped_target_without_a_source_is_refused() {
     );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    // It names both forms that build: an SVG, or (the euxy port, Apple-only with none) a bare SF Symbol.
+    assert_eq!(
+        e.message,
+        format!("icon.share has no source for web, which draws an icon only from an `svg` source: add `svg \"icons/share.svg\"`, with `assets/icons/share.svg` drawn as {TEMPLATE} (a Material Symbols SVG is). With no SVG for it, declare no icon and write `symbol:sf/square.and.arrow.up.circle` where it is used: Apple draws it, and the web draws it blank, which the build says in one warning"),
+    );
+    let path = app(
+        "missing-linux",
+        "\"ios\": {}, \"linux\": {}, \"web\": {}",
+        "  icon.share = icon(sf \"square.and.arrow.up.circle\")\n",
+        &view("symbol:icon.share"),
+    );
+    let Err(all) = contract::compile_path_all(&path, false) else {
+        panic!("compiled")
+    };
     assert!(
-        e.message.contains("icon.share has no source for web"),
+        all.iter().any(|e| e.message.contains("linux and the web draw it blank, with a warning at each use. Not shipping linux? `bun exact.mjs update --without linux` removes it")),
+        "{all:?}"
+    );
+    // An SF Symbol that is a role's Apple name is that role, drawn everywhere: no "blank" advice.
+    let path = app(
+        "missing-role",
+        "\"ios\": {}, \"web\": {}",
+        "  icon.play = icon(sf \"play.fill\")\n",
+        &view("symbol:icon.play"),
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert!(
+        e.message.ends_with("declare no icon and write `symbol:play-fill`, the role Apple draws as `play.fill`, which every host draws")
+            && !e.message.contains("blank"),
         "{e:?}"
     );
+    let advised = app(
+        "advised-role",
+        "\"ios\": {}, \"web\": {}",
+        "",
+        &view("symbol:play-fill"),
+    );
+    contract::compile_path(&advised).unwrap_or_else(|e| panic!("{e:?}"));
     // Several colours: the web alone draws it as the file.
     let design = "  icon.two = icon(svg \"icons/two.svg\")\n";
     let path = app(

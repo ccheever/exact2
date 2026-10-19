@@ -1019,7 +1019,7 @@ pub fn import_with(
     vocab: &crate::Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |id: &'static str, m: String| vec![Diagnostic::new(id, m, 1, 1)];
-    let _work = crate::budget::Work::begin();
+    let _work = crate::budget::Work::begin(crate::budget::IMPORT);
     let read = read(files).map_err(|m| refuse("tamber-import-source", m))?;
     let defs = &read.defs;
     // The dimensions: the scheme, and each axis with its values in order.

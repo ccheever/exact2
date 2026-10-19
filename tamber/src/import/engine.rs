@@ -4,7 +4,7 @@
 //! tokens: a `light-dark()` of each theme's sides, `when` lines for themes.
 
 use super::Mapped;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// A block a declaration sets: its theme (`None` the default) and whether
 /// it is the dark side.
@@ -27,6 +27,9 @@ pub enum Fate {
     NotColour,
     /// Its variable makes no token; it is read only through references.
     Aux,
+    /// It reads through more than 256 references, as no stylesheet does;
+    /// its variable makes no token.
+    Deep,
     /// It is a colour, but its variable is no colour in this other block
     /// it is set in, so it makes no token (one side would wear the other's).
     Unresolved(Target),
@@ -112,21 +115,70 @@ fn chain(at: &Target) -> Vec<Target> {
     }
 }
 
-/// Whether `to` is reachable from `from` in `graph` by one step or more.
-fn reaches(graph: &BTreeMap<String, BTreeSet<String>>, from: &str, to: &str) -> bool {
-    let mut seen = BTreeSet::new();
-    let mut stack: Vec<&str> = graph
-        .get(from)
-        .map_or(Vec::new(), |n| n.iter().map(String::as_str).collect());
-    while let Some(n) = stack.pop() {
-        if n == to {
-            return true;
+/// The variables on a cycle of `graph` (each reaches itself by one step or
+/// more): its strongly connected components of two or more, and a variable
+/// that names itself. Tarjan's, iteratively, so each edge is walked once.
+fn cyclic(graph: &BTreeMap<String, BTreeSet<String>>) -> BTreeSet<String> {
+    let ids: BTreeMap<&str, usize> = graph
+        .keys()
+        .enumerate()
+        .map(|(i, k)| (k.as_str(), i))
+        .collect();
+    let keys: Vec<&String> = graph.keys().collect();
+    let next: Vec<Vec<usize>> = graph
+        .values()
+        .map(|n| {
+            n.iter()
+                .filter_map(|r| ids.get(r.as_str()).copied())
+                .collect()
+        })
+        .collect();
+    let n = keys.len();
+    let (mut index, mut low, mut on) = (vec![usize::MAX; n], vec![0; n], vec![false; n]);
+    let (mut stack, mut count, mut out) = (Vec::new(), 0, BTreeSet::new());
+    for root in 0..n {
+        if index[root] != usize::MAX {
+            continue;
         }
-        if seen.insert(n) {
-            stack.extend(graph.get(n).into_iter().flatten().map(String::as_str));
+        // (node, the next of its edges to walk)
+        let mut walk = vec![(root, 0)];
+        while let Some(&mut (v, ref mut e)) = walk.last_mut() {
+            if *e == 0 && index[v] == usize::MAX {
+                index[v] = count;
+                low[v] = count;
+                count += 1;
+                stack.push(v);
+                on[v] = true;
+            }
+            if let Some(&w) = next[v].get(*e) {
+                *e += 1;
+                if index[w] == usize::MAX {
+                    walk.push((w, 0));
+                } else if on[w] {
+                    low[v] = low[v].min(index[w]);
+                }
+                continue;
+            }
+            walk.pop();
+            if let Some(&(u, _)) = walk.last() {
+                low[u] = low[u].min(low[v]);
+            }
+            if low[v] == index[v] {
+                let mut component = Vec::new();
+                while let Some(w) = stack.pop() {
+                    on[w] = false;
+                    component.push(w);
+                    if w == v {
+                        break;
+                    }
+                }
+                if component.len() > 1 || next[v].contains(&v) {
+                    out.extend(component.into_iter().map(|w| keys[w].clone()));
+                }
+            }
         }
     }
-    false
+    out
 }
 
 /// The read of the declarations: who wins each block, and what each block
@@ -136,39 +188,76 @@ struct Read<'a> {
     winners: BTreeMap<(Target, String), usize>,
     names: &'a Names,
     literal: &'a dyn Fn(&str) -> Option<String>,
+    /// Each variable's colour as a block sees it, once found, and how many
+    /// links down its chain the colour is.
+    memo: std::cell::RefCell<Memo>,
 }
+
+/// [`Read::seen`]'s answers by block and variable.
+type Memo = HashMap<(Target, String), (Option<(String, String)>, usize)>;
+
+/// How many references a colour may be followed through, as the DTCG
+/// importer allows: past it, the variable makes no token.
+const LINKS: usize = 256;
 
 impl Read<'_> {
     /// A colour as a block sees `var`: the winner nearest it, never through
-    /// a cycle. As written (a reference a token's name) and resolved.
-    fn seen(&self, at: &Target, var: &str, visiting: &mut Vec<String>) -> Option<(String, String)> {
-        let k = chain(at)
-            .iter()
-            .find_map(|c| self.winners.get(&(c.clone(), var.to_string())))?;
-        self.colour_of(&self.decls[*k].2, at, visiting)
-    }
-
-    fn colour_of(
-        &self,
-        value: &str,
-        at: &Target,
-        visiting: &mut Vec<String>,
-    ) -> Option<(String, String)> {
-        if let Some(c) = (self.literal)(value) {
-            return Some((c.clone(), c));
+    /// a cycle. As written (a reference a token's name) and resolved, and
+    /// how many links down the chain it is. The chain is followed once, each
+    /// variable on it remembered, so a long chain costs its length, however
+    /// many read it.
+    fn seen(&self, at: &Target, var: &str) -> (Option<(String, String)>, usize) {
+        // The chain from `var`: each variable and the one its value names.
+        let mut path: Vec<(String, Option<String>)> = Vec::new();
+        let mut on: HashSet<String> = HashSet::new();
+        let mut x = var.to_string();
+        let (mut found, mut links) = loop {
+            if let Some(m) = self.memo.borrow().get(&(at.clone(), x.clone())) {
+                break m.clone();
+            }
+            on.insert(x.clone());
+            let Some(k) = chain(at)
+                .iter()
+                .find_map(|c| self.winners.get(&(c.clone(), x.clone())))
+            else {
+                path.push((x, None));
+                break (None, 0);
+            };
+            let value = &self.decls[*k].2;
+            if let Some(c) = (self.literal)(value) {
+                path.push((x, None));
+                break (Some((c.clone(), c)), 0);
+            }
+            let r = reference(value).filter(|r| {
+                !on.contains(*r)
+                    && (self.names.aux.contains(*r) || self.names.names.contains_key(*r))
+            });
+            let Some(r) = r.map(str::to_string) else {
+                path.push((x, None));
+                break (None, 0);
+            };
+            path.push((x, Some(r.clone())));
+            // Past `LINKS` references the walk stops: every block's walk
+            // costs at most that. Nothing on it is remembered, as each
+            // variable's own chain may be shorter.
+            if path.len() > LINKS {
+                return (None, usize::MAX);
+            }
+            x = r;
+        };
+        // Back down the chain: each as it reads the next.
+        let mut memo = self.memo.borrow_mut();
+        for (v, r) in path.into_iter().rev() {
+            if let Some(r) = r {
+                found = found.map(|(_, resolved)| match self.names.aux.contains(&r) {
+                    true => (resolved.clone(), resolved),
+                    false => (self.names.names[&r].clone(), resolved),
+                });
+                links = links.saturating_add(1);
+            }
+            memo.insert((at.clone(), v), (found.clone(), links));
         }
-        let r = reference(value)?;
-        let aux = self.names.aux.contains(r);
-        if visiting.iter().any(|v| v == r) || !(aux || self.names.names.contains_key(r)) {
-            return None;
-        }
-        visiting.push(r.to_string());
-        let found = self.seen(at, r, visiting);
-        visiting.pop();
-        found.map(|(_, resolved)| match aux {
-            true => (resolved.clone(), resolved),
-            false => (self.names.names[r].clone(), resolved),
-        })
+        (found, links)
     }
 }
 
@@ -194,14 +283,21 @@ pub fn assemble(
         winners,
         names,
         literal,
+        memo: Default::default(),
     };
     // Each block's own colour for each variable, where its winner is one:
     // as written, resolved, and the variable a reference names.
     let mut sides: BTreeMap<(Target, String), (String, String, Option<String>)> = BTreeMap::new();
+    // A variable a block sees past `LINKS` references.
+    let mut deep: BTreeSet<(Target, String)> = BTreeSet::new();
     for ((t, var), k) in &read.winners {
-        let mut visiting = vec![var.clone()];
         let value = &decls[*k].2;
-        if let Some((written, resolved)) = read.colour_of(value, t, &mut visiting) {
+        let (colour, links) = read.seen(t, var);
+        if links > LINKS {
+            deep.insert((t.clone(), var.clone()));
+            continue;
+        }
+        if let Some((written, resolved)) = colour {
             let named = reference(value)
                 .filter(|r| literal(value).is_none() && names.names.contains_key(*r))
                 .map(str::to_string);
@@ -218,11 +314,7 @@ pub fn assemble(
             graph.entry(var.clone()).or_default().insert(r.clone());
         }
     }
-    let cyclic: BTreeSet<String> = graph
-        .keys()
-        .filter(|v| reaches(&graph, v, v))
-        .cloned()
-        .collect();
+    let cyclic = cyclic(&graph);
     for ((_, var), entry) in sides.iter_mut() {
         if entry.2.is_some() && cyclic.contains(var) {
             *entry = (entry.1.clone(), entry.1.clone(), None);
@@ -237,20 +329,29 @@ pub fn assemble(
         }
     }
     // A value that names a dropped token makes no token either, to the end
-    // of the chain.
-    loop {
-        let more: Vec<(String, Target)> = sides
-            .iter()
-            .filter(|((_, var), (_, _, r))| {
-                !failed.contains_key(var) && r.as_ref().is_some_and(|r| failed.contains_key(r))
-            })
-            .map(|((t, var), _)| (var.clone(), t.clone()))
-            .collect();
-        if more.is_empty() {
-            break;
+    // of the chain: a step down it at a time, each step's in the blocks'
+    // order, each variable by the first block it fails in.
+    let mut named_by: HashMap<&str, Vec<&(Target, String)>> = HashMap::new();
+    for (key, (_, _, r)) in &sides {
+        if let Some(r) = r {
+            named_by.entry(r.as_str()).or_default().push(key);
         }
-        for (var, t) in more {
-            failed.entry(var).or_insert(t);
+    }
+    let mut step: Vec<String> = failed.keys().cloned().collect();
+    while !step.is_empty() {
+        let mut more: Vec<&(Target, String)> = step
+            .iter()
+            .flat_map(|r| named_by.get(r.as_str()).into_iter().flatten().copied())
+            .filter(|(_, var)| !failed.contains_key(var))
+            .collect();
+        more.sort();
+        more.dedup();
+        step.clear();
+        for (t, var) in more {
+            if !failed.contains_key(var) {
+                failed.insert(var.clone(), t.clone());
+                step.push(var.clone());
+            }
         }
     }
     let fates: Vec<Fate> = decls
@@ -269,6 +370,11 @@ pub fn assemble(
                 .collect();
             if won.is_empty() {
                 Fate::Superseded
+            } else if won
+                .iter()
+                .any(|t| deep.contains(&((*t).clone(), var.clone())))
+            {
+                Fate::Deep
             } else if won
                 .iter()
                 .any(|t| sides.contains_key(&((*t).clone(), var.clone())))
@@ -332,29 +438,40 @@ pub fn assemble(
 
 /// The selectors a nested rule's chain names, each in full: `&` is its
 /// parent, and a rule without `&` is a descendant of it (CSS nesting).
-/// Deduplicated level by level; a list past 1024 is none.
+/// Deduplicated level by level; a list past 1024, or a selector past 1 KiB
+/// (`&&` doubles one each level), is none.
 pub fn nested(rules: &[&String]) -> Vec<String> {
+    const LIST: usize = 1024;
+    const LONGEST: usize = 1024;
     let mut out = vec![String::new()];
     for prelude in rules {
-        let alternatives = split_top(prelude);
-        out = out
-            .iter()
-            .flat_map(|parent| {
-                alternatives.iter().map(move |alt| {
-                    let alt = alt.trim();
-                    match (alt.contains('&'), parent.is_empty()) {
-                        (true, _) => alt.replace('&', parent),
-                        (false, true) => alt.to_string(),
-                        (false, false) => format!("{parent} {alt}"),
-                    }
-                })
-            })
-            .collect();
-        out.sort();
-        out.dedup();
-        if out.len() > 1024 {
-            return Vec::new();
+        let mut alternatives: Vec<&str> = split_top(prelude).into_iter().map(str::trim).collect();
+        // The same alternative twice names the same selectors.
+        alternatives.sort_unstable();
+        alternatives.dedup();
+        let mut next = BTreeSet::new();
+        for parent in &out {
+            for alt in &alternatives {
+                let amps = alt.matches('&').count();
+                let len = match (amps > 0, parent.is_empty()) {
+                    (true, _) => alt.len() - amps + amps * parent.len(),
+                    (false, true) => alt.len(),
+                    (false, false) => parent.len() + 1 + alt.len(),
+                };
+                if len > LONGEST {
+                    return Vec::new();
+                }
+                next.insert(match (amps > 0, parent.is_empty()) {
+                    (true, _) => alt.replace('&', parent),
+                    (false, true) => alt.to_string(),
+                    (false, false) => format!("{parent} {alt}"),
+                });
+                if next.len() > LIST {
+                    return Vec::new();
+                }
+            }
         }
+        out = next.into_iter().collect();
     }
     out
 }

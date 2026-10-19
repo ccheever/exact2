@@ -292,7 +292,8 @@ re-arms it from the commit that changed the key (compared as a `for` key),
 and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
 key a string, number or bool (`type-task-key`), and neither reads `performanceNow()`,
 directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
-a millisecond interval is a literal whole number of at least 1.
+a millisecond interval is a literal whole number of at least 1 (`after(1, …)` is the web's
+`setTimeout(f, 0)`: 0 would be due in the commit that armed it).
 
 A `sequence` (LLP 1125 D2) declares what should play, as a value, and the
 runner plays it: the gate is a task's, and its body is exactly one
@@ -1045,6 +1046,13 @@ thickness was `0.5`, which is one device pixel only at 2x: `border-width`, the
 hairline thick in the separator role, as wide as what holds it (a flex column
 included), with no margin of its own. Its `color`, `border-*` and `margin` are
 yours to write.
+
+`-exact-accessory-checkmark-width` and `-exact-accessory-checkmark-height` are
+length ramps ([LLP 1137](../llp/1137-length-ramps.rfc.md)): UIKit's list-cell
+checkmark at the root font size, growing with the text size as a text style
+does (19 × 17.33 at the default size, 48 × 43.33 at the largest). They are
+taken where `-exact-hairline` is; a grouped list's checkmark in a row of your
+own already has them on iOS.
 
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box

@@ -47,6 +47,7 @@ export const METHOD_SCOPE = Object.freeze({
   commit: 'write',
   accept: 'write',
   pin: 'write',
+  navigate: 'write',
   preview: 'write',
   outline: 'write',
   hold: 'write',

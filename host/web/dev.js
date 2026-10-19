@@ -361,10 +361,14 @@ if (es) {
   let applying = null;
   // The tab's own id, kept across its reloads (sessionStorage); a duplicated
   // tab, which copies that storage, takes another when this one answers.
+  // A copy the design tool frames (LLP 1122 T7: same-origin frames share the
+  // tab's storage) keeps its own under the frame's name, `exact-copy-<n>`,
+  // which the page only reads; any other name is the app's, left alone.
+  const framed = globalThis.parent != null && globalThis.parent !== globalThis, buildKey = framed && /^exact-copy-\d{1,2}$/.test(globalThis.name ?? "") ? `exact.dev.build:${globalThis.name}` : "exact.dev.build";
   const buildId = (async () => {
     const fresh = () => `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`;
     let id;
-    try { id = sessionStorage.getItem("exact.dev.build"); } catch { return fresh(); }
+    try { id = sessionStorage.getItem(buildKey); } catch { return fresh(); }
     const tabs = typeof BroadcastChannel === "function" ? new BroadcastChannel("exact.dev.build") : null;
     if (id && tabs) {
       const mine = id;
@@ -375,7 +379,7 @@ if (es) {
     // Answered for any id this tab holds, one it just made included: a tab
     // duplicated from it copies that too.
     if (tabs) { const own = id; tabs.onmessage = (e) => { if (e.data === `who:${own}`) tabs.postMessage(`taken:${own}`); }; }
-    try { sessionStorage.setItem("exact.dev.build", id); } catch { /* storage refused */ }
+    try { sessionStorage.setItem(buildKey, id); } catch { /* storage refused */ }
     return id;
   })();
   // A report gives up after 10 s; a registration waits as long as it takes
@@ -427,7 +431,7 @@ if (es) {
     const rootStyle = getComputedStyle(document.documentElement), cs = rootStyle.colorScheme;
     const scheme = /dark/.test(cs) && !/light/.test(cs) ? "dark" : /light/.test(cs) && !/dark/.test(cs) ? "light" : globalThis.exact.systemScheme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
-    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
+    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision, location: here() };
   };
   const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
@@ -448,6 +452,52 @@ if (es) {
     }, 0);
   };
   globalThis.exact.ready?.then?.(() => { globalThis.exact.committed = committed; });
+  // Where the page is (*1.14*), said when it moves: the router writes the
+  // history, the browser traverses it, and a fragment moves alone. (A
+  // location over the server's bound says none.)
+  function here() { const at = location.pathname + location.search + location.hash; return at.length <= 2048 && /^\/(?![/\\])[\x21-\x5b\x5d-\x7e]*$/.test(at) ? at : null; }
+  const pages = globalThis.history;
+  if (pages) for (const name of ["pushState", "replaceState"]) { const write = pages[name]; pages[name] = function (...args) { const out = write.apply(this, args); committed(); return out; }; }
+  globalThis.addEventListener?.("popstate", committed);
+  globalThis.addEventListener?.("hashchange", committed);
+  // `navigate` (LLP 1122 T7, *1.14*): the location routed in place as a link
+  // to it is (input-glue.js): the navigation root's `navigate` handler, else
+  // the router's own `go`, no reload; a fragment that differs then set on
+  // the entry the router wrote. One that is no route says so, by the
+  // frame's `seq`.
+  const navigate = async (frame) => {
+    const x = globalThis.exact;
+    await x.ready;
+    // A frame of a stream since replaced (a reconnect, another server) is old
+    // news: nothing done and nothing said, so its refusal never answers the
+    // new stream's navigation of the same seq.
+    const mine = () => frame.stream === channel.nonce;
+    if (!mine()) return;
+    const refuse = (detail) => { if (mine()) report({ kind: "unsupported", what: "navigate", detail: String(detail).slice(0, 1024), revision: frame.seq }); };
+    const said = (at) => JSON.stringify(at.length > 200 ? `${at.slice(0, 200)}…` : at);
+    try {
+      const url = new URL(frame.location, location.origin);
+      // (A path that resolves to `//…` is scheme-relative to the history API: no location of this page.)
+      if (url.origin !== location.origin || url.pathname.startsWith("//")) return refuse("the location is no path on this page's origin");
+      // There once the router's entry is the route (an agent's launch keys
+      // ride on its address, history.state.url has none) or the address is
+      // it. (The server sends a location spelled as the router writes it.)
+      const to = url.pathname + url.search, there = () => pages?.state?.url === to || location.pathname + location.search === to, before = pages?.state?.url;
+      if (!there()) {
+        if (typeof x.wasm?.exact_route_match !== "function" || x.wasm.exact_route_match(x.writeIn(to)) !== 1) return refuse(`${said(to)} is no route of this app`);
+        const nav = document.getElementById("exact-root")?.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
+        const batch = heard ? x.navigate(to) : x.go?.(to);
+        if (!batch?.ops?.some((op) => op.op === "router")) return refuse(batch?.error ?? `the app's router took no step to ${said(to)}`);
+      }
+      // (The router writes the history after its commit, at once unless a
+      // traversal is under way: the fragment once it is there, on the entry
+      // it wrote, its address otherwise kept. One the app's handler sent
+      // elsewhere keeps the app's place, no fragment, and no wait.)
+      for (let i = 0; i < 100 && !there() && pages?.state?.url === before; i++) await new Promise((ok) => setTimeout(ok, 10));
+      if (mine() && there() && url.hash !== location.hash) pages?.replaceState(pages.state, "", location.origin + location.pathname + location.search + url.hash);
+    } catch (error) { return refuse(String(error)); }
+    committed();
+  };
   const pin = async (frame) => {
     const root = document.documentElement.style, p = frame.pin;
     // What it was before the first pin, handed back by `none`; each pin
@@ -834,6 +884,7 @@ if (es) {
       if (frame.kind === "inspect") return inspect(frame);
       if (frame.kind === "outline") return outlineSites(frame);
       if (frame.kind === "hold") return hold(frame);
+      if (frame.kind === "navigate") return navigate(frame);
       report({ kind: "unsupported", what: frame.kind });
     }).catch((error) => console.error("exact dev:", String(error)));
   };
@@ -868,7 +919,8 @@ if (es) {
       channel.holdLatest = message;
       bindHold(message);
     }
-    if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
+    if (message.kind === "navigate") message.stream = channel.nonce;
+    if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold" || message.kind === "navigate") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;
       // A new stream may be a new server's: a hold of the one before ends nothing, and says nothing, now.
@@ -877,7 +929,11 @@ if (es) {
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect", "hold"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        const id = await buildId, answer = await post(nonce, { kind: "register", id, host: "web", capabilities: ["pin", "inspect", "hold", "navigate"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        // A framed copy tells the page framing it which build it is (LLP
+        // 1122 T7): the design tool maps the frame to its tile by this
+        // message's source. The id grants nothing without the stream's nonce.
+        if (answer.ok && framed) globalThis.parent.postMessage({ type: "exact-build", id }, "*");
         return answer.ok;
       })().catch(() => false);
       status();

@@ -972,3 +972,66 @@ fn headless_time_uses_agent_facts_and_survives_an_invalid_place() {
     }
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
+
+/// The terminal carrier's own `layout` and `plan` verbs (LLP 1121 stage 11 C,
+/// for scripts/scale-check.mjs): each node's kernel frame, its cells, its
+/// testId and its corners' resolved radii; the running plan's SHA-256.
+#[test]
+fn layout_and_plan_answer_as_json() {
+    let path = entry("layout");
+    std::fs::write(
+        &path,
+        "component App\n  view\n    column\n      column testId=\"box\" padding=\"1ch\" border-radius=8 width=\"20ch\"\n        view testId=\"inner\" height=\"2lh\"\n      view testId=\"half\" width=\"4ch\" height=\"2lh\" border-radius=\"50%\"\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+        .arg(&path)
+        .args(["--size", "40x10", "plan", "layout"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout).unwrap();
+    let mut lines = text.lines();
+    let plan = lines.next().unwrap();
+    let digest = plan
+        .strip_prefix("{\"plan\":\"")
+        .and_then(|p| p.strip_suffix("\"}"))
+        .unwrap_or_else(|| panic!("{plan}"));
+    assert!(
+        digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()),
+        "{plan}"
+    );
+    let layout = lines.next().unwrap();
+    assert!(
+        layout.starts_with(
+            "{\"viewport\":{\"w\":320,\"h\":160},\"cell\":{\"w\":8,\"h\":16},\"nodes\":["
+        ),
+        "{layout}"
+    );
+    // A ch of padding is a column across and, half a row, none down (the
+    // terminal's space rule, LLP 1121 stage 11 (c)): the box is its child's
+    // two rows; its corners resolved.
+    assert!(
+        layout.contains("\"x\":0,\"y\":0,\"w\":176,\"h\":32,\"cells\":{\"x\":0,\"y\":0,\"w\":22,\"h\":2},\"radius\":[8,8,8,8],\"testId\":\"box\""),
+        "{layout}"
+    );
+    assert!(
+        layout.contains(
+            "\"x\":8,\"y\":0,\"w\":160,\"h\":32,\"cells\":{\"x\":1,\"y\":0,\"w\":20,\"h\":2}"
+        ),
+        "{layout}"
+    );
+    assert!(
+        layout.contains("\"radius\":[0,0,0,0],\"testId\":\"inner\""),
+        "{layout}"
+    );
+    // A percentage of the box, as a host sizes it: half its 32 px.
+    assert!(
+        layout.contains("\"radius\":[16,16,16,16],\"testId\":\"half\""),
+        "{layout}"
+    );
+}

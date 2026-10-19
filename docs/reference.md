@@ -472,6 +472,14 @@ are not a shared surface layout. Rendering remains read-only, with the same
 clock, request, input and handler refusals as widgets. `time` and `progress`
 remain platform live views.
 
+A development build with `--widget-gallery` also answers activity addresses:
+`bun scripts/agent.mjs ios activity departure --placement expanded --state '<json>' tree "screenshot activity.png" state`.
+The same command works on `macos`. Placements are `lockScreen`, `compactLeading`,
+`compactTrailing`, `minimal` and `expanded` (all four expanded regions together).
+Omit `--state` to use the entry's preview; `--scheme light|dark` selects its scheme.
+`clock` advances the app's agent clock and the next read renders at that time.
+These are gallery renders; the async simulator test checks the system's archive.
+
 The extension renders every activity through one `ActivityConfiguration` for
 the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10), a
 thin adapter over `ExactSnapshot`'s `ActivityResolver`: the attributes' `kind`
@@ -921,7 +929,8 @@ A native one is kept between drives until a drive passes `--reset-storage`, whic
 empties all of it (`app:/` files, SQLite, kept state, secrets) at the app's boot
 and refuses a store reached through a symbolic link; one drive holds a native store
 at a time. On the web it is Chrome's profile for the name and its page's origin,
-empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own); an authored test gets a fresh
+empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own). A drive that compares with a
+reference starts empty on every host unless `--keep-storage`. An authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary

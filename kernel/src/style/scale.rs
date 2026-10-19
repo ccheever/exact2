@@ -85,6 +85,21 @@ pub const COLUMNS: [(&str, Column); 5] = [
     ("terminal", Column::Terminal),
 ];
 
+/// The scale column a shipped target reads (theme2's 16:32 ruling): Apple's
+/// phones and their kin iOS's, the Mac's own, the web and Linux the neutral
+/// look's (D17), Android's reader Material's, the terminal its cells. The
+/// design server sends it (`describe`'s `targets`), so no client keeps a map.
+pub fn column_for(target: &str) -> Option<&'static str> {
+    Some(match target {
+        "ios" | "tvos" | "visionos" | "watchos" => "ios",
+        "macos" | "mac" => "mac",
+        "web" | "linux" | "windows" => "neutral",
+        "android" => "material",
+        "terminal" => "terminal",
+        _ => return None,
+    })
+}
+
 /// A cell's source as words: `metric grouped-row-gap`, `measured <id>`,
 /// `guideline <id>`, `full`, `terminal cells`.
 pub fn source(cell: ScaleCell) -> String {
@@ -339,5 +354,21 @@ mod tests {
         );
         assert_eq!(of("radius.full", Column::Ios), Some(ScaleValue::Full));
         assert_eq!(of("space.header", Column::Ios), None);
+    }
+    #[test]
+    fn each_shipped_target_reads_its_column() {
+        let all = [
+            ("ios", "ios"),
+            ("watchos", "ios"),
+            ("macos", "mac"),
+            ("web", "neutral"),
+            ("linux", "neutral"),
+            ("android", "material"),
+            ("terminal", "terminal"),
+        ];
+        for (target, column) in all {
+            assert_eq!(column_for(target), Some(column), "{target}");
+        }
+        assert_eq!(column_for("game"), None);
     }
 }

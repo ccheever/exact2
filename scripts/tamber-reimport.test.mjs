@@ -5,6 +5,7 @@
 // pinned override, marked; a baseline this server never gave out is refused.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +30,8 @@ theme
 `;
 
 let dir, server, tamber, origin, local, flags = null, peers = 0;
+// The planner, stood in for by a test that needs a slow one (read at each import).
+const limits = {};
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'exact-tamber-reimport-'));
   writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "a" color="accent.fill"\n');
@@ -37,7 +40,7 @@ beforeAll(async () => {
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
   const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
-  tamber = tamberServer({ appDir: dir, log: () => {}, settle: 100 });
+  tamber = tamberServer({ appDir: dir, log: () => {}, settle: 100, importLimits: limits });
   server.on('request', async (req, res) => {
     if (!(await tamber.handle(req, res, new URL(req.url, 'http://x'), flags ?? gate.check(req)))) { res.writeHead(404); res.end(); }
   });
@@ -176,3 +179,38 @@ test('round 3: a re-import with no marks, recomputed after the design moved, is 
   const held = (await post({ after: 0, wait: false }, local, '/__tamber/events')).proposals.find(p => p.proposal === again.ok.proposal);
   expect(held.review.pins?.map(p => [p.token, p.follows])).toEqual([['surface.page', ['accent']]]);
 }, 120_000);
+
+test('an import stops with its request or its client: a closed request or a revoked client frees the planner at once', async () => {
+  const t0 = Date.now();
+  // Each stand-in planner says when it started and when it exited.
+  const planners = [];
+  limits.spawnPlan = () => { const child = spawn('sh', ['-c', 'cat > /dev/null; sleep 30'], { stdio: ['pipe', 'pipe', 'pipe'], detached: true }); planners.push(new Promise(ok => child.once('exit', ok))); return child; };
+  const started = n => new Promise(ok => { const t = setInterval(() => { if (planners.length >= n) { clearInterval(t); ok(); } }, 10); });
+  try {
+    // The request closed by its client: the planner stopped, the next import taken at once.
+    const closed = new AbortController();
+    const left = fetch(`${origin}/__tamber`, { method: 'POST', signal: closed.signal, headers: { 'content-type': 'application/json', 'x-exact-tamber-token': local }, body: JSON.stringify({ method: 'import', client: 'tool', kind: 'shadcn', source: ':root { --primary: #ff0000; }' }) }).catch(() => null);
+    await started(1);
+    closed.abort();
+    await left;
+    await planners[0]; // (stopped, not left to its 30 s)
+    // A paired client revoked while its import runs: answered, not left 30 s.
+    const { code } = (await post({ method: 'pair-code', scope: 'propose', name: 'figma' })).ok;
+    flags = { allowed: true, local: false, remote: true, peer: `203.0.113.${++peers}` };
+    const pair = (await post({ code }, null, '/__tamber/pair')).ok;
+    flags = null;
+    await new Promise(ok => setTimeout(ok, 100)); // (the closed one's permit back once its close is seen)
+    const running = post({ method: 'import', client: 'figma', kind: 'shadcn', source: ':root { --primary: #ff0000; }' }, pair.token);
+    await started(2);
+    expect((await post({ method: 'revoke', client: pair.client })).ok).toEqual({ revoked: pair.client });
+    const answered = await running;
+    expect([answered.status, answered.error?.message]).toEqual([503, 'the import was cancelled']);
+    await planners[1];
+  } finally { delete limits.spawnPlan; }
+  // The real planner again, its turn not behind a 30 s one.
+  await new Promise(ok => setTimeout(ok, 300));
+  const again = await post({ method: 'import', client: 'tool', kind: 'shadcn', source: ':root { --primary: #ff0000; }' });
+  expect(again.status).toBe(200);
+  // (none of the three waited out a stand-in: the watchdog's 10 s, at the least)
+  expect(Date.now() - t0).toBeLessThan(8_000);
+}, 60_000);

@@ -22,7 +22,7 @@ import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
 import { appDigest, driveStore, newerThan, notBuildInput, receiptChanges, webStore } from './agent-launch.mjs';
 import { storeBase, sweepTestStores } from './agent-test.mjs';
-import { copyAppleStaticTrees } from '../host/apple/build.mjs';
+import { copyAppleStaticTrees, rebuildArgs } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
 import { DirectoryOrigin, webRootPath, webReleasePath, sha256 } from './origin.mjs';
@@ -797,20 +797,24 @@ for (const [name, html, files, expectCode, expect] of [
   let matched = true;
   try { verifyBakeFiles(receipt, plan, listAssets(bundle).reverse()); }
   catch { matched = false; }
-  const refuses = (bytes = plan) => {
+  // Each refusal names what differs and asks for the build again; the Apple build adds its own command.
+  const refuses = (bytes = plan, named = 'plan differs') => {
     try { verifyBakeFiles(receipt, bytes, listAssets(bundle)); return false; }
-    catch { return true; }
+    catch (e) { return e.rebuild === true && e.message.includes(`the packaged ${named} from the binary bake receipt: a source changed after the bake read it`) && e.message.endsWith('build again'); }
   };
   const changedPlan = refuses(Buffer.from('a changed plan'));
   rmSync(join(bundle, 'assets', 'logo.png'));
-  const removed = refuses();
+  const removed = refuses(plan, 'static files (assets/logo.png) differ');
   writeFileSync(join(bundle, 'assets', 'logo.png'), 'other');
-  const changed = refuses();
+  const changed = refuses(plan, 'static files (assets/logo.png) differ');
   writeFileSync(join(bundle, 'assets', 'logo.png'), 'image');
   writeFileSync(join(bundle, 'assets', 'extra.png'), 'extra');
-  const added = refuses();
+  const added = refuses(plan, 'static files (assets/extra.png) differ');
   rmSync(join(bundle, 'assets', 'extra.png'));
-  result('Apple and web packaging enforce the baked plan and complete static roster', matched && changedPlan && removed && changed && added);
+  // Each argument shell-quoted as the directory is: a simulator's name has spaces.
+  const again = rebuildArgs(['--ios', 'euxy-apple', '--release', '--sim', 'iPhone 17 Pro'], "/p/it's") === "(cd '/p/it'\\''s' && bun exact.mjs ios --release --sim 'iPhone 17 Pro')"
+    && rebuildArgs(['caltrain-apple', '--run', '--sim', "Bob's phone"], undefined) === "bun host/apple/build.mjs caltrain-apple --run --sim 'Bob'\\''s phone'";
+  result('Apple and web packaging enforce the baked plan and complete static roster, naming what differs and the build to run again', matched && changedPlan && removed && changed && added && again);
   symlinkSync(outside, join(source, 'assets', 'linked'));
   const appRefused = await rejects(() => copyAppleStaticTrees(source, join(dir, 'refused-app'), appTrees), error => error.message.includes('cannot be symlinks'));
   symlinkSync(outside, join(bundle, 'assets', 'linked'));

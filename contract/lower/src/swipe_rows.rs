@@ -193,7 +193,8 @@ fn scroll(parts: Parts, rows: Vec<Attr>, span: Span, instance: u32) -> Node {
 /// styled so and put in its swipe. A swipe written by hand (a `scroll`
 /// naming its row as `swipeContent`) is styled the same way: its row is
 /// the grouped row and the scroll takes the row's box in the card.
-pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
+/// `row` styles a row; its flag says the row is a swipe's content.
+pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Node {
     if let Some(styled) = written(node, row) {
         return styled;
     }
@@ -203,7 +204,7 @@ pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
         ..a
     };
     let Some(parts) = parts(node, &sheet) else {
-        return row(node);
+        return row(node, false);
     };
     let (span, instance) = match node {
         Node::Element { span, instance, .. } => (*span, *instance),
@@ -217,7 +218,7 @@ pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
 /// `swipeContent` names one of its children. That child is styled as the
 /// row and the scroll takes the row's box in the card, the sheet's rows
 /// under the author's; `None` for any other node.
-fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
+fn written(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Option<Node> {
     let Node::Element {
         tag,
         positional,
@@ -250,7 +251,19 @@ fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
     ]
     .iter()
     .any(|p| last(attrs, p).is_some());
-    if tag != "scroll" || padded || children.iter().filter(|c| named(c)).count() != 1 {
+    // The content may stand in a wrapper (a row holding leading actions and
+    // the content, as Messages' inbox writes it): it is found through elements.
+    fn count(nodes: &[Node], named: &dyn Fn(&Node) -> bool) -> usize {
+        nodes
+            .iter()
+            .map(|n| match n {
+                _ if named(n) => 1,
+                Node::Element { children, .. } => count(children, named),
+                _ => 0,
+            })
+            .sum()
+    }
+    if tag != "scroll" || padded || count(children, &named) != 1 {
         return None;
     }
     let mark = |name: &str| format!("{}{name}", crate::grouped::MARK);
@@ -261,17 +274,41 @@ fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
         s(&mark("flex-direction"), "row", *span),
         s(&mark("box-sizing"), "border-box", *span),
     ];
-    let children = children
-        .iter()
-        .map(|c| {
-            if !named(c) {
-                return c.clone();
-            }
-            let (content, rows) = swiped(c, row, *span);
-            outer.extend(rows);
-            content
-        })
-        .collect();
+    fn styled(
+        nodes: &[Node],
+        named: &dyn Fn(&Node) -> bool,
+        row: &dyn Fn(&Node, bool) -> Node,
+        span: Span,
+        outer: &mut Vec<Attr>,
+    ) -> Vec<Node> {
+        nodes
+            .iter()
+            .map(|c| match c {
+                _ if named(c) => {
+                    let (content, rows) = swiped(c, row, span);
+                    outer.extend(rows);
+                    content
+                }
+                Node::Element {
+                    tag,
+                    positional,
+                    attrs,
+                    children,
+                    span: at,
+                    instance,
+                } if count(children, named) == 1 => Node::Element {
+                    tag: tag.clone(),
+                    positional: positional.clone(),
+                    attrs: attrs.clone(),
+                    children: styled(children, named, row, span, outer),
+                    span: *at,
+                    instance: *instance,
+                },
+                other => other.clone(),
+            })
+            .collect()
+    }
+    let children = styled(children, &named, row, *span, &mut outer);
     outer.extend(attrs.iter().cloned());
     Some(Node::Element {
         tag: tag.clone(),
@@ -287,7 +324,7 @@ fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
 /// its swipe's scroll takes: the row's box in the card, and the swipe's
 /// leading margin. The row's own leading inset gives way to the swipe's:
 /// on the scroll where the Mac's rows stand in, in the content elsewhere.
-fn swiped(content: &Node, row: &dyn Fn(&Node) -> Node, span: Span) -> (Node, Vec<Attr>) {
+fn swiped(content: &Node, row: &dyn Fn(&Node, bool) -> Node, span: Span) -> (Node, Vec<Attr>) {
     let mark = |name: &str| format!("{}{name}", crate::grouped::MARK);
     let Node::Element {
         tag,
@@ -296,7 +333,7 @@ fn swiped(content: &Node, row: &dyn Fn(&Node) -> Node, span: Span) -> (Node, Vec
         children,
         span: at,
         instance: own,
-    } = row(content)
+    } = row(content, true)
     else {
         unreachable!("row keeps an element")
     };

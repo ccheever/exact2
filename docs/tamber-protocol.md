@@ -93,7 +93,8 @@ on macOS and Linux.
   revoke; `pair-code`'s `remote`, the remote doors open (B).
 - `tamber/1.14` (LLP 1121 stage 10b, after stage 10 closed) adds `import`'s `baseline`, a
   re-import's `dials` and `pins`, `export`'s `digest`, and an import read in a process of its own
-  (413/503 past its cost). Stage 11's wire changes add under the same version.
+  (413/503 past its cost). Stage 11's wire changes add under the same version, and so do LLP 1122
+  T7's: the `navigate` method and command, and a `status`'s `location`.
 
 ## Where it runs
 
@@ -263,11 +264,11 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
 | `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
-`preview`, `outline` and `hold` are `write` because they change what the developer's screens show.
+`preview`, `outline`, `hold` and `navigate` are `write` because they change what the developer's screens show.
 `inspect` reads: below `write`, `refresh: true` answers `{selections}`, the selection each build
 last reported (as its `selection` event gave it), asking no build again, since a build's answer
 outlines on the developer's screens; turning inspect mode on or off takes the builds' input, and
@@ -364,6 +365,25 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   has its `fallback` `{light, dark}` (*1.1*).
 - `warnings`: `[{file, line, col, id, message}]`, the design's `tamber-contrast` warnings, a pair
   below 4.5:1 at its lowest tuple and scheme. They never refuse the design (*1.1*).
+- `base` (*1.14*, LLP 1121 stage 11): the base scale, every base name in the kernel's table's
+  order (`space.xs` to `space.xl`, `radius.sm` to `radius.full`), each a **base row**
+  `{name, kind, columns, override}`:
+  - `kind` is `length` (`space.*`) or `radius` (`radius.*`);
+  - `columns` is all five scale columns, `ios`, `mac`, `neutral`, `material` and `terminal`, each
+    `{value, source}`: `value` a CSS length (`16px`), `full` (radius.full, the pill) or the
+    terminal's `<n>cell` (`0` for none); `source` where it comes from, `{kind: "metric", ref}` (a
+    metrics row), `{kind: "measured", id}` or `{kind: "guideline", cite}` (an entry in
+    docs/scale-measured.md), `{kind: "full"}` or `{kind: "terminal"}` (`stretch`, a metric borrowed
+    for another role, is reserved: emitted once the table carries it). Every cell is the kernel's
+    table's (`style::scale`), never a copy;
+  - `override` is the line of the design file the request names (the app's, by default) that sets
+    the name, `{file, line, col, text}`, or null. When it is set, the name is the app's token: its
+    folded value is what `resolve` answers.
+- `targets` (*1.14*): `[{target, column}]`, the targets the app ships (the set an icon's `draws` is
+  keyed by), each with the scale column it reads (`ios`, `tvos`, `visionos`, `watchos`: `ios`;
+  `macos`, `mac`: `mac`; `web`, `linux`, `windows`: `neutral`; `android`: `material`; `terminal`:
+  `terminal`), from the kernel, so
+  a client keeps no map of its own; `column` is null for a target the kernel names none for.
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:
@@ -396,6 +416,9 @@ tuple:
 - **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
   `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
   written) and its colour's folded CSS (null for a text shadow's `currentcolor`).
+- **A base name** (*1.14*) the app leaves unset answers `{name, base, files}`, its base row (see
+  `describe`) and no tuples: its value is each column's, not a fold. One the app sets answers its
+  token's tuples as usual, with `base` beside them.
 
 **`explain`** `{token, file?}` answers `{token, value, whens, dials, names, files}`:
 - `value` and each `whens[].value` are source text, as written;
@@ -412,6 +435,16 @@ tuple:
 - **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
   where its line is, its default as written, and `set`, the design's line that sets the app's
   value (`{file, line, value}`), or null.
+- **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
+  sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
+  tool reads and edits its `when` lines.
+- **A token whose values name base names** (*1.14*), an overridden base name's own line included,
+  adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
+  unset one named bare, a set one as the token it names), and those any line of each token it
+  names reaches, through any chain, every branch, not per tuple; never a word in a string. As
+  strings, each once, in no promised order (parallel to `names`, which is as wide; a client looks
+  each up in `describe`'s `base`). A base name read from a file that is not the design's, or
+  a design that is refused, is refused as any token is.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
@@ -1071,6 +1104,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
+  - A web page in a frame its parent names `exact-copy-<n>` (`n` of one or two digits; the
+    design tool's copies, *1.14*, LLP 1122 T7) keeps its id under that name, since a tab's
+    same-origin frames share its storage. The page only reads the name, which never enters the app's URL, is never sent, and
+    ties nothing; a frame of any other name keeps the tab's one id. A framed page posts `{type:
+    "exact-build", id}` to its parent each time it registers, so the page framing it finds which
+    frame is which build by the message's source (the id grants nothing without the nonce).
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
     no plan, sends none), and `design` its design digest. Before accepting a dev generation,
     Apple reports the digest of its running embedded or cached plan.
@@ -1108,7 +1147,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 - **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
   - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
     the facts that paint, the `plan` and `design` digests (and `planDigest`, *1.9*, as it moves),
-    and the pin `revision` it applied.
+    and the pin `revision` it applied. The web pages also say their `location` (*1.14*, LLP 1122
+    T7): the path, query and fragment they show, on their own origin (at most 2 KiB; no scheme or
+    host), reported when it moves.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn). A scrub's frames move the design without a
     status each: the web pages report it once, about 150 ms after the drag rests. A native host
@@ -1193,6 +1234,26 @@ The tool drives no input into an app; a command changes only what `prefer` would
     again itself under the same plan, unsaid; a frame that comes while it swaps waits for it, and a
     clear always applies. A revision a host ended itself is not taken again
     when its frame is resent; a lower revision is a new server's.
+  - `navigate` (*1.14*, LLP 1122 T7) `{seq, location}`: route to `location`, a path with its
+    query and fragment on the build's own origin, in place, as a link to it would: the app's
+    navigation root's `navigate` handler, else the router's own `go`, with no reload, so the
+    app's state is kept. A fragment that differs is then set as the page's own. A location that
+    is no route of the app, or a page with no router, answers `unsupported` with `what:
+    "navigate"` and that `seq` as its `revision`. It moves the page's `location`, which its next
+    `status` says. A build that can says `navigate` among its `capabilities` (the wasm and JS web
+    pages; the native hosts don't yet). It is navigation, not input: no tap or key is driven.
+- **Navigation at the server** (*1.14*). `{method: "navigate", client, build, location}` needs
+  write scope and a present client, and names a registered build (else 400) that can navigate
+  (else 409 with `unsupported: "navigate"`; the design tool then reloads that copy's frame at
+  the location instead). `location` must start with one `/` (not `//` or `/\`) and be
+  spelled as a URL and the router write it (RFC 3986's path, query and fragment characters but
+  `'`, each `%` a whole escape), at most 2 KiB as given and as a URL spells it once resolved (no
+  dot segment may make it `//…`); any other is 400. A status's `location` is any printable
+  ASCII path within the bound. Each is journaled with its client
+  and answered `{navigated: true, build, seq}`. A navigation holds nothing on the build: there is
+  nothing to replay when it registers again or to clear when its client goes. Only the latest
+  waits in a polled stream's queue. A build's `unsupported` for it is its sender's event alone
+  (`only`), and only for the last `seq` sent that build.
 - **Holds at the server** (*1.11*). `{method: "hold", client, build, site, instance, state}`
   (`state` null to let it go) needs write scope and a present client, and names a registered
   build that holds states (else 409, said so). The hold is its client's: let go on that build when

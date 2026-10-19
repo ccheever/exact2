@@ -386,7 +386,7 @@ pub fn dtcg(f: &Folding, vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
                 1,
             ));
         }
-        map.insert(c.name.clone(), json!([Value::Object(tree)]));
+        map.insert(c.name.clone(), json!([crate::budget::tree(tree)?]));
     }
     if !errors.is_empty() {
         return Err(errors);
@@ -725,7 +725,7 @@ pub fn reimport_against(
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
-    let _work = crate::budget::Work::begin();
+    let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
     let doc: Value =
         serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
     let cur = crate::check(current, vocab)?;

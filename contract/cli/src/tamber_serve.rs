@@ -47,10 +47,8 @@
 //!   the `files` digests they read (`tamber/1.1`); `describe` each token's
 //!   declared `pairs` (a role's with its fallback) and the design's
 //!   contrast `warnings`.
-//! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
-//!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
-//!   and `import-plan` plans an import from a source's text against the
-//!   design (`tamber_import.rs`). None writes.
+//! - **The wire's own** (LLP 1122 T1, *1.1*): `compare`, `revert-plan` (texts from git); `import-plan`
+//!   marks a held re-import (sources are read alone). None writes. Base names, *1.14*: `tamber_base.rs`.
 //! - **A request** is one JSON object on a line of at most 1 MiB; a field
 //!   of the wrong type is an error, not absent.
 
@@ -63,6 +61,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+#[path = "tamber_base.rs"]
+mod base;
 #[path = "tamber_scrub.rs"]
 mod scrub;
 #[path = "tamber_walk.rs"]
@@ -783,195 +783,6 @@ impl Server {
             "kind": "dtcg", "text": text, "digest": digest,
             "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
         }))
-    }
-
-    fn describe(&self, request: &Value) -> Result<Value, Value> {
-        // The app's components' params (LLP 1121 D15) fold with the design,
-        // so a dial only a param reads is read; listed by full name.
-        let app = self.app_params();
-        let all = app.tokens.as_slice();
-        let (snap, folding, design) = self.design_with(request, &app)?;
-        let mut ir: Value =
-            serde_json::from_str(&folding.ir()).map_err(|e| json!({"message": e.to_string()}))?;
-        if !all.is_empty() {
-            contract::tamber_params::hide(&mut ir);
-            ir["components"] =
-                contract::tamber_params::components(&app, Some(&design), &self.vocab);
-        }
-        let meta =
-            |m: &[(String, String)]| m.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>();
-        let dials: serde_json::Map<String, Value> = folding
-            .design
-            .dials
-            .iter()
-            .map(|d| (d.name.value.clone(), json!(meta(&d.meta))))
-            .collect();
-        // By the IR's names: a role's row spelling, not the key written.
-        let tokens: serde_json::Map<String, Value> = folding
-            .tokens
-            .iter()
-            .zip(&folding.design.tokens)
-            .filter(|(t, _)| !t.name.starts_with(contract_lower::params::PREFIX))
-            .map(|(t, declared)| (t.name.clone(), json!(meta(&declared.meta))))
-            .collect();
-        // What each token is drawn on (`pair=`): a token by its name, a role
-        // no token overrides with its fallback; and the contrast warnings.
-        let pairs: serde_json::Map<String, Value> = folding
-            .tokens
-            .iter()
-            .filter(|t| !t.pairs.is_empty() && !t.name.starts_with(contract_lower::params::PREFIX))
-            .map(|t| {
-                let named = t.pairs.iter().map(|p| {
-                    let token = folding.tokens.iter().any(|u| &u.name == p);
-                    let fallback = (!token)
-                        .then(|| exact_tamber::fallback(&exact_tamber::Folded::Host(exact_tamber::Host::Role(p.clone())), &self.vocab))
-                        .flatten();
-                    json!({"name": p, "token": token, "fallback": fallback.map(|[l, d]| json!({"light": l, "dark": d}))})
-                });
-                (t.name.clone(), json!(named.collect::<Vec<_>>()))
-            })
-            .collect();
-        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
-        let warnings: Vec<Value> = folding
-            .warnings
-            .iter()
-            .map(|d| located(&file, d, &app))
-            .collect();
-        // Each icon's entry says which source each shipped target draws
-        // (LLP 1121 stage 9 C, *1.12*).
-        if let Some(icons) = ir["icons"].as_array_mut() {
-            for entry in icons {
-                if let Some(icon) = folding.icons.iter().find(|i| entry["name"] == i.name) {
-                    entry["draws"] = crate::tamber_explain::draws(&self.dir, icon);
-                }
-            }
-        }
-        Ok(
-            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
-        )
-    }
-
-    /// A token's stored value per tuple and scheme; a host value (a role, a
-    /// platform colour) is a residual, labelled so, with its fallback.
-    fn resolve(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding, name) = self.lookup(request)?;
-        // An icon (D10): its sources, the same in every tuple.
-        if let Some(icon) = folding.icons.iter().find(|i| i.name == name) {
-            let tuples: Vec<Value> = (0..folding.tuples)
-                .map(|t| json!({"modes": modes_of(&folding.design.axes, t), "kind": "icon", "sf": icon.sf, "material": icon.material, "svg": icon.svg}))
-                .collect();
-            return Ok(json!({"token": name, "tuples": tuples, "files": files_json(&snap)}));
-        }
-        let token = folding
-            .tokens
-            .iter()
-            .find(|t| t.name == name)
-            .ok_or_else(|| json!({"message": format!("no token `{name}`")}))?;
-        let axes = &folding.design.axes;
-        let tuples: Vec<Value> = token
-            .values
-            .iter()
-            .enumerate()
-            .map(|(tuple, v)| {
-                let modes = modes_of(axes, tuple);
-                let v = match v {
-                    // A length's stored form: px, or the unit or named
-                    // length it keeps, whose px is the build's (its text
-                    // size, `resolve-on`).
-                    exact_tamber::Value::Length(l) => {
-                        let (unit, amount) = match l {
-                            exact_tamber::Length::Px(n) => ("px", json!(n)),
-                            exact_tamber::Length::Rem(n) => ("rem", json!(n)),
-                            exact_tamber::Length::Em(n) => ("em", json!(n)),
-                            exact_tamber::Length::Named(_) => ("named", Value::Null),
-                        };
-                        return json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
-                    }
-                    exact_tamber::Value::Number(n) => {
-                        return json!({"modes": modes, "value": v.css(), "kind": "number", "amount": n});
-                    }
-                    // Each shadow: its lengths in px and its colour's CSS
-                    // (null for a text shadow's currentcolor).
-                    exact_tamber::Value::Shadow(s) => {
-                        let shadows: Vec<Value> = s
-                            .list
-                            .iter()
-                            .map(|one| json!({"inset": one.inset, "lengths": one.lengths, "color": one.color.as_ref().map(|c| c.css())}))
-                            .collect();
-                        return json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
-                    }
-                    // A motion token: a time in ms, or an easing's text.
-                    exact_tamber::Value::Duration(ms) => {
-                        return json!({"modes": modes, "value": v.css(), "kind": "duration", "ms": ms});
-                    }
-                    exact_tamber::Value::Easing(_) => {
-                        return json!({"modes": modes, "value": v.css(), "kind": "easing"});
-                    }
-                    // A type token's longhands as written (null: unsaid), a
-                    // family's stack (stage 6 C, optional fields under 1.9).
-                    exact_tamber::Value::Type(t) => {
-                        return json!({"modes": modes, "value": v.css(), "kind": "type", "style": t.style, "weight": t.weight, "size": t.size.css(), "leading": t.leading, "family": t.family});
-                    }
-                    exact_tamber::Value::Family(f) => {
-                        return json!({"modes": modes, "value": v.css(), "kind": "family", "family": f});
-                    }
-                    exact_tamber::Value::Color(c) => c,
-                };
-                match v {
-                    // `srgb`: each side's 8-bit sRGB clip, what a contrast
-                    // ratio is taken on (`light` and `dark` keep the wide value).
-                    exact_tamber::Folded::One(h) => {
-                        json!({"modes": modes, "value": v.css(), "light": h.css(), "dark": h.css(), "srgb": {"light": h.clip(), "dark": h.clip()}})
-                    }
-                    exact_tamber::Folded::Pair(l, d) => {
-                        json!({"modes": modes, "value": v.css(), "light": l.css(), "dark": d.css(), "srgb": {"light": l.clip(), "dark": d.clip()}})
-                    }
-                    exact_tamber::Folded::Host(_) => {
-                        let fallback = exact_tamber::fallback(v, &self.vocab)
-                            .map(|[l, d]| json!({"light": l, "dark": d}));
-                        json!({"modes": modes, "value": v.css(), "residual": true, "fallback": fallback})
-                    }
-                }
-            })
-            .collect();
-        // The digests it read, so a client reading several tokens can tell
-        // one revision from two.
-        Ok(json!({"token": name, "tuples": tuples, "files": files_json(&snap)}))
-    }
-
-    /// A token's chain: its default and `when` values, the dials it depends
-    /// on, and the tokens those values name, as the checker resolved them.
-    fn explain(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding, name) = self.lookup(request)?;
-        // An icon, an icon param's too (D10, *1.12*).
-        let app = self.app_params();
-        // The design asked about (`file`), whose lines set the app's values.
-        let design = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
-        if let Some(icon) =
-            crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
-        {
-            return Ok(icon);
-        }
-        let (token, declared) = folding
-            .tokens
-            .iter()
-            .zip(&folding.design.tokens)
-            .find(|(t, _)| t.name == name)
-            .ok_or_else(|| no_token(&folding, &name))?;
-        let whens: Vec<Value> = declared
-            .whens
-            .iter()
-            .map(|w| {
-                json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value})
-            })
-            .collect();
-        let mut out = json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)});
-        // A param (D15): where it is declared, its default as written, and
-        // the design's line that sets the app's value, *1.12*.
-        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
-            out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
-        }
-        Ok(out)
     }
 
     /// Where the app reads a token (`crate::tamber_uses`): each plan site

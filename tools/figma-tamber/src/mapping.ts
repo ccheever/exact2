@@ -253,7 +253,7 @@ export function push(baseline: string, plan: Plan, now: Record<string, Record<st
   // One light side (theme2's 18:54 (2)): in the split layout each tuple's
   // collection has a Light mode for it; the person's choice (`prefer`, a
   // token and light side's collection, by `token@context`) is written to every one of them.
-  now = structuredClone(now);
+  now = JSON.parse(JSON.stringify(now)); // (Figma's sandbox has no structuredClone; plain values)
   for (const clash of lightClashes(doc, plan, now)) {
     const chosen = prefer[clash.key];
     const value = chosen === undefined ? undefined : clash.values[chosen];
@@ -370,4 +370,15 @@ export function doorOf(text: string): { origin: string; error: string } {
 export function newEnough(protocol: unknown): boolean {
   const m = /^tamber\/(\d+)\.(\d+)$/.exec(String(protocol));
   return !!m && (Number(m[1]) > 1 || (Number(m[1]) === 1 && Number(m[2]) >= 14));
+}
+
+/** A server's reason a value was not proposed, in the person's words where
+ * the design's rule is one a Figma edit trips (the live test: two Light
+ * values of one token): which value differs and what to make equal, never
+ * the rule's id. Any other reason as the server gave it. */
+export function plainWhy(why: string): string {
+  const light = /tamber-under-light: the light side `([^`]+)` is not the default's `([^`]+)`/.exec(why);
+  // (a dark style's branch whose Light side is not the default's: only the Dark side varies by dark style)
+  if (light) return `its Light value here, ${light[1]}, is not the one the design keeps for every dark style, ${light[2]}: only the Dark side varies by dark style, so put the Light value back to ${light[2]}, or change it for every dark style at once (the same in every Light mode), then push (if every Light mode already agrees, the value comes from a token this one names: change it there)`;
+  return why;
 }

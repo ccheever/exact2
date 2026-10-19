@@ -602,6 +602,24 @@ pub fn write_lengths(w: &mut String, lengths: &[String]) {
         "/// Every named length, without `-exact-` (LLP 1115.000 D10.3).\npub const NAMED_LENGTHS: &[&str] = &{lengths:?};\n"
     ));
 }
+/// `lengthRamps` (LLP 1137): each a length at every body size of
+/// `textStyleBodies`, written `-exact-<name>`. What one resolves to is
+/// `style/relative.rs`'s.
+pub fn write_length_ramps(w: &mut String, bodies: &[f32], ramps: &[(String, Vec<f32>)], lengths: &[String]) {
+    for (name, sizes) in ramps {
+        assert!(
+            !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-'),
+            "schema: a length ramp is kebab-case"
+        );
+        assert!(!lengths.contains(name), "schema: {name} is a named length and a ramp");
+        assert_eq!(sizes.len(), bodies.len(), "schema: length ramp {name} has a length per body");
+    }
+    w.push_str("/// Every length ramp, without `-exact-`, and its length at each\n/// [`TEXT_STYLE_BODIES`] body size (LLP 1137).\npub const LENGTH_RAMPS: &[(&str, &[f32])] = &[\n");
+    for (name, sizes) in ramps {
+        w.push_str(&format!("({name:?}, &{sizes:?}),\n"));
+    }
+    w.push_str("];\n");
+}
 /// A `metrics` cell: a number (px on a length row), or the CSS text of the
 /// row it is written on.
 #[derive(Deserialize)]
@@ -735,7 +753,7 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
 /// Whether a `style` row's name says a property that takes no length, as
 /// the grouped sheet writes it (`style::metrics`' row test): a colour, a
 /// line's style, a position, a font, a weight, a control size, an
-/// alignment, an appearance, a box model, a flex factor. Every other `style`
+/// alignment, an appearance, a box model, a flex factor, a flex wrap. Every other `style`
 /// row is written on a length property (a gap, an inset, a corner, a width or
 /// height, a padding, a margin, an offset).
 fn names_no_length(name: &str) -> bool {
@@ -744,7 +762,7 @@ fn names_no_length(name: &str) -> bool {
         || name == "grouped-separator"
         || [
             "-style", "-color", "-position", "-tint", "-font", "-weight", "-align", "-appearance",
-            "-box-sizing", "-grow",
+            "-box-sizing", "-grow", "-wrap",
         ]
         .iter()
         .any(|e| name.ends_with(e))
@@ -755,7 +773,8 @@ fn names_no_length(name: &str) -> bool {
 /// row both ways. A row whose name says a length property is refused
 /// without it; one with it is refused where its name says no length, or a
 /// cell is no length (a length is a number of px, `unset`, `auto`, a
-/// percentage, an `em`, `rem`, `px`, `vw` or `vh`, or a `calc()`).
+/// percentage, an `em`, `rem`, `px`, `vw` or `vh`, a `calc()`, or a named
+/// length or length ramp, `-exact-<name>`).
 fn style_length_marker(name: &str, kind: &str, cells: &[MetricCell]) {
     match kind {
         "style" => assert!(
@@ -773,6 +792,7 @@ fn style_length_marker(name: &str, kind: &str, cells: &[MetricCell]) {
                 assert!(
                     text == "unset"
                         || text == "auto"
+                        || text.starts_with("-exact-") // a named length or a length ramp
                         || calc_length(text)
                         || unit.is_some_and(|n| n.parse::<f64>().is_ok_and(f64::is_finite)),
                     "schema: metric {name}: `style length` holds no length in a cell: {text}"

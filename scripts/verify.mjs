@@ -539,16 +539,19 @@ export const LARGEST = 'accessibility-extra-extra-extra-large', LARGEST_PX = 53;
 const LARGE_KINDS = new Set(['overflow', 'clipped', 'overlap', 'squeezed']), PAGES = 6;
 const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
 /** The remedy for a finding at the largest size: never a smaller or fixed font. A text in a list's row (`inRow`) is cut by
- * the row, which wrapping the row does not change: at the accessibility sizes UIKit's cells wrap a label, hyphenate a word
- * longer than the line and grow taller, never truncating it (`UIListContentConfiguration`, iOS 27), so a `line-clamp`
- * there reads as a tell (round 22's book-club and contacts took one from this remedy). */
+ * the row, which wrapping the row does not change: at the accessibility sizes UIKit's cells wrap a label and grow taller,
+ * never truncating it, so a `line-clamp` there reads as a tell (round 22's book-club and contacts took one from this
+ * remedy). A grouped list's row already hyphenates as a cell's label does. Elsewhere a UILabel wraps at words and breaks
+ * between syllables only a word longer than its line (iOS 27), so `hyphens="auto"` is the remedy for a text of one word;
+ * on a heading or sentence it hyphenates words a UILabel keeps whole, which round 26's graders named a tell. */
 export function largeRemedy(f, { inRow = false } = {}) {
+  const wide = (f.detail?.need ?? f.detail?.cut ?? [0])[0] > 0;
   if (f.kind === 'clipped' && inRow && !f.detail?.edge) {
-    const wide = (f.detail?.need ?? f.detail?.cut ?? [0])[0] > 0;
-    return `${wide ? 'let a word longer than its line break between syllables (`hyphens="auto"`) and ' : 'let '}the row grow taller with its text, as a cell does at this size (no px height on the row or what it holds; no \`line-clamp\`, which cuts what a cell shows whole)`;
+    return `${wide ? 'give the text more of the row (no px width beside it) and ' : ''}let the row grow taller with its text, as a cell does at this size (no px height on the row or what it holds; no \`line-clamp\`, which cuts what a cell shows whole)`;
   }
+  const oneWord = typeof f.text === 'string' && f.text.trim() !== '' && !/\s/.test(f.text.trim());
   if (f.kind === 'clipped') return f.detail?.edge ? 'let the page scroll there (a scroll with flex=1 min-height=0)'
-    : f.detail?.need?.[0] > 0 ? `give it room (no px width on its box), or ${WRAP}; a word longer than any line breaks between syllables with \`hyphens="auto"\``
+    : wide && f.detail?.need ? `give it room (no px width on its box), or ${WRAP}; ${oneWord ? 'a word longer than any line breaks between syllables with `hyphens="auto"`, as a UILabel breaks it' : 'not `hyphens="auto"`, which breaks words a UILabel wraps whole'}`
     : f.detail?.need ? 'let its box grow with its text: no px height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
   if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
   return WRAP;

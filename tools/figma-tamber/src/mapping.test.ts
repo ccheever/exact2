@@ -2,7 +2,7 @@
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, plainWhy, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 // The fixture's export as read (its dark-style axis under scheme=dark: one light mode), and the
 // same with that axis an ordinary one (a mode for each context), which most tests use.
@@ -151,6 +151,23 @@ test('the plugin builds (its main thread and its UI, as Figma loads them)', asyn
   }
 });
 
+// What a browser has and Figma's main-thread sandbox does not (Charlie's
+// live push: structuredClone). The UI runs in an iframe, a browser's.
+// `globalThis` and `self` too, so no listed name is reached through them.
+const UNSANDBOXED = ['globalThis', 'self', 'structuredClone', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'crypto', 'queueMicrotask', 'Blob', 'XMLHttpRequest', 'localStorage', 'window', 'document', 'navigator', 'performance', 'setImmediate', 'process', 'Buffer', 'require'];
+
+test('the main thread reads none of the listed globals Figma\'s sandbox lacks', async () => {
+  // The bundler's `define` swaps a free name only (never a property, a key,
+  // a string or a local), so a marker left in the output is a global read.
+  const build = async (entry: string) => {
+    const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife', define: Object.fromEntries(UNSANDBOXED.map(g => [g, `__figma_lacks_${g}`])) });
+    return [...new Set([...(await built.outputs[0].text()).matchAll(/__figma_lacks_(\w+)/g)].map(m => m[1]))];
+  };
+  expect(await build('code.ts')).toEqual([]);
+  // And it sees one: the UI, a browser's, reads `URL` and `document`.
+  expect(await build('ui.ts')).toEqual(expect.arrayContaining(['URL', 'document']));
+});
+
 test('one choice a token and light side: two light sides of one token are asked and written apart', () => {
   const ctx = (d: string, s: string, scheme: string) => `density=${d}, dark-style=${s}, ${scheme}`;
   const contexts: Record<string, any> = {}, info: Record<string, any> = {};
@@ -168,4 +185,10 @@ test('one choice a token and light side: two light sides of one token are asked 
   expect(clashes.map(c => c.key)).toEqual(['c@density=a, dark-style=black, light', 'c@density=b, dark-style=black, light']);
   const out = tokensOf(JSON.parse(push(JSON.stringify(doc), plan, now, { [clashes[0].key]: 'Tamber · density=a, dark-style=black', [clashes[1].key]: 'Tamber · density=b, dark-style=dim' })));
   expect([ctx('a', 'black', 'light'), ctx('a', 'dim', 'light'), ctx('b', 'black', 'light'), ctx('b', 'dim', 'light')].map(k => out[k].c.$value.hex)).toEqual(['#ff0000', '#ff0000', '#0000ff', '#0000ff']);
+});
+
+test('a value not proposed for a dark style\'s Light value says which differs from the one kept and what to do, never the rule\'s id', () => {
+  const why = "the design would refuse it (tamber-under-light: the light side `#1df032ff` is not the default's `#1d9bf0ff`: an axis `under scheme=dark` varies the dark side only)";
+  expect(plainWhy(why)).toBe('its Light value here, #1df032ff, is not the one the design keeps for every dark style, #1d9bf0ff: only the Dark side varies by dark style, so put the Light value back to #1d9bf0ff, or change it for every dark style at once (the same in every Light mode), then push (if every Light mode already agrees, the value comes from a token this one names: change it there)');
+  expect(plainWhy('no token of that name')).toBe('no token of that name');
 });

@@ -180,8 +180,10 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
       try { ids[mode] = did(col.addMode(temp())); } catch (e: any) {
         const limit = /\blimited to (\d+) modes?\b/i.exec(String(e?.message ?? e));
         // (with the collection, and the modes in it a person added, for the refusal to name)
-        const personal = col.modes.filter((m: any) => !ours.has(m.modeId) && !Object.values(ids).includes(m.modeId)).map((m: any) => m.name);
-        throw limit ? Object.assign(new Error(String(e?.message ?? e)), { capacity: Number(limit[1]), collection: col.name, personal }) : e;
+        // (by id: the refusal reads their names once the pull is undone, the person's again)
+        const personal = col.modes.filter((m: any) => !ours.has(m.modeId) && !Object.values(ids).includes(m.modeId)).map((m: any) => m.modeId);
+        // (and the modes Tamber keeps unused, and how many contexts still want a place)
+        throw limit ? Object.assign(new Error(String(e?.message ?? e)), { capacity: Number(limit[1]), collection: c.name, collectionId: made ? null : col.id, personal, parked: parked.map(([, id]) => id), wanted: c.modes.filter(m => !ids[m]).length + Math.max(0, col.modes.length - Number(limit[1])) }) : e;
       }
     }
     const final: [string, string][] = [...c.modes.map(mode => [mode, ids[mode]] as [string, string]), ...parked.map(([, id], i) => [unused[i], id] as [string, string])];
@@ -209,6 +211,22 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     if (parked.length) c.parked = Object.fromEntries(parked);
   }
 }
+/** Why a pull that still finds no room is refused, read once it is undone
+ * (the collection's name and its modes' the person's again): the modes in
+ * its way, the person's and those Tamber keeps unused, and how many must go
+ * (the values on them with them); the default among them, which Figma won't
+ * remove, after another is dragged above it. */
+async function roomRefusal(e: any): Promise<string> {
+  const col = e.collectionId && (await figma.variables.getLocalVariableCollectionsAsync()).find((x: any) => x.id === e.collectionId);
+  const name = col?.name ?? e.collection, mode = (id: string) => col?.modes.find((m: any) => m.modeId === id);
+  const yours = (e.personal as string[]).map(mode).filter(Boolean), unused = (e.parked as string[]).map(mode).filter(Boolean);
+  const room = `this file allows ${limitOf(e)} modes a collection`;
+  const inWay = [...yours.map((m: any) => `\`${m.name}\` (yours)`), ...unused.map((m: any) => `\`${m.name}\` (kept unused by Tamber)`)];
+  // (every mode in it in the way: Figma keeps one, so the collection goes instead)
+  if (!inWay.length || (col && inWay.length === col.modes.length && e.wanted >= inWay.length)) return `${room}, and \`${name}\` has no place for ${e.wanted} more${inWay.length ? ` (${inWay.join(', ')} hold every one, and Figma keeps one mode)` : ''}: remove that collection to pull (what is bound to it, and the values on its modes, go with it)`;
+  const def = [...yours, ...unused].find((m: any) => m.modeId === col.defaultModeId), n = Math.min(e.wanted, inWay.length);
+  return `${room}, and \`${name}\` needs ${e.wanted} more place${e.wanted === 1 ? '' : 's'}: remove ${n === inWay.length ? inWay.join(' and ') : `${n} of ${inWay.join(', ')}`}, and the values on ${n === 1 ? 'it' : 'them'} go${def ? ` (\`${def.name}\` is the default mode, which Figma won't remove: drag another mode above it first)` : ''}; then pull`;
+}
 /** Whether the document changed since the last undo step was committed. */
 let dirty = false;
 /** Figma's refusal of one mode too many, as `write` marks it at `addMode`, and nothing else. */
@@ -233,7 +251,18 @@ figma.ui.onmessage = async (msg: any) => {
         // And what it could not read there (an alias to nowhere, a mode gone), which a pull overwrites.
         // And the variables a pull removes or makes again (a token the design dropped, a type changed): their bindings go.
         const { plan } = stored(), doc = JSON.parse(msg.text), held = plan ? await holding(plan) : { now: {}, unread: [] };
-        const fresh = new Map(pull(doc, Infinity).collections[0].variables.map(v => [v.token, v.type])), drops = (plan?.collections ?? []).flatMap(c => c.variables).filter((v, i, all) => all.findIndex(w => w.token === v.token) === i && fresh.get(v.token) !== v.type).map(v => ({ token: v.token, variable: v.name, why: fresh.has(v.token) ? 'its type changed: it is made again' : 'the design dropped it' }));
+        // (each live variable that goes, in each collection, by the name it has in the file now)
+        const fresh = new Map(pull(doc, Infinity).collections[0].variables.map(v => [v.token, v.type])), drops: { token: string; collection: string; variable: string; why: string }[] = [];
+        if (plan) {
+          const collections = await figma.variables.getLocalVariableCollectionsAsync(), variables = await figma.variables.getLocalVariablesAsync();
+          for (const c of plan.collections) {
+            const col = collectionIn(collections, c);
+            for (const v of col ? c.variables.filter(v => fresh.get(v.token) !== v.type) : []) {
+              const fv = variableOf(variables, col, v);
+              if (fv) drops.push({ token: v.token, collection: col.name, variable: fv.name, why: fresh.has(v.token) ? 'its type changed: it is made again' : 'the design dropped it' });
+            }
+          }
+        }
         // And every alias of the person's in a Tamber variable: a pull writes the design's value over each.
         const aliases: { collection: string; variable: string; mode: string }[] = [];
         if (plan) {
@@ -292,9 +321,11 @@ figma.ui.onmessage = async (msg: any) => {
               // away; a surviving context keeps its mode, and the pull is refused.
               if (!tooManyModes(e2)) throw e2;
               const kept = (before?.collections ?? []).flatMap(c => Object.keys(c.contextIds ?? {})).filter(ctx => !moved?.removed.includes(ctx));
-              if (kept.length) throw new Error(e2.personal?.length
-                ? `this file allows ${limitOf(e2)} modes a collection, and \`${e2.collection}\` has modes Tamber did not make (${e2.personal.join(', ')}) in the places its contexts need: remove one, then pull`
-                : `this file allows ${limitOf(e2)} modes a collection, and a default mode Figma can't remove holds one in \`${e2.collection}\`: to pull, remove that collection (what is bound to it, and any variables you added there, go with it)`);
+              if (kept.length) {
+                // Undone first: the collection and its modes named as the person has them again.
+                undo();
+                throw new Error(await roomRefusal(e2));
+              }
               undo();
               figma.commitUndo();
               await write(plan, before, true);
@@ -310,8 +341,10 @@ figma.ui.onmessage = async (msg: any) => {
             if (!old || now.has(old.id) || !old.getSharedPluginData?.(KEY, 'owned')) continue;
             const theirs = variables.filter((v: any) => v.variableCollectionId === old.id && !v.getSharedPluginData?.(KEY, 'token')).map((v: any) => v.name);
             const ours = new Set([...Object.values(c.contextIds ?? {}), ...Object.values(c.parked ?? {})]);
-            theirs.push(...old.modes.filter((m: any) => !ours.has(m.modeId)).map((m: any) => `the mode ${m.name}`));
-            if (theirs.length) throw new Error(`the collection \`${old.name}\` this pull would replace has what Tamber did not make (${theirs.join(', ')}): move it, then pull`);
+            const modes = old.modes.filter((m: any) => !ours.has(m.modeId)), def = modes.length < old.modes.length && modes.find((m: any) => m.modeId === old.defaultModeId);
+            // (a variable moves to another collection; a mode can't, so it is deleted, and its values with it; the default after another is dragged above it)
+            const what = [...(theirs.length ? [`variables Tamber did not make (${theirs.join(', ')}): move them to another collection`] : []), ...(modes.length ? [(modes.length === old.modes.length ? `only modes Tamber did not make (${modes.map((m: any) => m.name).join(', ')}), and Figma keeps one: move what you need from it, then delete the collection` : `modes Tamber did not make (${modes.map((m: any) => m.name).join(', ')}): delete them, and the values on them go${def ? ` (\`${def.name}\` is the default mode, which Figma won't remove: drag another mode above it first)` : ''}`)] : [])];
+            if (what.length) throw new Error(`the collection \`${old.name}\` this pull would replace has ${what.join('; and ')}; then pull`);
             old.remove();
             dirty = true;
           }

@@ -57,6 +57,25 @@ const WAIT_MS = 4_000;
 // A report's body: at most this many bytes, read within this long.
 const REPORT_BYTES = 64 * 1024, REPORT_MS = 10_000;
 const KINDS = new Set(['register', 'status', 'unsupported', 'selected', 'held']);
+// A location on the build's own origin (LLP 1122 T7, `navigate`; a status's
+// `location`): a path with its query and fragment, never a scheme, a host or
+// a path a browser reads as one (`//`, `/\`), at most 2 KiB, in printable
+// ASCII (percent-encoded, as a page's own location is), no backslash.
+const LOCATION = /^\/(?![/\\])[\x21-\x5b\x5d-\x7e]*$/;
+// (Resolved, it stays a path, within the bound as a page then spells it: no
+// dot segment makes it `//…`, which the history API reads as another host,
+// and no character it escapes takes it past 2 KiB.)
+const located = v => {
+  if (typeof v !== 'string' || v.length > 2048 || !LOCATION.test(v)) return false;
+  const u = new URL(v, 'http://h.invalid');
+  return !u.pathname.startsWith('//') && (u.pathname + u.search + u.hash).length <= 2048;
+};
+// A location `navigate` takes is one more: spelled as URLs and the router
+// write it already (RFC 3986's path, query and fragment characters but
+// `'`, which a query escapes; each `%` a whole escape), so the copy arrives at exactly that spelling and
+// nothing it routes to is escaped past the bound.
+const CANONICAL = /^\/(?:[A-Za-z0-9\-._~!$&()*+,;=:@/?#]|%[0-9A-Fa-f]{2})*$/;
+const routable = v => located(v) && CANONICAL.test(v);
 // The states a hold names (LLP 1122 D8), and why a build lets one go.
 const HELD = ['active', 'hover', 'focus-visible'], DROPS = ['input', 'disabled', 'gone', 'replaced'];
 
@@ -112,6 +131,7 @@ function reportRefused(r) {
     if (!maybe(r.scheme, v => text(v, 32)) || !maybe(r.contrast, v => text(v, 32))) return '`scheme` and `contrast` are strings, or null';
     if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
     if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
+    if (!maybe(r.location, located)) return '`location` is a path on the build\'s own origin (with its query and fragment, printable ASCII, at most 2 KiB), or null';
   }
   if (r.kind === 'selected' && !maybe(r.inspect, v => Number.isSafeInteger(v) && v >= 0)) return '`inspect` is a whole number';
   if (r.kind === 'selected' && !maybe(r.click, v => typeof v === 'string' && v.length > 0 && v.length <= 64)) return '`click` is a string of 1 to 64 characters';
@@ -144,7 +164,10 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   // id -> the revision of the last hold frame sent it (a hold or null): a
   // build's `held` or hold `unsupported` naming any other is old news.
   const holdSent = new Map();
-  let inspects = 0, holding = 0;
+  // id -> { client, seq }: the last `navigate` sent a build, whose refusal
+  // is that client's alone. A navigation holds nothing on the build.
+  const navigated = new Map();
+  let inspects = 0, holding = 0, navigations = 0;
   let revision = 0, greeting = () => null;
   // A bearer credential for the report route: unguessable.
   const nonce = () => randomBytes(16).toString('hex');
@@ -270,6 +293,8 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         if (f.kind === 'pin') queue = queue.filter(q => q.f.kind !== 'pin');
         // Likewise a hold: the latest replaces the one before.
         if (f.kind === 'hold') queue = queue.filter(q => q.f.kind !== 'hold');
+        // And a navigation: only where the latest goes.
+        if (f.kind === 'navigate') queue = queue.filter(q => q.f.kind !== 'navigate');
         // Likewise inspect: the latest on/off, and one refresh.
         if (f.kind === 'inspect') queue = queue.filter(q => q.f.kind !== 'inspect' || !!q.f.refresh !== !!f.refresh);
         queue.push({ f, n: Buffer.byteLength(JSON.stringify(f)) });
@@ -358,12 +383,12 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); navigated.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id); untell(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); navigated.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
@@ -398,7 +423,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // status stays at that revision, gone once it moves on.
         if (b.unsupported && b.unsupported.revision === undefined) b.unsupported.revision = at;
         else if (b.unsupported && b.unsupported.revision !== at) b.unsupported = null;
-        b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: at };
+        b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: at, location: r.location ?? null };
         if (typeof r.plan === 'string') b.plan = r.plan;
         // (Said unknown, null, it is unknown: such a build is sent every plan's outline.)
         const was = b.planDigest;
@@ -423,6 +448,16 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         log(`build ${b.id}: ${r.state ? `holds ${r.state}` : `let go${r.reason ? ` (${r.reason})` : ''}`}`);
         send({ event: 'held', build: b.id, state: r.state ?? null, reason: r.reason ?? null });
       } else if (r.kind === 'unsupported') {
+        // A navigation refused is its sender's alone, and only the last one
+        // sent (its `revision`, the frame's seq): it holds nothing to clear.
+        if (r.what === 'navigate') {
+          const n = navigated.get(b.id);
+          if (!n || r.revision !== n.seq) return { status: 204, body: null };
+          navigated.delete(b.id);
+          log(`build ${b.id}: unsupported navigate`);
+          send({ event: 'unsupported', build: b.id, what: 'navigate', detail: r.detail ?? null, only: n.client });
+          return { status: 204, body: null };
+        }
         log(`build ${b.id}: unsupported ${r.what ?? '?'}`);
         // A hold refused is its hold frame's, an answer to its owner alone
         // (theme2's 07:48 (c)); a pin's is kept with the status.
@@ -566,6 +601,22 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       announce();
       return { build: id, revision };
     },
+    /** `client` routes build `id` to `location`, a path with its query and
+     * fragment on the build's own origin, in place as a deep link (LLP 1122
+     * T7). One-shot: nothing is held, replayed or cleared. The refusal, the
+     * build's lack of it, or the seq sent. */
+    navigate(client, id, location) {
+      if (!routable(location)) return { error: '`location` is a path on the build\'s own origin, with its query and fragment, at most 2 KiB and spelled as a URL writes it (RFC 3986\'s characters, each `%` a whole escape): no scheme or host' };
+      sweep();
+      const b = listed().find(b => b.id === id);
+      if (!b) return { error: `no registered build \`${id}\`` };
+      if (!b.capabilities?.includes('navigate')) return { unsupported: `build \`${id}\` (${b.host}) cannot navigate` };
+      const seq = ++navigations;
+      navigated.set(id, { client, seq });
+      frame(id, { kind: 'navigate', seq, location });
+      log(`tamber: ${client} navigated ${id} to ${JSON.stringify(location)} (navigate ${seq})`);
+      return { build: id, seq };
+    },
     /** Client `client` is gone: its pins are cleared on every build, and
      * its holds let go. */
     clear(client) {
@@ -582,6 +633,18 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       announce();
     },
   };
+}
+
+/** The design server's `navigate` `{client, build, location}` (LLP 1122 T7,
+ * *1.14*; write scope, the dispatcher's) on `channel`, from a client
+ * `present(client)` says is: its answer, `{ok}` or `{status, error}`. */
+export function navigateRequest(channel, present, { client, build, location }) {
+  if (!present(client)) return { status: 409, error: { message: `navigate: \`${client}\` is not present` } };
+  if (typeof build !== 'string') return { status: 400, error: { message: 'navigate names its `build`, a registered build\'s id' } };
+  const done = channel.navigate(client, build, location);
+  if (done.error) return { status: 400, error: { message: done.error } };
+  if (done.unsupported) return { status: 409, error: { message: done.unsupported, unsupported: 'navigate' } };
+  return { ok: { navigated: true, ...done } };
 }
 
 /** `POST /__dev/report` on `channel` (both dev loops). The body is read

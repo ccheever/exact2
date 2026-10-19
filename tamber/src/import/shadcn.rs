@@ -27,9 +27,10 @@
 //!   variables to utilities, are not the source and are not read.
 
 use super::engine::{self, Decl, Fate, Target};
-use super::{counted, css_blocks, reconcile, tamber_name, Import, Mapped, Offer, Unmapped};
+use super::{counted, css_read, reconcile, tamber_name, Import, Mapped, Offer, Unmapped};
 use crate::edit::Op;
 use crate::{Design, Diagnostic, Vocab};
+use std::collections::{HashMap, HashSet};
 
 /// Where a block's declarations go: each target its selector list names,
 /// or why none. `dark` is an enclosing `prefers-color-scheme: dark`.
@@ -146,7 +147,14 @@ pub fn import(
             .collect::<String>()
             .to_ascii_lowercase()
     };
-    for block in css_blocks(css) {
+    let (blocks, deep) = css_read(css);
+    // A rule the reader did not read: one value, reported with its line.
+    for d in &deep {
+        source += 1;
+        let why = format!("not read: {} (line {})", d.why, d.line);
+        report(&mut unmapped, "(not read)", &d.prelude, "", why, None);
+    }
+    for block in blocks {
         if block.context.iter().any(|p| p.starts_with("@theme")) {
             continue;
         }
@@ -187,10 +195,11 @@ pub fn import(
     // The themes the source names, whether or not their values map; one
     // whose axis would take the design past its tuples is reported.
     let mut themes: Vec<String> = Vec::new();
+    let mut named_themes: HashSet<&str> = HashSet::new();
     for (_, _, _, targets) in &decls {
         for t in targets {
             if let Some(theme) = &t.0 {
-                if !themes.contains(theme) {
+                if named_themes.insert(theme) {
                     themes.push(theme.clone());
                 }
             }
@@ -244,28 +253,38 @@ pub fn import(
     // Each declaration mapped, or reported once with why.
     let mut mapped = 0;
     // A variable that makes no token is no token's to name.
-    let dropped: Vec<&String> = decls
+    let dropped: HashSet<&String> = decls
         .iter()
         .zip(&fates)
         .filter(|(_, f)| matches!(f, Fate::Unresolved(_)))
         .map(|((_, var, _, _), _)| var)
         .collect();
+    let kinds = Kinds::of(&decls);
+    // Each variable's declarations read once: whether any is a colour where
+    // it wins, and the one other kind its no-colour ones all are (`None`
+    // when they differ; none of them, any kind).
+    // (Coloured; then none read yet, `Some(None)` kinds that differ, or the one kind.)
+    type Seen = (bool, Option<Option<Option<&'static str>>>);
+    let mut seen_as: HashMap<&str, Seen> = HashMap::new();
+    for ((_, v, x, _), f) in decls.iter().zip(&fates) {
+        let e = seen_as.entry(v.as_str()).or_insert((false, None));
+        e.0 |= !matches!(f, Fate::NotColour | Fate::Superseded);
+        if matches!(f, Fate::NotColour) {
+            let k = kinds.other_kind(v, x);
+            e.1 = match e.1 {
+                None => Some(Some(k)),
+                Some(Some(was)) if was == k => Some(Some(k)),
+                _ => Some(None),
+            };
+        }
+    }
     for (i, ((label, var, value, _), fate)) in decls.iter().zip(&fates).enumerate() {
         let token = names.get(var).filter(|_| !dropped.contains(&var)).cloned();
         // One other kind in every block it wins (a colour in one, or a
         // value of no kind, is no token of either kind).
-        let own = || {
-            decls
-                .iter()
-                .zip(&fates)
-                .filter(|((_, v, _, _), _)| v == var)
-        };
-        let coloured = own().any(|(_, f)| !matches!(f, Fate::NotColour | Fate::Superseded));
-        let kind = other_kind(&decls, var, value);
-        let one_kind = !coloured
-            && own()
-                .filter(|(_, f)| matches!(f, Fate::NotColour))
-                .all(|((_, v, x, _), _)| other_kind(&decls, v, x) == kind);
+        let (coloured, uniform) = seen_as[var.as_str()];
+        let kind = kinds.other_kind(var, value);
+        let one_kind = !coloured && uniform.is_none_or(|u| u == Some(kind));
         if let (Fate::NotColour, Some(kind), true) = (fate, kind, one_kind) {
             others.push((i, kind));
             continue;
@@ -289,6 +308,7 @@ pub fn import(
                 "declared again later for the same theme block, which wins".to_string(),
                 None,
             ),
+            Fate::Deep => ("an alias chain longer than 256".to_string(), None),
             Fate::NotColour if value.trim().is_empty() => ("an empty value".to_string(), None),
             Fate::NotColour => match engine::reference(value) {
                 Some(r) => (
@@ -342,6 +362,8 @@ pub fn import(
         &mut sources,
     );
     // Each colour's declarations mapped, by its token.
+    // Each token's place in `sources`, by name.
+    let mut source_at: HashMap<&str, usize> = HashMap::new();
     for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
         let Some(name) = names.get(var).filter(|_| *fate == Fate::Mapped) else {
             continue;
@@ -353,9 +375,12 @@ pub fn import(
             why: String::new(),
             token: Some(name.clone()),
         };
-        match sources.iter_mut().find(|(n, _)| n == name) {
-            Some((_, from)) => from.push(record),
-            None => sources.push((name.clone(), vec![record])),
+        match source_at.get(name.as_str()) {
+            Some(&k) => sources[k].1.push(record),
+            None => {
+                source_at.insert(name.as_str(), sources.len());
+                sources.push((name.clone(), vec![record]));
+            }
         }
     }
     // What would not hold where it lands: its declarations reported.
@@ -381,45 +406,70 @@ pub fn import(
     })
 }
 
-/// The kind besides colour a declaration that is no colour is: a length by
-/// its value (`--radius: 0.625rem`), else a shadow or a family by its name
-/// (`--shadow-sm`, `--font-sans`); a reference the kind of what it names.
-fn other_kind(decls: &[Decl], var: &str, value: &str) -> Option<&'static str> {
-    kind_through(decls, var, value, &mut Vec::new())
+/// Each variable's winning declaration (its last), for [`Kinds::other_kind`].
+struct Kinds<'a> {
+    decls: &'a [Decl],
+    last: HashMap<&'a str, usize>,
 }
 
-/// [`other_kind`] through a chain of references (a cycle is none).
-fn kind_through<'a>(
-    decls: &'a [Decl],
-    var: &'a str,
-    value: &str,
-    seen: &mut Vec<&'a str>,
-) -> Option<&'static str> {
-    let named = || {
-        if var == "--shadow" || var.starts_with("--shadow-") {
-            Some("box-shadow")
-        } else if var.starts_with("--font-") {
-            Some("family")
-        } else {
-            None
-        }
-    };
-    // A reference: the kind of what it names, by its last declaration (the
-    // one that wins), else this variable's by its name.
-    if let Some(r) = engine::reference(value) {
-        if seen.contains(&var) || r == var {
-            return None;
-        }
-        seen.push(var);
-        let last = decls.iter().rev().find(|(_, v, _, _)| v == r);
-        return last
-            .and_then(|(_, v, value, _)| kind_through(decls, v, value, seen))
-            .or_else(named);
+impl<'a> Kinds<'a> {
+    fn of(decls: &'a [Decl]) -> Kinds<'a> {
+        let last = decls
+            .iter()
+            .enumerate()
+            .map(|(k, (_, v, _, _))| (v.as_str(), k))
+            .collect();
+        Kinds { decls, last }
     }
-    if looks_like_length(value) {
-        Some("length")
-    } else {
-        named()
+
+    /// The kind besides colour a declaration that is no colour is: a length
+    /// by its value (`--radius: 0.625rem`), else a shadow or a family by its
+    /// name (`--shadow-sm`, `--font-sans`); a reference the kind of what it
+    /// names.
+    fn other_kind(&self, var: &str, value: &str) -> Option<&'static str> {
+        self.through(var, value, &mut HashSet::new())
+            .unwrap_or(None)
+    }
+
+    /// [`Kinds::other_kind`] through a chain of references: a cycle is none
+    /// (and each variable before it its name's kind), and a chain past 256
+    /// references none at all (`Err`, which no name's kind stands in for).
+    fn through(
+        &self,
+        var: &'a str,
+        value: &str,
+        seen: &mut HashSet<&'a str>,
+    ) -> Result<Option<&'static str>, ()> {
+        let named = || {
+            if var == "--shadow" || var.starts_with("--shadow-") {
+                Some("box-shadow")
+            } else if var.starts_with("--font-") {
+                Some("family")
+            } else {
+                None
+            }
+        };
+        // A reference: the kind of what it names, by its last declaration
+        // (the one that wins), else this variable's by its name.
+        if let Some(r) = engine::reference(value) {
+            if seen.contains(var) || r == var {
+                return Ok(None);
+            }
+            seen.insert(var);
+            if seen.len() > 256 {
+                return Err(());
+            }
+            let found = match self.last.get(r).map(|&k| &self.decls[k]) {
+                Some((_, v, value, _)) => self.through(v, value, seen)?,
+                None => None,
+            };
+            return Ok(found.or_else(named));
+        }
+        Ok(if looks_like_length(value) {
+            Some("length")
+        } else {
+            named()
+        })
     }
 }
 
@@ -454,33 +504,34 @@ fn other_kinds(
             token: names.get(var).cloned(),
         });
     };
+    // Each variable, first seen first, with its declarations in order.
     let mut vars: Vec<&str> = Vec::new();
-    for (i, _) in others {
-        if !vars.contains(&decls[*i].1.as_str()) {
-            vars.push(&decls[*i].1);
+    let mut own_of: HashMap<&str, Vec<(usize, &'static str)>> = HashMap::new();
+    for &(i, kind) in others {
+        let var = decls[i].1.as_str();
+        let own = own_of.entry(var).or_default();
+        if own.is_empty() {
+            vars.push(var);
         }
+        own.push((i, kind));
     }
     let start = tokens.len();
     // A token made: a colour, or one of these.
-    let colours: Vec<String> = tokens.iter().map(|t| t.name.clone()).collect();
+    let colours: HashSet<String> = tokens.iter().map(|t| t.name.clone()).collect();
     let token_of = |var: &str| {
         names
             .get(var)
-            .filter(|n| colours.contains(n) || vars.contains(&var))
+            .filter(|n| colours.contains(*n) || own_of.contains_key(var))
             .cloned()
     };
     // Each token made: its kind, and the declarations it carries.
     let mut made: Vec<(&'static str, Vec<usize>)> = Vec::new();
     for &var in &vars {
-        let own: Vec<(usize, &'static str)> = others
-            .iter()
-            .filter(|(i, _)| decls[*i].1 == var)
-            .copied()
-            .collect();
+        let own: &[(usize, &'static str)] = &own_of[var];
         let kind = own[0].1;
         // Each block's winner: the last that sets it.
         let mut winner: std::collections::BTreeMap<&Target, &str> = Default::default();
-        for (i, _) in &own {
+        for (i, _) in own {
             for t in &decls[*i].3 {
                 winner.insert(t, &decls[*i].2);
             }

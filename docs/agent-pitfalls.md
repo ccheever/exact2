@@ -474,6 +474,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
+| `alignItems`, `justifyContent`, `gap` on a `View` (a flex column in RN) | `lower-flex-on-block` (warning) | `column` or `row`: a `view` is `display: block`, as a `<div>` is |
 
 What the original's style objects say is not always what its iOS screen shows. Port
 what the screenshot shows. (euxy port against its Expo original, judged screen by
@@ -1223,7 +1224,8 @@ screen, 2026-10-16.)
   starting the server), and from then on UIKit keeps accessibility state for
   every view it moves. A phone pays this only with an assistive technology on
   (VoiceOver, Voice Control, Switch Control). `xctrace` and `sample` attached to
-  the app stall it too. Fix: time a plain launch; drive taps with `axe touch`
+  the app stall it too, and `agent ios --touch platform` turns accessibility
+  automation on for the simulator until it is erased (euxy's launch: 1.2 s more). Fix: time a plain launch; drive taps with `axe touch`
   (HID, no accessibility) or have the host press a row itself, and read frames
   from Save Trace or a temporary log, not from a run an accessibility client
   touched. (x2-perf, 2026-10-05.)

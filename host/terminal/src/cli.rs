@@ -8,7 +8,9 @@
 //! `wheel <testId> <rows>`, `resize <COLSxROWS>`, `wait <ms>`,
 //! `until <text>` (wait up to 15 s for the screen to show it), `tree`,
 //! `screenshot <file.txt|file.ans>`, `print [--all]` (the screen; `--all`
-//! puts the scrollback above it), `document` (the whole laid-out document).
+//! puts the scrollback above it), `document` (the whole laid-out document),
+//! `layout` (every node's box as JSON: px, cells, testId, corner radii) and
+//! `plan` (the running plan's SHA-256, as JSON).
 //!
 //! Headless, frames go into a terminal emulator, and those verbs read its
 //! screen: what a person would see (LLP 1101.002 §0 P1). `tap`, `type` and
@@ -140,6 +142,99 @@ fn tree<D: DataSource>(host: &Host<D>) -> String {
     for root in kernel.roots() {
         walk(host, root, 0, &mut out);
     }
+    out
+}
+
+/// Every displayed node's box, as one JSON line in the agent's shape (the
+/// `layout` verb, the terminal carrier's own: LLP 1121 stage 11 C, for
+/// scripts/scale-check.mjs): the viewport and each node's frame in the
+/// kernel's px, the cell (`COLUMN`×`ROW` px), each node's cells as the
+/// painter rounds them, its `testId`, and its corners' resolved radii in px
+/// (the terminal draws no corner a picture could be measured by), as a host
+/// sizes one against the box.
+fn layout<D: DataSource>(host: &Host<D>) -> String {
+    use exact_kernel::style::cells::{COLUMN, ROW};
+    use std::fmt::Write;
+    let kernel = host.kernel();
+    let env = kernel.env();
+    let (cols, rows) = host.size();
+    let num = |n: f64| format!("{n}");
+    let mut nodes = Vec::new();
+    let mut stack: Vec<exact_kernel::ViewId> = kernel.roots();
+    stack.reverse();
+    while let Some(id) = stack.pop() {
+        let Some(n) = kernel.node(id) else { continue };
+        if n.is_inline_run() || n.style.display == exact_kernel::Display::None {
+            continue;
+        }
+        let (f, c) = (n.frame, host.cells_of(id).expect("a node"));
+        let radius = [
+            n.style.border_radius_top_left,
+            n.style.border_radius_top_right,
+            n.style.border_radius_bottom_right,
+            n.style.border_radius_bottom_left,
+        ]
+        // As a host sizes a corner: a percentage of the box's width across
+        // and of its height down (`at_basis`), none below 0, one length where
+        // the two agree, else the pair `[across, down]`.
+        .map(|d| {
+            let (across, down) = (
+                d.at_basis(&env, f.width).max(0.0),
+                d.at_basis(&env, f.height).max(0.0),
+            );
+            match across == down {
+                true => num(f64::from(across)),
+                false => format!("[{},{}]", num(f64::from(across)), num(f64::from(down))),
+            }
+        });
+        let mut node = format!(
+            "{{\"id\":{},\"x\":{},\"y\":{},\"w\":{},\"h\":{},\"cells\":{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}},\"radius\":[{}]",
+            id,
+            num(f64::from(f.x)),
+            num(f64::from(f.y)),
+            num(f64::from(f.width)),
+            num(f64::from(f.height)),
+            c.x,
+            c.y,
+            c.w,
+            c.h,
+            radius.join(",")
+        );
+        if let Some(t) = n
+            .props
+            .str(exact_kernel::PropId::TestId)
+            .filter(|t| !t.is_empty())
+        {
+            let _ = write!(node, ",\"testId\":{}", json_string(t));
+        }
+        node.push('}');
+        nodes.push(node);
+        if n.node_type != exact_kernel::NodeType::Text {
+            stack.extend(n.children().into_iter().rev());
+        }
+    }
+    format!(
+        "{{\"viewport\":{{\"w\":{},\"h\":{}}},\"cell\":{{\"w\":{},\"h\":{}}},\"nodes\":[{}]}}\n",
+        num(cols as f64 * f64::from(COLUMN)),
+        num(rows as f64 * f64::from(ROW)),
+        num(f64::from(COLUMN)),
+        num(f64::from(ROW)),
+        nodes.join(",")
+    )
+}
+
+/// `s` as a JSON string.
+fn json_string(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
     out
 }
 
@@ -405,6 +500,8 @@ fn run_plan<D: DataSource>(
                 print!("{}", vt.text(all));
             }
             "document" => print!("{}", document(&mut host)),
+            "layout" => print!("{}", layout(&host)),
+            "plan" => println!("{{\"plan\":\"{}\"}}", host.plan_digest()),
             "screenshot" => {
                 let file = arg();
                 let body = if file.ends_with(".ans") {

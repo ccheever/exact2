@@ -347,6 +347,22 @@ fn block<'a>(lines: &[&'a str], t: &crate::syntax::Token) -> Vec<&'a str> {
         .unwrap_or_default()
 }
 
+/// The digest of the design's own export, built inside a re-import's
+/// budget (each context's tree charged as it is built), so a design too
+/// large for one re-import is refused with the budget's message instead of
+/// exported whole first; `None` for a design that does not check or export.
+pub fn own_digest(current: &str, vocab: &Vocab) -> Result<Option<String>, Vec<Diagnostic>> {
+    let Ok(f) = crate::check(current, vocab) else {
+        return Ok(None);
+    };
+    let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
+    match crate::export::dtcg(&f, vocab) {
+        Ok(text) => Ok(crate::export::digest(&text)),
+        Err(all) if all.iter().any(|d| d.message.contains("expands past")) => Err(all),
+        Err(_) => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::judged;

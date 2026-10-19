@@ -555,6 +555,15 @@ test('widget addresses occupy the command word and accept only strict reads or a
   await widgetStep(session, {entry:'next-trains'}, 'clock +60000');
   expect(calls).toEqual([{op:'state', widget:{entry:'next-trains'}, availability:true}, '+60000', '+60000']);
   expect((await widgetStep(session, {entry:'next-trains'}, 'screenshot a.png'))[1].path).toBe(resolve('a.png'));
+  await widgetStep(session, {entry:'next-trains'}, 'clock +60000', 'activity');
+  await widgetStep(session, {entry:'departure'}, 'clock +60000', 'activity');
+  expect(calls.filter(c => c.availability)).toEqual([
+    {op:'state', widget:{entry:'next-trains'}, availability:true},
+    {op:'state', activity:{entry:'next-trains'}, availability:true},
+    {op:'state', activity:{entry:'departure'}, availability:true},
+  ]);
+  const refused = {clock: async () => { throw Error('the refused address must not move the clock'); }, op: async () => ({error:'no gallery'})};
+  await expect(widgetStep(refused, {entry:'next-trains'}, 'clock +60000')).rejects.toThrow('no gallery');
 });
 
 test('backend diagnostics name the selected source and warn when a saved selection shadows the literal', async () => {
@@ -581,4 +590,31 @@ test('backend diagnostics name the selected source and warn when a saved selecti
     rmSync(resolve(dir,'.exact/backend-origin'));
     await expect(resetBackends([literal],null,1000,{dir})).rejects.toThrow('(source: app.ts origin literal)');
   } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+
+test('activity addresses use the gallery reads and keep state separate from the app', async () => {
+  const { widgetStep } = await import('./agent-widget.mjs');
+  const state = '{"train":233}';
+  const parsed = parseFlags(['--app', 'caltrain', 'ios', 'activity', 'departure', '--placement', 'expanded', '--state', state, '--sim', 'lane', 'tree', 'screenshot activity.png', 'state']);
+  expect(parsed.flags.activity).toEqual({entry:'departure', placement:'expanded', state});
+  expect(parsed.rest).toEqual(['ios', 'tree', 'screenshot activity.png', 'state']);
+  expect(parseFlags(['macos', 'activity', 'service-alert', 'state']).flags.activity.placement).toBe('lockScreen');
+  for (const json of ['[]', 'null', '3', '{']) expect(() => parseFlags(['ios', 'activity', 'departure', '--state', json, 'state'])).toThrow('JSON object');
+  expect(() => parseFlags(['ios', 'activity', 'departure', '--placement', 'wrong', 'tree'])).toThrow('activity --placement');
+  expect(() => parseFlags(['ios', 'activity', 'departure', 'tap follow'])).toThrow('activity: tree, state');
+  const calls = [], session = {op: async req => { calls.push(req); return req; }, clock: async value => value};
+  await widgetStep(session, parsed.flags.activity, 'tree', 'activity');
+  await widgetStep(session, parsed.flags.activity, 'clock +60000', 'activity');
+  expect(calls).toEqual([{op:'tree', activity:parsed.flags.activity}, {op:'state', activity:parsed.flags.activity, availability:true}]);
+});
+
+
+test('permission and bind values do not occupy the gallery command word', async () => {
+  const {widgetArguments} = await import('./agent-widget.mjs');
+  for (const flag of ['--permission', '--bind']) {
+    const parsed = widgetArguments([flag, 'fixture', 'ios', 'activity', 'departure', 'state']);
+    expect(parsed.activity).toEqual({entry:'departure', placement:'lockScreen'});
+    expect(parsed.argv).toEqual([flag, 'fixture', 'ios', 'state']);
+  }
 });
