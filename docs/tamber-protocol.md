@@ -190,8 +190,11 @@ statuses:
   listener's, `{remote: true, tunnel: true, peer}`, answering to loopback names at any port:
   only a paired token works through it, never the local one. The canvas has no tunnel port in
   stage 10 (QUEUE). A tunnel with a certificate of its own (cloudflared, Tailscale Funnel) names
-  its public host with `--allow-host <name>`: the tunnel door answers to it too, and takes a page
-  of `https://<name>` as its own origin.
+  its public host with `--allow-host <name>` (port 443) or `--allow-host <name>:<port>`: the tunnel
+  door answers to that host and port too (a Host with no port is 443; `name:80` is not), and takes
+  a page of `https://<name>` at that port as its own origin. A port left out of an `Origin` or a
+  `Host` is its own scheme's default, never the other's. Any `forwarded` or `x-forwarded-*` header
+  keeps a request off the main loopback port's sandboxed path, as the dev gate's local test has it.
 - **A sandboxed page** (stage 10b: a Figma plugin's UI is an iframe whose origin is `null`) may call
   the wire only with `--allow-plugin-origin`, on the tunnel door and on the main loopback port
   (from this machine, naming a loopback host), never the TLS door. There, `Origin: null` on

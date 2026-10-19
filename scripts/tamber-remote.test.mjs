@@ -594,3 +594,31 @@ test('round 1 of E1: a public name takes https only; the loopback hook takes thi
     expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-forwarded-for': '203.0.113.9' } })).status).toBe(421);
   } finally { server.close(); }
 });
+
+test('round 2 of E1: each side\'s left-out port is its own scheme\'s default; a bare --allow-host is 443; any x-forwarded-* is a proxy', async () => {
+  const warned = [];
+  const doors = await openRemote(recordingWire(), { remote: null, tunnel: 0, plugin: true, hosts: ['tamber.example.com', 'alt.example.com:8443'] }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    const status = async (host, origin) => (await send(false, port, { method: 'POST', path: '/__tamber', headers: { host, ...(origin ? { origin } : {}) } })).status;
+    expect(await status('tamber.example.com', 'https://tamber.example.com:8443')).toBe(403);
+    expect(await status('tamber.example.com:443', 'https://tamber.example.com')).toBe(200);
+    expect(await status('tamber.example.com:8443')).toBe(404);
+    expect(await status('tamber.example.com:80', 'https://tamber.example.com')).toBe(404);
+    expect(await status('alt.example.com:8443', 'https://alt.example.com:8443')).toBe(200);
+    expect(await status('alt.example.com')).toBe(404);
+    // A loopback Host with no port is the door's default, never the origin's port.
+    expect(await status('127.0.0.1', 'http://127.0.0.1:9999')).toBe(403);
+    const pre = await send(false, port, { method: 'OPTIONS', path: '/__tamber', headers: { host: 'tamber.example.com', origin: 'null' } });
+    expect([pre.status, pre.headers.vary, pre.headers['access-control-max-age'], pre.headers['access-control-allow-credentials']]).toEqual([204, 'origin', '600', undefined]);
+  } finally { await doors.close(); }
+  const { createServer } = await import('node:http');
+  const { pluginOnLoopback } = await import('./tamber-remote.mjs');
+  const wire = recordingWire(), server = createServer(async (req, res) => { if (!(await pluginOnLoopback(wire, req, res))) { res.writeHead(421); res.end(); } });
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  const port = server.address().port;
+  try {
+    for (const h of ['x-forwarded-proto', 'x-forwarded-port', 'forwarded'])
+      expect([h, (await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', [h]: 'https' } })).status]).toEqual([h, 421]);
+  } finally { server.close(); }
+});

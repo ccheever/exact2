@@ -125,8 +125,8 @@ function stripCookies(req) {
  * is the loop's, its gate first. */
 export async function pluginOnLoopback(wire, req, res) {
   if (req.headers.origin !== 'null' || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket?.remoteAddress)) return false;
-  // As the dev gate's local test has it: this port, and no proxy's forwarding header.
-  if (['forwarded', 'x-forwarded-for', 'x-forwarded-host'].some(h => req.headers[h] !== undefined)) return false;
+  // As the dev gate's local test has it: this port, and no proxy's mark (`forwarded`, or any `x-forwarded-*`).
+  if (Object.keys(req.headers).some(h => h === 'forwarded' || h.startsWith('x-forwarded-'))) return false;
   const at = hostOf(req, 'http'), here = String(req.socket.localPort);
   const url = at && LOOPBACK.has(at.name) && (at.port || '80') === here ? targetOf(req, 'http', at.host) : null;
   if (!url || !WIRE.has(url.pathname)) return false;
@@ -149,11 +149,12 @@ const refuse = (res, status, message) => {
  * and it holds no design until it pairs), so a remote tool is same-origin
  * with the wire; nothing of the app is. */
 /** The request's Host in its canonical form (`new URL`'s, so `127.1` is
- * `127.0.0.1`), and its name without brackets, or null when it names none. */
+ * `127.0.0.1`), its name without brackets, and the port as written (none
+ * when none is: `name:80` is not `name`), or null when it names none. */
 function hostOf(req, scheme) {
   try {
-    const url = new URL(`${scheme}://${String(req.headers.host ?? '')}/`);
-    return url.host && url.pathname === '/' && !url.username && !url.password ? { host: url.host, name: url.hostname.replace(/^\[|\]$/g, ''), port: url.port } : null;
+    const raw = String(req.headers.host ?? ''), url = new URL(`${scheme}://${raw}/`), written = /:(\d+)$/.exec(raw);
+    return url.host && url.pathname === '/' && !url.username && !url.password ? { host: url.host, name: url.hostname.replace(/^\[|\]$/g, ''), port: written ? String(Number(written[1])) : '' } : null;
   } catch { return null; }
 }
 /** An origin-form target, on the admitted host, routed exactly as written:
@@ -186,13 +187,14 @@ export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIS
     if (!sandboxed && req.headers.origin !== undefined) {
       // A page's own origin: this door's scheme, or https through a tunnel
       // whose public name answers with a certificate of its own; the same
-      // host and effective port (a default port written or left out alike).
+      // host and effective port, each side's left-out port its scheme's
+      // default (a public name's Host https's), never the other side's.
       let same = false;
       try {
         // (a tunnel's public name is https only, a loopback name the door's scheme only)
         const o = new URL(req.headers.origin), want = publicName(at.name) ? 'https:' : `${scheme}:`;
-        const port = u => u.port || (u.protocol === 'https:' ? '443' : '80');
-        same = o.protocol === want && o.hostname.replace(/^\[|\]$/g, '') === at.name && port(o) === (at.port || port(o));
+        const port = (p, protocol) => p || (protocol === 'https:' ? '443' : '80');
+        same = o.protocol === want && o.hostname.replace(/^\[|\]$/g, '') === at.name && port(o.port, o.protocol) === port(at.port, want);
       } catch { /* refused */ }
       if (!same) return refuse(res, 403, 'another origin');
     }
@@ -307,9 +309,9 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     // On both loopbacks: a tunnel aimed at `localhost` may reach either,
     // and another process must not hold the one this does not.
     // Loopback names, and a tunnel's public names (`--allow-host`, `name`, or
-    // `name:port`, a default port written or left out alike), never loopback.
-    const publics = hosts.map(h => { const m = /^(.*?)(?::(\d+))?$/.exec(h); return { name: m[1], port: m[2] ?? null }; }).filter(h => !LOOPBACK.has(h.name));
-    const named = at => publics.some(h => h.name === at.name && (!h.port || h.port === at.port || (!at.port && ['80', '443'].includes(h.port))));
+    // `name:port`, a bare name 443), never loopback; a Host with no port is 443 too.
+    const publics = hosts.map(h => { const m = /^(.*?)(?::(\d+))?$/.exec(h); return { name: m[1], port: m[2] ? String(Number(m[2])) : '443' }; }).filter(h => !LOOPBACK.has(h.name));
+    const named = at => publics.some(h => h.name === at.name && h.port === (at.port || '443'));
     const handler = remoteHandler(wire, { tunnel: true, scheme: 'http', admits: at => LOOPBACK.has(at.name) || named(at), toolDir, plugin, publicName: n => publics.some(h => h.name === n) });
     const port = await bind(guard(createPlain(handler), timeoutMs), tunnel, '127.0.0.1', '--trust-tunnel');
     const six = guard(createPlain(handler), timeoutMs);
