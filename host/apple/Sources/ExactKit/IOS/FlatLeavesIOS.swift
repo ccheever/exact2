@@ -465,11 +465,13 @@ final class FlatLeaves {
     /// stands alone, and so does a `light-dark()` leaf: its layer paints the
     /// pixels its view did, where a run's path antialiases the edges a layer
     /// leaves sharp at fractional pixel positions (a 5×5 LED glyph's cells went soft).
+    /// Only an opaque fill runs: one path paints an overlap once, where two
+    /// translucent boxes compose (two 50% fills over each other are 75%).
     private struct RunKey: Equatable { let rgba: [Double]; let radius: CGFloat; let rank: Int64 }
     private func runKey(_ leaf: FlatLeaf) -> RunKey? {
         let s = leaf.paint
         guard leaf.opacity == 1, !s.hidden, !s.followsScheme, s.shadow == nil, order[leaf.id] == nil,
-              let c = s.light, c.count == 4, c[3] > 0 else { return nil }
+              let c = s.light, c.count == 4, c[3] >= 1 else { return nil }
         let r = s.radii
         guard r.allSatisfy({ $0 == r[0] }) else { return nil }
         return RunKey(rgba: c, radius: r[0], rank: leaf.rank)
