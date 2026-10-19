@@ -4549,33 +4549,37 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
   `radius.lg` and `radius.full`. A view reads one with no design defining it. An app may set any of them in its design
   (ruling 4), and its value wins app-wide, as any token's does. No other name is reserved, so the clone's `space.header`
   keeps its meaning.
-- **The table:** `scale` in `kernel/tables/schema.json`, a row per name: `[name, ios, mac, web, neutral, material,
+- **The table:** `scale` in `kernel/tables/schema.json`, a row per name: `[name, ios, mac, neutral, material,
   terminal]`, px (points), never scaled by Dynamic Type (ruling 6).
 
-  | name | iOS | Mac | web | neutral | Material | terminal |
-  |---|---|---|---|---|---|---|
-  | space.xs | 5 M | 6 M | @ios | 4 neutral | 4 G | 0 |
-  | space.sm | 8 =grouped-row-gap | 8 = | 8 = | 8 = | 8 = | 1 cell |
-  | space.md | 16 =grouped-row-inset | 10 = | 16 = | 16 = | 16 = | 1 cell |
-  | space.lg | 20 M | 20 M | @ios | 24 neutral | 24 G | 2 cells |
-  | space.xl | 35 M | 30 =grouped-label-inset (stretch) | @ios | 32 neutral | 32 G | 2 cells |
-  | radius.sm | 5.6 M | 5 M | @ios | 4 =mark-radius | 4 G | 0 |
-  | radius.md | 17 M | 6 M | @ios | 8 =control-radius | 8 G | 0 |
-  | radius.lg | 26 =grouped-card-radius | 10 = | 26 = | 12 =surface-radius | 12 G | 0 |
-  | radius.full | full | full | full | full | full | 0 |
+  | name | iOS | Mac | neutral | Material | terminal |
+  |---|---|---|---|---|---|
+  | space.xs | 5 M | 6 M | 4 neutral | 4 G | 0 |
+  | space.sm | 8 =grouped-row-gap | 8 = | 8 = | 8 = | 1 cell |
+  | space.md | 16 =grouped-row-inset | 10 = | 16 = | 16 = | 1 cell |
+  | space.lg | 20 M | 20 M | 24 neutral | 24 G | 2 cells |
+  | space.xl | 35 M | 30 =grouped-label-inset (stretch) | 32 neutral | 32 G | 2 cells |
+  | radius.sm | 5.6 M | 5 M | 4 =mark-radius | 4 G | 0 |
+  | radius.md | 17 M | 6 M | 8 =control-radius | 8 G | 0 |
+  | radius.lg | 26 =grouped-card-radius | 10 = | 12 =surface-radius | 12 G | 0 |
+  | radius.full | full | full | full | full | 0 |
+
+  **No web column** (theme2, 2026-10-19): every web build (the wasm host and the JS target) throws the neutral switch,
+  so the browser reads the neutral column (LLP 1115.000 D17 as corrected). `Column::Web` is read only by a process that
+  says no column, and as Material's fallback; for the scale it reads the neutral cell (`style::scale::cell`, held by a
+  test for every name). The draft's `@ios` cell form is withdrawn with it.
 
   Material's G cells are Material 3's spacing and shape scales. The neutral look's own steps (4, 24, 32) are its
   definition (LLP 1115.000 D17), not Material's, though they coincide. Each look's steps are in order.
 - **The cell forms** (theme2 (a)). A cell is never a bare number, and the build (`kernel/build/scale.rs`) refuses
-  anything else: arithmetic, a missing source, a dangling metric or one with no px in that column, `@` outside the web
-  column or to another `@` cell, and `full` outside radius.full or in the terminal.
+  anything else: arithmetic, a missing source, a dangling metric or one with no px in that column, a reference to another
+  column (`@…`), and `full` outside radius.full or in the terminal.
   - `=<metric>`: that metrics row's value in the same column, read when the kernel builds, so the cell cannot drift.
     Used only where the metric names the same role (theme2 (b)): an inset is space.md, a row gap space.sm, a control's
     corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm. The one exception is a role
     stretch theme2 ruled, recorded with its reason (the Mac's space.xl, below).
   - `{px, measured: id}` and `{px, guideline: id}`: `id` is an entry of `docs/scale-measured.md` with what was measured
     and how (or the citation), the number, and the reason for the choice.
-  - `@ios` (the web column only): the iOS cell's source and value. The web's first look is iOS's (D17).
   - `full` (radius.full): one oversized length, `style::scale::RADIUS_FULL` (9999), named once in the kernel crate.
     Every host clamps it into a pill by CSS's corner-overlap rule (stage 11 C), never `50%` (theme2's C ruling).
   - The terminal: `{cells: n}` for a spacing (`n ch`), `0` for a radius (it draws none).
@@ -4603,8 +4607,8 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
   process's column, bound theme or none.
   - A name the design defines is the design's, even in a row that can't take it, so the base never stands in silently.
   - The read is recorded as a token's, so an edit that defines the name later sets the row again.
-  - The column is the host's (`metrics::set_column`). This commit adds `Column::Terminal`: the web's first look's value
-    in every metric (the terminal read the web's before) and the terminal's own in the scale. The hosts set their
+  - The column is the host's (`metrics::set_column`). This commit adds `Column::Terminal`: the `web` column's value
+    in every metric (the terminal read it before) and the terminal's own in the scale. The hosts set their
     columns in B2.
 - **theme2's conditions, and where each is held:**
   - **The compiler knows the nine names** (`contract/lower/src/scale.rs`, `theme::measure_values`). A view reading one
@@ -4620,13 +4624,14 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
     leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
   - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
     with radius.full left out.
-- **SCHEMA_DIGEST** moves, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x7dbe_77e0_84c0_e38c`
+- **SCHEMA_DIGEST** moves, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x374f_477d_d305_5b7e`
   (`kernel/src/wire/codec.rs`; the `scale` table and the metrics' terminal column). Nothing else pins it.
 - **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
 - **Tests:**
   - `kernel/src/style/scale.rs`:
     - the nine names;
-    - every cell equals its source, re-read from the metrics table, and the web's `@ios` cells are iOS's;
+    - every cell equals its source, re-read from the metrics table;
+    - `Column::Web` reads the neutral cell for every name;
     - each look in order;
     - every measured and guideline id has its entry with the number;
     - the fallback: unbound, a design's own value winning, a defined name a row can't take not falling back, the read

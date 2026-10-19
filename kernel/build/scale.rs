@@ -16,7 +16,9 @@ const SCALE_NAMES: [&str; 9] = [
     "radius.full",
 ];
 /// The scale's columns, in a row's order after its name.
-const SCALE_COLUMNS: [&str; 6] = ["ios", "macos", "web", "neutral", "material", "terminal"];
+/// (No web column: the web draws the neutral look, and `style::scale` reads
+/// the neutral cell for `Column::Web`, theme2 2026-10-19.)
+const SCALE_COLUMNS: [&str; 5] = ["ios", "macos", "neutral", "material", "terminal"];
 
 /// Metric `name`'s value in `column` (`SCALE_COLUMNS`' index), in px: a
 /// `length` or `style` row's number there. The build refuses any other: a
@@ -33,19 +35,22 @@ fn scale_metric(metrics: &[MetricRow], cell: &str, column: usize, name: &str) ->
         kind == "length" || kind == "style",
         "schema: scale {cell}: `={name}` is a {kind} metric, not a length"
     );
-    // As `write_metrics` reads a row's columns; the terminal reads the web's.
+    // The metrics row's own column for this scale column (its columns are
+    // iOS, the Mac, the web's first look, neutral, Material), as
+    // `write_metrics` reads them: a neutral-only row has the neutral cell
+    // alone, a four-cell row's Material is the web's, the terminal reads the
+    // web's.
+    let metric_column = [0, 1, 3, 4, 2][column];
     let at = |i: usize| -> Option<&MetricCell> {
         match (row.len() - 2, i) {
             (1, 3) => row.get(2),
             (1, _) => None,
-            (4, 4 | 5) => row.get(2 + 2),
-            (4, i) => row.get(2 + i),
-            (5, 5) => row.get(2 + 2),
-            (5, i) => row.get(2 + i),
+            (4, 4) => row.get(2 + 2),
+            (4 | 5, i) => row.get(2 + i),
             _ => panic!("schema: metric {name}: a row of {} values", row.len() - 2),
         }
     };
-    match at(column) {
+    match at(metric_column) {
         Some(MetricCell::Number(n)) if n.is_finite() && *n >= 0.0 => *n,
         _ => panic!(
             "schema: scale {cell}: `={name}` has no length in px in the {} column",
@@ -61,11 +66,10 @@ fn scale_cell(
     name: &str,
     column: usize,
     cell: &serde_json::Value,
-    ios: Option<&(String, Option<f64>)>,
 ) -> (String, Option<f64>) {
     use serde_json::Value as V;
     let at = format!("{name} ({})", SCALE_COLUMNS[column]);
-    let terminal = column == 5;
+    let terminal = column == 4;
     let radius = name.starts_with("radius.");
     let px = |n: f64| {
         assert!(
@@ -75,50 +79,90 @@ fn scale_cell(
         n
     };
     match cell {
-        V::String(text) if text == "@ios" => {
-            assert!(column == 2, "schema: scale {at}: `@ios` is the web's first look's alone (LLP 1115.000 D17)");
-            let (code, value) = ios.expect("the iOS cell is read first");
-            assert!(!code.contains("ios: true"), "schema: scale {at}: `@ios` to an `@ios` cell is a chain");
-            (code.replacen("ios: false", "ios: true", 1), *value)
-        }
-        V::String(text) if text.starts_with('@') => panic!("schema: scale {at}: `{text}`: the one reference to another column is `@ios`"),
+        V::String(text) if text.starts_with('@') => panic!(
+            "schema: scale {at}: `{text}`: a cell reads its own column's source, never another column's"
+        ),
         V::String(text) if text == "full" => {
-            assert!(name == "radius.full" && !terminal, "schema: scale {at}: `full` is radius.full's, in a column that draws corners");
-            ("ScaleCell { value: ScaleValue::Full, source: ScaleSource::Full, ios: false }".into(), None)
+            assert!(
+                name == "radius.full" && !terminal,
+                "schema: scale {at}: `full` is radius.full's, in a column that draws corners"
+            );
+            (
+                "ScaleCell { value: ScaleValue::Full, source: ScaleSource::Full }".into(),
+                None,
+            )
         }
         V::String(text) if text.starts_with('=') => {
-            assert!(!terminal, "schema: scale {at}: the terminal's cells are cells, not a metric");
+            assert!(
+                !terminal,
+                "schema: scale {at}: the terminal's cells are cells, not a metric"
+            );
             let metric = &text[1..];
             assert!(
                 !metric.is_empty() && metric.bytes().all(|b| b.is_ascii_lowercase() || b == b'-'),
                 "schema: scale {at}: `{text}` is `=` and one metric's name, no arithmetic"
             );
             let n = scale_metric(metrics, &at, column, metric);
-            (format!("ScaleCell {{ value: ScaleValue::Px({n:?}), source: ScaleSource::Metric({metric:?}), ios: false }}"), Some(n))
+            (
+                format!(
+                    "ScaleCell {{ value: ScaleValue::Px({n:?}), source: ScaleSource::Metric({metric:?}) }}"
+                ),
+                Some(n),
+            )
         }
-        V::Number(n) if terminal && radius && n.as_f64() == Some(0.0) => {
-            ("ScaleCell { value: ScaleValue::Cells(0.0), source: ScaleSource::Terminal, ios: false }".into(), Some(0.0))
-        }
+        V::Number(n) if terminal && radius && n.as_f64() == Some(0.0) => (
+            "ScaleCell { value: ScaleValue::Cells(0.0), source: ScaleSource::Terminal }".into(),
+            Some(0.0),
+        ),
         V::Object(o) if terminal => {
-            assert!(o.len() == 1 && !radius, "schema: scale {at}: a terminal spacing is `{{\"cells\": n}}` alone; its radii are 0");
-            let n = px(o.get("cells").and_then(V::as_f64).unwrap_or_else(|| panic!("schema: scale {at}: `{{\"cells\": n}}`")));
-            (format!("ScaleCell {{ value: ScaleValue::Cells({n:?}), source: ScaleSource::Terminal, ios: false }}"), Some(n))
+            assert!(
+                o.len() == 1 && !radius,
+                "schema: scale {at}: a terminal spacing is `{{\"cells\": n}}` alone; its radii are 0"
+            );
+            let n = px(o
+                .get("cells")
+                .and_then(V::as_f64)
+                .unwrap_or_else(|| panic!("schema: scale {at}: `{{\"cells\": n}}`")));
+            (
+                format!(
+                    "ScaleCell {{ value: ScaleValue::Cells({n:?}), source: ScaleSource::Terminal }}"
+                ),
+                Some(n),
+            )
         }
         V::Object(o) => {
-            let n = px(o.get("px").and_then(V::as_f64).unwrap_or_else(|| panic!("schema: scale {at}: a value cell says its `px`")));
+            let n = px(o
+                .get("px")
+                .and_then(V::as_f64)
+                .unwrap_or_else(|| panic!("schema: scale {at}: a value cell says its `px`")));
             let (variant, id) = match (o.get("measured"), o.get("guideline")) {
                 (Some(V::String(id)), None) => ("Measured", id),
                 (None, Some(V::String(id))) => ("Guideline", id),
-                _ => panic!("schema: scale {at}: a value cell names one source, `measured` or `guideline`, by its id in docs/scale-measured.md"),
+                _ => panic!(
+                    "schema: scale {at}: a value cell names one source, `measured` or `guideline`, by its id in docs/scale-measured.md"
+                ),
             };
-            assert!(o.len() == 2, "schema: scale {at}: a value cell is `px` and its source alone");
             assert!(
-                !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+                o.len() == 2,
+                "schema: scale {at}: a value cell is `px` and its source alone"
+            );
+            assert!(
+                !id.is_empty()
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
                 "schema: scale {at}: a source id is kebab-case: {id}"
             );
-            (format!("ScaleCell {{ value: ScaleValue::Px({n:?}), source: ScaleSource::{variant}({id:?}), ios: false }}"), Some(n))
+            (
+                format!(
+                    "ScaleCell {{ value: ScaleValue::Px({n:?}), source: ScaleSource::{variant}({id:?}) }}"
+                ),
+                Some(n),
+            )
         }
-        other => panic!("schema: scale {at}: `{other}` is no cell (a `=metric`, a measured or guideline value, `@ios`, `full`, or the terminal's cells): never a bare number"),
+        other => panic!(
+            "schema: scale {at}: `{other}` is no cell (a `=metric`, a measured or guideline value, `full`, or the terminal's cells): never a bare number"
+        ),
     }
 }
 
@@ -142,13 +186,13 @@ fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[Metr
         "    /// radius.full's oversized length.\n    Full,\n",
         "    /// The terminal's cells.\n    Terminal,\n",
         "}\n",
-        "/// One cell: its value and its source; `ios` where the web's first look reads iOS's (`@ios`).\n",
+        "/// One cell: its value and its source.\n",
         "#[derive(Debug, Clone, Copy, PartialEq)]\n",
-        "pub struct ScaleCell {\n    /// The value.\n    pub value: ScaleValue,\n    /// Its source.\n    pub source: ScaleSource,\n    /// Read from the iOS cell (`@ios`).\n    pub ios: bool,\n}\n",
+        "pub struct ScaleCell {\n    /// The value.\n    pub value: ScaleValue,\n    /// Its source.\n    pub source: ScaleSource,\n}\n",
         "/// One base name and its cell in each column.\n",
         "#[derive(Debug, Clone, Copy, PartialEq)]\n",
         "pub struct ScaleRow {\n    /// The name an app writes.\n    pub name: &'static str,\n",
-        "    /// iOS's.\n    pub ios: ScaleCell,\n    /// The Mac's.\n    pub macos: ScaleCell,\n    /// The web's first look's.\n    pub web: ScaleCell,\n",
+        "    /// iOS's.\n    pub ios: ScaleCell,\n    /// The Mac's.\n    pub macos: ScaleCell,\n",
         "    /// The neutral look's.\n    pub neutral: ScaleCell,\n    /// Android's Material look's.\n    pub material: ScaleCell,\n    /// The terminal's.\n    pub terminal: ScaleCell,\n}\n",
     ));
     let names: Vec<&str> = scale
@@ -167,13 +211,12 @@ fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[Metr
     for (row, name) in scale.iter().zip(names) {
         assert_eq!(
             row.len(),
-            7,
-            "schema: scale {name}: its name and a cell for iOS, the Mac, the web, the neutral look, Material and the terminal"
+            6,
+            "schema: scale {name}: its name and a cell for iOS, the Mac, the neutral look, Material and the terminal (the web reads the neutral one)"
         );
         let mut cells: Vec<(String, Option<f64>)> = Vec::new();
         for (column, cell) in row[1..].iter().enumerate() {
-            let ios = cells.first().cloned();
-            cells.push(scale_cell(metrics, name, column, cell, ios.as_ref()));
+            cells.push(scale_cell(metrics, name, column, cell));
         }
         let code: Vec<String> = SCALE_COLUMNS
             .iter()

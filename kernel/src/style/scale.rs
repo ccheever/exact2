@@ -45,10 +45,10 @@ pub fn is_base(name: &str) -> bool {
 /// A row's cell in a column.
 pub fn cell(row: &ScaleRow, column: Column) -> ScaleCell {
     match column {
-        Column::Web => row.web,
+        // No web column: every web build draws the neutral look (theme2).
+        Column::Web | Column::Neutral => row.neutral,
         Column::Ios => row.ios,
         Column::Mac => row.macos,
-        Column::Neutral => row.neutral,
         Column::Material => row.material,
         Column::Terminal => row.terminal,
     }
@@ -74,32 +74,26 @@ pub fn text(name: &str) -> Option<String> {
     of(name, crate::style::metrics::column()).map(css)
 }
 
-/// Every column, by the name a reader of the table keys it by (stage 10 D's
-/// `describe`, `resolve` and `explain`).
-pub const COLUMNS: [(&str, Column); 6] = [
+/// The table's columns, by the name a reader of the table keys it by (stage
+/// 10 D's `describe`, `resolve` and `explain`). `Column::Web` reads the
+/// neutral one ([`cell`]).
+pub const COLUMNS: [(&str, Column); 5] = [
     ("ios", Column::Ios),
     ("mac", Column::Mac),
-    ("web", Column::Web),
     ("neutral", Column::Neutral),
     ("material", Column::Material),
     ("terminal", Column::Terminal),
 ];
 
 /// A cell's source as words: `metric grouped-row-gap`, `measured <id>`,
-/// `guideline <id>`, `full`, `terminal cells`; `ios` before it where the
-/// web's first look reads iOS's cell.
+/// `guideline <id>`, `full`, `terminal cells`.
 pub fn source(cell: ScaleCell) -> String {
-    let what = match cell.source {
+    match cell.source {
         ScaleSource::Metric(m) => format!("metric {m}"),
         ScaleSource::Measured(id) => format!("measured {id}"),
         ScaleSource::Guideline(id) => format!("guideline {id}"),
         ScaleSource::Full => "full".into(),
         ScaleSource::Terminal => "terminal cells".into(),
-    };
-    if cell.ios {
-        format!("@ios: {what}")
-    } else {
-        what
     }
 }
 
@@ -141,8 +135,7 @@ mod tests {
     }
 
     // theme2's (a): every cell equals its source's value, read again here
-    // from the metrics table the kernel holds, and the web's `@ios` cells
-    // are iOS's, source and value.
+    // from the metrics table the kernel holds.
     #[test]
     fn every_cell_holds_its_source() {
         for r in SCALE {
@@ -171,15 +164,6 @@ mod tests {
                     ScaleSource::Measured(_) | ScaleSource::Guideline(_) => {
                         assert!(matches!(c.value, ScaleValue::Px(_)))
                     }
-                }
-                if c.ios {
-                    assert_eq!(column, Column::Web, "{}: `@ios` is the web's alone", r.name);
-                    assert_eq!(
-                        (r.ios.value, r.ios.source),
-                        (c.value, c.source),
-                        "{}: the web reads iOS's cell",
-                        r.name
-                    );
                 }
             }
             // The terminal draws no corner.
@@ -277,6 +261,21 @@ mod tests {
         // The read is recorded as a token's, so an edit that defines it later sets the row again.
         let (_, names) = theme::recorded(|| theme::measure("space.xs", length));
         assert_eq!(names, vec![Box::<str>::from("space.xs")]);
+    }
+
+    // No web column (theme2): `Column::Web`, a process that says no column
+    // and Material's fallback, reads the neutral cell, for every name.
+    #[test]
+    fn the_web_column_reads_the_neutral_cell() {
+        for r in SCALE {
+            assert_eq!(cell(r, Column::Web), r.neutral, "{}", r.name);
+            assert_eq!(
+                of(r.name, Column::Web),
+                of(r.name, Column::Neutral),
+                "{}",
+                r.name
+            );
+        }
     }
 
     #[test]

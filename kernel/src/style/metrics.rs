@@ -20,10 +20,13 @@
 //! The column is the host's to say, once, before it boots a plan. An Apple
 //! host says its platform ([`set_column`]). A process that shows the neutral
 //! look says so with the role table's switch (`roles::set_column`), the one
-//! switch for that look's colours and its metrics: the web, and a host that
-//! paints its own controls (D17). Any other process reads the web's first
-//! look, as Android's reader does.
-//! The terminal's column (LLP 1121 stage 11 B) is the web's first look's in
+//! switch for that look's colours and its metrics: every web build (the wasm
+//! host and the JS target), so the browser reads the neutral column, and a
+//! host that paints its own controls (D17). Android's reader reads its own
+//! Material column (LLP 1115.001.001), with `web` only as that column's
+//! fallback for a row it lacks. The `web` column is read only by a process
+//! that says no column (headless and test runs; D17 as corrected).
+//! The terminal's column (LLP 1121 stage 11 B) is the `web` column's in
 //! every metric, as it read before it had one; it differs in the base scale
 //! (`style::scale`), whose spacings it reads in cells.
 //! @ref LLP 1115.002 D6, D8.4
@@ -36,22 +39,25 @@ use std::sync::atomic::{AtomicU8, Ordering};
 /// The metric table's columns: a platform or a look whose shapes Exact draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
-    /// The web's first look (LLP 1116 D1): what a process reads until its
-    /// host says otherwise.
+    /// The `web` column (LLP 1116 D1's first look): read only by a process
+    /// that says no column (headless and test runs), and as Material's
+    /// fallback for a row it lacks. The browser reads [`Column::Neutral`]
+    /// (every web build throws the neutral switch); the base scale has no
+    /// web column and reads the neutral cell here (`style::scale`).
     Web,
     /// iOS's (and tvOS's, visionOS's and watchOS's, which draw as it does).
     Ios,
     /// The Mac's.
     Mac,
-    /// The neutral look's (LLP 1115.000 D4 part B, D17): the web's, and a
-    /// host's that paints its own controls.
+    /// The neutral look's (LLP 1115.000 D4 part B, D17): the browser's (every
+    /// web build), and a host's that paints its own controls.
     Neutral,
-    /// Android's Material look (LLP 1115.001.001 D2.4): Compose Material 3's
-    /// values at the pinned version, and the web's first look's where a row
-    /// has none of its own.
+    /// Android's Material look (LLP 1115.001.001 D2.4), which Android's
+    /// reader reads: Compose Material 3's values at the pinned version, and
+    /// the `web` column's where a row has none of its own.
     Material,
-    /// The terminal's (LLP 1121 stage 11 B), which its host says: the web's
-    /// first look's in every metric (as it read before it had a column), and
+    /// The terminal's (LLP 1121 stage 11 B), which its host says: the `web`
+    /// column's in every metric (as it read before it had a column), and
     /// its own in the base scale (cells; no corners).
     Terminal,
 }

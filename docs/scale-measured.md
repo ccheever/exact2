@@ -12,7 +12,8 @@ drawn or read, where, how, and the number. `kernel/src/style/scale.rs` holds the
   `mark-radius`).
 - Otherwise measured on Apple (below), Material 3's published scales for the Material column, and the neutral look's own
   steps for the neutral column (LLP 1115.000 D17: the neutral look is Exact's own, not Material).
-- The web's first look reads iOS's cell (`@ios`) where it has no metric of its own: that look is iOS's (D17).
+- There is no web column: every web build draws the neutral look, so `Column::Web` (a process that says no column, and
+  Material's fallback) reads the neutral cell (theme2, 2026-10-19; LLP 1115.000 D17 as corrected).
 - One role stretch, ruled by theme2 with its reason (below): the Mac's space.xl.
 - The terminal's spacings are cells (`n ch`); it draws no corners (0). radius.full is `style::scale::RADIUS_FULL`, one
   oversized length every host clamps into a pill (theme2's C ruling).
@@ -36,26 +37,26 @@ drawn or read, where, how, and the number. `kernel/src/style/scale.rs` holds the
 ## Measured
 
 ### `ios-button-small-inset-top`
-space.xs on iOS (and the web, `@ios`): **5**. `UIButton.Configuration.filled()` with `buttonSize = .small`: its
+space.xs on iOS: **5**. `UIButton.Configuration.filled()` with `buttonSize = .small`: its
 `contentInsets.top` (the leading is 10). The tightest spacing UIKit states between a control's edge and its content; no
 UIKit API gives a 4 (system spacing is 8, a list's subtitle gap 0, a grouped header's leading margin 8). theme2 10:57 (3).
 
 ### `ios-button-large-inset-leading`
-space.lg on iOS (and the web): **20**. `UIButton.Configuration.filled()` with `buttonSize = .large`: `contentInsets.leading`.
+space.lg on iOS: **20**. `UIButton.Configuration.filled()` with `buttonSize = .large`: `contentInsets.leading`.
 The view controller's minimum layout margin is 16 on an iPhone (the same as space.md) and 20 on a regular width, which one
 iPhone simulator cannot show (a trait override left it at 16); 20 is UIKit's stated step above 16. theme2 10:57 (3).
 
 ### `ios-inset-grouped-section-gap`
-space.xl on iOS (and the web): **35**. A `UICollectionView` list, `.insetGrouped`, no headers, two sections of one row:
+space.xl on iOS: **35**. A `UICollectionView` list, `.insetGrouped`, no headers, two sections of one row:
 from the first card's bottom to the second's top. theme2 10:57 (accepted).
 
 ### `ios-cornerstyle-small-44`
-radius.sm on iOS (and the web): **5.6**. A filled button with `cornerStyle = .small` at 140×44 points measures 5.58.
+radius.sm on iOS: **5.6**. A filled button with `cornerStyle = .small` at 140×44 points measures 5.58.
 iOS 27 has no checkbox or radio mark, so this is UIKit's smallest corner style, recorded as a FIXED length at that 44-point
 height: UIKit's `.small` scales with the button's height (10.09 at 80 points tall), the base does not. theme2 10:57 (3).
 
 ### `ios-button-medium-corner`
-radius.md on iOS (and the web): **17**. A filled button, `buttonSize = .medium`, as UIKit sizes it (34.3 points tall):
+radius.md on iOS: **17**. A filled button, `buttonSize = .medium`, as UIKit sizes it (34.3 points tall):
 17.04; `.bordered`, `.gray` and `.tinted` the same, and its `.dynamic` corner stays 17.04 at any width. iOS 27's controls
 are capsules: this is that capsule's corner at height 34, recorded as a length, not `full`. theme2 10:57 (4).
 
