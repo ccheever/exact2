@@ -65,7 +65,8 @@ fn row(name: &str, file: &str, design: &exact_tamber::Design) -> Option<Value> {
 /// The base names a token reaches, as strings, each once (no order promised):
 /// the unset ones its own values read bare (every value the checker folds,
 /// a `when` no tuple selects and a type's size included), the set ones it
-/// names, and those of the tokens it names, through any chain.
+/// names, and those of the tokens it names, through any chain: every
+/// branch, not per tuple (as wide as `names`).
 fn bases_of(folding: &exact_tamber::Folding, name: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
@@ -187,13 +188,8 @@ impl Server {
         // A base name (*1.14*), not a param named like one: unset, its row
         // and no fold (each column's value); set, its token's tuples and row.
         let base = (required(request, "token")? == name)
-            .then(|| {
-                row(
-                    &name,
-                    &file(self, request).unwrap_or_default(),
-                    &folding.design,
-                )
-            })
+            .then(|| Ok::<_, Value>(row(&name, &file(self, request)?, &folding.design)))
+            .transpose()?
             .flatten();
         if let Some(base) = &base {
             if base["override"].is_null() {

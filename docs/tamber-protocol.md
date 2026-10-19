@@ -380,7 +380,8 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     folded value is what `resolve` answers.
 - `targets` (*1.14*): `[{target, column}]`, the targets the app ships (the set an icon's `draws` is
   keyed by), each with the scale column it reads (`ios`, `tvos`, `visionos`, `watchos`: `ios`;
-  `macos`: `mac`; `web`, `linux`, `windows`: `neutral`; `android`: `material`), from the kernel, so
+  `macos`, `mac`: `mac`; `web`, `linux`, `windows`: `neutral`; `android`: `material`; `terminal`:
+  `terminal`), from the kernel, so
   a client keeps no map of its own; `column` is null for a target the kernel names none for.
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
@@ -437,9 +438,11 @@ tuple:
   sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
   tool reads and edits its `when` lines.
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
-  adds `bases`: each base name its values reach as the checker folds them (an unset one bare, a set
-  one as the token it names, through any chain; never a word in a string), as strings, each once in no promised order (parallel to `names`; a client
-  looks each up in `describe`'s `base`). A base name read from a file that is not the design's, or
+  adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
+  unset one named bare, a set one as the token it names), and those any line of each token it
+  names reaches, through any chain, every branch, not per tuple; never a word in a string. As
+  strings, each once, in no promised order (parallel to `names`, which is as wide; a client looks
+  each up in `describe`'s `base`). A base name read from a file that is not the design's, or
   a design that is refused, is refused as any token is.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a

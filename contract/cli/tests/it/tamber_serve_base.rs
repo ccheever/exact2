@@ -26,6 +26,8 @@ theme
   card.inner = card.pad
   card.outer = card.round
   card.round = radius.lg
+  label.gap = 4px
+    when density=roomy: card.pad
   body.text: type = space.lg
   body.face: family = \"space.md\", serif
 ";
@@ -93,6 +95,10 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
         lg["override"],
         json!({"file": "app.tamber", "line": 9, "col": 3, "text": "20px"})
     );
+    // The terminal's spelling, pinned on its own.
+    assert_eq!(md["columns"]["terminal"]["value"], "1cell");
+    let xs = base.iter().find(|r| r["name"] == "space.xs").unwrap();
+    assert_eq!(xs["columns"]["terminal"]["value"], "0");
     let full = base.iter().find(|r| r["name"] == "radius.full").unwrap();
     assert_eq!(full["columns"]["ios"]["value"], "full");
     // targets: what the app ships, each with the column it reads.
@@ -139,6 +145,14 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
     // Through a token naming an overridden base (radius.lg is the app's).
     let (outer, _) = s.ask(json!({"method": "explain", "token": "card.outer"}));
     assert_eq!(outer["ok"]["bases"], json!(["radius.lg"]), "{outer}");
+    // Every branch of a named token counts, not only the tuples that select it
+    // (the protocol's `bases` is as wide as `names`).
+    let (label, _) = s.ask(json!({"method": "explain", "token": "label.gap"}));
+    assert_eq!(
+        label["ok"]["bases"],
+        json!(["space.md", "space.sm"]),
+        "{label}"
+    );
     // An overridden base that names another base says so too.
     let (xl, _) = s.ask(json!({"method": "explain", "token": "space.xl"}));
     assert_eq!(xl["ok"]["kind"], "base");
