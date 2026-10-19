@@ -526,10 +526,11 @@ fn mixed_model(glass: f32) -> asset::Model {
 
 type MixedSurface = WorldSurface<Mixed, crate::ModelExecutor, true>;
 
-/// A `Mixed` surface after three frames on the GPU cull's path (pinned, as a
-/// device without indirect draws would draw every group whole), the last
-/// frame's pixels lit, and `visible`'s word for the entity.
-fn mixed(gpu: &Gpu, args: MixedArgs, glass: f32) -> (usize, String) {
+/// A `Mixed` surface after three frames, on the path the adapter takes: the
+/// last frame's pixels lit, `visible`'s word for the entity, and whether the
+/// frame drew direct (an adapter without indirect draws, as the iOS
+/// simulator's Metal, draws every group whole, with no per-instance cull).
+fn mixed(gpu: &Gpu, args: MixedArgs, glass: f32) -> (usize, String, bool) {
     let mut s = MixedSurface::default();
     s.device_ready(wgpu::Features::empty());
     s.bind(&args.values(), None).unwrap();
@@ -541,16 +542,15 @@ fn mixed(gpu: &Gpu, args: MixedArgs, glass: f32) -> (usize, String) {
         ..Default::default()
     };
     s.asset("white.tex", Ok(&bin::to_vec(&white)));
-    fixture::render(gpu, &mut s, &frame(0.)).unwrap();
-    let r = s.renderer_for_test().unwrap();
-    r.cull.indirect_execution = true;
-    r.cull.epoch += 1;
     let mut pixels = None;
-    for ms in [20., 40.] {
+    for ms in [0., 20., 40.] {
         pixels = Some(fixture::render(gpu, &mut s, &frame(ms)).unwrap().0);
     }
     assert!(s.error().is_none(), "{:?}", s.error());
-    assert!(!s.renderer_for_test().unwrap().cull.direct);
+    // The probed capability decides the path; these scenes fit every limit.
+    let cull = &s.renderer_for_test().unwrap().cull;
+    let direct = cull.direct;
+    assert_eq!(direct, !cull.indirect_execution);
     let pixels = pixels.unwrap();
     let lit = (pixels.data.chunks(4)).filter(|p| p[..3].iter().any(|&c| c > 10));
     let reply = s
@@ -560,7 +560,7 @@ fn mixed(gpu: &Gpu, args: MixedArgs, glass: f32) -> (usize, String) {
     let word = value["visible"]
         .as_str()
         .unwrap_or_else(|| panic!("{reply}"));
-    (lit.count(), word.to_owned())
+    (lit.count(), word.to_owned(), direct)
 }
 
 #[test]
@@ -572,13 +572,19 @@ fn an_entity_whose_blended_part_draws_is_drawn_though_its_opaque_part_is_out_of_
         mesh: true,
         ..Default::default()
     };
-    let (lit, word) = mixed(&gpu, model(), 0.);
+    let (lit, word, _) = mixed(&gpu, model(), 0.);
     assert!(lit > 1000, "{lit} pixels lit");
     assert_eq!(word, "drawn");
-    // Nothing in view: no pixel lit, and every part was dropped.
-    let (lit, word) = mixed(&gpu, model(), -200.);
+    // Nothing in view: no pixel lit. The GPU cull drops every part; a direct
+    // frame submits its groups whole, unculled.
+    let (lit, word, direct) = mixed(&gpu, model(), -200.);
     assert_eq!(lit, 0);
-    assert_eq!(word, "frustum");
+    if direct {
+        eprintln!("skipped the GPU cull's `frustum`: this adapter has no indirect draws");
+        assert_eq!(word, "drawn");
+    } else {
+        assert_eq!(word, "frustum");
+    }
 }
 
 #[test]
@@ -592,7 +598,7 @@ fn an_entity_is_drawn_when_its_sprite_draws_whatever_its_emitter_or_mesh_did() {
         emitter: true,
         ..Default::default()
     };
-    let (lit, word) = mixed(&gpu, args, 0.);
+    let (lit, word, _) = mixed(&gpu, args, 0.);
     assert!(lit > 1000, "{lit} pixels lit");
     assert_eq!(word, "drawn");
     // A model out of view (both its parts) beside a sprite in view.
@@ -601,7 +607,7 @@ fn an_entity_is_drawn_when_its_sprite_draws_whatever_its_emitter_or_mesh_did() {
         sprite: true,
         ..Default::default()
     };
-    let (lit, word) = mixed(&gpu, args, -200.);
+    let (lit, word, _) = mixed(&gpu, args, -200.);
     assert!(lit > 1000, "{lit} pixels lit");
     assert_eq!(word, "drawn");
 }
