@@ -372,8 +372,8 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     weak var host: NavigationHost?
     /// The field's placeholder is drawn in an authored colour, not UIKit's.
     var paintsPlaceholder = false
-    /// The field's text is drawn in its own colour or the design's FieldText.
-    var paintsInk = false
+    /// The field's text is drawn in its own colour or the design's FieldText; its fill is the design's Field, not UIKit's capsule.
+    var paintsInk = false, paintsGround = false
     /// The scope bar's tabs, and the segment last chosen or set (LLP 1134 D3).
     var scopeTabs: [UInt32] = [], scopeIDs: [String?] = [], scopeSettled: Int?
     weak var scopeList: NodeView?
@@ -385,7 +385,9 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         #if !os(tvOS)
         guard let field else { return }
         let text = controller.searchBar.searchTextField
-        text.backgroundColor = field.fieldGroundColor
+        // Any `backgroundColor`, nil too, replaces UIKit's capsule (iOS 26, measured): written only where a design names a Field, cleared (unfilled) only where one was.
+        if let ground = field.fieldGroundColor { text.backgroundColor = ground; paintsGround = true }
+        else if paintsGround { text.backgroundColor = nil; paintsGround = false }
         if field.showsOwnTextColor || ThemeRoles.color("FieldText", in: field) != nil {
             text.textColor = field.fieldInk
             paintsInk = true
