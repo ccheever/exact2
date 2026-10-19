@@ -114,11 +114,13 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     if (col) taken.add(col.id);
     return { c, was, col };
   });
-  dirty = true;
+  // Each change marks the step dirty once it has happened (a refusal before
+  // any change undoes nothing, never the person's own last edit).
+  const did = <T>(r: T): T => { dirty = true; return r; };
   for (let { c, was, col } of cols) {
-    if (!col) col = figma.variables.createVariableCollection(c.name);
-    col.setSharedPluginData(KEY, 'owned', '1');
-    if (col.name !== c.name) col.name = c.name;
+    if (!col) col = did(figma.variables.createVariableCollection(c.name));
+    if (col.getSharedPluginData?.(KEY, 'owned') !== '1') did(col.setSharedPluginData(KEY, 'owned', '1'));
+    if (col.name !== c.name) did((col.name = c.name));
     // Each context's mode by the id the last pull wrote it with (renamed in
     // Figma, it is still that context; a mode's shown name is only that).
     const prior: Record<string, string> = { ...was?.parked, ...was?.contextIds };
@@ -138,7 +140,9 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
       const take = own === undefined ? c.modes.find(mode => !ids[mode]) : undefined;
       if (take) { ids[take] = col.defaultModeId; used.add(col.defaultModeId); } else parked = [own ?? '', col.defaultModeId];
     }
-    for (const m of [...col.modes]) if (!used.has(m.modeId) && m.modeId !== parked?.[1]) col.removeMode(m.modeId);
+    // Only modes a pull made (the ids it kept for contexts) go; one the person added stays.
+    const ours = new Set(Object.values(prior));
+    for (const m of [...col.modes]) if (!used.has(m.modeId) && m.modeId !== parked?.[1] && ours.has(m.modeId)) did(col.removeMode(m.modeId));
     // Names in two steps, each first to a name no mode has or will have, so
     // two modes trading names never ask for one another still has.
     const final: [string, string][] = [...c.modes.map(mode => [mode, mode] as [string, string]), ...(parked ? [[`unused: ${parked[0]}`.slice(0, 40), ''] as [string, string]] : [])];
@@ -148,23 +152,23 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     // Figma's refusal of a mode too many, told from every other error here and only here.
     for (const mode of c.modes) {
       if (ids[mode]) continue;
-      try { ids[mode] = col.addMode(temp()); } catch (e: any) {
+      try { ids[mode] = did(col.addMode(temp())); } catch (e: any) {
         const limit = /\blimited to (\d+) modes?\b/i.exec(String(e?.message ?? e));
         throw limit ? Object.assign(new Error(String(e?.message ?? e)), { capacity: Number(limit[1]) }) : e;
       }
     }
     const idOf = (mode: string, slot: string) => (slot === '' && parked ? parked[1] : ids[mode]);
     const touched = final.filter(([name, slot]) => col.modes.find((x: any) => x.modeId === idOf(name, slot))?.name !== name);
-    for (const [name, slot] of touched) col.renameMode(idOf(name, slot), temp());
-    for (const [name, slot] of touched) col.renameMode(idOf(name, slot), name);
+    for (const [name, slot] of touched) did(col.renameMode(idOf(name, slot), temp()));
+    for (const [name, slot] of touched) did(col.renameMode(idOf(name, slot), name));
     const tokens = new Set(c.variables.map(v => v.token));
-    for (const x of variables) if (x.variableCollectionId === col.id && x.getSharedPluginData?.(KEY, 'token') && !tokens.has(x.getSharedPluginData(KEY, 'token'))) x.remove();
+    for (const x of variables) if (x.variableCollectionId === col.id && x.getSharedPluginData?.(KEY, 'token') && !tokens.has(x.getSharedPluginData(KEY, 'token'))) did(x.remove());
     for (const v of c.variables) {
       let fv = variableOf(variables, col, v);
-      if (fv && fv.resolvedType !== v.type) { fv.remove(); fv = undefined; }
-      if (!fv) fv = figma.variables.createVariable(v.name, col, v.type);
-      fv.setSharedPluginData(KEY, 'token', v.token);
-      for (const mode of c.modes) fv.setValueForMode(ids[mode], v.values[mode]);
+      if (fv && fv.resolvedType !== v.type) { did(fv.remove()); fv = undefined; }
+      if (!fv) fv = did(figma.variables.createVariable(v.name, col, v.type));
+      if (fv.getSharedPluginData?.(KEY, 'token') !== v.token) did(fv.setSharedPluginData(KEY, 'token', v.token));
+      for (const mode of c.modes) did(fv.setValueForMode(ids[mode], v.values[mode]));
     }
     c.id = col.id;
     c.contextIds = Object.fromEntries(c.modes.map(mode => [c.contexts[mode], ids[mode]]));
@@ -233,15 +237,19 @@ figma.ui.onmessage = async (msg: any) => {
           // A layout the design outgrew (one collection to one a tuple, or
           // back): the earlier pull's collections go.
           const now = new Set(plan.collections.map(c => c.id)), collections = await figma.variables.getLocalVariableCollectionsAsync();
-          // One holding a variable Tamber did not make is refused (the whole pull undone), never removed with it.
+          // One holding a variable or a mode Tamber did not make is refused (the whole pull undone), never removed with it.
           const variables = await figma.variables.getLocalVariablesAsync();
           for (const c of before?.collections ?? []) {
             const old = collectionIn(collections, c);
             if (!old || now.has(old.id) || !old.getSharedPluginData?.(KEY, 'owned')) continue;
             const theirs = variables.filter((v: any) => v.variableCollectionId === old.id && !v.getSharedPluginData?.(KEY, 'token')).map((v: any) => v.name);
-            if (theirs.length) throw new Error(`the collection \`${old.name}\` this pull would replace has variables Tamber did not make (${theirs.join(', ')}): move them, then pull`);
+            const ours = new Set([...Object.values(c.contextIds ?? {}), ...Object.values(c.parked ?? {})]);
+            theirs.push(...old.modes.filter((m: any) => !ours.has(m.modeId)).map((m: any) => `the mode ${m.name}`));
+            if (theirs.length) throw new Error(`the collection \`${old.name}\` this pull would replace has what Tamber did not make (${theirs.join(', ')}): move it, then pull`);
             old.remove();
+            dirty = true;
           }
+          dirty = true; // (the kept export and plan change with every pull)
           keep('baseline', msg.text);
           keep('plan', JSON.stringify(plan));
           figma.commitUndo();

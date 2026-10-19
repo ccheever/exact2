@@ -465,3 +465,28 @@ test('round 6 (Grok): new collections only when every context the old served is 
   expect(f.collections).toEqual([col]);
   expect(col.modes.some((m: any) => m.modeId === dark)).toBe(true);
 });
+
+test('round 7: a mode the person added stays through a pull, and a collection holding one is never replaced; a first change that fails undoes nothing', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0];
+  const mine = col.addMode('Local review');
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  expect(col.modes.some((m: any) => m.modeId === mine)).toBe(true);
+  // A layout change would replace the collection: refused, the person's mode named.
+  f.raise(2);
+  const six = variant(doc => {
+    const contexts = doc.modifiers.mode.contexts;
+    for (const scheme of ['light', 'dark']) contexts[`dark-style=grey, ${scheme}`] = structuredClone(contexts[`dark-style=dim, ${scheme}`]);
+  });
+  await expect(send({ type: 'apply', text: six }, 'applied')).rejects.toThrow(/Local review/);
+  expect(f.collections).toEqual([col]);
+  // The first change refused: nothing undone.
+  await load(10);
+  let undos = 0;
+  const trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { undos++; trigger(); };
+  f.figma.variables.createVariableCollection = () => { throw new Error('no collections today'); };
+  await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow('no collections today');
+  expect(undos).toBe(0);
+});
