@@ -179,10 +179,14 @@ package final class TextArea: UITextView {
         owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         // UIKeyInput (including the software keyboard) need not ask the
-        // text-view delegate before insertion. Handle a plain Return here;
-        // the command's own native insertion bypasses through `applying`.
-        if text == "\n", let editor = markup, !editor.applying,
-           markedTextRange == nil, owner?.formatMarkup("newline", selection: selectedRange) == true { return }
+        // text-view delegate before insertion. Handle a plain Return here,
+        // the app's `beforeinput` first; the command's own native insertion
+        // bypasses through `applying`.
+        if text == "\n", let editor = markup, !editor.applying, markedTextRange == nil, let owner {
+            let line = { if !owner.formatMarkup("newline", selection: self.selectedRange) { super.insertText(text) } }
+            if let selections = owner.presenter?.fieldSelections { selections.nativeEdit(owner, replacement: text, marked: false, line) } else { line() }
+            return
+        }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
