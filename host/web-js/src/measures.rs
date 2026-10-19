@@ -35,7 +35,7 @@ pub fn css(kind: Kind, value: &str) -> String {
     }
     // An alias to a base name the design leaves unset (LLP 1121 stage 11 B):
     // the base's property, which the sheet declares (`base_scale`).
-    if exact_kernel::style::scale::is_base(value.trim()) {
+    if base(value) {
         return format!("var({})", crate::base_scale::property(value.trim()));
     }
     match relative::parse(value) {
@@ -49,6 +49,12 @@ pub fn css(kind: Kind, value: &str) -> String {
         Some((Unit::Hairline, _)) => exact_web::css::HAIRLINE.to_string(),
         _ => value.trim().to_string(),
     }
+}
+
+/// Whether a length token's `value` is a bare base name (an alias the plan
+/// keeps unfolded: the design leaves the base unset).
+fn base(value: &str) -> bool {
+    exact_kernel::style::scale::is_base(value.trim())
 }
 
 /// Row `id`'s part of type token `value`, or family token `value`'s stack,
@@ -375,6 +381,13 @@ pub fn map(
             let value = match props.iter().find(|(n, _)| n == name && !attribute) {
                 Some((_, prop)) => serde_json::to_string(&format!("var({prop})")).unwrap(),
                 None if kind == Kind::Number => css(kind, plan.str(r.value)),
+                // An alias to a base name in an SVG attribute, which reads no
+                // property: the base's length in this build's column (B2
+                // round 1, Astra 1).
+                None if attribute && kind == Kind::Length && base(plan.str(r.value)) => {
+                    serde_json::to_string(&crate::base_scale::value(plan.str(r.value).trim()))
+                        .unwrap()
+                }
                 // A shadow's text is a string, whatever it holds.
                 None => serde_json::to_string(&css(kind, plan.str(r.value))).unwrap(),
             };

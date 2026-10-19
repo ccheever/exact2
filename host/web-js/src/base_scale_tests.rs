@@ -231,3 +231,96 @@ fn an_alias_to_an_unset_base_reads_its_property_and_one_the_app_sets_folds() {
         out.css
     );
 }
+
+/// B2 round 1 (Astra 1): an SVG attribute reads no CSS property, so an alias
+/// to an unset base name in one is the base's length in this build's column,
+/// in a release and a development build, bound or static.
+#[test]
+fn an_alias_in_an_svg_attribute_is_the_bases_length() {
+    let dir = std::env::temp_dir().join(format!("exact-web-js-alias-svg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  card.pad: length = space.md\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state size = \"card.pad\"\n  view\n    svg viewBox=\"0 0 24 24\" width=24 height=24\n      pattern id=\"p\" width=size height=\"card.pad\"\n        path d=\"M0 0L4 4\"\n").unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let length = kernel("space.md");
+    for dev in [false, true] {
+        let out = crate::emit::emit(&plan, false, dev).unwrap();
+        let map = out
+            .js
+            .split("const $tla=")
+            .nth(1)
+            .and_then(|m| m.split(';').next())
+            .unwrap_or_default();
+        assert!(
+            map.contains(&format!("\"card.pad\":\"{length}\"")),
+            "dev {dev}: {map}"
+        );
+        assert!(!map.contains("var("), "dev {dev}: {map}");
+        // The static attribute: the kernel's length, unitless, as SVG writes it.
+        let px = length.trim_end_matches("px");
+        assert!(
+            out.js.contains(&format!("\"height\":\"{px}\"")),
+            "dev {dev}: {}",
+            out.js
+        );
+    }
+}
+
+/// theme2's (B) for B2 round 1 (Astra 3): the declared base names are the
+/// plan's length reads, never its string pool. A computed name declares all
+/// nine (and the map holds each, as the kernel reads any); a text that says
+/// `space.md` declares none; a literal length row exactly its own.
+#[test]
+fn the_declared_bases_are_the_plans_length_reads() {
+    let all: Vec<&str> = scale::names().collect();
+    let declared = |view: &str| {
+        let plan = contract::compile(view).unwrap();
+        let out = crate::emit::emit(&plan, false, false).unwrap();
+        let names: Vec<&str> = all
+            .iter()
+            .copied()
+            .filter(|n| {
+                out.css
+                    .contains(&format!("{}:", crate::base_scale::property(n)))
+            })
+            .collect();
+        (names, out)
+    };
+    let (names, out) = declared("component App\n  state size = \"md\"\n  view\n    column padding=(\"space.\" + size)\n      text \"a\"\n");
+    assert_eq!(names, all, "{}", out.css);
+    for n in &all {
+        assert!(
+            out.js.contains(&format!(
+                "\"{n}\":\"var({})\"",
+                crate::base_scale::property(n)
+            )),
+            "{n}: {}",
+            out.js
+        );
+    }
+    // A string state bound to a length row may be any base an action sets.
+    let (names, _) = declared("component App\n  state size = \"12px\"\n  view\n    column padding=size\n      text \"a\"\n");
+    assert_eq!(names, all);
+    // Plain text, a label, a literal length that is no base, a condition
+    // over literals, a number state, a length built with a unit: no base
+    // read, nothing declared or mapped (a release unchanged by the scale).
+    let (names, out) = declared("component App\n  state wide = false\n  state w = 12\n  view\n    column padding=(wide ? \"24px\" : \"12px\") aria-label=\"space.md\" gap=w\n      text \"space.md\" width=(w.toString() + \"px\")\n      text (wide ? \"radius.lg\" : \"b\")\n");
+    assert_eq!(names, Vec::<&str>::new(), "{}", out.css);
+    assert!(
+        !out.js.contains("var(--exact-space") && !out.js.contains("var(--exact-radius"),
+        "{}",
+        out.js
+    );
+    // A literal length row, and one condition's literal leaves, exactly.
+    let (names, _) =
+        declared("component App\n  view\n    column gap=\"space.lg\"\n      text \"space.md\"\n");
+    assert_eq!(names, vec!["space.lg"]);
+    let (names, _) = declared("component App\n  state wide = false\n  view\n    column padding=(wide ? \"space.xl\" : \"8px\")\n      text \"a\"\n");
+    assert_eq!(names, vec!["space.xl"]);
+}

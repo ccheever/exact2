@@ -585,11 +585,24 @@ pub fn design(plan: &Plan) -> serde_json::Value {
     use exact_runner::design;
     let tokens = design::tokens(plan);
     serde_json::json!({
-        "structure": design::structure(plan),
+        "structure": structure(plan),
         "shape": design::shape(plan),
         "digest": design::digest(&tokens),
         "tokens": rows(plan, &Declared::of(plan), None),
     })
+}
+
+/// The plan's structure as the dev loop keeps a build by it: the plan's,
+/// and the base names the sheet declares (`base_scale::named`), so an edit
+/// that comes to name one the sheet lacks (`card.pad: space.md` to
+/// `space.lg`) rebuilds, never batches a `var()` nothing declares (B2 round
+/// 1, Astra 2). A plan that names none keeps the plan's alone.
+fn structure(plan: &Plan) -> String {
+    let structure = exact_runner::design::structure(plan);
+    match crate::base_scale::named(plan).join(" ") {
+        bases if bases.is_empty() => structure,
+        bases => format!("{structure} {bases}"),
+    }
 }
 
 /// What [`rows`] reads of a plan besides its design values: which token

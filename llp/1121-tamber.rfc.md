@@ -4894,13 +4894,13 @@ draws nothing new: stage 11 C draws and conforms on top.
     column too, so its column is `metrics::column()` at build time.
   - A static row naming a base name is that column's length: the kernel reads the literal while the sheet is
     projected (B1's fallback).
-  - The sheet declares each base name the plan names, and its design does not define, once on `:root`, as
-    `--exact-<name>` (`--exact-space-md:16px`). The values come from the kernel's table, never copied numbers, and a
-    plan naming none declares nothing.
+  - The sheet declares each base name the plan may read as a length, and its design does not define, once on `:root`,
+    as `--exact-<name>` (`--exact-space-md:16px`). The values come from the kernel's table, never copied numbers, and
+    a plan reading none declares nothing (round 1 below says which reads count).
   - A bound row whose value may name a base name maps it to that property's `var()` (`measures::map`). An SVG
     attribute row, which reads no property, maps it to the length.
   - An alias to a base name the design leaves unset (B1 round 1, `card.pad: length = space.md`) is the base's property
-    wherever the token's CSS is written (`measures::css`: `var(--exact-space-md)`), and the sheet declares that
+    wherever the token's CSS is written, except in an SVG attribute (round 1 below) (`measures::css`: `var(--exact-space-md)`), and the sheet declares that
     property although only the alias names it. Once the design sets the base name the alias folds (theme2), so the
     page shows the app's value and declares no base property.
   - A design that defines a base name makes it its own token, which the token path writes, and no base property is
@@ -4940,3 +4940,39 @@ draws nothing new: stage 11 C draws and conforms on top.
   - `contract/cli/src/terminal.rs`: base names pass the terminal check.
   - `host/linux/tests/base_scale.rs`: the desktop's neutral column and the reader's Material one, every base name, and
     a booted row.
+- **After review round 1 (Astra: three blocking, one should-fix; Grok: one should-fix, Astra's first):**
+  - **An alias in an SVG attribute** (Astra 1, Grok). An attribute reads no CSS property, so a bound attribute row's
+    map writes an unset-base alias as the base's length in the build's column (`base_scale::value`), not its `var()`.
+    A static attribute already folds through the kernel. Test: `base_scale_tests.rs`, release and development, bound
+    (`$tla`'s `card.pad` is 16px) and static (`height` 16).
+  - **A live switch to a base the sheet lacks** (Astra 2). `card.pad: space.md` to `space.lg` was a value-only edit,
+    batched as `var(--exact-space-lg)`, which no rule declared. The dev design's `structure` (`modes::design`) now
+    carries the declared base names too, so the dev loop (`sameShape` in `dev.mjs`) builds instead, and the build
+    declares the new one. A plan declaring none keeps the plan's structure as it was. Test:
+    `host/web-js/base-scale-live.test.mjs`, in Chrome: the edit's structure moves, the rebuilt sheet declares
+    `--exact-space-lg:24px`, and the page's row is 24px.
+  - **The plan's length reads, never its string pool** (Astra 3; theme2's (B), no plan format change). The declared
+    set (`base_scale::named`) is:
+    - each base name a length row's value may be, through `?:`, `match` and `let`, read from its bytecode
+      (`returns`, an abstract walk of the VM's stack);
+    - each base name a length token aliases;
+    - all nine when a length row's value may be any string, as lowering keeps every length token then
+      (`computed_measure`): a string-typed read (a state, a field, an each item, a param), a string call, or a
+      concatenation whose every part could be inside a base name (`"space." + size`). A read typed as a number or bool
+      is no base, nor is a concatenation with a part no base name holds (`w.toString() + "px"`).
+
+    The maps hold the same set, so a computed name finds its property. A text or a label that says `space.md` declares
+    nothing. theme2 (B): declaring all nine where a name may be computed is safe, missing one is not. Tests in
+    `base_scale_tests.rs`: `"space." + size` and a string state declare all nine and map each; plain text, a label, a
+    condition over literals, a number state and a `+ "px"` length declare none; a literal row declares exactly its
+    own, and one condition's leaf exactly its own; an alias declares its base (the earlier test). Release output
+    compared with d7eaafb72a (before B2) for 14 apps: 11 are byte-identical (hello, caltrain, messages, realworld,
+    theme-fixture, tamber-host, svg-gallery, interaction-gallery, motion-gallery, typetour, spark). design-tool,
+    color-gallery and markdown declare the nine: each binds a row the kernel's `admits` counts as taking a length
+    (`color-scheme`, `font-style`, `dynamic-range-limit`) to an each item's field or a string state, which this
+    reading can't type.
+  - **A real live edit on a page** (Astra 4). `base-scale-live.test.mjs` builds an app for development with
+    `space.md = 40px` and `card.pad: length = space.md`, shows it in Chrome, and compiles the edit to `48px` as the dev
+    loop does (`exact-web-js design`). It checks that the structure and shape hold and that both tokens change, sends
+    the batch through the page's `exact.design`, and finds the direct row and the alias's row both moved from 40px to
+    48px, on the same page.
