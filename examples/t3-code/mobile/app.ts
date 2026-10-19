@@ -252,7 +252,7 @@ const sources: Sources = {
   },
   newTaskAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('newTaskAction', args, nativeInput);
-    return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!, mobileClient, fleet, Number(args[5]), { ready: args[6] === true, serialized: str(args[7]) });
+    return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!, mobileClient, fleet, Number(args[5]), { ready: args[6] === true, serialized: str(args[7]) }, args[8] === true);
   },
   threadPreferences: (args, _store, storage, nativeInput) => {
     const native = sourceNative('threadPreferences', args, nativeInput);
@@ -659,7 +659,7 @@ const sources: Sources = {
   },
   newTaskView: (args, _store, storage, nativeInput) => {
     const native = sourceNative('newTaskView', args, nativeInput);
-    return args[4] === true ? mobileNewTaskChooser(String(args[0] ?? ''), String(args[5] ?? 'repository')) : mobileNewTask(String(args[0] ?? ''));
+    return args[4] === true ? mobileNewTaskChooser(String(args[0] ?? ''), String(args[5] ?? 'repository')) : mobileNewTask(String(args[0] ?? ''), mobileClient, fleet, { ready: args[10] === true, serialized: str(args[11]) }, args[12] === true);
   },
   newTaskCachedPrepare: (args, _store, storage, nativeInput) => {
     const current = newTaskGuard('newTaskCachedPrepare', args) ?? (() => true);

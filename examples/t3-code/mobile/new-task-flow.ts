@@ -224,7 +224,7 @@ export function mobileNewTaskFlowOwns(owner: string, visit: string, client: T3Cl
 
 export async function mobileNewTaskFlowAction(owner: string, visit: string, kind: string, id: string, value: string,
   nativeInput: Native | null | undefined, suppliedStorage: Files, client: MobileDraftClient = mobileClient, background: EnvironmentFleet = fleet, now = 0,
-  preferences: MobilePendingTaskPreferences = { ready: false, serialized: '' }): Promise<NewTaskFlowResult> {
+  preferences: MobilePendingTaskPreferences = { ready: false, serialized: '' }, interactionBlocked = false): Promise<NewTaskFlowResult> {
   const flow = flows.get(client), result = (message = '', nextLocation = '', submitted = false): NewTaskFlowResult => ({
     revision: client.revision, requestRoute: visit, nextLocation, message, alertTitle: '', submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
@@ -237,8 +237,15 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   if (!client.preferencesLoaded) return result('Wait for saved drafts to load.');
   if (kind !== 'project' && kind !== 'scratch' && kind !== 'prepare' && kind !== 'pending-refresh' && kind !== 'pending-close' && kind !== 'pending-recover' && !mobileNewTaskFlowOwns(owner, visit, client)) return result('Wait for the current draft to be ready.');
   const pendingRoute = mobileNewTaskRoute(flow.location);
-  if ((flow.pendingRoute || pendingRoute.pendingTaskId) && !['prepare', 'pending-refresh', 'pending-close', 'pending-recover', 'draft', 'send', 'send-alternate'].includes(kind))
+  if ((flow.pendingRoute || pendingRoute.pendingTaskId) && !['prepare', 'pending-refresh', 'pending-close', 'pending-recover', 'draft', 'interaction', 'send', 'send-alternate'].includes(kind))
     return result('Save or close this pending task before changing its destination.');
+  if (kind === 'interaction') {
+    const target = flow.selected, current = () => flows.get(client) === flow && flow.active && flow.visit === visit
+      && flow.readyVisit === visit && !flow.busy && sameSelection(target, client) && mobileNewTaskDraftCurrent(client)?.key === flow.draftKey;
+    if (!current()) return result('Choose the current new task before changing its mode.');
+    const edited = await mobileNewTaskAction(kind, id, value, nativeInput, suppliedStorage, client, background, current, preferences, interactionBlocked);
+    return { ...result(current() ? edited.message : ''), revision: edited.revision };
+  }
   if (kind.startsWith('clone-')) {
     mobileNewTaskCloneObserve(owner, visit, flow.location, true, client);
     if (id !== client.projectId || value !== client.environmentId) return result('The project clone changed.');
