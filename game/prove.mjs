@@ -6,7 +6,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, isAbsolute, relative, resolve} from 'node:path';
 import {equal, agreePins, nativeProofHost, pinInputs, pinSourceInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand, lookAcrossRuns, lookOnlyFailure} from './proof.mjs';
-import {gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
+import {bakeGameArt, gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
 const local = destination === '.' || (destination && isAbsolute(destination)) || destination?.includes('/') || destination?.includes('\\');
@@ -52,6 +52,11 @@ const root = continuedRoot ?? mkdtempSync(resolve(artifacts, 'run-'));
 const config = {hosts, repeat, repin, compareSaves:args.includes('--compare-saves'), device, phone:phone ?? null, env:Object.fromEntries(['EXACT_GAME_PROOF_PROFILE','RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST','EXACT_GAME_PARANOID_COMPARE'].map(key => [key,process.env[key] ?? null]))};
 if (saved && JSON.stringify(saved.config) !== JSON.stringify(config)) throw new Error('continue refused: requested host/mode/profile matrix or device changed');
 if (saved) validateSnapshot(saved.snapshot, resolve(import.meta.dir, '..'), sourceApp);
+const buildTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(sourceApp,'target'));
+const buildEnvironment = {CARGO_TARGET_DIR:buildTarget, CARGO_BUILD_BUILD_DIR:resolve(process.env.CARGO_BUILD_BUILD_DIR ?? buildTarget)};
+// A game without Git can include its generated assets in the captured tree.
+// Finish that bake before recording immutable copies, including after adding art.
+if (!saved && gameDefaults(sourceApp)?.game) bakeGameArt(sourceApp, {...process.env, ...buildEnvironment});
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
 app = record.snapshot.src;
 const checkSDK = () => {
@@ -72,8 +77,6 @@ const signals = ['SIGINT','SIGTERM'].map(signal => [signal, async () => {
   process.kill(process.pid, signal);
 }]);
 for (const [signal, listener] of signals) process.on(signal,listener);
-const buildTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(sourceApp,'target'));
-const buildEnvironment = {CARGO_TARGET_DIR:buildTarget, CARGO_BUILD_BUILD_DIR:resolve(process.env.CARGO_BUILD_BUILD_DIR ?? buildTarget)};
 const run = async (host, index, build = false, mode = '0', profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev') => {
   progress.set({phase:`${host} ${mode} ${profile} ${build ? 'build' : 'proof'}`});
   checkSDK();

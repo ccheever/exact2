@@ -57,16 +57,18 @@ export function gameDefaults(dir) {
 // where the author wrote them. @ref llp/1046.003-game-engine-as-built.explainer.md#one-sdk-lock-2026-09-23
 function logicManifest(dir, crate) {
   const logic = resolve(dir, 'logic'), targets = [];
+  // Cargo can reuse dep-info from another workspace sharing target/. Absolute
+  // targets outside .shells bind freshness to this copy of the authored sources.
   for (const [kind, table] of [['tests', 'test'], ['examples', 'example'], ['benches', 'bench']]) {
     const folder = resolve(logic, kind);
     if (!existsSync(folder)) continue;
     for (const entry of readdirSync(folder, {withFileTypes:true}).sort((a, b) => a.name < b.name ? -1 : 1)) {
       const file = entry.isFile() && entry.name.endsWith('.rs') ? entry.name
         : entry.isDirectory() && existsSync(resolve(folder, entry.name, 'main.rs')) ? `${entry.name}/main.rs` : null;
-      if (file) targets.push(`\n[[${table}]]\nname = ${JSON.stringify(file.replace(/(\.rs|\/main\.rs)$/, ''))}\npath = ${JSON.stringify(`../../logic/${kind}/${file}`)}\n`);
+      if (file) targets.push(`\n[[${table}]]\nname = ${JSON.stringify(file.replace(/(\.rs|\/main\.rs)$/, ''))}\npath = ${JSON.stringify(resolve(folder, file))}\n`);
     }
   }
-  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = "../../logic/src/lib.rs"\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n${hasArt(dir) ? '\n# sim_with_art! bakes art/ in memory for the hostless tests.\n[dev-dependencies]\nexact-game-bake.workspace = true\n' : ''}`;
+  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = ${JSON.stringify(resolve(logic, 'src/lib.rs'))}\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n${hasArt(dir) ? '\n# sim_with_art! bakes art/ in memory for the hostless tests.\n[dev-dependencies]\nexact-game-bake.workspace = true\n' : ''}`;
 }
 
 // @ref LLP 1046.008#b-authored-presentation-crate — GPU-only authored hooks (renamed
@@ -229,7 +231,8 @@ export function gameShells(dir, game, workspace) {
   if (!existsSync(resolve(root, '.gitignore'))) writeFileSync(resolve(root, '.gitignore'), '*\n!.gitignore\n');
   for (const kind of ['gpu', 'web', 'apple', 'linux', 'windows', 'android']) {
     const shell = resolve(root, kind);
-    const levelBake = relative(shell, resolve(source, 'bake/src/files.rs'));
+    // A cached build script can run from either the game or its deeper proof copy.
+    const levelBake = resolve(source, 'bake/src/files.rs');
     // These adapters contain entry points only; tests live in authored crates.
     const target = ['linux', 'windows'].includes(kind)
       ? `[[bin]]\nname = "${name}-${kind}"\npath = "src/main.rs"\ntest = false`

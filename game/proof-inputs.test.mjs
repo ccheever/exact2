@@ -270,7 +270,9 @@ test('E11 receipts and proof provenance bind post-bake generated assets', async 
     expect(before.all).not.toBe(after.all);
     expect({gpu:gpuReceipt.inputs,host:hostReceipt.inputs,summary}).toEqual({gpu:inputHash(after.gpu),host:inputHash(after.host+surface()),summary:after.all});
     expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);
-    rmSync(resolve(app,'.shells'),{recursive:true});rmSync(resolve(app,'assets'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
+    rmSync(resolve(app,'.shells'),{recursive:true});rmSync(resolve(app,'assets'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));
+    generated('linux-simd'); // The proof bakes art before restoring cached declarations.
+    await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
     write('artifacts/linux/build-linux-surfaces.json','corrupt');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/logic/src/lib.rs','surface with added argument');await run();expect(builds.splice(0)).toEqual(['gpu','host']);
@@ -650,4 +652,37 @@ test('unchanged proof directories keep their identity when locale collation chan
     read();String.prototype.localeCompare=function(other){return -collate.call(this,other);};
     expect(()=>read()).not.toThrow();
   } finally {String.prototype.localeCompare=collate;rmSync(root,{recursive:true,force:true});}
+});
+
+test('a previous GPU asset cache cannot replace the current bake manifest', async () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(),'proof-current-art-'))), app = resolve(root,'app'), out = resolve(root,'receipts');
+  const surface = resolve(app,'.shells/surfaces.json'), manifest = resolve(app,'.baked-assets.json');
+  const hash = text => createHash('sha256').update(text).digest('hex');
+  let names = ['crate.model'], gpu = 'old', host = 'host', builds = 0;
+  const bake = () => {
+    for (const name of names) writeFixtureFile(app,'assets/'+name,name);
+    writeFixtureFile(app,'.baked-assets.json',JSON.stringify(Object.fromEntries(names.map(name=>[name,hash(name)]))));
+  };
+  const run = () => ensureLinuxReceipts({directory:out,app,surface,
+    gpuInputs:()=>names.join(','),hostInputs:()=>'host',gpuArtifact:()=>gpu,hostArtifact:()=>host,
+    build:async part=>{
+      if (part !== 'gpu') return;
+      builds++;
+      // This is what the real baker needs to recognize existing generated files.
+      expect(Object.keys(JSON.parse(readFileSync(manifest,'utf8')))).toEqual(names);
+      gpu = names.join(','); writeFixtureFile(app,'.shells/surfaces.json','{}');
+    }});
+  try {
+    mkdirSync(out,{recursive:true});
+    bake(); await run(); expect(builds).toBe(1);
+    names.push('angelfish.model'); bake();
+    const current = readFileSync(manifest,'utf8');
+    await run();
+    expect(builds).toBe(2);
+    expect(readFileSync(manifest,'utf8')).toBe(current);
+    await run(); expect(builds).toBe(2);
+    names.pop(); rmSync(resolve(app,'assets/angelfish.model')); bake();
+    await run(); expect(builds).toBe(3);
+    expect(existsSync(resolve(app,'assets/angelfish.model'))).toBe(false);
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
