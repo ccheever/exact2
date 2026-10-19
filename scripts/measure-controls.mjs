@@ -6,6 +6,9 @@
 //
 //   bun scripts/measure-controls.mjs <web|macos|ios|linux|android> [--json] [--keep <dir>] [--scratch <worktree>]
 //
+// On the Mac the run is activated (EXACT_AGENT_ACTIVATE=1: a key window, where AppKit draws a control's accent),
+// so it takes the focus while it runs; the app in front before is put back after.
+//
 // For each (control, parameter), over the control's pixels:
 // - exact: at least 4 pixels within ΔE00 3 of the authored colour where
 //   the plain build's pixel is not;
@@ -113,6 +116,16 @@ function build(dir, authored) {
  * Linux host under adb), which boots the plan its APK bakes: the fixture
  * goes in as the app of a scratch checkout (`--scratch <worktree>`, whose
  * `apps/tamber-host` it overwrites) and the APK is built there. */
+/** The bundle id of the app in front on this Mac, or null (the Mac's own
+ * `lsappinfo`, which needs no permission). */
+function frontApp() {
+  const asn = spawnSync('lsappinfo', ['front'], { encoding: 'utf8' }).stdout.trim();
+  if (!asn) return null;
+  const info = spawnSync('lsappinfo', ['info', '-only', 'bundleid', asn], { encoding: 'utf8' }).stdout;
+  const m = /(?:bundleID|"CFBundleIdentifier")="([^"]+)"/.exec(info);
+  return m?.[1] ?? null;
+}
+
 function capture(plan, png, dir) {
   const ids = [...new Set(ROWS.map(r => r[2]))];
   let root = ROOT, target = ['--plan', plan];
@@ -130,7 +143,15 @@ function capture(plan, png, dir) {
     root = scratch;
     target = ['--reader', '--app', 'tamber-host'];
   }
-  const r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, `screenshot ${png.replace(/\.png$/, '.again.png')}`], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
+  // The Mac draws a control's accent only in a key window, which an agent's window never is (it takes no focus):
+  // EXACT_AGENT_ACTIVATE=1, for this run only, activates the app; it puts back the app in front when it quits, and
+  // so does this, however the run ends (LLP 1121 stage 9 F2).
+  const front = host === 'macos' ? frontApp() : null;
+  let r;
+  try {
+    r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, `screenshot ${png.replace(/\.png$/, '.again.png')}`],
+      { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, env: host === 'macos' ? { ...process.env, EXACT_AGENT_ACTIVATE: '1' } : process.env });
+  } finally { if (front) spawnSync('open', ['-b', front], { stdio: 'ignore' }); }
   if (r.status !== 0) throw new Error(`agent ${host}: ${r.stderr || r.stdout}`);
   const replies = r.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
   const frames = {};

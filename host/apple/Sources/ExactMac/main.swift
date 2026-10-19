@@ -47,6 +47,12 @@ ExactEnv.stamp("NSApplication.shared")
 // typing; its window is made key for a `type` when one comes (`AgentMac`).
 app.setActivationPolicy(agentMode ? .accessory : .regular)
 ExactEnv.stamp("setActivationPolicy")
+// EXACT_AGENT_ACTIVATE=1 (set only by scripts/measure-controls.mjs, never by
+// default): this one run is activated and its window made key, as AppKit
+// draws a control's accent only in a key window; the app in front before it
+// is put back when it quits (LLP 1121 stage 9 F2).
+let agentActivates = agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
+let frontBefore = agentActivates ? NSWorkspace.shared.frontmostApplication : nil
 let appReadyMs = ExactEnv.wall()
 
 /// The one session and its view; the session's clock is the agent's under a script.
@@ -329,7 +335,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// In front — never activated under a script (LLP 1012), so a running
     /// smoke never takes the focus from whoever is typing.
     func front() {
-        if agentMode { window.orderFrontRegardless() } else {
+        if agentMode && !agentActivates { window.orderFrontRegardless() } else {
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
         }
@@ -560,6 +566,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// last window's session, closed, is left for this (`windowWillClose`);
     /// `destroy()` runs once in any case. The hold, if any, has ended.
     func applicationWillTerminate(_ notification: Notification) {
+        // An activated agent run puts back the app that was in front.
+        if let front = frontBefore, front.processIdentifier != ProcessInfo.processInfo.processIdentifier { front.activate() }
         for session in exact.sessions { session.destroy() }
         if relaunching {
             do { try ProcessRelaunch.start() }
@@ -713,7 +721,7 @@ func finishLaunching() {
     ExactEnv.stamp("makeKeyAndOrderFront")
     // Under a script: in front regardless, so the window is seen (a covered
     // window's canvases render nothing, LLP 1009 D4) — but never activated.
-    if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     ExactEnv.stamp("activate")
 
     /// Agent mode: the driver owns the process from here — one JSON line in,
