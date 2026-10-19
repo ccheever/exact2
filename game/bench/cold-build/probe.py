@@ -12,7 +12,10 @@ def save(row):
     os.write(fd, (json.dumps(row) + '\n').encode()); os.close(fd)
 if mode == 'cargo':
     command = next((a for a in args if not a.startswith('+')), '')
-    if command in ['build', 'rustc', 'check', 'test']: args.append('--timings')
+    if command in ['build', 'rustc', 'check', 'test']:
+        # A Cargo option; everything after the first `--` belongs to rustc or the test binary.
+        tail = args.index('--') if '--' in args else len(args)
+        args.insert(tail, '--timings')
     code = subprocess.call([os.environ['D2_CARGO']] + args, close_fds=False)
     save(dict(kind='cargo', args=args, code=code))
 elif mode == 'rustc-probe' or args and pathlib.Path(args[0]).stem == 'rustc':

@@ -8,7 +8,7 @@ wall times, start/end loads, `--timings` HTML, rustc phase timers and sampled
 `wasm-opt` processes. Instrumentation sets `RUSTC_BOOTSTRAP=1` and changes the
 compiler configuration; compare like configurations only.
 
-These are the commands in `.lane/measurement.md`, with the committed probe path.
+The commands below are the measurement; each lane's filed report carries the numbers it got.
 Use a new scaffold path and log directory for each repetition; never reuse a
 compiled target for a cold sample. Both Cargo directories must start empty.
 
@@ -51,11 +51,11 @@ remaining wall time; add `cargo/scheduling` to `other` for the printed table's
 Other row. Concurrent unit-seconds are never added as elapsed time. Eligibility
 excludes registry packages tainted by any path/git dependency, by lock name.
 
-For retained lane evidence, the exact recomputation command is:
+To recompute a filed measurement from its retained timing HTML and phase log:
 
 ```sh
-python3 game/bench/cold-build/audit.py .lane/measure/retained-timings/2/d2-linux \
-  --phases .lane/measure/cold-linux --lock game/app/shells.lock
+python3 game/bench/cold-build/audit.py <retained-timings>/d2-linux \
+  --phases <log-dir>/cold-linux --lock game/app/shells.lock
 ```
 
 The retained HTML and JSONL are untracked evidence filed by the orchestrator.
@@ -80,4 +80,5 @@ Before wiring reuse:
 - Resolve Cargo metadata in the same environment as the Cargo child, and pass it
   to both `take` and `keep`.
 - Repeat the real-registry transfer count with the corrected observer, including
-  build-script run fingerprints. The earlier zero-rebuild count is unverified.
+  build-script run fingerprints; a count taken with the earlier observer, which
+  watched a fingerprint Cargo may already have cleared, does not qualify.

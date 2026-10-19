@@ -40,11 +40,15 @@ test('cargo rustc reaches Cargo and records both compiler and command events', (
     writeFileSync(resolve(dir,'src/lib.rs'),'pub const VALUE: u32 = 1;\n');
     const channel=Bun.TOML.parse(readFileSync(resolve(import.meta.dir,'../../../rust-toolchain.toml'),'utf8')).toolchain.channel;
     const log=resolve(dir,'logs');
-    const result=spawnSync('python3',[probe,'cargo','rustc','--offline'],{cwd:dir,encoding:'utf8',
+    const result=spawnSync('python3',[probe,'cargo','rustc','--offline','--','-C','opt-level=1'],{cwd:dir,encoding:'utf8',
       env:{...process.env,TMPDIR:'/tmp',PATH:`${homedir()}/.cargo/bin:${process.env.PATH}`,RUSTUP_TOOLCHAIN:channel,D2_LOG:log,CARGO_TARGET_DIR:resolve(dir,'target'),CARGO_BUILD_BUILD_DIR:resolve(dir,'target')}});
     expect(result.status).toBe(0);
     const events=readFileSync(resolve(log,'units.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
-    expect(events.some(row=>row.kind==='cargo' && row.args[0]==='rustc' && row.args.includes('--timings') && row.code===0)).toBe(true);
+    const cargo=events.find(row=>row.kind==='cargo' && row.args[0]==='rustc');
+    expect(cargo?.code).toBe(0);
+    // `--timings` is Cargo's; what follows the first `--` is rustc's.
+    expect(cargo.args.indexOf('--timings')).toBeLessThan(cargo.args.indexOf('--'));
+    expect(events.some(row=>row.kind==='rustc' && row.args.includes('--crate-name') && row.args.includes('opt-level=1') && row.code===0)).toBe(true);
     expect(events.some(row=>row.kind==='rustc' && row.args.includes('--crate-name') && row.code===0)).toBe(true);
     expect(events.some(row=>row.kind==='command' && row.code===0)).toBe(true);
   } finally {rmSync(dir,{recursive:true,force:true});}
