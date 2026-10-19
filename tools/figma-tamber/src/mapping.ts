@@ -150,8 +150,17 @@ export function pull(doc: Json, modeLimit: number): Plan {
   const tuples = [...new Set(contexts.map(c => split(c).tuple))];
   let groups: { name: string; contexts: Record<string, string> }[];
   if (contexts.length <= modeLimit) {
-    groups = [{ name: 'Tamber', contexts: Object.fromEntries(contexts.map(c => [c, c])) }];
+    // A mode's name is the context, cut to Figma's 40 characters (and told apart) when longer.
+    const used = new Set<string>();
+    const named = (c: string) => {
+      let n = c.length <= 40 ? c : `${c.slice(0, 39)}…`;
+      for (let i = 2; used.has(n); i++) n = `${c.slice(0, 40 - String(i).length - 2)}… ${i}`;
+      used.add(n);
+      return n;
+    };
+    groups = [{ name: 'Tamber', contexts: Object.fromEntries(contexts.map(c => [named(c), c])) }];
   } else if (modeLimit >= 2) {
+    if (contexts.some(c => !/, (light|dark)$/.test(`, ${c}`))) throw new Error('a context that is not light or dark: one collection a tuple needs Light and Dark');
     groups = tuples.map(t => ({
       name: t ? `Tamber · ${t}` : 'Tamber',
       // (the default's scheme first, as the contexts are ordered)

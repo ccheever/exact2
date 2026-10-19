@@ -53,7 +53,8 @@ async function pullDesign() {
   const { conflicts, contexts } = await ask({ type: 'check', text }, 'checked');
   const lines = conflicts.map((c: any) => `${c.collection}: ${c.variable} (${c.mode})${c.gone ? ', which the design no longer has' : ''}`);
   const moved = [...contexts.added.map((c: string) => `+ ${c}`), ...contexts.removed.map((c: string) => `- ${c}`)];
-  if (conflicts.length && !confirm(`${conflicts.length} value(s) changed in Figma and in the design since the last pull:\n${lines.join('\n')}\n\nOK takes the design's; Cancel keeps Figma's (push them first).`)) { show('kept Figma\'s: push them, then pull'); return; }
+  const gone = conflicts.some((c: any) => c.gone) ? ' A value the design no longer has can\'t be pushed: the next pull removes it.' : '';
+  if (conflicts.length && !confirm(`${conflicts.length} value(s) changed in Figma and in the design since the last pull:\n${lines.join('\n')}\n\nOK takes the design's; Cancel keeps Figma's (push them first).${gone}`)) { show('kept Figma\'s: push them, then pull'); return; }
   if (moved.length && !confirm(`The design's contexts changed since the last pull:\n${moved.join('\n')}\n\nOK rewrites the Tamber collections: a mode or collection the design no longer has goes, and what is bound to it in this file loses it.`)) { show('not pulled: the contexts changed'); return; }
   const done = await ask({ type: 'apply', text }, 'applied');
   show(`pulled into ${done.collections.join(', ')}${done.skipped.length ? `; no variable for ${done.skipped.length} token(s): ${done.skipped.map((s: any) => s.token).join(', ')}` : ''}`);

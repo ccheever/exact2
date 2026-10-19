@@ -48,7 +48,7 @@ function fakeFigma(limit: number) {
         const col: any = data({ id: `c${++ids}`, name, modes: [{ modeId: `m${++ids}`, name: 'Mode 1' }],
           get defaultModeId() { return col.modes[0].modeId; },
           renameMode(id: string, n: string) { col.modes.find((m: any) => m.modeId === id).name = n; },
-          removeMode(id: string) { if (col.modes.length < 2 || id === col.modes[0].modeId) throw new Error('cannot remove the default mode'); col.modes.splice(col.modes.findIndex((m: any) => m.modeId === id), 1); },
+          removeMode(id: string) { if (col.modes.length < 2 || id === col.modes[0].modeId) throw new Error('cannot remove the default mode'); const i = col.modes.findIndex((m: any) => m.modeId === id); if (i < 0) throw new Error('no such mode'); col.modes.splice(i, 1); },
           addMode(n: string) { if (col.modes.length >= limit) throw new Error('in addMode: Limited to ' + limit + ' modes only'); const m = { modeId: `m${++ids}`, name: n }; col.modes.push(m); return m.modeId; } });
         col.remove = () => { collections.splice(collections.indexOf(col), 1); for (const v of variables.filter(v => v.variableCollectionId === col.id)) v.remove(); };
         collections.push(col);
@@ -245,4 +245,32 @@ test('round 2: the server and its token are kept as one entry', async () => {
   await send({ type: 'save', server: 'http://127.0.0.1:1', token: 't' }, 'saved');
   expect(f.storage).toEqual({ paired: { server: 'http://127.0.0.1:1', token: 't' } });
   expect((await send({ type: 'load' }, 'loaded'))).toMatchObject({ server: 'http://127.0.0.1:1', token: 't' });
+});
+
+test('round 3: a re-pull that drops the default mode\'s context keeps the default mode, as another context', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], first = col.modes[0].modeId;
+  const next = variant(doc => { delete doc.modifiers.mode.contexts['dark-style=black, light']; doc.modifiers.mode.default = 'dark-style=dim, light'; });
+  await send({ type: 'apply', text: next }, 'applied');
+  expect(col.modes[0].modeId).toBe(first);
+  expect(col.modes.map((m: any) => m.name).sort()).toEqual(['dark-style=black, dark', 'dark-style=dim, dark', 'dark-style=dim, light']);
+  const out = tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source));
+  expect(Object.keys(out).sort()).toEqual(['dark-style=black, dark', 'dark-style=dim, dark', 'dark-style=dim, light']);
+});
+
+test('round 3: a mode name is cut to 40 characters; a 1-mode file says it needs Light and Dark', async () => {
+  await load(10);
+  const long = variant(doc => {
+    const contexts = doc.modifiers.mode.contexts;
+    for (const c of Object.keys(contexts)) { contexts[c.replace('dark-style', 'appearance-of-the-darker-scheme')] = contexts[c]; delete contexts[c]; }
+    doc.modifiers.mode.default = doc.modifiers.mode.default.replace('dark-style', 'appearance-of-the-darker-scheme');
+  });
+  await send({ type: 'apply', text: long }, 'applied');
+  expect(f.collections[0].modes.every((m: any) => m.name.length <= 40)).toBe(true);
+  expect(new Set(f.collections[0].modes.map((m: any) => m.name)).size).toBe(4);
+  expect(Object.keys(tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source))).length).toBe(4);
+  await load(1);
+  await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/at least Light and Dark/);
+  expect(f.collections.length).toBe(0);
 });

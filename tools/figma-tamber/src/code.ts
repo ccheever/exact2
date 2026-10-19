@@ -107,21 +107,20 @@ async function write(plan: Plan, before: Plan | null) {
     col.setSharedPluginData(KEY, 'owned', '1');
     if (col.name !== c.name) col.name = c.name;
     // Each mode by the id the last pull wrote (a mode renamed in Figma is
-    // still its context), else by name. A mode the plan does not name: the
-    // default renamed to the first one missing, the rest removed before any
-    // is added, so a full collection takes the new ones; a default with
-    // nothing to become stays.
+    // still its context), else by name. Modes the plan does not name are
+    // removed before any is added, so a full collection takes the new ones.
     const ids: Record<string, string> = {};
     for (const mode of c.modes) {
       const m = (was && modeIn(col, was, mode)) || col.modes.find((x: any) => x.name === mode);
       if (m && !Object.values(ids).includes(m.modeId)) ids[mode] = m.modeId;
     }
-    for (const m of [...col.modes].sort((a: any, b: any) => Number(b.modeId === col.defaultModeId) - Number(a.modeId === col.defaultModeId))) {
-      if (Object.values(ids).includes(m.modeId)) continue;
-      const missing = c.modes.find(mode => !ids[mode]);
-      if (m.modeId === col.defaultModeId) { if (missing) ids[missing] = m.modeId; }
-      else col.removeMode(m.modeId);
+    // A default mode can't be removed: one the plan does not name becomes
+    // the plan's first missing mode, else its first, whose mode then goes.
+    if (!Object.values(ids).includes(col.defaultModeId)) {
+      const take = c.modes.find(mode => !ids[mode]) ?? c.modes[0];
+      ids[take] = col.defaultModeId;
     }
+    for (const m of [...col.modes]) if (!Object.values(ids).includes(m.modeId)) col.removeMode(m.modeId);
     for (const mode of c.modes) {
       if (!ids[mode]) ids[mode] = col.addMode(mode);
       const m = col.modes.find((x: any) => x.modeId === ids[mode]);
@@ -141,6 +140,8 @@ async function write(plan: Plan, before: Plan | null) {
   }
 }
 const tooManyModes = (e: any) => /limit/i.test(String(e?.message ?? e)) && /mode/i.test(String(e?.message ?? e));
+/** The modes a collection may have, from Figma's refusal (`Limited to N modes`). */
+const limitOf = (e: any) => Number(/limited to (\d+)/i.exec(String(e?.message ?? e))?.[1] ?? 2);
 
 figma.ui.onmessage = async (msg: any) => {
   const say = (reply: object) => figma.ui.postMessage({ ...reply, id: msg.id });
@@ -174,7 +175,7 @@ figma.ui.onmessage = async (msg: any) => {
             if (!tooManyModes(e)) throw e;
             figma.triggerUndo();
             figma.commitUndo();
-            plan = pull(doc, 2);
+            plan = pull(doc, Math.min(2, limitOf(e))); // a 1-mode file: Tamber needs Light and Dark
             await write(plan, before);
           }
           // A layout the design outgrew (one collection to one a tuple, or
