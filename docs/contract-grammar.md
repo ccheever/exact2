@@ -1162,10 +1162,21 @@ or the source changes: `formats`, space-separated (the inline command names,
 `heading1` to `heading6`, `bullet`, `ordered`, `task`, `quote`, `codeblock`);
 `mixed`, true when the selection spans different formats or links; `link`, the
 common link target or `""`; and `unavailable`, the commands that cannot apply
-there, space-separated (most of them, inside a code block). No offsets cross.
-A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
+there, space-separated (most of them, inside a code block). It carries no
+offsets. A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
+
+The editor's `input`, `selectionchange` and `beforeinput` are a text field's
+([form controls](#form-controls-radio-inputevent-setselectionrange)): their
+`InputEvent` carries the source and its selection, in UTF-16 offsets into the
+source, with the edit's `inputType`, `data` and `isComposing`. `beforeinput`
+comes before the editor's own handling: a Return it cancels continues no list.
+`setSelectionRange` and `setRangeText` take the same source offsets on the web,
+macOS and iOS; each `setRangeText` is one undo step, as a `format` is, and
+both are refused while an input method composes. On the web, where hidden
+syntax is not drawn, a caret put inside it is drawn at its visible edge and
+reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
 
 ### Keep-awake: `wakelock`
 
@@ -1687,8 +1698,10 @@ replaces the given UTF-16 range. `selectionMode` is `preserve` by default,
 or `select`, `start`, `end`, following HTML. It does not focus the field,
 apply `maxlength`, or create an undo step. Apple clears the edited field's
 existing undo history when its value changes. Invalid ranges, modes, unsupported
-input types and missing ids log a refusal without editing. The Markdown
-editor, Windows, Android and terminal do not support this command yet.
+input types and missing ids log a refusal without editing. On the Markdown
+editor (web, macOS and iOS) the offsets are the source's and each call is one
+undo step ([Markdown](#markdown-markup-format-select)); Linux refuses it there.
+Windows, Android and terminal do not support this command yet.
 
 **Deliberate deviation (Charlie, 2026-10-12):** unlike the DOM method,
 Exact fires one noncancelable `input` after a successful replacement, even
@@ -1716,7 +1729,8 @@ The web forwards the browser's metadata. AppKit and Linux intercept ordinary
 field edits and paste before applying them; AppKit's undo/redo responder
 commands are cancelable too. UIKit's delegate observes ordinary edits,
 but undo operations that bypass its delegate remain a host limit. Linux
-has no native field undo history. These events exclude Markdown editors.
+has no native field undo history. The Markdown editor's events are these,
+over its source ([Markdown](#markdown-markup-format-select)).
 
 ```text
 action edited(text: string, e: InputEvent)
@@ -2002,7 +2016,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
-| `setRangeText(id, text[, start, end[, selectionMode]])`: plain-field range replacement, one `input`, preserve selection by default, no undo step ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
+| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; no undo step on a plain field, one on the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
