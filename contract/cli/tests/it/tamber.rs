@@ -819,8 +819,8 @@ fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
         panic!("a refused token builds");
     };
     let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
-    assert_eq!(ids[0], "tamber-under-light", "{ids:?}");
-    assert_eq!(ids.len(), 2, "{ids:?}");
+    assert_eq!(ids, ["tamber-under-light", "lower-share-picture"]);
+    assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-under-light");
     std::fs::write(&path, contract).unwrap();
     // The `when` line's own dark side edited: it builds, setMode and its pin
     // intact.

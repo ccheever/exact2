@@ -671,7 +671,7 @@ fn lower_body(
             view[0].span(),
         ));
     }
-    l.host_transforms = tags::host_transform_recipients(&l, view);
+    l.host_transforms = tags::host_transform_recipients(l, view);
     l.nodes(view, None, None, &scope, 0, None)?;
     if !l.errors.is_empty() {
         // Row slots name regions a refused element may not have lowered.
