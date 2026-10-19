@@ -21,7 +21,8 @@ import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/ag
 import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
-import { openRemote, pluginOnLoopback } from '../../scripts/tamber-remote.mjs';
+import { pluginOnLoopback } from '../../scripts/tamber-remote.mjs';
+import { openRemoteCanvas } from '../../scripts/tamber-canvas.mjs';
 import { mapCard, pullMap } from '../../scripts/tamber-inspect.mjs';
 import { serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
@@ -1035,7 +1036,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   const six = await alsoOnIPv6Loopback(server, port).catch(async (e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); await tamber?.close(); process.exit(1); });
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
     .catch(async (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); six?.close(); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); await tamber?.close(); process.exit(1); });
-  doors = tamber ? await openRemote(tamber, remoteAsked).catch(async (e) => { console.error(`cannot listen: ${e.message}`); process.exitCode = 1; await stop(); }) : null;
+  doors = tamber ? await openRemoteCanvas(tamber, remoteAsked, `http://127.0.0.1:${port}`).catch(async (e) => { console.error(`cannot listen: ${e.message}`); process.exitCode = 1; await stop(); }) : null;
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));

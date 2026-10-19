@@ -4,13 +4,14 @@
 // or expiry ending every proxied stream at once. A fake pairing (A's
 // interface) and a fake dev loop on loopback; plain HTTP (B owns TLS).
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
-import { BODY_LIMIT, CANVAS_COOKIE, CHECKPOINT_LIMIT, MINT_RATE, PLACEHOLDER, canonical, canvasGateway, needs, rewriter } from './tamber-canvas.mjs';
+import { request as httpsRequest } from 'node:https';
+import { BODY_LIMIT, CANVAS_COOKIE, ENTRY_SCRIPT, ENTRY_SCRIPT_HASH, CHECKPOINT_LIMIT, MINT_RATE, PLACEHOLDER, canonical, canvasGateway, needs, openRemoteCanvas, rewriter } from './tamber-canvas.mjs';
 import { tamberServer } from './tamber-server.mjs';
 import { developmentGate } from './install-page.mjs';
 
@@ -172,19 +173,24 @@ const listening = server => new Promise((ok, fail) => {
 async function gateway(opts = {}) {
   const pairing = opts.pairing ?? fakePairing();
   const gw = canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, toolOrigin: TOOL, limiter, allows, ...opts });
-  const server = createServer((req, res) => { gw.handle(req, res, new URL(req.url, 'http://x')); });
+  // The door a request came through: B's TLS canvas door (`remote`) unless a test says otherwise.
+  let door = { allowed: true, local: false, remote: true, port: 'canvas' };
+  const server = createServer((req, res) => { gw.handle(req, res, new URL(req.url, 'http://x'), door); });
   await listening(server);
   const base = `http://127.0.0.1:${server.address().port}`;
   const at = (path, init = {}) => fetch(`${base}${path}`, { redirect: 'manual', ...init });
   const stop = () => new Promise(ok => { gw.close(); server.closeAllConnections?.(); server.close(ok); });
-  return { gw, pairing, at, base, stop };
+  return { gw, pairing, at, base, stop, through: d => { door = d; } };
 }
+
+/** The entry page's POST of a grant (its JSON body, its own Origin; null: none). */
+const enterInit = (grant, origin = ORIGIN) => ({ method: 'POST', headers: { 'content-type': 'application/json', ...(origin === null ? {} : { origin }) }, body: JSON.stringify({ grant }) });
 
 /** A client's way in: a grant minted, POSTed to its entry, the session. */
 async function enter(g, client, scope = 'read') {
   const token = g.pairing.add(client, scope);
   const { ok } = g.gw.mint(token);
-  const entry = await g.at(new URL(ok.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${ok.grant}` });
+  const entry = await g.at(new URL(ok.url).pathname, enterInit(ok.grant));
   const cookie = entry.headers.get('set-cookie')?.split(';')[0];
   return { token, cookie, entry, ok };
 }
@@ -198,14 +204,14 @@ test('the route table: read, write, and what is never passed', () => {
   for (const [m, p] of [['GET', '/__tamber'], ['POST', '/__tamber'], ['GET', '/__tamber/token'], ['GET', '/__tamber/tool/'], ['POST', '/__tamber/events'], ['GET', '/__dev/install/ios'], ['POST', '/__exact/trace'], ['GET', '/__exact/trace'], ['GET', '/.exact/install/index.html'], ['POST', '/'], ['PUT', '/x'], ['DELETE', '/'], ['GET', '/canvas/c/'], ['PUT', '/__dev/gpu'], ['GET', '/__TAMBER/token'], ['GET', '/__Tamber'], ['GET', '/.EXACT/install/index.html'], ['GET', '/.Exact/install.json'], ['GET', '/__DEV/open'], ['POST', '/__Dev/open'], ['GET', '/__dev/OPEN']]) expect(needs(m, p)).toBeNull();
 });
 
-test('mint, enter, cookie, 303, and the page proxied with nothing of the loop or the client crossing', async () => {
+test('mint, enter, cookie, 204, and the page proxied with nothing of the loop or the client crossing', async () => {
   const g = await gateway();
   try {
     const { cookie, entry, ok } = await enter(g, 'phone#1');
     expect(ok.url).toBe(`${ORIGIN}/canvas/phone%231/`);
     expect(ok.grant).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(entry.status).toBe(303);
-    expect(entry.headers.get('location')).toBe('/');
+    expect(entry.status).toBe(204);
+    expect(entry.headers.get('location')).toBeNull();
     expect(entry.headers.get('set-cookie')).toMatch(new RegExp(`^${CANVAS_COOKIE}=[A-Za-z0-9_-]{43}; Secure; HttpOnly; SameSite=Strict; Path=/$`));
     expect(entry.headers.get('set-cookie')).not.toMatch(/domain/i);
 
@@ -262,47 +268,89 @@ test('the query string is kept: /__dev/commands?nonce=&ack=&wait=', async () => 
   } finally { await g.stop(); }
 });
 
-test('a grant reused, older than 30 s, wrong, for another client, or in a query string is refused', async () => {
+test('a grant only in the entry POST\'s JSON body: reused, older than 30 s, wrong, another client\'s, in a query or a path, a form, or from another Origin (the tool\'s too) is refused', async () => {
   let clock = 1_000_000;
   const g = await gateway({ now: () => clock, limiter: () => ({ take: () => true, wait: () => 0 }) });
-  const post = (path, body, type = 'application/x-www-form-urlencoded') => g.at(path, { method: 'POST', headers: { 'content-type': type, origin: TOOL }, body });
+  const post = (path, grant, origin) => g.at(path, enterInit(grant, origin));
+  const refused = async r => { expect(r.status).toBe(404); expect(r.headers.get('set-cookie')).toBeNull(); };
   try {
     const token = g.pairing.add('a', 'read');
-    // Reused.
+    // Once, then replayed.
     let { ok } = g.gw.mint(token);
-    expect((await post('/canvas/a/', `grant=${ok.grant}`)).status).toBe(303);
-    expect((await post('/canvas/a/', `grant=${ok.grant}`)).status).toBe(404);
-    // JSON works once too.
-    ({ ok } = g.gw.mint(token));
-    expect((await post('/canvas/a/', JSON.stringify({ grant: ok.grant }), 'application/json')).status).toBe(303);
+    expect((await post('/canvas/a/', ok.grant)).status).toBe(204);
+    await refused(await post('/canvas/a/', ok.grant));
     // Older than 30 s.
     ({ ok } = g.gw.mint(token));
     clock += 30_001;
-    expect((await post('/canvas/a/', `grant=${ok.grant}`)).status).toBe(404);
+    await refused(await post('/canvas/a/', ok.grant));
     // Wrong.
-    expect((await post('/canvas/a/', `grant=${randomBytes(32).toString('base64url')}`)).status).toBe(404);
+    await refused(await post('/canvas/a/', randomBytes(32).toString('base64url')));
     // Another client's entry: refused, and burned.
     g.pairing.add('b', 'read');
     ({ ok } = g.gw.mint(token));
-    expect((await post('/canvas/b/', `grant=${ok.grant}`)).status).toBe(404);
-    expect((await post('/canvas/a/', `grant=${ok.grant}`)).status).toBe(404);
-    // In a query string (with or without a body), or by GET.
+    await refused(await post('/canvas/b/', ok.grant));
+    await refused(await post('/canvas/a/', ok.grant));
+    // In a query string (with or without a body), in a path, by GET, or as a form: never read, and not burned.
     ({ ok } = g.gw.mint(token));
-    const r = await post(`/canvas/a/?grant=${ok.grant}`, '');
-    expect(r.status).toBe(404);
+    await refused(await g.at(`/canvas/a/?grant=${ok.grant}`, { method: 'POST', headers: { origin: ORIGIN } }));
+    const noBody = { method: 'POST', headers: { 'content-type': 'application/json', origin: ORIGIN }, body: '{}' };
+    await refused(await g.at(`/canvas/a/?g=${ok.grant}`, enterInit(ok.grant)));
+    await refused(await g.at(`/canvas/a/${ok.grant}`, noBody));
+    await refused(await g.at(`/canvas/a/${ok.grant}/`, noBody));
+    await refused(await g.at(`/canvas/a/#g=${ok.grant}`.replace('#', '%23'), noBody));
+    await refused(await g.at(`/canvas/a/?g=${ok.grant}`));
+    await refused(await g.at('/canvas/a/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN }, body: `grant=${ok.grant}` }));
+    // Cross-origin: another, the tool's, none, `null`, malformed, a lookalike.
+    for (const origin of ['https://evil.test', TOOL, null, 'null', 'not a url', `${ORIGIN}/`, 'https://canvas.test:9443.evil.test']) await refused(await post('/canvas/a/', ok.grant, origin));
+    // None of those read it: it still enters once, from the canvas's own page.
+    expect((await post('/canvas/a/', ok.grant)).status).toBe(204);
+  } finally { await g.stop(); }
+});
+
+test('the entry page: static, no-store, no referrer, framed by the tool alone, its one script allowed by hash; the fragment leaves the address before any request', async () => {
+  const g = await gateway();
+  try {
+    const r = await g.at('/canvas/remote%3Aa%231/');
+    expect(r.status).toBe(200);
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(r.headers.get('referrer-policy')).toBe('no-referrer');
     expect(r.headers.get('set-cookie')).toBeNull();
-    expect((await post(`/canvas/a/?grant=${ok.grant}`, `grant=${ok.grant}`)).status).toBe(404);
-    expect((await g.at(`/canvas/a/?grant=${ok.grant}`)).status).toBe(404);
-    // An entry Origin that is neither the canvas's nor the tool's: another, none, `null`, malformed. Each burns nothing it didn't read.
-    for (const origin of ['https://evil.test', undefined, 'null', 'not a url', `${TOOL}/`, 'https://canvas.test:9442.evil.test']) {
-      ({ ok } = g.gw.mint(token));
-      const r = await g.at('/canvas/a/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(origin === undefined ? {} : { origin }) }, body: `grant=${ok.grant}` });
-      expect(r.status).toBe(404);
-      expect(r.headers.get('set-cookie')).toBeNull();
+    const csp = r.headers.get('content-security-policy');
+    expect(csp).toBe(`default-src 'none'; script-src '${ENTRY_SCRIPT_HASH}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${TOOL}`);
+    const html = await r.text();
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+    expect(scripts).toEqual([ENTRY_SCRIPT]);
+    expect(ENTRY_SCRIPT_HASH).toBe(`sha256-${createHash('sha256').update(scripts[0]).digest('base64')}`);
+    expect(html).not.toMatch(/https?:\/\/|src=|href=/);
+    // The same page for any client (it holds nothing); a query or more path is not it.
+    expect(await (await g.at('/canvas/x/')).text()).toBe(html);
+    expect((await g.at('/canvas/x/?a=1')).status).toBe(404);
+    expect((await g.at('/canvas/x/y')).status).toBe(404);
+
+    // Its script in a stand-in page: what it calls, in order.
+    const run = async (hash, answer) => {
+      const calls = [];
+      const location = { hash, pathname: '/canvas/remote%3Aa%231/', replace: to => calls.push(['replace', to]) };
+      const history = { replaceState: (s, t, to) => { calls.push(['replaceState', to]); location.hash = ''; } };
+      const fetch = async (to, init) => { calls.push(['fetch', to, init.method, init.body, init.referrerPolicy, init.credentials, location.hash]); if (answer === 'throw') throw new TypeError('failed'); return { ok: answer === 204, status: answer }; };
+      const m = { textContent: '' };
+      const document = { getElementById: id => (id === 'm' ? m : null) };
+      await new Function('location', 'history', 'fetch', 'document', `return ${ENTRY_SCRIPT.replace(/^\(async/, '(async').replace(/\)\(\)$/, ')()')}`)(location, history, fetch, document);
+      return { calls, said: m.textContent };
+    };
+    const grant = 'G'.repeat(43);
+    const good = await run(`#g=${grant}`, 204);
+    expect(good.calls).toEqual([['replaceState', '/canvas/remote%3Aa%231/'], ['fetch', '/canvas/remote%3Aa%231/', 'POST', JSON.stringify({ grant }), 'same-origin', 'same-origin', ''], ['replace', '/']]);
+    expect(good.said).toBe('');
+    for (const answer of [404, 'throw']) {
+      const bad = await run(`#g=${grant}`, answer);
+      expect(bad.calls.map(c => c[0])).toEqual(['replaceState', 'fetch']);
+      expect(bad.said).toBe('This canvas link has expired; ask for a new one.');
     }
-    // The canvas's own Origin is the other one admitted.
-    ({ ok } = g.gw.mint(token));
-    expect((await g.at('/canvas/a/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN }, body: `grant=${ok.grant}` })).status).toBe(303);
+    // No grant: the address cleaned, the message, and no request at all.
+    const none = await run('', 204);
+    expect(none.calls).toEqual([['replaceState', '/canvas/remote%3Aa%231/']]);
+    expect(none.said).toBe('This canvas link has expired; ask for a new one.');
   } finally { await g.stop(); }
 });
 
@@ -326,7 +374,7 @@ test('another client\'s session, an unknown one, a page-set cookie of that name,
     expect((await g.at('/', { headers: { cookie: b.cookie } })).status).toBe(200);
     // `a`'s token with `b`'s entry is no way in either (the grant is bound to the client that minted it).
     const { ok } = g.gw.mint(g.pairing.add('a2', 'read'));
-    expect((await g.at('/canvas/b/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${ok.grant}` })).status).toBe(404);
+    expect((await g.at('/canvas/b/', enterInit(ok.grant))).status).toBe(404);
   } finally { await g.stop(); }
 });
 
@@ -415,7 +463,7 @@ test('a token whose `expires` has passed is refused at once, before any onEnd', 
   try {
     const token = pairing.add('e', 'read', clock + 60_000);
     const { ok } = g.gw.mint(token);
-    const entry = await g.at('/canvas/e/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${ok.grant}` });
+    const entry = await g.at('/canvas/e/', enterInit(ok.grant));
     const cookie = entry.headers.get('set-cookie').split(';')[0];
     expect((await g.at('/', { headers: { cookie } })).status).toBe(200);
     clock += 60_000;
@@ -475,14 +523,15 @@ const fakeServe = () => {
  * the gateway it makes, each on its own loopback port: `post` a request as
  * a local or a remote (`peer`) client, `pair` a client at a scope. */
 async function wired(canvas = pairing => canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, toolOrigin: TOOL })) {
-  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, canvas });
+  // `'default'`: the server's own gateway, dormant until its port opens.
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, ...(canvas === 'default' ? {} : { canvas }) });
   const wire = createServer(), port = createServer();
   await listening(wire); await listening(port);
   const wireBase = `http://127.0.0.1:${wire.address().port}`;
   const gate = developmentGate([{ origin: wireBase }], wire.address().port);
   let remote = null, peers = 0;
   wire.on('request', async (req, res) => { if (!(await tamber.handle(req, res, new URL(req.url, 'http://x'), remote ?? gate.check(req)))) { res.writeHead(404); res.end(); } });
-  if (tamber.canvas) port.on('request', (req, res) => { tamber.canvas.handle(req, res, new URL(req.url, 'http://x')); });
+  if (tamber.canvas) port.on('request', (req, res) => { tamber.canvas.handle(req, res, new URL(req.url, 'http://x'), { allowed: true, local: false, remote: true, port: 'canvas' }); });
   const local = (await (await fetch(`${wireBase}/__tamber/token`)).json()).token;
   await tamber.ready;
   const post = async (request, token = local, path = '/__tamber', peer = null, door = true) => {
@@ -514,8 +563,8 @@ test('with stage 10 A: `canvas` through the real dispatcher (read), enter, proxy
     const minted = await w.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.9');
     expect(minted.status).toBe(200);
     expect(minted.ok.url).toBe(`${ORIGIN}/canvas/remote%3Aphone%231/`);
-    const entry = await w.at(new URL(minted.ok.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${minted.ok.grant}` });
-    expect(entry.status).toBe(303);
+    const entry = await w.at(new URL(minted.ok.url).pathname, enterInit(minted.ok.grant));
+    expect(entry.status).toBe(204);
     const cookie = entry.headers.get('set-cookie').split(';')[0];
     expect((await w.at('/', { headers: { cookie } })).status).toBe(200);
     const sse = await w.at('/__dev/page', { headers: { cookie } });
@@ -555,7 +604,7 @@ test('with stage 10 A: a propose client mints (canvas is read) but is refused th
     const p = await w.pair('propose', 'tablet');
     const minted = await w.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.10');
     expect(minted.status).toBe(200);
-    const entry = await w.at(new URL(minted.ok.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${minted.ok.grant}` });
+    const entry = await w.at(new URL(minted.ok.url).pathname, enterInit(minted.ok.grant));
     const cookie = entry.headers.get('set-cookie').split(';')[0];
     expect((await w.at('/', { headers: { cookie } })).status).toBe(200);
     for (const path of ['/__dev/design', '/__dev/checkpoint?id=1-2-3-4&seq=1', '/__dev/open']) {
@@ -566,7 +615,7 @@ test('with stage 10 A: a propose client mints (canvas is read) but is refused th
     // A write client passes the same route.
     const wr = await w.pair('write', 'desk');
     const m2 = (await w.post({ method: 'canvas' }, wr.token, '/__tamber', '198.51.100.11')).ok;
-    const c2 = (await w.at(new URL(m2.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${m2.grant}` })).headers.get('set-cookie').split(';')[0];
+    const c2 = (await w.at(new URL(m2.url).pathname, enterInit(m2.grant))).headers.get('set-cookie').split(';')[0];
     expect((await w.at('/__dev/design', { method: 'POST', headers: { cookie: c2, origin: ORIGIN }, body: '{}' })).status).toBe(200);
     // The local token passes the table (read) and is told the canvas is a paired client's.
     const local = await w.post({ method: 'canvas' });
@@ -684,8 +733,8 @@ test('rewriter: the loop\'s own origin in every form as the canvas\'s, any other
   expect(rewrite.json(`not json http://localhost:${port}/`)).toBe(`not json ${ORIGIN}/`);
   // SSE: a JSON data line as JSON, any other line as text.
   expect(rewrite.sse(`data: {"u":"http://localhos\\u0074:${port}/"}\nid: http://localhost:7000/\n\n`)).toBe(`data: {"u":"${ORIGIN}/"}\nid: http://${PLACEHOLDER}/\n\n`);
-  // A loopback toolOrigin is refused.
-  for (const toolOrigin of ['http://127.0.0.1:7740', 'http://localhost:7740', 'http://[::1]:7740']) expect(() => canvasGateway({ loop: loopBase, pairing: fakePairing(), origin: ORIGIN, toolOrigin, limiter, allows })).toThrow(TypeError);
+  // A plain toolOrigin (the local tool's, any other) is refused: the remote tool is B's https door.
+  for (const toolOrigin of ['http://127.0.0.1:7740', 'http://localhost:7740', 'http://[::1]:7740', 'http://canvas.test:9442']) expect(() => canvasGateway({ loop: loopBase, pairing: fakePairing(), origin: ORIGIN, toolOrigin, limiter, allows })).toThrow(TypeError);
 });
 
 test('loopback addresses are rewritten in headers, HTML, JS, CSS, JSON and SSE; no other host is touched', async () => {
@@ -777,7 +826,7 @@ test('a session evicted past the cap takes its streams with it; a client has at 
     let last;
     for (let i = 0; i < 16; i++) {
       const { ok } = g.gw.mint(token);
-      const entry = await g.at(new URL(ok.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${ok.grant}` });
+      const entry = await g.at(new URL(ok.url).pathname, enterInit(ok.grant));
       last = entry.headers.get('set-cookie').split(';')[0];
     }
     const ended = await Promise.race([reader.read().then(r => (r.done ? 'done' : 'more'), () => 'cut'), new Promise(ok => setTimeout(() => ok('open'), 2000))]);
@@ -833,4 +882,100 @@ test('the cut of an unparsed authority never lands in its userinfo (round 3 re-c
   // Re-check 3: the longest prefix that parses, so a host WHATWG reads whole stays.
   expect(r.text('(http://user;name@localhost;evil.test:9000)')).toBe('(http://user;name@localhost;evil.test:9000)');
   expect(r.text('a http://localhost:9000,http://127.0.0.1:7005 b')).toBe('a https://canvas.test:9443,http://loopback.invalid b');
+});
+
+/** A request over TLS to B's per-run certificate, pinned by its SHA-256
+ * fingerprint (no CA vouches for it): the answer, or a throw when the
+ * certificate is another. */
+const pinned = (url, fingerprint, { method = 'GET', headers = {}, body } = {}) => new Promise((ok, fail) => {
+  const u = new URL(url);
+  const r = httpsRequest({ host: u.hostname, port: u.port, path: u.pathname + u.search, method, headers, rejectUnauthorized: false }, res => {
+    if (res.socket.getPeerCertificate().fingerprint256 !== fingerprint) { res.destroy(); return fail(new Error('another certificate')); }
+    let text = '';
+    res.on('data', c => { text += c; });
+    res.on('end', () => ok({ status: res.statusCode, headers: res.headers, text }));
+  });
+  r.on('error', fail);
+  r.end(body);
+});
+
+test('the canvas port (C2): on B\'s doors with the same certificate, the entry posted from the canvas\'s own origin, the gateway served at the shown name; none without --remote', async () => {
+  const w = await wired('default');
+  const said = [];
+  let doors = null;
+  try {
+    // The server's own default gateway: dormant until its port is open.
+    const p = await w.pair('read', 'far');
+    const before = await w.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.20');
+    expect([before.status, before.error.message]).toEqual([404, 'this server has no canvas port (--remote)']);
+    doors = await openRemoteCanvas(w.tamber, { remote: { host: '127.0.0.1', port: 0 }, tunnel: null }, loopBase, { say: line => said.push(line), warn: () => {} });
+    const { origin: tool, fingerprint } = doors.info();
+    const canvas = w.tamber.canvas.origin;
+    expect(canvas).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/);
+    expect(canvas).not.toBe(tool);
+    expect(said.at(-1)).toContain(canvas);
+    // Minted over B's TLS wire door, the token in its header.
+    const minted = JSON.parse((await pinned(`${tool}/__tamber`, fingerprint, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': p.token }, body: '{"method":"canvas"}' })).text).ok;
+    expect(minted.url).toBe(`${canvas}/canvas/remote%3Afar%231/`);
+    // The tool's page posts the grant: its Origin admitted by the port, the cookie set.
+    // The tool's page can't post it (its Origin is refused at the port); the entry page on the canvas's own origin does.
+    expect((await pinned(minted.url, fingerprint, { method: 'POST', headers: { origin: tool, 'content-type': 'application/json' }, body: JSON.stringify({ grant: minted.grant }) })).status).toBe(403);
+    const entryPage = await pinned(minted.url, fingerprint);
+    expect(entryPage.headers['content-security-policy']).toContain(`frame-ancestors ${tool}`);
+    const entry = await pinned(minted.url, fingerprint, { method: 'POST', headers: { origin: canvas, 'content-type': 'application/json' }, body: JSON.stringify({ grant: minted.grant }) });
+    expect(entry.status).toBe(204);
+    const cookie = entry.headers['set-cookie'][0].split(';')[0];
+    const page = await pinned(`${canvas}/`, fingerprint, { headers: { cookie } });
+    expect(page.status).toBe(200);
+    expect(page.text).toContain(`href="${canvas}/x"`);
+    // Framed by the remote tool even when B is on loopback: its origin survives the rewriting of loopback addresses.
+    expect(page.headers['content-security-policy']).toContain(`frame-ancestors 'self' ${tool}`);
+    expect(page.headers['content-security-policy']).not.toContain('7740');
+    // Another origin, the tool's too, is refused by the port itself.
+    expect((await pinned(`${canvas}/__dev/report`, fingerprint, { method: 'POST', headers: { cookie, origin: 'https://evil.test' }, body: '{}' })).status).toBe(403);
+    expect((await pinned(`${canvas}/__dev/report`, fingerprint, { method: 'POST', headers: { cookie, origin: tool }, body: '{}' })).status).toBe(403);
+    expect((await pinned(`${canvas}/__dev/report`, fingerprint, { method: 'POST', headers: { cookie, origin: canvas }, body: '{}' })).status).toBe(200);
+    // A's revoke: the canvas port refuses the next request, as the wire door does the token.
+    await w.post({ method: 'revoke', client: p.client });
+    expect((await pinned(`${canvas}/`, fingerprint, { headers: { cookie } })).status).toBe(404);
+    expect((await pinned(`${tool}/__tamber`, fingerprint, { method: 'POST', headers: { 'x-exact-tamber-token': p.token }, body: '{"method":"hello"}' })).status).toBe(401);
+  } finally { await doors?.close(); await w.stop(); }
+  // No --remote: no doors, no port; a tunnel alone: no TLS, no canvas port.
+  const v = await wired('default');
+  try {
+    expect(await openRemoteCanvas(v.tamber, { remote: null, tunnel: null }, loopBase)).toBeNull();
+    const tunnel = await openRemoteCanvas(v.tamber, { remote: null, tunnel: 0 }, loopBase, { say: () => {}, warn: () => {} });
+    expect(tunnel.info()).toBeNull();
+    expect(v.tamber.canvas.origin).toBeNull();
+    await tunnel.close();
+  } finally { await v.stop(); }
+});
+
+test('plain HTTP from a LAN peer (a --lan bind): no session, grant or entry page is honoured by the gateway, and `canvas` is not minted for it', async () => {
+  const g = await gateway();
+  try {
+    const { cookie } = await enter(g, 'lan', 'read');
+    expect((await g.at('/', { headers: { cookie } })).status).toBe(200);
+    const token = g.pairing.add('lan2', 'read');
+    const { ok } = g.gw.mint(token);
+    for (const door of [{ allowed: true, local: false }, { allowed: true, local: false, peer: '192.168.1.30' }, undefined]) {
+      g.through(door);
+      for (const r of [await g.at('/', { headers: { cookie } }), await g.at('/canvas/lan2/'), await g.at('/canvas/lan2/', enterInit(ok.grant))]) {
+        expect(r.status).toBe(404);
+        expect(r.headers.get('set-cookie')).toBeNull();
+      }
+    }
+    // None of those read the grant: through the TLS door it still enters, once.
+    g.through({ allowed: true, local: false, remote: true, port: 'canvas' });
+    expect((await g.at('/canvas/lan2/', enterInit(ok.grant))).status).toBe(204);
+  } finally { await g.stop(); }
+  const w = await wired();
+  try {
+    const p = await w.pair('read', 'lan');
+    const plain = await w.post({ method: 'canvas' }, p.token, '/__tamber', '192.168.1.30', false);
+    expect(plain.status).toBe(404);
+    expect(plain.ok).toBeUndefined();
+    // Through B's door it is.
+    expect((await w.post({ method: 'canvas' }, p.token, '/__tamber', '192.168.1.30')).status).toBe(200);
+  } finally { await w.stop(); }
 });

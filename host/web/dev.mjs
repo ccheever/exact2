@@ -22,7 +22,7 @@ import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { startupBuilds } from './dev-startup.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
-import { openRemote, pluginOnLoopback, remoteArgs } from '../../scripts/tamber-remote.mjs';
+import { pluginOnLoopback, remoteArgs } from '../../scripts/tamber-remote.mjs'; import { openRemoteCanvas } from '../../scripts/tamber-canvas.mjs';
 import { designDigest, patchDesign } from '../../scripts/tamber-patch.mjs';
 import { relayChannel, serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
 import { captureAssets, assetCards, alsoOnIPv6Loopback, freeOnIPv6Loopback, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, devGenerationDigest, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -1495,5 +1495,5 @@ const banner = () => {
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 };
 if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); ok(); }));
-startup.handoff(stop); doors = servedAs == null && tamber ? await openRemote(tamber, remoteAsked).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
+startup.handoff(stop); doors = servedAs == null && tamber ? await openRemoteCanvas(tamber, remoteAsked, `http://127.0.0.1:${port}`).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
 watchLauncher(stop);
