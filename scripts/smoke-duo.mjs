@@ -8,7 +8,7 @@
 // `devicePosture` folded only when partially folded; no control on the band between
 // the segments; keyboard, sheet, push and scroll state across a fold into,
 // within (130° to 90°) and out of the partially folded state; no
-// sideways range in Reflow's scroller; the two-session host's panes. A failed
+// sideways range in Reflow's scroller or the Images list; the two-session host's panes. A failed
 // check leaves one screenshot of the app in the run's directory.
 //
 // Run by hand, like `smoke deploy`: it needs Xcode 27.1 or newer and a Duo
@@ -637,18 +637,18 @@ async function suite({ open: openSession, check: record }, reset) {
       });
     } catch (e) { check(false, `duo-lab: ${e.message}`); } finally { await s.close(); }
     // Only under `--chrome platform` does UIKit's navigation bar take Reflow's scroller. It insets the scroller's top and
-    // bottom and must give it no sideways range, though the panels' status column is a side inset. The rest of the lab
-    // keeps the agent's chrome, whose authored header puts the Images list's top edge, its anchor, where the content
-    // shows. Images is not checked here: its list writes `overflow-x: hidden`, so the agent's wheel, like the web's,
-    // takes no sideways step there and cannot show a range.
+    // bottom and must give it no sideways range, though the panels' status column is a side inset; nor may it give one
+    // to the Images list, which writes `overflow-x: hidden`, so that no wheel could show the range. `layout` reports
+    // each scroller's range (`rx`) whatever input may move it.
     const p = await open({ host: 'ios', app: 'duo-lab', chrome: 'platform' });
     try {
-      await p.tap('tab-reflow'); await settle(p);
-      await eachPose(p, 'sideways', async (_f, tag) => {
-        await p.tap('reflow-scroll', { wheel: [400, 0] }); await settle(p);
-        const port = box(await p.layout(), 'reflow-scroll');
-        check(port?.sx === 0, `${tag}: Reflow's scroller has no sideways range under UIKit's bar; a sideways wheel moved it to ${port?.sx}`);
-      });
+      for (const [tab, scroller, name] of [['tab-reflow', 'reflow-scroll', "Reflow's scroller"], ['tab-images', 'image-list', 'the Images list']]) {
+        await p.tap(tab); await settle(p);
+        await eachPose(p, `sideways-${scroller}`, async (_f, tag) => {
+          const port = box(await p.layout(), scroller);
+          check(port?.rx === 0, `${tag}: ${name} has no sideways range under UIKit's bar; layout gives it ${port?.rx}`);
+        });
+      }
     } catch (e) { check(false, `duo-lab under --chrome platform: ${e.message}`); } finally { await p.close(); }
   }
 
