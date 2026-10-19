@@ -386,7 +386,13 @@ pub fn dtcg(f: &Folding, vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
                 1,
             ));
         }
-        map.insert(c.name.clone(), json!([Value::Object(tree)]));
+        // Inside an import's budget (a re-import exports the design to
+        // compare), each context's tree is charged as it is built: a design
+        // too large for one import is refused here, before its export is
+        // whole (LLP 1121 §10).
+        let tree = Value::Object(tree);
+        crate::budget::copy(&tree).map_err(|m| vec![Diagnostic::new("tamber-export", m, 1, 1)])?;
+        map.insert(c.name.clone(), json!([tree]));
     }
     if !errors.is_empty() {
         return Err(errors);
@@ -725,7 +731,7 @@ pub fn reimport_against(
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
-    let _work = crate::budget::Work::begin();
+    let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
     let doc: Value =
         serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
     let cur = crate::check(current, vocab)?;

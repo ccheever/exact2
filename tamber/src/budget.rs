@@ -9,13 +9,22 @@
 use serde_json::Value;
 use std::cell::Cell;
 
-/// The work one import may do: a byte copied or a step taken is one. Far
-/// past a real design's (a 1 MiB file read a few times over), short of
-/// what exhausts the server.
-pub const LIMIT: u64 = 1 << 26;
+/// The work a fresh import may do: a byte copied or a step taken is one.
+/// Calibrated to the isolate an import runs in (`scripts/tamber-isolate.mjs`:
+/// 1 GiB): a DTCG import holds about 12 bytes for each unit (measured on
+/// designs over 64 contexts, 2026-10-19), so this refuses one with the
+/// budget's message by about 600 MB, under three quarters of the isolate's
+/// limit, rather than the isolate killing it (LLP 1121 §10).
+pub const IMPORT: u64 = 3 << 24;
+
+/// The work a re-import may do. It exports the design to compare (each
+/// context's tree charged as it is built) and holds both, about 30 bytes
+/// for each unit, so this refuses one by about 750 MB.
+pub const REIMPORT: u64 = 3 << 23;
 
 thread_local! {
-    static LEFT: Cell<u64> = const { Cell::new(LIMIT) };
+    static LEFT: Cell<u64> = const { Cell::new(0) };
+    static LIMIT: Cell<u64> = const { Cell::new(0) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -24,10 +33,13 @@ thread_local! {
 pub struct Work(());
 
 impl Work {
-    pub fn begin() -> Work {
+    /// Begin an import of at most `limit` ([`IMPORT`] or [`REIMPORT`]); an
+    /// import inside another spends the outer one's.
+    pub fn begin(limit: u64) -> Work {
         DEPTH.with(|d| {
             if d.get() == 0 {
-                LEFT.with(|l| l.set(LIMIT));
+                LEFT.with(|l| l.set(limit));
+                LIMIT.with(|l| l.set(limit));
             }
             d.set(d.get() + 1);
         });
@@ -55,7 +67,8 @@ pub fn spend(n: u64) -> Result<(), String> {
         None => {
             l.set(0);
             Err(format!(
-                "the source expands past what one import may do ({LIMIT} steps): its references, groups or aliases multiply"
+                "the source expands past what one import may do ({} steps): its references, groups or aliases multiply, or the design is larger than one import may take",
+                LIMIT.with(Cell::get)
             ))
         }
     })

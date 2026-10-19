@@ -29,8 +29,9 @@
 //!   `.card { @variant dark { … } }`) is reported: it is no theme's.
 
 use super::engine::{self, Decl, Fate};
-use super::{counted, css_blocks, reconcile, tamber_name, Import, Unmapped};
+use super::{counted, css_read, reconcile, tamber_name, Import, Unmapped};
 use crate::{Design, Diagnostic};
+use std::collections::{HashMap, HashSet};
 
 /// What Tamber makes of a variable by its namespace.
 enum Kind {
@@ -280,7 +281,14 @@ pub fn import_with(
     // Where Tailwind writes the theme: at its first `@theme`.
     let mut first_theme = None;
     let custom_dark = custom_variant(css);
-    for (seq, block) in css_blocks(css).into_iter().enumerate() {
+    let (blocks, deep) = css_read(css);
+    // A rule the reader did not read: one value, reported with its line.
+    for d in &deep {
+        source += 1;
+        let why = format!("not read: {} (line {})", d.why, d.line);
+        report(&mut unmapped, "(not read)", &d.prelude, "", why, None);
+    }
+    for (seq, block) in blocks.into_iter().enumerate() {
         let label = block.context.join(" ");
         let at_theme = block.context.iter().position(|p| p.starts_with("@theme"));
         if let Some(i) = at_theme {
@@ -623,6 +631,7 @@ pub fn import_with(
                 "declared again later for the same block, which wins".to_string(),
                 None,
             ),
+            Fate::Deep => ("an alias chain longer than 256".to_string(), None),
             Fate::NotColour if value.trim().is_empty() => ("an empty value".to_string(), None),
             Fate::NotColour if value.trim().eq_ignore_ascii_case("initial") => (
                 "`initial` makes the variable invalid on its side".to_string(),
@@ -693,18 +702,29 @@ pub fn import_with(
 }
 
 /// `value` with each `var()` replaced by what the key it names holds,
-/// through a chain of them (16 deep at most).
+/// through a chain of them (16 deep at most). Each key is written out once
+/// at each depth (`memo`); one value no longer than [`LONGEST`], and all of
+/// them together no further than [`WRITTEN`]: `var(--a) var(--a)` at each
+/// of 16 levels is 2¹⁶ copies.
 fn written_out(
     value: &str,
     value_of: &dyn Fn(&str) -> Result<String, String>,
     depth: u8,
+    memo: &Memo,
 ) -> Result<String, String> {
     if depth > 16 {
         return Err("a chain of `var()` past 16".into());
     }
     let failed = std::cell::RefCell::new(None);
     let out = super::kinds::bare(value, |var| {
-        match value_of(var).and_then(|v| written_out(&v, value_of, depth + 1)) {
+        let key = (var.to_string(), depth);
+        let known = memo.keys.borrow().get(&key).cloned();
+        let found = known.unwrap_or_else(|| {
+            let found = value_of(var).and_then(|v| written_out(&v, value_of, depth + 1, memo));
+            memo.keys.borrow_mut().insert(key, found.clone());
+            found
+        });
+        match found.and_then(|v| memo.spend(v.len()).map(|()| v)) {
             Ok(v) => Some(v),
             Err(why) => {
                 failed.borrow_mut().get_or_insert(why);
@@ -714,7 +734,37 @@ fn written_out(
     });
     match failed.into_inner() {
         Some(why) => Err(why),
-        None => out,
+        None => out.and_then(|out| match out.len() > LONGEST {
+            true => Err(format!("its `var()`s write out past {} KiB", LONGEST >> 10)),
+            false => Ok(out),
+        }),
+    }
+}
+
+/// How long one value written out may be.
+const LONGEST: usize = 64 << 10;
+
+/// How many bytes one import's `var()`s may write out, all told.
+const WRITTEN: usize = 1 << 24;
+
+/// The keys written out so far, by key and depth, and the bytes written.
+#[derive(Default)]
+struct Memo {
+    keys: std::cell::RefCell<HashMap<(String, u8), Result<String, String>>>,
+    written: std::cell::Cell<usize>,
+}
+
+impl Memo {
+    fn spend(&self, n: usize) -> Result<(), String> {
+        let total = self.written.get().saturating_add(n);
+        self.written.set(total);
+        match total > WRITTEN {
+            true => Err(format!(
+                "its `var()`s, all told, write out past {} MiB",
+                WRITTEN >> 20
+            )),
+            false => Ok(()),
+        }
     }
 }
 
@@ -760,23 +810,45 @@ fn other_kinds(
     // Each token's key, in the theme's order: a second key to one token is
     // reported.
     let mut owners: Vec<(&str, String)> = Vec::new();
+    let colour_names: HashSet<String> = tokens[..start].iter().map(|t| t.name.clone()).collect();
+    let mut owner_of: HashMap<&str, usize> = HashMap::new();
     for o in others {
         let (base, _) = split(&o.name);
-        if tokens[..start].iter().any(|t| t.name == o.token) {
+        if colour_names.contains(&o.token) {
             report(unmapped, o, format!("its name is a colour's ({})", o.token));
             continue;
         }
-        match owners.iter().find(|(t, _)| *t == o.token) {
+        match owner_of.get(o.token.as_str()).map(|&k| &owners[k]) {
             Some((_, b)) if *b != base => {
                 report(unmapped, o, format!("its token is `{b}`'s ({})", o.token));
             }
             Some(_) => {}
-            None => owners.push((&o.token, base)),
+            None => {
+                owner_of.insert(&o.token, owners.len());
+                owners.push((&o.token, base));
+            }
         }
     }
     // A reference names the token of the key that owns it; a key another
     // owns, or one redefined outside `@theme`, makes none.
-    let redefined_at = |var: &str| redefined.iter().find(|(n, _)| n == var).map(|(_, b)| b);
+    let mut redefinitions: HashMap<&str, &String> = HashMap::new();
+    for (n, b) in redefined {
+        redefinitions.entry(n.as_str()).or_insert(b);
+    }
+    let redefined_at = |var: &str| redefinitions.get(var).copied();
+    let mut by_name: HashMap<&str, &Other> = HashMap::new();
+    for o in others {
+        by_name.entry(o.name.as_str()).or_insert(o);
+    }
+    // Each token's keys (by its token and its base), in the theme's order.
+    let mut keys_of: HashMap<(&str, String), Vec<&Other>> = HashMap::new();
+    for o in others {
+        keys_of
+            .entry((o.token.as_str(), split(&o.name).0))
+            .or_default()
+            .push(o);
+    }
+    let memo = Memo::default();
     let base_of: std::collections::BTreeMap<String, &str> = owners
         .iter()
         .filter(|(_, base)| redefined_at(base).is_none())
@@ -785,25 +857,22 @@ fn other_kinds(
     // What a key holds: one that owns its token, or a sub-property of one.
     let value_of = |var: &str| match redefined_at(var) {
         Some(block) => Err(format!("`{var}` is redefined in `{block}`")),
-        None => others
-            .iter()
-            .find(|o| o.name == var && base_of.contains_key(&split(var).0))
+        None => by_name
+            .get(var)
+            .filter(|_| base_of.contains_key(&split(var).0))
             .map(|o| o.value.trim().to_string())
             .ok_or(format!("`{var}` makes no token of another kind")),
     };
-    let made_colours: Vec<String> = tokens.iter().map(|t| t.name.clone()).collect();
+    let made_colours: HashSet<String> = tokens.iter().map(|t| t.name.clone()).collect();
     let token_of = |var: &str| {
         colours
             .get(var)
-            .filter(|n| made_colours.contains(n))
+            .filter(|n| made_colours.contains(*n))
             .cloned()
             .or_else(|| base_of.get(var).map(|t| t.to_string()))
     };
     for (token, base) in owners {
-        let keys: Vec<&Other> = others
-            .iter()
-            .filter(|o| o.token == token && split(&o.name).0 == base)
-            .collect();
+        let keys: Vec<&Other> = keys_of.remove(&(token, base.clone())).unwrap_or_default();
         let Some(head) = keys.iter().find(|o| o.name == base) else {
             for o in &keys {
                 report(
@@ -845,7 +914,7 @@ fn other_kinds(
         // another type key's is its size alone, not the token its
         // sub-properties make, and a length key's its length.
         let mut value = match head.kind {
-            "type" => written_out(&head.value, &value_of, 0),
+            "type" => written_out(&head.value, &value_of, 0, &memo),
             _ => kinds::bare(&head.value, token_of),
         };
         if head.kind == "type" {
@@ -856,7 +925,7 @@ fn other_kinds(
                     // as what the keys hold: a type value's weight is a
                     // number, and its leading one word.
                     Some("line-height") => {
-                        leading = Some(written_out(&o.value, &value_of, 0).and_then(|l| {
+                        leading = Some(written_out(&o.value, &value_of, 0, &memo).and_then(|l| {
                             match l.contains(char::is_whitespace) || l.contains('(') {
                                 true => kinds::folded("number", &l),
                                 false => Ok(l),
@@ -865,7 +934,7 @@ fn other_kinds(
                         carried.push(o);
                     }
                     Some("font-weight") => {
-                        weight = Some(written_out(&o.value, &value_of, 0));
+                        weight = Some(written_out(&o.value, &value_of, 0, &memo));
                         carried.push(o);
                     }
                     _ => report(
@@ -947,6 +1016,7 @@ fn other_kinds(
             }
         }
     }
+    let gone: HashSet<usize> = gone.into_iter().collect();
     let mut i = 0;
     tokens.retain(|_| {
         i += 1;

@@ -321,14 +321,107 @@ pub struct Block {
 /// comments, strings (with escapes) and parentheses hide braces and
 /// semicolons; a block's own declarations count beside its nested rules.
 pub fn css_blocks(css: &str) -> Vec<Block> {
-    let text = strip_comments(css);
-    let mut out = Vec::new();
-    body(&text, &[], &mut out);
-    out
+    css_read(css).0
+}
+
+/// A rule whose body is not read, nested past [`NESTING`] or past what its
+/// enclosing rules may copy ([`COPIED`]): its prelude (its first 80
+/// characters; those around it are not kept, as each such rule would copy
+/// them), its line in the source, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deep {
+    /// Its prelude, cut at 80 characters.
+    pub prelude: String,
+    /// Its line, from 1.
+    pub line: usize,
+    /// Why it is not read.
+    pub why: &'static str,
+}
+
+/// [`css_blocks`], and the rules nested too deep to read, for an importer
+/// to report.
+pub fn css_read(css: &str) -> (Vec<Block>, Vec<Deep>) {
+    let (text, comments) = stripped(css);
+    let mut read = Reading::default();
+    body(&text, 0, &[], &mut read);
+    let Reading { out, mut deep, .. } = read;
+    deep.sort_by_key(|d| d.1);
+    // Each one's line: the source's, counting a comment's newlines.
+    let mut at = (0, 1, comments.iter().peekable());
+    let deep = deep
+        .into_iter()
+        .map(|(prelude, offset, why)| {
+            let (from, line, rest) = &mut at;
+            *line += text.as_bytes()[*from..offset]
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count();
+            while let Some(&&(o, lines)) = rest.peek() {
+                if o >= offset {
+                    break;
+                }
+                *line += lines;
+                rest.next();
+            }
+            *from = offset;
+            Deep {
+                prelude,
+                line: *line,
+                why,
+            }
+        })
+        .collect();
+    (out, deep)
+}
+
+/// How deep rules nest before a deeper one's body is not read but reported:
+/// past any stylesheet's, short of the stack (each level reads its body
+/// again).
+const NESTING: usize = 64;
+
+/// How many bytes of enclosing preludes the blocks may copy, all told: each
+/// block keeps its context, so 64 long preludes around many small rules
+/// would multiply.
+const COPIED: usize = 1 << 23;
+
+/// What [`body`] has read so far: the blocks, the rules not read (each its
+/// prelude, offset and why), and the bytes of context the blocks copied.
+#[derive(Default)]
+struct Reading {
+    out: Vec<Block>,
+    deep: Vec<(String, usize, &'static str)>,
+    copied: usize,
+}
+
+impl Reading {
+    /// A block with `context`, or, past [`COPIED`], a rule not read.
+    fn push(&mut self, context: &[String], decls: Vec<(String, String)>, at: usize) {
+        let cost: usize = context.iter().map(String::len).sum();
+        if self.copied + cost > COPIED {
+            let prelude = context
+                .last()
+                .map_or(String::new(), |p| p.chars().take(80).collect());
+            self.deep
+                .push((prelude, at, "its enclosing rules copy past 8 MiB"));
+            return;
+        }
+        self.copied += cost;
+        self.out.push(Block {
+            context: context.to_vec(),
+            decls,
+        });
+    }
 }
 
 /// `css` without `/* … */`, a comment's opener inside a string kept.
 pub(crate) fn strip_comments(css: &str) -> String {
+    stripped(css).0
+}
+
+/// [`strip_comments`], and each comment's place in what is left (the
+/// space it leaves) with the newlines it held.
+fn stripped(css: &str) -> (String, Vec<(usize, usize)>) {
+    let mut comments = Vec::new();
     let mut out = String::new();
     let mut chars = css.chars().peekable();
     let mut quote = None;
@@ -346,13 +439,15 @@ pub(crate) fn strip_comments(css: &str) -> String {
             }
             None if c == '/' && chars.peek() == Some(&'*') => {
                 chars.next();
-                let mut last = ' ';
+                let (mut last, mut lines) = (' ', 0);
                 for n in chars.by_ref() {
                     if last == '*' && n == '/' {
                         break;
                     }
+                    lines += usize::from(n == '\n');
                     last = n;
                 }
+                comments.push((out.len(), lines));
                 out.push(' ');
             }
             None => {
@@ -363,7 +458,7 @@ pub(crate) fn strip_comments(css: &str) -> String {
             }
         }
     }
-    out
+    (out, comments)
 }
 
 /// The byte index of each top-level `{`, `}` and `;` in `text`: outside
@@ -398,7 +493,7 @@ fn marks(text: &str) -> Vec<(usize, char)> {
     out
 }
 
-fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
+fn body(text: &str, at: usize, context: &[String], read: &mut Reading) {
     let marks = marks(text);
     let mut decls = Vec::new();
     let (mut start, mut k) = (0, 0);
@@ -412,12 +507,9 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
     };
     // Declarations so far, as one block, before a nested rule's: the order
     // the source has them.
-    let flush = |decls: &mut Vec<(String, String)>, out: &mut Vec<Block>| {
+    let flush = |decls: &mut Vec<(String, String)>, read: &mut Reading| {
         if !decls.is_empty() && !context.is_empty() {
-            out.push(Block {
-                context: context.to_vec(),
-                decls: std::mem::take(decls),
-            });
+            read.push(context, std::mem::take(decls), at);
         }
     };
     // The mark index of the `}` matching the `{` at mark `k`, if any.
@@ -460,18 +552,22 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
                     Some(j) => (j, marks[j].0),
                     None => (marks.len(), text.len()),
                 };
-                flush(&mut decls, out);
+                flush(&mut decls, read);
+                if context.len() >= NESTING {
+                    let prelude = prelude.chars().take(80).collect();
+                    read.deep.push((prelude, at + i, "nested past 64 rules"));
+                    start = (close + 1).min(text.len());
+                    k = j + 1;
+                    continue;
+                }
                 let mut inner = context.to_vec();
                 inner.push(prelude.to_string());
-                let before = out.len();
-                body(&text[i + 1..close], &inner, out);
+                let before = read.out.len();
+                body(&text[i + 1..close], at + i + 1, &inner, read);
                 // An `@theme` with no custom properties still marks where
                 // Tailwind writes the theme.
-                if prelude.starts_with("@theme") && out.len() == before {
-                    out.push(Block {
-                        context: inner,
-                        decls: Vec::new(),
-                    });
+                if prelude.starts_with("@theme") && read.out.len() == before {
+                    read.push(&inner, Vec::new(), at + i);
                 }
                 start = (close + 1).min(text.len());
                 k = j + 1;
@@ -487,7 +583,7 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
     if start < text.len() {
         declaration(&text[start..], &mut decls);
     }
-    flush(&mut decls, out);
+    flush(&mut decls, read);
 }
 
 /// The design's own role overrides a changed value could split: one whose
