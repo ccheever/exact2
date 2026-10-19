@@ -119,19 +119,45 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), codes = new Map<string, { scope: string; name: string }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
-/** Who a request is: the local client, a paired one, or no one (null). */
-const who = (req: Request) => tokenIn(req) === TOKEN ? { local: true, scope: 'write', client: null as string | null } : ((p) => p && { local: false, scope: p.scope, client: p.client })(paired.find(p => p.token === tokenIn(req)));
+// A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
+const normal = (c: unknown) => String(c ?? '').toUpperCase().replace(/[\s-]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
+/** Who a request is: the local client, a paired one (its token past its expiry ends it, as revoked), or no one (null). */
+function who(req: Request) {
+  if (tokenIn(req) === TOKEN) return { local: true, scope: 'write', client: null as string | null };
+  const p = paired.find(c => c.token === tokenIn(req));
+  if (p && Date.parse(p.expires) <= Date.now()) { revoke(p.client, 'expired'); return null; }
+  if (p) p.lastSeen = new Date().toISOString();
+  return p ? { local: false, scope: p.scope, client: p.client } : null;
+}
 /** A request no live token sent: told it was revoked if its token was, else not found. */
 const nobody = (req: Request) => gone.has(tokenIn(req)) ? send({ error: { message: GONE } }, 401) : send({ message: 'Not found.' }, 404);
-function revoke(client: string) {
+/** A code, as `pair-code` mints one (the next of the series). */
+function mint(request: { scope?: unknown; name?: unknown }) {
+  if (!['read', 'propose', 'write'].includes(String(request.scope))) return send({ error: { message: 'pair-code names its `scope`: read, propose or write' } }, 400);
+  const n = ++minted, code = `7Q2KD-M4X${String(n % 100).padStart(2, '0')}`, expires = Date.now() + 120_000;
+  codes.set(normal(code), { scope: String(request.scope), name: typeof request.name === 'string' ? request.name : '', expires });
+  return send({ ok: { code, scope: request.scope, expires: new Date(expires).toISOString(), ...(remote.length ? { remote } : {}) } });
+}
+/** A paired client ended (revoked, or its token expired), as the server ends one: its token refused
+ * from then on (401), its presence, inspect mode, pins and holds handed back, its held proposals kept
+ * marked `revoked`, and a `revoked` event. */
+function revoke(client: string, reason = 'revoked') {
   const p = paired.find(c => c.client === client);
   if (!p) return false;
   paired = paired.filter(c => c !== p);
   gone.add(p.token);
-  take({ event: 'revoked', client, reason: 'revoked' });
+  present.delete(client);
+  held = held.map(h => h.client === client ? { ...h, revoked: true } : h);
+  const inspected = BUILDS.filter(b => b.inspector === client).map(b => b.id);
+  if (BUILDS.some(b => b.inspector === client || b.pinBy === client || b.holdBy === client)) {
+    BUILDS = BUILDS.map(b => ({ ...b, ...(b.inspector === client ? { inspector: null } : {}), ...(b.pinBy === client ? { pin: null, pinBy: null } : {}), ...(b.holdBy === client ? { hold: null, holdBy: null } : {}) }));
+    if (inspected.length) log.push({ event: 'inspect', epoch: EPOCH, client, on: false, builds: inspected, to: null, seq: seq() + 1 });
+    log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+  }
+  take({ event: 'revoked', client, reason });
   save();
   return true;
 }
@@ -146,18 +172,17 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const asker = who(req);
       if (!asker) return nobody(req);
       const request = await req.json().catch(() => ({}));
+      // Revoked or expired while its body came: refused before anything it asks runs.
+      if (asker.client && !who(req)) return nobody(req);
       // A paired client is the client its token names; its scope is checked first.
-      if (asker.client) { request.client = asker.client; paired.find(p => p.client === asker.client)!.lastSeen = new Date().toISOString(); }
+      if (asker.client) request.client = asker.client;
       const need = needs(request, (id: string) => (held.find(h => h.proposal === id)?.client as string | undefined) ?? null);
       if (need === null) return send({ error: { message: `\`${request.method}\` has no scope on this wire` } }, 400);
       if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
       if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local ? PAGE : null, live: LIVE, scope: asker.scope, local: asker.local, ...(asker.client ? { client: asker.client } : {}) } });
-      if (request.method === 'pair-code') {
-        if (!['read', 'propose', 'write'].includes(request.scope)) return send({ error: { message: 'pair-code names its `scope`: read, propose or write' } }, 400);
-        const n = ++minted, code = `7Q2KD-M4X${String(n % 100).padStart(2, '0')}`;
-        codes.set(code, { scope: request.scope, name: typeof request.name === 'string' ? request.name : '' });
-        return send({ ok: { code, scope: request.scope, expires: new Date(Date.now() + 120_000).toISOString(), ...(remote.length ? { remote } : {}) } });
-      }
+      // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
+      if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
+      if (request.method === 'pair-code') return mint(request);
       if (request.method === 'clients') return send({ ok: { clients: [{ client: 'local', local: true, scope: 'write' }, ...paired.map(({ token: _, ...c }) => c)] } });
       if (request.method === 'revoke') return revoke(request.client) ? send({ ok: { revoked: request.client } }) : send({ error: { message: `no paired client \`${request.client}\`` } }, 404);
       // Scrubs, as the server takes them: a dev loop and a present client.
@@ -177,12 +202,15 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'hold') {
         const b = BUILDS.find(x => x.id === request.build);
         if (!b || !(b.capabilities ?? []).includes('hold')) return send({ error: { message: `hold: no build \`${request.build}\` that holds states` } }, 409);
-        BUILDS = BUILDS.map(x => x.id === request.build ? { ...x, hold: request.state ? { site: request.site, instance: request.instance ?? [], state: request.state } : null, held: null } : x);
+        BUILDS = BUILDS.map(x => x.id === request.build ? { ...x, hold: request.state ? { site: request.site, instance: request.instance ?? [], state: request.state } : null, held: null, holdBy: request.client } : x);
         log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
         save();
         return send({ ok: { build: request.build } });
       }
       if (request.method === 'inspect') {
+        // Below write a refresh reads the selection each build last reported, asking no build again
+        // and moving no inspect mode (ruling 5), as the server answers it.
+        if (request.refresh === true && asker.scope !== 'write') return send({ ok: { selections: BUILDS.map(b => log.findLast(e => e.event === 'selection' && e.build === b.id)).filter(Boolean) } });
         if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
         // A refresh asks a build's page to report again, inspect mode as it is:
         // its last selection again, with the held look a test set (`/__stub/held-answer`).
@@ -215,7 +243,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         pins += 1;
         // Each record replaced, never edited: an event logged before keeps
         // what it said.
-        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins } : b);
+        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins, pinBy: request.client } : b);
         log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
         save();
         return send({ ok: { builds: ids, revision: pins } });
@@ -291,9 +319,11 @@ Bun.serve({ hostname, port: Number(port), routes: {
     OPTIONS: preflight,
     POST: async (req) => {
       const { code, name } = await req.json().catch(() => ({}));
-      const at = typeof code === 'string' ? codes.get(code.toUpperCase()) : undefined;
-      if (!at) return send({ error: { message: 'no such pairing code: ask for another' } }, 403);
-      codes.delete(code.toUpperCase());
+      if (typeof code !== 'string' || code.length > 32) return send({ error: { message: '`code` is the pairing code, a string' } }, 400);
+      if (name !== undefined && (typeof name !== 'string' || name.length > 40)) return send({ error: { message: '`name` is a string of up to 40 characters' } }, 400);
+      const at = codes.get(normal(code));
+      if (!at || at.expires <= Date.now()) return send({ error: { message: 'no such pairing code: it may have expired, been used, or been burned by failed attempts' } }, 403);
+      codes.delete(normal(code));
       const label = (typeof name === 'string' && name) || at.name || 'client', now = new Date();
       const p: Paired = { client: `remote:${label}#${paired.length + gone.size + 1}`, name: label, scope: at.scope, peer: '127.0.0.1', created: now.toISOString(), expires: new Date(now.getTime() + 12 * 3600_000).toISOString(), lastSeen: now.toISOString(), token: crypto.randomUUID() };
       paired.push(p);
@@ -302,6 +332,11 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: { token: p.token, client: p.client, scope: p.scope, expires: p.expires } });
     },
   },
+  // The next pair-code and clients refused, once each.
+  '/__stub/refuse-pairing': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refusePairing = new Set(['pair-code', 'clients']); return send({ ok: true }); } },
+  // A code or a revoke as the local tool would ask it, for a test whose tool is the paired one.
+  '/__stub/pair-code': { POST: async (req) => (driver(req) ? mint(await req.json().catch(() => ({}))) : send({ message: 'Not found.' }, 404)) },
+  '/__stub/revoke': { POST: async (req) => (!driver(req) ? send({ message: 'Not found.' }, 404) : revoke((await req.json().catch(() => ({}))).client) ? send({ ok: true }) : send({ error: { message: 'no such client' } }, 404)) },
   // The remote doors the next codes name (`{remote: [{origin, fingerprint}]}`), as `--remote` opens one.
   '/__stub/remote': {
     POST: async (req) => {
@@ -317,6 +352,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const asker = who(req);
       if (!asker) return nobody(req);
       const { after = 0, epoch, client: named } = await req.json().catch(() => ({}));
+      if (asker.client && !who(req)) return nobody(req);
+      if (!allows(asker.scope, needs({ method: 'events' })!, asker.local)) { const r = refusal('events', asker.scope, 'read'); return send({ error: r.error }, r.status); }
       const client = asker.client ?? named;
       if (typeof client === 'string') present.add(client);
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
@@ -340,7 +377,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear();
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;

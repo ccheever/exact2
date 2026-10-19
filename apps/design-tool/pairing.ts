@@ -2,8 +2,10 @@
 // the local tool mints a code for a client on another machine, at a scope,
 // and shows it with each remote door's certificate fingerprint, which the
 // other machine checks before it trusts the door; it lists the paired
-// clients and revokes one. A code is shown, never logged, put in a URL or
-// kept: it is good once, for two minutes. These are the local token's alone.
+// clients and revokes one (the local token's alone). On the other machine
+// the tool pairs with that server (remote mode) by its address and the code.
+// A code is shown or typed, never logged, put in a URL or kept: it is good
+// once, for two minutes.
 import type { Sources } from './app.contract.d.ts';
 
 type Call = (path: string, body: unknown, timeout?: number, bound?: string) => Promise<{ error: string; reply: { ok?: any }; used: string }>;
@@ -14,9 +16,21 @@ const clock = (at: unknown) => {
   return Number.isFinite(t) ? new Date(t).toLocaleTimeString() : '';
 };
 
+type PairWith = (address: string, code: string, name: string) => Promise<{ ok: boolean; error: string; client: string; scope: string }>;
+
+// The server run (its token) the clients shown were listed by.
+let listedBy = '';
+
 /** The pairing sources, over the tool's one `tamber/1` client. */
-export function pairingSources(call: Call): Pick<Sources, 'mintCode' | 'loadClients' | 'revokeClient'> {
+export function pairingSources(call: Call, pairWith: PairWith): Pick<Sources, 'mintCode' | 'loadClients' | 'revokeClient' | 'pairRemote'> {
   return {
+    // This tool paired with another machine's server (remote mode): the
+    // address it typed and the code that machine showed, its name the
+    // person's; the code is sent once, to that door, and kept nowhere.
+    pairRemote: async ([address, code, name]) => {
+      const r = await pairWith(address, code, name);
+      return { ok: r.ok, error: r.error, note: r.ok ? `Paired as ${r.client}, at ${r.scope}.` : '' };
+    },
     mintCode: async ([scope]) => {
       const { error, reply } = await call('/__tamber', { method: 'pair-code', scope });
       if (error) return { ok: false, error, code: '', scope: '', until: '', doors: [] };
@@ -30,13 +44,16 @@ export function pairingSources(call: Call): Pick<Sources, 'mintCode' | 'loadClie
     // with its scope, where it pairs from and when it was last seen.
     loadClients: async ([local]) => {
       if (!local) return { ok: true, error: '', clients: [] };
-      const { error, reply } = await call('/__tamber', { method: 'clients' });
+      const { error, reply, used } = await call('/__tamber', { method: 'clients' });
       if (error) return { ok: false, error, clients: [] };
+      listedBy = used;
       const list = Array.isArray(reply.ok?.clients) ? reply.ok.clients : [];
       return { ok: true, error: '', clients: list.filter((c: any) => !c?.local).map((c: any) => ({ client: String(c.client ?? ''), name: String(c.name ?? ''), scope: String(c.scope ?? ''), peer: String(c.peer ?? ''), seen: clock(c.lastSeen), until: clock(c.expires) })) };
     },
+    // A revoke goes to the server run whose list it was pressed in, never a
+    // later one's (a restart names its clients from #1 again).
     revokeClient: async ([client]) => {
-      const { error } = await call('/__tamber', { method: 'revoke', client });
+      const { error } = await call('/__tamber', { method: 'revoke', client }, 15000, listedBy || undefined);
       return error ? { ok: false, error, note: '' } : { ok: true, error: '', note: `${client} was revoked: its token is refused from now on, and its stream and long poll end.` };
     },
   };

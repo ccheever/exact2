@@ -13,6 +13,7 @@ import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
+import { wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
@@ -24,11 +25,12 @@ export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
 // one origin and port.
 export const API = 'http://127.0.0.1:7740';
-// And the files the person picks to import, which the host copies under
-// app:/tmp/picked/, and nothing else of app:/tmp.
-export const grants = `net.fetch ${API}\nfs.read app:/tmp/picked`;
+// Another machine's design server, paired with (T6): an https door, or a
+// tunnel to this machine's loopback (wire.ts `doorOf` refuses any other
+// before a request). And the files the person picks to import, which the
+// host copies under app:/tmp/picked/, and nothing else of app:/tmp.
+export const grants = `net.fetch ${API}\nnet.fetch https:\nnet.fetch http:\nfs.read app:/tmp/picked`;
 
-const RESTARTED = 'The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again.';
 // A write's wait: longer than the server's own for a write (two minutes),
 // so the tool never gives up on one that then lands.
 const WRITE_WAIT = 130_000;
@@ -38,66 +40,9 @@ const READ_WAIT = WRITE_WAIT;
 // The resolves a read has in flight at once (a browser opens six
 // connections to one origin).
 const RESOLVES_AT_ONCE = 4;
-const NO_SERVER = `No design server answers at ${API}. Start one for your app with \`bun exact.mjs tamber tool <app>\`, then try again.`;
-
-type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
-type Reply = { ok?: any; error?: { message?: string; diagnostics?: Diagnostic[]; hint?: string } };
-/** A refusal's words: its message, and each diagnostic's file, line, id
- * and explanation, which say what to correct. */
-const refusal = (error: Reply['error'], status: number) => {
-  const said = (error?.diagnostics ?? []).map(d => (typeof d === 'string' ? d : `${d.file ?? ''}${d.line ? `:${d.line}` : ''} ${d.id ?? ''}: ${d.message ?? ''}`.trim()));
-  return [error?.message ?? `The design server refused the request (${status}).`, ...said, ...(error?.hint ? [error.hint] : [])].join('\n');
-};
-let token: string | null = null;
-// One ask at a time: the first reads start together.
-let asking: Promise<{ token: string | null; error: string }> | null = null;
-
-/** The token, asked once; null with the words to show when there is none. */
-function tokenOf(): Promise<{ token: string | null; error: string }> {
-  if (token) return Promise.resolve({ token, error: '' });
-  asking ??= askToken().finally(() => { asking = null; });
-  return asking;
-}
-
-async function askToken(): Promise<{ token: string | null; error: string }> {
-  try {
-    const res = await fetch(`${API}/__tamber/token`, { exactTimeout: 5000, redirect: 'error' });
-    if (!res.ok) return { token: null, error: `${API} gave no design server token: it answers only this machine's loopback, and only while \`bun exact.mjs tamber tool\` runs.` };
-    token = String(((await res.json()) as { token?: unknown }).token ?? '') || null;
-    return { token, error: token ? '' : NO_SERVER };
-  } catch (e) {
-    if ((e as { code?: string }).code === 'bake') throw e; // no server at build
-    return { token: null, error: NO_SERVER };
-  }
-}
-
-/** One `tamber/1` request: its reply (and the token it went with), or the
- * words to show. A token the server no longer knows (it restarted: a bare
- * not-found, which an operation's own refusal never is) is asked for again,
- * once, for a read. A write goes with the token of the server run it
- * belongs to (`bound`: the one its review, or its inverse, came from), and
- * never with another, so it cannot reach whatever server holds the port
- * since: that is a refusal, the server restarted. */
-async function call(path: string, body: unknown, timeout = 15000, bound?: string): Promise<{ error: string; reply: Reply; used: string }> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const got = bound ? { token: bound, error: '' } : await tokenOf();
-    if (!got.token) return { error: got.error, reply: {}, used: '' };
-    try {
-      const res = await fetch(`${API}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
-        headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
-      const reply = (await res.json().catch(() => ({}))) as Reply;
-      const unknown = res.status === 404 && !reply.error;
-      if (unknown && bound) { if (token === bound) token = null; return { error: RESTARTED, reply: {}, used: bound }; }
-      if (unknown && attempt === 0) { token = null; continue; }
-      if (res.ok) return { error: '', reply, used: got.token };
-      return { error: refusal(reply.error, res.status), reply, used: got.token };
-    } catch (e) {
-      if ((e as { code?: string }).code === 'bake') throw e;
-      return { error: NO_SERVER, reply: {}, used: '' };
-    }
-  }
-  return { error: NO_SERVER, reply: {}, used: '' };
-}
+// The one `tamber/1` client (wire.ts): this machine's server at API, or
+// another machine's the tool paired with.
+const { call, RESTARTED, pairWith, scope: scopeNow } = wire(API);
 
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
@@ -666,7 +611,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 }
 
 const sources: Sources = {
-  ...pairingSources(call),
+  ...pairingSources(call, pairWith),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '' };
@@ -836,6 +781,8 @@ const sources: Sources = {
     const ops = read.ops;
     const op = ops.at(-1)!;
     const move = ops.length === 1 ? await rescopeFor(file, op, read.token, read.files) : null;
+    // A client paired at `propose` (T6) holds it for someone with write to accept instead.
+    if (scopeNow() === 'propose') { const held = await call('/__tamber', { method: 'propose', hold: true, client, ops }, WRITE_WAIT, read.token); return { ...stacks(!held.error, held.error, ''), note: held.error ? '' : `Held for review as ${held.reply.ok?.proposal}: someone with write accepts it.` }; }
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
     const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops }, WRITE_WAIT, read.token);

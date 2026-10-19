@@ -649,7 +649,18 @@ component DesignTool
   mutation paircode as shape PairCode
   resource clients = loadClients(hello.local, changes.clients) as shape Clients else empty(ok=true)
   mutation revoked as shape Pinned refreshes clients
-  derive client = `design-tool:${person}`
+  state clientsTries = 0
+  // A paired client is the name the server gave it (T6), whatever it asks.
+  derive client = hello.client != "" ? hello.client : `design-tool:${person}`
+  // Its scope (T6): below write, what writes is greyed, said once why; the
+  // tool sends none of it (wire.ts), and the server refuses it too.
+  derive canWrite = hello.scope == "" or hello.scope == "write"
+  derive canPropose = canWrite or hello.scope == "propose"
+  // Pairing with another machine's server (remote mode): its address and the
+  // code it shows, typed here; the code is not kept once sent.
+  state remoteAt = ""
+  state remoteCode = ""
+  mutation pairedWith as shape Pinned refreshes hello
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
@@ -781,6 +792,10 @@ component DesignTool
     after(1, advance)
   task retry when not pending(changes) and not changes.ok key=changes.answer
     after(3000, advance)
+  // A clients read refused while the poll goes on is asked again, each 3 s
+  // (its own count: the poll's answers would put it off for ever).
+  task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
+    after(3000, reloadClients)
 
   action advance
     // A change (an answer, paced while a scrub is open), another run, more
@@ -796,6 +811,17 @@ component DesignTool
       proposeAt = changes.paced
     epoch = changes.epoch
     asks = asks + 1
+  action editRemoteAt(v: string)
+    remoteAt = v
+  action editRemoteCode(v: string)
+    remoteCode = v
+  action pairRemote
+    if not pending(pairedWith) and remoteAt.trim() != "" and remoteCode.trim() != ""
+      send pairedWith = pairRemote(remoteAt, remoteCode, person)
+      remoteCode = ""
+  action reloadClients
+    clientsTries = clientsTries + 1
+    refresh clients
   action choosePairScope(v: string)
     pairScope = v
   action mintCode
@@ -1116,7 +1142,7 @@ component DesignTool
     send written = cancelScrub(scrubAsk)
   action apply
     // Only the proposal shown, for the edit drafted, is written.
-    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not partsStale and not pending(written) and not scrubShown
+    if canPropose and proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not partsStale and not pending(written) and not scrubShown
       send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
   action afterWrite
     // The draft written is done with; one drafted since stays.
@@ -1250,15 +1276,32 @@ component DesignTool
               text "Continue"
         else if not hello.ok
           column gap=8 max-width=520 testId="no-server"
-            text "No design server" role="heading" aria-level=2
+            text (hello.error.startsWith("This client was revoked") ? "Revoked" : "No design server") role="heading" aria-level=2 testId="no-server-title"
             text hello.error color="-exact-secondary-label" testId="no-server-message"
             button press=reconnect buttonStyle="bordered" testId="reconnect"
               text "Try Again"
+            // Remote mode (T6): another machine's server, by the address and
+            // code its tool shows; an https door or a tunnel to this machine.
+            column gap=8 padding=12 border-radius=12 background-color="-exact-secondary-background" testId="pair-remote"
+              text "A design server on another machine" role="heading" aria-level=3
+              text "Its tool shows a code and an address. Open the address in this browser once and accept its certificate if its SHA-256 is the one shown, then type both here." color="-exact-secondary-label" font="-exact-footnote"
+              input value=remoteAt input=editRemoteAt placeholder="https://192.168.1.20:7743" aria-label="Design server address" testId="remote-at"
+              input value=remoteCode input=editRemoteCode submit=pairRemote placeholder="XXXXX-XXXXX" aria-label="Pairing code" testId="remote-code"
+              button press=pairRemote disabled=(pending(pairedWith) or remoteAt.trim() == "" or remoteCode.trim() == "") buttonStyle="bordered" testId="remote-pair"
+                text "Pair"
+              match pairedWith
+                case some(r)
+                  if not r.ok
+                    text r.error color="-exact-system-red" font="-exact-footnote" testId="remote-error"
+                case none
+                  text "" display="none"
         else
           column gap=16
             column gap=4 testId="hello"
               text hello.app role="heading" aria-level=2 testId="app"
               text `${hello.protocol} · IR format ${hello.format}` color="-exact-secondary-label" testId="protocol"
+              if not hello.local
+                text (canWrite ? `Paired with this design server as ${hello.client}, at write.` : canPropose ? `Paired as ${hello.client}, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed.` : `Paired as ${hello.client}, at read: you see the design, its history and the inspector's last selections; edits, pins, holds and the rest are greyed.`) color="-exact-system-orange" font="-exact-footnote" testId="paired-scope"
             column gap=4 testId="files"
               for f in hello.files key=f.path
                 row gap=12
@@ -1341,7 +1384,7 @@ component DesignTool
             column gap=8 testId="inspector"
               row gap=8 align-items="center"
                 text "Inspector" role="heading" aria-level=2 flex=1
-                button press=toggleInspect disabled=pending(inspectSent) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
+                button press=toggleInspect disabled=(pending(inspectSent) or not canWrite) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
                   text (inspected.inspecting ? "Stop inspecting" : "Inspect")
               match inspectSent
                 case some(i)
@@ -1368,13 +1411,13 @@ component DesignTool
                     column gap=4 testId="hold"
                       row gap=8 align-items="center" flex-wrap="wrap"
                         text "Hold" font="-exact-footnote"
-                        button press=holdState("active") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "active" ? "filled" : "bordered") testId="hold-active"
+                        button press=holdState("active") disabled=(pending(holdSent) or not canWrite) buttonStyle=(inspected.hold.state == "active" ? "filled" : "bordered") testId="hold-active"
                           text "Pressed"
-                        button press=holdState("hover") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "hover" ? "filled" : "bordered") testId="hold-hover"
+                        button press=holdState("hover") disabled=(pending(holdSent) or not canWrite) buttonStyle=(inspected.hold.state == "hover" ? "filled" : "bordered") testId="hold-hover"
                           text "Hovered"
-                        button press=holdState("focus-visible") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "focus-visible" ? "filled" : "bordered") testId="hold-focus"
+                        button press=holdState("focus-visible") disabled=(pending(holdSent) or not canWrite) buttonStyle=(inspected.hold.state == "focus-visible" ? "filled" : "bordered") testId="hold-focus"
                           text "Focused"
-                        button press=holdState("") disabled=(pending(holdSent) or inspected.hold.state == "") testId="hold-release"
+                        button press=holdState("") disabled=(pending(holdSent) or inspected.hold.state == "" or not canWrite) testId="hold-release"
                           text "Let go"
                       if inspected.hold.status != ""
                         text inspected.hold.status color="-exact-secondary-label" font="-exact-footnote" testId="hold-status"
@@ -1443,7 +1486,7 @@ component DesignTool
                 column gap=2 testId="impact"
                   row gap=8 align-items="center"
                     text (pending(uses) or uses.token != impactToken ? `${impactToken}: reading its uses…` : uses.ok ? `${impactToken}: read at ${uses.sites.length} source site(s), statically (not a count of mounted copies)` : uses.error) font="-exact-footnote" flex=1 testId="impact-count"
-                    button press=outlineImpact disabled=(pending(outlined) or not inspected.inspecting) testId="impact-outline"
+                    button press=outlineImpact disabled=(pending(outlined) or not inspected.inspecting or not canWrite) testId="impact-outline"
                       text "Outline"
                   match outlined
                     case some(o)
@@ -1490,12 +1533,12 @@ component DesignTool
                     for v in a.values key=v
                       option v value=v
                 input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
-                button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk) buttonStyle="filled" testId="pin-apply"
+                button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk or not canWrite) buttonStyle="filled" testId="pin-apply"
                   text "Pin"
                 // One axis on one build, alone: it replaces that build's pin.
-                button press=previewPin disabled=(pending(pinned) or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0) testId="pin-preview"
+                button press=previewPin disabled=(pending(pinned) or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0 or not canWrite) testId="pin-preview"
                   text "Preview this mode only"
-                button press=clearPins disabled=pending(pinned) testId="pin-clear"
+                button press=clearPins disabled=(pending(pinned) or not canWrite) testId="pin-clear"
                   text "Hand back"
               match pinned
                 case some(p)
@@ -1618,7 +1661,7 @@ component DesignTool
                           text `${d.name} (dial)`
                     for r in branch.roles key=r
                       text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
-                    button press=pin buttonStyle="bordered" testId="pin"
+                    button press=pin disabled=(not canWrite) buttonStyle="bordered" testId="pin"
                       text "Pin a value"
                   else
                     if branch.expression and typed.ok
@@ -1717,16 +1760,16 @@ component DesignTool
                       else if scrub.open != ""
                         text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
                       row gap=8
-                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written)) buttonStyle="filled" testId="scrub-keep"
+                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written) or not canWrite) buttonStyle="filled" testId="scrub-keep"
                           text "Keep"
                         button press=cancelScrub aria-keyshortcuts="Escape" testId="scrub-cancel"
                           text "Cancel scrub"
                   else
                     row gap=8
-                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written)) buttonStyle="filled" testId="apply"
-                        text "Apply"
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose) buttonStyle="filled" testId="apply"
+                        text (canWrite ? "Apply" : "Propose for review")
                       if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
-                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written)) testId="scrub-start"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite) testId="scrub-start"
                           text "Scrub live"
                       button press=cancelEdit testId="cancel-edit"
                         text "Cancel"
@@ -1735,12 +1778,12 @@ component DesignTool
               if not scrubShown and scrub.ended != ""
                 text scrub.ended color="-exact-secondary-label" testId="scrub-note"
               row gap=8 align-items="center" testId="undo-bar"
-                button press=undo disabled=(stack.undo == 0 or pending(written)) testId="undo"
+                button press=undo disabled=(stack.undo == 0 or pending(written) or not canWrite) testId="undo"
                   text `Undo (${stack.undo})`
-                button press=redo disabled=(stack.redo == 0 or pending(written)) testId="redo"
+                button press=redo disabled=(stack.redo == 0 or pending(written) or not canWrite) testId="redo"
                   text `Redo (${stack.redo})`
                 if stack.rescope != ""
-                  button press=rescope disabled=pending(written) testId="rescope"
+                  button press=rescope disabled=(pending(written) or not canWrite) testId="rescope"
                     text stack.rescope
                 if not stack.ok
                   text stack.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="write-error"
@@ -1808,9 +1851,9 @@ component DesignTool
                     for u in h.unmapped key=u.key
                       text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
                     row gap=8
-                      button press=acceptImportNow(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                      button press=acceptImportNow(h.proposal) disabled=(pending(written) or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                         text "Accept"
-                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                      button press=dropProposal(h.proposal) disabled=(pending(written) or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
                         text "Drop"
                   else
                     text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
@@ -1822,11 +1865,11 @@ component DesignTool
                         input type="checkbox" checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
                         text it.text font="-exact-footnote"
                     row gap=8
-                      button press=acceptAll(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                      button press=acceptAll(h.proposal) disabled=(pending(written) or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                         text "Accept"
-                      button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(pending(written) or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true)) testId=`accept-picked-${h.proposal}`
+                      button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(pending(written) or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true) or not canWrite) testId=`accept-picked-${h.proposal}`
                         text "Accept picked"
-                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                      button press=dropProposal(h.proposal) disabled=(pending(written) or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
                         text "Drop"
             column gap=8 testId="import"
               text "Import a theme" role="heading" aria-level=2
@@ -1836,7 +1879,7 @@ component DesignTool
                   option "shadcn (CSS)" value="shadcn"
                   option "Tailwind v4 (CSS)" value="tailwind"
                   option "DTCG (JSON, a file a mode)" value="dtcg"
-                button press=pickImport disabled=pending(imported) testId="import-choose"
+                button press=pickImport disabled=(pending(imported) or not canPropose) testId="import-choose"
                   text "Choose files…"
                 input type="file" multiple=(importKind == "dtcg") id="import-file" testId="import-file" display="none" change=importPicked
               match imported
@@ -1860,7 +1903,7 @@ component DesignTool
                   if e.mine and e.diff != ""
                     text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
               row gap=8 align-items="center"
-                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused and not scope.unavailable)) buttonStyle="bordered" testId="commit"
+                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused and not scope.unavailable) or not canWrite) buttonStyle="bordered" testId="commit"
                   text "Commit"
                 text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
               match committed
@@ -1887,7 +1930,7 @@ component DesignTool
                   column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`commit-${c.short}`
                     row gap=8 align-items="center"
                       text `${c.short} · ${c.author} · ${c.date}` font="-exact-footnote" color="-exact-secondary-label" flex=1
-                      button press=revert(c.commit) disabled=pending(reverted) testId=`revert-${c.short}`
+                      button press=revert(c.commit) disabled=(pending(reverted) or not canPropose) testId=`revert-${c.short}`
                         text "Revert"
                     text c.subject testId=`subject-${c.short}`
                     for f in c.files key=f.file

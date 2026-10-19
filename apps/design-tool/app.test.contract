@@ -1723,6 +1723,21 @@ test "pairing: a code at the scope chosen, with each remote door's fingerprint t
   expect text "no-clients" == "No client is paired."
   request POST "/__stub/restart" {} as ada
 
+test "a refused pair-code or clients read is said, and the clients are asked again with the poll"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/refuse-pairing" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "clients-error" == "clients: refused, as the test asked"
+  tap "pair-mint"
+  clock data
+  expect text "pair-error" == "pair-code: refused, as the test asked"
+  clock +3000
+  clock data
+  expect text "no-clients" == "No client is paired."
+  request POST "/__stub/restart" {} as ada
+
 test "pairing with no remote door open says how to open one"
   request POST "/__stub/restart" {} as ada
   type "name" "Ada"
@@ -1732,4 +1747,57 @@ test "pairing with no remote door open says how to open one"
   clock data
   expect text "pair-code-text" == "7Q2KD-M4X01"
   expect text "pair-no-door" == "No remote door is open: start the dev loop or tamber serve with --remote <host:port> for a client on another machine."
+  request POST "/__stub/restart" {} as ada
+
+test "remote mode: the tool pairs with another machine's server by its address and code, only over an https door or a tunnel to loopback; at propose an edit is held for review and what writes is greyed and never sent; a revoke ends it and says so"
+  // No server on this machine: the browser is the other machine's (the stub stands in for that
+  // machine's server, through a tunnel to loopback, so only this machine's token is refused).
+  fail fetch "http://127.0.0.1:7740/__tamber/token"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "pair-remote"
+  expect disabled "remote-pair"
+  // A plain http door off this machine is refused before anything is sent.
+  type "remote-at" "http://192.168.1.20:7740"
+  type "remote-code" "7Q2KD-M4X01"
+  tap "remote-pair"
+  clock data
+  expect text "remote-error" == "Pairing goes only over an encrypted connection: an https address, or a tunnel to this machine (http://127.0.0.1:<port>). Nothing was sent."
+  // The code was not kept.
+  expect state remoteCode == ""
+  type "remote-at" "http://127.0.0.1:7740"
+  type "remote-code" "7Q2KD-M4X99"
+  tap "remote-pair"
+  clock data
+  expect text "remote-error" == "no such pairing code: it may have expired, been used, or been burned by failed attempts"
+  request POST "/__stub/pair-code" {"scope": "propose"} as ada
+  type "remote-code" "7q2kd-m4x01"
+  tap "remote-pair"
+  clock data
+  clock +1
+  clock data
+  expect text "person" == "remote:Ada#1"
+  expect text "paired-scope" == "Paired as remote:Ada#1, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed."
+  // The local tool's own: no clients panel.
+  expect tree missing "pairing"
+  expect disabled "inspect-toggle"
+  expect disabled "commit"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect text "apply" == "Propose for review"
+  tap "apply"
+  clock data
+  expect text "write-note" == "Held for review as held-1: someone with write accepts it."
+  expect disabled "undo"
+  // Revoked on the other machine: the next request is refused, and the tool says so and sends no more.
+  request POST "/__stub/revoke" {"client": "remote:Ada#1"} as ada
+  clock +1
+  clock data
+  clock +3000
+  clock data
+  expect text "no-server-title" == "Revoked"
+  expect text "no-server-message" == "This client was revoked, or its pairing expired: nothing more is sent to the design server. Pair again with a new code."
   request POST "/__stub/restart" {} as ada
