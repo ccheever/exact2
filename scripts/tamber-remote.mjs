@@ -153,7 +153,13 @@ export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIS
     }
     const url = targetOf(req, scheme, at.host);
     if (!url) return refuse(res, 404, 'not found');
-    if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) return serveToolFiles(req, res, url, toolDir, { 'content-security-policy': "frame-ancestors 'none'" });
+    if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) {
+      // The tool's own files send their origin, and only that, as a referrer
+      // (the lead's 08:22Z ruling: one place, no per-form policy in the tool);
+      // everything else here sends none.
+      res.setHeader('referrer-policy', 'strict-origin');
+      return serveToolFiles(req, res, url, toolDir, { 'content-security-policy': "frame-ancestors 'none'" });
+    }
     if (!WIRE.has(url.pathname)) return refuse(res, 404, 'not found');
     const access = { allowed: true, local: false, remote: true, tunnel, peer: req.socket?.remoteAddress ?? null };
     if (!(await wire.handle(req, res, url, access)) && !res.headersSent) refuse(res, 404, 'not found');

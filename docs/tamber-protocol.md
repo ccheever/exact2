@@ -181,6 +181,8 @@ statuses:
   - A request there is never `access.local`: it is `{remote: true, tunnel: false, peer}`, the peer
     its socket's (no forwarding header is read). Its `Cookie` header is removed before the wire
     sees it, and a request whose `Origin` is not the listener's own is refused (403).
+  - Its answers send no referrer (`referrer-policy: no-referrer`), but for the design tool's own
+    files, which send their origin only (`strict-origin`).
 - **A trusted tunnel** (ssh -L, a VPN's forward; stage 10 B2) arrives on loopback looking local, so
   it gets a port of its own: `--trust-tunnel <port>` opens a plain listener on `127.0.0.1:<port>`
   for the tunnel's far end, said loudly at start-up. Its requests are routed as the remote

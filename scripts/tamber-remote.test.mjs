@@ -169,6 +169,9 @@ test('the remote port serves the design tool\'s own files, static GETs only, and
     expect(page.status).toBe(200);
     expect(page.text).toContain('<base href="/__tamber/tool/">');
     expect(page.headers['content-security-policy']).toBe("frame-ancestors 'none'");
+    expect(page.headers['referrer-policy']).toBe('strict-origin');
+    expect((await send(true, port, { path: '/__tamber/tool/app.js' })).headers['referrer-policy']).toBe('strict-origin');
+    expect((await send(true, port, { method: 'POST', path: '/__tamber' })).headers['referrer-policy']).toBe('no-referrer');
     expect((await send(true, port, { path: '/__tamber/tool/app.js' })).status).toBe(200);
     expect((await send(true, port, { path: '/__tamber/tool/.gen/secret' })).status).toBe(404);
     expect((await send(true, port, { path: '/__tamber/tool/../../etc/passwd' })).status).toBe(404);
