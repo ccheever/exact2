@@ -6,6 +6,7 @@ import type { Native } from '../client/protocol';
 import { subscriptionSerial } from '../details/shell-vcs';
 import { composerNow } from '../composer/composer-controls';
 import { turnItemIsOpen } from './timeline-item-fetch';
+import { letGo } from '../client/let-go';
 import { appendTerminalOutput, EMPTY_TERMINAL_OUTPUT, terminalOutputSpans, TERMINAL_PALETTES, type TerminalOutputState } from './terminal-output';
 
 export type CommandOutputFrame = { kind: 'replace' | 'append'; text: string; truncated: boolean; running: boolean };
@@ -65,7 +66,8 @@ export async function syncCommandOutputs(client: T3Client, native: Native | null
       const id = str(reply.id), serial = subscriptionSerial(id);
       stream.maxSeen = Math.max(stream.maxSeen, serial);
       if (serial > stream.floor && (!stream.subscription || serial > subscriptionSerial(stream.subscription))) stream.subscription = id;
-    } catch {
+    } catch (error) {
+      if (letGo(error)) throw error;
       stream.error = "Couldn't load output: Reconnect to try again."; stream.retryAt = now + 1000;
     } finally { stream.pending = false; }
   }
