@@ -400,7 +400,8 @@ final class MIDIMacTests: XCTestCase {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.4))
             let tick = try XCTUnwrap(messages(deliveries).first { $0.list.contains { $0.status == 0xF8 } })
             XCTAssertGreaterThan(tick.at - at, 0.040, "a lone tick waits for its batch")
-            XCTAssertLessThan(tick.at - at, 0.075, "and goes when its 50 ms are up")
+            // The clock test's bound: a busy run adds its own latency (83 ms seen).
+            XCTAssertLessThan(tick.at - at, 0.100, "and goes when its 50 ms are up, not a coalesced 150 later")
         }
         output.shutdown()
     }
