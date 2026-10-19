@@ -4,6 +4,7 @@
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
 // (buildTraitsTriggerDisplay), ChatView.tsx (background and child-input banners,
 // the Compact chip, tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
+import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
 import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from '../shell/project-clones-live';
 import { systemComposerNotices } from '../connections/server-update-notices';
@@ -14,7 +15,7 @@ import { activeRun } from '../client/protocol';
 import { composerSelection } from './composer-provider-selection'; // one provider rule
 import { fanoutSelections } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
-import { followUpBehavior, planFollowUp, resolveDispatchMode, resumeState } from './composer-controls';
+import { followUpBehavior, isCompacting, planFollowUp, resolveDispatchMode, resumeState, sendQueuesBehindSetup } from './composer-controls';
 import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
 import { subagentTitle } from '../timeline/timeline-events';
@@ -28,6 +29,7 @@ import { machineChanging } from './scratch-machine'; // isEnvironmentChanging (c
 import { labelWidth, type Measure, type ProbeKind } from './composer-measure';
 import { resolveRestingComposerControlsLayout } from './composer-resting-layout';
 import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real terminalOpen
+import { pendingThreadImports } from './composer-thread-import';
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
 // 14pt medium ("sm" controls) and 12pt regular (the resting "xs" controls).
@@ -98,17 +100,17 @@ export { traitsDisplay } from './composer-controls-model';
 // ── Primary action ─────────────────────────────────────────────────────────
 
 export function primaryAction(client: T3Client, phase: string) {
-  const running = phase === 'running', connecting = phase === 'connecting';
+  const setupQueue = sendQueuesBehindSetup(client), running = phase === 'running' || setupQueue, connecting = phase === 'connecting' && !setupQueue;
   const followUp = followUpBehavior(client);
   const modifiers = str(obj(client.presentation).modifiers);
   const held = /\b(meta|control)\b/.test(modifiers);
-  const queueing = resolveDispatchMode(running, followUp, held) === 'queue';
+  const canSteer = !setupQueue && !isCompacting(client);
+  const queueing = resolveDispatchMode(running, followUp, held, canSteer) === 'queue';
   const resume = client.threadId ? resumeState(client.projection) : { runId: '', heldQueue: false };
   const unavailable = client.connection !== 'connected';
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
-  // worktreeSetupBlocksSend (ChatView): a new worktree thread holds sends until its agent starts.
-  const preparing = !!client.threadId && threadWorktreeSetup(client).preparing;
-  const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
+  const preparing = !!client.threadId && !setupQueue && threadWorktreeSetup(client).preparing;
+  const status = unavailable ? 'Environment disconnected' : pendingThreadImports(client) ? 'Loading thread context…' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).
@@ -118,7 +120,7 @@ export function primaryAction(client: T3Client, phase: string) {
     sendLabel: queueing ? 'Queue message' : running ? 'Steer message' : 'Submit message',
     sendIcon: queueing ? 'list-plus' : running ? 'corner-up-right' : 'arrow',
     sendStatus: status, sendSpinner: connecting || sending,
-    sendTooltip: status || (running ? `Click to ${followUp}, Ctrl/⌘-click${alternateKey ? ` or ${alternateKey}` : ''} to ${alternate}` : 'Submit message'),
+    sendTooltip: status || (running && canSteer ? `Click to ${followUp}, Ctrl/⌘-click${alternateKey ? ` or ${alternateKey}` : ''} to ${alternate}` : queueing ? 'Queue message' : 'Submit message'),
     canResume: !!resume.runId || resume.heldQueue,
     planReady: !!plan, planTitle: plan?.title ?? '',
   };
@@ -177,7 +179,7 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
   const segments = (list: typeof items) => list.map((item, index) => ({ key: `${index}:${item.label}`, label: item.label, threadId: item.child, last: index === list.length - 1 }));
   if (items.length === 1) {
     const only = items[0]!, noun = only.meta.singular, named = only.label !== noun;
-    const title = waiting ? (named ? `Waiting on ${noun} ${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
+    const title = waiting ? (named ? `${only.kind === 'monitor' ? '' : `Waiting on ${noun} `}${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
     // A single named item is already in the title.
     return { title, description: only.child ? only.label : '', waiting, segments: only.child ? segments(items) : [] };
   }
@@ -210,6 +212,14 @@ function childInputNotice(client: T3Client): ComposerNotice | null {
     segments: children.map((entry, index) => ({ key: entry.id, label: entry.title, threadId: entry.id, last: index === children.length - 1 })),
     action: 'select-thread', actionId: first.id, actionLabel: first.approval ? 'Open approval' : 'Open question' });
 }
+function goalNotice(client: T3Client): ComposerNotice | null {
+  const thread = client.shell.threads.find(thread => thread.id === client.threadId), goal = providerGoal(thread?.goal);
+  if (!goal) return null;
+  const working = providerGoalWorking(client), view = presentProviderGoal(goal, working);
+  return notice({ id: `goal:${client.threadId}`, variant: 'default', priority: 0, icon: 'target', title: view.usage ? `${view.title} · ${view.usage}` : view.title,
+    description: view.objective, action: working ? '' : view.canResume ? 'cc:goal-resume' : 'cc:goal-clear', actionLabel: view.canResume ? 'Resume' : 'Clear',
+    action2: !working && view.canResume ? 'cc:goal-clear' : '', action2Label: 'Clear' });
+}
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
   const mismatch = branchMismatchNotice(client); // returning to Home resets revelation, but keeps session dismissals
   // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
@@ -225,6 +235,8 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   const items: ComposerNotice[] = [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
   const child = childInputNotice(client);
   if (child) items.push(child);
+  const goal = goalNotice(client);
+  if (goal) items.push(goal);
   const background = backgroundWork(client);
   if (background) items.push(background);
   const resume = resumeCompaction(client, now, contextSnapshot(client.projection));

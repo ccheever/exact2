@@ -1,3 +1,4 @@
+import { workspaceFileIcon } from '../shared/file-metadata';
 // Context chips in sent messages, adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // MessagesTimeline.tsx userMessageContextPresentationRegistry (each
 // `[label](t3-context://v1/<kind>/<id>)` resolved against the message's
@@ -14,12 +15,13 @@ import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { fontStack } from '../appearance/settings-appearance';
 import { assistantCitationLabel, collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
+import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
 }
-export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[] }
+export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[] }
 
 const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
 
@@ -141,7 +143,7 @@ export function shouldCollapseUserMessage(text: string): boolean {
 }
 
 /** Every chip a message's Markdown draws, by the href its run keeps (markdown.rs chat_run); `media`: where its media resolve. */
-export function messageChips(item: Obj, root: string, threads: Obj[], owner = '', media: MediaScope = {}): ChipView[] {
+export function messageChips(item: Obj, root: string, threads: Obj[], owner = '', media: MediaScope = {}, client?: T3Client): ChipView[] {
   const text = str(item.text), chips: ChipView[] = [];
   const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
   const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
@@ -170,6 +172,9 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   }
   // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
   for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });
+  if (client) for (const chip of chips) {
+    if (chip.kind === 'link' || chip.kind === 'mention') chip.icon = workspaceFileIcon(client, chip.kind === 'link' ? chip.href.slice('t3-file:'.length) : chip.tip, root);
+  }
   noteMarkdownDocument(owner, text, root, media); // the image's press opens the preview over this document's images
   return chips;
 }
@@ -236,7 +241,7 @@ export function markdownEnv(client: T3Client): MarkdownEnv {
   const prefs = (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings || decodeClientPrefs({});
   const size = Number(prefs.fontSizeCode);
   return { codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', codeSize: Number.isFinite(size) ? Math.min(18, Math.max(10, Math.round(size))) : 13,
-    wrap: prefs.wordWrap !== false, chips: [], runCommands: [] };
+    wrap: prefs.wordWrap !== false, chips: [], runCommands: [], threadGlyphs: [] };
 }
 /** Settings → Appearance → Diff colors: "blue-orange" or the default "red-green". */
 export function diffSchemeOf(client: { local: object }): string {

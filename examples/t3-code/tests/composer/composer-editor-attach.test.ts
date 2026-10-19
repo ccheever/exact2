@@ -54,13 +54,17 @@ describe('Attach files: plain files (addComposerAttachments)', () => {
     expect(attachments).toEqual([{ type: 'file', id: 'att-7', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 5 }]);
     expect(composerFileRecords(client, prompt)).toMatchObject([{ kind: 'file', contextId: `file_${uuid(1)}`, attachmentId: 'att-7', name: 'notes.md' }]);
   });
-  test('several files share one insert; without an editor the chips join the stored draft', async () => {
+  test('several files share one insert; an active-field refusal leaves its source unchanged', async () => {
     const { client, native, calls } = harness(undefined, false);
     client.local.drafts['env:t1'] = 'hello';
     const files = [1, 2].map(n => acceptAttachedFile(client, { kind: 'file', id: uuid(n), name: `f${n}.txt`, sizeBytes: 3 }).file!);
     await insertFileChips(client, native, files);
     expect(calls.filter(call => call.op === 'editorInsert')).toHaveLength(1);
-    expect(client.local.drafts['env:t1']).toBe(`hello [f1.txt](t3-context://v1/file/file_${uuid(1)}) [f2.txt](t3-context://v1/file/file_${uuid(2)}) `);
+    expect(client.local.drafts['env:t1']).toBe('hello');
+    files.forEach(file => { file.draftKey = 'env:background'; });
+    await insertFileChips(client, native, files);
+    expect(calls.filter(call => call.op === 'editorInsert')).toHaveLength(1);
+    expect(client.local.drafts['env:background']).toBe(`[f1.txt](t3-context://v1/file/file_${uuid(1)}) [f2.txt](t3-context://v1/file/file_${uuid(2)}) `);
   });
   test('the draft counts its referenced files toward the 100-attachment limit', () => {
     const { client } = harness();

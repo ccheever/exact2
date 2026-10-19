@@ -1,6 +1,6 @@
 // The provider marks of the settings routes, over the generated provider-icons.contract.
 use ProviderMark from "../shared/icons.contract"
-use AcpRegistryGlyph, ClaudeDriverMark, CursorDriverMark, GrokDriverMark, OpenCodeDriverMark, PiDriverMark from "./provider-icons.contract"
+use AcpRegistryGlyph, ClaudeDriverMark, CursorDriverMark, GrokDriverMark, OpenCodeDriverMark, PiDriverMark, MuseDriverMark from "./provider-icons.contract"
 
 // T3's ProviderInstanceIcon marks (Icons.tsx), drawn at `size` in the
 // driver's own colors; unknown drivers fall back to initials. An ACP Registry
@@ -25,11 +25,13 @@ component DriverMark
         OpenCodeDriverMark(size=size)
       if driver == "antigravity"
         image "assets/provider-antigravity.png" width=`${size / 16}rem` height=`${size / 16}rem` object-fit="contain" aria-hidden=true
+      if driver == "muse"
+        MuseDriverMark(size=size)
       if driver == "pi"
         PiDriverMark(size=size)
       if driver == "acpRegistry"
         AcpRegistryAgentIcon(icon=icon, size=size, color="light-dark(#000000, #ffffff)")
-      if driver != "codex" and driver != "claudeAgent" and driver != "cursor" and driver != "grok" and driver != "opencode" and driver != "antigravity" and driver != "pi" and driver != "acpRegistry"
+      if driver != "codex" and driver != "claudeAgent" and driver != "cursor" and driver != "grok" and driver != "opencode" and driver != "antigravity" and driver != "pi" and driver != "muse" and driver != "acpRegistry"
         text initials font-size="0.4375rem" font-weight=600 line-height=1 color="light-dark(#27272a, #f5f5f5)"
 
 // AcpRegistryAgentIcon (settings/AcpRegistryIcon.tsx:73-170): the ACP glyph until the registry

@@ -126,3 +126,88 @@ func runComposerFocusChecks() {
     snap.destroy(); host.close()
     print("\(passed) composer-owner focus, setup-guard and thumbnail checks passed")
 }
+
+/// Real image layers on a never-shown window; no capture, OS grants, focus or input.
+func runImageTileChecks() throws {
+    _ = NSApplication.shared
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath + "/target/t3-tests/snapshot/tiles-\(UUID().uuidString)")
+    let drafts = root.appendingPathComponent("snapshots/drafts", isDirectory: true)
+    try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
+    let firstID = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", secondID = "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB"
+    func write(_ id: String, striped: Bool) throws {
+        let pixels = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 120, pixelsHigh: 40, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 480, bitsPerPixel: 32)!
+        for y in 0..<40 { for x in 0..<120 {
+            let color: [UInt8] = striped ? (x < 40 ? [230, 30, 30] : x < 80 ? [30, 200, 30] : [30, 30, 230]) : [200, 30, 200]
+            let at = y * 480 + x * 4
+            for channel in 0..<3 { pixels.bitmapData![at + channel] = color[channel] }
+            pixels.bitmapData![at + 3] = 255
+        } }
+        try pixels.representation(using: .png, properties: [:])!.write(to: drafts.appendingPathComponent("\(id).png"))
+    }
+    try write(firstID, striped: true); try write(secondID, striped: false)
+    let host = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+    host.isReleasedWhenClosed = false
+    defer { host.close() }
+    let snap = T3SnapShot(directory: root, agent: true, changed: { _ in })
+    defer { snap.destroy() }
+    var views: [NSView] = [], passed = 0
+    func expect(_ value: Bool, _ name: String) { check(value, name); passed += 1 }
+    func view() -> NSView {
+        let value = NSView(frame: CGRect(x: (views.count % 5) * 90, y: (views.count / 5) * 80, width: 64, height: 64))
+        host.contentView!.addSubview(value); views.append(value); return value
+    }
+    func picture(_ view: NSView) -> CGImage? {
+        guard let contents = view.subviews.first?.layer?.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID else { return nil }
+        return (contents as! CGImage)
+    }
+    func drain() {
+        let deadline = Date().addingTimeInterval(5)
+        while snap.tileLoadsInFlight > 0 && Date() < deadline { _ = RunLoop.main.run(mode: .default, before: deadline) }
+        expect(snap.tileLoadsInFlight == 0, "all asynchronous image completions drained")
+    }
+    func green(_ view: NSView) -> Bool {
+        guard let image = picture(view), image.width == 40, image.height == 40 else { return false }
+        let rep = NSBitmapImageRep(cgImage: image)
+        return [5, 20, 35].allSatisfy { x in
+            guard let color = rep.colorAt(x: x, y: 20)?.usingColorSpace(.deviceRGB) else { return false }
+            return color.greenComponent > 0.6 && color.redComponent < 0.25 && color.blueComponent < 0.25
+        }
+    }
+    let shelf = view(), first = view(), second = view()
+    for target in [shelf, first, second] { snap.installTile(id: firstID, view: target) }
+    drain()
+    expect([shelf, first, second].allSatisfy(green), "three distinct views can paint the same cropped image")
+    snap.installTile(id: firstID, view: shelf)
+    expect(shelf.subviews.count == 1, "reinstalling one view does not duplicate its image")
+    snap.installTile(id: "thumb:\(firstID)", view: first); snap.installTile(id: "thumb:\(firstID)", view: second)
+    let preview = view(), contain = view(), repeatedContain = view(), fit = view()
+    snap.installTile(id: "preview:\(firstID)", view: preview)
+    snap.installTile(id: "contain:\(firstID)", view: contain); snap.installTile(id: "contain:\(firstID)", view: repeatedContain)
+    fit.setFrameSize(CGSize(width: 200, height: 100)); snap.installTile(id: "fit:\(firstID)", view: fit)
+    drain()
+    expect([shelf, first, second].allSatisfy(green), "inline thumbs match the shelf's centred green square")
+    for target in [preview, contain, repeatedContain, fit] {
+        expect(picture(target)?.width == 120 && picture(target)?.height == 40, "full image modes retain all three stripes")
+    }
+    expect(preview.subviews.first?.layer?.contentsGravity == .resizeAspect, "preview contains the whole picture")
+    expect(fit.subviews.first?.layer?.contentsGravity == .center, "fit keeps small images at their natural size")
+    expect(snap.captureTileView(id: firstID) === shelf, "a newer inline or preview never replaces the shelf flight destination")
+    snap.removeTile(view: first)
+    expect(first.subviews.isEmpty && green(second) && green(shelf) && picture(preview) != nil, "removing one inline view preserves every sibling")
+    snap.removeTile(view: shelf)
+    expect(snap.captureTileView(id: firstID) == nil, "inline and preview pictures are never fallback capture destinations")
+    let replaced = view()
+    snap.installTile(id: "thumb:\(firstID)", view: replaced)
+    snap.installTile(id: "thumb:\(secondID)", view: replaced)
+    let removed = view(); snap.installTile(id: firstID, view: removed); snap.removeTile(view: removed)
+    drain()
+    let color = picture(replaced).flatMap { NSBitmapImageRep(cgImage: $0).colorAt(x: 20, y: 20)?.usingColorSpace(.deviceRGB) }
+    expect(color.map { $0.redComponent > 0.6 && $0.greenComponent < 0.25 && $0.blueComponent > 0.6 } == true,
+        "a stale first decode cannot overwrite the replacement view's image")
+    expect(replaced.subviews.count == 1 && removed.subviews.isEmpty, "queued replacement and removal do not resurrect old image views")
+    let ending = view(); snap.installTile(id: firstID, view: ending); snap.destroy(); drain()
+    expect(views.allSatisfy { $0.subviews.isEmpty }, "destroy removes every picture and ignores its pending decode")
+    expect(!host.isVisible, "tile checks never order a window or disturb an active app")
+    print("\(passed) off-screen AppKit repeated-image/crop/removal/stale-completion checks passed")
+}

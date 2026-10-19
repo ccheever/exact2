@@ -111,9 +111,9 @@ describe('sidebar drag and drop (planSidebarThreadDrop)', () => {
     expect(inserted).toEqual([]);
     sidebarSession(client).selection = ['t1', 't2'];
     await sidebarDrop(client, native, 't1', 'context|0|0|0|true');
-    expect(inserted.map(request => request.op)).toEqual(['editorInsert', 'editorInsert']);
+    expect(inserted.map(request => request.op)).toEqual(['editorInsert']);
     expect(String(inserted[0]!.text)).toContain('One');
-    expect(String(inserted[1]!.text)).toContain('Two');
+    expect(String(inserted[0]!.text)).toContain('Two');
   });
 });
 

@@ -23,8 +23,8 @@ enum T3BrowserArtifacts {
     static let maxSlugLength = 80
 
     /// DesktopEnvironment `browserArtifactsDir`: the local server's `<T3 home>/userdata/browser-artifacts`, else the data root's.
-    static func directory(dataRoot: URL?, environment: [String: String] = ProcessInfo.processInfo.environment, resources: URL? = Bundle.main.resourceURL) -> URL {
-        let policy = T3LocalPolicy.resolve(env: environment, packaged: T3LocalPolicy.packaged(resources: resources), home: NSHomeDirectory(),
+    static func directory(dataRoot: URL?, environment: [String: String] = ProcessInfo.processInfo.environment, bundleInfo: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> URL {
+        let policy = T3LocalPolicy.resolve(env: environment, packaged: T3LocalPolicy.packaged(info: bundleInfo), home: NSHomeDirectory(),
                                            accountHome: String(cString: getpwuid(getuid()).pointee.pw_dir))
         if case let .allowed(home, _, _, _) = policy { return home.appendingPathComponent("userdata", isDirectory: true).appendingPathComponent("browser-artifacts", isDirectory: true) }
         return (dataRoot ?? FileManager.default.temporaryDirectory).appendingPathComponent("browser-artifacts", isDirectory: true)

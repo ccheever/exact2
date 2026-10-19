@@ -116,15 +116,19 @@ async function setStorageSettings(this: T3Client, native: Native, scope: string,
   if (capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
   const input = obj(JSON.parse(text)), key = str(input.key), value = input.value;
   const booleans = ['worktreeOnDelete', 'worktreeOnMerge', 'worktreeUnchanged'];
-  const retention = ['worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
+  const retention = ['worktreeSettledAfterDays', 'worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
   if (key === 'mode') {
     if (!projectId || !['inherit', 'off', 'custom'].includes(str(value))) throw new ClientError('Unsupported worktree cleanup mode.');
+  } else if (key === 'worktreesDirectory') {
+    if (projectId || typeof value !== 'string') throw new ClientError('Worktree location belongs to the environment.');
+  } else if (key === 'worktreeKeepWhen') {
+    if (!['any-local-files', 'uncommitted-changes', 'tracked-changes'].includes(str(value))) throw new ClientError('Choose which local changes keep a worktree.');
   } else if (booleans.includes(key)) {
     if (typeof value !== 'boolean') throw new ClientError('Choose On or Off.');
   } else if (retention.includes(key)) {
-    if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 3650)) throw new ClientError('Retention must be between 1 and 3650 days.');
+    if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < (key === 'worktreeSettledAfterDays' ? 0 : 1) || value > 3650)) throw new ClientError('Retention must be between 1 and 3650 days.');
   } else throw new ClientError('Unsupported storage rule.');
-  if (projectId && !['mode', ...booleans, 'worktreeAfterDays'].includes(key)) throw new ClientError('Artifact and log retention belongs to the environment.');
+  if (projectId && !['mode', ...booleans, 'worktreeKeepWhen', 'worktreeSettledAfterDays', 'worktreeAfterDays'].includes(key)) throw new ClientError('Artifact and log retention belongs to the environment.');
   const settings = await this.request(native, 'server.getSettings', {});
   let patch: Obj;
   if (projectId) {
@@ -138,7 +142,7 @@ async function setStorageSettings(this: T3Client, native: Native, scope: string,
       current.worktreeCleanup = { mode: 'custom', rules: { ...effectiveWorktreeRules(settings, current), [key]: value } };
     }
     patch = { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
-  } else patch = { storageCleanup: { ...obj(settings.storageCleanup), [key]: value } };
+  } else patch = key === 'worktreesDirectory' ? { worktreesDirectory: str(value).trim() } : { storageCleanup: { ...obj(settings.storageCleanup), [key]: value } };
   const result = await this.request(native, 'server.updateSettings', { patch }, this.generation, true);
   this.config = { ...this.config, settings: result }; this.error = '';
 }

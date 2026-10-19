@@ -67,13 +67,14 @@ export const SIDEBAR_ICON = [
 /** timeline-icons.contract timelineIconGeometry: the timeline's glyphs (TimelineIcon draws a name it lacks
  *  with Icon). */
 export const TIMELINE_ICON = [
+  'at-sign', 'sparkles', 'mouse-pointer-2', 'git-pull-request', 'git-pull-request-draft', 'git-pull-request-closed', 'git-merge', 'file',
   'messages-square', ['skill', 'box'], 'film', 'square-terminal', 'mouse-pointer-click', own('image'),
   'circle-dashed', own('message-circle'), 'hammer', 'eye', 'square-pen', 'globe', 'wrench', 'bot', 'zap',
   ['minimize', 'minimize-2'], ['maximize', 'maximize-2'], 'arrow-right-left', 'chevrons-up-down',
   'chevrons-down-up', 'folder-open', 'folder-closed', ['check-mark', 'check'], ['redo', 'redo-2'], 'ellipsis',
   'download', 'quote', 'message-square', 'triangle-alert', ['list-collapse', 'list-chevrons-down-up'],
   ['device', 'smartphone'], 'loader-circle', 'minus', 'circle', 'chevron-down', 'chevron-right', 'code',
-  'workflow', 'external-link', 'arrow-up-right', 'arrow-right', 'alarm-clock', 'circle-check',
+  'workflow', 'external-link', 'arrow-up-right', 'arrow-right', 'alarm-clock', 'circle-check', 'shield-check',
 ];
 
 /** panel-icons.contract PanelIcon: the right panel's surfaces. */

@@ -897,7 +897,7 @@ export class Session {
     if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
     const target = str(request.path);
     if (!target || (str(request.method) || 'GET') !== 'GET' || request.body !== undefined) throw this.argument('The client HTTP interface is read-only.');
-    return this.ok(await this.http(target, { epoch: this.generation, large: true }));
+    return this.ok(await this.http(target, { epoch: this.generation, large: true, long: request.long === true }));
   }
 
   private async uploadAttachment(request: Obj): Promise<Reply> {

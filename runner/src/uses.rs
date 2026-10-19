@@ -289,6 +289,7 @@ pub fn uses(plan: &Plan) -> Uses {
     for binding in &plan.bindings {
         match binding.kind {
             BindingKind::Prop => match PropId::from_wire(binding.id) {
+                Some(PropId::Decorations) => uses = uses.with(Capability::Markdown),
                 Some(PropId::Markup) if can_be(binding, &|v| v == "markdown") => {
                     uses = uses.with(Capability::Markdown);
                 }
@@ -528,6 +529,7 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
                     ) => format = true,
                     Some(
                         Stdlib::Frame
+                        | Stdlib::RangeFrame
                         | Stdlib::Measure
                         | Stdlib::ElementFromPoint
                         | Stdlib::ElementsFromPoint

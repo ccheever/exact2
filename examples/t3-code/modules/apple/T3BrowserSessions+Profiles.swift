@@ -13,7 +13,7 @@ import WebKit
 /// - `browserImportContext`, `browserImportIO`, `browserImportOpenSettings`: the import's reads (T3BrowserImportIO.swift);
 ///   `browserImportProgress`: a redraw while the wizard's command runs.
 extension T3BrowserSessions {
-    static let importIO = T3BrowserImportIO(policy: T3BrowserImportIO.resolve(env: ProcessInfo.processInfo.environment, packaged: T3LocalPolicy.packaged(resources: Bundle.main.resourceURL)))
+    static let importIO = T3BrowserImportIO(policy: T3BrowserImportIO.resolve(env: ProcessInfo.processInfo.environment, packaged: T3LocalPolicy.packaged()))
 
     /// The profile ops; false for any other op.
     func performProfiles(_ request: [String: Any], reply: ExactReply) -> Bool {

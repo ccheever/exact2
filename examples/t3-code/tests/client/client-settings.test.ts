@@ -283,7 +283,7 @@ test('storage cleanup validates capability, retention and stale checkout before 
   const overrides = obj(obj(native.config.settings).projectSettingsOverrides);
   expect(obj(overrides.p1).defaultRuntimeMode).toBe('full-access');
   expect(obj(overrides.sibling).defaultRuntimeMode).toBe('approval-required');
-  expect(obj(obj(overrides.p1).worktreeCleanup)).toEqual({ mode: 'custom', rules: { worktreeAfterDays: 12, worktreeOnDelete: false, worktreeOnMerge: false, worktreeUnchanged: false } });
+  expect(obj(obj(overrides.p1).worktreeCleanup)).toEqual({ mode: 'custom', rules: { worktreeAfterDays: 12, worktreeOnDelete: false, worktreeOnMerge: false, worktreeUnchanged: false, worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null } });
   expect((await storageSettings(client, native, 'env1', 'p1', true)).worktrees.find(rule => rule.key === 'worktreeAfterDays')?.days).toBe('12');
   expect((await change('env1:p1', 'mode', 'inherit')).message).toBe('');
   expect(obj(obj(obj(native.config.settings).projectSettingsOverrides).p1).worktreeCleanup).toBeUndefined();

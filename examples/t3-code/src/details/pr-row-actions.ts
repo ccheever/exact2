@@ -170,14 +170,14 @@ function draftChips(client: object, prompt: string): HandoffComment[] {
  * writeTaskToComposer over a draft: the latest press is the ask — it takes over what an earlier
  * hand-off left, prompt and chips both, and what the reader typed themselves survives. Returns the prompt.
  */
-export function writeTaskToDraft(client: T3Client, draftKey: string, task: HandoffTask): string {
-  const state = prState(client), prompt = client.local.drafts[draftKey] ?? '';
+export function writeTaskToDraft(client: T3Client, draftKey: string, task: HandoffTask, commit = true, source = client.local.drafts[draftKey] ?? ''): string {
+  const state = prState(client), prompt = source;
   const existing = draftChips(client, prompt), incoming = task.reviewComments ?? [];
   const previousIds = new Set(existing.map(comment => comment.id));
   const repeated = new Set(incoming.filter(comment => previousIds.has(comment.id)).map(comment => comment.id));
   let next = handoffPrompt({ prompt: stripPullRequestHandoffReferences(prompt, existing, repeated), lastHandoffPrompt: state.lastHandoff.get(draftKey) }, task.prompt);
   // Only the hand-off's own sentence is this session's to take back next time.
-  state.lastHandoff.set(draftKey, task.prompt);
+  if (commit) state.lastHandoff.set(draftKey, task.prompt);
   next = setReviewCommentLinks(next, existing, handoffReviewComments(existing, incoming));
   for (const comment of incoming) if (repeated.has(comment.id)) next = appendInlineContextReference(next, chipLink(comment));
   for (const comment of incoming) {
@@ -185,7 +185,7 @@ export function writeTaskToDraft(client: T3Client, draftKey: string, task: Hando
     chipsOf(client).set(str(record.contextId), comment);
     rememberReviewCommentRecord(client, record);
   }
-  client.local.drafts[draftKey] = next;
+  if (commit) client.local.drafts[draftKey] = next;
   return next;
 }
 const NO_THREAD = { kind: 'error' as const, title: 'Could not open a thread', description: 'Try again from the project, or open a thread first.' };

@@ -311,7 +311,7 @@ describe('review summary guidance', () => {
     expect(placeholder('comment', 1, false)).toBe('Summarize your review (optional)');
     expect(placeholder('request-changes', 1, true)).toBe('Summarize your review (required to request changes)');
     const form = contractComponent('pages-pr-compose.contract', 'PrdComposer');
-    const scope = { scope: 'review', writes: { verdicts: ['comment'], pendingCount: 0, summaryRequired: false, reviewPending: false, canComment: true, commentDraft: '', commentSerial: 0, summary: '', reviewSerial: 0, submitting: '', actionPending: false } };
+    const scope = { scope: 'review', reviewRequest: 0, writes: { verdicts: ['comment'], pendingCount: 0, summaryRequired: false, reviewPending: false, canComment: true, commentDraft: '', commentSerial: 0, summary: '', reviewSerial: 0, submitting: '', actionPending: false } };
     const state = { ...form.state(scope), mode: 'review' };
     expect(form.drawn('select value=chosen', state, scope)).toBe(false);
     scope.writes.verdicts.push('approve');

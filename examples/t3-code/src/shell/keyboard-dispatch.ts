@@ -1,3 +1,4 @@
+import { focusedDiffFind } from '../diff/diff-find';
 // Keybinding dispatch for every reference command this client has a
 // counterpart for. The server's resolved keybindings (keybindings.json plus
 // defaults) decide each chord; `when` clauses evaluate against this window's
@@ -29,7 +30,7 @@ export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; 
   /** The preview's chords, which the module answers while the preview has the focus. */
   previewFocus?: boolean;
   /** A terminal close confirm is open (the window's confirmOp is a terminal close). */
-  terminalClosePending?: boolean };
+  terminalClosePending?: boolean; findPanelKind?: string; prCodeOpen?: boolean };
 type Rule = { command: string; chord: string; whenAst: unknown };
 
 const NAMED: Record<string, string> = { ' ': 'Space', space: 'Space', escape: 'Escape', esc: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', backspace: 'Backspace', delete: 'Delete', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End', '+': 'Plus' };
@@ -125,6 +126,7 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   if (context.modalOpen && !context.settingsOpen) return [];
   // Settings… (⌘,) opens Settings on General from anywhere in the main window.
   out.push({ id: 'settings.open', command: 'settings.open', chord: 'Meta+,', kind: 'settings', target: 'general', extra: '', label: 'Settings' });
+  add('view.reopenClosed', 'panel-reopen', '', 'Reopen Closed Tab');
   if (context.settingsOpen) {
     // The settings page is the router's other location; Back leaves it.
     add('navigation.back', 'back', '', 'Back');
@@ -136,6 +138,10 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     return out;
   }
   overlays();
+  const focusedFind = !context.composerFocus && context.diffOpen ? focusedDiffFind(client) : null;
+  const find = focusedFind && (focusedFind.slot === 'panel' ? context.findPanelKind === undefined || context.findPanelKind === 'diff' : context.prCodeOpen !== false && (context.findPanelKind === undefined || context.findPanelKind === 'pull-request' || !!context.prNumber)) ? focusedFind : null;
+  if (find) add('chat.find', 'command', find.slot === 'pr' ? 'chatlocal:pr-code-find-open' : 'chatlocal:diff-find-open', 'Find in Diff', find.reference);
+  else if (client.threadId) add('chat.find', 'command', 'chatlocal:find-open', 'Find in Thread');
   for (const row of MAIN_ROWS) row(add, client, threads, browseProvider, modelQuery, context);
   return out;
 }
@@ -237,6 +243,7 @@ function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePro
   // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too.
   const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // the active surface tab first
   if (closing) add('rightPanel.close', closing[0], closing[1], 'Close Right Panel');
+  add('rightPanel.new', 'panel-new', '', 'New Right Panel Tab');
   add('rightPanel.toggle', 'diff', '', 'Toggle Right Panel'); // a draft's panel toggles too (ChatView toggleRightPanel)
   // threadPanel.toggle: ChatView's toggleThreadPanel, for the open thread or draft (no ChatView under a utility page).
   if (!context.page && (client.threadId || client.projectId)) add('threadPanel.toggle', 'details', '', 'Toggle Thread Details');
@@ -273,5 +280,5 @@ export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispa
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
     paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || ''),
-    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')) });
+    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined });
 }

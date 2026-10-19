@@ -156,7 +156,7 @@ describe('desktop presentation and model options', () => {
     expect(client.diffError).toContain('No completed checkpoint');
   });
 
-  test('model browsing and search are read-only; choosing another provider commits one selection', async () => {
+  test('model browsing is read-only, favorites use environment settings, and choosing commits one selection', async () => {
     const { client, native, command, disk: store } = await opened();
     client.config.providers = [...arr(client.config.providers), { instanceId: 'second', driver: 'codex', displayName: 'Other account', enabled: true,
       installed: true, auth: { status: 'authenticated' }, status: 'ready', models: [{ slug: 'other-model', name: 'Other Model' }] }];
@@ -164,9 +164,11 @@ describe('desktop presentation and model options', () => {
     expect(modelCatalog(client, 'second', '').models.map(model => model.id)).toEqual(['other-model']);
     expect(client.providerId).toBe(initial);
     expect(modelCatalog(client, initial, 'other account model').models.map(model => model.id)).toEqual(['other-model']);
+    native.config.providers = client.config.providers; // The server advertises the same refreshed catalog.
     await command('favorite-model', 'second', 'other-model');
     expect(modelCatalog(client, 'favorites', '').models.map(model => model.id)).toEqual(['other-model']);
-    expect(store.data().favoriteModels).toEqual([JSON.stringify(['second', 'other-model'])]);
+    expect(store.data().favoriteModels).toEqual([]);
+    expect(obj(native.config.settings).favorites).toEqual([{ provider: 'second', model: 'other-model' }]);
     const before = native.committed.length;
     await command('model', 'other-model', 'second');
     expect(native.committed.slice(before)).toEqual([expect.objectContaining({ type: 'thread.model-selection.set',

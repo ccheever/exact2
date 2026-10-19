@@ -1,5 +1,7 @@
+import { threadFindEvent } from '../timeline/thread-find-runtime';
 import { requireRpcPermissions } from '../connections/command-permissions';
 import { snapshotShortcut } from '../snapshot/snapshot-shortcut';
+import { commandOutputEvent } from '../timeline/command-output';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from '../snapshot/snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { decodeCustomThemes, type CustomTheme } from '../appearance/settings-themes';
@@ -27,7 +29,7 @@ import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/
 import { routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
-import { groupLabel } from '../sidebar/project-groups';
+import { groupLabel, repositoryGroupingKey } from '../sidebar/project-groups';
 import { adoptModelPrefs } from '../providers/settings-b-models';
 import { type RequestDraft } from '../composer/requests';
 import { DiffState, DIFF_LOCAL_OPS } from '../diff/diff';
@@ -35,6 +37,7 @@ import { TELEMETRY_KEY, telemetryEvent } from '../settings/settings-a-telemetry'
 import { mostRecentProjectId } from '../pages/pages-home';
 import { landHome, settleHome, type HomeTarget } from '../pages/home-landing';
 import { adoptPagesPrefs } from '../pages/pages-prefs';
+import { adoptClosedViews } from '../panel/closed-views';
 import { adoptShellPrefs } from '../shell/shell-prefs';
 import { adoptFilesPrefs } from '../panel/files-prefs';
 import { adoptSidebarWidth } from '../sidebar/sidebar-width';
@@ -227,7 +230,7 @@ export class T3Client {
       adoptStash(next, saved); // the prompt stash (composer-editor-stash.ts)
       adoptComposerFiles(next, saved); // folded pastes (composer-editor-files.ts)
       adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
-      adoptShellPrefs(next, saved); // notice dismissals and closed workspace cards (shell-prefs.ts)
+      adoptShellPrefs(next, saved); adoptClosedViews(next, saved); // notice dismissals and closed workspace cards (shell-prefs.ts)
       adoptBrowserPrefs(next, saved); // the Browser's profiles and the defaults a new tab opens with (browser-defaults.ts)
       adoptFilesPrefs(next, saved); // Files explorer and render preferences (files-prefs.ts)
       adoptBrowserHistory(next, saved); // the Browser tab's history (browser-history.ts)
@@ -526,6 +529,7 @@ export class T3Client {
           break;
         }
         through = Math.max(through, seq);
+        if (threadFindEvent(this, entry)) continue;
         if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); samples++; continue; } // settings-a-telemetry.ts
         if (key === WORKTREE_SETUP_KEY) { worktreeSetupEvent(this, entry); continue; } // timeline-worktree.ts
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
@@ -533,7 +537,7 @@ export class T3Client {
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // device-surface.ts: the device hub state
         if (isDiscoveredServersKey(key)) { discoveredServersEvent(this, entry); continue; } // browser-targets.ts: subscribeDiscoveredLocalServers
-        if (providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
+        if (commandOutputEvent(this, entry) || providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
         if (key === PREVIEW_AUTOMATION_KEY || key === PREVIEW_EVENTS_KEY) { previewStreamEvent(this, entry); continue; } // browser-automation.ts: agent requests, preview events
@@ -675,7 +679,7 @@ export class T3Client {
     const routeReorder = op === 'environment-route-move' && value.includes('\n') ? n : 0;
     if (!native?.available) return { routeReorder, relaunch: false, revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
     // Update-everything targets outlive the dialog and later UI commands.
-    const local = op.startsWith('ue:') || op.startsWith('sidebar:ue:') || ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
+    const local = op.startsWith('ue:') || op.startsWith('sidebar:ue:') || ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('secretlocal:') || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     if (!local) {
@@ -749,7 +753,7 @@ export class T3Client {
     for (const project of this.shell.projects) {
       const physical = `${this.environmentId}:${projectPath(project.workspaceRoot)}`;
       const mode = this.local.groupingOverrides[physical] || this.local.groupingMode;
-      const identity = obj(project.repositoryIdentity), canonical = str(identity.canonicalKey), root = projectPath(identity.rootPath), path = projectPath(project.workspaceRoot);
+      const identity = obj(project.repositoryIdentity), canonical = repositoryGroupingKey(identity), root = projectPath(identity.rootPath), path = projectPath(project.workspaceRoot);
       const relative = root && path.startsWith(root + '/') ? path.slice(root.length + 1) : '';
       const key = mode === 'separate' || !canonical ? physical : canonical + (mode === 'repository_path' && relative ? `::${relative}` : '');
       const members = byKey.get(key) || []; members.push(project); byKey.set(key, members);
@@ -942,12 +946,12 @@ export class T3Client {
     if (op === 'delete-archived-thread') delete this.local.drafts[`${this.environmentId}:${id}`];
   }
 
-  async history(native: Native): Promise<void> {
+  async history(native: Native, throughEntryId = ''): Promise<void> {
     if (!this.thread?.hasMore || !this.thread.historyCursor || this.historyLoading) return;
     const epoch = this.threadEpoch, id = this.threadId, cursor = this.thread.historyCursor;
     this.historyLoading = true;
     try {
-      const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}`);
+      const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}${throughEntryId ? `&throughEntryId=${encodeURIComponent(throughEntryId)}` : ''}`);
       if (epoch === this.threadEpoch && id === this.threadId && this.thread?.historyCursor === cursor) this.thread = mergeHistory(this.thread, page);
     } finally { this.historyLoading = false; }
   }
