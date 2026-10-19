@@ -830,6 +830,14 @@ exact-game.workspace = true
 exact-game-bake.workspace = true
 `);
     runAll('authored logic/Cargo.toml');
+    // test-rust bakes art/ to disk; what it writes is never committable.
+    const git = args => spawnSync('git', args, {cwd:app, env, encoding:'utf8'});
+    git(['init', '-q']);
+    const tested = spawnSync(process.execPath, [resolve(import.meta.dir, 'app/shells.mjs'), app, '--test'], {cwd:elsewhere, env, encoding:'utf8'});
+    assert.equal(tested.status, 0, tested.stderr);
+    assert.ok(existsSync(resolve(app, 'assets/crate.model')) && existsSync(resolve(app, '.baked-assets.json')), 'test-rust baked art/');
+    const listed = git(['status', '--porcelain', '--untracked-files=all']).stdout.split('\n').filter(Boolean);
+    assert.deepEqual(listed.filter(line => /assets\/|\.baked-assets\.json/.test(line)), [], listed.join('\n'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 }, 1800000);
 

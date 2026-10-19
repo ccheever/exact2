@@ -13,8 +13,8 @@ impl Game for Reef {
     fn actions() -> Actions { Actions::new().button("eat", &["KeyE"]).button("dive", &["Space"]) }
     fn setup(w: &mut World, _: &()) {
         w.sounds([
-            // A bubble's pop: a short sine gliding up an octave and a half.
-            ("pop", Synth::sine(420.).slide(18.).decay(0.08).seconds(0.12)),
+            // A bubble's pop: a short sine gliding up a fifth (58 semitones a second for 0.12 s).
+            ("pop", Synth::sine(420.).slide(58.).decay(0.08).seconds(0.12)),
             // A splash: filtered noise with a soft attack and a long tail.
             ("splash", Synth::noise().lowpass_hz(1800.).attack(0.01).decay(0.4).seconds(0.6).gain(0.4)),
             // A chime: two voices a fifth apart, each enveloped on its own.

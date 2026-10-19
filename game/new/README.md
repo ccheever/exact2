@@ -57,6 +57,8 @@ Run the Rust tests, from a fresh clone too, with
 resolves against the SDK's lock offline and locked, and checks the SDK's
 determinism lints (exact2's `game/README.md`, "Determinism — the contract").
 To depend on another crate, write `logic/Cargo.toml` (`package.workspace =
-"../.shells"`, SDK crates as `exact-game.workspace = true`), then capture
+"../.shells"`, SDK crates as `exact-game.workspace = true`; a game with `art/`
+also needs `[dev-dependencies]` `exact-game-bake.workspace = true` for
+`sim_with_art!`), then capture
 this game's own lock with `bun /path/to/exact2/game/app/shells.mjs . --update-lock`
 and commit `Cargo.lock`.

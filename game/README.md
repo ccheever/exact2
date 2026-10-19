@@ -51,7 +51,8 @@ snapshot `321055e1` (2026-09-21). The original checkout remains intact.
 Run these commands from the Exact2 repository root. With the pinned Bun and rustup
 installed, `bun scripts/exact.mjs setup` installs the SDK's Rust toolchains,
 wasm-bindgen, Binaryen and Bun dependencies, and builds the engine rustdoc that
-`exact game vocab <name>` reads, so a first lookup answers at once. `setup --check` diagnoses missing or
+`exact game vocab <name>` reads, so a first lookup skips that cold build (seconds, not
+minutes). `setup --check` diagnoses missing or
 mismatched tools. See [offline setup](#offline-setup) for populating Cargo's cache.
 
 ```sh

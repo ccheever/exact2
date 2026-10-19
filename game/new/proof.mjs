@@ -10,7 +10,7 @@
 // clock: advance deterministic ticks; settle reports what keeps moving.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
-import { proof, axNames } from '../../proof.mjs';
+import { proof, axNames, drawnShare } from '../../proof.mjs';
 
 // How a fresh session reaches the running world: change it with the title screen.
 const play = async session => {
@@ -39,10 +39,11 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const world = await play(first);
   pin(0, await world.snapshot());
   await world.run(500);
-  if (host !== 'linux') await first.screenshot(resolve(out, 'game.png'));
-  if (host === 'web') {
-    const perf = (await first.state()).world?.[0]?.perf;
-    check('the GPU host presents a first frame of the world', Number.isFinite(perf?.firstFrameMs), perf);
+  // The GPU-less Linux host draws no world; every other host's screenshot must.
+  if (host !== 'linux') {
+    await first.screenshot(resolve(out, 'game.png'));
+    const share = drawnShare(readFileSync(resolve(out, 'game.png')));
+    check('the GPU host draws the world, not a cleared canvas', share > 0.1, {drawn:share});
   }
   await world.save(resolve(out, 'checkpoint.world'));
   const checkpoint = await world.snapshot();
@@ -93,6 +94,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('movement and light', position[0] > 0.5 && beacon.lit);
   check('publication reaches HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 1');
   check('lit beacon hides prompt', !node(await s.tree(), 'near-prompt'));
+  await game.save(resolve(out, 'lit.world'));
   await s.tap('pause');
   check('pointer Pause releases focus', node(await s.tree(),'pause')?.focused !== true);
   await s.type('pause',{key:'Space'});
@@ -109,6 +111,10 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.settle();
   check('prompt disappears outside range', !node(await s.tree(), 'near-prompt'));
   await s.close();
+  const relit = await open({fresh:true, world:resolve(out, 'lit.world')});
+  const relitGame = await play(relit);
+  check('a fresh process restores the lit beacon and its HUD', (await relitGame.get('beacon-1', 'Beacon')).lit && node(await relit.tree(), 'hud-lit')?.props.text === 'Lit 1');
+  await relit.close();
   const pointerSession = await open({fresh:true});
   await pointerSession.tap('play');
   await pointerSession.tap('pause'); await pointerSession.tap('pause');

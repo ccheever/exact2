@@ -11,10 +11,9 @@ struct Tank;
 impl Game for Tank {
     const ID: &'static str = "recipe-emitter";
     type Args = ();
-    fn actions() -> Actions { Actions::new().button("splash", &["Space"]) }
+    fn actions() -> Actions { Actions::new().button("splash", &["Space"]).button("row", &["KeyD"]) }
     fn setup(w: &mut World, _: &()) {
-        // Bubbles: small, translucent, rising against drag. Ambient keeps a
-        // steady stream from holding `clock settle` awake.
+        // Bubbles: small, translucent, rising against drag.
         w.spawn_named("bubbler", (Transform::default(), Ambient, Emitter {
             shape: Shape::Sphere(0.2), rate: 8., lifetime: 3., speed: 0.3, spread: 0.3,
             gravity: Vec3::new(0., 0.6, 0.), drag: 1.5, size: [0.05, 0.12],
@@ -31,15 +30,19 @@ impl Game for Tank {
         w.spawn_named("splash", (Transform::default(), Emitter { rate: 0., ..Emitter::sparks() }));
     }
     fn tick(w: &mut World, input: &Input, _: &()) {
-        let dt = w.dt();
-        w.require_mut::<Transform>("boat").position.x += 2. * dt;
+        // The boat moves, and leaves a wake, only while rowed.
+        let (rowing, dt) = (input.held("row"), w.dt());
+        if rowing { w.require_mut::<Transform>("boat").position.x += 2. * dt; }
+        if w.require::<Emitter>("boat").running != rowing {
+            w.require_mut::<Emitter>("boat").running = rowing;
+        }
         if input.pressed("splash") {
             w.require_mut::<Emitter>("splash").state.burst += 12;
         }
     }
 }
 let mut sim = Sim::<Tank>::new(()).unwrap();
-sim.run(2000.);
+sim.hold("KeyD", 2000.);
 let (hz, w) = (sim.world().hz(), sim.world());
 let mut highest = f32::MIN;
 w.require::<Emitter>("bubbler").particles(hz, 1., |p| highest = highest.max(p.position.y));
@@ -52,8 +55,14 @@ assert_eq!(w.require::<Emitter>("splash").state.alive, 0);
 sim.tap("Space");
 sim.run(20.);
 assert_eq!(sim.world().require::<Emitter>("splash").state.alive, 12);
+// Once the boat stops and the wake and splash have died away, the clock rests: the
+// bubbles are Ambient.
+assert!(sim.settle());
 ```
 
+- A running emitter changes every tick, so `clock settle` waits on it: mark a stream
+  that never stops `Ambient`, stop one that belongs to motion (`running = false`), and
+  a burst settles once its particles die.
 - `gravity` is per emitter and may point up; `drag` damps `speed` and `gravity` alike.
 - Without `WorldSpace` the whole stream moves with its entity: right for a torch's
   flame, wrong for a trail. A particle's `position` is then local.

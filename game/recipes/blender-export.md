@@ -63,5 +63,6 @@ assert!(export_problems("tank.model", &clean).is_empty());
 
 - `MeshData.colors` empty means white; only a present, black attribute darkens.
 - Units: glTF is metres. An asset whose `extras.metersPerUnit` is set is scaled by it.
-- The bake's refusals are in [bake](../bake/README.md); this fragment is an engine
-  doc-test.
+- `game/bake/tests/game_art.rs` bakes a double-sided and a black-`COLOR_0` glTF through
+  the same in-memory bake and reads back the two fields this check reads. The bake's
+  refusals are in [bake](../bake/README.md); this fragment is an engine doc-test.

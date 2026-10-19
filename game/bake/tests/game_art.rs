@@ -85,9 +85,10 @@ fn the_memory_bake_is_byte_for_byte_what_bake_art_writes() {
     walk(&game.join("assets"), &game.join("assets"), &mut written);
     assert!(memory.contains_key("crate.model") && memory.contains_key("tone.sound"));
     assert_eq!(memory, written);
-    assert!(exact_game_bake::art(temp("no-art").join("missing"))
-        .unwrap()
-        .is_empty());
+    let empty = temp("no-art");
+    fs::remove_dir_all(empty.join("art")).unwrap();
+    assert!(exact_game_bake::art(&empty).unwrap().is_empty());
+    fs::remove_dir_all(empty).unwrap();
     fs::remove_dir_all(game).unwrap();
 }
 
@@ -118,5 +119,51 @@ fn a_changed_sound_refuses_the_old_save_by_name() {
         refused.contains("asset `hum.sound` identity differs"),
         "{refused}"
     );
+    fs::remove_dir_all(game).unwrap();
+}
+
+// game/recipes/blender-export.md: the two export faults the bake passes through, as a
+// Blender export writes them, read back from the in-memory bake.
+#[test]
+fn a_double_sided_material_and_black_vertex_colours_bake_as_exported() {
+    let game = temp("blender");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let source: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fixtures.join("crate.gltf")).unwrap()).unwrap();
+    // Backface Culling unticked: the exporter writes doubleSided.
+    let mut sided = source.clone();
+    sided["materials"][0]["doubleSided"] = serde_json::json!(true);
+    fs::write(game.join("art/sided.gltf"), sided.to_string()).unwrap();
+    // A part joined without a colour attribute: COLOR_0 is (0, 0, 0, 1) on its 24 vertices.
+    let black: Vec<u8> = [0f32, 0., 0., 1.]
+        .repeat(24)
+        .iter()
+        .flat_map(|f| f.to_le_bytes())
+        .collect();
+    fs::write(game.join("art/joined.bin"), &black).unwrap();
+    let mut joined = source;
+    joined["buffers"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"byteLength": black.len(), "uri": "joined.bin"}));
+    joined["bufferViews"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"buffer": 1, "byteLength": black.len()}));
+    joined["accessors"].as_array_mut().unwrap().push(
+        serde_json::json!({"bufferView": 4, "componentType": 5126, "count": 24, "type": "VEC4"}),
+    );
+    joined["meshes"][0]["primitives"][0]["attributes"]["COLOR_0"] = serde_json::json!(4);
+    fs::write(game.join("art/joined.gltf"), joined.to_string()).unwrap();
+    let art = exact_game_bake::art(&game).unwrap();
+    let model = |name: &str| exact_game::bin::from_slice::<asset::Model>(&art[name]).unwrap();
+    let (sided, joined) = (model("sided.model"), model("joined.model"));
+    assert!(sided.materials[0].double_sided);
+    assert!(
+        sided.meshes[0].colors.is_empty(),
+        "no attribute draws white"
+    );
+    assert!(!joined.materials[0].double_sided);
+    assert_eq!(joined.meshes[0].colors, [0., 0., 0., 1.].repeat(24));
     fs::remove_dir_all(game).unwrap();
 }

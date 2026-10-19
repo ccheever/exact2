@@ -47,6 +47,9 @@ let saved = sim.save().unwrap();
 let mut restored = Sim::<Arena>::new(()).unwrap();
 restored.restore(&saved).unwrap();
 assert_eq!(restored.world().require::<Tint>("crab").emissive[0], flash);
+for s in [&mut sim, &mut restored] { s.run(50.); }
+assert_eq!(restored.world().require::<Tint>("crab").emissive[0],
+    sim.world().require::<Tint>("crab").emissive[0], "the restored flash fades as the original does");
 sim.run(500.);
 assert!(sim.world().get::<Tint>("crab").is_none(), "the flash is over");
 ```

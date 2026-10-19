@@ -365,6 +365,7 @@ export function binaryenArchive(version, os = process.platform, cpu = process.ar
 
 /** Install the versions declared by the SDK, once per machine. */
 export function setup({check = false} = {}) {
+  let vocabFailure = null;
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const version = BINARYEN.replace(' ', '_');
@@ -420,15 +421,16 @@ export function setup({check = false} = {}) {
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
     if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
-    // `game vocab` reads the engine's rustdoc; built here, its first lookup answers at once.
+    // `game vocab` reads the engine's rustdoc; built here, a first lookup skips the cold build.
     console.log('cargo rustdoc -p exact-game (for exact game vocab)');
     try { gameVocabulary(); }
-    catch (error) { console.error(`exact setup: game vocab was not prepared, so its first lookup builds it: ${error.message.split('\n')[0]}`); }
+    catch (error) { vocabFailure = error.message.trim().split('\n').slice(-3).join('\n'); }
   }
   const report = sdkReport();
   printReport(report);
   const missing = report.filter(row => row.required && !row.ok);
   if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
+  if (vocabFailure) throw new Error(`the engine rustdoc for game vocab did not build:\n${vocabFailure}`);
   // "Ready" is said only of what is: a row some apps need is named with the apps it holds back.
   const needed = report.filter(row => !row.ok);
   console.log(needed.length

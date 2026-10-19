@@ -53,6 +53,12 @@ assert!(eye.x < -5., "the camera is now beside the player: {eye}");
 sim.hold("KeyW", 500.);
 let walked = sim.local_position("player").unwrap() - before;
 assert!(walked.x > 1.5 && walked.z.abs() < 0.01, "W walks away from the camera: {walked}");
+// A restore resumes the same view: the orbit is saved, so W still walks the same way.
+let saved = sim.save().unwrap();
+let mut restored = Sim::<Third>::new(()).unwrap();
+restored.restore(&saved).unwrap();
+for s in [&mut sim, &mut restored] { s.hold("KeyW", 200.); }
+assert_eq!(restored.local_position("camera"), sim.local_position("camera"));
 ```
 
 - Keep yaw and elevation in a saved, registered resource: a restore resumes the

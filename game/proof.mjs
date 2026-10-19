@@ -9,6 +9,7 @@ import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
+import { decodePng } from '../scripts/png.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
 export function formatProofError(error) {
@@ -648,7 +649,9 @@ export async function paranoidRuns(run, restore = async () => 0, host = 'web') {
 }
 
 export function proofCommand(script, ...args) {
-  return ['bun', relative(process.cwd(), script), ...args]
+  // From the filesystem root a relative path would read as a bare name (`Users/…`).
+  const cwd = process.cwd(), path = dirname(cwd) === cwd ? script : relative(cwd, script);
+  return ['bun', path, ...args]
     .map(value => /^[a-zA-Z0-9_./-]+$/.test(value) ? value : "'"+value.replaceAll("'", "'\\''")+"'").join(' ');
 }
 // Both whole-app state and targeted world snapshots are observations.
@@ -658,6 +661,26 @@ export function worldObservations(observations, session) {
     for (const world of worlds) if (world?.hash && Number.isSafeInteger(world.tick))
       observations.set(session, {session, tick:world.tick, hash:world.hash});
   };
+}
+
+/** Whether a screenshot shows a drawn world, not a cleared canvas under a HUD: the
+ * share of pixels further than `tolerance` (per channel, 0–255) from its most common
+ * colour, which a cleared canvas takes. A HUD over a cleared canvas covers a few
+ * percent; a lit scene most of the frame. */
+export function drawnShare(png, tolerance = 8) {
+  const {data} = decodePng(png), counts = new Map();
+  for (let i = 0; i < data.length; i += 4) {
+    const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let clear = 0, most = -1;
+  for (const [key, n] of counts) if (n > most) { most = n; clear = key; }
+  const [r, g, b] = [clear >> 16, (clear >> 8) & 255, clear & 255];
+  let drawn = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (Math.max(Math.abs(data[i] - r), Math.abs(data[i + 1] - g), Math.abs(data[i + 2] - b)) > tolerance) drawn++;
+  }
+  return drawn / (data.length / 4);
 }
 
 /** The game a proof script checks: `--app <dir>`, else the nearest directory at or
