@@ -844,9 +844,11 @@ list is unchanged: it keeps its own.
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
 - **An import is read in a process of its own** (*1.13*, stage 10b), one at a time, never in the
-  design's server: a source that takes more than about 1 GiB to read answers 413, one that takes
-  more than 10 s answers 503, each "the source is too costly to read". Within that, one import's
-  work is bounded too (references, groups and aliases that multiply are refused).
+  design's server: a source that takes more than about 1 GiB or 10 s to read, or whose review is
+  over 2 MiB, answers 413 or 503, "the source is too costly to read". With four imports already
+  waiting, or after 30 s waiting, an import answers 503 ("imports are busy"). Within that, the
+  DTCG importer's and re-import's work is bounded too (references, groups and aliases that multiply
+  are refused).
 - **A re-import's dials and pins** (*1.13*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
   changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
   in every context where that dial line wins, proposes `set-dial` for that dial instead of a literal

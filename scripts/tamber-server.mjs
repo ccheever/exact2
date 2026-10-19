@@ -95,7 +95,7 @@ import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMa
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
-import { planAlone } from './tamber-isolate.mjs';
+import { planAlone, sourcesOf } from './tamber-isolate.mjs';
 import { importReview, marked } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
@@ -1119,7 +1119,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // out, is kept, or is the design's own (stage 10b). Held on the design text it was planned and marked on, else planned again.
     for (let tries = 0; ; tries++) {
       // (planned in a process of its own, watched: scripts/tamber-isolate.mjs)
-      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, designPath(appDir) ?? resolve(appDir, design), importLimits);
+      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, designPath(appDir) ?? resolve(appDir, design), importLimits, appDir);
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
       const { ops, review } = importReview(planned.ok);
       if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
@@ -1467,11 +1467,12 @@ export async function importTheme(argv) {
   const words = argv.filter((a, i) => !a.startsWith('-') && !['--app', '--prefix'].includes(argv[i - 1]));
   const [kind, source, base] = words;
   if (!kind || !source || !base) { console.error('usage: bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>] [--prefix <prefix>]'); return 2; }
-  const args = ['run', '-q', '-p', 'contract', '--', 'tamber', 'import', kind, resolve(source), '--app', resolve(at('--app') ?? '.'), ...(at('--prefix') ? ['--prefix', at('--prefix')] : [])];
-  const r = spawnSync('cargo', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
-  if (r.error) { console.error(`tamber import: cargo: ${r.error.message}`); return 1; }
-  if (r.status !== 0) { process.stderr.write(r.stderr ?? ''); return r.status ?? 1; }
-  const imported = JSON.parse(r.stdout);
+  // Planned here, watched as the wire's imports are (scripts/tamber-isolate.mjs); Astryx resolves its package with a Bun install, through its CLI, in a time limit.
+  const app = resolve(at('--app') ?? '.'), args = ['run', '-q', '-p', 'contract', '--', 'tamber', 'import', kind, resolve(source), '--app', app, ...(at('--prefix') ? ['--prefix', at('--prefix')] : [])];
+  const r = kind === 'astryx' ? spawnSync('cargo', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20, timeout: 120_000 }) : null;
+  const planned = r ? (r.status === 0 ? { ok: JSON.parse(r.stdout) } : { error: { message: r.error?.message ?? r.stderr ?? 'failed' } }) : await planAlone({ kind, sources: sourcesOf(resolve(source)), prefix: at('--prefix') }, designPath(app) ?? resolve(app, 'app.tamber'), {}, app);
+  if (!planned.ok) { console.error(`tamber import: ${planned.error?.message}${planned.error?.diagnostics ? `\n  ${planned.error.diagnostics.map(d => d.message ?? d).join('\n  ')}` : ''}`); return 1; }
+  const imported = planned.ok;
   const origin = new URL(base).origin;
   const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error' });
   if (!got.ok) { console.error(`tamber import: ${origin} gave no token (${got.status}); it answers this machine's loopback only`); return 1; }

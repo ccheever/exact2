@@ -1,46 +1,78 @@
 // An import planned in a process of its own (scripts/tamber-isolate.mjs):
-// answered as the serve answers, and stopped by the watchdog past its
-// memory or its time, one at a time.
+// answered as the serve answers, stopped by the watchdog past its memory,
+// its time or its answer's size, or when it can't be watched; one at a
+// time, a full queue refused; the design read when its turn comes, a file
+// of the app.
 import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planAlone } from './tamber-isolate.mjs';
 
 const DESIGN = 'tamber t\n\ntheme\n  primary = #000000\n';
-const withDesign = async f => {
+const withApp = async f => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-tamber-isolate-'));
-  try { writeFileSync(join(dir, 'app.tamber'), DESIGN); return await f(join(dir, 'app.tamber')); } finally { rmSync(dir, { recursive: true, force: true }); }
+  try { writeFileSync(join(dir, 'app.tamber'), DESIGN); return await f(join(dir, 'app.tamber'), dir); } finally { rmSync(dir, { recursive: true, force: true }); }
 };
+/** A stand-in planner: `script` run by sh, its stdin read first. */
+const sh = script => () => spawn('sh', ['-c', `cat > /dev/null; ${script}`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
 
 test('a plan is answered as the serve answers it, from the design file read when its turn comes', async () => {
-  await withDesign(async design => {
-    const got = await planAlone({ kind: 'shadcn', source: ':root { --primary: #ff0000; }' }, design);
+  await withApp(async (design, app) => {
+    const got = await planAlone({ kind: 'shadcn', source: ':root { --primary: #ff0000; }' }, design, {}, app);
     expect(got.ok?.ops?.length).toBeGreaterThan(0);
     expect(typeof got.ok.digest).toBe('string');
-    const bad = await planAlone({ kind: 'nope', source: 'x' }, design);
+    const bad = await planAlone({ kind: 'nope', source: 'x' }, design, {}, app);
     expect(bad.error?.message).toMatch(/no importer|kind/);
+    // Queued behind a slow one, the design changes: the new text is the one planned.
+    const slow = planAlone({}, design, { spawnPlan: sh('sleep 0.3; echo \'{"ok":{}}\'') }, app);
+    const next = planAlone({ kind: 'shadcn', source: ':root { --primary: #000000; }' }, design, {}, app);
+    writeFileSync(design, DESIGN.replace('#000000', '#ff0000'));
+    await slow;
+    expect((await next).ok.ops.length).toBeGreaterThan(0);
   });
 }, 600_000); // a cold checkout builds the compiler first
 
-test('past its time it is stopped: 503; past its memory: 413', async () => {
-  await withDesign(async design => {
-    const sleeper = () => spawn('sh', ['-c', 'cat > /dev/null; sleep 30'], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
-    const slow = await planAlone({ kind: 'shadcn', source: '' }, design, { ms: 300, spawnPlan: sleeper });
+test('stopped past its time (503), its memory, really allocated (413), or its answer\'s size (413); unwatchable, stopped (503)', async () => {
+  await withApp(async (design, app) => {
+    const slow = await planAlone({}, design, { ms: 300, spawnPlan: sh('sleep 30') }, app);
     expect([slow.status, slow.error.message]).toEqual([503, 'the source is too costly to read: reading it took more than 0.3 s']);
-    const hog = () => spawn('sh', ['-c', 'cat > /dev/null; sleep 30'], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
-    const big = await planAlone({ kind: 'shadcn', source: '' }, design, { rssKb: 1, ms: 5000, spawnPlan: hog });
-    expect(big.status).toBe(413);
-    expect(big.error.message).toMatch(/too costly to read/);
+    const hog = () => spawn(process.execPath, ['-e', 'const a = []; setInterval(() => a.push(Buffer.alloc(64 << 20, 1)), 20);'], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    const big = await planAlone({}, design, { rssKb: 256 << 10, ms: 20_000, spawnPlan: hog }, app);
+    expect([big.status, big.error.message]).toEqual([413, 'the source is too costly to read: reading it took more than 256 MiB']);
+    const loud = await planAlone({}, design, { outBytes: 1000, spawnPlan: sh('head -c 100000 /dev/zero | tr "\\0" a; sleep 30') }, app);
+    expect([loud.status, loud.error.message]).toEqual([413, 'the source is too costly to read: its review is over 1000 bytes']);
+    const blind = await planAlone({}, design, { probe: async () => null, spawnPlan: sh('sleep 30') }, app);
+    expect([blind.status, blind.error.message]).toEqual([503, 'the import could not be watched: try again']);
   });
 }, 60_000);
 
-test('one at a time: a second waits for the first', async () => {
-  await withDesign(async design => {
+test('one at a time; a full queue is refused; an answer split inside a character reads whole', async () => {
+  await withApp(async (design, app) => {
     const order = [];
-    const timed = (name, ms) => () => { order.push(`start ${name}`); const c = spawn('sh', ['-c', `cat > /dev/null; sleep ${ms / 1000}; echo '{"ok":{}}'`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true }); c.on('close', () => order.push(`end ${name}`)); return c; };
-    await Promise.all([planAlone({}, design, { spawnPlan: timed('a', 300) }), planAlone({}, design, { spawnPlan: timed('b', 10) })]);
+    const timed = (name, s) => () => { order.push(`start ${name}`); const c = sh(`sleep ${s}; echo '{"ok":{}}'`)(); c.on('close', () => order.push(`end ${name}`)); return c; };
+    await Promise.all([planAlone({}, design, { spawnPlan: timed('a', 0.3) }, app), planAlone({}, design, { spawnPlan: timed('b', 0.01) }, app)]);
     expect(order).toEqual(['start a', 'end a', 'start b', 'end b']);
+    const all = Array.from({ length: 4 }, () => planAlone({}, design, { waiting: 2, spawnPlan: sh('sleep 0.2; echo \'{"ok":{}}\'') }, app));
+    const replies = await Promise.all(all);
+    expect(replies.map(r => r.status ?? 200)).toEqual([200, 200, 200, 503]);
+    // "é" is two bytes; the planner writes the first, waits, then the second.
+    const split = await planAlone({}, design, { spawnPlan: sh(`printf '{"ok":{"f":"\\303'; sleep 0.2; printf '\\251"}}'`) }, app);
+    expect(split.ok.f).toBe('é');
+  });
+}, 60_000);
+
+test('the design must be a regular file of the app', async () => {
+  await withApp(async (design, app) => {
+    const outside = mkdtempSync(join(tmpdir(), 'exact-tamber-outside-'));
+    try {
+      writeFileSync(join(outside, 'app.tamber'), DESIGN);
+      symlinkSync(join(outside, 'app.tamber'), join(app, 'linked.tamber'));
+      const got = await planAlone({}, join(app, 'linked.tamber'), { spawnPlan: sh('echo \'{"ok":{}}\'') }, app);
+      expect([got.status, got.error.message]).toEqual([400, 'the design is not a file of the app']);
+      const gone = await planAlone({}, join(app, 'none.tamber'), { spawnPlan: sh('echo \'{"ok":{"none":true}}\'') }, app);
+      expect(gone.ok.none).toBe(true); // no design yet: planned against none
+    } finally { rmSync(outside, { recursive: true, force: true }); }
   });
 }, 60_000);

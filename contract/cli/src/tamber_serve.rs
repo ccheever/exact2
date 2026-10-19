@@ -632,14 +632,14 @@ impl Server {
             Some("scrub-fold") => vec![reply(self.scrub_fold(&request))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
-            // The wire's own, for `history`, `revert` and `import`.
+            // The wire's own: history, revert, a re-import's marks (sources are read alone).
             Some("compare") => vec![reply(crate::tamber_history::compare(&request))],
             Some("revert-plan") => {
                 vec![reply(self.read_files(true).and_then(|now| {
                     crate::tamber_history::revert_plan(&request, &now)
                 }))]
             }
-            Some("import-plan") => vec![reply(self.texts().and_then(|now| {
+            Some("import-plan") if request["marks"].is_array() => vec![reply(self.texts().and_then(|now| {
                 let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
                 let kept = crate::tamber_export::kept(&self.dir.join(&self.design));
                 crate::tamber_import::plan(&request, design.map(String::as_str), &kept)
