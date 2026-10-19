@@ -77,7 +77,7 @@
 //   pixel-compared across engines; both are saved, for inspection, only at a
 //   checkpoint that differed (a failure or a known difference). Install
 //   the browsers outside this repo with:
-//     bunx playwright@1.63.0 install firefox webkit
+//     bunx playwright@1.64.1 install firefox webkit
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer, request } from 'node:http';
