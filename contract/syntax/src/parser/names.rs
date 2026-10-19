@@ -20,7 +20,7 @@ pub(super) const RESERVED: [&str; 16] = [
 ];
 
 /// Whether `w` is one of the sixteen reserved words.
-pub(super) fn is_reserved(w: &str) -> bool {
+pub fn is_reserved(w: &str) -> bool {
     RESERVED.contains(&w)
 }
 

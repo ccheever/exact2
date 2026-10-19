@@ -509,6 +509,87 @@ fn number_only_style_choices_accept_valid_css_wide_keywords() {
     }
 }
 
+/// The `style=` hint's suggestion is read back as a node's attributes and
+/// compiled: what it suggests must compile (the euxy port, review round 2).
+#[test]
+fn the_style_hint_suggests_only_what_compiles() {
+    let hint = |style: &str| {
+        let src = format!("component A\n  view\n    text \"a\" style={style:?}\n");
+        let e = contract::compile(&src).expect_err("`style=` is refused");
+        let message = e.to_string();
+        assert!(message.contains("has no attribute `style`"), "{message}");
+        message
+    };
+    let compiles = |node: &str| {
+        let src = format!("style Title\n  font-weight=600\n\ncomponent A\n  view\n    {node}\n");
+        contract::compile(&src).unwrap_or_else(|e| panic!("{node}: {e}"));
+    };
+    let suggested = |message: &str, lead: &str| -> String {
+        let at = message
+            .find(lead)
+            .unwrap_or_else(|| panic!("{lead:?} in {message}"))
+            + lead.len();
+        message[at..].split('`').next().unwrap().to_string()
+    };
+    for (style, attrs) in [
+        // Split at `;` outside quotes and parentheses (a string attribute
+        // keeps CSS's quotes, as a quoted family name does).
+        (
+            "font-family: \"Helvetica Neue\", Arial; color: red",
+            "font-family=\"\\\"Helvetica Neue\\\", Arial\" color=\"red\"",
+        ),
+        (
+            "aria-label: \"Save; later\"; color: red",
+            "aria-label=\"\\\"Save; later\\\"\" color=\"red\"",
+        ),
+        (
+            "aria-label: f(a; b); width: calc(100% - 16px)",
+            "aria-label=\"f(a; b)\" width=\"calc(100% - 16px)\"",
+        ),
+        // `!important` is dropped.
+        (
+            "color: red !important; padding: 8px ! important",
+            "color=\"red\" padding=\"8px\"",
+        ),
+        // A custom property is not an attribute; the others are.
+        ("--gap: 8px; padding: 8px", "padding=\"8px\""),
+        // A plain number is unquoted, as the lexer wants it.
+        (
+            "-exact-press-scale: 0.97; opacity: 0.5; flex: 1; color: red",
+            "-exact-press-scale=0.97 opacity=0.5 flex=1 color=\"red\"",
+        ),
+    ] {
+        let message = hint(style);
+        assert_eq!(
+            suggested(&message, "write the declarations as attributes, `"),
+            attrs,
+            "{style}: {message}"
+        );
+        compiles(&format!("text \"a\" {attrs}"));
+    }
+    let message = hint("Title");
+    assert_eq!(suggested(&message, "write `"), "class=Title");
+    compiles("text \"a\" class=Title");
+    // Nothing to suggest: a custom property alone, a name with a quote or
+    // brace, a reserved word.
+    for style in [
+        "--gap: 8px",
+        "a\"b: 1",
+        "a{b}: 1",
+        "none",
+        "if",
+        "true",
+        "8px",
+    ] {
+        let message = hint(style);
+        assert!(!message.contains("write "), "{style}: {message}");
+        assert!(
+            message.contains("a look nodes share is a `style Name` block"),
+            "{style}: {message}"
+        );
+    }
+}
+
 #[test]
 fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     let app = |state: &str, node: &str| {
