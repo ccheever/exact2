@@ -1448,3 +1448,81 @@ ground and the Post button a one-reader `corner` param).
 | A `class:` row edits the style in its own file | **Met**: the Post button's `color` row wrote `style PostButton`'s line in `screens.contract`; undone. |
 | (review2) Detach is one transaction, its closure listed | **Met**: `PostButton.corner` detached: its line removed and the row written `999px`, one write, one undo. |
 | (review2) A layout row is refused with D14's reason | **Met**: width, height, margins, paddings, alignment and font-weight rows each say D14's reason. |
+
+### T6, collaboration (step 1 `cd6300a22a`; step 2 `68515147ac`, `91b875075f`, `3ea24dbfe8`, `5570a77ed5`, `513f050bd1`; step 3 `cfdf491e12`, `4087df91ba`, `80815754b1`, `814c00e289`; the entry word `8f90a463db`, `a21184f903`, `927178760a`, `2ca911ea7f`; *1.13*, LLP 1121 stage 10)
+
+- **The local tool pairs and revokes** (step 1, D12): a Clients panel, shown only to the local token (hello's
+  `local`). A scope picker says what each scope may do. "Pair a client" mints a code (`pair-code`) and shows it,
+  good once until its expiry, with each remote door's origin and certificate fingerprint to check on the other
+  machine (the tunnel said as trusted), or how to open one. The paired clients (`clients`: scope, peer, last seen)
+  are read again as one pairs or goes and when the server starts again, and retried after a refusal. Each is
+  revoked here (`revoke`), bound to the server run that listed it.
+- **Remote mode** (step 2): with no server on this machine, the tool pairs with another machine's server by its
+  address and the code its tool shows.
+  - It pairs only through an https door or a tunnel to this machine's loopback, and refuses any other address
+    before anything is sent. The code goes once, in the body of `POST /__tamber/pair`.
+  - From then on every request goes to that door at the paired scope; the client is the name the server gave.
+  - `wire.ts` is the tool's one client (moved out of app.ts). The rest of the tool holds a handle for a token,
+    never the token, so no state, log or reply carries one. A token goes only to the server it came from: a write
+    bound to another (this machine's, a review made before pairing) is refused unsent, and an answer from before
+    a pairing, or from an older one, changes nothing.
+- **Scope** (D12; ruling 5): nothing above the paired scope is sent. `NEEDS` mirrors LLP 1121's table, and a test
+  holds it to `METHOD_SCOPE`. `inspect` is `read` only as a refresh, and a drop of another client's held proposal
+  is `write`.
+  - Below `write`, what writes is greyed, and one line says why.
+  - At `propose`, Apply is "Propose for review": the edit is held (`propose` with `hold`) for someone with `write`.
+  - Below `propose`, every drafting control is greyed.
+  - A reader's or proposer's selection is read from the server (a read-only `inspect` refresh), shown as the build
+    reported it, and offers no edit.
+- **Revoked** (D12): a 401 drops the token and sends nothing more. The tool says Revoked, a Keep, Cancel or write
+  in flight is shown as the revoke, and the canvas goes with the rest of the view.
+- **The canvas through the gateway** (step 3, LLP 1121 stage 10 C): a paired tool asks for a grant (`canvas`,
+  `read`) once per server run and frames the gateway's entry with the grant in the `#g=` fragment.
+  - The frame is built from parts, never the server's string: only through B's TLS door, on that door's host,
+    which must not be loopback (any other port on this machine may be another service), another port than the
+    door (another origin than the tool, which the door serves), at `/canvas/<this client>/`, with a 43-character
+    base64url grant.
+  - Paired, the tool is never local, whatever the server's hello says, so it never frames a page of this machine.
+  - It mints one grant a key (client, server run, tick); a second ask shares it, and a mint a newer ask overtook
+    is answered without its grant and kept nowhere. The frame mounts only once a fresh grant has settled, and
+    Reload Canvas or Try Again asks for another.
+  - C2's entry page posts `{type: 'exact-canvas-entered'}` to the tool's origin once it has entered. The tool takes
+    it only from the minted canvas's origin and from a direct frame of its own window (`event.currentTarget`;
+    never a window the canvas opened, a frame inside it, or a window gone). It then drops the grant from the
+    frame's URL, its state and its memory: one load of the gateway's root under the session.
+- **Tests:** the stub answers A2 (pair-code with a fixed series a test can type, pair, clients, revoke, hello's
+  scope, `local` and client, a 401 after revoke) and checks every request with A1's table.
+  - The contract tests cover the panel, refusals, remote mode end to end, a hello that lies about `local`, and the
+    canvas refused through a tunnel.
+  - `scripts/design-tool-scope.test.mjs` covers the scope table, `doorOf`, `canvasFrame`'s refusals, `wire.ts`'s
+    hold-backs with fetch stubbed, and the entry word's sources and mints.
+  - `scripts/design-tool-pair.test.mjs` pairs through a real `tamber serve --trust-tunnel`. It allows only `read`
+    and `propose` through, revokes while the tool runs, and finds the code and token in no URL, drive reply,
+    server output or browser profile file.
+- **Known limits:**
+  - The tool can't learn its page's address (no `location` in the data module). The person types the door's
+    address, and pairing works from the tool that door serves: B refuses another origin.
+  - A tunnel has no canvas (stage 10), and neither does a TLS door on loopback.
+  - Until the entry page's word comes (at most 40 one-second polls a canvas), the frame's `src`, and so the tool's
+    state, holds the grant. It is single-use and dead after 30 s.
+  - The data module can't see the iframe element (`document` is hidden from it), so the word is bound by window
+    topology, not to the element. A second direct canvas-origin frame would pass; the remote view has one.
+  - `tamber tool --via`'s 2 s probe of a dev loop can time out under load (QUEUE).
+
+### T6's gate: met (2026-10-19; the run is `~/x2theme/stage10-gate-run.txt`, LLP 1121 stage 10's)
+
+The tool's own lines ran in LLP 1121 stage 10's gate. They were driven in its second Chrome profile, which trusts
+only the run's certificate, against B's TLS door bound to this Mac's LAN address for the run (theme2's 13:40Z
+ruling). exact2 main at `29ec5ae613` (`~/x2theme/t6-gate-dlines.mjs`).
+
+| Gate line | Result |
+|---|---|
+| The tool's own pair panel pairs a second browser over TLS, by the door's address and the code | **Met** (1, D): paired as `remote:Gate#1` at `propose`; the code field empty after, no URL held it. |
+| A `propose` client can't write or send commands; what writes is greyed and says why | **Met** (2, D): Inspect, Commit, Undo and Redo disabled, the scope line said; the wire's own refusals are line (2). |
+| The canvas comes through the gateway on its own origin, and the grant leaves the frame | **Met** (5, D): the tool set the frame's `src` to `/canvas/remote%3AGate%231/#g=…`, then to the gateway's root once entered; the tool's page held no grant. |
+| Revocation cuts the tool off, socket and canvas | **Met** (3, D): "Revoked" shown, the canvas frame gone, no wire request after the revoke. |
+| No regressions | **Met** (7): design-tool 18; the contract tests 56. |
+
+**First final run:** 21 of 22. (5, D) read the frame's first `src` after the entry word had already dropped the
+grant: a timing fault in the gate's check, not the tool. The check now records each `src` as the tool sets it,
+and the re-run met every line.
