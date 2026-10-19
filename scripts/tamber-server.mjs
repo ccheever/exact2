@@ -167,8 +167,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const epoch = randomBytes(8).toString('hex');
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
   let kept = 0;
-  // A snapshot (the held list, the files) goes out only while all that is queued to open streams and polls stays under 128 MiB: slow readers can't hold the server's memory.
-  const outbound = new Set(), fits = bytes => [...outbound].reduce((n, r) => n + (r.writableLength || 0), 0) + bytes <= 128 << 20;
+  // A snapshot (the held list, the files) goes out only while all that is queued to open streams and polls stays under 128 MiB: slow readers can't hold the server's memory. (Queued: the response's count or its socket's, the more: behind a TLS door Bun counts only the socket's.)
+  const queuedOn = r => Math.max(r.writableLength || 0, r.socket?.writableLength || 0);
+  const outbound = new Set(), fits = bytes => [...outbound].reduce((n, r) => n + queuedOn(r), 0) + bytes <= 128 << 20;
   const track = res => { if (res.on) { outbound.add(res); res.on('close', () => outbound.delete(res)); } };
   // The digests of the exports this run gave out, newest last (at most 64): a
   // client's `import` may name one as the baseline it pulled (stage 10b).
@@ -189,7 +190,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
     // A paired subscriber past its deadline gets nothing more (`live` ends it now).
     // A subscriber 8 MiB behind is cut (it reconnects and catches up from `events`), never buffered without end.
-    for (const res of subscribers) if (!res.writableEnded && (!res.paired || pairs.live(res.paired)) && (!event.only || res.client === event.only)) { if (res.writableLength > 8 << 20) { subscribers.delete(res); res.destroy(); } else res.write(line); }
+    for (const res of subscribers) if (!res.writableEnded && (!res.paired || pairs.live(res.paired)) && (!event.only || res.client === event.only)) { if (queuedOn(res) > 8 << 20) { subscribers.delete(res); res.destroy(); } else res.write(line); }
     for (const poll of polls) poll();
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
@@ -1059,7 +1060,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // state parts history reads and revert writes.
   const ownContracts = () => [...known.keys()].filter(path => path.endsWith('.contract'));
   // The design as app.json names it, whether or not it is there now.
-  const designRel = () => relative(appDir, resolve(appDir, typeof manifestTamber(appDir) === 'string' ? manifestTamber(appDir) : 'app.tamber'));
+  const designRel = (named = manifestTamber(appDir)) => relative(appDir, resolve(appDir, typeof named === 'string' ? named : 'app.tamber'));
   /** The git log of the design's files, each commit's files as edits. */
   async function history(request) {
     const { limit = 20, skip = 0 } = request;
