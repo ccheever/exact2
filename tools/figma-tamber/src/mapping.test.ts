@@ -4,7 +4,10 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { conflicts, contextsMoved, doorOf, families, familiesOf, newEnough, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
-const TEXT = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
+// The fixture's export as read (its dark-style axis under scheme=dark: one light mode), and the
+// same with that axis an ordinary one (a mode for each context), which most tests use.
+const REAL = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
+const TEXT = (d => { for (const a of d.sets.exact.sources[0].$extensions.exact.axes) delete a.under; return JSON.stringify(d); })(JSON.parse(REAL));
 const DOC = JSON.parse(TEXT);
 
 /** The plan's values as Figma would hold them, edited by `f`. */
@@ -114,4 +117,18 @@ test('a code or a token goes only to an https server or to this machine over htt
     expect([bad, doorOf(bad).error]).not.toEqual([bad, '']);
   expect([newEnough('tamber/1.14'), newEnough('tamber/1.15'), newEnough('tamber/2.0')]).toEqual([true, true, true]);
   expect([newEnough('tamber/1.13'), newEnough('tamber/1.9'), newEnough(undefined), newEnough('x')]).toEqual([false, false, false, false]);
+});
+
+test('light contexts that differ only by an axis under scheme=dark are one light mode; its value goes to each on push', () => {
+  const real = JSON.parse(REAL);
+  const plan = pull(real, 10);
+  expect(plan.collections.map(c => [c.modes, c.also])).toEqual([[['light', 'dark-style=black, dark', 'dark-style=dim, dark'], { light: ['dark-style=dim, light'] }]]);
+  expect(plan.collections[0].contexts.light).toBe('dark-style=black, light');
+  const red = { r: 1, g: 0, b: 0, a: 1 };
+  const text = push(REAL, plan, held(plan, (_c, v, m, x) => (v === 'accent/fill' && m === 'light' ? red : x)));
+  const out = tokensOf(JSON.parse(text));
+  expect([out['dark-style=black, light']['accent.fill'].$value.hex, out['dark-style=dim, light']['accent.fill'].$value.hex]).toEqual(['#ff0000', '#ff0000']);
+  expect(out['dark-style=dim, dark']['accent.fill']).toEqual(tokensOf(real)['dark-style=dim, dark']['accent.fill']);
+  // Contexts the light mode stands for are no context the design dropped.
+  expect(contextsMoved(plan, real)).toEqual({ added: [], removed: [] });
 });

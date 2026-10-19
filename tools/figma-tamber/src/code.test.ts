@@ -6,7 +6,10 @@ import { beforeEach, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { tokensOf } from './mapping';
 
-const TEXT = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
+// The fixture's export as read (its dark-style axis under scheme=dark: one light mode), and the
+// same with that axis an ordinary one (a mode for each context), which most tests use.
+const REAL = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
+const TEXT = (d => { for (const a of d.sets.exact.sources[0].$extensions.exact.axes) delete a.under; return JSON.stringify(d); })(JSON.parse(REAL));
 
 /** Shared plugin data, as Figma keeps it: an entry at most 100 KB. */
 const data = (into: any) => {
@@ -688,4 +691,21 @@ test('round 18: a mode of the person\'s named as a context the pull needs is ref
   col.modes.unshift(col.modes.splice(col.modes.findIndex((m: any) => m.modeId === mine), 1)[0]);
   await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/rename that mode/);
   expect(undos).toBe(0);
+});
+
+test('the theme fixture pulls into three modes (one light, two dark); a light edit goes to both light contexts', async () => {
+  await load(10);
+  await send({ type: 'apply', text: REAL }, 'applied');
+  const col = f.collections[0];
+  expect(col.modes.map((m: any) => m.name)).toEqual(['light', 'dark-style=black, dark', 'dark-style=dim, dark']);
+  const fill = f.variables.find(v => v.name === 'accent/fill');
+  fill.valuesByMode[col.modes[0].modeId] = { r: 1, g: 0, b: 0, a: 1 };
+  const out = tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source));
+  expect([out['dark-style=black, light']['accent.fill'].$value.hex, out['dark-style=dim, light']['accent.fill'].$value.hex]).toEqual(['#ff0000', '#ff0000']);
+  // A re-pull of the same export: still three, nothing asked.
+  fill.valuesByMode[col.modes[0].modeId] = { r: 0x1d / 255, g: 0x9b / 255, b: 0xf0 / 255, a: 1 };
+  const checked = await send({ type: 'check', text: REAL }, 'checked');
+  expect([checked.conflicts, checked.contexts]).toEqual([[], { added: [], removed: [] }]);
+  await send({ type: 'apply', text: REAL }, 'applied');
+  expect(col.modes.map((m: any) => m.name)).toEqual(['light', 'dark-style=black, dark', 'dark-style=dim, dark']);
 });
