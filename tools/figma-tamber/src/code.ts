@@ -218,10 +218,13 @@ figma.ui.onmessage = async (msg: any) => {
             figma.commitUndo();
             plan = pull(doc, Math.min(2, limitOf(e))); // a 1-mode file: Tamber needs Light and Dark
             try { await write(plan, before); } catch (e2) {
-              // Still too many: a parked default mode holds a place. With the
-              // contexts moved (the person said yes), new collections, the
-              // last pull's taken away.
-              if (!tooManyModes(e2) || !(moved?.added.length || moved?.removed.length)) throw e2;
+              // Still too many: a parked default mode holds a place. Only when
+              // every context the last pull's collections served is gone (each
+              // listed, the person said yes): new collections, the old taken
+              // away; a surviving context keeps its mode, and the pull is refused.
+              if (!tooManyModes(e2)) throw e2;
+              const kept = (before?.collections ?? []).flatMap(c => Object.keys(c.contextIds ?? {})).filter(ctx => !moved?.removed.includes(ctx));
+              if (kept.length) throw new Error(`this file allows ${limitOf(e2)} modes a collection, and a default mode Figma can't remove holds one: remove the Tamber collection, then pull`);
               undo();
               figma.commitUndo();
               await write(plan, before, true);

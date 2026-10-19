@@ -449,3 +449,19 @@ test('round 6: a refusal is never the mode limit by its text (a collection named
   expect(f.collections).toEqual([first]);
   expect(f.variables.some(v => v.name === 'local/gutter')).toBe(true);
 });
+
+test('round 6 (Grok): new collections only when every context the old served is gone; a survivor keeps its mode and the pull is refused', async () => {
+  await load(2);
+  const ctx = (names: string[], def: string) => variant(d => {
+    const contexts = d.modifiers.mode.contexts, all = { ...contexts };
+    for (const c of Object.keys(contexts)) delete contexts[c];
+    for (const n of names) contexts[n] = all[n];
+    d.modifiers.mode.default = def;
+  });
+  await send({ type: 'apply', text: ctx(['dark-style=black, light', 'dark-style=black, dark'], 'dark-style=black, light') }, 'applied');
+  await send({ type: 'apply', text: ctx(['dark-style=black, dark'], 'dark-style=black, dark') }, 'applied');
+  const col = f.collections[0], dark = col.modes.find((m: any) => m.name === 'dark-style=black, dark').modeId;
+  await expect(send({ type: 'apply', text: ctx(['dark-style=black, dark', 'dark-style=dim, light'], 'dark-style=black, dark') }, 'applied')).rejects.toThrow(/can't remove/);
+  expect(f.collections).toEqual([col]);
+  expect(col.modes.some((m: any) => m.modeId === dark)).toBe(true);
+});
