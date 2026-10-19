@@ -598,3 +598,52 @@ fn choosing_a_select_item_does_not_focus_or_press_the_button_under_it() {
     assert_eq!(log(&p), "b:");
     assert!(p.menu_paint().is_none());
 }
+
+#[test]
+fn direct_control_contacts_keep_their_original_activation_policy() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for pointer in [PointerKind::Touch, PointerKind::Pen] {
+        for kind in ["range", "radio", "checkbox"] {
+            for own in [false, true] {
+                for feedback in ["", "-exact-press-opacity=0.5"] {
+                    let value_type = match kind {
+                        "range" => "number",
+                        "checkbox" => "bool",
+                        _ => "string",
+                    };
+                    let handler = if own { "press=pressed" } else { "" };
+                    let mut p = boot(&format!(
+                        r#"component App
+  state seen = ""
+  action pressed
+    seen = `${{seen}}press `
+  action changed(v: {value_type})
+    seen = `${{seen}}change `
+  view
+    column width=400 height=400
+      box press=pressed width=300 height=80 {feedback}
+        input type="{kind}" testId="control" width=200 height=40 {handler} {feedback} change=changed
+      text seen testId="log"
+"#
+                    ));
+                    p.set_pointer_kind(pointer);
+                    let (x, y) = middle(&p, "control");
+                    p.pointer_down(x, y, 0.).unwrap();
+                    let down = p.focus;
+                    p.pointer_up(x, y, 1.).unwrap();
+                    actual.push((pointer, kind, own, feedback, down, log(&p)));
+                    let heard = if !feedback.is_empty() {
+                        "press "
+                    } else if kind == "checkbox" && own {
+                        "press change "
+                    } else {
+                        "change "
+                    };
+                    expected.push((pointer, kind, own, feedback, None, heard.to_string()));
+                }
+            }
+        }
+    }
+    assert_eq!(actual, expected);
+}

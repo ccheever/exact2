@@ -465,13 +465,16 @@ impl<D: DataSource> Presenter<D> {
         if let Some(contact) = self.contact.as_mut().filter(|c| c.hit == key) {
             contact.focus_before_down = Some(self.focus);
         }
-        if hit.is_some_and(|id| self.pointerdown_prevents_focus(id)) {
+        if hit.is_some_and(|id| {
+            self.pointerdown_prevents_focus(id) || self.control_target(id).is_some()
+        }) {
             return;
         }
         if hit.is_none_or(|id| {
-            !self.input_live(key)
-                || (field && !self.focusable(id))
-                || self.focus_refusal(id).is_some()
+            field
+                && (!self.input_live(key)
+                    || !self.focusable(id)
+                    || self.focus_refusal(id).is_some())
         }) {
             // A field hidden, disabled or removed by pointerdown still blurs
             // the old editor. Keep any surviving contact for up or cancellation.
@@ -1011,7 +1014,7 @@ impl<D: DataSource> Presenter<D> {
                 let focus = contact
                     .focus_before_down
                     .or_else(|| (key != contact.hit).then_some(self.focus));
-                self.press_hit_after_down(id, (x, y), now_ms, focus);
+                self.press_hit_after_down(id, (x, y), now_ms, focus, true);
             }
             Ok(false)
         } else if let Some((key, box_)) = contact.press {

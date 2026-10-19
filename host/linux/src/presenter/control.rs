@@ -38,6 +38,26 @@ impl<D: DataSource> Presenter<D> {
     /// refuses the toggle leaves it where it was; an unbound one keeps its
     /// own state here.
     pub(crate) fn toggle_control(&mut self, id: ViewId, now_ms: f64) -> bool {
+        let press = self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Press)
+            .then_some(id);
+        self.toggle_control_with_press(id, now_ms, press, false)
+    }
+
+    pub(crate) fn click_control(&mut self, id: ViewId, now_ms: f64, press: Option<ViewId>) -> bool {
+        self.toggle_control_with_press(id, now_ms, press, true)
+    }
+
+    fn toggle_control_with_press(
+        &mut self,
+        id: ViewId,
+        now_ms: f64,
+        press: Option<ViewId>,
+        mouse_click: bool,
+    ) -> bool {
         let Some(node) = self.host.kernel().node(id) else {
             return false;
         };
@@ -50,17 +70,18 @@ impl<D: DataSource> Presenter<D> {
         if matches!(node.props.str(PropId::Type), Some("button" | "progress")) {
             return false;
         }
-        // A visible file input's press opens its picker (LLP 1069.002 D1).
-        if node.props.str(PropId::Type) == Some("file") {
-            if node.props.bool(PropId::Disabled) != Some(true) {
-                match node.props.str(PropId::Id).map(str::to_owned) {
-                    Some(name) => self.show_picker(&name),
-                    None => self.host.log("picker: refused: a file input needs an id"),
-                }
-            }
+        if node.props.bool(PropId::Disabled) == Some(true) {
             return true;
         }
-        if node.props.bool(PropId::Disabled) == Some(true) {
+        // A visible file input's press opens its picker (LLP 1069.002 D1).
+        if node.props.str(PropId::Type) == Some("file") {
+            match node.props.str(PropId::Id).map(str::to_owned) {
+                Some(name) => self.show_picker(&name),
+                None => self.host.log("picker: refused: a file input needs an id"),
+            }
+            if mouse_click {
+                self.dispatch_control_press(press, now_ms, true);
+            }
             return true;
         }
         // A date or time control's press opens the platform's picker where a
@@ -76,19 +97,25 @@ impl<D: DataSource> Presenter<D> {
             )
         {
             self.pick(id);
+            if mouse_click {
+                self.dispatch_control_press(press, now_ms, true);
+            }
             return true;
         }
         // A select's press opens its menu (D7).
         if node.props.str(PropId::Type) == Some("select") {
             self.menu = Some(id);
             self.dirty = true;
+            if mouse_click {
+                self.dispatch_control_press(press, now_ms, true);
+            }
             return true;
         }
         // A radio checks, and only checks (x2apps survey #2).
         if exact_kernel::ControlKind::of(node.node_type, node.props)
             == Some(exact_kernel::ControlKind::Radio)
         {
-            self.activate_radio(id, now_ms, true);
+            self.activate_radio(id, now_ms, if mouse_click { press } else { None });
             return true;
         }
         let bound = node.props.bool(PropId::Checked);
@@ -100,7 +127,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.dirty = true;
         // HTML checks the control before click, then emits input and change.
-        let mut dispatched = self.dispatch_control_press(id, now_ms);
+        let mut dispatched = self.dispatch_control_press(press, now_ms, mouse_click);
         for (event, kind) in [
             (Event::Input(on.into()), EventKind::Input),
             (Event::Change(on.into()), EventKind::Change),
@@ -120,10 +147,19 @@ impl<D: DataSource> Presenter<D> {
         true
     }
 
-    pub(super) fn dispatch_control_press(&mut self, id: ViewId, now_ms: f64) -> bool {
-        let Some(target) = self.handler_target(id, EventKind::Press) else {
+    pub(super) fn dispatch_control_press(
+        &mut self,
+        target: Option<ViewId>,
+        now_ms: f64,
+        mouse_click: bool,
+    ) -> bool {
+        let Some(target) = target else {
             return false;
         };
+        if mouse_click {
+            self.dispatch_press(target, now_ms, true);
+            return true;
+        }
         let held = self.modifiers();
         let press = if held == Default::default() {
             Event::Press
@@ -522,6 +558,111 @@ fn date_samples(
 mod tests {
     use super::fixed_painted_size;
     use exact_kernel::ControlKind;
+
+    #[test]
+    fn mouse_control_defaults_keep_the_nearest_press_and_autofocus() {
+        use super::*;
+        let mut actual = Vec::new();
+        let mut expected = Vec::new();
+        for kind in [
+            "range",
+            "radio",
+            "checkbox",
+            "select",
+            "file",
+            "date",
+            "time",
+            "datetime-local",
+            "link",
+        ] {
+            for own in [true, false] {
+                for feedback in ["", "-exact-press-opacity=0.5"] {
+                    let handler = if own { "press=pressed" } else { "" };
+                    let (tag, children) = match kind {
+                        "select" => (
+                            "select".to_string(),
+                            "\n          option \"First\" value=\"first\"",
+                        ),
+                        "link" => ("button href=\"#next\"".to_string(), ""),
+                        _ => (format!("input type=\"{kind}\""), ""),
+                    };
+                    let changes = matches!(kind, "range" | "radio" | "checkbox");
+                    let events = if changes {
+                        "input=edited change=changed"
+                    } else {
+                        ""
+                    };
+                    let value_type = match kind {
+                        "checkbox" => "bool",
+                        "range" => "number",
+                        _ => "string",
+                    };
+                    let source = format!(
+                        r#"component App
+  state ready = false
+  state seen = ""
+  action pressed
+    seen = `${{seen}}press `
+    ready = true
+  action edited(v: {value_type})
+    seen = `${{seen}}input `
+  action changed(v: {value_type})
+    seen = `${{seen}}change `
+  view
+    column width=300 height=200
+      box width=200 height=80 press=pressed {feedback}
+        {tag} id="control" testId="control" width=160 height=40 {handler} {feedback} {events}{children}
+      input testId="editor" autofocus=ready width=100 height=40
+      text seen testId="seen"
+"#
+                    );
+                    let (mut p, error) = Presenter::boot_with(
+                        &crate::test_plan(&source),
+                        (),
+                        (300., 200.),
+                        1.,
+                        PathBuf::new(),
+                        PainterChoice::Cpu,
+                    )
+                    .unwrap();
+                    assert!(error.is_none(), "{error:?}");
+                    p.agent = true;
+                    let id = |p: &Presenter<()>, name| {
+                        let k = p.host.kernel();
+                        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+                    };
+                    let control = id(&p, "control");
+                    let editor = id(&p, "editor");
+                    let (x, y, w, h) = p.rect_of(control).unwrap();
+                    p.pointer_down(x + w * 0.75, y + h / 2., 1.).unwrap();
+                    p.pointer_up(x + w * 0.75, y + h / 2., 2.).unwrap();
+                    let seen = p
+                        .host
+                        .kernel()
+                        .node(id(&p, "seen"))
+                        .unwrap()
+                        .props
+                        .str(PropId::Text)
+                        .unwrap()
+                        .to_string();
+                    actual.push((kind, own, feedback, seen, own.then(|| p.focus())));
+                    let events = match kind {
+                        "range" => "input change press ",
+                        "checkbox" | "radio" => "press input change ",
+                        _ => "press ",
+                    };
+                    expected.push((
+                        kind,
+                        own,
+                        feedback,
+                        events.to_string(),
+                        own.then_some(Some(editor)),
+                    ));
+                }
+            }
+        }
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn fixed_controls_report_the_geometry_linux_paints() {

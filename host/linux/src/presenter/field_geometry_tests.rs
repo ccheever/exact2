@@ -1127,3 +1127,44 @@ fn mouse_common_ancestor_click_focuses_the_down_targets_focusable_node() {
     }
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn mouse_hidden_down_target_focuses_its_ancestor_unless_it_is_a_field() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for child in ["box", "box tabindex=0", "input"] {
+        for hidden in ["display", "visibility"] {
+            for parent in ["tabindex=0", "press=pressed"] {
+                let value = if hidden == "display" {
+                    "none"
+                } else {
+                    "hidden"
+                };
+                let (mut p, other) = boot_source(&format!(
+                    r#"component App
+  state hidden = "inherit"
+  action down
+    hidden = "{value}"
+  action pressed
+    hidden = hidden
+  view
+    box width=400 height=600
+      input testId="field" value="old" width=100 height=40
+      box testId="parent" position="absolute" top=60 width=200 height=100 {parent}
+        {child} testId="child" width=100 height=60 {hidden}=hidden pointerdown=down
+"#
+                ));
+                let k = p.host.kernel();
+                let parent_id = k.node_by_key(k.find_by_test_id("parent")[0]).unwrap().id;
+                p.set_focus(Some(other), 0.);
+                p.pointer_down(20., 80., 1.).unwrap();
+                let down = p.focus();
+                p.pointer_up(20., 80., 2.).unwrap();
+                actual.push((child, hidden, parent, down, p.focus()));
+                let wanted = (child != "input").then_some(parent_id);
+                expected.push((child, hidden, parent, wanted, wanted));
+            }
+        }
+    }
+    assert_eq!(actual, expected);
+}

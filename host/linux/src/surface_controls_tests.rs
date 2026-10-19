@@ -162,6 +162,16 @@ fn passive_control_descendant_taps_and_editor_keeps_focus() {
     p.focus = Some(editor);
     assert!(p.tap(label).is_ok());
     assert_eq!(p.focus(), Some(editor));
+    let mut actual = Vec::new();
+    for name in ["a-jump", "label", "b-jump"] {
+        p.focus = Some(editor);
+        let (x, y, w, h) = p.rect_of(find(&p, name)).unwrap();
+        p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+        let down = p.focus();
+        p.pointer_up(x + w / 2., y + h / 2., 0.).unwrap();
+        actual.push((down, p.focus()));
+    }
+    assert_eq!(actual, vec![(Some(editor), Some(editor)); 3]);
     done(p, path);
 }
 #[test]
@@ -1310,4 +1320,57 @@ fn baked_gpu_code_and_development_receipts_keep_distinct_digest_policies() {
         .unwrap_err()
         .contains("digest mismatch"));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn mouse_canvas_action_keeps_its_press_handler_and_editor_focus() {
+    let mut actual = Vec::new();
+    for feedback in ["", "-exact-press-opacity=0.5"] {
+        let source = format!(
+            r#"component Controls
+  state seen = ""
+  state ready = false
+  action pressed
+    seen = `${{seen}}press `
+    ready = true
+  view
+    column
+      input testId="editor" width=100 height=30
+      canvas testId="a" width=100 height=100
+        button action="jump" testId="button" width=100 height=100 press=pressed {feedback}
+          box testId="label" width=100 height=100
+      input testId="next" autofocus=ready width=100 height=30
+      text seen testId="seen"
+"#
+        );
+        let (mut p, path) = boot(&source, &["a"]);
+        let editor = find(&p, "editor");
+        p.focus = Some(editor);
+        let (x, y, w, h) = p.rect_of(find(&p, "label")).unwrap();
+        p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+        let down = p.focus();
+        p.pointer_up(x + w / 2., y + h / 2., 0.).unwrap();
+        let text = p
+            .host
+            .kernel()
+            .node(find(&p, "seen"))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string();
+        let (_, count, event) = last_input(&p);
+        actual.push((
+            down == Some(editor),
+            p.focus() == Some(editor),
+            text,
+            count,
+            event["phase"].clone(),
+        ));
+        done(p, path);
+    }
+    assert_eq!(
+        actual,
+        vec![(true, true, "press ".to_string(), 2, json!("up")); 2]
+    );
 }

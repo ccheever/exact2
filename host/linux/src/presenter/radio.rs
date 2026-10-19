@@ -32,17 +32,17 @@ impl<D: DataSource> Presenter<D> {
     /// disabled; else its group's unbound radios show it alone checked, and
     /// its `input` then `change` carry its value.
     pub(crate) fn check_radio(&mut self, id: ViewId, now_ms: f64) {
-        self.activate_radio(id, now_ms, false);
+        self.activate_radio(id, now_ms, None);
     }
 
-    pub(super) fn activate_radio(&mut self, id: ViewId, now_ms: f64, press: bool) {
+    pub(super) fn activate_radio(&mut self, id: ViewId, now_ms: f64, press: Option<ViewId>) {
         let disabled = self
             .host
             .kernel()
             .node(id)
             .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true));
         let changed = !self.radio_checked(id);
-        if disabled || (!press && !changed) {
+        if disabled || (press.is_none() && !changed) {
             return;
         }
         let kernel = self.host.kernel();
@@ -56,7 +56,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let value = kernel.radio_value(id);
         self.dirty |= changed;
-        let mut dispatched = press && self.dispatch_control_press(id, now_ms);
+        let mut dispatched = self.dispatch_control_press(press, now_ms, true);
         for (event, kind) in [
             (Event::Input(value.as_str().into()), EventKind::Input),
             (Event::Change(value.as_str().into()), EventKind::Change),

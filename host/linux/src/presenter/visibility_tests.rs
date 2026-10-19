@@ -247,3 +247,56 @@ fn common_ancestor_clicks(attached: bool) {
     }
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn captured_mouse_click_bubbles_through_a_child_hidden_by_pointerup() {
+    let mut actual = Vec::new();
+    for hidden in ["display", "visibility"] {
+        for feedback in ["", "-exact-press-opacity=0.5"] {
+            let value = if hidden == "display" {
+                "none"
+            } else {
+                "hidden"
+            };
+            let source = format!(
+                r#"component App
+  state hidden = "inherit"
+  state seen = ""
+  action up
+    hidden = "{value}"
+  action pressed
+    seen = `${{seen}}press `
+  view
+    box width=300 height=200 press=pressed {feedback}
+      box testId="child" width=100 height=60 {hidden}=hidden pointerup=up
+      text seen testId="seen"
+"#
+            );
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(&source),
+                (),
+                (300., 200.),
+                1.,
+                PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none());
+            let frame = p.display_frame().unwrap();
+            assert!(p.display_complete(&frame));
+            p.pointer_down(20., 20., 1.).unwrap();
+            p.pointer_up(20., 20., 2.).unwrap();
+            actual.push(
+                p.host
+                    .kernel()
+                    .node(id(&p, "seen"))
+                    .unwrap()
+                    .props
+                    .str(PropId::Text)
+                    .unwrap()
+                    .to_string(),
+            );
+        }
+    }
+    assert_eq!(actual, vec!["press "; 4]);
+}
