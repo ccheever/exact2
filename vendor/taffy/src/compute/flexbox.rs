@@ -12,7 +12,7 @@ use crate::tree::{
 };
 use crate::tree::{LayoutFlexboxContainer, LayoutPartialTreeExt, NodeId};
 use crate::compute::common::absolute::AbsolutePass;
-use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized, Ratio};
+use crate::compute::ratio::{container_sizes_through_ratio, sizes_through_ratio, transfer_into_unsized, Ratio};
 use crate::util::debug::debug_log;
 use crate::util::sys::{f32_max, f32_min, floor, new_vec_with_capacity, Vec};
 use crate::util::MaybeMath;
@@ -346,6 +346,7 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         inputs.known_dimensions_are_definite,
         parent_size,
         available_space,
+        inputs.sizing_mode,
     );
     let known_dimensions = constants.node_outer_size;
 
@@ -594,6 +595,7 @@ fn compute_constants(
     known_dimensions_are_definite: Size<bool>,
     parent_size: Size<Option<f32>>,
     available_space: Size<AvailableSpace>,
+    sizing_mode: SizingMode,
 ) -> AlgoConstants {
     let dir = style.flex_direction();
     let is_row = dir.is_row();
@@ -637,15 +639,16 @@ fn compute_constants(
         Direction::Rtl => content_box_inset.left += scrollbar_gutter.x,
     };
 
-    // EXACT PATCH 56: transfer the incoming dimensions, as block layout does.
+    // EXACT PATCH 56: transfer the incoming dimensions during measurement.
     // ContentSize omits preferred sizes; final dimensions must not regain a
     // ratio floor derived from an authored size that flexing has replaced.
-    let (known_dimensions, min_size, max_size) = sizes_through_ratio(
+    let (known_dimensions, min_size, max_size) = container_sizes_through_ratio(
         &style,
         padding_border_sum,
         known_dimensions,
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        sizing_mode,
     );
     let node_outer_size = known_dimensions;
     let node_inner_size = node_outer_size.map_height(|height| height.or_else(||

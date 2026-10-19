@@ -131,6 +131,28 @@ pub(crate) fn sizes_through_ratio(
     }
 }
 
+/// Resolve a flex or grid container's incoming sizes. In a content probe,
+/// a transferred width is a minimum that wider content can exceed.
+pub(crate) fn container_sizes_through_ratio(
+    style: &impl CoreStyle,
+    pb_sum: Size<f32>,
+    given: Size<Option<f32>>,
+    min: Size<Option<f32>>,
+    max: Size<Option<f32>>,
+    sizing_mode: crate::SizingMode,
+) -> (Size<Option<f32>>, Size<Option<f32>>, Size<Option<f32>>) {
+    let (mut size, mut min, max) = sizes_through_ratio(style, pb_sum, given, min, max);
+    // EXACT PATCH 56: the non-replaced content minimum combines content and
+    // the ratio transfer (Flexbox §4.5). A known width would skip content
+    // measurement; a floor leaves it independent of the transferred size.
+    if sizing_mode == crate::SizingMode::ContentSize && !style.is_compressible_replaced() && given.width.is_none() {
+        if let Some(width) = size.width.take() {
+            min.width = Some(width.maybe_min(max.width).maybe_max(min.width));
+        }
+    }
+    (size, min, max)
+}
+
 /// `limits` (a min or a max) transferred through `ratio` into the axes the
 /// style does not size (`sized`); a sized axis keeps its own limit only.
 pub(crate) fn transfer_into_unsized(

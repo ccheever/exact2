@@ -1717,16 +1717,20 @@ bounds under both box-sizing modes. Existing ratio-stretch fixtures pass.
 ## Patch 56: transfer incoming dimensions in flex and grid content measurement
 
 Flex resolves Patch 12's ratio from the incoming dimensions when computing its
-layout constants, as block layout does. Grid omits preferred sizes before
+layout constants. Grid omits preferred sizes before
 ratio resolution in `ContentSize`, retaining the sizes and limits derived from
 incoming dimensions. A content probe can therefore transfer a definite cross
 size without restoring the preferred main size it was asked to ignore
 ([Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto),
 [§9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes)).
 
-The existing ratio machinery supplies a height floor that content can exceed,
-using the declared box sizing. Both incoming dimensions remain authoritative;
-an authored size replaced by flexing no longer supplies a second ratio floor.
+For non-replaced containers in `ContentSize`, a transferred width is a minimum,
+not a known dimension: flex measures its items and grid sizes its tracks before
+combining their content with that floor. Taller content can likewise exceed
+the existing automatic height floor. Both transfers use the declared box
+sizing and retain the authored bounds. Both incoming dimensions remain
+authoritative; an authored size replaced by flexing no longer supplies a
+second ratio floor.
 Percentage definiteness and the parent-side rules of patches 44, 50, 54 and 55
 are unchanged.
 
@@ -1739,6 +1743,15 @@ grid items with `height:80px;aspect-ratio:1` in a 50×20 column change from
 content, zero minima, hidden overflow, alignment, wrapping, explicit widths,
 padding and borders under both box-sizing modes, specified-height caps,
 disabled shrinking, percentage children and a nested flex column.
+
+The 29 literal `Chrome 151 ratio container content floor` cases use the same
+Chrome version and date. Thirteen frames failed with a transferred width
+treated as known: flex and grid row items with 70px or 120px of min-content
+width stayed 50×50 instead of Chrome's 70×50 or 120×50. Controls cover fixed
+and stretched cross sizes, specified-width caps, two ratios, zero minima,
+hidden overflow, alignment, both box-sizing modes, wider and taller column
+content, and a flex column inside a row. The original 10px-content row cases
+retain the 50px transferred floor.
 
 ## Cargo workspace boundary
 

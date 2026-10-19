@@ -44,6 +44,9 @@
 //! `Chrome 151 ratio container minimum` uses that version and date for flex,
 //! grid and block items in short columns, including ratio floors, taller
 //! content, percentage children, shrink opt-outs, box sizing and row controls.
+//! `Chrome 151 ratio container content floor` uses that version and date for
+//! content wider or taller than the transfer, specified-size caps, insets,
+//! shrink opt-outs and a flex column inside a row.
 //! `Chrome 151 column stretch floor` uses that version and date for RTL
 //! columns with items wider than the line's stretch size. Controls cover
 //! ratios, LTR, fitting items, alignment, explicit widths, padding, borders
