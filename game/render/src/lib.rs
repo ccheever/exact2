@@ -23,6 +23,8 @@ mod ibl;
 mod lights;
 mod local_shadows;
 mod lod;
+mod look;
+mod look_bounds;
 mod model_pipeline;
 mod models;
 mod node_poses;
@@ -40,6 +42,7 @@ pub mod shapes;
 mod skinning;
 mod ssao;
 mod surface;
+pub mod tells;
 mod timing;
 mod trace;
 #[cfg(test)]
@@ -545,7 +548,7 @@ macro_rules! module {
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits($crate::development_edits_allowed())),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits($crate::development_build())),
             )],
             shaders: $shaders,
         };
@@ -587,7 +590,11 @@ mod test_device;
 #[cfg(test)]
 mod visibility_tests;
 
-/// Baked here so this crate's build-script environment edge owns the policy.
-pub fn development_edits_allowed() -> bool {
+/// Whether this build answers development requests: every build but one
+/// baked with `EXACT_UPDATE_TRUST=production`. build.rs passes the trust to
+/// rustc (unset as `development`, as `scripts/app.mjs` and
+/// `bake/src/compat.rs` take it), so a rebake with another trust recompiles
+/// this crate.
+pub fn development_build() -> bool {
     env!("EXACT_UPDATE_TRUST") != "production"
 }

@@ -187,6 +187,9 @@ extension HeaderShape {
         var at: UIView? = node
         while let view = at, view !== header.superview {
             if (view as? NodeView)?.style["display"]?.string == "none" { return true }
+            // A menu or dialog written in the header is the top layer's, as
+            // the shared rule reads it (`fact::LAYER`): shown when opened.
+            if let box = view as? NodeView, box.props["popover"] != nil || box.props["semanticTag"] == "dialog" { return true }
             at = view.superview
         }
         return placed.contains { node === $0 || node.isDescendant(of: $0) || $0.isDescendant(of: node) }

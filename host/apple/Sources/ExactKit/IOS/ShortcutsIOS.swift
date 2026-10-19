@@ -61,11 +61,12 @@ extension Presenter {
     private func chords(_ view: NodeView) -> [ChordIOS] {
         (view.props["accessibilityKeyShortcuts"] ?? "").split(whereSeparator: \.isWhitespace).compactMap(ChordIOS.init)
     }
-    /// The buttons that declare a chord and can be pressed now.
+    /// The shown buttons that declare a chord: a disabled one takes its key
+    /// and presses nothing (`pressShortcut`), as on the web.
     private var shortcutButtons: [NodeView] {
         chrome.ids("accessibilityKeyShortcuts").sorted().compactMap { views[$0] }
-            .filter { $0.isButton && ($0.handlers.contains("press") || $0.isNativeButton && invocation(of: $0) != nil)
-                && !$0.disabled && $0.accessibilityVisible }
+            .filter { $0.isButton && ($0.handlers.contains("press") || $0.isSurfaceControl || $0.isNativeButton && invocation(of: $0) != nil)
+                && $0.accessibilityVisible }
     }
     /// Whether the focus is a text field or area, whose typing a plain key is.
     private var editingText: Bool { focusedNode.map { $0.field != nil || $0.textArea != nil } ?? false }
@@ -113,7 +114,7 @@ extension Presenter {
         let names = ChordIOS.names(of: input)
         for name in names.isEmpty ? [input] : names {
             guard let chord = ChordIOS(Substring(name)) else { continue }
-            if let node = shortcut(key: chord.key, held: held, focus: focusedNode) { press(node.id); return }
+            if let node = shortcut(key: chord.key, held: held, focus: focusedNode) { pressShortcut(node); return }
         }
     }
 }

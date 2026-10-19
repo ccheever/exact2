@@ -314,6 +314,17 @@ pub fn project(
                 }
             }
         }
+        // @ref LLP 1084 D7 — a grouped row (a native button's too) its
+        // author hid is no row the page's sheet counts (index.html); a bound
+        // `display` says so as it runs (rows.rs).
+        if (parts.props.contains_key("data-groupedrowseparator")
+            || parts.props.contains_key("data-native"))
+            && parts.css.split(';').any(|d| d.trim() == "display:none")
+        {
+            parts
+                .props
+                .insert("data-exact-hidden".into(), String::new());
+        }
         for (row, reason) in &parts.skipped {
             warnings.push(format!(
                 "node {i}: style row {row} skipped by the web host: {reason}"

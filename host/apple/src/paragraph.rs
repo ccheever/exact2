@@ -58,8 +58,7 @@ impl<D: DataSource> Host<D> {
     fn face_box_size(&self, id: ViewId) -> Option<String> {
         let kernel = self.runner.kernel();
         let node = kernel.node(id)?;
-        // A childless box is decoration (a dot), not a face, and stays a
-        // flat leaf (`FlatLeavesIOS` admits no props but `dataset`).
+        // A childless box is decoration (a dot), not a face.
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
@@ -294,7 +293,7 @@ impl<D: DataSource> Host<D> {
             props.insert("faceBoxSize".into(), size);
         }
         let env = self.runner.kernel().env();
-        let (mut style, _skipped) = style::style_json_for(&node, &env);
+        let (style, _skipped) = style::style_json_for(&node, &env);
         let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
         if handlers.contains(&"heightrelease") {
             self.track_height_handle(id);
@@ -311,7 +310,7 @@ impl<D: DataSource> Host<D> {
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
         batch.create(id, kind, &pairs, &style, &handlers);
         // Kept to compare with the next update, as `update` keeps it.
-        style.shrink_to_fit();
+        let style = self.style_texts.share(style);
         self.mirror.insert(
             id,
             Box::new(Mirror {
@@ -372,13 +371,11 @@ impl<D: DataSource> Host<D> {
             batch.props(id, &set, &clear);
             m.props = props;
         }
-        if style != m.style {
+        if *m.style != *style {
             batch.style(id, &style);
-            // Kept to compare with the next: without the slack its
-            // formatting grew into (a quarter of a long style).
-            m.style = style;
-            m.style.shrink_to_fit();
+            m.style = self.style_texts.share(style);
         }
+        self.emit_separators_beside(id, batch);
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
@@ -484,10 +481,9 @@ impl<D: DataSource> Host<D> {
             let Some(m) = self.mirror.get_mut(&id) else {
                 continue;
             };
-            if m.style != style {
+            if *m.style != *style {
                 batch.style(id, &style);
-                m.style = style;
-                m.style.shrink_to_fit();
+                m.style = self.style_texts.share(style);
             }
         }
         if !self.dirty_paragraphs.is_empty() {
@@ -535,6 +531,9 @@ impl<D: DataSource> Host<D> {
     /// there and Swift lists the word as unhandled.
     pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
         let mut props = props_for(node);
+        if let Some(line) = super::separator::json(self.runner.kernel(), node.id) {
+            props.insert(super::separator::PROP.into(), line);
+        }
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {
                 if self.hatches.off.contains(word) {
@@ -604,4 +603,31 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
         }
     }
     out
+}
+
+/// The style texts the mirrors hold, one allocation per distinct text: a
+/// grid's cells and a list's rows repeat one style hundreds of times
+/// (euxy's first screen: 212 texts of 877 bytes, one of them). A text no
+/// mirror holds any more leaves at the next sweep, which runs when the
+/// table has doubled since the last.
+#[derive(Debug, Default)]
+pub(crate) struct StyleTexts {
+    texts: std::collections::HashSet<std::rc::Rc<str>>,
+    sweep_at: usize,
+}
+
+impl StyleTexts {
+    /// `text` as the one shared allocation of its content.
+    pub(crate) fn share(&mut self, text: String) -> std::rc::Rc<str> {
+        if let Some(found) = self.texts.get(text.as_str()) {
+            return found.clone();
+        }
+        if self.texts.len() >= self.sweep_at {
+            self.texts.retain(|t| std::rc::Rc::strong_count(t) > 1);
+            self.sweep_at = (self.texts.len() * 2).max(256);
+        }
+        let shared: std::rc::Rc<str> = text.into();
+        self.texts.insert(shared.clone());
+        shared
+    }
 }

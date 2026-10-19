@@ -14,6 +14,25 @@ fn pointer_event(id: u64, phase: PointerPhase, x: f32, buttons: u32) -> InputEve
     }
 }
 #[test]
+fn keys_name_every_bound_key_with_its_action() {
+    let actions = Actions::new()
+        .stick("move", Stick::wasd().or_touch(Region::Left))
+        .button("buy", &[])
+        .button("one", &["Digit1", "Numpad1"]);
+    let keys: Vec<_> = actions.keys().collect();
+    assert_eq!(
+        keys,
+        [
+            ("KeyW", "move"),
+            ("KeyS", "move"),
+            ("KeyA", "move"),
+            ("KeyD", "move"),
+            ("Digit1", "one"),
+            ("Numpad1", "one"),
+        ]
+    );
+}
+#[test]
 fn primary_origin_survives_both_button_chords_and_secondary_release() {
     for right_first in [false, true] {
         let mut input = Input::new(Actions::new().button("fire", &["MouseLeft"]));

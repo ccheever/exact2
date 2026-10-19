@@ -5,7 +5,7 @@ import {startStatus} from './status.mjs';
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, isAbsolute, relative, resolve} from 'node:path';
-import {equal, agreePins, nativeProofHost, pinInputs, pinSourceInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
+import {equal, agreePins, nativeProofHost, pinInputs, pinSourceInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand, lookAcrossRuns, lookOnlyFailure} from './proof.mjs';
 import {gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
@@ -128,6 +128,8 @@ if (repin) {
       if (unavailable) return 0;
       try { rows.push(await run(host, 1, false, mode, 'gpu-dev')); return 0; }
       catch (error) {
+        // A look that failed is the look's: the pins record the simulation, which passed.
+        if (lookOnlyFailure(error.summary)) { rows.push(error.summary); return 0; }
         if (mode === '0' && error.webUnavailable) { unavailable = true; console.log('WEB unavailable: repin refuses the missing requested host; set CHROME and rerun.'); }
         else errors.push(error);
         return 1;
@@ -139,7 +141,8 @@ if (repin) {
     if (!unavailable) exercised.push(host);
   }
   for (const host of [native, ...hosts.includes('web') ? ['web'] : []])
-    try { rows.push(await run(host, 1, false, '0', 'release')); } catch (error) { errors.push(error); }
+    try { rows.push(await run(host, 1, false, '0', 'release')); }
+    catch (error) { if (lookOnlyFailure(error.summary)) rows.push(error.summary); else errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   checkSDK();
@@ -173,25 +176,34 @@ const failures = groups.filter(r => r.status === 'rejected');
 const rows = groups.flatMap(r => r.status === 'fulfilled' ? r.value : r.reason.rows ?? (r.reason.summary ? [r.reason.summary] : []));
 const hashes = row => row.worlds.map(({session, tick, hash}) => ({session, tick, hash}));
 const baseline = rows[0];
-let failed = failures.length > 0;
-console.log('| Host | Run | Seconds | World hashes | Save bytes | Proof |');
-console.log('|---|---:|---:|---|---|---|');
+// A run that failed by its look alone is the look's failure, below, not the simulation's.
+let failed = failures.some(failure => !lookOnlyFailure(failure.reason.summary));
+console.log('| Host | Run | Seconds | World hashes | Save bytes | Simulation | Look |');
+console.log('|---|---:|---:|---|---|---|---|');
 for (const row of rows) {
   const hashOK = row.worlds.length > 0 && equal(hashes(row), hashes(baseline));
   const saveOK = row.saves.length > 0 && equal(row.saves, baseline.saves);
   failed ||= !hashOK || (config.compareSaves && !saveOK);
-  console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${config.compareSaves ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
+  console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${config.compareSaves ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.simulation ?? row.status ?? 'UNVERIFIED'} | ${row.look ? `${row.look.status}, ${row.look.detail}` : 'not taken'} |`);
 }
+// The look result (LLP 1127.000 D5): a tell no game.look.silence names fails the proof; it passes only when every
+// requested host's every run saw every world it showed, whole. A run with no summary is a gap.
+const looks = rows.map(row => row.look);
+for (const look of looks.filter(Boolean)) for (const picture of [...look.pages ?? [], ...look.pictures ?? []]) console.log(`LOOK ${picture}`);
+const expected = hosts.flatMap(host => Array.from({length:repeat}, (_, i) => ({host, repeat:i + 1})));
+const {status:lookStatus, gaps:lookGaps} = lookAcrossRuns(rows, expected);
+for (const gap of lookGaps) console.log(`look: unverified, ${gap}`);
 for (const failure of failures) console.error(failure.reason);
 if (hosts.length > 1) {
   const entry = await import(resolve(app, 'proof.mjs'));
   if (entry.compare) try { await entry.compare(rows, {root, repeat}); }
   catch (error) { console.error(error.message); failed = true; }
 }
-const status = failed ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+const status = failed || lookStatus === 'FAIL' ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+console.log(`simulation: ${failed ? 'FAIL' : rows.length && rows.every(row => (row.simulation ?? row.status) === 'PASS') ? 'PASS' : 'UNVERIFIED'} · look: ${lookStatus}${looks.some(Boolean) ? '' : ', no look taken'}`);
 console.log(`PROOF ${status} ${name}`);
 if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with ${proofCommand(import.meta.path, local ? sourceApp : name, '--repin')}`);
-writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, rows}, null, 2)+'\n');
+writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, look:lookStatus, lookGaps, rows}, null, 2)+'\n');
 process.exitCode = status === 'PASS' ? 0 : status === 'FAIL' ? 1 : 3;
 
 }

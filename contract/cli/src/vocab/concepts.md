@@ -35,6 +35,10 @@ component App
           text r id=`row-${r}` padding=16
 ```
 
+- Every scroller above the element moves, so a horizontal strip inside a sheet or a form
+  scrolls the form too. `block="nearest"` leaves a scroller that already shows the element
+  where it is, and `inline` (`"start"`, `"center"`, `"end"`, default `"nearest"`) places it
+  across a horizontal strip: ``scrollIntoView(`icon-${i}`, block="nearest", inline="start")``.
 - A virtualized `list` (rows not built yet) scrolls to a row by its key:
   `scrollIntoView("list-id", key, block="center")`. A chat opens at its newest row with
   `scroll-start="end"` on a `list virtualized=true`, and `scrollFollowEnd=true` keeps it
@@ -855,7 +859,7 @@ A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextme
 taps the item. A row whose `popovertarget` names another menu is its submenu.
 
 ## search: the bar's search field, filtering a list or querying a server
-names: searchable, searchbar, search-bar, UISearchBar, UISearchController, search bar, search field
+names: searchable, searchbar, search-bar, UISearchBar, UISearchController, search bar, search field, hidesSearchBarWhenScrolling, hideWhenScrolling, sticky search
 
 An `input type="search"` in a route's `header` is the bar's search field: on iOS UIKit's
 search controller (a magnifier, a clear button, Cancel), on the web a field under the title.
@@ -887,6 +891,9 @@ component App
                   text n
 ```
 
+- On iOS the field scrolls away with the content while it is empty, as UIKit's does;
+  `position="sticky" top=0` on the `input` keeps it shown (`hidesSearchBarWhenScrolling =
+  false`, React Navigation's `hideWhenScrolling={false}`).
 - `flex-wrap` and `width="100%"` give the field its own line on the web; iOS places it
   itself. A field in the content with a Search button beside it is a web form's, a tell.
 - A test types the query: `type "search" "gro"`, and `type "search" ""` to clear it.
@@ -1015,6 +1022,46 @@ component App
 - CSS's `backdrop-filter="blur(12px) saturate(1.8)"` blurs what is behind on the web, macOS
   and Linux; iOS draws a fixed light material for it, so a surface meant for iPhone says
   `backgroundMaterial`, which wins when both are written.
+- A navigation bar's buttons share one glass capsule on iOS 26; `buttonStyle="glass"` on
+  each gives it a capsule of its own (`contract vocab bar-buttons`).
+
+## bar-buttons: the navigation bar's buttons, grouped or each in its own capsule
+names: bar button, bar-button, barbuttons, UIBarButtonItem, sharesBackground, headerRight, headerLeft, toolbarItem, ToolbarItem, ToolbarItemGroup
+
+The buttons of a route's `header` are its bar's items: those before the heading lead, those
+after it trail. iOS 26 puts adjacent ungrouped buttons on one shared glass capsule.
+`buttonStyle="glass"` on a bar button gives it a capsule of its own (`sharesBackground =
+false`), and a `row role="group"` around some keeps those on one capsule, set apart from the
+next group. Leave their size, colour and padding unsaid.
+
+```contract
+routes nav
+  home "/"
+
+component App
+  state n = 0
+  action add
+    n = n + 1
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          header
+            text "Patterns" role="heading" aria-level=1
+            button popovertarget="sort-menu" buttonStyle="glass" aria-label="Sort" testId="sort"
+              image "symbol:sf/arrow.up.arrow.down"
+            button press=add buttonStyle="glass" aria-label="New" testId="new"
+              image "symbol:add"
+          column id="sort-menu" popover="auto" role="menu"
+            button press=add popovertarget="sort-menu" popovertargetaction="hide"
+              text "Date Added"
+          text `${n}` testId="n"
+```
+
+- A `popovertarget` button is the bar item's pull-down menu (`contract vocab menu`). Write the
+  menu beside the header; one written in it is still its button's menu, never more bar buttons.
+
+More: docs/contract-for-agents.md, "Bar buttons, glass and the search field"
 
 ## haptics: a tap the hand feels
 names: haptic, vibrate, vibration, Haptics, impactAsync, selectionAsync, notificationAsync, UIImpactFeedbackGenerator, UISelectionFeedbackGenerator, UINotificationFeedbackGenerator, sensoryFeedback, expo-haptics

@@ -27,4 +27,7 @@ assert!(camera.x > 0.7 && camera.x < 1.);
 
 - `lag` is a time constant in seconds, not a speed. Zero snaps.
 - Missing targets leave the camera alone. Restore preserves initialized poses.
+- `offset` is in world axes: the camera trails without turning. A view the player
+  turns around the character is an [orbit camera](orbit-camera.md), placed by the
+  tick instead of by `Follow`.
 - Used in [the starter](../new/logic/src/lib.rs). This fragment is an engine doc-test.

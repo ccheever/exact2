@@ -533,6 +533,19 @@ impl Frame {
 }
 
 #[cfg(test)]
+impl Link {
+    /// As if a tick's answer came on stream `nonce` (a reconnect).
+    pub(crate) fn settle_nonce_for_test(&mut self, nonce: &str) {
+        if self.nonce.as_deref() != Some(nonce) {
+            self.streams += 1;
+            self.ended.clear();
+            self.frames.retain(|f| f["kind"] != "hold");
+        }
+        self.nonce = Some(nonce.to_string());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{Read, Write};
@@ -1057,18 +1070,5 @@ mod tests {
         link.report(json!({"kind": "status"}));
         assert!(link.exchange().is_none(), "quiet after a 404 hello");
         assert!(link.outbox.is_empty());
-    }
-}
-
-#[cfg(test)]
-impl Link {
-    /// As if a tick's answer came on stream `nonce` (a reconnect).
-    pub(crate) fn settle_nonce_for_test(&mut self, nonce: &str) {
-        if self.nonce.as_deref() != Some(nonce) {
-            self.streams += 1;
-            self.ended.clear();
-            self.frames.retain(|f| f["kind"] != "hold");
-        }
-        self.nonce = Some(nonce.to_string());
     }
 }

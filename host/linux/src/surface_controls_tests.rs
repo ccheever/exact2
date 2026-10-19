@@ -513,6 +513,45 @@ fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
     done(p, path);
 }
 
+/// LLP 1132 D11: a held Control chord's auto-repeats reach the shortcut as
+/// repeats, so its button is pressed once, as a browser's `keydown` repeat
+/// is not a click.
+#[test]
+fn a_held_control_shortcut_presses_once_through_its_repeats() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column
+      button aria-keyshortcuts="Control+1" press=bump testId="buy" height=24
+        text `${n}` testId="n"
+"#,
+        &[],
+    );
+    p.focus = Some(find(&p, "buy"));
+    p.hardware_key("ControlLeft", "Control", true, false);
+    p.hardware_key("Digit1", "1", true, false);
+    for at in [520.0, 603.0, 686.0] {
+        let _ = p.advance(at);
+        p.hardware_key("Digit1", "1", true, true);
+    }
+    p.hardware_key("Digit1", "1", false, false);
+    p.hardware_key("ControlLeft", "Control", false, false);
+    let n = p
+        .host
+        .kernel()
+        .node(find(&p, "n"))
+        .and_then(|n| n.props.str(exact_kernel::PropId::Text).map(str::to_owned));
+    assert_eq!(
+        n.as_deref(),
+        Some("1"),
+        "one press for the down, none for its repeats"
+    );
+    done(p, path);
+}
+
 #[test]
 fn e10_contract_button_consumes_all_activation_keys() {
     for key in ["Space", "Enter", "NumpadEnter"] {

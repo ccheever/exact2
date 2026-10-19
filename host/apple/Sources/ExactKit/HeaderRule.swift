@@ -50,6 +50,7 @@ struct HeaderRule {
         if node.kind == "input", node.props["type"] == "search" { facts |= 2 }
         if node.props["accessibilityRole"] == "tablist" { facts |= 4 }
         if node.props["accessibilityRole"] == "status" { facts |= 1024 }
+        if node.props["popover"] != nil || node.props["semanticTag"] == "dialog" { facts |= 2048 }
         if node.handlers.contains("press") { facts |= 8 }
         if node.presenter?.invocation(of: node)?.opensPopover == true { facts |= 16 }
         if back != nil, node.props["id"] == back { facts |= 32 }

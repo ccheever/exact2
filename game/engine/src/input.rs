@@ -251,6 +251,18 @@ impl Actions {
             .collect::<Vec<_>>()
             .join(", ")
     }
+    /// Each physical key a button or stick binds, with the action it
+    /// drives, in declaration order. The GPU build writes them for the
+    /// Contract bake, which warns of a button shortcut on the same key.
+    pub fn keys(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.entries.iter().flat_map(|a| {
+            let stick = a.stick.iter().flat_map(|s| s.keys.iter().flatten());
+            a.keys
+                .iter()
+                .chain(stick)
+                .map(move |k| (k.as_str(), a.name.as_str()))
+        })
+    }
     pub(crate) fn json(&self) -> String {
         use crate::Writer;
         let mut w = crate::json::Encoder::rounded();

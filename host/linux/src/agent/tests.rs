@@ -252,6 +252,44 @@ fn prefer_sets_the_display_preferences_by_their_media_names() {
     assert!(!p.dark(), "the app's own choice wins");
 }
 
+/// LLP 1132 D10: `prefer pointer` and `prefer hover` set the primary
+/// input `exactViewport()` answers; an unknown value applies nothing.
+#[test]
+fn prefer_sets_the_pointer_and_hover_facts() {
+    let plan = contract::compile(
+        "shape M\n  pointer: string\n  hover: string\ncomponent App\n  resource m = exactViewport() as shape M\n  view\n    text `${m.pointer} ${m.hover}` testId=\"t\"\n",
+    )
+    .unwrap();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let text = |p: &mut Presenter<()>| handle(p, r#"{"op":"tree"}"#);
+    assert!(text(&mut p).contains("fine hover"), "{}", text(&mut p));
+    let reply: serde_json::Value = serde_json::from_str(&handle(
+        &mut p,
+        r#"{"op":"prefer","media":{"pointer":"coarse","hover":"none"}}"#,
+    ))
+    .unwrap();
+    assert_eq!(reply["media"]["pointer"], "coarse");
+    assert_eq!(reply["media"]["hover"], "none");
+    assert!(text(&mut p).contains("coarse none"), "{}", text(&mut p));
+    let refused = handle(
+        &mut p,
+        r#"{"op":"prefer","media":{"pointer":"none","hover":"sometimes"}}"#,
+    );
+    assert!(refused.contains("\"malformed\""), "{refused}");
+    assert!(text(&mut p).contains("coarse none"), "nothing applied");
+    handle(&mut p, r#"{"op":"prefer","media":{"pointer":"none"}}"#);
+    assert!(text(&mut p).contains("none none"), "{}", text(&mut p));
+}
+
 /// LLP 1069.000 D1, D2, D6: `prefer` sets contrast, the system's scheme
 /// beneath an app's own, and what `exactPage()` answers; `state.device`
 /// shows them without an app declaring either source.

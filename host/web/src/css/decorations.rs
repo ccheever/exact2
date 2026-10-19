@@ -1,4 +1,5 @@
-//! Decoration declarations use the same style parser and CSS writer as nodes.
+//! A `decoration` declaration's rows as the body of its `::highlight()` rule
+//! (LLP 1114.007), through the same style parser and CSS writer as nodes.
 
 use exact_kernel::{StyleId, StyleProps, StyleValue};
 use serde_json::{Map, Value};
@@ -45,17 +46,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn declarations_keep_relative_lengths_and_resolve_font_stacks() {
-        let input = serde_json::json!({"heading":[
-            [StyleId::FontSize as u16,"1.25rem"],
-            [StyleId::FontWeight as u16,600],
-            [StyleId::PaddingLeft as u16,"0.8rem"]
+    fn declarations_become_highlight_rule_bodies() {
+        let input = serde_json::json!({"mention":[
+            [StyleId::TextColor as u16,"#1083fe"],
+            [StyleId::BackgroundColor as u16,"#eeeeff"],
+            [StyleId::TextDecorationLine as u16,"underline"]
         ]});
         let output: Value =
             serde_json::from_str(&decoration_styles(&input.to_string(), &[])).unwrap();
-        let css = output["heading"].as_str().unwrap();
-        assert!(css.contains("font-size:1.25rem"));
-        assert!(css.contains("font-weight:600"));
-        assert!(css.contains("padding-left:0.8rem"));
+        let css = output["mention"].as_str().unwrap();
+        assert!(css.contains("color:"), "{css}");
+        assert!(css.contains("background-color:"), "{css}");
+        assert!(css.contains("text-decoration-line:underline"), "{css}");
     }
 }

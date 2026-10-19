@@ -18,6 +18,9 @@ pub mod sound_on_contact {}
 /// Spawn on the simulation clock.
 #[doc = include_str!("../../recipes/spawner.md")]
 pub mod spawner {}
+/// Show on-screen controls on a touch screen.
+#[doc = include_str!("../../recipes/touch-controls.md")]
+pub mod touch_controls {}
 /// Receive a command from Contract.
 #[doc = include_str!("../../recipes/door-message.md")]
 pub mod door_message {}
@@ -37,6 +40,24 @@ pub mod halo {}
 /// Spawn a prop or sprite from literal values.
 #[doc = include_str!("../../recipes/literal-builders.md")]
 pub mod literal_builders {}
+/// Bubbles, a wake and a splash from emitters.
+#[doc = include_str!("../../recipes/emitter.md")]
+pub mod emitter {}
+/// Name synthesized sounds and play them from the tick.
+#[doc = include_str!("../../recipes/synthesized-sounds.md")]
+pub mod synthesized_sounds {}
+/// Orbit a third-person camera around the player.
+#[doc = include_str!("../../recipes/orbit-camera.md")]
+pub mod orbit_camera {}
+/// Flash a hit entity from `Game::present`.
+#[doc = include_str!("../../recipes/hit-flash.md")]
+pub mod hit_flash {}
+/// Read a tap whose down and up land inside one tick.
+#[doc = include_str!("../../recipes/same-tick-press.md")]
+pub mod same_tick_press {}
+/// Export models from Blender for the bake.
+#[doc = include_str!("../../recipes/blender-export.md")]
+pub mod blender_export {}
 /// Light and frame a scene under water.
 #[doc = include_str!("../../recipes/underwater.md")]
 pub mod underwater {}

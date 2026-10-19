@@ -218,6 +218,12 @@
       "kind": "bool"
     },
     {
+      "id": 8,
+      "name": "groupedRowSeparator",
+      "kind": "bool",
+      "_comment": "@ref LLP 1084 D7: set by Contract, never written by an author, on each row of a grouped list's card (`contract/lower/src/grouped.rs`). The platform's separator under the row is decoration, not a border: drawn in the platform's colour (`grouped-separator`) from the row's content edge to `grouped-separator-end` before its trailing edge, under its children, taking no layout. `Kernel::grouped_separator` says where, and whether: not under the last row, and not where its author wrote the edge (`Kernel::row_separator`'s rule)."
+    },
+    {
       "id": 9,
       "name": "lang",
       "snapshot": "admit",
@@ -1634,15 +1640,13 @@
       "id": 277,
       "name": "decorations",
       "kind": "str",
-      "measure": true,
-      "_comment": "LLP 1114.007: the named JSON record over a plain textarea's source value: value, spans, blocks, hidden and atoms, with UTF-16 ranges. The compiler accepts TextDecorations and the bridge serializes it; a source string is part of binding identity."
+      "_comment": "@ref LLP 1114.007: a plain textarea's paint-only TextDecorations record as named JSON: the value it was computed for and its spans, UTF-16 ranges each naming a `decoration`. The value is part of the record's identity, so an equal span list for new text is still sent. Never measured: a decoration moves no line break."
     },
     {
       "id": 278,
       "name": "decorationStyles",
       "kind": "str",
-      "measure": true,
-      "_comment": "LLP 1114.007: compiler-owned per-field named decoration declarations, including aliases visible in the textarea's source file. Not an authored attribute."
+      "_comment": "@ref LLP 1114.007: the compiler's table of the `decoration` declarations visible in the textarea's source file, by name, each a list of [style id, literal] rows of the properties `::highlight()` admits. Not an authored attribute."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -5763,7 +5767,7 @@
   "lengths": [
     "hairline"
   ],
-  "_metrics": "@ref LLP 1115.002 D6, D8.4; LLP 1115.000 D17: the looks Exact draws itself, as data. Each row: a name, its kind, then its value in each column: iOS, the Mac, the web's first look (LLP 1116 D1) and the neutral look (LLP 1115.000 D4 part B). A row of three cells (a name, a kind, a value) is the neutral look's own and has no value in the other columns. A seventh cell is Android's Material look's (LLP 1115.001.001 D2.4): Compose Material 3's value at the pinned version, which `host/android/reference/rows.json` traces to its symbol and `tokens.mjs` checks against the pinned source; a row without one reads the web's first look's there. The `field-` and `state-` rows at the end are the Material look's own. A process reads one column (`style::metrics::column`): its platform's where an Apple host said it (`set_column`); the neutral look's where the process shows that look's colours (`style::roles::set_column`, the one switch for the look's colours and its metrics), which the web does and a host that paints its own controls with no platform toolkit under it, the Linux desktop and Windows (D17); Android's Material look's where Android's reader says it; else the web's first look. The kinds say what reads a row. `style`: the CSS value of the style row it is written on: a number of px (or a row's bare number: a weight, a flex factor), a keyword (`auto`, `right`, `mini`, `flex-start`), a percentage, a text style or a colour role by its own name, a `light-dark()` pair, or `unset` for no row at all in that column. A sheet the compiler writes names it as `-exact-<name>` and holds no number of its own; an author never writes one (lowering refuses the name, and the runner refuses it on a row its author wrote). The kernel reads the name as its value in the process's column when the row is set, so every reader and the wire see the value; the web's JS target, which keeps no kernel, reads a bound name in its build's column when it compiles (`host/web-js/src/style.rs`, `metric_map`). `length`: px as a number, or text in `em` (of the control's font size) or `rem` (of the root's). `number`: a ratio, a weight or an opacity. Code reads these two (`style::metrics::length`, `number`, by the row's place in `generated::metric`): the kernel's size for a control no host measured (`ControlKind::default_size`), and the Linux painter's shapes (`host/linux/src/paint/look.rs`). `unset` in any kind is no value in that column. A state is a row of its own, named for it: `-coarse` under a coarse pointer, `-hover`, `-pressed`. The `grouped-` rows are the grouped list's (`list appearance=\"auto\"`, `contract/lower/src/grouped.rs`): iOS's and the web's first look's are the sheet's values as they were (UIKit's measured list, LLP 1084 §2; the three surfaces still its literal pairs), the Mac's are SwiftUI's grouped `Form` measured on macOS 27.0.1 (LLP 1115.002 §1 and stage 4's as-built; `~/audits/exact2-no-tells-2026-10-11/mac-structure/` and `mac-grouped/`; a section is at most 744 wide there: the form's 704 and the card's 20 either side), and the neutral look's are the first look's on the neutral grounds with a surface's corners. The rows after them are the neutral look's metrics, which the web's sheet (`host/web/neutral.css`, and the shell's where the look keeps it) writes as CSS and `host/web/tests/neutral-look.test.mjs` holds to this table: a control is `control-height` tall with `control-radius` corners and a `control-line` edge; a surface that floats or groups has `surface-radius` corners; a mark (a checkbox, a radio, a switch's and a range's height) is `mark-size`; elevation is flat, `raised-` or `modal-`. Four of them have a value in every column, because the kernel sizes a control by them in every look: `mark-size`, `switch-width`, `switch-height` and `range-height` are Chrome's bare controls outside the neutral look (the switch WebKit's box), what an Apple host shows before it reports its own and Android's reader paints.",
+  "_metrics": "@ref LLP 1115.002 D6, D8.4; LLP 1115.000 D17: the looks Exact draws itself, as data. Each row: a name, its kind, then its value in each column: iOS, the Mac, the web's first look (LLP 1116 D1) and the neutral look (LLP 1115.000 D4 part B). A row of three cells (a name, a kind, a value) is the neutral look's own and has no value in the other columns. A seventh cell is Android's Material look's (LLP 1115.001.001 D2.4): Compose Material 3's value at the pinned version, which `host/android/reference/rows.json` traces to its symbol and `tokens.mjs` checks against the pinned source; a row without one reads the web's first look's there. The `field-` and `state-` rows at the end are the Material look's own. A process reads one column (`style::metrics::column`): its platform's where an Apple host said it (`set_column`); the neutral look's where the process shows that look's colours (`style::roles::set_column`, the one switch for the look's colours and its metrics), which the web does and a host that paints its own controls with no platform toolkit under it, the Linux desktop and Windows (D17); Android's Material look's where Android's reader says it; else the web's first look. The kinds say what reads a row. `style`: the CSS value of the style row it is written on: a number of px (or a row's bare number: a weight, a flex factor), a keyword (`auto`, `right`, `mini`, `flex-start`), a percentage, a text style or a colour role by its own name, a `light-dark()` pair, or `unset` for no row at all in that column. A sheet the compiler writes names it as `-exact-<name>` and holds no number of its own; an author never writes one (lowering refuses the name, and the runner refuses it on a row its author wrote). The kernel reads the name as its value in the process's column when the row is set, so every reader and the wire see the value; the web's JS target, which keeps no kernel, reads a bound name in its build's column when it compiles (`host/web-js/src/style.rs`, `metric_map`). `length`: px as a number, or text in `em` (of the control's font size) or `rem` (of the root's). `number`: a ratio, a weight or an opacity. Code reads these two (`style::metrics::length`, `number`, by the row's place in `generated::metric`): the kernel's size for a control no host measured (`ControlKind::default_size`), and the Linux painter's shapes (`host/linux/src/paint/look.rs`). `unset` in any kind is no value in that column. A state is a row of its own, named for it: `-coarse` under a coarse pointer, `-hover`, `-pressed`. The `grouped-` rows are the grouped list's (`list appearance=\"auto\"`, `contract/lower/src/grouped.rs`): iOS's and the web's first look's are the sheet's values as they were (UIKit's measured list, LLP 1084 §2; the three surfaces still its literal pairs), the Mac's are SwiftUI's grouped `Form` measured on macOS 27.0.1 (LLP 1115.002 §1 and stage 4's as-built; `~/audits/exact2-no-tells-2026-10-11/mac-structure/` and `mac-grouped/`; a section is at most 744 wide there: the form's 704 and the card's 20 either side; a row is `border-box` with its insets as padding, LLP 1084 D7, so its minimum heights count its padding: the Mac's 36-point row is 36 here, and `grouped-button-` rows keep a destructive row the Mac's content-box push button), and the neutral look's are the first look's on the neutral grounds with a surface's corners. The rows after them are the neutral look's metrics, which the web's sheet (`host/web/neutral.css`, and the shell's where the look keeps it) writes as CSS and `host/web/tests/neutral-look.test.mjs` holds to this table: a control is `control-height` tall with `control-radius` corners and a `control-line` edge; a surface that floats or groups has `surface-radius` corners; a mark (a checkbox, a radio, a switch's and a range's height) is `mark-size`; elevation is flat, `raised-` or `modal-`. Four of them have a value in every column, because the kernel sizes a control by them in every look: `mark-size`, `switch-width`, `switch-height` and `range-height` are Chrome's bare controls outside the neutral look (the switch WebKit's box), what an Apple host shows before it reports its own and Android's reader paints.",
   "metrics": [
     ["header-ground", "style", "-exact-background"],
     ["header-color", "style", "-exact-label"],
@@ -5808,16 +5812,16 @@
     ["grouped-edge-radius", "style", "unset", 10, "unset", "unset"],
     ["grouped-edge-width", "style", 1, 0, 1, 1],
     ["grouped-separator-gap", "style", "unset", 1, "unset", "unset"],
-    ["grouped-row-min-height", "style", 52, 16, 52, 52],
+    ["grouped-separator-end", "style", 0, 10, 0, 0],
+    ["grouped-row-min-height", "style", 52, 36, 52, 52],
     ["grouped-row-padding-block", "style", "unset", 10, "unset", "unset"],
     ["grouped-row-inset", "style", 16, 10, 16, 16],
     ["grouped-row-inset-symbol", "style", 56, 10, 56, 56],
-    ["grouped-row-margin-end", "style", "unset", 10, "unset", "unset"],
-    ["grouped-row-padding-end", "style", 16, 0, 16, 16],
+    ["grouped-row-padding-end", "style", 16, 10, 16, 16],
     ["grouped-swipe-margin", "style", 0, 10, 0, 0],
     ["grouped-swipe-padding", "style", 16, 0, 16, 16],
     ["grouped-row-gap", "style", 8, 8, 8, 8],
-    ["grouped-stack-min-height", "style", 22, 16, 22, 22],
+    ["grouped-stack-min-height", "style", 52, 36, 52, 52],
     ["grouped-stack-padding-block", "style", 15, 10, 15, 15],
     ["grouped-lines-padding-block", "style", 15, 0, 15, 15],
     ["grouped-stack-gap", "style", 0, 3, 0, 0],
@@ -5835,7 +5839,11 @@
     ["grouped-field-align", "style", "unset", "right", "unset", "unset"],
     ["grouped-button-appearance", "style", "none", "auto", "none", "none"],
     ["grouped-button-min-height", "style", 52, 24, 52, 52],
-    ["grouped-button-padding-start", "style", "unset", 12, "unset", "unset"],
+    ["grouped-button-box-sizing", "style", "border-box", "content-box", "border-box", "border-box"],
+    ["grouped-button-margin-inline", "style", "unset", 10, "unset", "unset"],
+    ["grouped-button-padding-start", "style", 16, 12, 16, 16],
+    ["grouped-button-padding-start-symbol", "style", 56, 12, 56, 56],
+    ["grouped-button-padding-end", "style", 16, 0, 16, 16],
     ["grouped-button-title-grow", "style", 1, 0, 1, 1],
     ["grouped-button-margin-block", "style", "unset", 10, "unset", "unset"],
     ["grouped-button-align", "style", "unset", "flex-start", "unset", "unset"],

@@ -715,8 +715,9 @@ function listen(entry) {
   });
   const inactive = event => blur(event);
   window.addEventListener("blur", inactive);
-  // Assistive technology activates a button without a pointer/key sequence.
-  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } });
+  // Assistive technology, and a declared shortcut (input-glue.js), activate a button without a pointer/key sequence;
+  // heard in the capture phase, as a button's own `press` stops the click's propagation (navigation.js): both run.
+  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } }, true);
   on("focusin", event => { if (editable(event.target)) blur(event); });
   on("focusout", event => {
     if (controls.size || el.contains(event.relatedTarget)) return;
@@ -853,6 +854,15 @@ const api = {
       for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
       return tagged({ data: btoa(encoded), bytes: bytes.length, hash: state?.world?.hash, tick: state?.tick });
     }
+    // A look frame (LLP 1127.000) reads back on the page's next turn: the module
+    // answers `pending` until its maps land, and this waits, up to 5 s.
+    if ((request.op === "screenshot" && request.form === "look") || (request.op === "state" && (request.look || request.draws || request.visible))) return recoveringDevice || recoveryTimer ? { unavailable: "no picture while the device recovers" } : (async () => {
+      for (const end = performance.now() + 5000; performance.now() < end; await new Promise((r) => setTimeout(r, 4))) {
+        const reply = agent(request.id, request);
+        if (reply?.pending !== "readback") return reply ? tagged(reply) : { error: `view ${request.id} has no world` };
+      }
+      return { error: "look frame: the readback did not land in 5 s" };
+    })();
     if (!["layout", "state", "tree"].includes(request.op)) return { error: `world does not answer ${request.op}` };
     if (request.op === "layout" && request.entity === undefined) {
       const r = entry.host.getBoundingClientRect();

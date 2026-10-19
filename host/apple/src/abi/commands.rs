@@ -39,11 +39,6 @@ pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
 }
 
 impl<D: DataSource> Bridge<D> {
-    /// Install before boot; each replacement measurer keeps this callback.
-    pub fn set_decorated_measure(&mut self, read: Option<crate::measure::DecoratedMeasureFn>) {
-        self.decorated_measure = read;
-    }
-
     /// The first ask for `perf` (`exact_measure_work`): this runtime counts
     /// its plan sites' work from now, where its bake counts any, and every
     /// runtime booted after counts from boot.
@@ -401,7 +396,7 @@ impl<D: DataSource> Bridge<D> {
     /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol",("symbolPath","symbolViewBox": an
     /// svg-only icon's, `icon_path::push_json`),"title",
     /// "secondary","subtitle","accessory","target","pressable","action",
-    /// "checked","destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
+    /// "checked","destructive","disabled","authoredEdge","nextAuthoredTop","titleLook","secondaryLook"}]}],"spaceBelow"}`,
     /// `null` for a node that is not one. A look is `{"lines","ellipsis",
     /// "color","font"}`: a colour row's wire form and `{"size","weight",
     /// "italic","family","numeric"}`, each `null` where the author said nothing.
@@ -484,13 +479,15 @@ impl<D: DataSource> Bridge<D> {
                             Accessory::Radio(id, on) => ("radio", Some(id), on),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"action\":{},\"destructive\":{},\"disabled\":{}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"action\":{},\"destructive\":{},\"disabled\":{},\"authoredEdge\":{},\"nextAuthoredTop\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,
                             r.action,
                             r.destructive,
-                            r.disabled
+                            r.disabled,
+                            r.authored_edge,
+                            r.next_authored_top
                         ));
                         look(",\"titleLook\":", &r.title_look, &mut json);
                         look(",\"secondaryLook\":", &r.secondary_look, &mut json);

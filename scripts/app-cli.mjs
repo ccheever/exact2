@@ -36,8 +36,17 @@ export function warningLines(dir, host, warnings) {
   const where = shown.startsWith('..') ? file : shown;
   const count = `compiler: ${warnings.length} warning${warnings.length === 1 ? '' : 's'}`;
   if (!fresh.length) return [`${count}, as before (${where} lists them; bun exact.mjs contract build quotes each line)`];
-  return [...fresh, `${count}${fresh.length < warnings.length ? `, ${fresh.length} new (above)` : ''}; ${where} lists them all`];
+  // In the compiler's order (`contract::warning_rank`), the symbols only the web draws blank one line: 21 of them hid
+  // the euxy port's header warning.
+  const web = fresh.filter(webOnly), one = web.length === 1;
+  const group = web.length ? [`${web[0].split(' warning [')[0]} warning [lower-symbol-platform] ${web.length} SF Symbol use${one ? '' : 's'} draw${one ? 's' : ''} blank on the web, here first: an icon token or a role draws on every host (${where} lists each, and how)`] : [];
+  return [...fresh.filter((w) => !webOnly(w)), ...group, `${count}${fresh.length < warnings.length ? `, ${fresh.length} new (above)` : ''}; ${where} lists them all`];
 }
+
+/** A compiler warning only the web's picture shows: an SF Symbol drawn blank where the web is the one target besides
+ *  Apple's (contract's `web_only`). Its first use names the targets, `ships web (…), where it is blank`; a later one,
+ *  `blank on web too`. */
+export const webOnly = (w) => /warning \[lower-symbol-platform\] /.test(w) && (/ blank on web too/.test(w) || /ships web \((?:(?!\) and ).)*?, where it is blank/.test(w));
 
 /** exact2's verbs for the app `name` in `dir`: each the script it runs, from the checkout, and its
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */

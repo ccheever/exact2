@@ -265,6 +265,19 @@ impl SourceMap {
                     self.at(&mut out, w.span);
                     out.extend_from_slice(b"},\"attr\":");
                     quote(&mut out, &w.name);
+                    // A layout row (LLP 1122 D14), which `set-row` refuses by
+                    // this same test: said, so a client offers it no edit. The
+                    // value is empty: `tags::rows` reads it only for `resize`,
+                    // a handler when an ident or call, never a written row.
+                    let written = contract_syntax::Attr {
+                        name: w.name.clone(),
+                        value: contract_syntax::Expr::Str(String::new(), w.span),
+                        span: w.span,
+                        written: true,
+                    };
+                    if !crate::paint_row(&written) {
+                        out.extend_from_slice(b",\"layout\":true");
+                    }
                 }
                 // A state part's row: its state and where it is written (LLP 1121 D8).
                 if let contract_lower::Origin::State { state, span, .. } = origin {

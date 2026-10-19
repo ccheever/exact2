@@ -232,7 +232,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.chrome.ids("menuPlacement")).union(presenter.toolbar.commands)
         // A tab a segment shows is shown, though its view is hidden (astra's code review).
         return ids.sorted().compactMap { presenter.views[$0] }.filter {
-            $0.isButton && $0.pressable && (presenter.segments.shown($0) ?? presenter.sidebar.shows($0) ?? presenter.toolbar.visible($0))
+            $0.isButton && ($0.pressable || $0.isSurfaceControl) && (presenter.segments.shown($0) ?? presenter.sidebar.shows($0) ?? presenter.toolbar.visible($0))
                 && ($0.props["accessibilityKeyShortcuts"] != nil || $0.props["menuPlacement"] != nil || presenter.toolbar.contains($0))
         }
     }
@@ -247,7 +247,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                       && declarations(node).contains(where: { $0.matches(event) && $0.permits(event.window?.firstResponder) })
                       && presenter?.shortcutAdmits(node, key: NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags), focus: focus) == true
               }) else { return false }
-        if !event.isARepeat && !view.disabled { presenter?.press(view.id) }
+        if !event.isARepeat && !view.disabled { presenter?.pressShortcut(view) }
         return true
     }
     fileprivate func menuEquivalent(_ item: NSMenuItem, matching event: NSEvent? = nil) -> String {
@@ -499,7 +499,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         if let event = NSApp.currentEvent, event.type == .keyDown,
            event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
             || presenter?.endedComposition(event) == true { return }
-        presenter?.press(id)
+        if let view = presenter?.views[id] { presenter?.pressShortcut(view) }
     }
 }
 #endif

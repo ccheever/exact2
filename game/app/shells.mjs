@@ -66,7 +66,7 @@ function logicManifest(dir, crate) {
       if (file) targets.push(`\n[[${table}]]\nname = ${JSON.stringify(file.replace(/(\.rs|\/main\.rs)$/, ''))}\npath = ${JSON.stringify(`../../logic/${kind}/${file}`)}\n`);
     }
   }
-  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = "../../logic/src/lib.rs"\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n`;
+  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = "../../logic/src/lib.rs"\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n${hasArt(dir) ? '\n# sim_with_art! bakes art/ in memory for the hostless tests.\n[dev-dependencies]\nexact-game-bake.workspace = true\n' : ''}`;
 }
 
 // @ref LLP 1046.008#b-authored-presentation-crate — GPU-only authored hooks (renamed
@@ -272,13 +272,23 @@ fn main() {
         })
         .collect();
     let name = <Logic as Game>::NAME;
-    let text = serde_json::to_string_pretty(&serde_json::json!({name: arguments})).unwrap() + "\\n";
-    let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../surfaces.json");
-    if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
-        let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-        fs::write(&temporary, text).expect("write game surface declaration");
-        fs::rename(temporary, &path).expect("publish complete game surface declaration");
+    let publish = |file: &str, json: serde_json::Value| {
+        let text = serde_json::to_string_pretty(&json).unwrap() + "\\n";
+        let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(file);
+        if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
+            let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+            fs::write(&temporary, text).expect("write game declaration");
+            fs::rename(temporary, &path).expect("publish complete game declaration");
+        }
+    };
+    publish("../surfaces.json", serde_json::json!({name: arguments}));
+    // The keys \`Actions\` bind, for the Contract bake's shortcut warning (LLP 1132 D11).
+    let actions = <Logic as Game>::actions();
+    let mut keys = std::collections::BTreeMap::<&str, Vec<&str>>::new();
+    for (code, action) in actions.keys() {
+        keys.entry(code).or_default().push(action);
     }
+    publish("../keys.json", serde_json::json!({name: keys}));
 ${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
     bake_files::bake_game_tables::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake tuning tables");
     println!("cargo:rerun-if-changed={}", level_bake_path());
@@ -638,6 +648,27 @@ export function sdkFetch({offline = false, source = gameRoot, env = process.env}
   });
 }
 
+/** What a proof's build would otherwise create in the game's directory, made before the
+ * proof's first input inventory: the generated `.shells/` and the baked `assets/`. The
+ * build then rewrites the same files and creates no entry under the proof's watch. */
+export function prepareProofTree(dir, env = process.env) {
+  const game = gameDefaults(dir)?.game;
+  if (game) gameShells(dir, game, gameRoot);
+  return bakeGameArt(dir, env);
+}
+
+/** Bake a game's art/ into assets/ with the GPU shell's own baker (`exact-game-bake
+ * --art`), so a later build writes the same bytes and creates nothing. A game
+ * without art/ (or a manifest to prune) is left alone. */
+export function bakeGameArt(dir, env = process.env) {
+  if (!hasArt(dir)) return false;
+  const result = spawnSync('cargo', ['run', '--manifest-path', resolve(gameRoot, 'Cargo.toml'), '-p', 'exact-game-bake', '--locked', '--offline', '--', '--art', dir], {
+    cwd:gameRoot, env, stdio:['ignore', 'inherit', 'inherit'],
+  });
+  if (result.error || result.status !== 0) throw new Error(`game art bake: ${result.error?.message ?? `cargo exited ${result.status ?? result.signal}`}`);
+  return true;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2), requested = args.find(arg => !arg.startsWith('--'));
   if (args.includes('--check')) {
@@ -656,12 +687,7 @@ if (import.meta.main) {
         // The game's own target, beside the build-dir its config names: the SDK's
         // is shared with the SDK's builds and every other game's.
         const env = {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(dir,'target')};
-        if (hasArt(dir)) {
-          const result=spawnSync('cargo',['run','--manifest-path',resolve(gameRoot,'Cargo.toml'),'-p','exact-game-bake','--locked','--offline','--','--art',dir], {
-            cwd:gameRoot,env,stdio:'inherit',
-          });
-          if (result.error || result.status !== 0) throw new Error(`game art bake: ${result.error?.message ?? `cargo exited ${result.status ?? result.signal}`}`);
-        }
+        bakeGameArt(dir, env);
         try { lintGame(dir, game, {env}); } catch (error) { console.error(error.message); failed = true; }
         // The author's crates only: generated adapters are products, built by bakes.
         const result=spawnSync('cargo',['test',...[game.crate, game.data?.crate, game.render?.crate].filter(Boolean).flatMap(crate => ['-p', crate]),'--locked','--offline','--no-fail-fast'], {

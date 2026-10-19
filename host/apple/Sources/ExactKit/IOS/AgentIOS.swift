@@ -354,7 +354,7 @@ extension Agent {
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
-        // A flat leaf (FlatLeavesIOS) is a layer in its parent's view: answered as one, its own id kept.
+        // A flat leaf (FlatLeavesIOS) is a layer in the view it is drawn in: answered as one, its own id kept.
         let leaf = presenter.textHost(UInt32(id)) == nil ? presenter.flats.leaves[UInt32(id)] : nil
         guard presenter.textHost(UInt32(id)) != nil || leaf != nil else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
@@ -362,8 +362,8 @@ extension Agent {
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
-        if let leaf, let parent = leaf.parent.flatMap({ presenter.views[$0] }) {
-            let b = box(parent, region: leaf.frame)
+        if let leaf, let parent = presenter.flats.host(of: leaf.id), let frame = presenter.flats.frameInHost(leaf.id) {
+            let b = box(parent, region: frame)
             node["space"] = ["viewport": ["x": Agent.r2(b.minX), "y": Agent.r2(b.minY), "w": Agent.r2(b.width), "h": Agent.r2(b.height)],
                              "local": ["w": Agent.r2(leaf.frame.width), "h": Agent.r2(leaf.frame.height)]]
             node["visible"] = ["hidden": leaf.layer.isHidden || leaf.opacity == 0, "inert": false, "inViewport": b.intersects(presenter.reach(of: parent)), "clipped": b.isEmpty]
@@ -997,7 +997,8 @@ extension Agent {
         }
         #if os(iOS)
         if let node = presenter.shortcut(key: device.key, held: held, focus: v) {
-            presenter.press(node.id)
+            // A repeat is not a press, as on every host.
+            if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
             reply["shortcut"] = Int(node.id)
             return taken()
         }
@@ -1113,7 +1114,7 @@ extension Agent {
             #if os(iOS)
             if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
                 presenter.supersedePress() // a key, as `keyDown` and `performShortcut` take it
-                presenter.press(node.id)
+                if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
@@ -1295,7 +1296,7 @@ extension Agent {
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
         if !painted.isEmpty, ExactEnv.agentPaints {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; to picture UIKit's menu, drive with --touch platform, where a screenshot with a menu up is the window's, the menu in it"
+            r["paintedNote"] = "the agent, not the app, painted the open popover in this picture, in the page (LLP 1021 D4): the app shows a menu as UIKit's menu at its button (a context menu's with its preview). To see the real one, drive with --touch platform: a screenshot with the menu up is then the window's, the menu in it"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {

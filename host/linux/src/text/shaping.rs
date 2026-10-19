@@ -149,7 +149,7 @@ type Pieces = Vec<(Range<usize>, usize)>;
 /// each paragraph separator (`\r\n` one), the last empty piece dropped,
 /// and one empty line for no text. Each line's pieces: (range in the
 /// line, run index).
-fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
+pub(super) fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
     let mut out: Vec<(String, Pieces)> = vec![(String::new(), Vec::new())];
     let mut after_cr = false;
     for (index, run) in spec.runs.iter().enumerate() {
@@ -838,7 +838,8 @@ pub(super) fn line_box<'a>(
 pub struct LayoutRun<'a> {
     /// Its hard line's index.
     pub line_i: usize,
-    /// Its hard line's text (glyph ranges index it).
+    /// The source text indexed by its glyph ranges: a hard line for ordinary
+    /// layout, the whole paragraph for flow across collapsed hard breaks.
     pub text: &'a str,
     /// The hard line's base direction.
     pub rtl: bool,
@@ -884,7 +885,11 @@ impl<'a> Iterator for Runs<'a> {
             };
         Some(LayoutRun {
             line_i: line.hard as usize,
-            text: &hard.text,
+            text: p
+                .flow
+                .as_ref()
+                .filter(|f| !f.incomplete)
+                .map_or(&hard.text, |f| &f.text),
             rtl: hard.rtl,
             glyphs: record.glyphs_of(line),
             line_y,

@@ -114,6 +114,7 @@ pub struct Input {
     // A pad, its index, its state, and whether its connection was reported.
     pads: Vec<(Device, crate::gamepad::Opened)>,
     keyboard: Keyboard,
+    touch_only: bool,
 }
 
 impl Input {
@@ -121,7 +122,7 @@ impl Input {
     /// Devices that cannot be opened (no permission — the `input` group) are
     /// skipped.
     pub fn open() -> Input {
-        let (mut devices, mut pads) = (Vec::new(), Vec::new());
+        let (mut devices, mut pads, mut pointing) = (Vec::new(), Vec::new(), Vec::new());
         for (path, d) in evdev::enumerate() {
             // A pad's sticks are ABS_X/ABS_Y too: it is a pad, not a pointer.
             if pad::is_pad(&d) {
@@ -164,6 +165,13 @@ impl Input {
             if !(pointer || absolute.is_some() || keyboard) {
                 continue;
             }
+            let keys = d.supported_keys();
+            pointing.push(crate::presenter::Pointing {
+                relative: pointer,
+                absolute: absolute.is_some(),
+                touch: keys.is_some_and(|k| k.contains(evdev::KeyCode::BTN_TOUCH)),
+                left: keys.is_some_and(|k| k.contains(evdev::KeyCode::BTN_LEFT)),
+            });
             nonblocking(&d);
             devices.push((d, absolute));
         }
@@ -171,7 +179,14 @@ impl Input {
             devices,
             pads,
             keyboard: Keyboard::default(),
+            touch_only: crate::presenter::touch_only(&pointing),
         }
+    }
+
+    /// Whether a touch screen is the only pointing device open
+    /// ([`crate::presenter::touch_only`]).
+    pub fn touch_only(&self) -> bool {
+        self.touch_only
     }
 
     /// How many devices are open.

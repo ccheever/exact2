@@ -152,6 +152,18 @@ shape SelRow
   stateLabel: string
   // The row's value as its state part writes it, which the editor starts from.
   stateText: string
+  // The template or style rung's (T5): `set-row`'s address (JSON), its words
+  // ("Edit this template · 2 instances", "Edit style Panel") and the value as written.
+  edit: string
+  editLabel: string
+  editText: string
+  // The editor's heading: the scope and the attribute written (a shorthand's whole for a longhand of it).
+  editWords: string
+  // A template row's promotion (D6: to a new param; to a token where `tokenize`, an unconditional value),
+  // and a param row's detach to its template: each move's address and value as written (JSON), or "".
+  promote: string
+  tokenize: bool
+  detach: string
   reason: string
   column: string
 
@@ -685,11 +697,13 @@ component DesignTool
   derive branchOp = branch.param ? "set-param" : "set-token"
   // A state edit is of the copy it was opened on: once that is no longer current, it is stale.
   state stateFor = ""
+  // The row editor's heading for a `set-row` edit (T5).
+  state rowWords = ""
   // (Bound to the copy and the files' digests it was opened on, which its selection was reported
   // under: a write since either, anyone's, leaves it stale until selected and opened again; a
   // re-read that moves nothing does not.)
   derive filesNow = changes.files.split(" ").slice(1).join(" ")
-  derive stateStale = editKind == "set-state" and (inspected.stale != "" or inspected.readOnly != "" or inspected.files != filesNow or `${inspected.key}␟${filesNow}` != stateFor)
+  derive stateStale = (editKind == "set-state" or editKind == "set-row" or editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param") and (inspected.stale != "" or inspected.readOnly != "" or inspected.files != filesNow or `${inspected.key}␟${filesNow}` != stateFor)
   // (A panel edit of a param is no branch editor draft: `draftFor` is the branch editor's.)
   derive draftStale = editKind == branchOp and draftFor != "" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
   // The branch's value as the draft has it, and its typed fields.
@@ -850,6 +864,41 @@ component DesignTool
     editTarget = target
     editWhen = ""
     editValue = value
+    stateFor = `${inspected.key}␟${filesNow}`
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+  action editRow(target: string, words: string, value: string)
+    // A row as its author wrote it (T5): `set-row` where it is written, or on its style; it rebuilds, so no scrub.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    selToken = ""
+    editKind = "set-row"
+    editTarget = target
+    rowWords = words
+    editWhen = ""
+    editValue = value
+    stateFor = `${inspected.key}␟${filesNow}`
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+  action moveRow(kind: string, target: string, words: string)
+    // A row moved between rungs (T5, D6's set): promoted to a new param or token (its name typed), or a param
+    // detached to its template; one transaction, rebuilt.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    selToken = ""
+    editKind = kind
+    editTarget = target
+    rowWords = words
+    editWhen = ""
+    editValue = ""
     stateFor = `${inspected.key}␟${filesNow}`
     draftFor = ""
     rawFor = ""
@@ -1242,10 +1291,13 @@ component DesignTool
                           text r.source color="-exact-secondary-label" font="-exact-caption1"
                           if r.token != ""
                             button press=editFromSelection(r.token, r.column, inspected.place) testId=`heldrow-link-${r.name}`
-                              text (r.state != "" ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
+                              text ((r.state != "" or r.edit != "") ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
                           if r.state != ""
                             button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
                               text r.stateLabel
+                          if r.edit != ""
+                            button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
+                              text r.editLabel
                           if r.reason != ""
                             text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
                   for r in inspected.rows key=r.name
@@ -1262,7 +1314,7 @@ component DesignTool
                       else if r.rung == "token"
                         button press=editFromSelection(r.token, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
                           text `Edit ${r.token}`
-                      else if r.rung == "state" and r.token != ""
+                      else if (r.rung == "state" or r.rung == "template" or r.rung == "style") and r.token != ""
                         button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-token-${r.name}`
                           text `Edit the token ${r.token} instead`
                       else if r.token != ""
@@ -1271,6 +1323,18 @@ component DesignTool
                       if r.state != ""
                         button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`selrow-state-${r.name}`
                           text r.stateLabel
+                      if r.edit != ""
+                        button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`selrow-row-${r.name}`
+                          text r.editLabel
+                      if r.promote != ""
+                        button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) testId=`selrow-param-${r.name}`
+                          text "Make it a param"
+                      if r.promote != "" and r.tokenize
+                        button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) testId=`selrow-tokenize-${r.name}`
+                          text "Make it a token"
+                      if r.detach != ""
+                        button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) testId=`selrow-detach-${r.name}`
+                          text "Detach to this template"
                       if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
               if impactToken != ""
@@ -1514,13 +1578,25 @@ component DesignTool
                   input value=newValue input=editNewValue submit=addToken placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
                   button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
                     text "Add"
-              if editKind == "set-state"
-                column gap=4 testId="state-editor"
-                  text `${editTarget.split("|").slice(0, 1).join("")} :${editTarget.split("|").slice(1, 2).join("")} ${editTarget.split("|").slice(2, 3).join("")}` role="heading" aria-level=3 testId="state-label"
-                  text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
+              if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
+                column gap=4 testId="move-editor"
+                  text rowWords role="heading" aria-level=3 testId="row-label"
+                  text (editKind == "detach-param" ? "One transaction: the param's default written at this row, and the param removed, with any param it alone left read (listed below); refused where the app's design sets it." : "One transaction: the new one, its default the value as written, and this row reading it.") color="-exact-secondary-label" font="-exact-footnote"
                   if stateStale
                     text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
-                  input value=editValue input=stateValue aria-label="The state part's value" testId="state-value"
+                  if editKind != "detach-param"
+                    input value=editValue input=stateValue aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
+              if editKind == "set-state" or editKind == "set-row"
+                column gap=4 testId="state-editor"
+                  if editKind == "set-row"
+                    text rowWords role="heading" aria-level=3 testId="row-label"
+                    text "A row as its author wrote it: written by set-row where it is written (this template: every copy of this node; a style: every node using it), which rebuilds the app; the file must be as it was when selected, and the app must build." color="-exact-secondary-label" font="-exact-footnote"
+                  else
+                    text `${editTarget.split("|").slice(0, 1).join("")} :${editTarget.split("|").slice(1, 2).join("")} ${editTarget.split("|").slice(2, 3).join("")}` role="heading" aria-level=3 testId="state-label"
+                    text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
+                  if stateStale
+                    text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
+                  input value=editValue input=stateValue aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
                   if draftStale or partsStale

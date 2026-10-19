@@ -52,6 +52,10 @@ extension NodeView {
         return nil
     }
     package var isSurfaceControl: Bool { props["action"] != nil && inputCanvas != nil }
+    /// The contact of a control pressed without a pointer, by a declared
+    /// shortcut, as the web's assistive click (gpu-glue.js): it moves no
+    /// focus, so a focused world keeps its keyboard and held keys.
+    package static let assistiveContact = 4_294_967_292
     package var ownsSurfaceControl: Bool { presenter?.session?.canvases.ownsControl(id) == true }
     func cancelSurfaceControls() { presenter?.session?.canvases.cancelControls(of: id) }
     @discardableResult

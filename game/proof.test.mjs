@@ -701,7 +701,8 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
   // The method reads the module's step constant and growth rule; pass them in as the module would.
-  const clock=new Function('s','CLOCK_STEP_MS','clockSpan',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan);
+  // A settle asks each drawing world for its tells (agent-inspect.mjs): none here.
+  const clock=new Function('s','CLOCK_STEP_MS','clockSpan','worldTells',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan,async (_, r) => r);
   const reply=await clock();
   expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
   expect(reply.diagnostic).toContain('state world:* busy');
@@ -1082,15 +1083,12 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
               stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
             });
             const code=await child.exited, log=readFileSync(resolve(out,'run.log'),'utf8');
-            const firstFailure=phase==='fresh' && code===1;
-            if(code !== 0 && !firstFailure) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
+            if(code !== 0) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
             const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
-            if(firstFailure) {
-              expect(row.status).toBe('FAIL');
-              expect(row.failures).toEqual(['proof interrupted']);
-              expect(log).toContain('app or asset directories changed during build; rerun the proof');
-              expect(log).not.toContain('authored proof inputs changed during build');
-              expect(existsSync(receipt)).toBe(false);
+            // The proof bakes art/ before its first inventory, so a fresh run completes.
+            expect(log).not.toContain('changed during build');
+            if(phase==='fresh') {
+              expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
             } else {
               expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
               if(phase==='stable') { stable=row; rows.push(row); }
@@ -1099,7 +1097,7 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
                 expect(row.worlds).toEqual(stable.worlds); expect(row.pins).toEqual(stable.pins);
               }
             }
-            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}${firstFailure?' (required rerun)':''}`);
+            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}`);
           }
         } finally {rmSync(app,{recursive:true,force:true});}
       }
@@ -1107,9 +1105,9 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
       expect(rows[0].pins).toEqual(rows[1].pins);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
-// A clean first build may pass; generated-input churn must require a rerun.
-// Every profile then proves a stable run and a cache hit against the same pins.
-},600000);
+// Four fresh-output builds, each completing at once, then a rerun and a
+// cache hit. This checks hash equivalence and receipt policy, not build latency.
+},1200000);
 
 
 test('proof commands quote the actual script and every argument', async () => {

@@ -28,6 +28,11 @@ pub(crate) struct PadRoute {
     owner: Option<u32>,
     readings: std::collections::BTreeMap<u8, ([f32; 17], [f32; 4])>,
 }
+/// The contact of a control pressed without a pointer: a declared shortcut,
+/// as the web's assistive click (gpu-glue.js) presses it. It moves no focus,
+/// so a focused world keeps its keyboard and its held keys.
+pub(crate) const ASSISTIVE_CONTACT: u32 = u32::MAX - 3;
+
 impl<D: DataSource> Presenter<D> {
     pub(crate) fn control_target(&self, id: u32) -> Option<u32> {
         let mut cursor = Some(id);
@@ -84,10 +89,11 @@ impl<D: DataSource> Presenter<D> {
             let Some((ox, oy, _, _)) = self.rect_of(id) else {
                 return false;
             };
-            if !self
-                .focus
-                .and_then(|v| self.host.kernel().node(v))
-                .is_some_and(|n| n.node_type == exact_kernel::NodeType::TextInput)
+            if contact != ASSISTIVE_CONTACT
+                && !self
+                    .focus
+                    .and_then(|v| self.host.kernel().node(v))
+                    .is_some_and(|n| n.node_type == exact_kernel::NodeType::TextInput)
             {
                 self.focus = Some(id);
             }

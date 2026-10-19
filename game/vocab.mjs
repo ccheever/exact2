@@ -7,7 +7,9 @@ const root = resolve(import.meta.dir, '..');
 const game = resolve(root, 'game');
 const help = 'Usage: bun exact.mjs game vocab [<Component|resource|World verb|Type::method>] [--json]\nNo name lists the public engine vocabulary. Generated from rustdoc and Rust Default implementations.';
 function run(cmd, args, options = {}) {
-  const env = {...process.env, ...options.env, CARGO_TARGET_DIR:resolve(game, 'target/vocab')};
+  // rustdoc's JSON needs RUSTC_BOOTSTRAP, and Cargo fingerprints it: every step
+  // sets it, so the build and the docs reuse each other's units.
+  const env = {...process.env, ...options.env, CARGO_TARGET_DIR:resolve(game, 'target/vocab'), RUSTC_BOOTSTRAP:'1'};
   const result = spawnSync(cmd, args, {cwd: game, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options, env});
   if (result.error || result.status !== 0) {
     const diagnostics = result.stdout.split('\n').flatMap(line => {
@@ -119,7 +121,7 @@ function recipes(entry, doc) {
 
 /** Build only generated artifacts; Cargo fingerprints rustdoc and the library inputs. */
 export function generate() {
-  run('cargo', ['rustdoc', '--manifest-path', resolve(game, 'Cargo.toml'), '-p', 'exact-game', '--locked', '--lib', '--', '-Z', 'unstable-options', '--output-format', 'json'], {env: {...process.env, RUSTC_BOOTSTRAP:'1'}});
+  run('cargo', ['rustdoc', '--manifest-path', resolve(game, 'Cargo.toml'), '-p', 'exact-game', '--locked', '--lib', '--', '-Z', 'unstable-options', '--output-format', 'json']);
   const metadata = JSON.parse(run('cargo', ['metadata', '--no-deps', '--format-version', '1']));
   const target = metadata.target_directory;
   const doc = JSON.parse(readFileSync(resolve(target, 'doc/exact_game.json'), 'utf8'));

@@ -1,5 +1,8 @@
-//! Inline-only source decorations for the shared Linux/Windows field presenter.
-//! Blocks, hidden ranges and atoms retain their source and ordinary editing.
+//! A textarea's paint-only decorations on the shared Linux/Windows field
+//! presenter (LLP 1114.007): each span's colour, background and
+//! text-decoration line as its own run, with the field's font, so every
+//! advance, line break and caret position is the undecorated field's.
+//! `text-shadow` is not painted here.
 use super::Spec;
 use exact_kernel::text::decorations::Decorations;
 use exact_kernel::{ColorValue, StyleId};
@@ -10,136 +13,6 @@ use std::collections::BTreeMap;
 pub(crate) struct FieldDecorations {
     record: Decorations,
     styles: StyleTable,
-    root: f32,
-    scale: f32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use exact_kernel::{StyleProps, WhiteSpace};
-    use serde_json::json;
-
-    fn record(value: &str, spans: serde_json::Value) -> String {
-        json!({"value":value,"spans":spans,"blocks":[],"hidden":[],"atoms":[]}).to_string()
-    }
-    fn spec(value: &str) -> Spec {
-        crate::paint::text_spec(
-            &StyleProps {
-                font_size: 16.,
-                white_space: WhiteSpace::PreWrap,
-                ..Default::default()
-            },
-            value,
-        )
-    }
-
-    #[test]
-    fn spans_preserve_unicode_source_and_merge_overlapping_declarations_in_order() {
-        let source = "a😀bold z";
-        let record = record(
-            source,
-            json!([
-                {"name":"strong","start":1,"end":7},
-                {"name":"blue","start":3,"end":7},
-            ]),
-        );
-        let styles = json!({
-            "strong":[[StyleId::FontWeight as u16,700],[StyleId::TextColor as u16,"#ff0000"]],
-            "blue":[[StyleId::TextColor as u16,"#0000ff"],[StyleId::FontStyle as u16,"italic"],[StyleId::BackgroundColor as u16,"#ffff00"]]
-        });
-        let decorated = FieldDecorations::read(&record, &styles.to_string(), 16., 1.)
-            .unwrap()
-            .project(spec(source), source);
-        let runs = &decorated.spec.runs;
-        assert_eq!(
-            runs.iter().map(|run| run.text.as_str()).collect::<String>(),
-            source
-        );
-        assert_eq!(
-            runs.iter().map(|run| run.text.as_str()).collect::<Vec<_>>(),
-            ["a", "😀", "bold", " z"]
-        );
-        assert_eq!(runs[1].weight, 700);
-        assert_eq!(runs[2].weight, 700);
-        assert!(runs[2].italic);
-        assert_eq!(
-            crate::paint::rgba(decorated.inks[1].unwrap().resolve(false)),
-            [255, 0, 0, 255]
-        );
-        assert_eq!(
-            crate::paint::rgba(decorated.inks[2].unwrap().resolve(false)),
-            [0, 0, 255, 255]
-        );
-        assert_eq!(
-            crate::paint::rgba(decorated.backgrounds[2].unwrap().unwrap().resolve(false)),
-            [255, 255, 0, 255]
-        );
-    }
-
-    #[test]
-    fn stale_spans_reconcile_and_unsupported_metadata_keeps_ordinary_source() {
-        let record = json!({"value":"@a end","spans":[{"name":"size","start":0,"end":2}],
-            "blocks":[{"name":"size","start":0,"end":6,"marker":"rule"}],
-            "hidden":[{"start":0,"end":2,"reveal":null}],
-            "atoms":[{"name":"size","start":0,"end":2,"label":"Alice"}]})
-        .to_string();
-        let styles = json!({"size":[[StyleId::FontSize as u16,"1.5rem"],[StyleId::TextDecorationLine as u16,"underline"]]}).to_string();
-        let source = "X @a end";
-        let projected = FieldDecorations::read(&record, &styles, 20., 1.)
-            .unwrap()
-            .project(spec(source), source);
-        assert_eq!(
-            projected
-                .spec
-                .runs
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect::<String>(),
-            source
-        );
-        let span = projected
-            .spec
-            .runs
-            .iter()
-            .find(|run| run.text == "X @a")
-            .unwrap();
-        assert_eq!(span.size, 30.);
-        assert_eq!(span.mark, super::super::markup::UNDERLINE);
-        assert!(projected
-            .spec
-            .runs
-            .iter()
-            .all(|run| run.indent == 0. && !run.hang));
-    }
-
-    #[test]
-    fn many_disjoint_spans_keep_source_and_precedence_without_rescanning_the_document() {
-        let source = "ab".repeat(10_000);
-        let spans: Vec<_> = (0..10_000)
-            .map(|index| json!({"name":"strong","start":index*2,"end":index*2+1}))
-            .collect();
-        let styles = json!({"strong":[[StyleId::FontWeight as u16,700]]}).to_string();
-        let projected = FieldDecorations::read(&record(&source, json!(spans)), &styles, 16., 1.)
-            .unwrap()
-            .project(spec(&source), &source);
-        assert_eq!(projected.spec.runs.len(), 20_000);
-        assert_eq!(
-            projected
-                .spec
-                .runs
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect::<String>(),
-            source
-        );
-        assert!(projected
-            .spec
-            .runs
-            .iter()
-            .enumerate()
-            .all(|(index, run)| run.weight == if index % 2 == 0 { 700 } else { 400 }));
-    }
 }
 
 pub(crate) struct Projection {
@@ -154,38 +27,24 @@ impl FieldDecorations {
         let spans: Vec<_> = resolved.spans.iter().filter(|span|self.styles.names().any(|name|name==span.name)).map(|span| {
             serde_json::json!({"name":span.name,"start":span.range.start,"end":span.range.end})
         }).collect();
-        serde_json::json!({"source":value,"recordValue":self.record.value,"provisional":resolved.provisional,"spans":spans,
-            "ignored":["blocks","hidden","atoms"]})
+        serde_json::json!({"source":value,"recordValue":self.record.value,"provisional":resolved.provisional,"spans":spans})
     }
 
-    pub(crate) fn read(record: &str, styles: &str, root: f32, scale: f32) -> Result<Self, String> {
+    pub(crate) fn read(record: &str, styles: &str) -> Result<Self, String> {
         Ok(Self {
             record: exact_runner::decorations::decode(record)?,
             styles: StyleTable::decode(styles)?,
-            root,
-            scale,
         })
     }
 
     pub(crate) fn project(&self, mut spec: Spec, value: &str) -> Projection {
         let resolved = self.record.resolve(value);
         let length = value.encode_utf16().count() as u32;
-        let styles: BTreeMap<_, _> = self
-            .styles
-            .names()
-            .filter_map(|name| {
-                Some((
-                    name,
-                    self.styles
-                        .resolve(name, self.root, spec.strut.size, self.scale)?,
-                ))
-            })
-            .collect();
         let mut events: BTreeMap<u32, Vec<(usize, bool)>> = BTreeMap::new();
         events.entry(0).or_default();
         events.entry(length).or_default();
         for (index, span) in resolved.spans.iter().enumerate() {
-            if styles.contains_key(span.name.as_str()) {
+            if self.styles.get(&span.name).is_some() {
                 events
                     .entry(span.range.start)
                     .or_default()
@@ -216,7 +75,7 @@ impl FieldDecorations {
         for pair in events.windows(2) {
             for &(index, starts) in &pair[0].1 {
                 if starts {
-                    active.insert(index, styles[resolved.spans[index].name.as_str()].clone());
+                    active.insert(index, self.styles.get(&resolved.spans[index].name));
                 } else {
                     active.remove(&index);
                 }
@@ -229,23 +88,8 @@ impl FieldDecorations {
             let mut run = spec.strut.clone();
             run.text = value[start..end].into();
             let (mut ink, mut background) = (None, None);
-            for style in active.values() {
+            for style in active.values().flatten() {
                 let has = |id| style.mask.has(id);
-                if has(StyleId::FontSize) {
-                    run.size = style.font_size
-                }
-                if has(StyleId::FontWeight) {
-                    run.weight = style.font_weight
-                }
-                if has(StyleId::FontFamily) {
-                    run.family = style.font_family
-                }
-                if has(StyleId::FontStyle) {
-                    run.italic = style.font_style != exact_kernel::FontStyle::Normal
-                }
-                if has(StyleId::FontVariantNumeric) {
-                    run.font_variant_numeric = style.font_variant_numeric
-                }
                 if has(StyleId::TextColor) {
                     ink = Some(style.text_color)
                 }
@@ -281,5 +125,119 @@ impl FieldDecorations {
             inks,
             backgrounds,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_kernel::{StyleProps, WhiteSpace};
+    use serde_json::json;
+
+    fn record(value: &str, spans: serde_json::Value) -> String {
+        json!({"value":value,"spans":spans}).to_string()
+    }
+    fn spec(value: &str) -> Spec {
+        crate::paint::text_spec(
+            &StyleProps {
+                font_size: 16.,
+                white_space: WhiteSpace::PreWrap,
+                ..Default::default()
+            },
+            value,
+        )
+    }
+    fn text(spec: &Spec) -> String {
+        spec.runs.iter().map(|run| run.text.as_str()).collect()
+    }
+
+    #[test]
+    fn spans_split_runs_at_utf16_boundaries_and_later_spans_win() {
+        let source = "a😀bold z";
+        let record = record(
+            source,
+            json!([
+                {"name":"red","start":1,"end":7},
+                {"name":"blue","start":3,"end":7},
+            ]),
+        );
+        let styles = json!({
+            "red":[[StyleId::TextColor as u16,"#ff0000"],[StyleId::TextDecorationLine as u16,"underline"]],
+            "blue":[[StyleId::TextColor as u16,"#0000ff"],[StyleId::BackgroundColor as u16,"#ffff00"]]
+        });
+        let decorated = FieldDecorations::read(&record, &styles.to_string())
+            .unwrap()
+            .project(spec(source), source);
+        let runs = &decorated.spec.runs;
+        assert_eq!(text(&decorated.spec), source);
+        assert_eq!(
+            runs.iter().map(|run| run.text.as_str()).collect::<Vec<_>>(),
+            ["a", "😀", "bold", " z"]
+        );
+        let plain = spec(source).strut;
+        assert!(
+            runs.iter().all(|run| run.size == plain.size
+                && run.weight == plain.weight
+                && run.family == plain.family
+                && run.italic == plain.italic),
+            "a decoration never changes the font"
+        );
+        assert_eq!(runs[1].mark, super::super::markup::UNDERLINE);
+        assert_eq!(
+            crate::paint::rgba(decorated.inks[1].unwrap().resolve(false)),
+            [255, 0, 0, 255]
+        );
+        assert_eq!(
+            crate::paint::rgba(decorated.inks[2].unwrap().resolve(false)),
+            [0, 0, 255, 255]
+        );
+        assert_eq!(
+            crate::paint::rgba(decorated.backgrounds[2].unwrap().unwrap().resolve(false)),
+            [255, 255, 0, 255]
+        );
+        assert!(decorated.inks[3].is_none());
+    }
+
+    #[test]
+    fn stale_spans_reconcile_and_unknown_names_paint_nothing() {
+        let record = record(
+            "@a end",
+            json!([{"name":"line","start":0,"end":2},{"name":"missing","start":3,"end":6}]),
+        );
+        let styles = json!({"line":[[StyleId::TextDecorationLine as u16,"underline"]]}).to_string();
+        let source = "X @a end";
+        let decorations = FieldDecorations::read(&record, &styles).unwrap();
+        let projected = decorations.project(spec(source), source);
+        assert_eq!(text(&projected.spec), source);
+        let span = projected
+            .spec
+            .runs
+            .iter()
+            .find(|run| run.mark == super::super::markup::UNDERLINE)
+            .unwrap();
+        // Text inserted at a span's start joins it, as at a live DOM Range's start.
+        assert_eq!(span.text, "X @a");
+        let state = decorations.state(source);
+        assert_eq!(state["provisional"], true);
+        assert_eq!(state["spans"], json!([{"name":"line","start":0,"end":4}]));
+    }
+
+    #[test]
+    fn many_disjoint_spans_keep_source_and_precedence_without_rescanning_the_document() {
+        let source = "ab".repeat(10_000);
+        let spans: Vec<_> = (0..10_000)
+            .map(|index| json!({"name":"red","start":index*2,"end":index*2+1}))
+            .collect();
+        let styles = json!({"red":[[StyleId::TextColor as u16,"#ff0000"]]}).to_string();
+        let projected = FieldDecorations::read(&record(&source, json!(spans)), &styles)
+            .unwrap()
+            .project(spec(&source), &source);
+        assert_eq!(projected.spec.runs.len(), 20_000);
+        assert_eq!(text(&projected.spec), source);
+        assert!(projected
+            .inks
+            .iter()
+            .enumerate()
+            .all(|(index, ink)| ink.is_some() == (index % 2 == 0)));
     }
 }

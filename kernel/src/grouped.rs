@@ -15,6 +15,9 @@ use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 use crate::style::{ColorValue, Env};
 
+mod separator;
+pub use separator::GroupedSeparator;
+
 /// A grouped list as a host draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GroupedList {
@@ -110,6 +113,14 @@ pub struct GroupedRow {
     pub title_look: TextLook,
     /// How the second text is set where its author said so.
     pub secondary_look: TextLook,
+    /// Whether its author wrote the edge under it (its bottom edge or its
+    /// background image: `Kernel::grouped_separator`'s rule), so the
+    /// platform's separator gives way there, to the author's border or to
+    /// none.
+    pub authored_edge: bool,
+    /// Whether the next shown row's author wrote its top edge, which the
+    /// platform's separator above it gives way to.
+    pub next_authored_top: bool,
 }
 
 /// How a text the platform's list draws is set where its author said so
@@ -328,6 +339,8 @@ impl Kernel {
             pressable: row.node_type == NodeType::Pressable,
             destructive: row.props.bool(PropId::Destructive) == Some(true),
             disabled: row.props.bool(PropId::Disabled) == Some(true),
+            authored_edge: self.grouped_edge_owners(row).0,
+            next_authored_top: self.grouped_edge_owners(row).1,
             ..GroupedRow::default()
         };
         // A native button is the platform's control: its views, carried.
@@ -460,6 +473,8 @@ impl Kernel {
                 pressable: out.pressable,
                 destructive: out.destructive,
                 disabled: out.disabled,
+                authored_edge: out.authored_edge,
+                next_authored_top: out.next_authored_top,
                 ..GroupedRow::default()
             };
         }
@@ -502,11 +517,12 @@ fn is_label(arena: &NodeArena, slot: u32) -> bool {
 
 /// Whether the swipe `scroll` is a `delete=` row's, which spans the card and
 /// holds the row's insets in its content (`swipe_rows::grouped`): its left
-/// margin is the sheet's swipe margin. A swipe written by hand is styled as
-/// any row, its insets on the scroll.
+/// margin is the sheet's swipe margin and it has no padding. A swipe written
+/// by hand is styled as any row, its insets its scroll's padding.
 fn inset_inside(arena: &NodeArena, scroll: u32) -> bool {
     let style = arena.style(scroll);
     arena.props(scroll).str(PropId::SwipeContent).is_some()
+        && !style.mask.has(StyleId::PaddingLeft)
         && !style.written.has(StyleId::MarginLeft)
         && style.margin_left
             == crate::style::Dimension::Points(sheet("-exact-grouped-swipe-margin"))
@@ -515,10 +531,11 @@ fn inset_inside(arena: &NodeArena, scroll: u32) -> bool {
 /// The platform's margins in a box's engine style: a group spans its card,
 /// and a row's unsaid inset at each end moves by what the platform's cell
 /// margin has over the sheet's stand-in, on the box the sheet wrote it on: a
-/// row's left margin (after a leading symbol too) and right padding; a
-/// `delete=` row's content's left and right paddings, its swipe spanning the
-/// card. A native button row is the platform's control and keeps its own
-/// padding. An end the author wrote stays the author's.
+/// row's left and right paddings (after a leading symbol too), the row
+/// spanning its card; a `delete=` row's content's, its swipe spanning the
+/// card. A native button row is the platform's control: its left margin
+/// moves, and it keeps its own padding. An end the author wrote stays the
+/// author's.
 pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     use taffy::style::{LengthPercentage as Lp, LengthPercentageAuto as Lpa};
     use taffy::util::MaybeResolve;
@@ -556,15 +573,22 @@ pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::
             .maybe_resolve(None, crate::style::resolve_calc);
         let by = m.cell[0] - sheet("-exact-grouped-swipe-padding");
         s.padding.left = padded(at, by).map_or(s.padding.left, Lp::length);
-    } else if !content && !written.has(StyleId::MarginLeft) {
+    }
+    let control = ControlKind::of(arena.node_type(slot), arena.props(slot)).is_some();
+    let by = m.cell[0] - sheet("-exact-grouped-row-inset");
+    if !content && control && !written.has(StyleId::MarginLeft) {
         let at: Option<f32> = s
             .margin
             .left
             .maybe_resolve(None, crate::style::resolve_calc);
-        let by = m.cell[0] - sheet("-exact-grouped-row-inset");
         s.margin.left = at.map_or(s.margin.left, |v| Lpa::length(v + by));
+    } else if !content && !control && !written.has(StyleId::PaddingLeft) {
+        let at = s
+            .padding
+            .left
+            .maybe_resolve(None, crate::style::resolve_calc);
+        s.padding.left = padded(at, by).map_or(s.padding.left, Lp::length);
     }
-    let control = ControlKind::of(arena.node_type(slot), arena.props(slot)).is_some();
     if !control && !written.has(StyleId::PaddingRight) && !written.has(StyleId::MarginRight) {
         let at = s
             .padding

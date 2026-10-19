@@ -34,7 +34,7 @@ struct Leaving {
     parent: ViewId,
     animations: exact_motion::Animations,
     /// The style it last showed: its paint moves over it.
-    style: String,
+    style: std::rc::Rc<str>,
     /// The view and everything under it the presenter knew.
     members: Vec<ViewId>,
     /// Whether the engine has its exit, and the clock time that ends, once
@@ -99,7 +99,10 @@ impl<D: DataSource> Host<D> {
                 key: exit.key,
                 parent,
                 animations: exit.animations.clone(),
-                style: self.mirror.get(&view).map_or("{}", |m| &m.style).to_owned(),
+                style: self
+                    .mirror
+                    .get(&view)
+                    .map_or_else(|| "{}".into(), |m| m.style.clone()),
                 members,
                 played: false,
                 end: None,
