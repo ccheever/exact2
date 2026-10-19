@@ -148,6 +148,8 @@ package final class Presenter {
     /// when the viewport is the content view below it) and its layout regions (LLP 1123 D10,
     /// `nil` for none). Reported to the agent as `env`.
     var insets = NSEdgeInsetsZero, regions: [CGFloat]?
+    /// The title-bar area the kernel was given (`TitleBarAreaMac`): x, y, width, height, `nil` for none.
+    var titlebarArea: [CGFloat]?
     /// The posture and the viewport segments last told (LLP 1078 D5): flat, unless an agent preferred otherwise.
     var fold = ViewportFold.flat
 
