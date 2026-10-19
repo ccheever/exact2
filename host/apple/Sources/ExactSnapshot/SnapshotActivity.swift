@@ -324,22 +324,17 @@ private struct Tinted: ViewModifier {
 }
 
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-private struct PlacementLayout: Layout {
+struct PlacementLayout: Layout {
     let render: ActivityRender
     let placement: ActivityPlacement
 
-    struct Cache { var measurement: ActivityRender.Measurement? }
-    func makeCache(subviews: Subviews) -> Cache { Cache() }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
-        let measured = render.measure(placement, proposal: proposal)
-        cache.measurement = measured
-        return measured.size
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        render.measure(placement, proposal: proposal).size
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let measured = render.measure(placement, proposal: proposal)
         for subview in subviews {
-            let measured = cache.measurement ?? render.measure(placement, proposal: proposal)
             let viewport = measured.laid?.viewport ?? .zero
             subview.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(viewport))
         }

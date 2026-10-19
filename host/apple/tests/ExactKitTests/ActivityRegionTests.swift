@@ -2,10 +2,27 @@
 import XCTest
 import SwiftUI
 import ExactCore
-import ExactSnapshot
+@testable import ExactSnapshot
 
 #if canImport(WidgetKit)
 extension ActivityDriverTests {
+    func testPlacementDrawUsesItsProposalAfterAnUnspecifiedProbe() throws {
+        let render = try self.render(try Self.plan("SNAPSHOT_EDGES"), kind: "edges", state: nil)
+        let layout = PlacementLayout(render: render, placement: .minimal)
+        let picture = try XCTUnwrap(image(ProbeAfterProposal(layout: layout) {
+            GeometryReader { proxy in
+                // The placement's GeometryReader draws from the viewport placeSubviews proposes.
+                if let laid = try? render.layout(.minimal, width: proxy.size.width, height: proxy.size.height) {
+                    (self.texts(laid) == ["Thin"] ? Color.blue : Color.red)
+                }
+            }
+        }, proposal: ProposedViewSize(width: 80, height: nil)))
+        try write(picture, "proposal-after-unspecified")
+        let center = try color(picture, x: 20, y: 12)
+        XCTAssertGreaterThan(center[2], center[0] + 100, "the actual 80 pt proposal draws Thin, even after an ideal-size probe")
+    }
+
+
     func testMinimumDoesNotTurnIntrinsicOverflowIntoAnAuthoredWidth() throws {
         let render = try self.render(try Self.plan("SNAPSHOT_EDGES"), kind: "edges", state: nil)
         let measured = render.measure(.compactLeading, proposal: ProposedViewSize(width: 80, height: nil))
@@ -69,6 +86,20 @@ extension ActivityDriverTests {
         let publicRow = a.width * 4 * 20
         XCTAssertTrue(Array(a.data.prefix(publicRow)) == Array(b.data.prefix(publicRow)), "the public label stays visible")
         XCTAssertTrue(Array(a.data.dropFirst(publicRow)) != Array(b.data.dropFirst(publicRow)), "the private descendant redacts")
+    }
+}
+private struct ProbeAfterProposal: Layout {
+    let layout: PlacementLayout
+    typealias Cache = PlacementLayout.Cache
+    func makeCache(subviews: Subviews) -> Cache { layout.makeCache(subviews: subviews) }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        layout.sizeThatFits(proposal: proposal, subviews: subviews, cache: &cache)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let actual = ProposedViewSize(width: 80, height: nil)
+        _ = layout.sizeThatFits(proposal: actual, subviews: subviews, cache: &cache)
+        _ = layout.sizeThatFits(proposal: .unspecified, subviews: subviews, cache: &cache)
+        layout.placeSubviews(in: bounds, proposal: actual, subviews: subviews, cache: &cache)
     }
 }
 #endif
