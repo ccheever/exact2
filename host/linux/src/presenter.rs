@@ -1079,7 +1079,7 @@ impl<D: DataSource> Presenter<D> {
                 .filter(|s| s.starts_with("symbol:"))
             {
                 let name = &source[7..];
-                let reason = if name == "sf/" {
+                let reason = if name == "sf/" || name.is_empty() {
                     "empty"
                 } else if !name.starts_with("sf/") && exact_kernel::symbol_path(name).is_none() {
                     "role"

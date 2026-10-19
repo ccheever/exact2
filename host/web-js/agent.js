@@ -175,7 +175,7 @@ export function install(exact) {
       visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!inertAncestor(el), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
       native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {
         source: el.dataset.symbolSource, name: el.dataset.symbolSource.slice(el.dataset.symbolSource.startsWith('symbol:sf/') ? 10 : 7), found: !!el.dataset.symbolPath || el.hasAttribute('data-symbol-file'),
-        ...(!el.dataset.symbolPath && !el.hasAttribute('data-symbol-file') ? { reason: el.dataset.symbolSource === 'symbol:sf/' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
+        ...(!el.dataset.symbolPath && !el.hasAttribute('data-symbol-file') ? { reason: el.dataset.symbolSource === 'symbol:sf/' || el.dataset.symbolSource === 'symbol:' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
       } } : {}) },
       browser: Object.fromEntries(Object.entries(INHERITED).map(([row, prop]) => [row, cs.getPropertyValue(prop)])),
       observed: { clock: exact.clock.now, wall: Date.now() },

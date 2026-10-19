@@ -129,7 +129,7 @@ function refresh() {
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.
     const source = el.getAttribute("data-symbol-source");
-    if (!path && All === true && !source?.startsWith("symbol:sf/") && el.symbolRefusal !== source) {
+    if (!path && All === true && !source?.startsWith("symbol:sf/") && source !== "symbol:" && el.symbolRefusal !== source) {
       journal.push(`t=${clock.now} image ${source} refused: unknown symbol role`); el.symbolRefusal = source;
     }
     if (el.symbolKey !== key) {

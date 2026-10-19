@@ -207,9 +207,10 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
         .str(PropId::ImageSource)?
         .strip_prefix("symbol:")?;
     // An icon token's SF Symbol too, or "" for one whose path the host
-    // draws (LLP 1121 D10).
+    // draws (LLP 1121 D10); an empty name is no symbol, as an empty `sf/`
+    // one is (stage 9 H).
     let name = crate::apple_symbol_name(role);
-    (!name.is_empty() || role.starts_with("sf/") || drawn_icon(role).is_some())
+    (!name.is_empty() || role.is_empty() || role.starts_with("sf/") || drawn_icon(role).is_some())
         .then(|| name.to_owned())
 }
 
