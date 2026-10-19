@@ -165,6 +165,15 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// What a boot is told at launch: the date and place last told, and a
+    /// live clock's reading now, where a fresh runner's clock starts.
+    pub(super) fn launch(&self) -> exact_runner::time::Launch {
+        exact_runner::time::Launch {
+            clock: self.live_clock.map(|wall| wall()),
+            ..self.launch_facts.clone()
+        }
+    }
+
     /// The presenter's clock owns time (`Some`), or the agent's seekable one
     /// does (`None`): the running runner and every one booted later take it.
     pub fn set_live_clock(&mut self, wall: Option<LiveClockFn>) {

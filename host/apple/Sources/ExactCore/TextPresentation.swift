@@ -9,4 +9,16 @@ package protocol TextPresentation: AnyObject {
     func measure(_ engine: TextEngine, _ request: ExactMeasureRequest) -> ExactMetrics?
     func markdown(_ engine: TextEngine, source: Run) -> [Run]?
     func attributes(_ run: Run, color: [Double], attributes: inout [NSAttributedString.Key: Any])
+    /// The paragraph's whole attributed string, once every run's are set:
+    /// what spans runs (an inline box's extent) is read here.
+    func finish(_ string: NSMutableAttributedString)
+}
+
+package extension NSAttributedString.Key {
+    /// A truncated line's "…" (`TextEngine.ellipsis`, `clampedLine`).
+    static let exactTruncation = NSAttributedString.Key("ExactTruncation")
+}
+
+extension TextPresentation {
+    package func finish(_ string: NSMutableAttributedString) {}
 }

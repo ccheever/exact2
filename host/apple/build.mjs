@@ -1263,7 +1263,7 @@ async function main(args, lockHeld = false) {
     return;
   }
   if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); return; }
-  const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, hint: '--sim <udid|name> (or EXACT_SIM)' });
+  const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, dir: app.dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
   for (const [, host] of bundles) {
     const placed = host ? hostPaths.bundle : paths.bundle;
     if (device) {

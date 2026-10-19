@@ -81,6 +81,43 @@ pub(super) fn decompose(global: glam::Affine3A) -> Transform {
         scale,
     }
 }
+// Resolve an explicit start through the same local/offset chain as current poses.
+// No override means the caller keeps its ordinary retained history.
+pub(crate) fn interpolation_origin(w: &World, e: Entity) -> Option<Transform> {
+    if w.fresh().is_empty() {
+        return None;
+    }
+    if !w.has::<Parent>(e) && !w.has::<exact_game::Offset>(e) {
+        return w.interpolation_origin(e);
+    }
+    let mut chain = vec![e];
+    while let Some(p) = w.get::<Parent>(*chain.last()?) {
+        if chain.len() > w.len() {
+            return None;
+        }
+        chain.push(p.0);
+    }
+    let first = (0..chain.len())
+        .rev()
+        .find(|&i| w.interpolation_origin(chain[i]).is_some())?;
+    let mut global = match chain.get(first + 1) {
+        Some(&parent) => drawn(w, parent)?,
+        None => glam::Affine3A::IDENTITY,
+    };
+    for &entity in chain[..=first].iter().rev() {
+        let local = w
+            .interpolation_origin(entity)
+            .or_else(|| w.get::<Transform>(entity).map(|t| *t))?;
+        let offset = w
+            .get::<exact_game::Offset>(entity)
+            .map_or(Transform::default(), |o| o.0);
+        for t in [local, offset] {
+            global *=
+                glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position);
+        }
+    }
+    Some(decompose(global))
+}
 // Bounded even if tools edit a cycle before propagation.
 pub(crate) fn snap(w: &World, mut e: Entity, parent_changed: bool) -> bool {
     if parent_changed {
@@ -117,7 +154,13 @@ impl History {
     }
     fn update(&mut self, w: &World, next_tick: bool, parent_changed: bool) {
         if let Some(curr) = pose(w, self.entity) {
-            self.update_to(curr, next_tick, snap(w, self.entity, parent_changed));
+            let reset = snap(w, self.entity, parent_changed);
+            self.update_to(curr, next_tick, reset);
+            if reset {
+                if let Some(previous) = interpolation_origin(w, self.entity) {
+                    self.prev = previous;
+                }
+            }
         }
     }
     fn update_to(&mut self, curr: Transform, next_tick: bool, snap: bool) {

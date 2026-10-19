@@ -430,45 +430,55 @@ impl<D: DataSource> Presenter<D> {
         }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         let result = match self.contact_down(x, y, now_ms) {
-            Ok(taken) => self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err),
+            Ok(taken) => {
+                // Keep the field's identity before pointerdown can remove it.
+                let field = self.contact.as_ref().and_then(|c| {
+                    let node = self.host.kernel().node_by_key(c.hit)?;
+                    (c.canvas.is_none()
+                        && c.retained.is_none()
+                        && node.node_type == NodeType::TextInput
+                        && !crate::fields::hosts(&node))
+                    .then_some((c.hit, c.origin))
+                });
+                match self.pointer_pressed(x, y, now_ms) {
+                    Some(error) => Err(error),
+                    None => {
+                        if let Some((key, point)) = field {
+                            self.focus_field_on_down(key, point, now_ms);
+                        }
+                        Ok(taken)
+                    }
+                }
+            }
             Err(e) => Err(e),
         };
-        if result.is_ok() {
-            self.focus_field_on_down(now_ms);
-        }
         self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
         result
     }
-    fn focus_field_on_down(&mut self, now_ms: f64) {
+    fn focus_field_on_down(&mut self, key: NodeKey, point: (f32, f32), now_ms: f64) {
         if self.contact_is_direct() || self.menu.is_some() {
             return;
         }
-        // Authored pointerdown handlers have run and may have retired the contact.
-        let Some(contact) = self
-            .contact
-            .as_ref()
-            .filter(|c| c.canvas.is_none() && c.retained.is_none() && self.contact_live(c))
-        else {
-            return;
-        };
-        let Some(node) = self
-            .host
-            .kernel()
-            .node_by_key(contact.hit)
-            .filter(|n| n.node_type == NodeType::TextInput && !crate::fields::hosts(n))
-        else {
-            return;
-        };
-        let (hit, point) = (node.id, contact.origin);
-        if !self.focusable(hit) || self.focus_refusal(hit).is_some() {
-            // The contact still carries release and cancellation through the agent.
+        let hit = self.host.kernel().node_by_key(key).map(|n| n.id);
+        if let Some(contact) = self.contact.as_mut().filter(|c| c.hit == key) {
+            contact.field_focus_before_down = Some(self.focus);
+        }
+        if hit.is_some_and(|id| self.pointerdown_prevents_focus(id)) {
             return;
         }
-        self.contact.as_mut().unwrap().field_focus_before_down = Some(self.focus);
-        if !self.pointerdown_prevents_focus(hit) {
-            self.focus_for_press(hit, point, now_ms, false);
+        if hit.is_none_or(|id| {
+            !self.input_live(key) || !self.focusable(id) || self.focus_refusal(id).is_some()
+        }) {
+            // A field hidden, disabled or removed by pointerdown still blurs
+            // the old editor. Keep any surviving contact for up or cancellation.
+            if let Some(error) = self.set_focus(None, now_ms) {
+                eprintln!("exact: {error}");
+            }
+            self.queue_collections();
+            return;
         }
+        self.focus_for_press(hit.unwrap(), point, now_ms, false);
     }
     fn contact_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_sample(x, y, now_ms)?;
@@ -980,11 +990,32 @@ impl<D: DataSource> Presenter<D> {
                 _ => Ok(true),
             }
         } else if let Some((key, box_)) = contact.press {
+            let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
+            let visible = |id| {
+                self.host.kernel().node(id).is_some_and(|n| {
+                    n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                        == exact_kernel::Visibility::Visible
+                })
+            };
             if box_.contains(x, y) && self.input_live(key) {
-                if let Some(id) = self.host.kernel().node_by_key(key).map(|n| n.id) {
+                if let Some(id) = self
+                    .host
+                    .kernel()
+                    .node_by_key(key)
+                    .filter(|n| {
+                        // A hidden ancestor still hears a visible descendant's click.
+                        self.focus_refusal(n.id).is_none()
+                            && (visible(n.id)
+                                || hit.is_some_and(|hit| {
+                                    visible(hit)
+                                        && self.focus_refusal(hit).is_none()
+                                        && self.is_inside(hit, n.id)
+                                }))
+                    })
+                    .map(|n| n.id)
+                {
                     // Focus is decided from what the finger touched, as
                     // `press_at` decides it: a `retainFocus` child counts.
-                    let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
                     let hit = hit.unwrap_or(id);
                     self.note_press_from(
                         hit,

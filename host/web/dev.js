@@ -748,13 +748,26 @@ if (es) {
     bindHold(kept.frame);
     command(kept.frame);
   };
+  // How long a hold waits for the input glue before saying it is not loaded; the glue's `hold` once it has loaded
+  // (it says so: `exact-hold`), or null after `ms` or once `stale()`.
+  const HOLD_WAIT = 60_000;
+  const glueHold = (ms, stale) => new Promise((ok) => {
+    if (globalThis.exact?.hold) return ok(globalThis.exact.hold);
+    const until = Date.now() + ms;
+    const end = () => { clearInterval(tick); globalThis.removeEventListener("exact-hold", end); ok(globalThis.exact?.hold ?? null); };
+    const tick = setInterval(() => { if (globalThis.exact?.hold || stale() || Date.now() > until) end(); }, 250);
+    globalThis.addEventListener("exact-hold", end);
+  });
   const hold = async (frame) => {
     const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null, epoch, stream: channel.nonce };
-    for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
     // Only the latest frame applies (a replay queued before a newer clear does not), and only on the stream it came
     // on (a new one's server knows nothing of it).
-    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
     const current = () => channel.holdLatest === frame && at.stream === channel.nonce && at.epoch === epoch;
+    // The input glue loads after paint: a hold waits for it (a page restarting after a rebuild, on a loaded machine,
+    // takes far longer than a fixed wait) while it is still the latest frame on its stream (as host/web-js/
+    // inspect-dev.js's `glueHold`); a let-go needs none.
+    if (frame.hold) await glueHold(HOLD_WAIT, () => !current());
+    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
     if (!current() || (h && ended.has(revision))) return;
     const digest = swaps ? null : await planDigest();
     if (!current()) return;
@@ -762,8 +775,9 @@ if (es) {
     const moved = addressed ? digest !== addressed : at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen;
     if (h && (swaps || moved)) { channel.hold = addressed ? { frame, digest: addressed } : null; return; }
     channel.hold = h ? { frame, digest } : null;
+    // (A let-go with no glue loaded: nothing was held.)
+    if (!h) { holds?.(null); report({ kind: "held", state: null, revision }); return; }
     if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
-    if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
     let found = null, two = false;
     for (const [id] of globalThis.exact.views ?? []) {
       const node = ask({ op: "node", id, plan: true });

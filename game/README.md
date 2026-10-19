@@ -285,6 +285,7 @@ The dev compiler retains its last good plan on an error.
 | Count for the HUD | `w.count::<Beacon>(\|b\| b.lit)` |
 | Ring, torus, cone and halo | `Mesh::ring(inner, outer)`, `Mesh::torus(radius, tube)`, `Mesh::cone(radius, height)`, `Material::alpha(a)`; [halo recipe](recipes/halo.md). |
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
+| An underwater scene | `w.insert_resource(Environment::underwater())`, a sun from above and no opaque surface over the floor; [underwater recipe](recipes/underwater.md) |
 | Fade a glowing mesh | Attach `Glow` to `Material::glow`; call `beacon.glow_to(1.0, 0.5)` once. The renderer samples at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |

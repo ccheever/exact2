@@ -614,7 +614,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         .as_ref()
                         .map_or(&self.targets.resolved, |t| t.hdr(&self.targets.resolved)),
                 ));
-                self.texture_creations += 6;
+                self.texture_creations += BloomTargets::TEXTURES;
             }
         } else {
             self.bloom = None;

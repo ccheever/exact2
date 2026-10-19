@@ -453,12 +453,15 @@ pub(crate) fn swapchains<R>(f: impl FnOnce() -> R) -> R {
 mod recovery;
 
 /// Frames a presented canvas may have queued for the compositor. Android
-/// takes a third: on a Galaxy Note 9 (Adreno 630, Android 10) at 150
-/// Castle Town players, its present waits on the GPU's frame before, and
-/// two in flight held frames to the GPU's pace whenever its governor
-/// lowered the clock (55-59 fps a tour stop, with stretches near 40; with
-/// three, 58-60).
-const FRAME_LATENCY: u32 = if cfg!(target_os = "android") { 3 } else { 2 };
+/// takes four. On a Galaxy Note 9 (Adreno 630, Android 10) at 150 Castle
+/// Town players, its present waits on the GPU's frame before, and two in
+/// flight held frames to the GPU's pace whenever its governor lowered the
+/// clock (55-59 fps a tour stop, with stretches near 40; with three,
+/// 58-60). With three, a frame begun at the vsync often found no image
+/// free (the compositor releases one some 5 ms after it) and a kernel
+/// stall of 8 ms then cost a refresh: about five a 90-second tour, none to
+/// two with four, for some 0.6 frames more queued on average.
+const FRAME_LATENCY: u32 = if cfg!(target_os = "android") { 4 } else { 2 };
 
 struct Instance {
     surface: Box<dyn Surface>,

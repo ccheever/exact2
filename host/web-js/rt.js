@@ -616,7 +616,7 @@ let Release;
 const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
-  if (attrs?.["aria-keyshortcuts"] != null) input();
+  if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input(); // (a look snaps by its edges too, LLP 1121 D8)
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
@@ -1145,7 +1145,7 @@ function input() {
   if (Inputs || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
   // Its link handler asks the wasm's route table; this runtime routes its own.
-  const x = globalThis.exact ??= {}; (x.wasm ??= {}).exact_route_match ??= () => 0; x.writeIn ??= () => 0;
+  const x = globalThis.exact ??= {}; (x.wasm ??= {}).exact_route_match ??= () => 0;
   const to = (id, p, k) => Views.get(id)?.[k]?.(...p.split(",").map(Number));
   Inputs = new Promise(r => requestAnimationFrame(() => setTimeout(r))).then(() => import("./input-glue.js")).then(m => {
     Input = m.createInputHandlers({ root: document.getElementById("exact-root"), views: Views, retiredViews: new WeakSet(), ready: () => true,

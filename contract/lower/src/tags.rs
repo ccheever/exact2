@@ -928,7 +928,7 @@ pub(crate) fn validate_list(
     for name in ["initial-item-count", "scroll-start"] {
         if let Some(a) = expanded.iter().find(|a| a.name == name && !virtualized) {
             let why =
-                format!("`{name}` is a virtualized list's; it goes on `list virtualized=true`");
+                format!("`{name}` is a virtualized list's; it goes on `list virtualized=true` (a chat's transcript: `contract vocab chat-thread`)");
             return super::err("lower-list-virtualized", why, a.span);
         }
     }

@@ -214,6 +214,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     weak var tablistRoot: RouteController?
     var tablistHidBar = false
     var tabItems: [String] = []
+    /// The tabs and stacks the items were last made from, made again when
+    /// the size class (a path glyph's size) changes.
+    var tabItemsSource: (NavigationTabs, [UINavigationController])?
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()

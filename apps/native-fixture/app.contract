@@ -184,6 +184,12 @@ component NativeFixture
   // Clear asks first, as a hand-built app's long-press → alert does.
   action askClear
     showModal("clear-confirm")
+  // The one-button alert: its text and OK tell the person something
+  // failed, the message state the action sets before `showModal`.
+  state failure = ""
+  action failSave
+    failure = "The disk is full."
+    showModal("save-failed")
   action fire
     emit = emit + 1
   action toggle
@@ -501,6 +507,8 @@ component NativeFixture
                         text "Reject"
                       button press=mode testId="mode" padding=6 background-color="#e5e7eb"
                         text "Mode"
+                      button press=failSave testId="fail-save" padding=6 background-color="#e5e7eb"
+                        text "Save"
                     // An "Open in…" chooser (LLP 1021): the invoker refreshes
                     // what is installed as it opens; a menu on every host,
                     // titled by its aria-label, each row its provider's icon,
@@ -580,6 +588,10 @@ component NativeFixture
                         text "Grow content"
                       button appearance="none" press=sizing testId="sizing" padding=6
                         text "Toggle intrinsic size"
+                    dialog id="save-failed" role="alertdialog" aria-label="Couldn’t Save" padding=16
+                      text failure testId="save-failed-message"
+                      button commandfor="save-failed" command="close" testId="save-failed-ok"
+                        text "OK"
                     text ("count " + count.toString() + " · loads " + loads.toString()) testId="counts"
                     if shown
                       exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage

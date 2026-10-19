@@ -252,6 +252,7 @@ pub struct World {
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
     fresh: Vec<Entity>,
+    pub(crate) interpolation_origins: BTreeMap<Entity, crate::Transform>,
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
@@ -310,6 +311,7 @@ impl World {
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
             fresh: vec![],
+            interpolation_origins: BTreeMap::new(),
             entities_revision: 0,
             presentation_generation: 0,
         };

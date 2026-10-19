@@ -176,12 +176,14 @@ pub(crate) fn percentage_height(style: &impl CoreStyle, pb: Size<f32>, width: Op
     Some(Ratio::of(style, pb)?.height(width?))
 }
 
-/// The automatic inline minimum of a non-replaced ratio box whose width
-/// derives from a definite height is its min-content width, capped by max-width.
+/// The automatic inline minimum of a non-replaced ratio box combines its
+/// min-content width with the definite height's transfer, capped by max-width.
+/// A flexed border-box height replaces the preferred height when supplied.
 pub(crate) fn minimum_ratio_width(
     tree: &mut impl crate::LayoutPartialTree,
     node: crate::NodeId,
     parent: Size<Option<f32>>,
+    used_height: Option<f32>,
 ) -> Option<f32> {
     use crate::{LayoutPartialTreeExt, MaybeResolve, ResolveOrZero};
     let style = tree.get_core_container_style(node);
@@ -190,7 +192,6 @@ pub(crate) fn minimum_ratio_width(
         || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container() {
         return None;
     }
-    let height = style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))?;
     let pb = (style.padding().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))
         + style.border().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))).sum_axes();
     let ratio = Ratio::of(&style, pb)?;
@@ -201,7 +202,12 @@ pub(crate) fn minimum_ratio_width(
     // EXACT PATCH 50: the content-only probe omits the definite height's
     // transfer (CSS Sizing 4 §5.1, Flexbox §4.5). Keep the larger suggestion,
     // transferring the clamped height in the box the ratio relates.
-    let transferred = ratio.width((height + adjustment.height).maybe_clamp(min_height, max.height));
+    // EXACT PATCH 54: flex layout has already applied the height's bounds.
+    let height = used_height.or_else(|| {
+        style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
+            .map(|height| (height + adjustment.height).maybe_clamp(min_height, max.height))
+    })?;
+    let transferred = ratio.width(height);
     drop(style);
     let intrinsic = tree.measure_child_size(
         node,
