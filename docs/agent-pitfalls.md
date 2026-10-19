@@ -1224,7 +1224,8 @@ screen, 2026-10-16.)
   starting the server), and from then on UIKit keeps accessibility state for
   every view it moves. A phone pays this only with an assistive technology on
   (VoiceOver, Voice Control, Switch Control). `xctrace` and `sample` attached to
-  the app stall it too. Fix: time a plain launch; drive taps with `axe touch`
+  the app stall it too, and `agent ios --touch platform` turns accessibility
+  automation on for the simulator until it is erased (euxy's launch: 1.2 s more). Fix: time a plain launch; drive taps with `axe touch`
   (HID, no accessibility) or have the host press a row itself, and read frames
   from Save Trace or a temporary log, not from a run an accessibility client
   touched. (x2-perf, 2026-10-05.)

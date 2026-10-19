@@ -363,12 +363,13 @@ export function driveNotes(s, { host, storage, origins = [] }) {
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
   let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
   return async (op, reply) => {
-    if (s.carrier?.installNote) note('install', s.carrier.installNote);
+    if (s.carrier?.installNote) note('install', s.carrier.installNote); // a Release build replaced for the drive (devices.mjs `keepInstalledRelease`)
+    if (s.carrier?.axNote) note('ax', s.carrier.axNote); // the simulator's accessibility, which this drive's touches turned on
     // The agent paints a menu where the app presents UIKit's pull-down: the euxy port read it as an app bug.
     if (op === 'tap' && reply?.tapped != null && ['ios', 'host-ios'].includes(host) && s.carrier?.touch !== 'platform' && !said.has('menu')) {
       const menu = paintedMenu((await bounded(s.tree(), 3000))?.nodes, reply.tapped);
       if (menu) note('menu', `the tap opened the popover \`${menu}\` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform`);
-    } // a Release build replaced for the drive (devices.mjs `keepInstalledRelease`)
+    }
     // A system sheet held for the agent is drawn by no host: a screenshot of it shows the app alone (euxy port).
     if (op === 'screenshot') {
       const ios = ['ios', 'host-ios'].includes(host), real = ios && s.carrier?.touch === 'platform';
