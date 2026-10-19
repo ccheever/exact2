@@ -156,7 +156,7 @@ async function buildWatchDevice(app, args, { runApple, appleArtifacts, appleBuil
     const signing = profile(udid, watch.id), sha1 = identity(signing.team);
     copyFileSync(signing.path, resolve(bundle, 'embedded.mobileprovision'));
     const entitlementPath = resolve(directory, 'watch-entitlements.plist');
-    writeFileSync(entitlementPath, plistFile({ 'application-identifier': `${signing.prefix}.${watch.id}`, 'com.apple.developer.team-identifier': signing.team, 'get-task-allow': !production }));
+    writeFileSync(entitlementPath, plistFile({ 'application-identifier': `${signing.prefix}.${watch.id}`, 'com.apple.developer.team-identifier': signing.team, 'get-task-allow': signing.dev }));
     runApple('codesign', ['--force', '--sign', sha1, resolve(bundle, 'Frameworks/ExactCore.framework')]);
     runApple('codesign', ['--force', '--sign', sha1, '--entitlements', entitlementPath, bundle]);
     writeFileSync(resolve(directory, 'receipt.json'), receipt(app, { platform: 'watchos', target, sdk, bundle, compatibilityId: baked.compat.id, build: baked }));

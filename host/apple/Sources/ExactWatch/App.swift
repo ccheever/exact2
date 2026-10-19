@@ -67,6 +67,21 @@ private func processStart() -> Date {
     return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
 }
 
+/// The launch's phases for the startup budget (`rules/RULES.md`: an interactive
+/// first frame at 100 ms p50), each in ms after the kernel started the process.
+enum LaunchPhases {
+    nonisolated(unsafe) private static var stamps: [(String, Date)] = []
+    nonisolated(unsafe) private static var reported = false
+    static func mark(_ phase: String) { stamps.append((phase, Date())) }
+    static func report() {
+        guard !reported else { return }
+        reported = true
+        let exec = processStart()
+        let line = stamps.map { "\($0.0) \(Int(($0.1.timeIntervalSince(exec) * 1000).rounded()))" }.joined(separator: ", ")
+        print("exact-watch phases exec 0, \(line); footprint \(String(format: "%.1f", footprintMiB())) MiB")
+    }
+}
+
 /// The app itself, live (LLP 1126 D10): the linked plan booted at the
 /// screen's safe size, drawn by the live driver.
 private struct LiveRoot: View {
@@ -85,9 +100,8 @@ private struct LiveRoot: View {
                 if let model {
                     LiveView(model: model, rootFontSize: SnapshotDriver.rootFontSize(for: textSize))
                         .onAppear {
-                            let since = Date().timeIntervalSince(processStart()) * 1000
-                            log.notice("first frame \(since, format: .fixed(precision: 0)) ms after process start")
-                            print("exact-watch first frame \(Int(since)) ms after process start; footprint \(String(format: "%.1f", footprintMiB())) MiB")
+                            LaunchPhases.mark("first frame")
+                            LaunchPhases.report()
                         }
                 } else if let failure {
                     ScrollView { Text(failure).font(.footnote) }
@@ -106,6 +120,7 @@ private struct LiveRoot: View {
 
     private func boot(size: CGSize) {
         guard model == nil, failure == nil else { return }
+        LaunchPhases.mark("session")
         let start = liveUptime()
         let rootFontSize = SnapshotDriver.rootFontSize(for: textSize)
         let facts = SessionFacts(displayScale: scale, preferences: scheme == .dark ? [.dark] : [],
@@ -118,7 +133,9 @@ private struct LiveRoot: View {
             }
             let plan = try Data(contentsOf: Bundle.main.bundleURL.appendingPathComponent(name))
             let session = try HeadlessSession(plan: plan, size: size, facts: facts, assetRoot: Bundle.main.bundleURL)
+            LaunchPhases.mark("booted")
             let live = try LiveModel(session: session, zero: start)
+            LaunchPhases.mark("first batch")
             live.onCommand = { command in
                 print("exact-watch command \(command.name) \(command.args)")
                 switch command.name {
@@ -166,6 +183,7 @@ private struct LiveRoot: View {
 
 @main struct ExactWatch: App {
     init() {
+        LaunchPhases.mark("main")
         WidgetContainer.configure()
         setvbuf(stdout, nil, _IOLBF, 0) // the measurement lines reach `devicectl --console` as they are written
     }
