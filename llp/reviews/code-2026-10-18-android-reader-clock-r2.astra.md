@@ -17,3 +17,17 @@ Nothing blocking. No SHOULD-FIX findings in these two commits.
 4. **INFO — Non-agent launches retain their behavior.** They still install [the display’s live clock](/tmp/rv-andclock-2/host/linux/src/canvas/agent.rs:68), pass the new frame guard, and retain the display-based boot time.
 
 Read-only source review only; no edits, builds, tests, or device execution.
+
+## Emulator run (iosfix, 2026-10-19 08:3xZ, after landing)
+
+On the x2-android emulator (API 37, arm64), the caltrain APK from `agent-android.mjs build caltrain --apk` at
+798da3fb7f, driven by `agent.mjs android --reader --app caltrain`:
+
+- The reader's first content was painted before the driver's first request. The first operation was a `screenshot`
+  (the device's own `screencap`, not a request to the handler) at clock 0 ms, and it shows the whole home screen.
+- It booted at 0: `state` at clock 0 ms gave `nowMs` 1787915400000 (the seeded epoch) and the ticker due at 1000.
+- With no advance, no frame was presented: the screenshots before and after that `state` are byte-identical.
+- `clock +10000` gave `nowMs` +10000 and the ticker at 11000. A further `clock +60000` gave `nowMs` +70000 and the
+  ticker at 71000.
+- Frames were presented once the clock advanced: each advanced screenshot differs, the departures went from 28/46/58
+  min to 27/45/57 min at 70 s, and the aurora moved.
