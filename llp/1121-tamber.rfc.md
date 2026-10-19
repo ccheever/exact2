@@ -1503,8 +1503,9 @@ Android's reader and the terminal.
     cannot write or send commands; revocation cuts off its socket and, separately, its canvas
     through the gateway; an unencrypted remote connection is refused.
     **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
-    clients of stage 10. **Gate:** a changed accent in Figma Variables is proposed as a dial
-    change and a changed folded value as a pinned override.
+    clients of stage 10. Wire: its additions land after stage 10 closed (2026-10-19), so they
+    are the first of `tamber/1.14`, the window stage 11 shares. **Gate:** a changed accent in
+    Figma Variables is proposed as a dial change and a changed folded value as a pinned override.
     **10c. A hosted relay** (Charlie, 2026-10-19: "We will prob need one yes"; design to
     follow, its own plan): remote pairing for a team that shares no machine or LAN. What
     stage 10 already fixes, and the relay must keep (theme2's check, 2026-10-19):
