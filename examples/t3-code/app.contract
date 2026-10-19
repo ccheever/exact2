@@ -1256,6 +1256,14 @@ component T3Code
     after(1, composerIntentPump)
   task composerIntentReceipt when composerIntentPhase == "projection" and composerIntentReceiptCurrent and composerRichCurrent key=`${composerIntentActive}|${composerFieldInputSerial}|${richComposer.value}|${composerSelectionStart}:${composerSelectionEnd}`
     after(1, composerIntentConfirmed)
+  // A format command that changed nothing reports no input: its turn ends here.
+  task composerIntentFormatQuiet when composerIntentPhase == "format" key=composerIntentActive
+    after(250, composerIntentFormatSettled)
+  action composerIntentFormatSettled
+    if composerIntentPhase == "format" and composerIntentBaseCurrent
+      composerIntentQueue = composerIntentQueue.slice(1)
+      composerIntentActive = 0
+      composerIntentPhase = ""
   task composerIntentInvalidated when composerIntentQueue.length > 0 and not composerIntentContextCurrent key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}|${richComposer.mode}|${composerComposing}|${composerFieldLive}`
     after(1, composerIntentCancelStale)
   task composerIntentOwnerNotice key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}`
@@ -1272,9 +1280,10 @@ component T3Code
     if not composerIntentContextCurrent
       composerIntentClear("The prompt changed. Please try that edit again.")
   action composerIntentRequest(kind: string, text: string, key: string, shift: bool, command: bool, start: number, end: number, composing: bool)
-    let explicit = kind == "language" or kind == "toggle"
+    let explicit = kind == "language"
     let current = composerIntentPhase == "projection" ? composerIntentReceiptCurrent : composerIntentBaseCurrent
-    if not composerRichCurrent or not composerFieldLive or composing or (composerIntentQueue.length > 0 and (not current or (not explicit and (start != composerSelectionStart or end != composerSelectionEnd))))
+    // A format command reads no projection, so one pressed while the last edit projects still waits its turn.
+    if (kind != "format" and not composerRichCurrent) or not composerFieldLive or composing or (composerIntentQueue.length > 0 and (not current or (not explicit and (start != composerSelectionStart or end != composerSelectionEnd))))
       composerIntentClear("The prompt changed. Please try that edit again.")
     else if composerIntentQueue.length >= 32
       composerIntentNotice = "Too many edits are waiting. Please try that edit again."
@@ -1291,9 +1300,14 @@ component T3Code
     if composerIntentPhase == "" and composerIntentBaseCurrent and composerRichCurrent
       match first(composerIntentQueue)
         case some(item)
-          let explicit = item.kind == "language" or item.kind == "toggle"
+          let explicit = item.kind == "language"
           if explicit and item.inputSerial != composerFieldInputSerial
             composerIntentClear("The prompt changed. Please try that edit again.")
+          else if item.kind == "format"
+            // The Markdown field's own command at its selection then; its input is the receipt.
+            composerIntentActive = item.serial
+            composerIntentPhase = "format"
+            format("composer", item.text)
           else
             composerIntentActive = item.serial
             composerIntentPhase = "request"
@@ -1338,6 +1352,14 @@ component T3Code
         if composerIntentPreserves
           composerIntentStart = e.selectionStart
           composerIntentEnd = e.selectionEnd
+      else if composerIntentPhase == "format" and composerIntentContextCurrent and not e.isComposing and composerFieldInputSerial == composerIntentObserved.inputSerial
+        composerIntentPhase = "projection"
+        composerIntentExpected = value
+        composerIntentStart = e.selectionStart
+        composerIntentEnd = e.selectionEnd
+        composerIntentInputStart = e.selectionStart
+        composerIntentInputEnd = e.selectionEnd
+        composerIntentCaretSeen = true
       else
         composerIntentClear("The prompt changed. Please try that edit again.")
   action composerIntentConfirmed
@@ -1376,14 +1398,15 @@ component T3Code
       else
         match e.data
           case some(text)
-            if e.inputType == "insertFromPaste"
+            // Typed at an empty fence's closing line, text opens the body line (composerCodeInput).
+            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0)
               preventDefault()
-              composerIntentRequest("paste", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
+              composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
     composerSelectionObserved(e, e.isComposing)
     composerComposing = e.isComposing
-  action composerLanguage(start: number, end: number, language: string, owner: string, value: string)
-    if composerRichCurrent and richComposer.mode == "rich" and owner == richComposerOwner and value == composerText and not composerComposing
+  action composerLanguage(start: number, end: number, language: string)
+    if composerRichCurrent and richComposer.mode == "rich" and not composerComposing
       focus("composer")
       composerIntentRequest("language", language, "", false, false, start, end, composerComposing)
   action composerKeyEvent(k: string, e: KeyboardEvent)
@@ -1397,9 +1420,12 @@ component T3Code
     if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
       preventDefault()
       stopPropagation()
-      // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6).
+      // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6), after any edit still waiting.
       if not e.repeat
-        format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
+        if composerIntentQueue.length > 0
+          composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
+        else
+          format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
     else
       composerGrammarKey(k, e, composing)
     composerComposing = composing

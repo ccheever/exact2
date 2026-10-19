@@ -46,6 +46,7 @@ shape ComposerSourceBlock
   contentStart: number
   bodyStart: number
   bodyEnd: number
+  bodyLine: bool // false: a fence closed on the next line, projected where its body would be
 
 // Deferred input metadata; field source and undo remain owned by the textarea.
 shape ComposerIntentMetadata

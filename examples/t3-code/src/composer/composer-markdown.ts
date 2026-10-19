@@ -8,7 +8,8 @@ export type ComposerBlock =
   | (TextBlock & { kind: 'heading'; level: number })
   | (TextBlock & { kind: 'list'; list: 'bullet' | 'ordered' | 'task'; indent: string; marker: string; checked: boolean })
   | (ComposerRange & { kind: 'rule' })
-  | (ComposerRange & { kind: 'code'; fence: string; info: string; infoRange: ComposerRange; open: ComposerRange; body: ComposerRange; close: ComposerRange | null });
+  | (ComposerRange & { kind: 'code'; fence: string; info: string; infoRange: ComposerRange; open: ComposerRange; body: ComposerRange | null; close: ComposerRange | null });
+export type ComposerCodeBlock = Extract<ComposerBlock, { kind: 'code' }>;
 export type ComposerMarkdown = { blocks: ComposerBlock[] };
 // Live gestures can keep a restored Markdown prefix literal, or promote a
 // bullet's checkbox body without changing the shared field's source.
@@ -76,10 +77,11 @@ export function composerMarkdown(source: string, options: { styling?: boolean; b
       let last = index + 1;
       while (last < lines.length && !isClosingFence(lines[last]?.text ?? '', opening.fence)) last++;
       const close = lines[last] ?? null, end = close?.end ?? source.length;
-      const bodyEnd = close ? Math.max(line.after, close.start - 1) : source.length;
+      // A fence closed on the next line has no body range, so its closing line is not code (emptyFenceAt).
+      const body = close?.start === line.after ? null : { start: line.after, end: close ? close.start - 1 : source.length };
       const block: ComposerBlock = { kind: 'code', start: line.start, end, fence: opening.fence, info: opening.info,
         infoRange: { start: line.start + opening.fence.length, end: line.end }, open: { start: line.start, end: line.end },
-        body: { start: line.after, end: bodyEnd }, close: close ? { start: close.start, end: close.end } : null };
+        body, close: close ? { start: close.start, end: close.end } : null };
       blocks.push(block);
       index = close ? last : lines.length;
       continue;
@@ -94,6 +96,15 @@ export function composerMarkdown(source: string, options: { styling?: boolean; b
   return { blocks };
 }
 
-export function codeAt(blocks: readonly ComposerBlock[], selection: ComposerRange): Extract<ComposerBlock, { kind: 'code' }> | null {
-  return blocks.find((block): block is Extract<ComposerBlock, { kind: 'code' }> => block.kind === 'code' && selection.start >= block.body.start && selection.end <= block.body.end) ?? null;
+export function codeAt(blocks: readonly ComposerBlock[], selection: ComposerRange): (ComposerCodeBlock & { body: ComposerRange }) | null {
+  return blocks.find((block): block is ComposerCodeBlock & { body: ComposerRange } => block.kind === 'code' && block.body !== null
+    && selection.start >= block.body.start && selection.end <= block.body.end) ?? null;
+}
+
+/** The fence without a body line whose closing line starts at the collapsed
+ *  caret: where its body would be. Text and keys there open the body line
+ *  rather than joining the closing fence. */
+export function emptyFenceAt(blocks: readonly ComposerBlock[], selection: ComposerRange): ComposerCodeBlock | null {
+  return blocks.find((block): block is ComposerCodeBlock => block.kind === 'code' && block.body === null
+    && selection.start === selection.end && selection.start === block.close?.start) ?? null;
 }

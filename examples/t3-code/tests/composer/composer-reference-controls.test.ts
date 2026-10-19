@@ -102,9 +102,8 @@ describe('ordinary code-language control retains the current source owner', () =
       composerText: '```js\nvalue\n```', composerComposing: false,
       focus: (id: string) => focus.push(id), composerIntentRequest: (...args: unknown[]) => calls.push(args),
     };
-    return {scope, calls, focus, pick(props: Env = {}) {
+    return {scope, calls, focus, pick() {
       code.call('pick', {}, {
-        owner: 'current-owner', value: '```js\nvalue\n```', ...props,
         composerLanguage: (...args: unknown[]) => root.call('composerLanguage', {}, scope, args),
       }, [0, 5, 'typescript']);
     }};
@@ -116,10 +115,8 @@ describe('ordinary code-language control retains the current source owner', () =
     expect(f.calls).toEqual([['language', 'typescript', '', false, false, 0, 5, false]]);
   });
 
-  test('stale owner/value, plain mode, stale projection or composition cannot enqueue an edit', () => {
-    for (const props of [{owner: 'previous-owner'}, {value: 'previous source'}]) {
-      const f = fixture(); f.pick(props); expect(f.focus).toEqual([]); expect(f.calls).toEqual([]);
-    }
+  test('plain mode, a stale projection or composition cannot enqueue an edit', () => {
+    // The projection's owner and source must be the field's (composerRichCurrent); the intent queue rechecks both.
     for (const patch of [{richComposer: {mode: 'plain'}}, {composerRichCurrent: false}, {composerComposing: true}]) {
       const f = fixture(); Object.assign(f.scope, patch); f.pick(); expect(f.focus).toEqual([]); expect(f.calls).toEqual([]);
     }

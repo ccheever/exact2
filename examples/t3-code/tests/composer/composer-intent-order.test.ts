@@ -203,6 +203,22 @@ describe('actual root composer intent ordering', () => {
       isComposing: false, cancelable: true, inputType: 'insertText', data: 'c'}], projected(empty));
     expect(empty.suppressed).toBe(0); expect(empty.state.composerIntentQueue).toEqual([]);
   });
+  test('text and Backspace at a restored fence without a body line keep its closing fence whole', () => {
+    const draft = '```ts\n```', blocks = composerRichProjection({value: draft, owner: 'draft', styling: true, literal: false}).blocks;
+    const typed = fixture(draft, 6); typed.projection = {...typed.projection, blocks} as typeof typed.projection;
+    typed.call('composerBeforeInput', [{value: draft, selectionStart: 6, selectionEnd: 6, isComposing: false, cancelable: true, inputType: 'insertText', data: 'x'}]);
+    expect(typed.suppressed).toBe(1);
+    typed.call('composerIntentPump'); typed.reply(); typed.accept(); typed.call('composerIntentConfirmed');
+    expect([typed.state.draft, typed.state.composerSelectionStart]).toEqual(['```ts\nx\n```', 7]);
+    const line = source.find(line => line.startsWith('  derive composerCodeStart = '))!;
+    const codeStart = value(line.slice(line.indexOf(' = ') + 3), {composerRichCurrent: true, composerSelectionStart: 6, composerSelectionEnd: 6, richComposer: {blocks}});
+    expect(codeStart).toBe(true);
+    const erased = fixture(draft, 6); erased.projection = {...erased.projection, blocks} as typeof erased.projection;
+    erased.call('composerGrammarKey', ['Backspace', {shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false}, false], {composerCodeStart: codeStart});
+    expect(erased.suppressed).toBe(1);
+    erased.call('composerIntentPump'); erased.reply();
+    expect(erased.replies[0]?.kind).toBe('handled'); expect(erased.commands).toEqual([]); expect(erased.state.draft).toBe(draft);
+  });
   test('composition start invalidates deferred keys while leaving composition input native-owned', () => {
     const f = fixture(); f.press();
     f.call('composerBeforeInput', [{value: 'word', selectionStart: 4, selectionEnd: 4,
@@ -253,6 +269,27 @@ describe('actual root composer intent ordering', () => {
     const plain = fixture(); plain.projection = {...plain.projection, mode: 'plain'};
     plain.call('composerKeyEvent', ['b', {shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'}]);
     expect(plain.formats).toEqual([]); expect(plain.suppressed).toBe(0);
+  });
+  test('Command-B pressed while an edit waits takes its turn after that edit, at the resulting selection', () => {
+    const bold = {shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'};
+    const kinds = (f: ReturnType<typeof fixture>) => (f.state.composerIntentQueue as {kind: string}[]).map(item => item.kind);
+    const f = fixture('- a', 3); f.press(); f.call('composerIntentPump');
+    f.call('composerKeyEvent', ['b', bold]);
+    expect(f.formats).toEqual([]); expect(kinds(f)).toEqual(['key', 'format']); expect(f.state.composerIntentNotice).toBe('');
+    // Also while the list edit's projection still lags the field.
+    f.reply(); f.accept(undefined, false);
+    f.call('composerKeyEvent', ['i', {...bold, code: 'KeyI'}]);
+    expect(kinds(f)).toEqual(['key', 'format', 'format']); expect(f.state.composerIntentNotice).toBe('');
+    f.project(); f.call('composerIntentConfirmed'); f.call('composerIntentPump');
+    expect(f.state.draft).toBe('- a\n- ');
+    expect(f.formats).toEqual([['composer', 'bold']]); expect(f.state.composerIntentPhase).toBe('format');
+    // The field reports the command as typing; its receipt releases the next one.
+    f.input('- a\n- ****', 8); f.project(); f.call('composerIntentConfirmed'); f.call('composerIntentPump');
+    expect(f.formats).toEqual([['composer', 'bold'], ['composer', 'italic']]); expect(kinds(f)).toEqual(['format']);
+    // A command that changed nothing reports no input; its turn still ends.
+    f.call('composerIntentFormatSettled');
+    expect(f.state.composerIntentQueue).toEqual([]); expect(f.state.composerIntentPhase).toBe(''); expect(f.state.composerIntentNotice).toBe('');
+    f.press(); f.call('composerIntentPump'); expect(f.requests).toHaveLength(2);
   });
   test('fresh composition completion reaches independent field metadata without a synthetic input', () => {
     const f = fixture(); f.state.composerComposing = true;
