@@ -99,7 +99,9 @@ for (const {stage, signal, mode} of shutdownCases) {
 }
 
 test('port retries keep one cancellation handler and never retry after cancellation', async () => {
-  const root = resolve(import.meta.dir, '..'), dir = mkdtempSync(resolve(root, 'target/dev-retry-'));
+  const root = resolve(import.meta.dir, '..');
+  mkdirSync(resolve(root, 'target'), {recursive:true});
+  const dir = mkdtempSync(resolve(root, 'target/dev-retry-'));
   writeFileSync(resolve(dir, 'app.contract'), '');
   const fixture = async (root, dir) => {
     const {mock} = await import('bun:test');
@@ -169,6 +171,7 @@ test('HTTP answers during a wedged build; readiness belongs to the current invoc
 
 
 test('dead lock owners recover and readiness ignores a previous exited invocation', async () => {
+  mkdirSync(resolve(import.meta.dir, '../target'), {recursive:true});
   const app = mkdtempSync(resolve(import.meta.dir, '../target/status-recovery-'));
   const lock = resolve(app,'.exact/status.lock');
   const child = Bun.spawn([process.execPath,'-e', `const fs=require('node:fs');fs.mkdirSync(${JSON.stringify(lock)},{recursive:true});fs.writeFileSync(${JSON.stringify(resolve(lock,'owner'))},String(process.pid));console.log('locked');setInterval(()=>{},1000);`], {stdout:'pipe'});
@@ -207,6 +210,7 @@ test.skipIf(!process.env.EXACT_DEV_READINESS_APP)('Contract syntax failure and r
 
 
 test('simultaneous dead-lock recovery preserves every invocation and completed proof duration', async () => {
+  mkdirSync(resolve(import.meta.dir, '../target'), {recursive:true});
   const app = mkdtempSync(resolve(import.meta.dir,'../target/status-contenders-'));
   const lock = resolve(app,'.exact/status.lock');
   const owner = Bun.spawn([process.execPath,'-e',`require('node:fs').mkdirSync(${JSON.stringify(lock)},{recursive:true});require('node:fs').writeFileSync(${JSON.stringify(resolve(lock,'owner'))},String(process.pid));console.log('ready');setInterval(()=>{},1000)`],{stdout:'pipe'});

@@ -102,8 +102,8 @@ async function currentWebBuild() {
       && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }
-const startup = startupBuilds();
 const early = app.manifest.game && servedAs == null ? await buildingServer({app:app.dir, host, port, gate, origins}) : null;
+const startup = startupBuilds();
 if (app.manifest.game) {
   const code = await startup.run(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:'inherit'});
   if (code !== 0) process.exit(code);
