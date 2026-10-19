@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `3ec87a2e998c1c377a1c842ec48d70762887da0e44cb8e1c2e5e7252f000cc4f`), shared by both reviewers, blind to the other review; commit caef755d8d (round 5's fixes). The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited.
 - **Verdict:** request changes (1 P2).
-- **Disposition:** taken in `b1d7e86e24`: test files map into the stage by their role, which app-cli gives from help.mjs's flags (a test verb's operands after its host, `--test`'s value), so a flag's value, an op or a URL that ends in `.test.contract` stays the caller's (Astra P2), and a bare glob operand maps too (Grok). Not taken: the wasm path and the JS dev loop keep their own freshness (both note, unchanged); a clock step over two seconds is outside the grain (both note).
+- **Disposition:** taken in `0ff71912d0`: test files map into the stage by their role, which app-cli gives from help.mjs's flags (a test verb's operands after its host, `--test`'s value), so a flag's value, an op or a URL that ends in `.test.contract` stays the caller's (Astra P2), and a bare glob operand maps too (Grok). Not taken: the wasm path and the JS dev loop keep their own freshness (both note, unchanged); a clock step over two seconds is outside the grain (both note).
 
 **Request changes: one P2 remains in argument mapping.** I found no new blocker in the JS freshness change.
 
