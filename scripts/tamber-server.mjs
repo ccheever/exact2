@@ -121,12 +121,16 @@ const json = (res, status, body) => {
 };
 const notFound = res => json(res, 404, { message: 'Not found.' });
 
+/** `app.json`'s `"tamber"`, read only as a regular file of at most 1 MiB (a
+ * FIFO or a giant there never stalls the server); null without one. */
+function manifestTamber(appDir) {
+  try { const m = resolve(appDir, 'app.json'), st = statSync(m); return st.isFile() && st.size <= 1 << 20 ? JSON.parse(readFileSync(m, 'utf8')).tamber ?? null : null; } catch { return null; }
+}
+
 /** The app's design, as the compiler finds it: the file `app.json`'s
  * `"tamber"` names, else `app.tamber`; null when there is none. */
 export function designPath(appDir) {
-  let named = null;
-  // (a regular file of at most 1 MiB: a FIFO or a giant there never stalls the server)
-  try { const m = resolve(appDir, 'app.json'), st = statSync(m); if (st.isFile() && st.size <= 1 << 20) named = JSON.parse(readFileSync(m, 'utf8')).tamber ?? null; } catch { /* no manifest */ }
+  const named = manifestTamber(appDir);
   const path = resolve(appDir, typeof named === 'string' ? named : 'app.tamber');
   return existsSync(path) ? path : null;
 }
@@ -163,6 +167,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const epoch = randomBytes(8).toString('hex');
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
   let kept = 0;
+  // A snapshot (the held list, the files) goes out only while all that is queued to open streams and polls stays under 128 MiB: slow readers can't hold the server's memory.
+  const outbound = new Set(), fits = bytes => [...outbound].reduce((n, r) => n + (r.writableLength || 0), 0) + bytes <= 128 << 20;
+  const track = res => { if (res.on) { outbound.add(res); res.on('close', () => outbound.delete(res)); } };
   // The digests of the exports this run gave out, newest last (at most 64): a
   // client's `import` may name one as the baseline it pulled (stage 10b).
   const exported = [];
@@ -177,7 +184,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     let line;
     try { line = `data: ${JSON.stringify(event)}\n\n`; } catch { log(`tamber: an event could not be sent (${event.event})`); return; }
     // The last 256 kept, at most 64 MiB of them (each event's size beside it).
-    events.push(Object.defineProperty(event, 'bytes', { value: line.length })); kept += line.length;
+    const bytes = Buffer.byteLength(line); events.push(Object.defineProperty(event, 'bytes', { value: bytes })); kept += bytes;
     while (events.length > KEPT || kept > 64 << 20) kept -= events.shift().bytes;
     // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
     // A paired subscriber past its deadline gets nothing more (`live` ends it now).
@@ -540,8 +547,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: down } }); return true; }
+      const hello = `data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`;
+      if (!fits(Buffer.byteLength(hello))) { json(res, 503, { error: { message: 'too much is queued to slow readers: try again shortly' } }); return true; }
+      track(res);
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`);
+      res.write(hello);
       // `{client}`: its commands live while it is present (LLP 1122 D4).
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
       res.client = client;
@@ -578,7 +588,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // Missed: no events to apply, the files to start again from.
         // The held list, unless the client named its revision in this run (1.12).
         const has = request?.held === heldRevision && request?.epoch === epoch;
-        json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), held: heldRevision, ...(has ? {} : { proposals: held() }) });
+        const body = { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), held: heldRevision, ...(has ? {} : { proposals: held() }) };
+        if (!fits(Buffer.byteLength(JSON.stringify(body)))) return json(res, 503, { error: { message: 'too much is queued to slow readers: try again shortly' } }); else track(res);
+        json(res, 200, body);
       };
       // The design server gone: what is kept after `after` (its `down`
       // among it), else an error, which a following client retries slowly,
@@ -956,7 +968,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
-    if (JSON.stringify(planned.ok.diff ?? '').length + JSON.stringify(review ?? {}).length > 4 << 20) return { status: 413, error: { message: 'the proposal is over 4 MiB: propose it in parts' } };
+    const size = Buffer.byteLength(JSON.stringify({ diff: planned.ok.diff, changed: planned.ok.changed, ops, review }));
+    if (size > 4 << 20 || size + [...proposals.values()].reduce((n, q) => n + (q.size ?? 0), 0) > 32 << 20) return /* a proposal at most 4 MiB, all held at most 32 MiB */ { status: 413, error: { message: 'the proposal is over 4 MiB, or the held ones together over 32 MiB: accept or drop some, or propose it in parts' } };
     const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
     // At most 64 held. A client below `write` may not drop another's
     // (theme2's ruling (a)): at the cap its own oldest goes, and with none
@@ -967,7 +980,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none is this client's: one must be accepted or dropped first` } };
       forget(own[0], { client, reason: 'too many held' });
     }
-    proposals.set(id, { client, ops, base, guards, inferred, expires, shown }); heldRevision++;
+    proposals.set(id, { client, ops, base, guards, inferred, expires, shown, size }); heldRevision++;
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
@@ -1046,11 +1059,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // state parts history reads and revert writes.
   const ownContracts = () => [...known.keys()].filter(path => path.endsWith('.contract'));
   // The design as app.json names it, whether or not it is there now.
-  const designRel = () => {
-    let named = null;
-    try { named = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8')).tamber ?? null; } catch { /* no manifest */ }
-    return relative(appDir, resolve(appDir, typeof named === 'string' ? named : 'app.tamber'));
-  };
+  const designRel = () => relative(appDir, resolve(appDir, typeof manifestTamber(appDir) === 'string' ? manifestTamber(appDir) : 'app.tamber'));
   /** The git log of the design's files, each commit's files as edits. */
   async function history(request) {
     const { limit = 20, skip = 0 } = request;

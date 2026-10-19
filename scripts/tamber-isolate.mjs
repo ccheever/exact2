@@ -108,12 +108,13 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
   running = child;
   const exited = new Promise(ok => child.on('close', () => { if (running === child) running = null; ok(); }));
   return [new Promise(done => {
-    let out = '', bytes = 0, err = '', settled = false, probing = false, gone = false;
+    let out = '', bytes = 0, err = '', settled = false, probing = false, gone = false, blind = null;
     child.on('exit', () => { gone = true; });
     const finish = reply => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(blind);
       clearInterval(watch);
       done(reply);
     };
@@ -136,8 +137,10 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
         probing = false;
         if (settled || gone) return;
         // A sample that can't be read may be the planner exiting: unwatchable only if it is still running a moment later.
-        if (kb === null) setTimeout(() => { if (!gone && !settled) stop({ status: 503, error: { message: 'the import could not be watched: try again' } }); }, 200);
-        else if (kb > rssKb * 0.9) stop(costly(`reading it took more than ${Math.round(rssKb / 1024)} MiB`)); // (a sample's headroom)
+        if (kb === null) { blind ??= setTimeout(() => { if (!gone && !settled) stop({ status: 503, error: { message: 'the import could not be watched: try again' } }); }, 200); return; }
+        clearTimeout(blind); // (a sample read again: watched after all)
+        blind = null;
+        if (kb > rssKb * 0.9) stop(costly(`reading it took more than ${Math.round(rssKb / 1024)} MiB`)); // (a sample's headroom)
       });
     };
     const watch = setInterval(sample, 50);
