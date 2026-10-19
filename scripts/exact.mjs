@@ -1056,24 +1056,32 @@ function sections(text) {
   return { lines, kinds, heads };
 }
 
-/** A word whose section ranking alone misses, because it is said in passing more densely elsewhere, and its section. */
-const TOPICS = { log: 'Inspection and testing', sheet: 'Recipe: a navigation stack' };
+/** A query (its words singular, by one space) whose section ranking alone misses, because it is said in passing more
+ *  densely elsewhere or its section says it in other words ("dark mode": light and dark), and its section's heading. */
+const TOPICS = {
+  log: 'Inspection and testing', sheet: 'Recipe: a navigation stack', push: 'Recipe: a navigation stack',
+  'tab bar': 'Recipe: tabs', 'back button': 'Recipe: a navigation stack', share: 'Host commands',
+  'dark mode': 'Recipe: theme: colours, light and dark, icons',
+  font: 'Recipe: app.json, assets and modules', image: 'Recipe: app.json, assets and modules',
+  deploy: 'Recipe: porting an app, a release build, splitting the work',
+};
 
 const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);
+/** Type keywords (contract-grammar.md, "Expressions and types"): `strings` is app.json's key, never stemmed onto `: string`. */
+const TYPES = new Set(['number', 'string', 'bool', 'unit', 'action', 'option']);
 
 /** Words as whole words, one after another by spaces or hyphens, singular or plural (`sheets` finds `sheet`): `logs` is
- *  not in "catalogs"; `-exact-exit-animation` holds `exit`, and `exit animation` together. */
-const singular = w => w.length > 3 && /[^s]s$/i.test(w) ? w.slice(0, -1) : w;
+ *  not in "catalogs". */
+const singular = w => w.length > 3 && /[^s]s$/i.test(w) && !TYPES.has(w.slice(0, -1).toLowerCase()) ? w.slice(0, -1) : w;
 const wholeWords = (...words) => new RegExp(`(?<![a-z0-9_])${words.map(w => singular(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s-]+')}s?(?![a-z0-9_])`, 'gi');
 
-/** A line's weighted mentions of a word: code (in a fence or backticks) defines it, prose, or a part of a hyphenated
- *  name (`syntax-call-cycle` for `call`), mentions it. */
+/** A line's weighted mentions of a word: code (in a fence or backticks) defines it, prose mentions it, and a piece of a
+ *  longer hyphenated name (`font-variant-numeric` for `font`, `syntax-call-cycle` for `call`) is not the word. */
 function mentions(line, kind, re) {
   let n = 0;
   for (const m of line.matchAll(re)) {
-    const code = kind === 'code' || line.slice(0, m.index).split('`').length % 2 === 0;
-    const part = line[m.index - 1] === '-' || line[m.index + m[0].length] === '-';
-    n += code && !part ? 3 : 1;
+    if (line[m.index - 1] === '-' || line[m.index + m[0].length] === '-') continue;
+    n += kind === 'code' || line.slice(0, m.index).split('`').length % 2 === 0 ? 3 : 1;
   }
   return n;
 }
@@ -1087,12 +1095,13 @@ export function docs(words, say = console.log) {
   // Each word, and several written together, which count again.
   const res = words.map(w => wholeWords(w)), together = words.length > 1 ? wholeWords(...words) : null;
   const recipes = readdirSync(resolve(ROOT, 'docs/recipes')).filter(f => f.endsWith('.md')).sort().map(f => `docs/recipes/${f}`);
-  const units = [];
+  const units = [], topic = TOPICS[words.map(w => singular(w).toLowerCase()).join(' ')];
   for (const path of [...GUIDES, ...recipes]) {
     const f = { path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) };
     for (const h of f.heads) {
       const counts = res.map(re => { let n = 0; for (let i = h.from; i < h.own; i++) n += mentions(f.lines[i], f.kinds[i], re); return n; });
-      if (counts.some(n => n === 0)) continue;
+      // The query's own section (TOPICS) is a match however it says the words.
+      if (counts.some(n => n === 0) && topic !== h.title) continue;
       // A heading is on the words when they are half its own words or more ("Tabular numbers", "Recipe: motion"), or
       // when it is a recipe's title that holds them all ("Recipe: files, SQLite and grants"); not when a section's
       // heading only says one ("Before you call it done").
@@ -1107,10 +1116,9 @@ export function docs(words, say = console.log) {
       let joined = 0;
       if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
       const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
-      // A heading that is the words ("Tabular numbers") weighs more again; a word's own section (TOPICS) comes first.
+      // A heading that is the words ("Tabular numbers") weighs more again; the query's own section comes first.
       const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).join(' ');
-      const topic = words.length === 1 && TOPICS[singular(words[0]).toLowerCase()] === h.title;
-      units.push({ f, h, titled, score: topic ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) });
+      units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) });
     }
   }
   if (!units.length) return say(`docs: no section of the guides holds ${words.map(w => `"${w}"`).join(' and ')} as words; try fewer, or bun exact.mjs contract vocab <name>`);
