@@ -168,9 +168,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
   let kept = 0;
   // A snapshot (the held list, the files) goes out only while all that is queued to open streams and polls stays under 128 MiB: slow readers can't hold the server's memory. (Queued: the response's count or its socket's, the more: behind a TLS door Bun counts only the socket's.)
-  const queuedOn = r => Math.max(r.writableLength || 0, r.socket?.writableLength || 0);
-  const outbound = new Set(), fits = bytes => [...outbound].reduce((n, r) => n + queuedOn(r), 0) + bytes <= 128 << 20;
-  const track = res => { if (res.on) { outbound.add(res); res.on('close', () => outbound.delete(res)); } };
+  const queuedOn = r => Math.max(r.writableLength || 0, r.socket?.writableLength || 0); // (outbound: each response and its socket, the socket until it closes, so a finished answer's bytes still waiting count)
+  const outbound = new Set(), fits = bytes => [...outbound].reduce((n, r) => n + (r.writableLength || 0), 0) + bytes <= 128 << 20;
+  const track = res => { for (const w of [res, res.socket]) if (w?.on && !outbound.has(w)) { outbound.add(w); w.on('close', () => outbound.delete(w)); } };
   // The digests of the exports this run gave out, newest last (at most 64): a
   // client's `import` may name one as the baseline it pulled (stage 10b).
   const exported = [];
