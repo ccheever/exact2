@@ -1498,6 +1498,12 @@ Android's reader and the terminal.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.
+    *As accepted (the lead, 2026-10-19, theme2's stage 11 brief):* started now, with two fixture
+    packages as the consumer; it first builds D11's package designs (no package shipped a
+    `.tamber`, and only the app's design was read); names `space.xs…xl` and
+    `radius.sm/md/lg/full`, each base value from an existing metric or measured, never a
+    multiplier, in px/points with no Dynamic Type scaling; an app may override a base name, a
+    package may not; only the listed names are reserved; package components stay stage 12's.
 12. **A component library**: `.contract` packages over Tamber, with params (D15) as their
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
