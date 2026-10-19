@@ -327,6 +327,9 @@ export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000
  * begun before the first, not lifted after the last. `ask` is the app's carrier; `touches`
  * the runner's.
  */
+// What a lost touch's error advises: the synthesizer, unlike XCTest's public calls, does not wait for the app to go idle
+const SETTLE_FIRST = 'a real touch played while native work still moves (a push, a sheet, the keyboard) can be lost, so `clock settle` first';
+
 export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // A failure of the runner or of the app's carrier: no diagnostic read follows it (`tapRefusal`).
   const transport = (message) => Object.assign(new Error(message), { transport: true });
@@ -353,6 +356,11 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
     ms = drag.press + drag.hold + (moves ? drag.over : 0);
     // Points per second: what XCTest's velocity measured as on a 3x simulator, whatever its header says (§11).
     request = { op: 'drag', point: a.point, to: [a.point[0] + drag.dx, a.point[1] + drag.dy], press: drag.press / 1000, hold: drag.hold / 1000, velocity: moves ? Math.hypot(drag.dx, drag.dy) / (drag.over / 1000) : 0 };
+    // Both ends in the screen's fixed space too, where XCTest's synthesizer plays the drag (touches.swift)
+    if (a.fixed && a.fixedAxes) {
+      const [[rx, ry], [dx, dy]] = a.fixedAxes;
+      Object.assign(request, { screen: a.fixed, screenTo: [a.fixed[0] + drag.dx * rx + drag.dy * dx, a.fixed[1] + drag.dx * ry + drag.dy * dy], display: a.display });
+    }
   }
   const injecting = touches.ask(request, RUNNER_MS + ms);
   let finished = false;
@@ -405,7 +413,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
     const early = `${what}: the touch lifted before the ops during it`;
     try {
       for (let touch; !(touch = ours(await entries()));) {
-        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen hold` : `${what}: the runner finished and no touch had begun`);
+        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen hold` : `${what}: the runner finished and no touch had begun; ${SETTLE_FIRST}`);
         await new Promise((r) => setTimeout(r, 50));
       }
       let touch = ours(await entries());
@@ -491,7 +499,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         ...(a.avoided ? { avoided: a.avoided } : {}), ...(a.native ? { native: a.native } : {}),
       };
     }
-    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);
+    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)}); ${SETTLE_FIRST}`);
     await new Promise((r) => setTimeout(r, 16));
   }
 }

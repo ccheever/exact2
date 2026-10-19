@@ -837,6 +837,29 @@ may not declare them, and a package token's `when` lines may name only the app's
 the app must declare or the package's token is refused. What a build keeps of a package's
 tokens is D7's one retention rule.
 
+As built (stage 11 A1, theme2's rulings Q1–Q8 and 13:06): the file is `<name>.tamber` beside
+the package's entry (what its `package.json` `exports` maps `.` to, else `index.contract`), or
+the file its `package.json` `"tamber"` names inside the package (missing, or leading out of it:
+`tamber-unreadable`), for every package the app's sources link, transitively (a package vendored
+inside one and reached by a relative `use` included). `<name>` is the last part of the package's
+own name (`@exact/reading` → `reading`, whatever name a `use` installed it under); the file's
+header is `tamber <name>` and every token is `<name>.…` (`tamber-package-name`). Two linked
+packages taking one namespace that both ship a design are refused, naming both: no line of the
+app's can tell their tokens apart (the one-name rule above is then the app's and a package's: the
+app's definition wins). A token keeps its name in the one table; its source is
+`<package>/<file>` (`@exact/reading/reading.tamber`), and the design server names it
+`<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
+`theme` block only: axes, dials, components' params, `params` lines, icon tokens and `exports`
+are refused (`tamber-package-block`; components are stage 12's, icons QUEUE). Its tokens join the
+app's design in the one fold; a token the app's design defines is the app's, whole (all its
+`when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
+is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
+`space.sm`, `space.md`, `space.lg`, `space.xl`, `radius.sm`, `radius.md`, `radius.lg`,
+`radius.full`, whose values are the app's until stage 11 B's; a package may not declare them),
+and no dial its values read (`tamber-unknown-token`; references across packages are QUEUE).
+A refusal in a package's design points at its line there (a token's, a `when`'s, a refused
+block's); one about the file (unreadable, a namespace taken twice) names the file.
+
 ### D12 — Every language gets generated names over the one table
 
 `bun exact.mjs tamber gen <target>` writes bindings from the IR, generated and never

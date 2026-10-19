@@ -730,6 +730,7 @@ fn the_element_lint_finds_nothing_in_any_app() {
                     text,
                     source_id: 1,
                     bindable: false,
+                    package: None,
                 });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());

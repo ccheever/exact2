@@ -388,6 +388,47 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
     })
 }
 
+/// Where a package's design is (LLP 1121 D11): the file its
+/// `package.json`'s `"tamber"` names (`named`), else `<name>.tamber` beside
+/// its entry (what `exports` maps `.` to, or `index.contract`), where
+/// `<name>` is its namespace; and the package's own name (its
+/// `package.json`'s, whatever name a `use` installed it under). The file
+/// may not be there: a package without a design has none.
+pub(crate) struct PackageDesign {
+    pub(crate) path: PathBuf,
+    pub(crate) named: bool,
+    pub(crate) name: String,
+}
+
+pub(crate) fn package_design(root: &Path, manifest: &Path) -> Option<PackageDesign> {
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(manifest).ok()?).ok()?;
+    let name = json["name"].as_str()?.to_owned();
+    if let Some(named) = json["tamber"].as_str() {
+        return Some(PackageDesign {
+            path: lexical(&root.join(named)),
+            named: true,
+            name,
+        });
+    }
+    let entry = entry(&json["exports"], "").unwrap_or_else(|| "./index.contract".to_owned());
+    let dir = lexical(&root.join(entry.strip_prefix("./").unwrap_or(&entry)))
+        .parent()?
+        .to_path_buf();
+    let path = dir.join(format!("{}.tamber", namespace(&name)));
+    Some(PackageDesign {
+        path,
+        named: false,
+        name,
+    })
+}
+
+/// The namespace a package's design tokens are named under (LLP 1121
+/// D11): the last part of its name (`@exact/reading` → `reading`).
+pub(crate) fn namespace(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
 /// What `exports` maps a subpath to: a string, or the `contract` or
 /// `default` condition of an object, for `.` or `./sub`.
 fn entry(exports: &serde_json::Value, sub: &str) -> Option<String> {

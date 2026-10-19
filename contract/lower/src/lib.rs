@@ -84,6 +84,16 @@ pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
+
+/// `design` (the app's, or none) with its packages' designs' tokens joined,
+/// as the build folds them (LLP 1121 D11); what it refuses of them is the
+/// build's to say.
+pub fn with_package_designs(
+    design: Option<exact_tamber::Design>,
+    packages: &[contract_syntax::DesignSource],
+) -> Option<exact_tamber::Design> {
+    theme::packages::merge(design, packages).0
+}
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
 pub use theme::{retention, synthetic_candidates};
 pub use warnings::{warnings, MAX_WARNINGS};
@@ -1321,6 +1331,7 @@ impl<'a> Lowerer<'a> {
 /// declares). The driver finds what is on disk (`DesignSource::bindable`).
 pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentTypes) -> bool {
     file.design.as_ref().is_some_and(|d| d.bindable)
+        || file.package_designs.iter().any(|d| d.bindable)
         || root
             .sources
             .keys()
