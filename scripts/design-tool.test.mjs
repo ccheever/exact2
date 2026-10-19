@@ -5,7 +5,7 @@
 // on its long poll attributed. Its stub-server tests are
 // apps/design-tool/app.test.contract.
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
 import { takePort } from './port-lock.mjs';
+import { spawnOwned, stopAll } from './test-children.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The stub's app (its components' params, which the stub's design sets):
@@ -33,7 +34,9 @@ beforeEach(async () => {
     throw new Error(`${TOOL_ORIGIN} already answers (pid ${pid}: ${command}), and took no turn (a design tool run by hand?): stop it (kill ${pid}) and run these again`);
   }
 }, 25 * 60_000); // as long as the turn may take (its wait is 20 minutes)
-afterEach(() => givePort());
+// What a test started ends before its turn at the port does, however the test
+// ends (a timed-out one skips its own stops).
+afterEach(() => { stopAll(); givePort(); });
 
 /** Lines of `child`'s stdout as they come; `until(pass)` waits for one. */
 function lines(child) {
@@ -49,25 +52,21 @@ function lines(child) {
   return { seen, until };
 }
 
-const stop = async child => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exit = new Promise(ok => child.once('exit', ok));
-  child.kill('SIGTERM');
-  if (!(await Promise.race([exit.then(() => true), Bun.sleep(15_000).then(() => false)]))) child.kill('SIGKILL');
-};
+/** Ends `child` and what it started (SIGTERM, then SIGKILL after 15 s). */
+const stop = child => child.stop(15_000);
 
 test('the tool opens on the theme fixture, shows its hello, and an agent\'s write arrives attributed; a second tool reuses it or is refused', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-'));
   for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
-  const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   tool.stderr.on('data', d => { said = (said + d).slice(-4000); });
   let drive, other;
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
-    drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-${process.pid}`, '--json',
+    drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'state'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
@@ -119,7 +118,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
   const [mine, other] = [copy(), copy()];
   const run = args => spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', ...args, '--no-open'], { cwd: ROOT, encoding: 'utf8' });
   // The design server for `mine` alone, as a dev loop would hold it.
-  const serve = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', mine], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const serve = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', mine], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const at = new URL(await lines(serve).until(l => /^http:\/\/127\.0\.0\.1:\d+\/__tamber$/.test(l), 600_000)).origin;
@@ -131,7 +130,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     const wrong = run([other, '--via', at]);
     expect(wrong.status).toBe(1);
     expect(wrong.stderr).toContain(`the design of ${mine}`);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', mine, '--via', at, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', mine, '--via', at, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const { token } = await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json();
     const hello = await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
@@ -158,7 +157,7 @@ test('every control on the dials panel comes from the design as describe gives i
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-dials-'));
   cpSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), join(app, 'app.tamber'));
   writeFileSync(join(app, 'app.contract'), STUB_APP);
-  const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const { token } = await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json();
@@ -242,7 +241,7 @@ test('every control on the dials panel comes from the design as describe gives i
  * (spawned, not run synchronously: the proxy below answers in this
  * process). */
 async function drive(url, storage, ops, { keepStorage = false } = {}) {
-  const child = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, ...(keepStorage ? ['--keep-storage'] : []), '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, ...(keepStorage ? ['--keep-storage'] : []), '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   child.stderr.on('data', d => { said = (said + d).slice(-4000); });
   const out = lines(child);
@@ -257,7 +256,7 @@ async function drive(url, storage, ops, { keepStorage = false } = {}) {
  * calls `before(request)` before forwarding a request, so a hand edit lands
  * exactly between two of the tool's requests, with no timing. */
 async function proxied(app, before = () => {}) {
-  const serve = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', app], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const serve = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', app], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   const origin = new URL(await lines(serve).until(l => /^http:\/\/127\.0\.0\.1:\d+\/__tamber$/.test(l), 600_000)).origin;
   const writes = [];
   const proxy = Bun.serve({ hostname: '127.0.0.1', port: 0, idleTimeout: 0, fetch: async req => {
@@ -278,7 +277,7 @@ async function proxied(app, before = () => {}) {
     out.delete('content-encoding'); out.delete('content-length');
     return new Response(bytes, { status: res.status, headers: out });
   } });
-  const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', `http://127.0.0.1:${proxy.port}`, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', `http://127.0.0.1:${proxy.port}`, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
   return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
 }
@@ -632,7 +631,7 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
   let tool, accepts = 0;
   const agentWrite = async () => {
     const digest = createHash('sha256').update(readFileSync(join(app, 'app.tamber'))).digest('hex');
-    const op = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', tool.origin, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, stdio: 'ignore' });
+    const op = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', tool.origin, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, stdio: 'ignore' });
     expect(await new Promise(ok => op.once('close', ok))).toBe(0);
   };
   let explains = 0;
@@ -842,13 +841,13 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool, other, driving = true, saidPlan = null;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
     // A build's report reaches the tool on its long poll.
@@ -949,13 +948,13 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     // What the dev loop serves its builds now (`/__dev/design`), the frame's
     // build (its id, and the design it reports running), how many pages
@@ -979,7 +978,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       }
     };
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
-    const drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
+    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // accent.fill, the default branch: a value, its proposal live (the
       // moment before any scrub), then scrubbed to another.
@@ -1099,13 +1098,13 @@ async function kindsOnTheJsLoop() {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const seen = [];
     const connects = () => devSaid.seen.filter(l => l.startsWith('page connected')).length;
@@ -1128,7 +1127,7 @@ async function kindsOnTheJsLoop() {
       }
     };
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
-    const drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
+    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // The length, by its amount field: proposed live, then scrubbed.
       'tap cell-space.card-0-light', 'clock data', 'type part-amount-field 14', 'clock data', 'state', 'tree typed', 'clock +6000 real',
@@ -1192,7 +1191,7 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   const { chromium } = await import('playwright-core');
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   let tool;
@@ -1200,7 +1199,7 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes('plan ready'), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/theme-fixture'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/theme-fixture'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
     await page.goto(url);
