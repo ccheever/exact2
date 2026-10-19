@@ -85,6 +85,25 @@ pub(super) fn push_style(
             range.clone(),
         );
     }
+    // CSS `font-optical-sizing: auto` (CSS Fonts 4 §2.7): a face's `opsz` is
+    // the size, as the browser and CoreText set it; one without the axis
+    // ignores it. Parley applies it after fontique's synthesis.
+    builder.push(
+        StyleProperty::FontVariations(parley::FontVariations::List(
+            vec![parley::FontVariation::new(
+                parley::setting::Tag::new(b"opsz"),
+                run.size,
+            )]
+            .into(),
+        )),
+        range.clone(),
+    );
+    if run.stretch != 100.0 {
+        builder.push(
+            StyleProperty::FontWidth(parley::FontWidth::from_percentage(run.stretch)),
+            range.clone(),
+        );
+    }
     if run.letter_spacing != 0.0 && run.size > 0.0 {
         builder.push(
             StyleProperty::LetterSpacing(run.letter_spacing),

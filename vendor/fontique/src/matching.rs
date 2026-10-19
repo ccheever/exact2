@@ -35,9 +35,9 @@ pub fn match_font(
         .enumerate()
         .map(|(i, font)| Candidate {
             index: i,
-            width: (font.width().ratio() * 100.0) as i32,
+            width: (font.matching_width(width).ratio() * 100.0) as i32,
             style: font.style(),
-            weight: font.weight().value(),
+            weight: font.matching_weight(weight).value(),
             has_slnt: font.has_slant_axis(),
         })
         .collect();
