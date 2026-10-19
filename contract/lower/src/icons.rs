@@ -242,11 +242,15 @@ pub(crate) fn declare(
                     let file = icon.name.trim_start_matches("icon.").replace('.', "-");
                     // A bare SF Symbol blank on the web alone is one line of a build (the CLI's `web_only`).
                     let blank: Vec<&str> = targets.iter().map(|t| t.name.as_str()).filter(|t| !apple(t)).map(|t| if t == "web" { "the web" } else { t }).collect();
-                    let sf = icon.sf.as_deref().map(|sf| format!(
-                        ". With no SVG for it, declare no icon and write `symbol:sf/{sf}` where it is used: Apple draws it, and {} it blank, {}",
-                        if blank.len() == 1 { format!("{} draws", blank[0]) } else { format!("{} draw", blank.join(" and ")) },
-                        if blank == ["the web"] { "which the build says in one warning" } else { "with a warning at each use" },
-                    )).unwrap_or_default();
+                    // An SF Symbol that is a role's Apple name is that role, which every host draws.
+                    let sf = icon.sf.as_deref().map(|sf| match crate::symbols::role_by_apple_name(sf) {
+                        Some(role) => format!(". With no SVG for it, declare no icon and write `symbol:{role}`, the role Apple draws as `{sf}`, which every host draws"),
+                        None => format!(
+                            ". With no SVG for it, declare no icon and write `symbol:sf/{sf}` where it is used: Apple draws it, and {} it blank, {}",
+                            if blank.len() == 1 { format!("{} draws", blank[0]) } else { format!("{} draw", blank.join(" and ")) },
+                            if blank == ["the web"] { "which the build says in one warning" } else { "with a warning at each use" },
+                        ),
+                    }).unwrap_or_default();
                     refuse(
                         "tamber-icon-missing",
                         format!(

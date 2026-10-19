@@ -76,6 +76,26 @@ fn a_shipped_target_without_a_source_is_refused() {
         all.iter().any(|e| e.message.contains("linux and the web draw it blank, with a warning at each use. Not shipping linux? `bun exact.mjs update --without linux` removes it")),
         "{all:?}"
     );
+    // An SF Symbol that is a role's Apple name is that role, drawn everywhere: no "blank" advice.
+    let path = app(
+        "missing-role",
+        "\"ios\": {}, \"web\": {}",
+        "  icon.play = icon(sf \"play.fill\")\n",
+        &view("symbol:icon.play"),
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert!(
+        e.message.ends_with("declare no icon and write `symbol:play-fill`, the role Apple draws as `play.fill`, which every host draws")
+            && !e.message.contains("blank"),
+        "{e:?}"
+    );
+    let advised = app(
+        "advised-role",
+        "\"ios\": {}, \"web\": {}",
+        "",
+        &view("symbol:play-fill"),
+    );
+    contract::compile_path(&advised).unwrap_or_else(|e| panic!("{e:?}"));
     // Several colours: the web alone draws it as the file.
     let design = "  icon.two = icon(svg \"icons/two.svg\")\n";
     let path = app(

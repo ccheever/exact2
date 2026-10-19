@@ -1444,10 +1444,11 @@ if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pat
 /** This build's command, to run it again: an `exact new` app's `exact.mjs` verb (EXACT_APP_DIR, which that
  * sets), else this script's. */
 export function rebuildArgs(args, dir = process.env.EXACT_APP_DIR) {
-  if (!dir) return `bun host/apple/build.mjs ${args.join(' ')}`;
+  const quote = (a) => /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", "'\\''")}'`;
+  if (!dir) return `bun host/apple/build.mjs ${args.map(quote).join(' ')}`;
   const ios = ['--ios', '--device', '--tvos'].some((flag) => args.includes(flag));
   const rest = args.filter((a) => a !== '--ios' && !(a.endsWith('-apple') && !a.startsWith('-')));
-  return [`(cd '${dir.replaceAll("'", "'\\''")}' && bun exact.mjs ${ios ? 'ios' : 'mac'}`, ...rest].join(' ') + ')';
+  return [`(cd ${quote(dir)} && bun exact.mjs ${ios ? 'ios' : 'mac'}`, ...rest.map(quote)].join(' ') + ')';
 }
 
 /** The app's module composed with its packages' implementations (LLP 1133.001 D5): an adapter over each package's

@@ -697,7 +697,7 @@ fn a_prop_default_is_refused_naming_the_option_form() {
         contract::compile(&app("disabled: bool = false", "disabled", "disabled=true")).unwrap_err();
     assert_eq!(
         (e.id.as_str(), e.message.as_str()),
-        ("syntax-expected-newline", "a prop has no default: pass `disabled=` at every use, or declare `disabled: option<bool>`, pass `none` where it is unset, and read it as `match disabled { case some(v) => v, case none => … }`"),
+        ("syntax-expected-newline", "a prop has no default: pass `disabled=<value>` at every use, or declare `disabled: option<bool>`, pass `disabled=none` where it is unset, and read it as `match disabled { case some(v) => v, case none => <default> }`"),
     );
     contract::compile(&app(
         "disabled: option<bool>",
@@ -705,6 +705,8 @@ fn a_prop_default_is_refused_naming_the_option_form() {
         "disabled=none",
     ))
     .unwrap();
+    // The other form it names, `disabled=<value>` with a value, compiles too.
+    contract::compile(&app("disabled: bool", "disabled", "disabled=true")).unwrap();
 }
 
 /// `style=`'s declarations come back as attributes that compile: a quote, a

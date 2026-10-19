@@ -595,24 +595,40 @@ test('a screenshot with a system sheet held says it is not drawn, and where the 
 test('a tap that opens a menu the agent paints says UIKit presents it, under --touch platform, once', async () => {
   const { driveNotes } = await import('./agent-test.mjs');
   const said = [], quiet = console.error;
-  const nodes = [
+  const tree = (open) => [
     { id: 1, parent: null, props: {} },
-    { id: 2, parent: 1, props: { popovertarget: 'patmenu', testId: 'pattern-menu' } },
+    { id: 2, parent: 1, type: 'View', props: { popovertarget: 'patmenu', testId: 'pattern-menu' } },
     { id: 3, parent: 2, props: {} }, // the invoker's label, which the tap may land on
-    { id: 4, parent: 1, props: { id: 'patmenu', popover: 'auto', accessibilityRole: 'menu' } },
+    { id: 4, parent: 1, open, props: { id: 'patmenu', popover: 'auto', accessibilityRole: 'menu' } },
     { id: 5, parent: 4, props: { popovertarget: 'patmenu', popovertargetaction: 'hide' } }, // a row that closes it
     { id: 6, parent: 1, props: { commandfor: 'ask', command: 'show-modal' } },
-    { id: 7, parent: 1, props: { id: 'ask', popover: 'auto', semanticTag: 'dialog' } },
+    { id: 7, parent: 1, open: true, props: { id: 'ask', popover: 'auto', semanticTag: 'dialog' } },
+    // native-fixture's `open-native-popover`: a native button's content popover, form controls, no `role="menu"`.
+    { id: 8, parent: 1, type: 'Control', props: { type: 'button', popovertarget: 'form' } },
+    { id: 9, parent: 1, open: true, props: { id: 'form', popover: 'auto' } },
+    // A native button's popover that is `role="menu"`: UIKit's pull-down.
+    { id: 10, parent: 1, type: 'Control', props: { type: 'button', popovertarget: 'more' } },
+    { id: 11, parent: 1, open: true, props: { id: 'more', popover: 'auto', accessibilityRole: 'menu' } },
   ];
-  const s = (touch) => ({ launchFacts: {}, carrier: { touch }, op: async () => ({ lines: [], next: 0 }), state: async () => ({}), tree: async () => ({ nodes }) });
+  let open = false;
+  const s = (touch) => ({ launchFacts: {}, carrier: { touch }, op: async () => ({ lines: [], next: 0 }), state: async () => ({}), tree: async () => ({ nodes: tree(open) }) });
+  const tap = (tapped, delivery = 'activation') => ({ tapped, delivery });
   console.error = (line) => said.push(line);
   try {
     const notes = driveNotes(s('agent'), { host: 'ios', storage: 's1' });
-    for (const tapped of [5, 6, 3, 2]) await notes('tap', { tapped });
+    // A row that closes it, a dialog, a content popover, the invoker's tap that left it closed, a hover, a contact's phase.
+    for (const reply of [tap(5), tap(6), tap(8), tap(3), tap(2, 'recognized'), { tapped: 2, delivery: 'activation', phase: 'down' }]) await notes('tap', reply);
+    open = true;
+    await notes('tap', tap(2, 'recognized')); // a hover (or wheel, pinch) while it is open
+    assert.deepEqual(said, []);
+    await notes('tap', tap(3)); await notes('tap', tap(2));
     assert.deepEqual(said, ["note: the tap opened the popover `patmenu` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform"]);
     said.length = 0;
-    await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('tap', { tapped: 2 });
-    await driveNotes(s('agent'), { host: 'web', storage: 's1' })('tap', { tapped: 2 });
+    await driveNotes(s('agent'), { host: 'ios', storage: 's1' })('tap', tap(10));
+    assert.match(said[0] ?? '', /popover `more`/);
+    said.length = 0;
+    await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('tap', tap(2));
+    await driveNotes(s('agent'), { host: 'web', storage: 's1' })('tap', tap(2));
     assert.deepEqual(said, []);
   } finally { console.error = quiet; }
 });

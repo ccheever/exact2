@@ -69,7 +69,7 @@ impl Parser {
                                     return p.err(
                                         "syntax-expected-newline",
                                         match w.as_str() {
-                                            "props" => format!("a prop has no default: pass `{name}=` at every use, or declare `{name}: option<{ty}>`, pass `none` where it is unset, and read it as `match {name} {{ case some(v) => v, case none => … }}`"),
+                                            "props" => format!("a prop has no default: pass `{name}=<value>` at every use, or declare `{name}: option<{ty}>`, pass `{name}=none` where it is unset, and read it as `match {name} {{ case some(v) => v, case none => <default> }}`"),
                                             _ => format!("an inject has no default: a component above `provide`s `{name}`"),
                                         },
                                     );

@@ -811,8 +811,9 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(join(bundle, 'assets', 'extra.png'), 'extra');
   const added = refuses(plan, 'static files (assets/extra.png) differ');
   rmSync(join(bundle, 'assets', 'extra.png'));
-  const again = rebuildArgs(['--ios', 'euxy-apple', '--release'], "/p/it's") === "(cd '/p/it'\\''s' && bun exact.mjs ios --release)"
-    && rebuildArgs(['caltrain-apple', '--run'], undefined) === 'bun host/apple/build.mjs caltrain-apple --run';
+  // Each argument shell-quoted as the directory is: a simulator's name has spaces.
+  const again = rebuildArgs(['--ios', 'euxy-apple', '--release', '--sim', 'iPhone 17 Pro'], "/p/it's") === "(cd '/p/it'\\''s' && bun exact.mjs ios --release --sim 'iPhone 17 Pro')"
+    && rebuildArgs(['caltrain-apple', '--run', '--sim', "Bob's phone"], undefined) === "bun host/apple/build.mjs caltrain-apple --run --sim 'Bob'\\''s phone'";
   result('Apple and web packaging enforce the baked plan and complete static roster, naming what differs and the build to run again', matched && changedPlan && removed && changed && added && again);
   symlinkSync(outside, join(source, 'assets', 'linked'));
   const appRefused = await rejects(() => copyAppleStaticTrees(source, join(dir, 'refused-app'), appTrees), error => error.message.includes('cannot be symlinks'));
