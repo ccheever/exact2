@@ -5110,5 +5110,22 @@ Built to theme2's 15:32 approval, on B1 and B2.
       from the topmost box's fill;
     - a page offset or narrowed across the screen (side bars, a cutout, on either side) is refused rather than
       misread: the topmost box's left and right edges are held to where the page's pixels per point put them.
-- **Still to come, before E's gate:** the terminal (cells, square corners), which has a column but no agent host
-  yet.
+- **The terminal** (theme2's 17:39 ruling): `exact-terminal` gains two headless verbs, the terminal carrier's own
+  (not the agent protocol):
+  - `layout`: one JSON line with the viewport, the cell (8×16 px), and each node's kernel frame in px, its cells as the
+    painter rounds them, its `testId` and its corners' resolved radii;
+  - `plan`: the runner's digest of the running plan.
+
+  `scale-check --host terminal` drives it on the compiled plan:
+  - it reads the table's terminal cells by the reply's cell width (a `ch` is 8 px);
+  - it checks paddings, gaps and the header in px, and every corner at 0 from the reply (radius.full included);
+  - it checks the bound corner after taps, from a fresh run;
+  - it writes each padded box's cells (top/right/bottom/left) into its output for E's gate.
+
+  On 2026-10-19 it passed 20 of 21. The one failure is the assertion theme2 asked for: a box padded `space.sm` whose
+  child fills it paints 1 row above and 0 below. `1ch` down is half a row, so the painter's rounding drifts between
+  the edges. Whether the terminal column's vertical spaces should be rows (`lh`) is theme2's for stage 11 E (QUEUE:
+  "The terminal column's vertical spaces"). Paddings and gaps hold the kernel's px: xs 0, sm 8, md 12 (the design's),
+  lg 16, xl 16; the header 44; corners 0.
+- The other hosts run the same plan, now 21 checks with the `even` box: 21/21 each on web, Linux, macOS, iOS and the
+  reader. conform: 5/5, and Linux 5/5.

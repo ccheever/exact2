@@ -19,7 +19,8 @@
 //                   (`"radius": "radius.full"`): a base name from kernel/tables/schema.json's scale in the host's
 //                   column, or the plan's own design's token (`contract tamber ir`), which wins. `"then": [{"steps":
 //                   ["tap flip"], "boxes": […]}]` checks boxes again after steps, each from a fresh launch.
-//   --host: web, linux, macos, ios, android (as scripts/agent.mjs names them); default linux. The Android
+//   --host: web, linux, macos, ios, android (as scripts/agent.mjs names them), or terminal (the terminal
+//   host headless, its own `layout` and `plan` verbs: corners read from its reply); default linux. The Android
 //   reader runs an app's APK with the plan pushed to it: `--app` names one whose data the plan does not ask
 //   (unsaid), built with `bun scripts/agent-android.mjs build <app> --apk`.
 //   Each drive starts from a fresh scratch store (`--storage scale-check --reset-storage`).
@@ -106,10 +107,10 @@ export function fitRadius(starts, limit) {
 /** A box's expected radius once CSS reduces it to the box. */
 export const reduced = (radius, w, h) => Math.min(radius, w / 2, h / 2);
 
-/** An agent host's column in the base scale's table (LLP 1121 stage 11 B):
- * every web build and the Linux desktop draw the neutral look. (The terminal
- * has a column and no agent host yet.) */
-const COLUMN = { web: 'neutral', linux: 'neutral', ios: 'ios', macos: 'mac', android: 'material' };
+/** A host's column in the base scale's table (LLP 1121 stage 11 B): every
+ * web build and the Linux desktop draw the neutral look; `terminal` is the
+ * terminal host, driven here (`exact-terminal`), not through the agent. */
+const COLUMN = { web: 'neutral', linux: 'neutral', ios: 'ios', macos: 'mac', android: 'material', terminal: 'terminal' };
 /** A column's cell in a scale row, and in a metrics row (the Material and
  * terminal cells, where a row has none, are the web's first look's). */
 const SCALE_CELL = { ios: 1, mac: 2, neutral: 3, material: 4, terminal: 5 };
@@ -120,9 +121,9 @@ export const RADIUS_FULL = 9999;
 /** Length `name`'s value on `host`, in points: the design's own token
  * (`overrides`), else a base name's in the kernel's table, in the host's
  * column (a metric's reference read in that column; radius.full
- * [`RADIUS_FULL`]); undefined for a name neither has, a host with no column,
- * or a cell in cells (the terminal's). */
-export function baseLength(schema, overrides, name, host) {
+ * [`RADIUS_FULL`]; the terminal's cells by `grid`'s width); undefined for a
+ * name neither has, a host with no column, or cells with no grid. */
+export function baseLength(schema, overrides, name, host, grid = null) {
   if (Object.hasOwn(overrides, name)) return overrides[name];
   const row = schema.scale.find(r => r[0] === name), column = COLUMN[host];
   if (!row || !column) return undefined;
@@ -135,6 +136,9 @@ export function baseLength(schema, overrides, name, host) {
   }
   if (cell === 'full') return RADIUS_FULL;
   if (typeof cell === 'number') return cell;
+  // The terminal's spacings are cells: a `ch`, the cell's width (`grid`, the
+  // terminal's own reply).
+  if (typeof cell?.cells === 'number') return grid?.w ? cell.cells * grid.w : undefined;
   return typeof cell?.px === 'number' ? cell.px : undefined;
 }
 
@@ -218,9 +222,9 @@ export function pageTop(image, layout, expect, scale, boxes = expect.boxes) {
 /** Each box's padding and radius on `host`, against what `expect` says: a
  * number, or a base name (`space.md`), which `base(name, host)` gives. */
 export function check(host, layout, image, expect, base = () => undefined) {
-  const named = v => (typeof v === 'string' ? (base(v, host) ?? v) : v);
-  const scale = image.width / layout.viewport.w;
-  const top = pageTop(image, layout, expect, scale, expect.calibrate);
+  const named = v => (typeof v === 'string' ? (base(v, host, layout.cell) ?? v) : v);
+  const scale = image ? image.width / layout.viewport.w : 1;
+  const top = image ? pageTop(image, layout, expect, scale, expect.calibrate) : 0;
   const ground = rgb(expect.background ?? '#ffffff');
   const nodes = layout.nodes;
   return expect.boxes.map(want => {
@@ -238,6 +242,15 @@ export function check(host, layout, image, expect, base = () => undefined) {
         row.padding = [child.x - box.x, child.y - box.y];
         row.expectedPadding = padding;
         if (row.padding.some(p => Math.abs(p - padding) > 0.5)) fail(`padding ${row.padding.join(', ')}, expected ${padding}`);
+        // In a grid of cells (the terminal's): the padding as the painter
+        // rounds it; for a box `even` (a child filling it, but for its
+        // padding), the same whole number of rows above and below, of
+        // columns left and right (no half-row drift between edges).
+        if (box.cells && child.cells) {
+          const [b, c] = [box.cells, child.cells];
+          row.cells = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
+          if (want.even && (row.cells.top !== row.cells.bottom || row.cells.left !== row.cells.right)) fail(`its padding paints ${row.cells.top}/${row.cells.right}/${row.cells.bottom}/${row.cells.left} cells (top/right/bottom/left): not the same on each edge`);
+        }
       }
     }
     const gap = named(pick(want.gap, host));
@@ -267,7 +280,16 @@ export function check(host, layout, image, expect, base = () => undefined) {
     const radius = named(pick(want.radius, host));
     if (radius === 'missing') fail(`no radius expected for ${host}`);
     else if (radius !== undefined && !Number.isFinite(radius)) fail(`radius ${JSON.stringify(radius)} is no number`);
-    else if (radius !== undefined) {
+    else if (radius !== undefined && !image) {
+      // No picture (the terminal, which draws no corner a picture could be
+      // measured by): the corners its reply resolves.
+      row.expected = reduced(radius, box.w, box.h);
+      if (!Array.isArray(box.radius)) fail('its reply has no corner radii, and there is no picture');
+      else {
+        row.radius = Math.max(...box.radius);
+        if (box.radius.some(r => Math.abs(r - row.expected) > 0.5)) fail(`radii ${box.radius.join(', ')}, expected ${row.expected}`);
+      }
+    } else if (radius !== undefined) {
       const px = { x: box.x * scale, y: box.y * scale + top, w: box.w * scale, h: box.h * scale };
       const starts = edges(image, px, rgb(want.fill ?? '#000000'), ground);
       row.expected = reduced(radius, box.w, box.h);
@@ -293,7 +315,12 @@ export function check(host, layout, image, expect, base = () => undefined) {
  * (`app`), which the drive gives the plan to (pushed, in place of its bake). */
 function drive(host, plan, png, steps = [], app = null) {
   const launch = host === 'android' ? ['--reader', '--app', app, '--plan', plan] : ['--plan', plan];
-  const run = spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', 'perf', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
+  // The terminal host headless, its own verbs: `plan` (the running plan's
+  // SHA-256), the steps, then `layout` (its reply carries each corner's
+  // radius: it draws none a picture could be measured by, so there is none).
+  const run = host === 'terminal'
+    ? spawnSync('cargo', ['run', '-q', '-p', 'exact-terminal', '--', plan, '--size', '64x64', 'plan', ...steps.flatMap(s => s.split(/\s+/)), 'layout'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 })
+    : spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', 'perf', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
   const ran = (run.stdout ?? '').split('\n').map(l => /"plan":"([0-9a-f]{64})"/.exec(l)?.[1]).find(Boolean);
   const want = createHash('sha256').update(readFileSync(plan)).digest('hex');
   if (run.status === 0 && ran !== want) throw new Error(`${host} runs ${ran ? `another plan (${ran.slice(0, 12)}…)` : 'a plan it does not name'}, not ${want.slice(0, 12)}…: not measured`);
@@ -344,18 +371,22 @@ if (import.meta.main) {
     if (ir.status === 0) overrides = overridesOf(JSON.parse(ir.stdout), schema.scale.map(r => r[0]));
     else if (!/^contract tamber: \S+ has no design \(an app\.tamber, or the file app\.json's "tamber" names\)$/m.test(`${ir.stdout}${ir.stderr}`)) throw new Error(`contract tamber ir: ${ir.stdout}${ir.stderr}`);
   } catch (e) { console.error(e.message); process.exit(1); }
-  const base = (name, host) => baseLength(schema, overrides, name, host);
+  const base = (name, host, grid) => baseLength(schema, overrides, name, host, grid);
   // The first frame, then each `then`'s steps from a fresh launch.
   const phases = [{ steps: [], boxes: expect.boxes }, ...(expect.then ?? [])];
   const rows = [];
   for (const host of opts.hosts) {
     for (const [k, phase] of phases.entries()) {
       const png = join(opts.out, `${host}${k ? `-${k}` : ''}.png`);
-      try { rows.push(...check(host, drive(host, plan, png, phase.steps ?? [], opts.app), decodePng(readFileSync(png)), { ...expect, boxes: phase.boxes, calibrate: expect.boxes }, base).map(r => (k ? { ...r, testId: `${r.testId} (after ${phase.steps.join(', ')})` } : r))); }
+      try {
+        const layout = drive(host, plan, png, phase.steps ?? [], opts.app);
+        const image = host === 'terminal' ? null : decodePng(readFileSync(png));
+        rows.push(...check(host, layout, image, { ...expect, boxes: phase.boxes, calibrate: expect.boxes }, base).map(r => (k ? { ...r, testId: `${r.testId} (after ${phase.steps.join(', ')})` } : r)));
+      }
       catch (e) { rows.push({ host, testId: '*', ok: false, why: e.message }); }
     }
   }
   if (opts.json) console.log(JSON.stringify(rows));
-  else for (const r of rows) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.testId}${r.padding ? ` padding ${r.padding.join(', ')}` : ''}${r.gap !== undefined ? ` gap ${r.gap}` : ''}${r.height !== undefined ? ` height ${r.height}` : ''}${r.radius !== undefined ? ` radius ${r.radius} (expected ${r.expected})` : ''}${r.why ? `: ${r.why}` : ''}`);
+  else for (const r of rows) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.testId}${r.padding ? ` padding ${r.padding.join(', ')}` : ''}${r.cells ? ` (cells ${r.cells.top}/${r.cells.right}/${r.cells.bottom}/${r.cells.left})` : ''}${r.gap !== undefined ? ` gap ${r.gap}` : ''}${r.height !== undefined ? ` height ${r.height}` : ''}${r.radius !== undefined ? ` radius ${r.radius} (expected ${r.expected})` : ''}${r.why ? `: ${r.why}` : ''}`);
   process.exit(rows.every(r => r.ok) ? 0 : 1);
 }

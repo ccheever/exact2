@@ -195,3 +195,29 @@ test('a screenshot taller than the page (the reader\'s, with its bars) is read f
   // A screenshot that is the page: no offset.
   expect(pageTop(drawn(200, 200, { x: 0, y: 0, w: 1, h: 1 }, 0, red), layout, { boxes }, 2)).toBe(0);
 });
+
+test('the terminal: its cells by its reply\'s grid, its corners from its reply, its padding the same rows above and below', async () => {
+  const { baseLength } = await import('./scale-check.mjs');
+  const schema = JSON.parse(await Bun.file(new URL('../kernel/tables/schema.json', import.meta.url)).text());
+  const grid = { w: 8, h: 16 };
+  // space.sm is a cell, a ch: the grid's width; with no grid, no length.
+  expect(baseLength(schema, {}, 'space.sm', 'terminal', grid)).toBe(8);
+  expect(baseLength(schema, {}, 'space.sm', 'terminal')).toBeUndefined();
+  expect(baseLength(schema, {}, 'radius.full', 'terminal', grid)).toBe(0);
+  const layout = { viewport: { w: 320, h: 160 }, cell: grid, nodes: [
+    { id: 1, x: 0, y: 0, w: 176, h: 48, cells: { x: 0, y: 0, w: 22, h: 3 }, radius: [0, 0, 0, 0], testId: 'box' },
+    { id: 2, x: 8, y: 8, w: 160, h: 32, cells: { x: 1, y: 1, w: 20, h: 2 }, radius: [0, 0, 0, 0], testId: 'inner' },
+    { id: 3, x: 0, y: 60, w: 40, h: 40, cells: { x: 0, y: 4, w: 5, h: 2 }, radius: [8, 8, 8, 8], testId: 'round' },
+  ] };
+  const base = (name, host, g) => baseLength(schema, {}, name, host, g);
+  const rows = check('terminal', layout, null, { boxes: [
+    { testId: 'box', child: 'inner', padding: 'space.sm' },
+    { testId: 'box', child: 'inner', padding: 'space.sm', even: true },
+    { testId: 'box', radius: 'radius.full' },
+    { testId: 'round', radius: 'radius.md' },
+  ] }, base);
+  expect(rows.map(r => r.ok)).toEqual([true, false, true, false]);
+  expect(rows[0].cells).toEqual({ top: 1, bottom: 0, left: 1, right: 1 });
+  expect(rows[1].why).toContain('not the same on each edge');
+  expect(rows[3].why).toContain('radii 8, 8, 8, 8, expected 0');
+});

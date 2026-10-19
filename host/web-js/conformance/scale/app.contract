@@ -8,7 +8,9 @@
 // the design's own space.md (an app's override, ruling 4) and space.header
 // (a name the scale does not reserve, ruling 5); and a bound corner that
 // moves between radius.md and radius.full. Every web build and the Linux host
-// draw the neutral column, so all three agree.
+// draw the neutral column, so all three agree. A padded box its child fills
+// but for its padding holds the terminal's cells to the same rows above and
+// below.
 style Card
   padding="space.lg"
   border-radius="radius.lg"
@@ -29,6 +31,8 @@ component App
       view testId="pill-tall" width=40 height=96 border-radius="radius.full" background-color="probe.fill"
       view testId="bound" width=120 height=40 border-radius=(round ? "radius.full" : "radius.md") background-color="probe.fill"
       view testId="header" width=120 height="space.header" background-color="probe.fill"
+      column testId="even" padding="space.sm" background-color="probe.fill"
+        view testId="even-inner" height=32 background-color="probe.ground"
       column testId="xs" padding="space.xs" background-color="probe.fill"
         view testId="xs-inner" width=20 height=10 background-color="probe.ground"
       column testId="sm" padding="space.sm" background-color="probe.fill"

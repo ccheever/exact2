@@ -2,6 +2,12 @@
  "background": "#ffffff",
  "boxes": [
   {
+   "testId": "even",
+   "child": "even-inner",
+   "padding": "space.sm",
+   "even": true
+  },
+  {
    "testId": "xs",
    "child": "xs-inner",
    "padding": "space.xs"

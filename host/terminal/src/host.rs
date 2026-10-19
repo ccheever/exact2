@@ -340,6 +340,12 @@ impl<D: DataSource> Host<D> {
         (self.cols, self.rows)
     }
 
+    /// The running plan, by the SHA-256 of its bytes: what every host's
+    /// agent names it by (the runner's inspection digest).
+    pub fn plan_digest(&self) -> &str {
+        self.runner.inspection_digest()
+    }
+
     /// Whether an action asked the host to close.
     pub fn quitting(&self) -> bool {
         self.quit
