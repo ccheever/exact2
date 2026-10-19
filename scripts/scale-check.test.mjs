@@ -189,7 +189,8 @@ test('a screenshot taller than the page (the reader\'s, with its bars) is read f
   // right, which makes the width's pixels a point wrong): refused.
   const side = drawn(200, 260, { x: 26, y: 70, w: 120, h: 48 }, 0, red);
   expect(() => pageTop(side, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2)).toThrow("not the screenshot's width");
-  const narrow = drawn(200, 260, { x: 18, y: 70, w: 108, h: 43.2 }, 0, red);
+  // (Its left edge where the layout puts it, its right a few pixels short, inside a pixel.)
+  const narrow = drawn(200, 260, { x: 20, y: 70, w: 113.6, h: 48 }, 0, red);
   expect(() => pageTop(narrow, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2)).toThrow("not the screenshot's width");
   // A screenshot that is the page: no offset.
   expect(pageTop(drawn(200, 200, { x: 0, y: 0, w: 1, h: 1 }, 0, red), layout, { boxes }, 2)).toBe(0);
