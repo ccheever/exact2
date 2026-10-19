@@ -109,10 +109,12 @@ pub fn refusal(errors: &[String]) -> String {
 /// Whether a trimmed line is one of exact2's own grants: enforced by the
 /// presenter (`surface.*`), by the OS and the capability that asks
 /// (`device.*`, LLP 1069.008 D3), by the OS's hardened runtime (`runtime.*`,
-/// D9) and by the host's auth arm (`auth.*`, LLP 1069.006), never by the I/O
+/// D9), by the host's auth arm (`auth.*`, LLP 1069.006) and by the host's
+/// kept documents (`doc.keep`, LLP 1069.010.000 D7), never by the I/O
 /// executor.
 pub(crate) fn own(line: &str) -> bool {
-    line.starts_with("surface.read ")
+    line == "doc.keep"
+        || line.starts_with("surface.read ")
         || line.starts_with("surface.write ")
         || crate::device::is_device_line(line)
         || crate::hardened::is_runtime_line(line)
@@ -330,8 +332,11 @@ mod tests {
     #[test]
     fn normalized_output_keeps_exact_lines_comments_and_bad_parent_sources() {
         let json = normalized_json(
-            "# app\nauth.session https://login.test\nnet.fetch https://API.example\nsecret.keep camelCase",
+            "# app\nauth.session https://login.test\nnet.fetch https://API.example\nsecret.keep camelCase\ndoc.keep",
         );
+        assert!(json.contains(r#"[5,"doc.keep",null,null]"#), "{json}");
+        assert!(super::parse("fs.read doc:/\ndoc.keep").is_ok());
+        assert_eq!(crate::io_grants("fs.read doc:/\ndoc.keep"), "fs.read doc:/");
         assert!(json.contains("# app"), "{json}");
         assert!(json.contains("auth.session https://login.test"), "{json}");
         assert!(

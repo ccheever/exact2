@@ -949,6 +949,8 @@ impl World {
 mod globals;
 pub use globals::Globals;
 mod hierarchy;
+mod register;
+pub(crate) use register::register;
 mod visibility;
 pub(crate) use hierarchy::Hierarchy;
 pub use visibility::{opacity, Drawn};

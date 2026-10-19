@@ -99,6 +99,9 @@ enum Target {
     File {
         directory: Arc<File>,
         leaf: String,
+        /// The name the guest path gives it: `leaf`, unless the provider
+        /// kept the selection under the name it was chosen by.
+        name: String,
     },
 }
 impl DocumentLease {
@@ -133,12 +136,29 @@ impl DocumentLease {
         leaf: String,
         guard: DocumentGuard,
     ) -> Result<Self, DocumentError> {
-        validate_relative(&leaf, false)?;
-        if leaf.contains('/') {
-            return Err(DocumentError::new(DocumentErrorKind::InvalidPath));
+        let name = leaf.clone();
+        Self::selected_file_named(directory, leaf, name, guard)
+    }
+    /// A file selection the guest names `name` while it is `leaf` in its
+    /// retained parent: one the provider kept across a rename (Exact patch 15).
+    pub fn selected_file_named(
+        directory: Arc<File>,
+        leaf: String,
+        name: String,
+        guard: DocumentGuard,
+    ) -> Result<Self, DocumentError> {
+        for part in [&leaf, &name] {
+            validate_relative(part, false)?;
+            if part.contains('/') {
+                return Err(DocumentError::new(DocumentErrorKind::InvalidPath));
+            }
         }
         Ok(Self {
-            target: Target::File { directory, leaf },
+            target: Target::File {
+                directory,
+                leaf,
+                name,
+            },
             _guard: guard,
         })
     }
@@ -213,9 +233,13 @@ pub fn run_document(
             })),
             _ => Err(DocumentError::new(DocumentErrorKind::PermissionDenied).guest(path)),
         },
-        Target::File { directory, leaf } => {
+        Target::File {
+            directory,
+            leaf,
+            name,
+        } => {
             if parts.len() != 2
-                || parts[1] != leaf
+                || parts[1] != name
                 || matches!(op, FsOp::Remove | FsOp::Mkdir | FsOp::ReadDir)
             {
                 return Err(DocumentError::new(DocumentErrorKind::PermissionDenied).guest(path));

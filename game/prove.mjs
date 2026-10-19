@@ -49,7 +49,7 @@ if (device && !hosts.includes('ios')) throw new Error('--device requires ios in 
 const artifacts = resolve(app, 'artifacts/prove');
 mkdirSync(artifacts, {recursive:true});
 const root = continuedRoot ?? mkdtempSync(resolve(artifacts, 'run-'));
-const config = {hosts, repeat, repin, compareSaves:args.includes('--compare-saves'), device, phone:phone ?? null, env:Object.fromEntries(['RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST','EXACT_GAME_PARANOID_COMPARE'].map(key => [key,process.env[key] ?? null]))};
+const config = {hosts, repeat, repin, compareSaves:args.includes('--compare-saves'), device, phone:phone ?? null, env:Object.fromEntries(['EXACT_GAME_PROOF_PROFILE','RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST','EXACT_GAME_PARANOID_COMPARE'].map(key => [key,process.env[key] ?? null]))};
 if (saved && JSON.stringify(saved.config) !== JSON.stringify(config)) throw new Error('continue refused: requested host/mode/profile matrix or device changed');
 if (saved) validateSnapshot(saved.snapshot, resolve(import.meta.dir, '..'), sourceApp);
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
@@ -74,7 +74,7 @@ const signals = ['SIGINT','SIGTERM'].map(signal => [signal, async () => {
 for (const [signal, listener] of signals) process.on(signal,listener);
 const buildTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(sourceApp,'target'));
 const buildEnvironment = {CARGO_TARGET_DIR:buildTarget, CARGO_BUILD_BUILD_DIR:resolve(process.env.CARGO_BUILD_BUILD_DIR ?? buildTarget)};
-const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') => {
+const run = async (host, index, build = false, mode = '0', profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev') => {
   progress.set({phase:`${host} ${mode} ${profile} ${build ? 'build' : 'proof'}`});
   checkSDK();
   const key = `${host}-${mode}-${profile}-${build ? 'build' : index}`;
@@ -126,7 +126,7 @@ if (repin) {
     let unavailable = false;
     await paranoidRuns(async mode => {
       if (unavailable) return 0;
-      try { rows.push(await run(host, 1, false, mode)); return 0; }
+      try { rows.push(await run(host, 1, false, mode, 'gpu-dev')); return 0; }
       catch (error) {
         // A look that failed is the look's: the pins record the simulation, which passed.
         if (lookOnlyFailure(error.summary)) { rows.push(error.summary); return 0; }
@@ -135,13 +135,14 @@ if (repin) {
         return 1;
       }
     }, async () => {
-      if (!unavailable) try { await run(host, 0, true); } catch (error) { errors.push(error); return 1; }
+      if (!unavailable) try { await run(host, 0, true, '0', 'gpu-dev'); } catch (error) { errors.push(error); return 1; }
       return 0;
     }, host);
     if (!unavailable) exercised.push(host);
   }
-  try { rows.push(await run(native, 1, false, '0', 'release')); }
-  catch (error) { if (lookOnlyFailure(error.summary)) rows.push(error.summary); else errors.push(error); }
+  for (const host of [native, ...hosts.includes('web') ? ['web'] : []])
+    try { rows.push(await run(host, 1, false, '0', 'release')); }
+    catch (error) { if (lookOnlyFailure(error.summary)) rows.push(error.summary); else errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   checkSDK();

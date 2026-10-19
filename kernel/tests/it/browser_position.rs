@@ -55,6 +55,30 @@
 //! columns with items wider than the line's stretch size. Controls cover
 //! ratios, LTR, fitting items, alignment, explicit widths, padding, borders
 //! and width bounds under both box-sizing modes.
+//! `Chrome 151 ratio max-height minimum` uses that version and date for
+//! wide content in ratio items capped by max-height. Controls cover block,
+//! flex and grid items, columns, definite and automatic heights, specified
+//! widths, bounds, explicit minima, overflow, box sizing and reversed rows.
+//! `Chrome 151 ratio max-height growth` uses that version and date for
+//! growing auto-height items, with block, flex and grid contents and parents.
+//! Controls include explicit and stretched heights, equal height bounds,
+//! minima, overflow, padding, flex bases and width caps.
+//! `Chrome 151 ratio inline probe` uses that version and date for direct
+//! text leaves and ratio boxes in block, absolute, root and column layout.
+//! The text's monospace advance was normalized to 10px in Chrome to match
+//! the reference measurer: twelve `a`s have a measured width of 120px.
+//! `Chrome 151 grid ratio maximum` was measured on 2026-10-19 with Chrome
+//! 151.0.7922.34. It covers grid item content minima and track contributions
+//! under maximum sizes, implicit and explicit auto columns, alignment,
+//! authored bounds, overflow, box sizing, and the max-width counterpart.
+//! `Chrome 151 grid ratio stretch` uses the same version and date for explicit
+//! stretch in fixed, auto, intrinsic and fractional tracks. Controls cover
+//! normal alignment, margins, box sizing, authored limits, overflow and
+//! siblings that expose the auto column's content minimum.
+//! `Chrome 151 grid ratio span` and `Chrome 151 grid ratio minimum floor` were
+//! measured on 2026-10-19 with Chrome 151.0.7922.34. They cover spanning items
+//! beside fractional tracks on both axes, gaps, normal and stretch alignment,
+//! zero minima, and ratio floors in max-content and shrink-to-fit grids.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,

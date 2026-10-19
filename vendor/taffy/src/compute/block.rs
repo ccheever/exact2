@@ -8,7 +8,7 @@ use crate::tree::{
 use crate::tree::{LayoutPartialTree, LayoutPartialTreeExt, NodeId};
 use crate::util::debug::debug_log;
 use crate::compute::common::absolute::AbsolutePass;
-use crate::compute::ratio::sizes_through_ratio;
+use crate::compute::ratio::{container_sizes_through_ratio, sizes_through_ratio};
 use crate::util::sys::f32_max;
 use crate::util::sys::Vec;
 use crate::util::MaybeMath;
@@ -380,13 +380,19 @@ pub fn compute_block_layout(
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
     // EXACT PATCH 12: the size styles through the ratio (`compute::ratio`).
-    let (style_size, min_size, max_size) = sizes_through_ratio(
+    let raw_max_size =
+        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment);
+    let (style_size, min_size, mut max_size) = sizes_through_ratio(
         &style,
         padding_border_size,
         style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        raw_max_size,
     );
+    // EXACT PATCH 57: with a supplied height, transferred bounds must not short-circuit the inline content probe.
+    if inputs.sizing_mode == SizingMode::ContentSize && !style.is_compressible_replaced() && known_dimensions.height.is_some() {
+        max_size.width = raw_max_size.width;
+    }
     let clamped_style_size = if inputs.sizing_mode == SizingMode::InherentSize {
         style_size.maybe_clamp(min_size, max_size)
     } else {
@@ -507,8 +513,9 @@ fn compute_inner(
         raw_min_size,
         raw_max_size,
     );
-    let (known_dimensions, min_size, max_size) =
-        sizes_through_ratio(&style, padding_border_size, known_dimensions, raw_min_size, raw_max_size);
+    let (known_dimensions, min_size, max_size) = container_sizes_through_ratio(
+        &style, padding_border_size, known_dimensions, raw_min_size, raw_max_size, inputs.sizing_mode,
+    );
     let percentage_basis_dimensions = Size {
         width: known_dimensions.width,
         height: known_dimensions.height.filter(|_| inputs.known_dimensions_are_definite.height)

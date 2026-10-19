@@ -56,7 +56,9 @@ class LabelledSegmentedControl: UISegmentedControl {
 
 private final class ExactSegmentedControl: LabelledSegmentedControl {
     let ownerID: UInt32
-    var icons: [Int: (source: AnyObject, size: CGSize, label: String)] = [:]
+    /// Each image segment's: what it shows, its size and label, and the
+    /// image its picture was drawn from (a symbol's `faceImage`).
+    var icons: [Int: (source: AnyObject, size: CGSize, label: String, drawn: UIImage?)] = [:]
     /// Its svg-only icons' paths drawn again at the body size its traits now
     /// give (a text size change); nothing else is touched (stage 9 A2).
     func redrawPaths() {
@@ -66,7 +68,7 @@ private final class ExactSegmentedControl: LabelledSegmentedControl {
                   let image = FaceSymbol.image(name, points: points) else { continue }
             image.accessibilityLabel = icon.label
             setImage(image, forSegmentAt: index)
-            icons[index] = (icon.source, CGSize(width: points, height: points), icon.label)
+            icons[index] = (icon.source, CGSize(width: points, height: points), icon.label, image)
         }
     }
     /// The selection last reported or applied. A finger moves the selection
@@ -152,6 +154,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// The segmented control a tablist or radio group projects to, if any:
     /// a hatched node's platform object (LLP 1075.003.000 §3.2).
     func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
+    /// The image segment `index` of `id`'s control was drawn from.
+    func drawn(of id: UInt32, segment index: Int) -> UIImage? { controls[id]?.icons[index]?.drawn }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
     /// A segmented control's own size, with what it was measured from: its
@@ -260,8 +264,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let raster = icon.raster?.image.image
             // A transparent image carries the segment's accessible name when
             // the OS has no glyph; a nil image loses that native label.
-            let source = raster.map({ UIImage(cgImage: $0) }) ?? icon.image
-            let identity: AnyObject = raster.map { $0 as AnyObject } ?? source ?? icon
+            // A symbol in the control's tint, not the page's ink (`faceImage`).
+            let source = raster.map({ UIImage(cgImage: $0) }) ?? icon.faceImage
+            let identity: AnyObject = raster.map { $0 as AnyObject } ?? icon.image ?? icon
             let size = CGSize(width: max(1, icon.bounds.width), height: max(1, icon.bounds.height))
             if let old = control.icons[index], old.source === identity, old.size == size, old.label == label { return }
             // An image segment shows no title (a title-only face had set one).
@@ -274,7 +279,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             }.withRenderingMode(.alwaysOriginal)
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
-            control.icons[index] = (identity, size, label)
+            control.icons[index] = (identity, size, label, source)
         } else if case .symbol(let name)? = tab.segmentFace {
             // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
             // A path is drawn at the control's body size, again as that changes (an SF Symbol follows it itself).
@@ -285,7 +290,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             if control.titleForSegment(at: index)?.isEmpty == false { control.setTitle(nil, forSegmentAt: index) }
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
-            control.icons[index] = (name as NSString, size, label)
+            control.icons[index] = (name as NSString, size, label, image)
         } else if case .title(let title)? = tab.segmentFace {
             control.icons.removeValue(forKey: index)
             if control.imageForSegment(at: index) != nil { control.setImage(nil, forSegmentAt: index) }

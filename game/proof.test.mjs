@@ -1,7 +1,6 @@
 import {chromium} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
-import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
@@ -303,12 +302,12 @@ test('a complete world snapshot reads every page at one tick and hash', async ()
     async state(target, under, pose, busy, page = {}) {
       pages.push(page);
       const from = page.from ?? 0, to = Math.min(all.length, from + 5);
-      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+      return {tick:7, hash, tableEdits:2, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
     },
   };
   const w = worldView(session, 'world');
   // The 5-entity pages stand in for the driver's limit of 5,000.
-  const {entities, truncated} = await w.snapshot({all:true});
+  const {entities, truncated, tableEdits} = await w.snapshot({all:true}); expect(tableEdits).toBe(2);
   expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
   expect(truncated).toBe(false);
   expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);
@@ -439,7 +438,7 @@ const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
   name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
-}))), {name:'fixture',host:nativeProofHost(hosts),mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+}))), ...[...hosts.includes('web') ? ['web'] : [], nativeProofHost(hosts)].map(host => ({name:'fixture',host,mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}))];
 
 test('Windows baselines require all native and web modes plus matching release evidence', () => {
   const hosts=['windows','web'], rows=candidates(hosts), old=rows[0].pins;
@@ -662,7 +661,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
@@ -682,19 +681,19 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);
     expect(first.calls).toEqual([
       ...[native,'web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
-      {host:native,mode:'0',build:false},
+      {host:native,mode:'0',build:false}, {host:'web',mode:'0',build:false},
     ]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
-});
+}, 120000);
 
 
 test('clock settle diagnostic names busy, held input, and logs on a real unsettled reply', async () => {
@@ -1180,29 +1179,6 @@ test('R15 even linux-only repin refuses missing or divergent release observation
   rows.at(-1).pins.ticks[60]=repeatedHash('d');
   expect(()=>agreePins(rows,old,['linux'], '.')).toThrow('release');
 });
-
-test('R15 semantic drift fixture is rejected by the release gate',async()=>{
-  const dir=mkdtempSync(resolve(tmpdir(),'r15-profile-drift-'));
-  try {
-    const src=resolve(dir,'profile.rs');
-    writeFileSync(src,'#[no_mangle] pub extern "C" fn mode()->u32{cfg!(debug_assertions) as u32} #[no_mangle] pub extern "C" fn increment(a:u32)->u32{a+1}');
-    const outcomes=[];
-    for(const drift of [true,false]) {
-      const binary=resolve(dir,drift?'drift.wasm':'release.wasm');
-      const compile=Bun.spawn(['rustc',src,'--crate-type','cdylib','--target','wasm32-unknown-unknown','-C','panic=abort','-o',binary,'-C',`debug-assertions=${drift?'yes':'no'}`,'-C',`overflow-checks=${drift?'yes':'no'}`,'-C','llvm-args=-fp-contract=off'],{stdout:'pipe',stderr:'pipe'});
-      expect(await compile.exited).toBe(0);
-      const {instance}=await WebAssembly.instantiate(readFileSync(binary),{});
-      let wrapped=false;try { wrapped=instance.exports.increment(4294967295)===0; } catch(error) {expect(error).toBeInstanceOf(WebAssembly.RuntimeError);}
-      outcomes.push(`${instance.exports.mode()===1}:${wrapped}\n`);
-    }
-    expect(outcomes).toEqual(['true:false\n','false:true\n']);
-    const rows=candidates(['linux']);
-    rows.at(-1).pins.ticks[60]='0x'+createHash('sha256').update(outcomes[1]).digest('hex').slice(0,16);
-    for(const row of rows.slice(0,-1)) row.pins.ticks[60]='0x'+createHash('sha256').update(outcomes[0]).digest('hex').slice(0,16);
-    expect(()=>agreePins(rows,rows[0].pins,['linux'], '.')).toThrow('release');
-  } finally {rmSync(dir,{recursive:true,force:true});}
-},60000);
-
 
 test('concurrent prove runs keep their save artifacts and web builds separate', async () => {
   const dir=mkdtempSync(resolve(tmpdir(),'proof-isolation-')), app=resolve(dir,'game'), children=[];

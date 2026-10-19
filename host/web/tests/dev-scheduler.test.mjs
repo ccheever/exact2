@@ -314,10 +314,10 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     writeFileSync(graphPath,JSON.stringify(build));
     let identity=true;
     const start=source.indexOf('async function currentWebBuild()');
-    const end=source.indexOf('\nif (!await currentWebBuild())',start);
+    const end=source.indexOf('\nconst early =',start);
     const current=new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs',
       'const producersOnly=false;'+source.slice(start,end)+';return currentWebBuild;')
-      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs);
+      (async()=>identity,dir,{manifest:{}},graphPath,readFileSync,pendingBuildInputs);
     assert.equal(await current(),true);
     writeFileSync(join(dir,'notes.txt'),'unrelated edit');
     assert.equal(await current(),true);
@@ -353,7 +353,7 @@ test('generated game arguments use the resident plan compiler without a host reb
       const builtReceipts=[{binary:{inputs:paths.map(path=>({path})),directories:[{path:resolve(app.dir,'.shells')}],missing:[resolve(app.dir,'missing/config.json')]}}];
       const readinessContracts=new Set(), contractGraph=()=>({files:new Set(),sources:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
-      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
+      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set(),tuning={paths:new Set()};
       const console={log(){},error(error){throw new Error(error);}},gpuOnly=()=>false;
       const clearTimeout=()=>{},setTimeout=()=>0,rebuild=()=>{};let timer;
       ${source.slice(start,end)}
@@ -415,24 +415,36 @@ test('game edits omit bake-only sources but retain runtime, code generation and 
     assert.equal(run(()=>{throw new Error('non-game metadata must not be queried');})(inputs),inputs);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
-function scheduler() {
+function scheduler(game = false) {
   const legacy = !source.includes('function drainBuilds()');
   const functions = legacy ? source.slice(source.indexOf('function produceRust()'), source.indexOf('  if (!rustChild)')) + 'calls.push(["rust"]);rustActive=true;}'
     : source.slice(source.indexOf('function produceRust()'), source.indexOf('function produceRustNow()'));
-  return new Function(`
+  return new Function('game', `
     let building=false, rustActive=false, buildPending=false, rustPending=false, rustDirty=false, again=false, changed=new Set(), calls=[];
     let lastFailed=new Set(), failedInputs=new Set(), failing=false;
+    const phases=[],early={phase:(...args)=>phases.push(args)},app={manifest:game?{game:{}}:{},dir:'fixture',workspace:'fixture'};
+    const process={execPath:'bun',stdout:{write(){}}},root='.',buildEnv={},resolve=(...parts)=>parts.join('/'),existsSync=()=>false;
+    let hostBuildChild,checked; const push=()=>{},watchCompilerInputs=()=>{};
+    const spawn=()=>{calls.push(['check']);checked={};return {stdout:{on(){}},stderr:{on(){}},on(event,fn){checked[event]=fn;}};};
     const gpuOnly = files => files.length && files.every(f=>f==='gpu.rs');
     const produceGpu = files => { building=true; calls.push(['gpu',files]); };
     const rebuildNow = files => { building=true; calls.push(['full',files]); if (failing) lastFailed=new Set(files); };
     const produceRustNow = () => { rustActive=true; calls.push(['rust']); };
     ${legacy ? 'function rebuild(){if(building){again=true;return;}const files=[...changed];changed.clear();if(gpuOnly(files))produceGpu(files);else rebuildNow(files);}function drainBuilds(){rebuild();}' : ''}
     ${functions}
-    return {calls, rust:produceRust, change(file){changed.add(file);buildPending=true;drainBuilds();},
+    return {calls, phases, check(code){checked.exit(code);}, rust:produceRust, change(file){changed.add(file);buildPending=true;drainBuilds();},
       set failing(value){failing=value;}, get retrying(){return lastFailed.size>0;},
       finish(){building=false;rustActive=false;${legacy ? 'if(again||changed.size){again=false;rebuild();}' : 'drainBuilds();'}}};
-  `)();
+  `)(game);
 }
+test('a failed game check does not start either rebuild and a corrected save checks first', () => {
+  const s=scheduler(true);s.change('gpu.rs');
+  assert.deepEqual(s.calls,[['check']]);assert.deepEqual(s.phases,[['check','build']]);s.check(1);
+  assert.deepEqual(s.calls,[['check']]);assert.equal(s.retrying,true);
+  s.change('gpu.rs');assert.deepEqual(s.calls,[['check'],['check']]);s.check(0);
+  assert.deepEqual(s.calls,[['check'],['check'],['gpu',['gpu.rs']]]);
+  assert.deepEqual(s.phases,[['check','build'],['check','failed'],['check','build'],['check','ready']]);
+});
 test('a Rust request during GPU build stays Rust, with no empty full rebuild', () => {
   const s=scheduler(); s.change('gpu.rs'); s.rust();
   assert.equal(s.calls.length,1); s.finish();
@@ -480,18 +492,21 @@ test('GPU reloads refresh their includes while retaining the current app input g
       const file=join(target,'wasm32-unknown-unknown',profile,'fixture_'+kind+'.d');
       mkdirSync(resolve(file,'..'),{recursive:true});writeFileSync(file,`unit: ${paths.map(p=>join(dir,p)).join(' ')}\n`);
     };
-    input('web','web',['host.rs','shared.rs']);input('gpu','web',['game.rs','shared.rs']);
-    input('gpu','gpu-dev',['game.rs','shared.rs','new-include.rs']);
+    input('web','web',['host.rs','shared.rs']);
+    input('gpu','gpu-dev',['game.rs','shared.rs']);
     let classifications=0;
     const start=source.indexOf('function readGpuInputs('), end=source.indexOf('\nfunction gameRuntimeInputs(',start);
     const api=new Function('app','resolve','existsSync','compilerPaths','readFileSync','gameRuntimeInputs','gpuModules',`
+      const buildEnv={EXACT_GAME_PROOF_PROFILE:'gpu-dev'};
       let appInputs=new Set(),gpuInputs=new Set();
       ${source.slice(start,end)}
       const gpuOnly=files=>files.length>0&&appInputs.size>0&&files.every(p=>p.endsWith('.rs')&&gpuInputs.has(p)&&!appInputs.has(p));
       return {refresh:readGpuInputs,gpuOnly,app:()=>[...appInputs]};
     `)(app,resolve,existsSync,compilerPaths,(path,...args)=>{reads.push(path);return readFileSync(path,...args);},inputs=>{classifications++;return inputs;},gpuModules);
-    api.refresh();const hostInputs=api.app();reads.length=0;
-    api.refresh('gpu-dev');
+    api.refresh();const hostInputs=api.app();
+    assert.equal(api.gpuOnly([join(dir,'game.rs')]),true,'initial build reads gpu-dev without a shipping GPU artifact');
+    reads.length=0;input('gpu','gpu-dev',['game.rs','shared.rs','new-include.rs']);
+    api.refresh('gpu-dev',['gpu']);
     assert.deepEqual(api.app(),hostInputs);
     assert.equal(api.gpuOnly([join(dir,'new-include.rs')]),true);
     for(const name of ['host.rs','shared.rs','unknown.rs','Cargo.toml'])assert.equal(api.gpuOnly([join(dir,name)]),false,name);
@@ -501,7 +516,8 @@ test('GPU reloads refresh their includes while retaining the current app input g
     api.refresh();
     assert.deepEqual(api.app(),[join(dir,'new-host.rs'),join(dir,'new-include.rs')]);
     assert.equal(classifications,2,'a completed full build refreshes the host inputs');
-    api.refresh('gpu-dev');assert.equal(api.gpuOnly([join(dir,'new-include.rs')]),false);
+    api.refresh('gpu-dev',['gpu']);assert.equal(api.gpuOnly([join(dir,'new-include.rs')]),false);
+    input('gpu','web',['game.rs','shared.rs']);
     api.refresh('web');assert.equal(classifications,3,'the web-profile fallback remains conservative');
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
@@ -532,12 +548,12 @@ test('declared source files report in-place edits after inclusion and replacemen
       const builtReceipts=[{binary:{inputs:[{path:main}],directories:[],missing:[]}}];
       const readinessContracts=new Set(), contractGraph=()=>({files:new Set(),sources:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
-      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
+      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set(),tuning={paths:new Set()};
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
       const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();};let timer;
       ${source.slice(start,end)}
       watchCompilerInputs();
-      return {changed,builds,add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
+      return {changed,builds,table(path){tuning.paths.add(path);},asset(path){assetTrees.push([path,'assets']);},add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
         has:path=>watched.has(path),close(){for(const record of watched.values())record.close();}};
     `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,fakeWatchFile,fakeUnwatchFile,fakeSetTimeout,fakeClearTimeout);
     const edit=(path,text,atomic=false)=>{
@@ -555,6 +571,11 @@ test('declared source files report in-place edits after inclusion and replacemen
     edit(extra,null);
     edit(extra,'recreated',true);
     edit(extra,'edited after recreation');
+    api.table(extra); const built = api.builds.length; writeFileSync(extra,'tuning edit'); settle();
+    assert.equal(api.builds.length,built,'the in-process table validator owns tuning saves');
+    const assets=join(dir,'assets');mkdirSync(assets);api.asset(assets);api.add(assets);
+    writeFileSync(join(assets,'exact-tables.json'),'{}');settle();
+    assert.equal(api.builds.length,built,'asset directory metadata belongs to the asset watcher');
     api.remove(extra);assert.equal(api.has(extra),false,'obsolete file watches close');
     const count=api.builds.length;writeFileSync(extra,'no longer included');
     writeFileSync(join(dir,'target/output.rs'),'output');
@@ -570,7 +591,7 @@ test('the JS dev loop rebuilds backend selection creation, edits and removal',as
   const {fetchOrigins}=await import('../../../scripts/agent-test.mjs');
   const root=mkdtempSync(resolve(import.meta.dir,'../../../target/dev-backend-')),app=join(root,'app');
   let child,log='';
-  const until=async(origin)=>{const end=Date.now()+60000;while(Date.now()<end){try{if(fetchOrigins(join(app,'target/web-dist')).includes(origin))return;}catch{}await new Promise(r=>setTimeout(r,25));}throw new Error(`backend ${origin} not served:\n${log.slice(-4000)}`);};
+  const until=async(origin)=>{const end=Date.now()+60000;while(Date.now()<end){try{if(/^http:\/\/127\.0\.0\.1:\d+\/$/m.test(log)&&fetchOrigins(join(app,'target/web-dist')).includes(origin))return;}catch{}await new Promise(r=>setTimeout(r,25));}throw new Error(`backend ${origin} not served:\n${log.slice(-4000)}`);};
   try {
     createApp(app);
     writeFileSync(join(app,'app.contract'),'component App\n  resource chosen = chosen() as shape string else empty()\n  view\n    text chosen\n');
@@ -609,11 +630,32 @@ test('the resident module watcher follows backend selection without other local 
   }finally{watcher?.close();rmSync(dir,{recursive:true,force:true});}
 },15000);
 
+test('dev cache requires every GPU artifact from the requested profile', async () => {
+  const start=source.indexOf('async function currentWebBuild()'),end=source.indexOf('\nconst early =',start);
+  const app={manifest:{game:{}},target:'/fixture/target',crate:kind=>`fixture-${kind}`};
+  const build={version:1,trust:'development',binary:{configuration:{flags:{EXACT_WEB_LINK:'all'}}}};
+  const products=profile=>['gpu','gpu-sky'].map(kind=>({path:resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')}));
+  const cached=new Function('app','buildEnv','readFileSync','resolve','gpuModules',`
+    const producersOnly=false,dist='',graphPath='',builtAppMatches=async()=>true,pendingBuildInputs=()=>[];
+    ${source.slice(start,end)}
+    return currentWebBuild();
+  `);
+  for(const requested of ['gpu-dev','release']) {
+    const profile=requested==='gpu-dev'?'gpu-dev':'web';
+    for(const actual of ['gpu-dev','web']) {
+      build.products=products(actual);
+      assert.equal(await cached(app,{EXACT_GAME_PROOF_PROFILE:requested},()=>JSON.stringify(build),resolve,()=>[{name:'sky'}]),profile===actual);
+    }
+    build.products=products(profile).slice(0,1);
+    assert.equal(await cached(app,{EXACT_GAME_PROOF_PROFILE:requested},()=>JSON.stringify(build),resolve,()=>[{name:'sky'}]),false,'a missing secondary artifact is not a reusable build');
+  }
+});
 
 test('Contract generations replace producer-owned plans and activity schemas while retaining static assets', () => {
-  const start = source.indexOf('  const module = currentModule ? moduleCards');
+  const start = source.indexOf('  const module = (tableUpdate ?');
   const end = source.indexOf('  assets.sort(', start);
   const select = new Function('currentModule', 'currentRust', 'current', 'reuseCurrentAssets', 'captureAssets', 'assetCards', `
+    const tableUpdate = null;
     const files = new Map(), planBytes = Buffer.from('plan'), app = {id:'test.activity'}, dist = 'unused';
     const moduleCards = () => null, rustCards = () => null;
     ${source.slice(source.indexOf('const isEntryFile ='), source.indexOf('function captureGeneration('))}

@@ -116,7 +116,7 @@ final class Adapter: ExactSessionDelegate {
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil
         if let local, FileManager.default.fileExists(atPath: local) {
-            ExactDocuments.deliver([local], to: session)
+            ExactDocuments.deliver([local], to: session, keep: false)
             return
         }
         guard let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {

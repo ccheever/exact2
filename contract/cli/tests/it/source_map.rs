@@ -513,6 +513,9 @@ component Card
     );
     assert_eq!(color["attr"], "color");
     assert_eq!(color["at"]["line"], 4);
+    // A layout row says so (D14: `set-row` refuses it); a paint row doesn't.
+    assert_eq!(top["layout"], true, "{top}");
+    assert!(color.get("layout").is_none(), "{color}");
     let ground = row("card", "background_color");
     assert_eq!(ground["origin"], "class:Raised");
     assert_eq!(ground["attr"], "background-color");
