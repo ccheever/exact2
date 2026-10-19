@@ -22,6 +22,7 @@ import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { startupBuilds } from './dev-startup.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
+import { openRemote, remoteArgs } from '../../scripts/tamber-remote.mjs';
 import { designDigest, patchDesign } from '../../scripts/tamber-patch.mjs';
 import { relayChannel, serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
 import { captureAssets, assetCards, alsoOnIPv6Loopback, freeOnIPv6Loopback, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, devGenerationDigest, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -59,6 +60,7 @@ const host = lan && servedAs == null ? '0.0.0.0' : '127.0.0.1';
 // The addresses printed at startup are the only names requests may use.
 const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', port: servedAs ?? port });
 const allowHosts = allowHostArgs(argv);
+let doors = null; const remoteAsked = remoteArgs(argv, { exit: true }); /* the wire's remote doors (stage 10 B), refused without a design */ if ((remoteAsked.remote || remoteAsked.tunnel != null) && servedAs == null && !designPath(app.dir)) { console.error(`${[remoteAsked.remote && '--remote', remoteAsked.tunnel != null && '--trust-tunnel'].filter(Boolean).join(' and ')} ${remoteAsked.remote && remoteAsked.tunnel != null ? 'serve' : 'serves'} the design wire: this app has no design (app.tamber)`); process.exit(2); }
 const gate = developmentGate(origins, servedAs ?? port, allowHosts);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 // An outside app's wasm loop builds apart from the JS target's `target/web-dist`,
@@ -72,7 +74,7 @@ const source = resolve(app.dir, 'app.contract');
 // A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
 // native client opening the dev URL reads), run the resident wasm loop below.
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
-  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, residentPort: named != null && !webPortRange() ? port + 1 : 0 });
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, remoteAsked, residentPort: named != null && !webPortRange() ? port + 1 : 0 });
 }
 // Behind the JS loop (`--serve-as`) an app's resident loop is its producers
 // alone: nothing loads its page, so its builds are the web crate's bake
@@ -989,11 +991,11 @@ const stop = async () => {
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
   tuning?.close(); killCompiler();
   // The design server lets go of its lock before this exits.
-  exits.push(tamber?.close());
+  exits.push(tamber?.close(), doors?.close());
   installer.child?.kill('SIGTERM');
   // A rebuild in flight would otherwise swap dist under the next dev server.
   hostBuildChild?.kill('SIGTERM');
-  await Promise.all(exits); process.exit(0);
+  await Promise.all(exits); process.exit(process.exitCode ?? 0);
 };
 
 // Asset edits carry state. A shader interface change rebuilds the host and
@@ -1477,10 +1479,10 @@ const serve = async (req, res) => {
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 };
 const server = early?.server ?? createServer(serve);
-server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); killCompiler(); process.exit(1); });
+let six = null; server.on('error', async (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); six?.close(); killCompiler(); await tamber?.close(); process.exit(1); });
 await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
 // (and on [::1], for a localhost URL: the design tool's canvas)
-if (servedAs == null) await alsoOnIPv6Loopback(server, port).catch((e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); killCompiler(); process.exit(1); });
+if (servedAs == null) six = await alsoOnIPv6Loopback(server, port).catch(async (e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); killCompiler(); await tamber?.close(); process.exit(1); });
 early?.phase('host', 'ready'); early?.serve(serve);
 const banner = () => {
   // Every usable IPv4 with --lan, none silently picked (D8): a utun/VPN
@@ -1492,6 +1494,6 @@ const banner = () => {
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 };
-if (early) banner(); else server.listen(port, host, banner);
-startup.handoff(stop);
+if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); ok(); }));
+startup.handoff(stop); doors = servedAs == null && tamber ? await openRemote(tamber, remoteAsked).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
 watchLauncher(stop);

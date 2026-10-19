@@ -87,6 +87,9 @@ import { scrubSessions } from './tamber-scrub.mjs';
 import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
+import { openRemote, remoteArgs } from './tamber-remote.mjs';
+import { serveTool, TOOL_DIST } from './tamber-tool-files.mjs';
+export { serveTool, serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
@@ -94,10 +97,6 @@ const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel']);
-/** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
- * serves it from. */
-export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
-const TOOL_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.plan': 'application/octet-stream' };
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -115,37 +114,6 @@ export function designPath(appDir) {
   return existsSync(path) ? path : null;
 }
 
-/** The design tool's files, to a local request only. */
-export function serveTool(req, res, url, access, toolDir = TOOL_DIST) {
-  if (!['GET', 'HEAD'].includes(req.method) || !access.local) return notFound(res);
-  // The tool's data module calls 127.0.0.1 (its grant's origin): a page
-  // opened as localhost would be another origin, every call refused.
-  const host = /^localhost(:\d+)?$/i.exec(String(req.headers.host ?? ''));
-  if (host) { res.writeHead(308, { location: `http://127.0.0.1${host[1] ?? ''}${url.pathname}`, 'cache-control': 'no-store' }); return res.end(); }
-  if (url.pathname === '/__tamber/tool') { res.writeHead(308, { location: '/__tamber/tool/', 'cache-control': 'no-store' }); return res.end(); }
-  let rel;
-  try { rel = decodeURIComponent(url.pathname.slice('/__tamber/tool/'.length)); } catch { return notFound(res); }
-  // No dot segment (the build's own `.gen`, `.exact`), no way out.
-  if (rel.split('/').some(s => s.startsWith('.')) || /[\\\0]/.test(rel)) return notFound(res);
-  let file = resolve(toolDir, rel || 'index.html');
-  if (file !== toolDir && !file.startsWith(toolDir + sep)) return notFound(res);
-  try { if (statSync(file).isDirectory()) file = resolve(file, 'index.html'); } catch { /* below */ }
-  let bytes;
-  try {
-    // Through no link out of the build, nor to a dot file in it.
-    const root = realpathSync(toolDir), real = realpathSync(file);
-    if (!real.startsWith(root + sep) || relative(root, real).split(sep).some(s => s.startsWith('.'))) return notFound(res);
-    bytes = readFileSync(real);
-  } catch {
-    if (!existsSync(resolve(toolDir, 'index.html'))) return json(res, 404, { message: 'the design tool is not built: run `bun exact.mjs tamber tool`' });
-    return notFound(res);
-  }
-  const type = TOOL_TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream';
-  // Its pages anchor their files at the root; here that is this path.
-  if (type.startsWith('text/html')) bytes = Buffer.from(bytes.toString('utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">'));
-  res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-  res.end(req.method === 'HEAD' ? undefined : bytes);
-}
 
 /** `contract tamber serve --stdio <app>`, through cargo as the dev loops run
  * the compiler, in a process group of its own so stopping it stops the
@@ -477,7 +445,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return true;
     }
     if (!['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname)) return false;
-    if (req.method !== 'POST' || !tokenOf(req)) { notFound(res); return true; }
+    // A remote door's request (tamber-remote.mjs) is never the local token's: until pairing, no token works there.
+    if (req.method !== 'POST' || !tokenOf(req) || access.remote) { notFound(res); return true; }
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
@@ -1032,14 +1001,20 @@ async function listen({ host, port, handle, stop }) {
   return origins;
 }
 
-/** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]`: the wire alone,
- * on loopback unless `--lan` (whose clients still cannot have the token). */
+/** `bun exact.mjs tamber serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>]`:
+ * the wire alone, on loopback unless `--lan` (whose clients still cannot
+ * have the token); `--remote` and `--trust-tunnel` add its remote doors (scripts/tamber-remote.mjs). */
 export async function serveAlone(argv) {
   const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port') ?? '.'));
+  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && !['--port', '--remote', '--trust-tunnel'].includes(argv[i - 1])) ?? '.'));
   if (!designPath(dir)) { console.error(`tamber serve: ${dir} has no design (app.tamber, or the file app.json's "tamber" names)`); return 1; }
+  let asked;
+  try { asked = remoteArgs(argv); } catch (e) { console.error(`tamber serve: ${e.message}`); return 2; }
   const tamber = tamberServer({ appDir: dir });
-  const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: tamber.close });
+  // The remote doors first: one that cannot bind leaves nothing listening.
+  const doors = await openRemote(tamber, asked).catch(async e => { console.error(`tamber serve: ${e.message}`); await tamber.close(); process.exit(1); });
+  const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: async () => { await Promise.all([tamber.close(), doors?.close()]); } })
+    .catch(async e => { console.error(`tamber serve: cannot listen: ${e.code ?? e.message}`); await Promise.all([tamber.close(), doors?.close()]); process.exit(1); });
   console.log(origins.map(o => `${o.origin}/__tamber`).join('\n'));
   console.log(`  (the design server for ${dir}; the token at GET /__tamber/token from this machine only; ctrl-c to stop)`);
   await new Promise(() => {});
