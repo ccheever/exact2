@@ -106,7 +106,7 @@ let held: Record<string, unknown>[] = [], holds = 0;
 // real page keeps its id under its frame's name), after the delay a test
 // gives that name, and posts that id to the page framing it. A copy of a
 // name in `noNavigate` can't navigate. Each navigate is kept, in order.
-let copyDelays: Record<string, number> = {}, noNavigate: string[] = [];
+let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLater: string[] = [];
 const navs: { client: string; build: string; location: string }[] = [];
 const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
   const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
@@ -255,6 +255,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (!b) return send({ error: { message: `no registered build \`${request.build}\`` } }, 400);
         if (!(b.capabilities ?? []).includes('navigate')) return send({ error: { message: `build \`${b.id}\` (web) cannot navigate`, unsupported: 'navigate' } }, 409);
         navs.push({ client: request.client, build: b.id, location: request.location });
+        // (A page that takes the command and then can't route there: its refusal comes later, as an event to the sender alone.)
+        if (refuseLater.includes(`exact-copy-${String(b.id).slice('copy-'.length)}`)) {
+          log.push({ event: 'unsupported', epoch: EPOCH, build: b.id, what: 'navigate', detail: `${JSON.stringify(request.location)} is no route of this app`, only: request.client, seq: seq() + 1 });
+          save();
+          return send({ ok: { navigated: true, build: b.id, seq: navs.length } });
+        }
         BUILDS = BUILDS.map(x => x.id === b.id ? { ...x, status: { ...(x.status ?? {}), location: request.location } } : x);
         log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
         save();
@@ -456,7 +462,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
       paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; SCALE = false;
-      copyDelays = {}; noNavigate = []; navs.length = 0;
+      copyDelays = {}; noNavigate = []; refuseLater = []; navs.length = 0;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;
@@ -485,6 +491,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       PAGE = `http://127.0.0.1:${copies.port}`;
       copyDelays = body.delays ?? {};
       noNavigate = body.noNavigate ?? [];
+      refuseLater = body.refuseLater ?? [];
       return send({ ok: true });
     },
   },

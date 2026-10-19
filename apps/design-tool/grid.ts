@@ -58,10 +58,11 @@ page.addEventListener?.('message', onCopyWord);
 
 /** The grid's tiles: Light, then the dark scheme at each value of `axis`
  * (Dark alone with no axis), at the build's own text size, then again at
- * `large` px; the first `cap`. */
+ * `large` px, and at 6 px larger again where `cap` asks for more; the
+ * first `cap`. */
 export function modeTiles(axis: { name: string; values: string[] } | undefined, large: number, cap: number): Tile[] {
   const modes: { label: string; pin: Pin }[] = [{ label: 'Light', pin: { scheme: 'light' } }, ...(axis?.values.length ? axis.values.map(v => ({ label: title(v), pin: { scheme: 'dark', mode: { [axis.name]: v } } })) : [{ label: 'Dark', pin: { scheme: 'dark' } }])];
-  const sizes = [0, large >= 4 && large <= 64 ? large : 0].filter((s, i) => i === 0 || s > 0);
+  const big = large >= 4 && large <= 58 ? large : 0, sizes = [0, big, big && big + 6].filter((s, i) => i === 0 || s > 0);
   return sizes.flatMap(size => modes.map(m => ({ label: size ? `${m.label} · ${size}px` : m.label, pin: size ? { ...m.pin, rootFontSize: size } : m.pin }))).slice(0, Math.max(1, Math.min(MOST, cap))).map((t, i) => ({ ...t, name: NAMES[i], state: '' }));
 }
 
@@ -81,54 +82,64 @@ const appText = (app: any) => [app?.scheme, ...Object.entries(app?.mode ?? {}).m
 const pinWords = (pin: Pin) => [pin.scheme, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ');
 const heldText = (h: Build['holding']) => !h.hold ? '' : `${h.held?.state === h.hold.state ? 'held' : 'holding'} ${WORDS[h.hold.state] ?? h.hold.state}`;
 
-// What the grid set on each build and still holds there (a pin, a hold),
-// kept until it is given back or another client's replaces it; the server
-// run they were set under. Each hold asked once a selection and state (a
-// build that lets it go is not asked again until either moves). The
-// location each copy last said; where each was sent and has not yet said
-// it is; the leader's place; the copies reloaded at a place (their build
-// can't navigate). The selection States shows, as it was when chosen.
-const owned = new Map<string, { pin?: string; hold?: string }>();
+// What the grid set on each build and still holds there: a pin with the
+// revision the server gave it (a later revision is another client's, which
+// the grid leaves), a hold with its state and instance (the server may move
+// its site to the one that corresponds in a new plan); kept until given
+// back, a server run's alone. Each hold is asked once a selection (each
+// choice of a view counts again) and state; a send that fails asks again.
+// The location each copy last said; where each was sent and has not since
+// said anywhere; the leader's place; the copies reloaded at a place (their
+// build can't navigate) and each build's navigate refusals seen. The
+// selection States shows, as it was when chosen.
+const owned = new Map<string, { pin?: { json: string; revision: number }; hold?: { state: string; instance: string } }>();
 const asked = new Map<string, string>();
-const seen = new Map<string, string>(), sentTo = new Map<string, string>(), reloaded = new Map<string, string>();
-let run = '', place = '';
-let shown: { e: any; facts: Pin; location: string; words: string } | null = null;
-// One pass at a time: a pass reconciles from what is now, so the next sees
-// what the last one set.
-let passes: Promise<unknown> = Promise.resolve();
+const seen = new Map<string, string>(), sentTo = new Map<string, string>(), reloaded = new Map<string, string>(), refusals = new Map<string, number>();
+let run = '', place = '', handle = '', chosen = 0, policy = '';
+let shown: { e: any; facts: Pin; location: string; words: string; chosen: number } | null = null;
+// The passes asked: each runs in turn, and one a newer ask has superseded
+// sends nothing more (the newer pass reconciles from what is then).
+let passes: Promise<unknown> = Promise.resolve(), asks = 0;
 
 /** The grid's source, over the tool's one client and its builds and selection as the poll keeps them. */
-export function gridSources(call: Call, builds: () => Map<string, Build>, selection: () => Selection, axes: () => { name: string; values: string[] }[]): Pick<Sources, 'loadGrid'> {
-  /** One command; its refusal, `unsupported:` before one the build can't do, or ''. */
-  const send = async (body: Record<string, unknown>) => {
-    const { error, reply } = await call('/__tamber', body);
-    return error ? (reply.error?.unsupported ? `unsupported:${error}` : error) : '';
+export function gridSources(call: Call, builds: () => Map<string, Build & { pinRevision?: number; navRefusals?: number }>, selection: () => Selection, axes: () => { name: string; values: string[] }[]): Pick<Sources, 'loadGrid'> {
+  /** One command, bound to the server run the grid's state is of (a restarted server's token is not taken
+   * for it); its refusal, `unsupported:` before one the build can't do, `superseded` when a newer pass is
+   * asked, or '' with the reply. */
+  const send = async (mine: number, body: Record<string, unknown>) => {
+    if (mine !== asks) return { why: 'superseded', ok: null as any };
+    const { error, reply, used } = await call('/__tamber', body, undefined, handle || undefined);
+    if (!error && !handle) handle = used;
+    return { why: error ? (reply.error?.unsupported ? `unsupported:${error}` : error) : '', ok: reply.ok };
   };
-  /** What the grid set on build `b` and no longer wants, given back where it is still the grid's. */
-  const giveBack = async (client: string, b: Build | undefined, id: string, keepPin: boolean, keepHold: boolean) => {
-    const mine = owned.get(id);
-    // (A build away keeps the duty: the server replays its pin when it comes back, and the next pass gives it back.)
-    if (!mine || !b) return;
-    if (mine.pin && !keepPin) {
-      if (JSON.stringify(b.pin ?? null) !== mine.pin) delete mine.pin;
-      else if (!(await send({ method: 'pin', client, build: id, pin: null }))) delete mine.pin;
+  /** What the grid set on build `id` and no longer wants, given back where it is still the grid's, read from the builds as they are now. */
+  const giveBack = async (mine: number, client: string, id: string, keepPin: boolean, keepHold: boolean) => {
+    const duty = owned.get(id), b = builds().get(id);
+    // (A build away keeps the duty: the server replays its pin when it comes back, and a later pass gives it back.)
+    if (!duty || !b) return;
+    if (duty.pin && !keepPin) {
+      if (Number(b.pinRevision ?? 0) > duty.pin.revision || (Number(b.pinRevision ?? 0) === duty.pin.revision && JSON.stringify(b.pin ?? null) !== duty.pin.json)) delete duty.pin;
+      else if (!(await send(mine, { method: 'pin', client, build: id, pin: null })).why) delete duty.pin;
     }
-    if (mine.hold && !keepHold) {
-      if (JSON.stringify(b.holding.hold ?? null) !== mine.hold) delete mine.hold;
-      else if (!(await send({ method: 'hold', client, build: id, state: null }))) delete mine.hold;
+    if (duty.hold && !keepHold) {
+      const h = b.holding.hold;
+      if (!h || h.state !== duty.hold.state || JSON.stringify(h.instance ?? []) !== duty.hold.instance) delete duty.hold;
+      else if (!(await send(mine, { method: 'hold', client, build: id, state: null })).why) delete duty.hold;
     }
-    if (!mine.pin && !mine.hold) owned.delete(id);
+    if (!duty.pin && !duty.hold) owned.delete(id);
   };
-  const pass = async ([client, view, axisName, large, cap, at, mirror, canWrite, epoch, local]: any[]) => {
-    // Another server run: nothing the grid set survives it.
-    if (epoch !== run) { run = epoch; owned.clear(); asked.clear(); seen.clear(); sentTo.clear(); }
+  const pass = async (mine: number, [client, view, axisName, large, cap, at, mirror, canWrite, epoch, local]: any[]) => {
+    // Another server run (an answer that says one, not a failed hello's none): nothing the grid set survives it.
+    if (epoch && epoch !== run) { run = epoch; handle = ''; owned.clear(); asked.clear(); seen.clear(); sentTo.clear(); refusals.clear(); }
+    // (Where copies were sent is the navigation policy's: another view, or Mirror turned off or on, starts again.)
+    if (`${view} ${mirror}` !== policy) { policy = `${view} ${mirror}`; sentTo.clear(); }
     const now = builds(), sel = selection();
     let tiles: Tile[] = [], note = '';
     if (view === 'states') {
       // The selection as it was when chosen (a copy's pin moves its build's
       // facts, which makes it stale), until the person selects again.
       const b = sel && !sel.stale ? now.get(String(sel.e.build)) : undefined;
-      if (b && sel!.e !== shown?.e) shown = { e: sel!.e, facts: factsOf(b.status), location: String(b.status?.location ?? ''), words: factsText({ ...b.status, location: undefined }) };
+      if (b && sel!.e !== shown?.e) shown = { e: sel!.e, facts: factsOf(b.status), location: String(b.status?.location ?? ''), words: factsText({ ...b.status, location: undefined }), chosen: ++chosen };
       if (shown) {
         tiles = stateTiles(shown.facts);
         note = `${shown.e.type ?? 'The view'} #${shown.e.node ?? shown.e.site}, in ${shown.words || 'its build\'s mode'}.`;
@@ -150,18 +161,22 @@ export function gridSources(call: Call, builds: () => Map<string, Build>, select
     }
     // A tile's build: the one its frame said under the page it shows, while the server lists it.
     const of = (t: Tile) => { const c = copies.get(t.name); return c && c.src === srcs.get(t.name) ? now.get(c.id) : undefined; };
+    // A States copy's hold is wanted only on the selection's own plan.
+    const planned = (b: Build) => !!shown?.e.planDigest && b.planDigest === shown.e.planDigest;
     const wanted = new Map<string, Tile>();
     for (const t of tiles) { const b = of(t); if (b) wanted.set(b.id, t); }
-    // What the grid set and no longer wants given back: copies not shown, States' holds once on the grid.
-    if (canWrite) for (const id of [...owned.keys()]) { const t = wanted.get(id); await giveBack(client, now.get(id), id, !!t, !!t?.state); }
-    // Where the copies go: the selection's screen in States; with Mirror navigation, the copy that moved (not where it was sent).
+    // What the grid set and no longer wants given back: copies not shown, holds off the selection's plan or on the grid.
+    if (canWrite) for (const id of [...owned.keys()]) { const t = wanted.get(id), b = now.get(id); await giveBack(mine, client, id, !!t, !!t?.state && !!b && planned(b)); }
+    // Where the copies go: the selection's screen in States; with Mirror navigation, a copy that moved
+    // (not one sent somewhere, which has arrived once it says any new place, nor one saying its first).
     if (view === 'states' && shown) place = shown.location;
     else if (view === 'grid' && mirror) {
       for (const t of tiles) {
         const b = of(t), loc = String(b?.status?.location ?? '');
         if (!b || !loc) continue;
-        if (sentTo.get(b.id) === loc) sentTo.delete(b.id);
-        else if (seen.get(b.id) !== loc && !sentTo.has(b.id)) place = loc;
+        const was = seen.get(b.id);
+        if (sentTo.has(b.id) && loc !== was) sentTo.delete(b.id);
+        else if (was !== undefined && loc !== was && !sentTo.has(b.id)) place = loc;
         seen.set(b.id, loc);
       }
     } else place = '';
@@ -172,28 +187,33 @@ export function gridSources(call: Call, builds: () => Map<string, Build>, select
       if (b && canWrite) {
         // Its own mode, as a pin on its own build only.
         if (!same(b.pin, t.pin)) {
-          const why = await send({ method: 'pin', client, build: b.id, pin: t.pin });
-          if (why) words = `Not pinned: ${why.replace(/^unsupported:/, '')}`; else owned.set(b.id, { ...owned.get(b.id), pin: JSON.stringify(t.pin) });
+          const { why, ok } = await send(mine, { method: 'pin', client, build: b.id, pin: t.pin });
+          if (why && why !== 'superseded') words = `Not pinned: ${why.replace(/^unsupported:/, '')}`;
+          else if (!why) owned.set(b.id, { ...owned.get(b.id), pin: { json: JSON.stringify(t.pin), revision: Number(ok?.revision ?? 0) } });
         }
-        // Its state, on the selection's site in the selection's plan.
+        // Its state, on the selection's site in the selection's plan, once the copy shows the selection's screen.
         if (view === 'states' && t.state) {
           const e = shown!.e, want: Hold = { site: Number(e.site), instance: e.instance ?? [], state: t.state };
-          const key = JSON.stringify([e.build, e.site, e.instance ?? [], e.planDigest ?? null, t.state]);
-          if (!e.planDigest || b.planDigest !== e.planDigest) words = 'This copy runs another plan than the selection (or says none): reload it.';
+          const key = JSON.stringify([shown!.chosen, e.site, e.instance ?? [], e.planDigest ?? null, t.state]);
+          if (!planned(b)) words = 'This copy runs another plan than the selection (or says none): reload it.';
           else if (!b.holding.can) words = 'This copy\'s build cannot hold states.';
+          else if (shown!.location && String(b.status?.location ?? '') !== shown!.location) words = 'Going to the selection\'s screen.';
           else if (!same(b.holding.hold, want) && asked.get(b.id) !== key) {
             asked.set(b.id, key);
-            const why = await send({ method: 'hold', client, build: b.id, site: want.site, instance: want.instance, state: want.state, plan: e.planDigest });
-            if (why) words = `Not held: ${why.replace(/^unsupported:/, '')}`; else owned.set(b.id, { ...owned.get(b.id), hold: JSON.stringify(want) });
-          } else if (!same(b.holding.hold, want)) words = `Let go${b.holding.held?.reason ? ` (${b.holding.held.reason})` : ''}: select the view again to hold it again.`;
+            const { why } = await send(mine, { method: 'hold', client, build: b.id, site: want.site, instance: want.instance, state: want.state, plan: e.planDigest });
+            if (why) { asked.delete(b.id); if (why !== 'superseded') words = `Not held: ${why.replace(/^unsupported:/, '')}`; }
+            else owned.set(b.id, { ...owned.get(b.id), hold: { state: want.state, instance: JSON.stringify(want.instance) } });
+          } else if (!same(b.holding.hold, want) && b.holding.hold?.state !== want.state) words = `Let go${b.holding.held?.reason ? ` (${b.holding.held.reason})` : ''}: select the view again to hold it again.`;
         }
-        // The leader's place, sent once; a build that can't navigate is reloaded there.
-        const loc = String(b.status?.location ?? '');
-        if (place && loc && loc !== place && sentTo.get(b.id) !== place) {
+        // The leader's place, sent once; a build that can't navigate (refused at once, or by its page since) is reloaded there.
+        const loc = String(b.status?.location ?? ''), refused = Number(b.navRefusals ?? 0);
+        if (sentTo.has(b.id) && refused > (refusals.get(b.id) ?? 0)) { reloaded.set(t.name, sentTo.get(b.id)!); sentTo.delete(b.id); }
+        refusals.set(b.id, refused);
+        if (place && loc && loc !== place && !sentTo.has(b.id) && !reloaded.has(t.name)) {
           sentTo.set(b.id, place);
-          const why = await send({ method: 'navigate', client, build: b.id, location: place });
+          const { why } = await send(mine, { method: 'navigate', client, build: b.id, location: place });
           if (why.startsWith('unsupported:')) { sentTo.delete(b.id); reloaded.set(t.name, place); }
-          else if (why) { sentTo.delete(b.id); words ||= `Not moved: ${why}`; }
+          else if (why) { sentTo.delete(b.id); if (why !== 'superseded') words ||= `Not moved: ${why}`; }
         }
       }
       const st = b?.status, back = reloaded.get(t.name);
@@ -211,9 +231,10 @@ export function gridSources(call: Call, builds: () => Map<string, Build>, select
   };
   return {
     loadGrid: (args) => {
-      const mine = passes.then(() => pass(args as unknown as any[]));
-      passes = mine.catch(() => {});
-      return mine;
+      const ask = ++asks;
+      const answer = passes.then(() => pass(ask, args as unknown as any[]));
+      passes = answer.catch(() => {});
+      return answer;
     },
   };
 }
