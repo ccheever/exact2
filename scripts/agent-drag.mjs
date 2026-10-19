@@ -106,11 +106,17 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
   if (carrier.touches) {
     let r;
-    // A still drag's ops first wait up to `REACH_MS` for the touch to reach its view, inside the finger's time: the
-    // runner holds that much longer, and the reply says the hold asked.
-    const reach = !moves && during.length ? REACH_MS : 0;
-    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held) } }); }
+    // The hold moves the agent's clock by its length on real time, as `tap down`, `clock +<ms> real`, `tap up` does,
+    // so the app's `every` and `after` run while the finger is held (euxy FRICTION 10): a last op after the
+    // author's, the finger held that much longer for it. Under platform timing the clock is the wall's already. A
+    // still drag's ops first wait up to `REACH_MS` for the touch to reach its view, inside the finger's time. The
+    // reply says the hold asked.
+    const ticks = hold > 0 && timing !== 'platform', ops = ticks ? [...during, () => s.clock(`+${hold} real`)] : during;
+    const reach = !moves && ops.length ? REACH_MS : 0, allowance = ticks ? HELD_LEAD + HELD_STEP + during.length * HELD_READ : 0;
+    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach + allowance, during: ops.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
+    // The clock step's reply is the hold's, not an op's: the reply's clock is where the hold left it.
+    if (ticks && Array.isArray(r.during)) { r = { ...r, during: r.during.slice(0, -1) }; if (!r.during.length) delete r.during; }
     return noted(await s.landed({ ...r, ...(r.drag ? { drag: { ...r.drag, hold } } : {}), target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.

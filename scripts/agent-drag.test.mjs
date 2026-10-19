@@ -286,19 +286,34 @@ test('a still real touch runs its ops once the touch has reached its view, and a
   expect(later).toEqual([]);
 });
 
-// A still drag's ops wait for the touch to reach its view inside the finger's time: the runner holds that much longer,
-// and the reply says the hold asked.
-test('a still real drag with ops during it holds the wait for delivery longer, and says the hold asked', async () => {
-  const asked = [];
+// A still drag's ops wait for the touch to reach its view inside the finger's time, and a hold moves the agent's clock
+// by its length on real time inside the touch, after the author's ops (euxy FRICTION 10): the runner holds that much
+// longer, and the reply says the hold asked. Under platform timing the clock is the wall's, and is not stepped.
+test('a real drag\'s hold moves the clock inside the touch, and the runner holds the waits for it longer', async () => {
+  const asked = [], ran = [];
   const s = { contact: null, held: null,
     async layout() { return { nodes: [{ id: 7, x: 10, y: 10, w: 40, h: 20 }], viewport: { w: 400, h: 800 } }; },
     async op() { return { lines: [], next: 0 }; },
+    async clock(spec) { ran.push(`clock ${spec} ${s.held}`); return { clock: 200 }; },
     async landed(r) { return r; } };
-  const carrier = { touches: true, async input(id, phase, opts) { asked.push(opts.drag.hold); return { tapped: id, delivery: 'platform', drag: { dx: 0, dy: 0, press: 0, over: 0, hold: opts.drag.hold } }; } };
-  const run = (opts) => dragTap({ s, carrier, node: { id: 7 }, target: 'row', host: 'ios', timing: 'agent', tapRefusal: async (_, __, e) => e }, opts);
-  const r = await run({ dx: 0, dy: 0, hold: 200, during: [async () => 'read'] });
+  const carrier = { touches: true, async input(id, phase, opts) {
+    asked.push(opts.drag.hold);
+    const during = [];
+    for (const op of opts.drag.during) during.push(await op());
+    return { tapped: id, delivery: 'platform', drag: { dx: 0, dy: 0, press: 0, over: 0, hold: opts.drag.hold }, ...(during.length ? { during } : {}) };
+  } };
+  const run = (opts, timing = 'agent') => dragTap({ s, carrier, node: { id: 7 }, target: 'row', host: 'ios', timing, tapRefusal: async (_, __, e) => e }, opts);
+  const r = await run({ dx: 0, dy: 0, hold: 200, during: [async () => { ran.push('read'); return 'read'; }] });
   expect(r.drag.hold).toBe(200);
-  await run({ dx: 0, dy: 0, hold: 200 });
+  expect(r.during).toEqual(['read']);
+  expect(ran).toEqual(['read', 'clock +200 real row']);
+  const still = await run({ dx: 0, dy: 0, hold: 200 });
+  expect(still.during).toBeUndefined();
   await run({ dx: 0, dy: 40, hold: 200, during: [async () => 'read'] });
-  expect(asked).toEqual([200 + REACH_MS, 200, 200]);
+  ran.length = 0;
+  await run({ dx: 0, dy: 0, hold: 200 }, 'platform');
+  await run({ dx: 0, dy: 40 });
+  expect(ran).toEqual([]);
+  const step = HELD_LEAD + HELD_STEP;
+  expect(asked).toEqual([200 + REACH_MS + step + HELD_READ, 200 + REACH_MS + step, 200 + step + HELD_READ, 200, 0]);
 });
