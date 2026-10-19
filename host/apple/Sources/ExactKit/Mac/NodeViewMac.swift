@@ -776,7 +776,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// names whatever is drawing at that instant, and colours are not all
     /// applied inside a draw — a field's `textColor` is assigned in
     /// `applyStyle`. @ref LLP 1034 D2
-    package var drawsDark: Bool {
+    var drawsDark: Bool {
         effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
@@ -934,7 +934,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         for k in clear { next.removeValue(forKey: k) }
         for (k, v) in set { next[k] = v }
         props = next
-        if set["symbolEffectValue"] != nil { updateSymbol() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten") { updateSymbol() }
         applyTextArea()
         remakeFieldIfNeeded()
         if let f = field {

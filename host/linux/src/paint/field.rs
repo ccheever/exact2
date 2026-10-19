@@ -212,8 +212,6 @@ impl Painter {
                 FieldDecorations::read(
                     node.props.str(PropId::Decorations)?,
                     node.props.str(PropId::DecorationStyles)?,
-                    walk.scene.kernel.root_font_size(),
-                    walk.scene.kernel.display_scale(),
                 )
                 .ok()
                 .map(Rc::new)

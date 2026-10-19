@@ -66,6 +66,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     feedback: ['scripts/feedback.mjs'],
     // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
     ...game ? {
+      check: ['game/app/shells.mjs', dir, '--check'],
       game: ['scripts/exact.mjs', 'game'],
       'test-rust': ['game/app/shells.mjs', dir, '--test'],
       shells: ['game/app/shells.mjs', dir],

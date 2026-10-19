@@ -73,8 +73,13 @@ the server still shows the previous game. A dead process is reported as `unknown
 The dev loop serves on 8765, or on the next free port when
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
-`my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
-app-runtime edits reload the page. The server also prints **Open in native**.
+`my-game/app.contract` for UI. `bun exact.mjs check` (or `bun game/app/shells.mjs <game> --check`) checks the logic
+library for type errors and determinism violations, without linking. The dev loop prints
+that result before building each Rust save and keeps the running game when it fails.
+Host, linker and target errors still belong to the build.
+Gameplay reloads carry the running world in games without tables. In table games,
+successful Rust saves rebuild the primary module and restart the world; table-only web
+edits preserve it. Shared app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
 The first web build uses the size-tuned `web` profile and `wasm-opt`. After a
@@ -93,8 +98,11 @@ bun game/prove.mjs ./my-game
 ```
 
 This is a release step, not part of the edit loop: nothing before it waits on it, and
-cold it takes many minutes. The first baseline requires Linux and web agreement in all
-three simulation modes, plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
+cold it takes many minutes. The first baseline requires Linux and web agreement in all three simulation modes,
+plus native release and shipping-profile web runs. Later invocations verify one GPU-less Linux run by default.
+Both proof hosts build the game module under `gpu-dev`; `EXACT_GAME_PROOF_PROFILE=release`
+selects native release or the web shipping profile. Repinning refuses any pin disagreement
+between the fast and shipping profiles. Ordinary web builds and deploys keep the shipping profile.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
@@ -107,7 +115,8 @@ one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.
 `bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
 (`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
 `prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
-Generation writes only inside that game. A game is the files its author writes; bakes
+Generation resolves the generated workspace offline against the current SDK lock, so
+the first locked test and proof need no lock refresh. Generation writes only inside that game. A game is the files its author writes; bakes
 generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 
 | File | What you own |
@@ -409,8 +418,9 @@ bun game/prove.mjs ./my-game --repin --reason "describe the intended state chang
 ```
 
 Repinning runs Off, Save and FreshGame, requires matching execution inputs and host
-observations, and includes a Linux release check. It refuses failures or a missing
-requested browser, leaving the pins unchanged. Existing pins may be updated with
+observations, and compares the fast profile with native release and, when requested,
+shipping web. A profile disagreement, failed proof or missing requested browser
+leaves the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
 execution-input tree, including runtime files under `assets/` and `.baked-assets.json`,
@@ -594,8 +604,7 @@ Clippy holds every game's logic library to rules 1–3 with the SDK's
 naming its replacement. `sqrt` is correctly rounded and allowed; glam is built with
 `libm`, so `Vec3::length`, `Quat::slerp` and the other glam methods are portable. The
 lints run in `shells.mjs --test`, before first pins and `--repin`, and in every
-production-profile bake (web, Apple, release Linux, deploy); the gpu-dev edit loop
-leaves them to those. An `#[allow(clippy::disallowed_types)]` on an item is a
+production-profile bake (web, Apple, release Linux, deploy); the dev loop also checks the logic library before each Rust rebuild. An `#[allow(clippy::disallowed_types)]` on an item is a
 visible exception — a `HashMap` that is only ever looked up, say. Tests may time
 themselves. Setting `RUSTFLAGS` replaces the workspace's `-fp-contract=off`, so a
 game build under it is refused until the flag is appended.
@@ -612,7 +621,13 @@ and [authoring diaries](diaries/001-scores.md) record measurements and remaining
 
 The first bake derives host adapters and `.shells/app.json` from the authored
 manifest. It does not rewrite an existing `app.json`. Contract owns layout, UI,
-accessibility and controls; the world owns the canvas contents. Hosts consume
+accessibility and controls; the world owns the canvas contents. A HUD button with
+`action="jump"` holds that `Actions` action while pressed; its `aria-keyshortcuts`
+takes its chord (the key with exactly its modifiers) before the focused world hears
+it and presses the action once per keydown, never on its repeats, moving no focus,
+on every host (the rule `host/linux/src/presenter/shortcuts.rs` states). The bake warns
+when `Actions` bind the same key. Show touch controls under
+`exactViewport().pointer == "coarse"` ([recipe](recipes/touch-controls.md)). Hosts consume
 declaration data without a build dependency on the engine or gameplay. The GPU
 build writes that declaration directly, without linking the host bake.
 
@@ -734,6 +749,42 @@ Setup reads it with `w.level::<T>(name)` after the
 asset barrier. `w.generated(name, mesh_data)` registers immutable generated geometry;
 saves check its reconstructed identity rather than storing render vertices. See
 [the level example](games/asset-fixture/logic/src/lib.rs) and [engine reference](engine/README.md).
+
+Tuning records use `Game::TABLES`, for example
+`const TABLES: &'static [asset::Table] = &[asset::Table::of::<Movement>("movement.json")];`.
+A record derives `Data` and is `Send + Sync`. The bake validates every named field;
+a wrong type or missing field names its path. `w.table::<Movement>("movement.json")?`
+borrows an immutable decoded version. `asset::Curve(Vec<(f32, f32)>)` samples with
+`at(x)`, interpolating between ordered finite points and clamping at the endpoints.
+[Beacons' movement table](games/beacons/movement.json) controls its speed and jump.
+
+The web dev loop validates table saves in-process using that bake's compiled decoder,
+then delivers all tables together through `assets/exact-tables.json`. It prints validation
+time and subprocess count. No Cargo or rustc runs for a tuning save. A complete valid
+transaction activates at the next simulation tick; a rejected transaction keeps the old
+values. Paused tables await resume without preventing settlement. Restart and initial setup
+admit the most recently delivered live transaction before setup reads it. Replay transactions
+strictly after that live transaction's tick keep their recorded ticks across the initial asset
+barrier and restart; earlier and equal-tick replay rows are superseded. A timestamped restart
+first advances the old world to that time, then admits its resulting tables.
+Levels require a new session. Tables never spawn entities.
+
+Active table bytes appear in world resources and contribute to the hash. Every admitted
+version remains in saved inputs for the session. `sim.table_inputs()` exports these
+clock-stamped bytes; `sim.replay_tables(&inputs)` queues them on a tick-zero simulation
+loaded with their original setup version. A restore requires the same active table bytes
+and declared type identities (`table:` plus the declaring module path and type name),
+and refuses changed tables by name. Development swaps are reported as `tableEdits` in
+world state and refuse a proof pin. Delivery while running is admitted at the next tick;
+replay preserves those recorded ticks, including transactions still pending at export.
+
+Web dev clients swap tables under the running world, preserving its tick. Native Apple
+dev clients apply a whole generation and restart the world on table delivery. For table
+games, successful Rust saves rebuild the primary module and restart the web world,
+validating the current table files before publishing the new declarations; the validator never follows an unselected side module.
+The server retains only the three most recent table generations in memory. A client still
+fetching an older generation after three later edits receives a refusal and must reload
+the latest generation; those table generations are not retained on disk.
 
 Animation order is explicit: `animation::step` → apply root motion → query sockets.
 `SocketFollow` attaches to a joint without changing the saved local transform.

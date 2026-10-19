@@ -28,10 +28,10 @@ macro_rules! host {
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
-        /// Native intrinsic field layout using the optional editor's applier.
+        /// A textarea's decorations resolved against its text (LLP 1114.007).
         #[no_mangle]
-        pub extern "C" fn exact_set_decorated_measure(rt:u32,read:Option<$crate::measure::DecoratedMeasureFn>) {
-            $crate::abi::with_entry(&EXACT_RUNTIMES,rt,|e|e.bridge.set_decorated_measure(read));
+        pub extern "C" fn exact_field_decorations(input: *const u8, len: usize, count: *mut usize) -> *const u8 {
+            $crate::decorations::read(input, len, count)
         }
         $crate::raster_exports!();
         $crate::textflow_exports!();
@@ -158,6 +158,15 @@ macro_rules! host {
             ctx: *mut ::std::ffi::c_void,
         ) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, call, ctx));
+        }
+
+        /// Where a document the app forgot goes (LLP 1069.010.000 D5): off
+        /// the platform's recents, by the Swift host.
+        #[no_mangle]
+        pub extern "C" fn exact_on_document_forgotten(forgotten: Option<extern "C" fn(u64, u64)>) {
+            if let Some(forgotten) = forgotten {
+                $crate::documents::on_forgotten(forgotten);
+            }
         }
 
         /// The app module announced a topic (LLP 1016.002), on this thread.

@@ -206,17 +206,17 @@ fn synth_definitions_and_voices_keep_their_encoding() {
     let voices = crate::hash::of(&*w.resource::<Voices>());
     // The save envelope is versioned independently of the synth payloads.
     let saved = w.save();
-    assert!(saved.starts_with(b"EXGAME\0\x05"));
-    // Normalize only the envelope version for this pre-existing payload pin.
-    let mut pinned = saved;
-    pinned[7] = 4;
-    let save = crate::hash::of(&pinned);
+    assert!(saved.starts_with(b"EXGAME\0\x06"));
+    let save = crate::hash::of(&saved);
+    let mut v4 = saved;
+    v4[7] = 4;
     let pins: BTreeMap<String, String> =
         crate::json::from_str(include_str!("../tests/pins.json")).unwrap();
     for (name, got) in [
         ("definition", definition),
         ("voices", voices),
         ("save", save),
+        ("save-v4", crate::hash::of(&v4)),
         ("world", w.hash()),
     ] {
         let pin = &pins[&format!("synth-only-{name}")];

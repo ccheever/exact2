@@ -853,7 +853,7 @@ says. Every roster function has a row and an example, and each example written
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
-| `rangeFrame(id, start, end)` | `Geometry`, actions only; UTF-16 source range in a field, in viewport coordinates; unavailable until its host supplies a range reader (LLP 1114.007) | `rangeFrame("composer", 0, 6).height`, in an action, is the range's drawn height |
+| `rangeFrame(id, start, end)` | `Geometry`, actions only; a textarea's UTF-16 range as `Range.getBoundingClientRect()`: collapsed, the caret's rectangle; unavailable past the text, while composing, or with no host reader ([decorations](#plain-textarea-decorations), LLP 1114.007) | `rangeFrame("composer", caret, caret)`, in an action, is where a mention popover goes |
 | `measure("id")` | `Geometry`, actions only; literal id, the border box as if `height` were `auto`, other styles kept (padding, border, `min-height`, `max-height`, insets): 0 for a bare box whose children are all absolutely positioned (a navigation root); `frame` is the laid-out box | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
 | `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
@@ -1078,41 +1078,47 @@ expression grammar. Platform looks and stand-ins are documented in
 
 ### Plain textarea decorations
 
-`decoration` declares literal CSS appearance for app-computed UTF-16 ranges. The field's
-value stays a plain string. Both web targets render these records, preserve source
-selections and composition, and support undoable replacements. Other host acceptance
-is tracked separately.
+`decorations` colours ranges of a plain `textarea`'s text that the app computes, as a
+Bluesky composer colours @mentions, links and #tags: CSS's Custom Highlight API
+([LLP 1114.007](../llp/1114.007-highlights-in-a-text-field.rfc.md)). Each range names a
+`decoration` declaration, the app's `::highlight(name)` rule. The value stays a plain
+string, and a decoration paints only: the field measures, wraps, edits and undoes exactly
+as it does without one, so a declaration takes only what `::highlight()` admits, `color`,
+`background-color`, `text-decoration` (`text-decoration-line`) and `text-shadow`; any other
+property is a compile error. Declarations are scoped and imported like styles.
 
 ```text
-decoration mention color="#1083fe"
+decoration mention color="light-dark(#1083fe, #208bfe)"
 component Composer
   state draft = "hello @alice"
-  derive marks = TextDecorations(value=draft, spans=[TextDecorationSpan(name="mention", start=6, end=12)], blocks=[], hidden=[], atoms=[])
+  derive marks = TextDecorations(value=draft, spans=[TextDecorationSpan(name="mention", start=6, end=12)])
   action edit(value: string)
     draft = value
   view
     textarea id="composer" value=draft decorations=marks input=edit
 ```
 
-Declarations use CSS font, colour and text-decoration properties, plus block margins,
-left padding/border, radius and line-height. They are scoped and imported like styles.
-`decorations` takes `TextDecorations(value, spans, blocks, hidden, atoms)`; constructor
-arguments are named. Its other record types and freshness rules are in
-[LLP 1114.007](../llp/1114.007-highlights-in-a-text-field.rfc.md). `input` and
-`textarea markup="markdown"` refuse this binding.
+`TextDecorations(value, spans)` names the text its spans were computed for, so an equal
+span list for new text (`@alice` replaced by `@carol`) is still a new record. Spans are
+UTF-16 offsets, clamped to `value`; where two overlap the later paints over the earlier.
+Until the app's record for the field's current text arrives, as a person types, the host
+paints the last record's spans moved across the edit as a DOM `Range` is (provisional).
+Nothing is repainted while an input method composes. The web paints with
+`createValueRange()` and `CSS.highlights` and leaves the `<textarea>` in place; a browser
+without `createValueRange` paints nothing. macOS, iOS and tvOS paint TextKit 2 rendering
+attributes; Linux and Windows paint colour runs with unchanged advances; Android and the
+terminal paint nothing yet. Only the web paints `text-shadow`. `input` and
+`textarea markup="markdown"` refuse `decorations`.
 
-An action may call `rangeFrame(id, start, end)` for viewport `Geometry` of a source range;
-a host without a range reader returns unavailable. Both web targets measure decorated
-source editors; plain fields and paint-only textareas require the browser's native
-value-range API. Browsers without that API return unavailable for plain fields.
-`setRangeText(id, text, "undo")`, or
-`setRangeText(id, text, start, end, selectionMode, "undo")`, requests one undo step once
-its host adopts that mode. The web supports it on plain fields and decorated
-textareas; each replacement emits one input event and can be undone independently
-of preceding typing. Existing calls keep their behaviour. Paint-only declarations
-retain the browser's native textarea when value ranges and custom highlights are
-available; font/layout changes, hidden ranges and chips use the optional source
-editor. Copying from that editor preserves the selected source, including markers.
+An action may call `rangeFrame(id, start, end)` for the `Geometry` of a textarea's UTF-16
+range, plain or `markup="markdown"` (source offsets), as DOM's
+`Range.getBoundingClientRect()` gives it: a collapsed range is the caret's rectangle (width
+0, the line's height), a wider one the union of its lines, in viewport coordinates and not
+trimmed by scrolling or the field's clip. Offsets are truncated toward zero; a non-finite or
+negative offset, a start past the end, an end past the text, a missing or hidden field,
+composition, and a host with no reader (Linux, Windows, Android, the terminal, a browser
+without `createValueRange` for a plain textarea) give `unavailable`. It reads the layout
+last drawn, so a `setRangeText` earlier in the same action is not yet measured.
 
 ### Markdown: `markup`, `format`, `select`
 

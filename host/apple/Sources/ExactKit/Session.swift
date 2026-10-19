@@ -696,7 +696,6 @@ public final class ExactSession {
         landFill()
     }
     private func wire() {
-        runtime.on { exact_set_decorated_measure(runtime.rt, DecorationMeasurements.read) }
         runtime.topLayer = { [weak self] in self?.presenter.openTopLayer ?? ([], nil) }
         runtime.setInlineGeometry({ [weak self] id in self?.presenter.inlineFrame(id) },
                                   range: { [weak self] id, start, end in self?.presenter.rangeFrame(id, start: start, end: end) })
@@ -1240,6 +1239,7 @@ public final class ExactSession {
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             // Prepare before any source calls the module (LLP 1067.000 D8).
             natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
+            restoreKeptDocuments() // before any answer reads a kept document (LLP 1069.010.000 D4)
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries

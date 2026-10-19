@@ -2,7 +2,7 @@
 // allocation, classification tables, signing keys, source snapshots, stream
 // commits and origin handles (`scripts/deploy.mjs`, `scripts/origin.mjs`).
 // `bun test ./scripts/deploy.test.mjs`.
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
@@ -17,15 +17,43 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureAssets, assetCards, copyStaticTreeIfPresent, webEnvelope, publicFileCards, listAssets, readStaticFile, readDevGeneration, retainDevGeneration } from '../host/web/serve.mjs';
-import { resolveApp, withAppFixture } from './app.mjs';
+import { resolveApp, webGpuArtifacts, withAppFixture } from './app.mjs';
 import { appdropPlan, renderAppdrop, writeLink } from './deploy-appdrop.mjs';
-import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishRoot, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
-import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256, webReleasePath } from './origin.mjs';
+import { bake, canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishRoot, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
+import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256, webReleasePath, webRootPath } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
 // behavior is tested independently with declared requirements.
 const fixtureBuild = (id, bundle) => ({version:1,compat:{id,inputs:{store:{L:'A'},executors:[]},target:'fixture'},
   graph:{version:1,sources:{},artifacts:[{name:'app.plan',requires:{},sha256:bundle.plan.sha256,bytes:bundle.plan.bytes?.length??0}]},binary:{sha256:'0'.repeat(64)}});
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
+
+test('deployment ships the web GPU product with an inherited gpu-dev proof profile', async () => {
+  const root = resolve(import.meta.dir, '..'), app = resolveApp('beacons');
+  const run = deployRun(app.target, 'profile');
+  const previous = process.env.EXACT_GAME_PROOF_PROFILE;
+  try {
+    process.env.EXACT_GAME_PROOF_PROFILE = 'gpu-dev';
+    const web = bake(app, run, root, root);
+    const receipt = JSON.parse(readFileSync(join(web, 'bake.json')));
+    expect(receipt.trust).toBe('production');
+    const products = receipt.products.map(p => p.path);
+    expect(products).toContain(join(app.target, 'wasm32-unknown-unknown/web/beacons_gpu.wasm'));
+    expect(products).not.toContain(join(app.target, 'wasm32-unknown-unknown/gpu-dev/beacons_gpu.wasm'));
+    const expected = join(run, 'shipping');
+    mkdirSync(expected);
+    webGpuArtifacts(app, expected, { profile: 'web' });
+    const origin = new DirectoryOrigin(join(run, 'origin'));
+    await publishRoot({ origin, row: {}, web });
+    const pointer = JSON.parse(await origin.get(webRootPath));
+    const shipped = await origin.get(`${webReleasePath(pointer.id)}/gpu_bg.wasm`);
+    expect(shipped).toEqual(readFileSync(join(expected, 'gpu_bg.wasm')));
+    expect(process.env.EXACT_GAME_PROOF_PROFILE).toBe('gpu-dev');
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_GAME_PROOF_PROFILE;
+    else process.env.EXACT_GAME_PROOF_PROFILE = previous;
+    rmSync(run, { recursive: true, force: true });
+  }
+}, 600000);
 
 // Each case is checked while the file loads and reported as a bun:test test.
 function result(name, ok, detail = '') {

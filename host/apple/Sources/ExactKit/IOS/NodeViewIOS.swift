@@ -602,8 +602,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        // An icon path is the node's tint, else its colour (D10); a symbol `nil` inherits UIKit's live tint.
-        symbolView?.tintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint
+        // An icon path is the node's tint, else its colour (D10); a symbol is its tint, else its written colour (stage 9 B); `nil` inherits UIKit's live tint.
+        symbolView?.tintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }
@@ -1026,7 +1026,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     // Resolve the same light-dark() wire value as the shared paragraph builder.
     // @ref LLP 1034 D1/D2
-    package var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
+    var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
         style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
     }
@@ -1159,7 +1159,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if disabled { pressEpoch &+= 1; cancelPressContact() }
         if props["inert"] == "true" { cancelPressContactsInSubtree() }
         swipeOwner = props["swipeContent"] != nil
-        if set["symbolEffectValue"] != nil { updateSymbol() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten") { updateSymbol() }
         if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
         if set["inert"] != nil || clear.contains("inert") {
             let ownInert = props["inert"] == "true"

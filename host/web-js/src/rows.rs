@@ -559,6 +559,13 @@ impl Em<'_> {
         // so its `--exact-accent` naming one that names the accent would name
         // itself: that token's colour stands by tuple (`data-x-accent`), as
         // css.rs leaves a self-reference out; a clear there writes nothing.
+        // A bound `color` that decides a symbol's ink (style.rs
+        // `symbol_marks`) keeps whether its binding has a value now, a clear
+        // included, whatever its map writes: symbols.js `inked` reads it.
+        let inked = (id == StyleId::TextColor
+            && parts.props.get("data-exact-ink").is_some_and(|w| w != "b"))
+        .then(|| format!("()=>{{const v=({f})();{e}.$ink=v!=null;return v}}"));
+        let f = inked.as_deref().unwrap_or(f);
         for (name, unit, map) in writes {
             let modes = crate::modes::active(plan);
             let channel = crate::modes::CHANNELS
@@ -592,7 +599,8 @@ impl Em<'_> {
     }
 
     /// A Markdown text field is the web host's own editor (LLP 1045 D5:
-    /// markup-editor.js over its wasm), which replaces it once loaded.
+    /// markup-editor.js over its wasm), which replaces it once loaded; a
+    /// plain one with `decorations` keeps its textarea and is painted.
     pub(super) fn editor(&mut self, i: u32, element: &str, e: &str) -> Result<(), String> {
         let plan = self.plan;
         let row = &plan.nodes[i as usize];
@@ -608,8 +616,8 @@ impl Em<'_> {
                 .map(|b| plan.binding(b))
                 .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16)
             {
-                self.editor = true;
-                let decorate = self.uses.rt("decoratedEditor");
+                // Paint only (LLP 1114.007): decorations.js, no editor wasm.
+                let decorate = self.uses.rt("decorate");
                 let _ = write!(self.out, "{decorate}({e});");
             }
             match markup.map(|b| style::literal(plan, plan.code(b.expr))) {

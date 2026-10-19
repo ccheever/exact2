@@ -13,6 +13,14 @@
 mod activities;
 mod excerpt;
 pub use excerpt::excerpt;
+
+/// Whether an attribute writes paint rows alone (LLP 1122 D14): `set-row`
+/// edits one; a layout row, a prop or a handler is the author's. The source
+/// map marks a written row that is not (`layout`).
+pub fn paint_row(a: &contract_syntax::Attr) -> bool {
+    let rows = contract_lower::tags::rows(a);
+    !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
+}
 pub mod functions;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
@@ -571,6 +579,61 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
         .map(|(plan, _)| plan)
 }
 
+/// The buttons whose `aria-keyshortcuts` chord types a key the game's
+/// `Actions` also bind (LLP 1132 D11), as warnings: on every host the
+/// shortcut takes that press, the key with exactly the chord's modifiers,
+/// first, so the world does not hear it while the button shows; the key
+/// with other modifiers still reaches the world. With a stale or missing
+/// `.shells/keys.json`, a warning saying so. Empty for an app that declares
+/// no shortcut.
+pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    Ok(shortcut_warnings(&file, &app_root)
+        .into_iter()
+        .map(|e| sources.resolve(e))
+        .collect())
+}
+
+fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
+    let keys = app_root.join(".shells/keys.json");
+    let stale = |message: String| CompileError {
+        pass: "warning",
+        id: "analyze-shortcut-keys-stale".into(),
+        message,
+        span: Span::default(),
+        file: Some(keys.as_path().into()),
+        related: Box::new([]),
+    };
+    if !contract_analyze::declares_shortcuts(file) {
+        return Vec::new();
+    }
+    // A game built before its GPU build wrote the keys: say so, rather
+    // than check against none.
+    if !keys.is_file() {
+        return match app_root.join(".shells/surfaces.json").is_file() {
+            true => vec![stale("no .shells/keys.json, so button shortcuts are not checked against the game's `Actions`; a web or native build writes it".into())],
+            false => Vec::new(),
+        };
+    }
+    let mut out: Vec<CompileError> =
+        contract_analyze::check_shortcut_keys(file, &surface::keys(app_root))
+            .into_iter()
+            .map(|e| CompileError {
+                pass: "warning",
+                ..e.into()
+            })
+            .collect();
+    if let Some(newer) = surface::newer_rust_than(app_root, ".shells/keys.json") {
+        out.push(stale(format!(
+            ".shells/keys.json is older than {}: it names the keys of the game's last GPU build; a web or native build rewrites it",
+            newer.display()
+        )));
+    }
+    out
+}
+
 /// [`compile_path_all`] without the surface-argument check, which the
 /// author's commands make apart ([`surface_findings`]).
 pub fn compile_path_all_unchecked(
@@ -726,6 +789,9 @@ fn compile_loaded(
         Some(_) => grants::check(&file, &app_root, strings.as_deref()),
         None => Vec::new(),
     };
+    if warned.is_some() {
+        own.extend(shortcut_warnings(&file, &app_root));
+    }
     let compiled = compile_file_warned(
         &file,
         Some(&app_root),
@@ -747,7 +813,7 @@ fn compile_loaded(
     if !surface.is_empty() {
         return Err(surface);
     }
-    if app_root.join("app.json").is_file() {
+    if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
             id: "app-manifest".into(),

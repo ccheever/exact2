@@ -141,12 +141,12 @@ fn plan_and_module_reloads_keep_the_document_owner() {
                     exact_data::documents::Resolved::Real {
                         directory,
                         path,
-                        selected_file: true,
-                    } => DocumentLease::selected_file(directory, path, guard),
+                        selected_file: Some(name),
+                    } => DocumentLease::selected_file_named(directory, path, name, guard),
                     exact_data::documents::Resolved::Real {
                         directory,
                         path,
-                        selected_file: false,
+                        selected_file: None,
                     } => DocumentLease::directory(directory, path, guard),
                 }
             }),

@@ -3,50 +3,67 @@ use super::*;
 use exact_runner::{FieldSelection, SelectionDirection};
 
 #[test]
-fn decorations_share_intrinsic_measurement_paint_and_source_geometry() {
-    let source = r##"decoration large font-size=32 color="#0000ff" background-color="#ffff00" text-decoration="underline"
+fn decorations_paint_runs_without_moving_the_fields_layout() {
+    let source = r##"decoration mention color="#0000ff" background-color="#ffff00" text-decoration="underline"
 component Fields
   view
     column width=400 height=600
-      textarea id="field" testId="field" value="a😀c" decorations=TextDecorations(value="a😀c",spans=[TextDecorationSpan(name="large",start=1,end=3)],blocks=[],hidden=[],atoms=[]) appearance="none" width=180 field-sizing="content" font-size=16
-      textarea testId="plain" value="a😀c" appearance="none" width=180 field-sizing="content" font-size=16
+      textarea id="field" testId="field" value="a😀c @alice end" decorations=TextDecorations(value="a😀c @alice end",spans=[TextDecorationSpan(name="mention",start=1,end=3),TextDecorationSpan(name="mention",start=5,end=11)]) appearance="none" width=180 field-sizing="content" font-size=16
+      textarea testId="plain" value="a😀c @alice end" appearance="none" width=180 field-sizing="content" font-size=16
 "##;
     let (mut presenter, id) = boot_source(source);
+    let plain = presenter.host.kernel().find_by_test_id("plain")[0];
+    let plain = presenter.host.kernel().node_by_key(plain).unwrap().id;
     let paragraph = presenter.paragraph(id).unwrap();
     assert_eq!(
         paragraph
             .runs()
             .iter()
             .map(|run| run.text.as_str())
-            .collect::<String>(),
-        "a😀c"
-    );
-    assert_eq!(
-        paragraph
-            .runs()
-            .iter()
-            .map(|run| run.size)
             .collect::<Vec<_>>(),
-        [16., 32., 16.]
+        ["a", "😀", "c ", "@alice", " end"]
     );
-    let line = paragraph.layout_runs().next().unwrap();
-    let glyph = line.glyphs.iter().find(|glyph| glyph.start == 1).unwrap();
-    let point = (
-        glyph.x + glyph.w * 0.1,
-        line.line_top + line.line_height * 0.5,
+    let glyphs = |presenter: &Presenter<()>, id| {
+        presenter
+            .paragraph(id)
+            .unwrap()
+            .layout_runs()
+            .flat_map(|line| {
+                line.glyphs
+                    .iter()
+                    .map(|g| (g.start, g.x, g.w))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        glyphs(&presenter, id),
+        glyphs(&presenter, plain),
+        "the same advances as the plain field"
     );
-    let field = presenter.rect_of(id).unwrap();
-    let plain = presenter.host.kernel().find_by_test_id("plain")[0];
-    let plain = presenter.host.kernel().node_by_key(plain).unwrap().id;
-    assert!(
-        field.3 > presenter.rect_of(plain).unwrap().3 * 1.5,
-        "decorated font metrics size the intrinsic field"
+    let (field, other) = (
+        presenter.rect_of(id).unwrap(),
+        presenter.rect_of(plain).unwrap(),
     );
-    assert_eq!(presenter.field_value(id), "a😀c");
-    presenter.press_at(field.0 + point.0, field.1 + point.1, 0.);
+    assert_eq!((field.2, field.3), (other.2, other.3), "the same size");
+    let point = {
+        let line = presenter
+            .paragraph(id)
+            .unwrap()
+            .layout_runs()
+            .next()
+            .unwrap();
+        let glyph = line.glyphs.iter().find(|glyph| glyph.start == 1).unwrap();
+        (
+            field.0 + glyph.x + glyph.w * 0.1,
+            field.1 + line.line_top + line.line_height * 0.5,
+        )
+    };
+    presenter.press_at(point.0, point.1, 0.);
     assert_eq!(presenter.field_selection(id).start, 1);
     key(&mut presenter, id, "ArrowRight");
     assert_eq!(presenter.field_selection(id).start, 3);
+    assert_eq!(presenter.field_value(id), "a😀c @alice end");
 }
 
 fn boot(tag: &str, value: &str, extra: &str) -> (Presenter<()>, ViewId) {

@@ -32,7 +32,7 @@ extension CanvasesHost {
         if phase == "down" {
             guard let name = node.props["action"], !node.disabled, !node.inert, let canvas = node.inputCanvas, let e = live(canvas.id) else { return false }
             if e.controls[contact] != nil { return true }
-            _ = node.focusSurfacePointer()
+            if contact != NodeView.assistiveContact { _ = node.focusSurfacePointer() }
             e.controls[contact] = SurfaceControl(node:node.id, name:name, offset:node.convert(.zero, to:canvas), position:point)
             entry = e
         } else {

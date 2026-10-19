@@ -74,7 +74,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   }
   if (reuse) {
     if (reuse.browser === 'chrome' && JSON.stringify(reuse.launchFacts) === JSON.stringify(facts) && (reuse.mediaClock ?? 'wall') === mediaClock && (reuse.lineHeight ?? null) === lineHeight) {
-      try { await reuse.reset(); return reuse; }
+      try { await reuse.reset({ session: true }); return reuse; }
       catch (error) { await reuse.close(); throw error; }
     }
     await reuse.close();
@@ -278,8 +278,9 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
       },
-      /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
-      async reset({ keep = false, failFetch, epoch } = {}) {
+      /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). A new `session` on a reused carrier starts from the launch display preferences and pointer, never the last session's `prefer` (LLP 1069.007 D2; agent-prefer.mjs). */
+      async reset({ keep = false, failFetch, epoch, session = false } = {}) {
+        if (session) { for (const name of Object.keys(emulated)) delete emulated[name]; Object.assign(emulated, LAUNCH_MEDIA); await call('Emulation.setEmulatedMedia', { features: Object.entries(emulated).map(([name, value]) => ({ name, value })) }); await call('Emulation.setTouchEmulationEnabled', { enabled: false }); }
         // Release browser-owned input while its original document still exists.
         for (const key of heldKeys.values()) await call('Input.dispatchKeyEvent', {...key, type:'keyUp', text:undefined});
         if (contact?.mouse) await call('Input.dispatchMouseEvent', {type:'mouseReleased', x:contact.x, y:contact.y, button:'left', buttons:0, clickCount:1});

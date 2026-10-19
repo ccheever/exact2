@@ -233,42 +233,6 @@ pub fn roots_reply() -> String {
     s
 }
 
-/// The session's document calls (LLP 1069.010 D1), `owner` its number:
-/// `openDocument` (`{"path"}`: a host route — Finder, the command line,
-/// ⌘O, Open Recent, a path typed into `open-file`) answers `{"path":
-/// "doc:/…"}` for an app granted `fs.read doc:/`, and the path unchanged
-/// for one that reads its files itself; `mintDocument` (`{"path"}`: what a
-/// picker returned, exactly) answers `{"doc"}`; `forgetDocuments` drops
-/// every handle the session minted.
-pub fn documents(op: &str, request: &str, grants: &str) -> String {
-    use exact_runner::agent::{error, field_num, field_str, quote};
-    let owner = field_num(request, "owner").unwrap_or(0.0) as u64;
-    let path = field_str(request, "path").unwrap_or_default();
-    let reply = |key: &str, value: &str| {
-        let mut s = format!("{{\"{key}\":");
-        quote(value, &mut s);
-        s.push('}');
-        s
-    };
-    match op {
-        "forgetDocuments" => {
-            exact_data::documents::forget(owner);
-            "{}".into()
-        }
-        "openDocument" if !exact_runner::save_file::covered(grants, "fs.read", "doc:/") => {
-            reply("path", &path)
-        }
-        "openDocument" => match exact_data::documents::open_route(&path, owner) {
-            Some(doc) => reply("path", &doc),
-            None => reply("path", &path),
-        },
-        _ => match exact_data::documents::mint(std::path::Path::new(&path), owner) {
-            Some(doc) => reply("doc", &doc),
-            None => error(&format!("{path} is not a file or folder")),
-        },
-    }
-}
-
 /// The agent's `appFile` ([`app_file`]) and `shareFile` ([`share_copy`],
 /// through the roots of the asking session's own app, `data`'s).
 pub fn file_op<D: exact_runner::DataSource>(op: &str, request: &str, data: &D) -> String {

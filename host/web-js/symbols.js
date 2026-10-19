@@ -1,6 +1,7 @@
 // Symbol images on the JS target (`image "symbol:<role>"`, LLP 1011): the
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
-// mask over the node's tint (`AccentColor` when it sets none, LLP 1095 D8),
+// mask over the node's tint (when it sets none, its `color` where its author
+// wrote one, `data-symbol-color`, LLP 1121 stage 9 B; else `AccentColor`, LLP 1095 D8),
 // sized by its font — after each commit and navigation projection. A
 // dynamic source names a role from `table`, the plan's own strings that are
 // roles, or, for one its data names (ledger diary F10), from every role,
@@ -42,7 +43,7 @@ function everyRole() {
     refresh();
   }).finally(() => inflight.n--);
 }
-const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
+const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
 /** `table`: role → [path, filled], for sources a binding names. */
 export function symbols(table) {
   Table = table;
@@ -113,9 +114,29 @@ function template(e, v) {
   e.$template = true;
   if (fit === "scale-down") { const set = () => { const cs = getComputedStyle(e); e.style.setProperty("--exact-tint-fit", e.naturalWidth <= e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && e.naturalHeight <= e.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }; if (e.complete) set(); else e.addEventListener("load", set, { once: true }); }
 }
+// Whether a symbol under a bound `color` or a mode boundary draws in its colour
+// (LLP 1121 stage 9 B, style.rs `symbol_marks`): the nearest of its `n` such nodes
+// (`data-exact-ink`) that sets the row decides. A boundary's implied row (modes.js
+// `$xs`), which no author wrote, first: it stands where its own binding clears or is
+// refused, as the runner installs it; else a bound one while its binding has a value,
+// a clear included (`$ink`, rows.rs), as its author wrote it or not. With none, the
+// decision past them.
+const inked = (e, ink) => {
+  let n = +ink.slice(0, -1);
+  for (let p = e; p && n; p = p.parentElement) {
+    const w = p.getAttribute("data-exact-ink");
+    if (w == null) continue;
+    n--;
+    if (w.endsWith("b") && p.$xs?.[0] != null) return false;
+    if (w !== "b" && (p.$ink ?? !!p.style.getPropertyValue("color"))) return w[0] === "1";
+  }
+  return ink.endsWith("1");
+};
 function refresh() {
   for (const el of document.querySelectorAll("#exact-root img[data-app-src]")) if (el.$app === undefined) appSource(el, el.getAttribute("data-app-src"));
   for (const el of document.querySelectorAll("#exact-root img[data-symbol-path]")) {
+    const ink = el.getAttribute("data-symbol-ink");
+    if (ink) el.toggleAttribute("data-symbol-color", inked(el, ink));
     // D4/D14: absent symbol axes follow the title, including its own rows.
     if (el.parentElement?.matches("button[data-button-style]")) {
       const title = el.parentElement.querySelector(":scope > [data-exact-text]"), own = getComputedStyle(el);

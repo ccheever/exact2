@@ -1615,3 +1615,22 @@ its valid bindings disappear and return. Read it with
 - The root file's first component is the app root. A fixture component placed
   above it changes which component receives routes and may declare resources.
   Keep resources on the root and pass their values to child components.
+
+- **A game proof needs a stable source tree through its last assertion.** Do not
+  create scratch directories or run fixture-generating tests alongside it, even
+  under an ignored directory: the input reader observes directory metadata.
+  Prepare evidence paths first and keep fixture generation separate from proofs.
+
+- **A game agent page freezes its primary GPU module.** A successful dev side-module
+  rebuild does not replace that artifact for a new agent drive. Build the primary
+  module and restart the dev server before using a drive to verify Rust changes.
+
+- **Read the operation's receipt before assuming its shape.** A targeted `layout`
+  returns `node.space.viewport`. A delivered input can return `landError` when
+  settling its effects fails; it need not reject the call. Keep that receipt so a
+  proof checks the failure without sending the input twice.
+
+- Reloading a wasm-bindgen validator through a new file-URL query can reuse Bun's cached
+  JavaScript module. Load a fresh module instance and its matching wasm together; verify a
+  declaration added during the dev session without another JSON edit. The table watcher
+  uses a unique data URL for each primary build.

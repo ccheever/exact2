@@ -2556,6 +2556,18 @@ mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
 native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
 browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
+`exactViewport().pointer` and `.hover` are CSS's `pointer` (`fine`, `coarse`,
+`none`) and `hover` (`hover`, `none`) for the primary input: the web's media
+queries; `fine` and `hover` on macOS, Linux and Windows, and `coarse` and `none`
+on Android's touch screen and on a Linux one with no mouse or touchpad, read once
+at launch; on iOS `coarse` and `none`, or `fine` and
+`hover` while an iPad has a trackpad or mouse attached; `none` and `none` on tvOS.
+They change while the app runs. Show a game's on-screen stick under `coarse`
+(the starter does, `game/recipes/touch-controls.md`), never by platform. Under the
+agent each is the device class's from launch; `prefer pointer coarse` and
+`prefer hover none` substitute them. Chrome emulates a touch screen, so it takes
+`coarse` with `none` and `fine` with `hover`, and refuses `pointer none`; the
+Firefox and WebKit carriers refuse both.
 `exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canShareFiles` and `canSharePictures` (whether `share(files=…)` takes
 `app:/` files and an element's `"#id"`; the web never takes a picture),
@@ -3121,10 +3133,7 @@ end[, selectionMode]])` replaces its selection or a UTF-16 range. Selection
 is preserved by default (`select`, `start`, `end` are the other modes).
 Exact deliberately fires one `input` so its action can update the bound
 value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
-step by default. On the web, append `"undo"` after the selection mode, or call
-`setRangeText(id, text, "undo")`, to create one undoable replacement. The field keeps
-its plain source; see [decorations](contract-grammar.md#plain-textarea-decorations) for styled
-textarea ranges. That input type also covers hatch replacements and browser spelling
+step. That input type also covers hatch replacements and browser spelling
 corrections, so it does not uniquely identify this command. `select` follows
 input only when the selection changes. URL inputs trim surrounding ASCII
 whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` reports caret moves through `InputEvent`, and

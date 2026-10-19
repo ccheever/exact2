@@ -44,6 +44,16 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
 
 ## Input
 
+- **A HUD shortcut's chord does not reach the focused world.** On every host a shown
+  button's `aria-keyshortcuts` takes its chord (the key with exactly those modifiers)
+  before the canvas hears it; a button with `action=` presses that action once, a
+  disabled one nothing. While the button shows, an `Actions` binding of the same key
+  does not fire for that chord; the key with other modifiers still reaches the world.
+  The bake warns (`analyze-shortcut-world-key`); drop the key from `Actions` or the
+  shortcut. [Touch controls](../game/recipes/touch-controls.md).
+- **Show on-screen controls by `exactViewport().pointer`, never always.** A stick on a
+  desktop is a tell. The starter shows its stick and buttons under `coarse` only;
+  `prefer pointer coarse` shows them on a desktop drive.
 - **A fire button read with `held` never fires on a tap.** `tap world KeyF`, `sim.tap`
   or a quick click does nothing, while holding the key works. Cause: both edges of a
   tap can arrive before the next tick, so the key is never down at a tick; `pressed`

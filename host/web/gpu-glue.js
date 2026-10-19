@@ -708,8 +708,9 @@ function listen(entry) {
   });
   const inactive = event => blur(event);
   window.addEventListener("blur", inactive);
-  // Assistive technology activates a button without a pointer/key sequence.
-  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } });
+  // Assistive technology, and a declared shortcut (input-glue.js), activate a button without a pointer/key sequence;
+  // heard in the capture phase, as a button's own `press` stops the click's propagation (navigation.js): both run.
+  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } }, true);
   on("focusin", event => { if (editable(event.target)) blur(event); });
   on("focusout", event => {
     if (controls.size || el.contains(event.relatedTarget)) return;
@@ -952,6 +953,23 @@ const api = {
     for (const view of [...surfaces.keys()]) this.destroy(view);
   },
   finishRestart() { planCarries.clear(); },
+  // A validated asset generation can reach existing surfaces without replacing their worlds.
+  async reloadAssets(cards, names, current = () => true) {
+    await ready;
+    return exact.mutate(() => {
+      if (!current()) return false;
+      for (const name of names) if (!name.startsWith('assets/') || (!cards.get(name)?.bytes || cards.get(name).bytes.length > 64 * 1024 * 1024)) throw new Error(`missing surface asset ${name}`);
+      for (const entry of surfaces.values()) if (entry.id && !entry.terminal) {
+        for (const name of names) {
+          cancelAssets(entry, new Set([name.slice(7)]));
+          if (!gpu.gpu_asset(entry.id, name.slice(7), cards.get(name).bytes)) throw new Error(gpu.gpu_error());
+        }
+        messages(entry);
+      }
+      for (const name of names) exact.devAssets?.set(name, cards.get(name));
+      schedule(); return true;
+    });
+  },
   // Dev only; callers serialize versions. Agent pages never receive automatic swaps.
   swap(version) { return exact.mutate(() => swap(version)); },
   /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first

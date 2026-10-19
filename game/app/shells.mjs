@@ -194,6 +194,7 @@ export function gameShells(dir, game, workspace) {
     const declared = Bun.TOML.parse(readFileSync(manifest, 'utf8')).package;
     if (declared?.name !== crate) throw new Error(`game.crate ${crate} must name the package in ${appDir}/logic`);
     if (declared.workspace !== '../.shells') throw new Error(`${manifest}: set package.workspace = "../.shells" so the app owns its logic`);
+    rmSync(resolve(root, 'logic'), {recursive:true, force:true});
   } else {
     mkdirSync(logicDir, {recursive:true});
     writeChanged(manifest, logicManifest(appDir, crate), false);
@@ -271,14 +272,25 @@ fn main() {
         })
         .collect();
     let name = <Logic as Game>::NAME;
-    let text = serde_json::to_string_pretty(&serde_json::json!({name: arguments})).unwrap() + "\\n";
-    let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../surfaces.json");
-    if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
-        let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-        fs::write(&temporary, text).expect("write game surface declaration");
-        fs::rename(temporary, &path).expect("publish complete game surface declaration");
+    let publish = |file: &str, json: serde_json::Value| {
+        let text = serde_json::to_string_pretty(&json).unwrap() + "\\n";
+        let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(file);
+        if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
+            let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+            fs::write(&temporary, text).expect("write game declaration");
+            fs::rename(temporary, &path).expect("publish complete game declaration");
+        }
+    };
+    publish("../surfaces.json", serde_json::json!({name: arguments}));
+    // The keys \`Actions\` bind, for the Contract bake's shortcut warning (LLP 1132 D11).
+    let actions = <Logic as Game>::actions();
+    let mut keys = std::collections::BTreeMap::<&str, Vec<&str>>::new();
+    for (code, action) in actions.keys() {
+        keys.entry(code).or_default().push(action);
     }
+    publish("../keys.json", serde_json::json!({name: keys}));
 ${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
+    bake_files::bake_game_tables::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake tuning tables");
     println!("cargo:rerun-if-changed={}", level_bake_path());
     println!("cargo:rerun-if-changed=build.rs");
 }
@@ -557,15 +569,32 @@ export function refreshLock(dir, {source = gameRoot, env = process.env} = {}) {
 
 /** The determinism lints (app/determinism/clippy.toml) on the game's logic
  * library; tests may time themselves. @ref llp/1046.003-game-engine-as-built.explainer.md#determinism-lints-2026-09-23 */
-export function lintGame(dir, game, {env = process.env} = {}) {
+export function lintGame(dir, game, {env = process.env, render = true} = {}) {
   const result = spawnSync('cargo', ['clippy', '-p', game.crate, '--lib', '--locked', '--offline', '--quiet', '--',
     '-A', 'clippy::all', '-D', 'clippy::disallowed_methods', '-D', 'clippy::disallowed_types'], {cwd:resolve(dir, '.shells'), env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
   if (result.error || result.status !== 0) throw new Error(`determinism lints refused ${game.crate} (game/README.md, "Determinism — the contract"):\n${result.stderr || result.error?.message}`);
-  if (game.render) {
+  if (render && game.render) {
     const result = spawnSync('cargo', ['clippy', '-p', game.render.crate, '--all-targets', '--locked', '--offline', '--quiet', '--',
       '-D', 'warnings', '-A', 'clippy::disallowed_methods', '-A', 'clippy::disallowed_types'], {cwd:resolve(dir, '.shells'), env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
     if (result.error || result.status !== 0) throw new Error(`render lints refused ${game.render.crate}:\n${result.stderr || result.error?.message}`);
   }
+}
+
+/** Logic type errors and determinism violations only; no host or linker checks. */
+export function checkGame(dir, {env = process.env} = {}) {
+  const started = performance.now(), game = gameDefaults(dir)?.game;
+  if (!game) throw new Error(`${dir}: no game logic to check`);
+  env = {...env, CARGO_TARGET_DIR:env.CARGO_TARGET_DIR ?? resolve(dir, 'target')};
+  prepareGame(dir, game, gameRoot, {env});
+  const errors = [];
+  const result = spawnSync('cargo', ['check', '-p', game.crate, '--lib', '--locked', '--offline', '--quiet'], {
+    cwd:resolve(dir, '.shells'), env, encoding:'utf8', maxBuffer:64 * 1024 * 1024,
+  });
+  if (result.error || result.status !== 0) errors.push(result.stderr || result.error?.message);
+  try { lintGame(dir, game, {env, render:false}); } catch (error) { errors.push(error.message); }
+  const status = `CHECK ${errors.length ? 'FAIL' : 'PASS'} ${game.crate}: logic types and determinism (${((performance.now()-started)/1000).toFixed(3)} s)`;
+  if (errors.length) throw new Error(`${status}\n${errors.join('\n')}`);
+  return status;
 }
 
 /** A throwaway workspace of the union of every generated shell's dependencies,
@@ -642,7 +671,10 @@ export function bakeGameArt(dir, env = process.env) {
 
 if (import.meta.main) {
   const args = process.argv.slice(2), requested = args.find(arg => !arg.startsWith('--'));
-  if (args.includes('--test')) {
+  if (args.includes('--check')) {
+    try { console.log(checkGame(resolve(requested ?? '.'))); }
+    catch (error) { console.error(error.message); process.exitCode = 1; }
+  } else if (args.includes('--test')) {
     let failed=false;
     const dirs = requested ? [resolve(requested)] : ['games','bench'].flatMap(group =>
       readdirSync(resolve(gameRoot, group)).map(name => resolve(gameRoot, group, name)))

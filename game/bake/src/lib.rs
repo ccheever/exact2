@@ -5,7 +5,7 @@ pub mod compress;
 mod files;
 mod geometry;
 use files::write_changed;
-pub use files::{bake_game_level, check_size};
+pub use files::{bake_game_level, bake_game_tables, check_size};
 mod sound;
 pub use sound::sound;
 mod textures;
