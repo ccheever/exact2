@@ -391,6 +391,23 @@ impl Kernel {
         Some((left, top, right, bottom))
     }
 
+    /// A node's margins as its layout reads them under the kernel's
+    /// environment, top/right/bottom/left in points: whole cells under a
+    /// terminal's space rule (LLP 1121 stage 11 (c)), a percentage none.
+    pub fn laid_margins(&self, id: crate::ViewId) -> Option<[f32; 4]> {
+        use crate::style::cells::{COLUMN, ROW};
+        let node = self.node(id)?;
+        let (env, s) = (self.arena.env(), node.style);
+        let [t, r, b, l] = [
+            (s.margin_top, ROW),
+            (s.margin_right, COLUMN),
+            (s.margin_bottom, ROW),
+            (s.margin_left, COLUMN),
+        ]
+        .map(|(d, cell)| d.spaced(env, cell).at_basis(env, 0.0));
+        Some([t, r, b, l])
+    }
+
     /// The padding the engine laid the box out with: `resolved_padding` and
     /// what a host cover added to it (LLP 1075.003 §3.5).
     pub fn layout_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {

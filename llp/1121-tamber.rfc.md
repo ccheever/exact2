@@ -5139,8 +5139,8 @@ Built to theme2's 15:32 approval, on B1 and B2.
     14, 12 and 10 px are 1 row each; across, a `ch` is a column (12 px, a column and a half, is one).
   - px and cells agree by construction, so the painter, scroll, `scrollIntoView`, follow-end, the collections' windows
     and the inline transcript need no change. One reader of a margin outside layout follows the rule too: a
-    virtualized list's keyed jump aligns a row by its root's margins (`runner/.../into_view.rs`), now in whole cells
-    when the kernel's rule is on. Turning a cell rule (spaces or borders) on or off after a layout restyles every box. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
+    virtualized list's keyed jump aligns a row by its root's margins (`runner/.../into_view.rs`), now read from the
+    kernel as laid out (`Kernel::laid_margins`) when the kernel's rule is on. Turning a cell rule (spaces or borders) on or off after a layout restyles every box. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
     not landed); Astra's round 1 found it drifted from px cumulatively (item k of a gap-sm list at px 24k, painted on
     row k).
   - The visible change, accepted: a box padded `space.sm` shrinks to its content (the `even` box is its child's two

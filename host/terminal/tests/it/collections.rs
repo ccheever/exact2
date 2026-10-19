@@ -233,32 +233,36 @@ fn followed_end_tracks_changed_terminal_list_padding() {
 }
 
 /// LLP 1121 stage 11 (c): a row's margin is whole cells, as the kernel lays
-/// it out, when a keyed jump aligns it too. Rows with 8 px of bottom margin
-/// (half a row: none, laid out) end at row 30 on the list's last row.
+/// it out, when a keyed jump aligns it too: rows with 8 px of bottom margin
+/// (half a row: none, laid out) end at row 30 on the list's last row, and
+/// rows with 14 px (a row) put row 30's text on the last row, its margin
+/// below. (A windowed row's root takes a number only; the kernel's laid
+/// margins are read all the same.)
 #[test]
 fn a_keyed_jump_aligns_rows_by_their_margins_in_whole_cells() {
     let numbers = (0..200)
         .map(|n| n.to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    let source = format!(
-        "component App\n  action jump()\n    scrollIntoView(\"items\", 30, block=\"end\")\n  view\n    column width=\"100%\" height=\"100%\"\n      list id=\"items\" virtualized=true estimated-item-height=16 flex=1 min-height=0 testId=\"items\"\n        for n in [{numbers}] key=n\n          text `row ${{n}}` margin-bottom=8 testId=`row-${{n}}`\n"
-    );
-    // (A terminal entry writes cells; an app's shared plan, px.)
-    let plan = contract::compile(&source).unwrap();
-    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 10).unwrap();
-    host.arm = false;
-    let mut vt = Vt::new(&mut host);
-    vt.render(&mut host);
-    assert!(vt.text(false).contains("row 0"), "{}", vt.text(false));
-    host.act("jump");
-    vt.render(&mut host);
-    let text = vt.text(false);
-    let rows: Vec<&str> = text
-        .lines()
-        .map(|l| l.trim_end_matches(['│', '┃', ' ']))
-        .filter(|l| !l.is_empty())
-        .collect();
-    assert_eq!(rows.last(), Some(&"row 30"), "{text}");
-    assert_eq!(rows.first(), Some(&"row 21"), "{text}");
+    for margin in ["8", "14"] {
+        let source = format!(
+            "component App\n  action jump()\n    scrollIntoView(\"items\", 30, block=\"end\")\n  view\n    column width=\"100%\" height=\"100%\"\n      list id=\"items\" virtualized=true estimated-item-height=16 flex=1 min-height=0 testId=\"items\"\n        for n in [{numbers}] key=n\n          text `row ${{n}}` margin-bottom={margin} testId=`row-${{n}}`\n"
+        );
+        // (A terminal entry writes cells; an app's shared plan, px.)
+        let plan = contract::compile(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 10).unwrap();
+        host.arm = false;
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        host.act("jump");
+        vt.render(&mut host);
+        let text = vt.text(false);
+        // The screen's last row itself.
+        let last = text
+            .lines()
+            .nth(9)
+            .unwrap_or("")
+            .trim_end_matches(['│', '┃', ' ']);
+        assert_eq!(last, "row 30", "margin {margin}:\n{text}");
+    }
 }

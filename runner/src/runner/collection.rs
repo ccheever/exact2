@@ -107,6 +107,7 @@ impl<D: DataSource> Runner<D> {
         let mut tree = self.tree.take().expect("booted");
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
+            let cell_margins = |view| super::collection::cell_margins(&self.kernel, view);
             let scroll_margin = |view| scroll_margin(&self.kernel, view);
             let scroll_padding = |view| scroll_padding(&self.kernel, view);
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
@@ -114,7 +115,9 @@ impl<D: DataSource> Runner<D> {
             update.reuse = self.reuse;
             update.scroll_padding = Some(&scroll_padding);
             update.scroll_margin = Some(&scroll_margin);
-            update.cell_spaces = self.kernel.arena().env().cell_spaces;
+            if self.kernel.arena().env().cell_spaces {
+                update.cell_margins = Some(&cell_margins);
+            }
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
                     (
@@ -440,6 +443,14 @@ pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f6
         exact_kernel::Dimension::Points(n) => n as f64,
         _ => 0.0,
     })
+}
+
+/// A row root's margins as the kernel laid them out (whole cells under a
+/// terminal's space rule), for a keyed list jump.
+pub(super) fn cell_margins(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    kernel
+        .laid_margins(view)
+        .map_or([0.0; 4], |m| m.map(f64::from))
 }
 
 /// The expanded target box used by a keyed list jump.
