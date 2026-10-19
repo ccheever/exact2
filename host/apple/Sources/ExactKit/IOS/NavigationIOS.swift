@@ -173,6 +173,13 @@ final class RouteController: UIViewController {
         snapshot.setPaintForeground()
     }
 
+    /// Where the remote's focus goes back to after the route moved into a
+    /// navigation controller (HeldStackIOS `KeptFocus`).
+    weak var focusReturn: UIView?
+    override var preferredFocusEnvironments: [any UIFocusEnvironment] {
+        focusReturn.map { [$0] } ?? super.preferredFocusEnvironments
+    }
+
     /// The stack it is in: its navigation controller, or a tab's held stack.
     var stack: UIViewController? { navigationController ?? (parent as? HeldStack) }
 
@@ -222,6 +229,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tabNavigations: [UInt32: UINavigationController] = [:]
     /// The tabs whose stacks have no navigation controller yet (HeldStackIOS).
     var heldTabs: [UInt32: HeldStack] = [:]
+    /// A sync is armed for when the transition a held tab waits on ends.
+    var syncAfterTransitionArmed = false
     var tabPanels: [UInt32] = []
     /// How many routes the selected stack declared at the last projection.
     private var selectedRouteCount = 0
@@ -541,7 +550,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { syncTabs(p) }
         // Initial content draws before a presentation covers it.
         if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
-        guard !changing, !presenter.modals.inTransition else {
+        // The selected tab held while its navigation controller waits for
+        // a transition in the way (`syncTabs`, HeldStackIOS) shows nothing
+        // new until it is built.
+        let heldWaits = primaryHeld != nil && needsNavigation(Array(wanted[parts[0]]))
+        guard !changing, !presenter.modals.inTransition, !heldWaits else {
             pendingSync = true
             owePress()
             return

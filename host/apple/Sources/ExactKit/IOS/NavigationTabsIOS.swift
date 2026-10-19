@@ -207,9 +207,11 @@ extension NavigationHost {
         guard tabs.panels.allSatisfy({ tabStack($0.id) != nil }) else { return }
         // A held tab that now pushes or shows a bar gets its navigation
         // controller, its route moved in first: the selected tab's push
-        // animates from it in `sync` (HeldStackIOS).
+        // animates from it in `sync` (HeldStackIOS). Not while a transition
+        // runs, whose controllers it would replace: it waits for its end.
+        let waits = realizeWaits
         for (index, panel) in tabs.panels.enumerated() where heldTabs[panel.id] != nil && needsNavigation(base(p.wanted[index])) {
-            realize(panel.id, why: "it pushes or shows a bar")
+            if waits { syncAfterTransition() } else { realize(panel.id, why: "it pushes or shows a bar") }
         }
         let navs = tabs.panels.compactMap { tabStack($0.id) }
         // A tab's stack is empty until the runner builds the tab, when it is
@@ -218,7 +220,7 @@ extension NavigationHost {
         // built with them would (`makeNavigation`).
         let fill = { (stack: UIViewController, routes: [RouteController]) in
             guard stack.stackRoutes.isEmpty, let first = routes.first else { return }
-            if let held = stack as? HeldStack { return self.show(routes, in: held) }
+            if let held = stack as? HeldStack { return self.needsNavigation(routes) ? () : self.show(routes, in: held) }
             guard let nav = stack as? UINavigationController else { return }
             nav.setNavigationBarHidden(!(self.barShows(nav) && self.bar(of: first.node, pushed: false) != .hidden), animated: false)
             self.prepareRoutes(routes, in: nav)
@@ -228,7 +230,7 @@ extension NavigationHost {
         for (index, stack) in navs.enumerated() where index != p.at {
             let routes = base(p.wanted[index])
             fill(stack, routes)
-            if let held = stack as? HeldStack { show(routes, in: held); continue }
+            if let held = stack as? HeldStack { if !needsNavigation(routes) { show(routes, in: held) }; continue }
             guard let nav = stack as? UINavigationController else { continue }
             prepareRoutes(routes, in: nav)
             if nav.viewControllers.count != routes.count || !zip(nav.viewControllers, routes).allSatisfy({ $0 === $1 }) {
@@ -239,7 +241,7 @@ extension NavigationHost {
         // A tab selected for the first time brings its routes: its bar is
         // projected before it is shown, where nothing animates in.
         fill(navs[p.at], base(p.wanted[p.at]))
-        if routerTab != p.at { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
+        if routerTab != p.at, !(navs[p.at] is HeldStack && needsNavigation(base(p.wanted[p.at]))) { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
         // @ref LLP 1038 D6 — a tab change swaps immediately.
         if let container = tabController, container.selectedIndex != p.at {
             container.selectedIndex = p.at
@@ -388,7 +390,7 @@ extension NavigationHost {
     /// the bar. So the scroller is pulled past its top and put at rest there,
     /// unanimated: no frame shows the pull. This is the one place Exact moves
     /// a large title itself.
-    private func restAtTop(_ sv: UIScrollView, in c: RouteController) {
+    func restAtTop(_ sv: UIScrollView, in c: RouteController) {
         sv.contentOffset.y = -sv.adjustedContentInset.top
         // tvOS has no large titles.
         #if !os(tvOS)

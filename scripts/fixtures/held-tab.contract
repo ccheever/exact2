@@ -1,11 +1,14 @@
 // LLP 1075.003 §3.7: a tab whose stack shows no bar and has pushed nothing
 // holds its route without a navigation controller, which is built when the
 // stack first pushes or its route first shows a bar (HeldStackIOSTests).
-// Plain's root has no header until `titled`; its field keeps the focus as
-// the route moves into the navigation controller. Titled starts with a bar.
+// Plain's root has no header until `titled`, a level-1 heading whose large
+// title collapses with the scroller right after it; its field keeps the
+// focus as the route moves into the navigation controller. Open Two pushes
+// two routes in one batch. Titled starts with a bar.
 routes nav
   tab plain "/"
     detail "/detail"
+      more "/detail/more"
     sheet "/sheet"
   tab titled "/titled"
 
@@ -16,6 +19,8 @@ component HeldTab
     nav = select(nav, name)
   action open
     nav = push(nav, "/detail")
+  action openTwo
+    nav = push(push(nav, "/detail"), "/detail/more")
   action openSheet
     nav = push(nav, "/sheet")
   action back
@@ -33,21 +38,23 @@ component HeldTab
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
-                if e.name == "titled" or e.name == "detail" or (e.name == "plain" and titled)
+                if e.name == "titled" or e.name == "detail" or e.name == "more" or (e.name == "plain" and titled)
                   header display="flex" align-items="center" padding="8px 16px"
-                    if e.name == "detail"
-                      button id="back" press=back testId="back" aria-label="Back"
+                    if e.name == "detail" or e.name == "more"
+                      button id="back" press=back testId=`back-${e.name}` aria-label="Back"
                         text "Back"
-                    text e.name role="heading" aria-level=1
+                    text e.name role="heading" aria-level=(e.name == "plain" or e.name == "titled" ? 1 : 2)
                 if e.name == "plain"
-                  input value=draft input=write placeholder="Draft" testId="draft"
-                  button press=open testId="open"
-                    text "Open"
-                  button press=openSheet testId="open-sheet"
-                    text "Sheet"
-                  button press=title testId="title"
-                    text "Title"
                   scroll testId="list" flex=1 min-height=0
+                    input value=draft input=write placeholder="Draft" testId="draft"
+                    button press=open testId="open"
+                      text "Open"
+                    button press=openTwo testId="open-two"
+                      text "Open two"
+                    button press=openSheet testId="open-sheet"
+                      text "Sheet"
+                    button press=title testId="title"
+                      text "Title"
                     column height=1600
                 if e.name == "sheet"
                   button id="back" press=back testId="close"

@@ -4,11 +4,11 @@
 // whose view is in a window lays out a full-screen SwiftUI host for its
 // bottom toolbar and search (`_UIFloatingBarContainerView`), toolbar or not,
 // about 0.9 MB in euxy. A tab the runner has not built yet has one from the
-// start. The navigation controller is built (`realize`) when
-// the stack first pushes, when its route first shows a bar, or when a hatch
-// asks for the tab's controller (`ExactTab.controller`), and the route moves
-// into it within the window, before a push animates. It is never taken
-// down again.
+// start. The navigation controller is built (`realize`) when the stack first
+// pushes or its route first shows a bar, once no transition is running, or
+// when a hatch asks for the tab's controller (`ExactTab.controller`); the
+// route moves into it within the window, before a push animates. It is never
+// taken down again.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -123,31 +123,64 @@ extension NavigationHost {
         return realize(panel, why: "a hatch asked for it")
     }
 
+    /// A transition whose controllers a tab's replacement would cut into: a
+    /// sheet presenting or dismissing (interactively too), a push or pop on
+    /// any stack, the tab controller's own.
+    var realizeWaits: Bool {
+        presenter.modals.inTransition || tabController?.transitionCoordinator != nil
+            || (Array(tabNavigations.values) + presentedNavigations).contains { $0.transitionCoordinator != nil }
+    }
+
+    /// A held tab that waited (`realizeWaits`) is built by a sync once the
+    /// transition is over, whatever batch comes or does not.
+    func syncAfterTransition() {
+        guard !syncAfterTransitionArmed else { return }
+        syncAfterTransitionArmed = true
+        let resync = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.syncAfterTransitionArmed = false
+                self.sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
+            }
+        }
+        let coordinator = tabController?.transitionCoordinator
+            ?? (Array(tabNavigations.values) + presentedNavigations).lazy.compactMap(\.transitionCoordinator).first
+        if let coordinator { coordinator.animate(alongsideTransition: nil) { _ in resync() } }
+        // A sheet's presentation between coordinators: look again shortly.
+        else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { resync() } }
+    }
+
     /// Build a held tab's navigation controller, holding the route the tab
-    /// showed, in the tab's place in the tab controller. The route's node
-    /// stays in the window throughout, where it was, while its controller's
-    /// view changes containers: UIKit lays a navigation controller's top out
-    /// in a wrapper it makes outside the window, and a field leaving the
-    /// window loses the focus. A push that follows starts from it, unmoved.
+    /// showed, in the tab's place in the tab controller. The controller has
+    /// its root before it is laid out in the window (`installPrimary`).
+    /// While UIKit moves the route's view into it, through a wrapper it
+    /// makes outside the window, the route's node waits in the window where
+    /// it is: a field in it keeps the focus, and VoiceOver's and the remote's
+    /// focus are given back to what had them. A large title the bar now shows
+    /// opens as it would have had the content been there (`restAtTop`).
     @discardableResult
     func realize(_ panel: UInt32, why: String) -> UINavigationController? {
         if let nav = tabNavigations[panel] { return nav }
         guard let held = heldTabs.removeValue(forKey: panel) else { return nil }
         let route = held.release()
-        var parked: (node: NodeView, frame: CGRect)?
-        if let route, route.node.window != nil, let park = tabOwner?.view {
-            parked = (route.node, route.node.frame)
-            let frame = route.node.convert(route.node.bounds, to: park)
-            park.addSubview(route.node)
-            route.node.frame = frame
+        let index = tabPanels.firstIndex(of: panel) ?? -1
+        // Where Exact keeps it before the `navigation` hatch runs: a hook
+        // that reads the tab's controller again gets this one.
+        let nav = makeNavigation(first: route?.node) { [self] nav in
+            held.built = nav
+            tabNavigations[panel] = nav
         }
-        let nav = makeNavigation(first: route?.node)
-        held.built = nav
         watchPops(nav)
         // The item, with whatever a hatch set on it, is the tab's still.
         nav.tabBarItem = held.tabBarItem
-        tabNavigations[panel] = nav
-        let index = tabPanels.firstIndex(of: panel) ?? -1
+        // A scroller at its start stays there under a large title (`restAtTop`).
+        let scroller = route.flatMap { contentScroller(of: $0) }.flatMap(shownScroll)
+        let atStart = scroller.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
+        let kept = route.flatMap { KeptFocus($0.node) }
+        let routes = route.map { [$0] } ?? []
+        prepareRoutes(routes, in: nav)
+        nav.setViewControllers(routes, animated: false)
+        recordOwned(nav)
         if let tabs = tabController, var all = tabs.viewControllers, let at = all.firstIndex(where: { $0 === held }) {
             let selected = tabs.selectedIndex
             all[at] = nav
@@ -155,14 +188,14 @@ extension NavigationHost {
             if tabs.selectedIndex != selected { tabs.selectedIndex = selected }
             tabs.view.layoutIfNeeded()
         }
-        let routes = route.map { [$0] } ?? []
-        prepareRoutes(routes, in: nav)
-        nav.setViewControllers(routes, animated: false)
-        recordOwned(nav)
         nav.view.layoutIfNeeded()
-        if let (node, frame) = parked, let route {
+        if let route, let kept {
             route.mount()
-            node.frame = frame
+            kept.restore(in: route)
+            nav.view.layoutIfNeeded()
+            #if !os(tvOS)
+            if atStart, let sv = contentScroller(of: route).flatMap(shownScroll) { restAtTop(sv, in: route) }
+            #endif
         }
         // Navigation follows it only now: UIKit showing its root as it
         // appears is not a pop from the route the root names.
@@ -171,6 +204,50 @@ extension NavigationHost {
         coversChanged()
         presenter.session?.log("navigation: tab \(index) builds its navigation controller (\(why))")
         return nav
+    }
+}
+
+/// A route's node waiting in its window while its controller's view changes
+/// containers, and the focus it held: the first responder, VoiceOver's
+/// element and the remote's item, given back where the move took them.
+struct KeptFocus {
+    /// VoiceOver's focused element and the announcement that moves it, for tests.
+    nonisolated(unsafe) static var voiceOverFocus: () -> Any? = { UIAccessibility.focusedElement(using: .notificationVoiceOver) }
+    nonisolated(unsafe) static var announce: (Any?) -> Void = { UIAccessibility.post(notification: .layoutChanged, argument: $0) }
+    let node: NodeView, frame: CGRect
+    weak var responder: UIResponder?
+    weak var voiceOver: NSObject?
+    weak var remote: UIView?
+
+    /// Nil for a node out of any window, which has no focus to keep.
+    init?(_ node: NodeView) {
+        guard let window = node.window else { return nil }
+        self.node = node
+        frame = node.frame
+        let inside = { (view: UIView?) in view.map { $0.isDescendant(of: node) } == true }
+        responder = (FirstResponder.current as? UIView).flatMap { inside($0) ? $0 : nil }
+        let spoken = Self.voiceOverFocus() as? NSObject
+        voiceOver = inside(spoken as? UIView ?? (spoken as? UIAccessibilityElement)?.accessibilityContainer as? UIView) ? spoken : nil
+        let focused = UIFocusSystem.focusSystem(for: window)?.focusedItem as? UIView
+        remote = inside(focused) ? focused : nil
+        let at = node.convert(node.bounds, to: window)
+        window.addSubview(node)
+        node.frame = at
+    }
+
+    /// The node is in its route again: the focus it held is its own again.
+    func restore(in route: RouteController) {
+        node.frame = frame
+        if let responder, !responder.isFirstResponder, (responder as? UIView)?.window != nil { _ = responder.becomeFirstResponder() }
+        if let voiceOver, (voiceOver as? UIView ?? (voiceOver as? UIAccessibilityElement)?.accessibilityContainer as? UIView)?.window != nil {
+            Self.announce(voiceOver)
+        }
+        if let remote, let window = remote.window, UIFocusSystem.focusSystem(for: window)?.focusedItem !== remote {
+            route.focusReturn = remote
+            route.setNeedsFocusUpdate()
+            route.updateFocusIfNeeded()
+            route.focusReturn = nil
+        }
     }
 }
 #endif

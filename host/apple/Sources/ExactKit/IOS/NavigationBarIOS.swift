@@ -662,7 +662,9 @@ extension NavigationHost {
         }
     }
 
-    func makeNavigation(first: NodeView?) -> UINavigationController {
+    /// `publish` records the controller where Exact keeps it before the
+    /// hatch runs, which may ask for it again (`HeldStackIOS`'s `realize`).
+    func makeNavigation(first: NodeView?, publish: (UINavigationController) -> Void = { _ in }) -> UINavigationController {
         let nav = UINavigationController()
         stackCount += 1
         let stack = NavigationStack(showsBar: true, order: stackCount)
@@ -673,6 +675,7 @@ extension NavigationHost {
         nav.navigationBar.prefersLargeTitles = true
         #endif
         titleInk(nav)
+        publish(nav)
         if presenter.session?.natives.hatchesConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true
