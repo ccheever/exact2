@@ -59,6 +59,10 @@
 //! wide content in ratio items capped by max-height. Controls cover block,
 //! flex and grid items, columns, definite and automatic heights, specified
 //! widths, bounds, explicit minima, overflow, box sizing and reversed rows.
+//! `Chrome 151 ratio max-height growth` uses that version and date for
+//! growing auto-height items, with block, flex and grid contents and parents.
+//! Controls include explicit and stretched heights, equal height bounds,
+//! minima, overflow, padding, flex bases, width caps and shrinking rows.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,

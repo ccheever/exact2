@@ -1769,12 +1769,14 @@ height bounds, wrapping, alignment, column direction, and flex and grid items.
 
 ## Patch 57: preserve the inline content minimum beyond a ratio height cap
 
-A non-replaced container's `ContentSize` probe keeps its authored maximum
-width instead of the width transferred from `max-height`. Block uses the
-same ratio-aware content measurement as flex and grid: a derived width is
-an automatic minimum that wider content can exceed, unless an explicit
-inline minimum or scrolling disables it. Block and flex also keep the
-transferred maximum out of the probe's min/max short circuit.
+A non-replaced container's `ContentSize` probe with a supplied height keeps
+its authored maximum width instead of the width transferred from `max-height`.
+The automatic inline minimum's probe supplies its clamped definite height;
+an indefinite-height probe retains the transferred cap, including for a
+flex basis. Block uses the same ratio-aware content measurement as flex and
+grid: a derived width is an automatic minimum that wider content can exceed,
+unless an explicit inline minimum or scrolling disables it. Block and flex also keep the
+transferred maximum out of a supplied-height probe's min/max short circuit.
 
 A row item with a definite height keeps that wider content minimum when
 flex chooses its automatic minimum. Specified widths and maximum widths
@@ -1797,6 +1799,17 @@ An auto-height row item stays 60×60, as does the column analogue.
 `browser_replaced::constraints::ratio_cross_maximum_still_caps_replaced_minima`
 holds eight measurements of canvas and loaded-image items (natural size
 300×150), including 60×60 rows and columns, a width cap and a zero minimum.
+
+The 51 literal `Chrome 151 ratio max-height growth` cases use the same Chrome
+version and date. They hold growth in 200px rows with block, flex and grid
+items and outer parents. Removing the transferred cap from an indefinite-height
+basis probe froze the reported item at 60×60 instead of Chrome's 200×60;
+25 cases (33 frames) failed before restricting the uncapped probe to a
+supplied height. Controls cover zero minima, hidden overflow, padding under
+both box-sizing modes, flex bases, a width cap, another ratio, minimum heights,
+shrinking rows, explicit heights and definite stretch. Equal minimum and
+maximum heights without an authored height keep 60×60 in a 50px row, as
+Chrome and `origin/main` do; they do not gain a definite-height exception.
 
 ## Cargo workspace boundary
 

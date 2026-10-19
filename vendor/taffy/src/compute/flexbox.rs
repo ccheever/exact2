@@ -255,8 +255,8 @@ pub fn compute_flexbox_layout(
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         raw_max_size,
     );
-    // EXACT PATCH 57: transferred height bounds must not short-circuit the inline content probe.
-    if inputs.sizing_mode == SizingMode::ContentSize && !style.is_compressible_replaced() {
+    // EXACT PATCH 57: with a supplied height, transferred bounds must not short-circuit the inline content probe.
+    if inputs.sizing_mode == SizingMode::ContentSize && !style.is_compressible_replaced() && known_dimensions.height.is_some() {
         max_size.width = raw_max_size.width;
     }
     let clamped_style_size = if inputs.sizing_mode == SizingMode::InherentSize {

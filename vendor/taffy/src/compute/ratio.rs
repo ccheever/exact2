@@ -147,11 +147,12 @@ pub(crate) fn container_sizes_through_ratio(
     // the ratio transfer (Flexbox §4.5). A known width would skip content
     // measurement; a floor leaves it independent of the transferred size.
     if sizing_mode == crate::SizingMode::ContentSize && !style.is_compressible_replaced() && given.width.is_none() {
-        // EXACT PATCH 57: Chrome 151 preserves a non-replaced box's intrinsic
-        // inline content width beyond max-height's ratio transfer. Only the
-        // authored max-width caps this probe; the parent still applies its
-        // transferred bounds when choosing the box's used size.
-        max.width = authored_max_width;
+        // EXACT PATCH 57: with a definite height, Chrome 151 preserves wider
+        // inline content beyond max-height's transfer. An indefinite-height
+        // probe retains that cap, including when measuring a flex basis.
+        if given.height.is_some() {
+            max.width = authored_max_width;
+        }
         let overflow = style.overflow();
         if style.min_size().width.is_auto() && !overflow.x.is_scroll_container() && !overflow.y.is_scroll_container() {
             if let Some(width) = size.width.take() {
@@ -230,9 +231,8 @@ pub(crate) fn minimum_ratio_width(
     let min_height = style.min_size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
         .maybe_add(adjustment.height);
     let max = style.max_size().maybe_resolve(parent, |v, b| tree.calc(v, b)).maybe_add(adjustment);
-    // EXACT PATCH 50: the content-only probe omits the definite height's
-    // transfer (CSS Sizing 4 §5.1, Flexbox §4.5). Keep the larger suggestion,
-    // transferring the clamped height in the box the ratio relates.
+    // EXACT PATCH 50: keep the larger of content and the clamped height's
+    // transfer in the box the ratio relates (CSS Sizing 4 §5.1, Flexbox §4.5).
     // EXACT PATCH 54: flex layout has already applied the height's bounds.
     let height = used_height.or_else(|| {
         style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
@@ -242,7 +242,9 @@ pub(crate) fn minimum_ratio_width(
     drop(style);
     let intrinsic = tree.measure_child_size(
         node,
-        Size::NONE,
+        // EXACT PATCH 57: this probe has a definite height. Its transfer is
+        // an automatic width floor; content may exceed the transferred cap.
+        Size { width: None, height: Some(height) },
         parent,
         Size { width: crate::AvailableSpace::MinContent, height: crate::AvailableSpace::MinContent },
         crate::SizingMode::ContentSize,
