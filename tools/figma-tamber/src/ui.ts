@@ -51,11 +51,11 @@ async function pair() {
 async function pullDesign() {
   const { text } = await call(paired, '/__tamber', { method: 'export', kind: 'dtcg', client: 'figma' });
   const { conflicts, contexts, unread, drops } = await ask({ type: 'check', text }, 'checked');
-  const lines = conflicts.map((c: any) => `${c.collection}: ${c.variable} (${c.mode})${c.gone ? ', which the design no longer has' : ''}`);
+  const lines = conflicts.map((c: any) => `${c.collection}: ${c.variable} (${c.mode})${c.gone ? ', which the design no longer has' : c.figmaOnly ? ', changed in Figma only' : ''}`);
   const moved = [...contexts.added.map((c: string) => `+ ${c}`), ...contexts.removed.map((c: string) => `- ${c}`)];
   const gone = conflicts.some((c: any) => c.gone), kept = conflicts.some((c: any) => !c.gone);
   const after = [kept ? 'push the values the design still has, then pull' : '', gone ? 'a value the design no longer has can\'t be pushed: it stays until the next pull removes it' : ''].filter(Boolean).join('; ');
-  if (conflicts.length && !confirm(`${conflicts.length} value(s) changed in Figma and in the design since the last pull:\n${lines.join('\n')}\n\nOK takes the design's; Cancel keeps Figma's (${after}).`)) { show(`kept Figma's: ${after}`); return; }
+  if (conflicts.length && !confirm(`${conflicts.length} value(s) changed in Figma since the last pull, which this pull writes over:\n${lines.join('\n')}\n\nOK takes the design's; Cancel keeps Figma's (${after}).`)) { show(`kept Figma's: ${after}`); return; }
   // Values the plugin could not read (an alias to nowhere, a mode or collection gone): a pull writes over them unseen.
   if (unread.length && !confirm(`${unread.length} value(s) in Figma could not be read, so a pull can't tell whether they changed:\n${unread.map((u: any) => `${u.variable}${u.mode ? ` (${u.mode})` : ''}: ${u.why}`).join('\n')}\n\nOK writes the design's over them.`)) { show('not pulled: values that could not be read'); return; }
   if (moved.length && !confirm(`The design's contexts changed since the last pull:\n${moved.join('\n')}\n\nOK rewrites the Tamber collections: a mode or collection the design no longer has goes, and what is bound to it in this file loses it.`)) { show('not pulled: the contexts changed'); return; }

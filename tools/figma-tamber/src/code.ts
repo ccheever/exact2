@@ -3,7 +3,7 @@
 // for a push. The UI (ui.ts) holds the server, the paired token and every
 // request; this thread only touches the document, never the network. Each
 // reply carries the request's `id`, an error too.
-import { conflicts, contextsMoved, pull, push, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, pull, push, same, type FigmaValue, type Plan } from './mapping';
 
 declare const figma: any;
 declare const __html__: string;
@@ -175,7 +175,8 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
       if (fv && fv.resolvedType !== v.type) { did(fv.remove()); fv = undefined; }
       if (!fv) fv = did(figma.variables.createVariable(v.name, col, v.type));
       if (fv.getSharedPluginData?.(KEY, 'token') !== v.token) did(fv.setSharedPluginData(KEY, 'token', v.token));
-      for (const mode of c.modes) did(fv.setValueForMode(ids[mode], v.values[mode]));
+      // (only a value that differs: one already the design's is no change)
+      for (const mode of c.modes) if (fv.valuesByMode?.[ids[mode]] === undefined || !same(fv.valuesByMode[ids[mode]], v.values[mode])) did(fv.setValueForMode(ids[mode], v.values[mode]));
     }
     c.id = col.id;
     c.contextIds = Object.fromEntries(c.modes.map(mode => [c.contexts[mode], ids[mode]]));

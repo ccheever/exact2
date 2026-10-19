@@ -242,13 +242,16 @@ export interface Conflict {
   mode: string;
   /** The design has no such value now (the token or the context went). */
   gone: boolean;
+  /** Changed in Figma only: the pull puts the design's (unchanged) value back over it. */
+  figmaOnly?: boolean;
 }
 
-/** Values both Figma (`now`) and the design (`fresh`, a new export) changed
- * since the pull (`plan`), by token and context, whatever either's layout
- * of collections: the person keeps Figma's (pushed as a proposal) or takes
- * Tamber's. A Figma edit whose token or context the design no longer has is
- * one too. */
+/** Figma's edits since the pull (`plan`) that a pull of `fresh` (a new
+ * export) writes over, by token and context, whatever either's layout of
+ * collections: a value both changed, one only Figma changed (`figmaOnly`:
+ * the design's unchanged value goes back over it), or one whose token or
+ * context the design no longer has (`gone`). The person keeps Figma's
+ * (pushed as a proposal) or takes Tamber's. */
 export function conflicts(plan: Plan, fresh: Json, now: Record<string, Record<string, Record<string, FigmaValue>>>): Conflict[] {
   const design = tokensOf(fresh);
   const out: Conflict[] = [];
@@ -260,7 +263,7 @@ export function conflicts(plan: Plan, fresh: Json, now: Record<string, Record<st
         const t = design[context]?.[v.token], f = t && toFigma(t);
         const value = f && !('why' in f) ? f.value : undefined;
         if (value === undefined) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: true });
-        else if (!same(was, value) && !same(figma, value)) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: false });
+        else if (!same(figma, value)) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: false, ...(same(was, value) ? { figmaOnly: true } : {}) });
       }
     }
   }

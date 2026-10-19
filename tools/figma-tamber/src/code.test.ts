@@ -533,3 +533,22 @@ test('round 8 (Grok): a default mode of the person\'s own is never renamed or ta
   expect(col.modes[0]).toEqual({ modeId: mine, name: 'Local review' });
   expect(f.variables.every(v => v.valuesByMode[mine] === undefined)).toBe(true);
 });
+
+test('round 9: a Figma-only edit is listed before a pull of the unchanged export; identical values are not written, so a refused save undoes nothing', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], fill = f.variables.find(v => v.name === 'accent/fill'), first = col.modes[0].modeId, was = fill.valuesByMode[first];
+  fill.valuesByMode[first] = { r: 1, g: 0, b: 0, a: 1 };
+  const checked = await send({ type: 'check', text: TEXT }, 'checked');
+  expect(checked.conflicts.map((c: any) => [c.variable, c.figmaOnly])).toEqual([['accent/fill', true]]);
+  fill.valuesByMode[first] = was;
+  // A new export that changes only its metadata: every value as it is, so none is written; the save refused: no undo.
+  let undos = 0, writes = 0;
+  const trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { undos++; trigger(); };
+  for (const v of f.variables) { const set = v.setValueForMode; v.setValueForMode = (...a: any[]) => { writes++; return set(...a); }; }
+  const meta = variant(doc => { doc.$description = 'another export'; });
+  f.figma.root.setSharedPluginData = () => { throw new Error('read-only file'); };
+  await expect(send({ type: 'apply', text: meta }, 'applied')).rejects.toThrow('read-only file');
+  expect([writes, undos]).toEqual([0, 0]);
+});

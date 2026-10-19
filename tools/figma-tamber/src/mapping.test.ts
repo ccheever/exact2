@@ -49,13 +49,18 @@ test('split collections push back to their contexts', () => {
   expect(tokensOf(JSON.parse(text))['dark-style=black, light']['accent.fill'].$value.hex).toBe('#1d9bf0');
 });
 
-test('a value both Figma and the design moved since the pull is a conflict; one only, none', () => {
+test('a value Figma changed is one a pull writes over: both changed, or Figma only; the design only, none', () => {
   const plan = pull(DOC, 10);
   const moved = JSON.parse(TEXT);
   tokensOf(moved)['dark-style=black, light']['accent.fill'].$value = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' };
   const red = { r: 1, g: 0, b: 0, a: 1 };
   const figma = held(plan, (_c, v, m, x) => (v === 'accent/fill' && (m === 'dark-style=black, light' || m === 'dark-style=dim, light') ? red : x));
-  expect(conflicts(plan, moved, figma)).toEqual([{ token: 'accent.fill', context: 'dark-style=black, light', collection: 'Tamber', variable: 'accent/fill', mode: 'dark-style=black, light', gone: false }]);
+  expect(conflicts(plan, moved, figma)).toEqual([
+    { token: 'accent.fill', context: 'dark-style=black, light', collection: 'Tamber', variable: 'accent/fill', mode: 'dark-style=black, light', gone: false },
+    { token: 'accent.fill', context: 'dark-style=dim, light', collection: 'Tamber', variable: 'accent/fill', mode: 'dark-style=dim, light', gone: false, figmaOnly: true },
+  ]);
+  // The design's own change, Figma's left alone: nothing written over.
+  expect(conflicts(plan, moved, held(plan))).toEqual([]);
 });
 
 test('conflicts are by token and context, whatever the layout; a Figma edit the design dropped is one', () => {
@@ -65,9 +70,11 @@ test('conflicts are by token and context, whatever the layout; a Figma edit the 
   delete moved.modifiers.mode.contexts['dark-style=black, dark'];
   const red = { r: 1, g: 0, b: 0, a: 1 };
   const figma = held(plan, (_c, v, _m, x) => (v === 'accent/fill' ? red : x));
-  expect(conflicts(plan, moved, figma).map(c => [c.collection, c.mode, c.context, c.gone])).toEqual([
-    ['Tamber · dark-style=black', 'Dark', 'dark-style=black, dark', true],
-    ['Tamber · dark-style=dim', 'Light', 'dark-style=dim, light', false],
+  expect(conflicts(plan, moved, figma).map(c => [c.collection, c.mode, c.context, c.gone, !!c.figmaOnly])).toEqual([
+    ['Tamber · dark-style=black', 'Light', 'dark-style=black, light', false, true],
+    ['Tamber · dark-style=black', 'Dark', 'dark-style=black, dark', true, false],
+    ['Tamber · dark-style=dim', 'Light', 'dark-style=dim, light', false, false],
+    ['Tamber · dark-style=dim', 'Dark', 'dark-style=dim, dark', false, true],
   ]);
   expect(contextsMoved(plan, moved)).toEqual({ added: [], removed: ['dark-style=black, dark'] });
 });
