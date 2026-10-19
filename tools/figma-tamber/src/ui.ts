@@ -5,6 +5,8 @@
 // request: a pull (export) and a push (import, held as a proposal for a person
 // to accept; the plugin never writes the design).
 
+import { doorOf, newEnough } from './mapping';
+
 const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
 // The server and its token, together: a token goes only to the server it was
 // paired with, and both change only when a pairing succeeds.
@@ -12,6 +14,9 @@ let paired: { server: string; token: string | null } = { server: '', token: null
 
 const show = (text: string) => { $('status').textContent = text; };
 const call = async (at: { server: string; token: string | null }, path: string, body: object) => {
+  // Never a code or a token over plain http to another machine (doorOf).
+  const door = doorOf(at.server);
+  if (door.error) throw new Error(door.error);
   // No redirect followed: the token goes to the server it was paired with, and a pairing is the server's typed.
   const res = await fetch(`${at.server}${path}`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', ...(at.token ? { 'x-exact-tamber-token': at.token } : {}) }, body: JSON.stringify(body) });
   const reply = await res.json().catch(() => ({}));
@@ -41,14 +46,24 @@ onmessage = (e: MessageEvent) => {
 async function pair() {
   // Against the server typed, with no token: the paired one stays as it was
   // unless this succeeds.
-  const server = $('server').value.trim().replace(/\/+$/, '');
+  const door = doorOf($('server').value);
+  if (door.error) return show(door.error);
+  const server = door.origin;
   const got = await call({ server, token: null }, '/__tamber/pair', { code: $('code').value.trim(), name: 'figma' });
   paired = { server, token: got.token };
   await ask({ type: 'save', ...paired }, 'saved');
+  await speaks();
   show(`paired as ${got.client}, ${got.scope}, until ${got.expires}`);
 }
 
+/** The server speaks tamber/1.14 or later, or nothing more is sent to it. */
+async function speaks() {
+  const hello = await call(paired, '/__tamber', { method: 'hello', client: 'figma' });
+  if (!newEnough(hello.protocol)) throw new Error(`this server is too old for the plugin (needs tamber/1.14; it speaks ${hello.protocol ?? 'an older protocol'})`);
+}
+
 async function pullDesign() {
+  await speaks();
   const { text } = await call(paired, '/__tamber', { method: 'export', kind: 'dtcg', client: 'figma' });
   const { conflicts, contexts, unread, drops, aliases, revived } = await ask({ type: 'check', text }, 'checked');
   const lines = conflicts.map((c: any) => `${c.collection}: ${c.variable} (${c.mode})${c.gone ? ', which the design no longer has' : c.figmaOnly ? ', changed in Figma only' : ''}`);
@@ -70,6 +85,7 @@ async function pullDesign() {
 }
 
 async function pushDesign() {
+  await speaks();
   const { source, baseline, unread } = await ask({ type: 'collect' }, 'collected');
   const got = await call(paired, '/__tamber', { method: 'import', kind: 'dtcg', client: 'figma', source, baseline });
   const r = got.review ?? {};

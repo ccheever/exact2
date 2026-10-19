@@ -275,3 +275,22 @@ export function contextsMoved(plan: Plan, fresh: Json): { added: string[]; remov
   const had = new Set(plan.collections.flatMap(c => Object.values(c.contexts))), now = new Set(Object.keys(tokensOf(fresh)));
   return { added: [...now].filter(c => !had.has(c)), removed: [...had].filter(c => !now.has(c)) };
 }
+
+/** A server address a pairing code and a token may go to (the design tool's
+ * `doorOf`, LLP 1122 D12): an https origin, or plain http to this machine's
+ * loopback (a tunnel the person runs); the origin, or why not. */
+export function doorOf(text: string): { origin: string; error: string } {
+  let u: URL;
+  try { u = new URL(text.trim()); } catch { return { origin: '', error: 'Type the design server\'s address: https://<host>, or http://127.0.0.1:<port> for this machine.' }; }
+  const loopback = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|\[::1\])$/.test(u.hostname);
+  if (u.username || u.password) return { origin: '', error: 'The address carries a name or password: type the server\'s address alone. Nothing was sent.' };
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && loopback)) return { origin: '', error: 'A code and a token go only over an encrypted connection: an https address, or http to this machine (http://127.0.0.1:<port>). Nothing was sent.' };
+  return { origin: u.origin, error: '' };
+}
+
+/** Whether a server's `hello` protocol is one the plugin speaks: tamber/1.14
+ * or later (an older server ignores `baseline` and plans an import otherwise). */
+export function newEnough(protocol: unknown): boolean {
+  const m = /^tamber\/(\d+)\.(\d+)$/.exec(String(protocol));
+  return !!m && (Number(m[1]) > 1 || (Number(m[1]) === 1 && Number(m[2]) >= 14));
+}

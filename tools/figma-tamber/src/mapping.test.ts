@@ -2,7 +2,7 @@
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { conflicts, contextsMoved, families, familiesOf, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, doorOf, families, familiesOf, newEnough, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 const TEXT = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
 const DOC = JSON.parse(TEXT);
@@ -104,4 +104,14 @@ test('contexts split into tuple and scheme', () => {
 test('an alpha that rounds to the opaque byte is opaque', () => {
   expect(same({ r: 1, g: 0, b: 0, a: 0.9999 }, { r: 1, g: 0, b: 0, a: 1 })).toBe(true);
   expect(same({ r: 1, g: 0, b: 0, a: 0.99 }, { r: 1, g: 0, b: 0, a: 1 })).toBe(false);
+});
+
+test('a code or a token goes only to an https server or to this machine over http; a server below tamber/1.14 is too old', () => {
+  expect(doorOf('https://figma-a77a37.tuft.host/').origin).toBe('https://figma-a77a37.tuft.host');
+  expect(doorOf('http://127.0.0.1:7791').origin).toBe('http://127.0.0.1:7791');
+  expect(doorOf('http://localhost:7791').origin).toBe('http://localhost:7791');
+  for (const bad of ['http://figma-a77a37.tuft.host', 'http://10.0.0.4:7791', 'https://me:pw@x.example', 'ftp://x', 'not a url'])
+    expect([bad, doorOf(bad).error]).not.toEqual([bad, '']);
+  expect([newEnough('tamber/1.14'), newEnough('tamber/1.15'), newEnough('tamber/2.0')]).toEqual([true, true, true]);
+  expect([newEnough('tamber/1.13'), newEnough('tamber/1.9'), newEnough(undefined), newEnough('x')]).toEqual([false, false, false, false]);
 });

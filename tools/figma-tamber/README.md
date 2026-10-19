@@ -13,8 +13,10 @@ design server: it reads, and it proposes. It never writes the design.
 2. **Build the plugin.** Run `bun tools/figma-tamber/build.mjs`. Then in Figma, choose Plugins › Development ›
    Import plugin from manifest… and pick `tools/figma-tamber/manifest.json`.
 3. **Pair.** On the server's machine, run `bun exact.mjs tamber pair <server url> --scope propose`. In the plugin,
-   enter the server URL and the code. The server and its token live together in the plugin's client storage (this
-   user, this machine), never in the file. The plugin follows no redirect, so the token goes only to that server.
+   enter the server URL and the code. The server and its token persist together in Figma's `clientStorage` (this
+   user, this machine) until the next pairing, never in the file. A code or a token goes only to an https address or
+   to this machine over http (`http://127.0.0.1:<port>`); the plugin follows no redirect, so the token goes only to
+   that server. It speaks `tamber/1.14` or later, and checks the server's `hello` before every pull and push.
 
 ## Pull and push
 
