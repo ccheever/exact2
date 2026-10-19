@@ -106,7 +106,7 @@ const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1']);
 
 // A sandboxed page's (a Figma plugin's) cross-origin requests, with
 // `--allow-plugin-origin`: CORS for `Origin: null` on the wire's paths only.
-const CORS = { 'access-control-allow-origin': 'null', vary: 'origin' };
+const CORS = { 'access-control-allow-origin': 'null', 'access-control-expose-headers': 'retry-after', vary: 'origin' };
 const PREFLIGHT = { ...CORS, 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type, x-exact-tamber-token', 'access-control-max-age': '600' };
 
 /** Every Cookie header out of `req`, in every view of its headers. */
@@ -125,7 +125,10 @@ function stripCookies(req) {
  * is the loop's, its gate first. */
 export async function pluginOnLoopback(wire, req, res) {
   if (req.headers.origin !== 'null' || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket?.remoteAddress)) return false;
-  const at = hostOf(req, 'http'), url = at && LOOPBACK.has(at.name) ? targetOf(req, 'http', at.host) : null;
+  // As the dev gate's local test has it: this port, and no proxy's forwarding header.
+  if (['forwarded', 'x-forwarded-for', 'x-forwarded-host'].some(h => req.headers[h] !== undefined)) return false;
+  const at = hostOf(req, 'http'), here = String(req.socket.localPort);
+  const url = at && LOOPBACK.has(at.name) && (at.port || '80') === here ? targetOf(req, 'http', at.host) : null;
   if (!url || !WIRE.has(url.pathname)) return false;
   stripCookies(req);
   for (const [k, v] of Object.entries({ 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', ...CORS })) res.setHeader(k, v);
@@ -150,7 +153,7 @@ const refuse = (res, status, message) => {
 function hostOf(req, scheme) {
   try {
     const url = new URL(`${scheme}://${String(req.headers.host ?? '')}/`);
-    return url.host && url.pathname === '/' && !url.username && !url.password ? { host: url.host, name: url.hostname.replace(/^\[|\]$/g, '') } : null;
+    return url.host && url.pathname === '/' && !url.username && !url.password ? { host: url.host, name: url.hostname.replace(/^\[|\]$/g, ''), port: url.port } : null;
   } catch { return null; }
 }
 /** An origin-form target, on the admitted host, routed exactly as written:
@@ -176,21 +179,29 @@ export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIS
     // headers (`headersDistinct` is built from the raw ones when first read).
     stripCookies(req);
     const at = hostOf(req, scheme);
-    if (!at || !admits(at.host, at.name)) return refuse(res, 404, 'not found');
-    const url = targetOf(req, scheme, at.host);
-    if (!url) return refuse(res, 404, 'not found');
+    if (!at || !admits(at)) return refuse(res, 404, 'not found');
     // A sandboxed page (`Origin: null`, a Figma plugin) only with
     // `--allow-plugin-origin`, and only on the wire's paths, with CORS.
-    const sandboxed = req.headers.origin === 'null' && plugin && WIRE.has(url.pathname);
+    const sandboxed = req.headers.origin === 'null' && plugin;
+    if (!sandboxed && req.headers.origin !== undefined) {
+      // A page's own origin: this door's scheme, or https through a tunnel
+      // whose public name answers with a certificate of its own; the same
+      // host and effective port (a default port written or left out alike).
+      let same = false;
+      try {
+        // (a tunnel's public name is https only, a loopback name the door's scheme only)
+        const o = new URL(req.headers.origin), want = publicName(at.name) ? 'https:' : `${scheme}:`;
+        const port = u => u.port || (u.protocol === 'https:' ? '443' : '80');
+        same = o.protocol === want && o.hostname.replace(/^\[|\]$/g, '') === at.name && port(o) === (at.port || port(o));
+      } catch { /* refused */ }
+      if (!same) return refuse(res, 403, 'another origin');
+    }
+    const url = targetOf(req, scheme, at.host);
+    if (!url) return refuse(res, 404, 'not found');
     if (sandboxed) {
+      if (!WIRE.has(url.pathname)) return refuse(res, 403, 'another origin');
       for (const [k, v] of Object.entries(CORS)) res.setHeader(k, v);
       if (req.method === 'OPTIONS') { res.writeHead(204, PREFLIGHT); res.end(); return; }
-    } else if (req.headers.origin !== undefined) {
-      // A page's own origin: this door's scheme, or https through a tunnel
-      // whose public name answers with a certificate of its own.
-      let same = false;
-      try { const o = new URL(req.headers.origin); same = (o.protocol === `${scheme}:` || (o.protocol === 'https:' && publicName(at.name))) && o.host === at.host; } catch { /* refused */ }
-      if (!same) return refuse(res, 403, 'another origin');
     }
     if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) {
       // The tool's own files send their origin, and only that, as a referrer
@@ -283,7 +294,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
   if (remote) {
     names = remoteNames(remote.host, interfaces);
     certificate = selfSignedCertificate(names);
-    const server = secure(certificate, remoteHandler(wire, { tunnel: false, scheme: 'https', admits: (_, n) => names.includes(n), toolDir }), timeoutMs);
+    const server = secure(certificate, remoteHandler(wire, { tunnel: false, scheme: 'https', admits: at => names.includes(at.name), toolDir }), timeoutMs);
     const port = await bind(server, remote.port, remote.host, '--remote');
     const at = n => `https://${n.includes(':') ? `[${n}]` : n}:${port}`;
     const shown = ['0.0.0.0', '::'].includes(remote.host) ? names.filter(n => !LOOPBACK.has(n)) : [names.at(-1)];
@@ -295,9 +306,11 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
   if (tunnel != null) {
     // On both loopbacks: a tunnel aimed at `localhost` may reach either,
     // and another process must not hold the one this does not.
-    // Loopback names, and a tunnel's public names (`--allow-host`, `name` or `name:port`).
-    const named = (host, n) => hosts.includes(n) || hosts.includes(host);
-    const handler = remoteHandler(wire, { tunnel: true, scheme: 'http', admits: (host, n) => LOOPBACK.has(n) || named(host, n), toolDir, plugin, publicName: n => hosts.some(h => h.replace(/:\d+$/, '') === n) });
+    // Loopback names, and a tunnel's public names (`--allow-host`, `name`, or
+    // `name:port`, a default port written or left out alike), never loopback.
+    const publics = hosts.map(h => { const m = /^(.*?)(?::(\d+))?$/.exec(h); return { name: m[1], port: m[2] ?? null }; }).filter(h => !LOOPBACK.has(h.name));
+    const named = at => publics.some(h => h.name === at.name && (!h.port || h.port === at.port || (!at.port && ['80', '443'].includes(h.port))));
+    const handler = remoteHandler(wire, { tunnel: true, scheme: 'http', admits: at => LOOPBACK.has(at.name) || named(at), toolDir, plugin, publicName: n => publics.some(h => h.name === n) });
     const port = await bind(guard(createPlain(handler), timeoutMs), tunnel, '127.0.0.1', '--trust-tunnel');
     const six = guard(createPlain(handler), timeoutMs);
     try { await listen(six, port, '::1'); servers.push(six); } catch (e) {
