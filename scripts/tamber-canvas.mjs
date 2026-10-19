@@ -283,7 +283,8 @@ export const ENTRY_SCRIPT = `(async()=>{const g=new URLSearchParams(location.has
 export const ENTRY_SCRIPT_HASH = `sha256-${createHash('sha256').update(ENTRY_SCRIPT).digest('base64')}`;
 /** The entry page, one script whatever the gateway (its hash fixed); the remote tool's origin, an
  * origin and no secret, in `data-tool` for its one message. */
-const entryHtml = tool => `<!doctype html><html lang="en"${tool ? ` data-tool="${tool}"` : ''}><meta charset="utf-8"><title>Canvas</title><p id="m" role="status"></p><script>${ENTRY_SCRIPT}</script></html>`;
+const attr = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const entryHtml = tool => `<!doctype html><html lang="en"${tool ? ` data-tool="${attr(tool)}"` : ''}><meta charset="utf-8"><title>Canvas</title><p id="m" role="status"></p><script>${ENTRY_SCRIPT}</script></html>`;
 
 /** The gateway for the dev loop at `loop` (its loopback origin), served on
  * `origin` (the canvas's public origin), framed by `toolOrigin`. Stage 10
@@ -313,6 +314,8 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
     // The remote tool's origin, B's TLS door: never a plain one (the local
     // tool's http://127.0.0.1:7740, or any other service on this machine).
     if (tool && new URL(tool).protocol !== 'https:') throw new TypeError('canvasGateway: `toolOrigin` is the remote tool\'s https origin (B\'s door), never a plain or local one');
+    // A host name or address only (B's door names one): nothing an HTML attribute or a header could misread.
+    if (tool && !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?$/i.test(tool)) throw new TypeError('canvasGateway: `toolOrigin` is a plain https origin (a host name or address and a port)');
     [loopOrigin, loopHost, loopPort] = [u.origin, u.host, u.port || (u.protocol === 'https:' ? '443' : '80')];
     origin = new URL(at.origin).origin;
     toolOrigin = tool;

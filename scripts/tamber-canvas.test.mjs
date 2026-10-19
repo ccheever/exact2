@@ -986,3 +986,14 @@ test('plain HTTP from a LAN peer (a --lan bind): no session, grant or entry page
     expect((await w.post({ method: 'canvas' }, p.token, '/__tamber', '192.168.1.30')).status).toBe(200);
   } finally { await w.stop(); }
 });
+
+test('the tool origin on the entry page is a plain https origin, written as an attribute value (C2 re-check, Astra)', async () => {
+  const pairing = fakePairing();
+  expect(() => canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, toolOrigin: 'https://tool".test', limiter, allows })).toThrow(/plain https origin/);
+  expect(() => canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, toolOrigin: 'https://a&b.test', limiter, allows })).toThrow(/plain https origin/);
+  const g = await gateway();
+  try {
+    const html = await (await g.at('/canvas/a/')).text();
+    expect(/<html lang="en" data-tool="([^"]*)">/.exec(html)?.[1]).toBe(TOOL);
+  } finally { await g.stop(); }
+});
