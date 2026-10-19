@@ -1731,8 +1731,12 @@ the existing automatic height floor. Both transfers use the declared box
 sizing and retain the authored bounds. Both incoming dimensions remain
 authoritative; an authored size replaced by flexing no longer supplies a
 second ratio floor.
-Percentage definiteness and the parent-side rules of patches 44, 50, 54 and 55
-are unchanged.
+A ratio height derived from a definite width supplies a definite cross size
+and available space for flex item measurement, even while retained as a floor
+that content can exceed ([CSS Sizing §4.2](https://www.w3.org/TR/css-sizing-4/#aspect-ratio)).
+This preserves item sizing when the root reaches its ratio floor on its first
+pass and needs no second layout. The parent-side rules of patches 44, 50, 54
+and 55 are unchanged.
 
 **Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
 40 literal `Chrome 151 ratio container minimum` cases measured with Chrome
@@ -1744,14 +1748,24 @@ content, zero minima, hidden overflow, alignment, wrapping, explicit widths,
 padding and borders under both box-sizing modes, specified-height caps,
 disabled shrinking, percentage children and a nested flex column.
 
-The 29 literal `Chrome 151 ratio container content floor` cases use the same
+The 31 literal `Chrome 151 ratio container content floor` cases use the same
 Chrome version and date. Thirteen frames failed with a transferred width
 treated as known: flex and grid row items with 70px or 120px of min-content
 width stayed 50×50 instead of Chrome's 70×50 or 120×50. Controls cover fixed
-and stretched cross sizes, specified-width caps, two ratios, zero minima,
+and stretched cross sizes, specified-width caps, zero minima,
 hidden overflow, alignment, both box-sizing modes, wider and taller column
 content, and a flex column inside a row. The original 10px-content row cases
-retain the 50px transferred floor.
+retain the 50px transferred floor. Four `ratio two transfer` cases with 10px
+content hold the declared ratio: columns give 50×25 and rows give 60×30 for
+both flex and grid items.
+
+Ten `Chrome 151 ratio definite cross` cases use the same version and date,
+both in a 50px block and as roots offered 50px
+(`ratio_roots_in_a_definite_offer_match_chrome`). Four root frames and six
+wrapped frames failed before preserving the definite cross size and available
+space. The auto-width 1:1 flex root's ratio item changes from 10×50 to 50×50,
+matching Chrome and `origin/main` at c8f5d6c96. Controls cover a second ratio,
+height bounds, wrapping, alignment, column direction, and flex and grid items.
 
 ## Cargo workspace boundary
 

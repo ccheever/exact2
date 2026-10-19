@@ -69,8 +69,8 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     let box_sizing_adjustment =
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
-    // EXACT PATCH 56: omit preferred sizes before ratio resolution in a content
-    // probe, keeping the transfer from the incoming dimensions in either mode.
+    // EXACT PATCH 56: in ContentSize, omit preferred sizes before ratio
+    // resolution so an incoming dimension can transfer into the other axis.
     let preferred_size = if inputs.sizing_mode == SizingMode::InherentSize {
         style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment)
     } else {
