@@ -36,10 +36,11 @@ export interface Collection {
   /** The export context each mode is. */
   contexts: Record<string, string>;
   variables: Variable[];
-  /** Once written: the collection's id and each mode's, by mode name, so a
-   * collection or mode renamed in Figma is still the plan's. */
+  /** Once written: the collection's id and each context's mode id, so a
+   * collection or mode renamed in Figma is still the plan's (a mode's
+   * name, cut to 40 characters, is only what Figma shows). */
   id?: string;
-  modeIds?: Record<string, string>;
+  contextIds?: Record<string, string>;
 }
 
 export interface Plan {
@@ -106,15 +107,15 @@ export function toFigma(token: Json): { type: FigmaType; value: FigmaValue } | {
   }
 }
 
-/** A family list as one string, CSS's way: a name with a comma, a quote or
- * a backslash quoted (`"ACME, Sans", serif`). */
+/** A family list as one string, CSS's way: a name with a comma, a quote, an
+ * apostrophe or a backslash quoted (`"ACME, Sans", serif`). */
 export function families(all: string[]): string {
-  return all.map(f => (/[,"\\]/.test(f) ? `"${f.replace(/["\\]/g, c => `\\${c}`)}"` : f)).join(', ');
+  return all.map(f => (/[,"'\\]/.test(f) ? `"${f.replace(/["\\]/g, c => `\\${c}`)}"` : f)).join(', ');
 }
 
-/** A family list as CSS writes one, back as the list: each name quoted in
- * `"` or `'` whole (a backslash escaping the next character), the others
- * trimmed. An unterminated quote is refused. */
+/** A family list as CSS writes one, back as the list: a name that starts
+ * with `"` or `'` quoted whole (a backslash escaping the next character),
+ * the others trimmed (`Mike's Font` bare). An unterminated quote is refused. */
 export function familiesOf(text: string): string[] {
   const out: string[] = [];
   let cur = '', quote = '', was = false;
@@ -124,7 +125,7 @@ export function familiesOf(text: string): string[] {
       if (c === '\\' && i + 1 < text.length) cur += text[++i];
       else if (c === quote) quote = '';
       else cur += c;
-    } else if (c === '"' || c === "'") { quote = c; was = true; cur = ''; }
+    } else if ((c === '"' || c === "'") && !was && !cur.trim()) { quote = c; was = true; cur = ''; }
     else if (c === ',') { if (was || cur.trim()) out.push(was ? cur : cur.trim()); cur = ''; was = false; }
     else if (!was) cur += c;
   }

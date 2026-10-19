@@ -85,6 +85,8 @@ test('families: a name with a comma or a quote survives the round trip', () => {
   expect(familiesOf('Inter, system-ui ,  sans-serif')).toEqual(['Inter', 'system-ui', 'sans-serif']);
   expect(familiesOf("'ACME, Sans', serif")).toEqual(['ACME, Sans', 'serif']);
   expect(() => familiesOf('"ACME, serif')).toThrow(/not closed/);
+  expect(familiesOf("Mike's Font, serif")).toEqual(["Mike's Font", 'serif']);
+  expect(familiesOf(families(["Mike's Font", 'serif']))).toEqual(["Mike's Font", 'serif']);
 });
 
 test('contexts split into tuple and scheme', () => {

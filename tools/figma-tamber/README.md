@@ -32,8 +32,12 @@ design server: it reads, and it proposes. It never writes the design.
   - If the design's contexts changed, the plugin asks before rewriting. A re-pull removes the modes and the
     variables of tokens the design no longer has, and a collection the new layout doesn't use. Anything in the file
     bound to them loses it.
-  - The plugin marks each variable with its token, and keeps each collection's and mode's id, so a variable,
-    mode or collection renamed in Figma is still the plugin's. A collection named `Tamber` that the plugin didn't
+  - The plugin marks each variable with its token, and keeps each collection's id and each context's mode id, so a
+    variable, mode or collection renamed in Figma is still the plugin's. A mode's name is the context, cut to Figma's
+    40 characters. A default mode whose context the design dropped stays, named `unused: …`, since Figma can't remove
+    a default mode, and no surviving context loses its mode.
+  - Before a pull, the plugin lists the values it can't read (an alias to nowhere, a mode or collection deleted),
+    since a pull would write over them unseen. A collection named `Tamber` that the plugin didn't
     make is refused, not taken over.
   - A pull is one undo step. If Figma refuses any part, the plugin undoes all of it: the earlier collections, modes,
     variables, values and kept export come back as they were.

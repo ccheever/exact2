@@ -247,14 +247,14 @@ test('round 2: the server and its token are kept as one entry', async () => {
   expect((await send({ type: 'load' }, 'loaded'))).toMatchObject({ server: 'http://127.0.0.1:1', token: 't' });
 });
 
-test('round 3: a re-pull that drops the default mode\'s context keeps the default mode, as another context', async () => {
+test('round 3: a re-pull that drops the default mode\'s context parks the default mode; every surviving context keeps its own', async () => {
   await load(10);
   await send({ type: 'apply', text: TEXT }, 'applied');
-  const col = f.collections[0], first = col.modes[0].modeId;
+  const col = f.collections[0], first = col.modes[0].modeId, kept = Object.fromEntries(col.modes.map((m: any) => [m.name, m.modeId]));
   const next = variant(doc => { delete doc.modifiers.mode.contexts['dark-style=black, light']; doc.modifiers.mode.default = 'dark-style=dim, light'; });
   await send({ type: 'apply', text: next }, 'applied');
-  expect(col.modes[0].modeId).toBe(first);
-  expect(col.modes.map((m: any) => m.name).sort()).toEqual(['dark-style=black, dark', 'dark-style=dim, dark', 'dark-style=dim, light']);
+  expect(col.modes[0]).toEqual({ modeId: first, name: 'unused: dark-style=black, light' });
+  for (const name of ['dark-style=black, dark', 'dark-style=dim, dark', 'dark-style=dim, light']) expect(col.modes.find((m: any) => m.name === name)?.modeId).toBe(kept[name]);
   const out = tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source));
   expect(Object.keys(out).sort()).toEqual(['dark-style=black, dark', 'dark-style=dim, dark', 'dark-style=dim, light']);
 });
@@ -273,4 +273,47 @@ test('round 3: a mode name is cut to 40 characters; a 1-mode file says it needs 
   await load(1);
   await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/at least Light and Dark/);
   expect(f.collections.length).toBe(0);
+});
+
+test('round 3: modes are kept by context, not by their shown names: long names that trade places, and two modes trading names', async () => {
+  await load(10);
+  const axis = 'appearance-of-the-darker-scheme';
+  const long = (first: string) => variant(doc => {
+    const contexts = doc.modifiers.mode.contexts;
+    for (const c of Object.keys(contexts)) { contexts[c.replace('dark-style', axis)] = contexts[c]; delete contexts[c]; }
+    doc.modifiers.mode.default = first;
+  });
+  await send({ type: 'apply', text: long(`${axis}=black, light`) }, 'applied');
+  const col = f.collections[0], fill = f.variables.find(v => v.name === 'accent/fill');
+  const plan = () => JSON.parse(f.figma.root.kept['plan#0']);
+  const ids = plan().collections[0].contextIds;
+  // The default moves to Dark: the cut names would trade places; each context keeps its mode.
+  await send({ type: 'apply', text: long(`${axis}=black, dark`) }, 'applied');
+  expect(plan().collections[0].contextIds).toEqual(ids);
+  // Two modes renamed in Figma to each other's names: each still its context, named back.
+  const [a, b] = col.modes;
+  [a.name, b.name] = [b.name, a.name];
+  fill.valuesByMode[a.modeId] = { r: 1, g: 0, b: 0, a: 1 };
+  const context = Object.entries<string>(ids).find(([, id]) => id === a.modeId)![0];
+  expect(tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source))[context]['accent.fill'].$value.hex).toBe('#ff0000');
+  await send({ type: 'apply', text: long(`${axis}=black, dark`) }, 'applied');
+  expect(plan().collections[0].contextIds).toEqual(ids);
+});
+
+test('round 3: a refused pull with nothing changed undoes nothing; a deleted collection is reported, not read by name', async () => {
+  await load(10);
+  let undos = 0;
+  const trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { undos++; trigger(); };
+  f.figma.variables.createVariableCollection('Tamber');
+  await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/did not make/);
+  expect(undos).toBe(0);
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  f.collections[0].remove();
+  const other = f.figma.variables.createVariableCollection('Tamber');
+  f.figma.variables.createVariable('accent/fill', other, 'COLOR');
+  const got = await send({ type: 'collect' }, 'collected');
+  expect(got.unread.map((u: any) => u.why)).toEqual(['the collection is gone from this file']);
+  expect(JSON.parse(got.source)).toEqual(JSON.parse(TEXT)); // nothing of the stranger's sent
 });
