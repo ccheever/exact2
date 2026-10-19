@@ -57,8 +57,10 @@ const noHold = { can: false, state: '', held: false, status: '' };
 const at = (x: any) => (x.rung === 'style' ? { style: x.style, row: x.row, file: x.file } : { file: x.file, at: x.at, sha256: x.sha256, row: x.row, ...(x.state ? { state: x.state } : {}) });
 const rowOf = (x: any, component: string) => x?.rung === 'template' || x?.rung === 'style'
   ? { edit: JSON.stringify(at(x)), editLabel: x.rung === 'style' ? `Edit style ${x.style}` : `Edit this template · ${x.instances === 1 ? '1 instance' : `${x.instances} instances`}`, editText: String(x.text ?? ''),
+      // (The editor's heading names the attribute it writes: a shorthand's whole, for a longhand of it.)
+      editWords: `${x.rung === 'style' ? `Style ${x.style}` : `This template · ${x.instances === 1 ? '1 instance' : `${x.instances} instances`}`}: ${x.state ? `:${x.state} ` : ''}${x.row}`,
       promote: x.rung === 'template' && x.text ? JSON.stringify({ addr: at(x), component, text: x.text }) : '', tokenize: x.rung === 'template' && x.text && !x.state, detach: '' }
-  : { edit: '', editLabel: '', editText: '', promote: '', tokenize: false, detach: x?.rung === 'param' && x.template ? JSON.stringify({ addr: at(x.template), param: x.param }) : '' };
+  : { edit: '', editLabel: '', editText: '', editWords: '', promote: '', tokenize: false, detach: x?.rung === 'param' && x.template ? JSON.stringify({ addr: at(x.template), param: x.param }) : '' };
 const stateOf = (x: any) => x?.style ? { state: [x.style, x.state, x.row, x.file].join('|'), stateLabel: `Edit ${x.style} :${x.state} ${x.row}`, stateText: String(x.text ?? '') } : { state: '', stateLabel: '', stateText: '' };
 const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '' };
 /** The selection as the inspector shows it: each row's source, and its edit
@@ -89,7 +91,8 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     reason: String(r.editable?.reason ?? ''), column: col?.id ?? '',
   });
   return {
-    key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? [])].join('|'), files: s.files ?? '',
+    // (With the build's facts it was made under: a pin, a reload or a new plan since makes another copy.)
+    key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), s.at].join('|'), files: s.files ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any) => at(x)), modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
     hold: shown,

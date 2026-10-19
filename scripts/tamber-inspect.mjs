@@ -202,12 +202,8 @@ export function stateRung(row, b, app, read = readFileSync, own = null) {
   let style = null;
   for (let i = b.at.line - 1; i >= 0 && !style; i--) style = /^style\s+([A-Za-z_][\w-]*)/.exec(lines[i] ?? '')?.[1] ?? null;
   if (!style) return null;
-  // The row's value as written: the attribute the span names starts there.
-  // Only a whole one-literal value (a string, bare or in parentheses, with no
-  // escape), then the line's end, a comment or another attribute, is read;
-  // else none, and an editor starts empty.
-  const m = /^[\w-]+\s*=\s*(\(\s*)?(?:"([^"\\]*)"|((?:(?!\/\/)[^\s"()\\])+))\s*(\))?(?:\s*$|\s*\/\/.*$|\s+[\w-]+\s*=.*$)/.exec((lines[b.at.line - 1] ?? '').slice(Math.max(0, b.at.col - 1)));
-  const text = m && !m[1] === !m[4] ? m[2] ?? m[3] : null;
+  // The row's value as written, where it is one plain value (`plainAt`); else none, and an editor starts empty.
+  const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, authored(row.name));
   return { rung: 'state', style, state: b.state, row: authored(row.name), file: rel, ...(text != null ? { text } : {}) };
 }
 
@@ -229,30 +225,59 @@ const ownFile = (file, app, own) => {
  * map gives the row no place (D1's address), or a style's state part
  * (`set-state`'s, T4). */
 export function rowRung(row, b, map, app, instances = 1, read = readFileSync, own = null) {
-  if (!b?.at?.file || !b.attr) return null;
+  if (!b?.at?.file) return null;
   const style = /^class:([A-Za-z_][\w-]*)$/.exec(b.origin ?? '')?.[1] ?? null;
   if (b.origin !== 'own' && !style) return null;
   if (style && b.state) return null;
+  // The attribute as written: the map's `attr`, or, for a state row under the node (which has none), its
+  // authored name (`background-color` for the press paint's `press_background_color`).
+  const attr = b.attr ?? (b.state ? authored(row.name) : null);
+  if (!attr) return null;
   // A layout row (D14, the map's `layout`): the author's, as `set-row` says; a token or param it reads is offered.
-  if (b.layout) return { rung: null, layout: true, reason: `\`${b.attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
+  if (b.layout) return { rung: null, layout: true, reason: `\`${attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
   const rel = ownFile(b.at.file, app, own);
   if (!rel) return { rung: null, reason: style ? `a package's style (${style}): read-only here` : 'a package\'s component: read-only here' };
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
-  // A plain value, as written from the attribute the span names: one string
-  // (no escape) or number, bare or in parentheses, then the line's end, a
-  // comment or another attribute.
-  const m = /^[\w-]+\s*=\s*(\(\s*)?(?:"([^"\\]*)"|(-?(?:\d+\.?\d*|\.\d+)))\s*(\))?(?:\s*$|\s*\/\/.*$|\s+[\w-]+\s*=.*$)/.exec((lines[b.at.line - 1] ?? '').slice(Math.max(0, b.at.col - 1)));
-  if (!m || !m[1] !== !m[4]) return { rung: null, reason: `\`${b.attr}\` is written as an expression or a name in scope: edit it in the source` };
-  const text = m[2] ?? m[3];
+  const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, attr);
+  if (text == null) return { rung: null, reason: `\`${attr}\` is written as an expression or a name in scope, or over more than one line: edit it in the source` };
   if (style) {
     let declared = null;
     for (let i = b.at.line - 1; i >= 0 && !declared; i--) declared = /^style\s+([A-Za-z_][\w-]*)/.exec(lines[i] ?? '')?.[1] ?? null;
-    return declared ? { rung: 'style', style: declared, row: b.attr, file: rel, text } : null;
+    return declared ? { rung: 'style', style: declared, row: attr, file: rel, text } : null;
   }
   const sha256 = (map?.sources ?? []).find(x => x.file === b.at.file)?.sha256;
   if (!sha256) return null;
-  return { rung: 'template', file: rel, at: { line: b.at.line, col: b.at.col }, sha256, row: b.attr, ...(b.state ? { state: b.state } : {}), instances, text };
+  return { rung: 'template', file: rel, at: { line: b.at.line, col: b.at.col }, sha256, row: attr, ...(b.state ? { state: b.state } : {}), instances, text };
+}
+
+/** The value of attribute `attr` written at UTF-8 byte column `col` of `line` (the map's columns are
+ * bytes), when it is one plain value as `set-row` replaces (tamber_rows.rs `plain`): a string (its
+ * escapes decoded) or a bare `#…` colour, which the lexer reads as a string; a number, an exponent
+ * and a minus included; inside any parentheses; then the line's end, a comment, another attribute or
+ * a positional string. Null otherwise (an expression, a name in scope, an unclosed value). */
+export function plainAt(line, col, attr) {
+  const at = Buffer.from(line, 'utf8').subarray(Math.max(0, col - 1)).toString('utf8');
+  const head = new RegExp(`^${attr.replace(/[-]/g, '\\-')}\\s*=\\s*`).exec(at);
+  if (!head) return null;
+  let rest = at.slice(head[0].length), minus = '', open = 0;
+  for (;;) {
+    const m = /^(-?)\s*\(\s*/.exec(rest);
+    if (!m) break;
+    if (m[1]) { if (minus) return null; minus = '-'; }
+    open++; rest = rest.slice(m[0].length);
+  }
+  const lead = /^-\s*/.exec(rest);
+  if (lead) { if (minus) return null; minus = '-'; rest = rest.slice(lead[0].length); }
+  let text = null, m;
+  if ((m = /^"((?:[^"\\]|\\.)*)"/.exec(rest)) && !minus) {
+    try { text = JSON.parse(`"${m[1].replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16)).replace(/["\\]/g, c => `\\${c}`))}"`); } catch { return null; }
+  } else if ((m = /^#[0-9A-Za-z]+/.exec(rest)) && !minus) text = m[0];
+  else if ((m = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])/.exec(rest))) text = `${minus}${m[0]}`;
+  else return null;
+  rest = rest.slice(m[0].length);
+  for (; open > 0; open--) { const c = /^\s*\)/.exec(rest); if (!c) return null; rest = rest.slice(c[0].length); }
+  return /^(\s*$|\s*\/\/|\s+[\w-]+\s*=|\s+")/.test(rest) ? text : null;
 }
 
 /** Each row's editability: the token or param rung, or why not (D5, D6). Fails
@@ -290,7 +315,8 @@ export function editable(row, origin, params = new Map(), unread = false, state 
   // Else the template or style rung, where the map places the row (T5): the
   // default (D6), the token its whole value is offered beside it.
   if (written?.rung) return one ? { ...written, token: names[0], modes: row.token.modes ?? '' } : written;
-  if (written?.layout && one) return { rung: 'token', token: names[0], modes: row.token.modes ?? '' };
+  // (A row set-row can't take, a layout row or one written otherwise, still offers the token it reads, whole.)
+  if (written && one) return { rung: 'token', token: names[0], modes: row.token.modes ?? '' };
   if (written) { const { layout, ...why } = written; return { ...why, link }; }
   if (origin.startsWith('class:')) return { rung: null, reason: `a style's row (${origin.slice(6)}) the map gives no place for: the source's to edit`, link };
   if (origin !== 'own') return { rung: null, reason: 'the tag\'s own row: the source\'s to edit', link };
@@ -321,8 +347,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
-  // This source node's copies (a template edit is every one's).
-  const copies = Math.max(1, sitesAt(map, node).length);
+  // This source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
+  // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
+  const copies = Math.max(1, new Set(sitesAt(map, node).filter(i => same(map.nodes[i], node)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
   // What is held (LLP 1122 D8): each row where it is written: an `:active` row lowered to the press paint at its
   // part's place (the map's `at`), a state look's at its node, with the state. Its node is the one it is held on
   // (the press it resolved to, named on a node inside it: stage 9 E), its site's map node.
@@ -336,7 +363,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // An `:active` row is named as its author wrote it, under its part (theme2's 16:13 (2)), the press row it
       // lowered to beside it (`row`).
       const authored = b?.state ? AUTHORED[r.name] ?? null : null;
-      const offered = !named || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, false, stateRung(r, b, app, read, own));
+      const offered = !named || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, false, stateRung(r, b, app, read, own), rowRung(r, b, map, app, copies, read, own));
       return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state ? b.at ?? null : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
     }) };
   }
@@ -349,7 +376,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // own or class row, the attribute it came from and that file's digest as
       // compiled: `set-row`'s address (LLP 1122 D6, tamber/1.12).
       const sha = f => (map.sources ?? []).find(s => s.file === f)?.sha256;
-      const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr } : {};
+      const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr, ...(b.layout ? { layout: true } : {}) } : {};
       const part = b?.state ? { state: b.state, at: b.at ?? null } : written;
       const { unread, ...row } = r;
       const offered = editable({ ...row, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rowRung(row, b, map, app, copies, read, own));

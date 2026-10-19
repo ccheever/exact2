@@ -30,7 +30,7 @@ export const unread = (error: string, target: string, ops: Record<string, unknow
 const kindOf = (text: string, kinds: Map<string, string>) => kinds.get(text) ?? (/^(#|rgba?\(|hsla?\(|oklch\(|oklab\(|lab\(|lch\(|color\(|color-mix\(|light-dark\()/i.test(text) ? 'color' : /^-?(\d+\.?\d*|\.\d+)$/.test(text) ? 'number' : 'length');
 
 /** Where a `set-row` writes, in words: a style's row, or a row at its file and line. */
-const rowAt = (a: any) => (a.style ? `${a.style} ${a.row}` : `${a.row} at ${a.file}:${a.at?.line}`);
+const rowAt = (a: any) => (a.style ? `${a.style} ${a.row} (${a.file})` : `${a.row} at ${a.file}:${a.at?.line}`);
 /** A `set-row` edit or a move, as Undo names it; null for any other kind. */
 export const moveLabel = (kind: string, target: string, value: string) =>
   kind === 'set-row' ? `${rowAt(JSON.parse(target))} = ${value}`

@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
-import { correspondingSite, current, editable, join, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, plainAt, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -75,22 +75,26 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-active-'));
   try {
     const app = joinPath(dir, 'app.contract');
-    writeFileSync(app, 'app');
-    const part = { file: app, line: 9, col: 9, end_col: 20 };
-    const map = { digest: 'p1', sources: [{ file: app, sha256: sha('app') }], nodes: [
+    const text = ['component App', '  view', '    text "x"', '', '', '', '    box', '      :active', '        background-color="accent.soft"', '        color="#f00"', ''].join('\n');
+    writeFileSync(app, text);
+    const part = { file: app, line: 9, col: 9, end_col: 25 };
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
       { file: app, line: 7, col: 5, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'press_background_color', origin: 'own', state: 'active', at: part }, { row: 'press_color', origin: 'own', state: 'active', at: { ...part, line: 10 } }] },
     ] };
     const selected = { node: 1, site: 0, instance: [], rows: [
       { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['accent.soft'], text: 'accent.soft', modes: '', implied: false } },
       { name: 'press_color', value: '#f00', source: 'authored' },
     ] };
-    const s = join({ id: 'web-1' }, selected, map);
+    const s = join({ id: 'web-1' }, selected, map, { app: dir });
     expect(s.rows.map(r => [r.name, r.state, r.at?.line, r.editable.rung])).toEqual([
-      ['press_background_color', 'active', 9, 'token'],
-      ['press_color', 'active', 10, null],
+      ['press_background_color', 'active', 9, 'template'],
+      ['press_color', 'active', 10, 'template'],
     ]);
-    // Written on the node itself (no style), with no place the map gives: the source's.
-    expect(s.rows[1].editable.reason).toContain('the map gives no place');
+    // Written on the node itself (no style): set-row at its place, with its state, the row as its author wrote it (T5).
+    expect(s.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 9, col: 9 }, sha256: sha(text), row: 'background-color', state: 'active', instances: 1, text: 'accent.soft', token: 'accent.soft', modes: '' });
+    expect(s.rows[1].editable).toMatchObject({ row: 'color', state: 'active', text: '#f00' });
+    // With no app named, the join can't tell its files from a package's: read-only, its token still offered.
+    expect(join({ id: 'web-1' }, selected, map).rows[0].editable).toEqual({ rung: 'token', token: 'accent.soft', modes: '' });
     // `uses` names the part's own place; outlining it finds the node.
     expect(sitesAt(map, part)).toEqual([0]);
     // What is held (LLP 1122 D8): an `:active` row at its part, named by its state.
@@ -235,12 +239,15 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
     expect(moved.readOnly).toBeTruthy();
     expect(moved.held.rows[0].editable).toBe(undefined);
     // The value as written: a whole literal only, bare, quoted or in parentheses; else none (the editor starts empty).
-    const textOf = line => stateRung({ name: 'press_background_color' }, { state: 'active', origin: 'class:Card', at: { file: post, line: 2, col: 5, end_col: 21 } }, dir, () => `style Card\n    ${line}\n`)?.text;
+    const textOf = (line, name = line.startsWith('opacity') ? 'press_opacity_to' : 'press_background_color') => stateRung({ name }, { state: 'active', origin: 'class:Card', at: { file: post, line: 2, col: 5, end_col: 21 } }, dir, () => `style Card\n    ${line}\n`)?.text;
     expect(textOf('background-color=("accent.fill")')).toBe('accent.fill');
-    expect(textOf('background-color = accent.fill // a note')).toBe('accent.fill');
+    // (A bare name is a name in scope, no plain value: none, as set-row's `plain` says.)
+    expect(textOf('background-color = accent.fill // a note')).toBe(undefined);
+    expect(textOf('background-color = "accent.fill" // a note')).toBe('accent.fill');
     expect(textOf('background-color=""')).toBe('');
     expect(textOf('background-color=("accent.fill"')).toBe(undefined);
-    expect(textOf('background-color="a \\"b\\""')).toBe(undefined);
+    // (An escaped string is a plain string: its value, decoded.)
+    expect(textOf('background-color="a \\"b\\""')).toBe('a "b"');
     expect(textOf('background-color=mix(accent.fill, white)')).toBe(undefined);
     expect(textOf('opacity=0.8//note')).toBe('0.8');
     expect(textOf('opacity=0.8 color="red"')).toBe('0.8');
@@ -318,7 +325,7 @@ test('a row its author wrote joins on the template or style rung for set-row, th
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-row-'));
   try {
     const card = joinPath(dir, 'card.contract');
-    const text = ['component Card', '  view', '    box background-color="surface.card" padding=12 opacity=(0.5)', '      border-color=(mix ? "a" : "b")', '', 'style Panel', '  color="red" // the panel', '  margin="8px 4px"', ''].join('\n');
+    const text = ['component Card', '  view', '    box background-color="surface.card" border-radius=12 opacity=(0.5) width=100 gap="space.md"', '      border-color=(mix ? "a" : "b")', '', 'style Panel', '  color="red" // the panel', '  margin="8px 4px"', ''].join('\n');
     writeFileSync(card, text);
     const pkg = joinPath(dir, 'node_modules', 'ui', 'x.contract');
     mkdirSync(joinPath(dir, 'node_modules', 'ui'), { recursive: true });
@@ -327,20 +334,21 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     const at = (line, attr, file = card) => ({ file, line, col: col(line, attr), end_col: col(line, attr) + attr.length });
     const node = { file: card, line: 3, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [
       { row: 'background_color', origin: 'own', at: at(3, 'background-color'), attr: 'background-color' },
-      { row: 'padding_top', origin: 'own', at: at(3, 'padding'), attr: 'padding' },
+      { row: 'border_top_left_radius', origin: 'own', at: at(3, 'border-radius'), attr: 'border-radius' },
       { row: 'opacity', origin: 'own', at: at(3, 'opacity'), attr: 'opacity' },
       { row: 'border_top_color', origin: 'own', at: at(4, 'border-color'), attr: 'border-color' },
       { row: 'text_color', origin: 'class:Panel__card', at: at(7, 'color'), attr: 'color' },
-      { row: 'margin_top', origin: 'class:Panel__card', at: at(8, 'margin'), attr: 'margin' },
+      { row: 'margin_top', origin: 'class:Panel__card', at: at(8, 'margin'), attr: 'margin', layout: true },
       { row: 'outline_color', origin: 'own', at: { file: pkg, line: 1, col: 9, end_col: 14 }, attr: 'color' },
-      { row: 'width', origin: 'own', at: at(3, 'padding'), attr: 'width', layout: true },
-      { row: 'gap', origin: 'own', at: at(3, 'padding'), attr: 'gap', layout: true },
+      { row: 'width', origin: 'own', at: at(3, 'width'), attr: 'width', layout: true },
+      { row: 'gap', origin: 'own', at: at(3, 'gap'), attr: 'gap', layout: true },
     ] };
     // Two copies of this source node (a component called twice).
-    const map = { digest: 'p1', sources: [{ file: card, sha256: sha(text) }, { file: pkg, sha256: sha('    box color="blue"') }], nodes: [node, { ...node, chain: [{ file: card, line: 9, col: 1, end_col: 2, component: 'App' }] }] };
+    // Two copies of this source node (a component called twice); the first's generated label shares its span and chain, no third copy.
+    const map = { digest: 'p1', sources: [{ file: card, sha256: sha(text) }, { file: pkg, sha256: sha('    box color="blue"') }], nodes: [node, { ...node, chain: [{ file: card, line: 9, col: 1, end_col: 2, component: 'App' }] }, { ...node, bindings: [] }] };
     const rows = [
       { name: 'background_color', value: '#fff', source: 'authored', token: { names: ['surface.card'], text: 'surface.card', modes: '', implied: false } },
-      { name: 'padding_top', value: 12, source: 'authored' },
+      { name: 'border_top_left_radius', value: 12, source: 'authored' },
       { name: 'opacity', value: 0.5, source: 'authored' },
       { name: 'border_top_color', value: '#000', source: 'authored' },
       { name: 'text_color', value: '#f00', source: 'authored' },
@@ -353,22 +361,32 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     const template = { rung: 'template', file: 'card.contract', sha256: sha(text), instances: 2 };
     expect(s.rows[0].editable).toEqual({ ...template, at: { line: 3, col: col(3, 'background-color') }, row: 'background-color', text: 'surface.card', token: 'surface.card', modes: '' });
     // A longhand of the shorthand written there: the shorthand, whole.
-    expect(s.rows[1].editable).toEqual({ ...template, at: { line: 3, col: col(3, 'padding') }, row: 'padding', text: '12' });
+    expect(s.rows[1].editable).toEqual({ ...template, at: { line: 3, col: col(3, 'border-radius') }, row: 'border-radius', text: '12' });
     expect(s.rows[2].editable).toMatchObject({ rung: 'template', row: 'opacity', text: '0.5' });
     expect(s.rows[3].editable).toMatchObject({ rung: null, reason: expect.stringContaining('expression') });
     // On its style, by the name its file declares (the compiler renamed it), in its own file.
     expect(s.rows[4].editable).toEqual({ rung: 'style', style: 'Panel', row: 'color', file: 'card.contract', text: 'red' });
-    expect(s.rows[5].editable).toEqual({ rung: 'style', style: 'Panel', row: 'margin', file: 'card.contract', text: '8px 4px' });
+    expect(s.rows[5].editable).toMatchObject({ rung: null, reason: expect.stringContaining('layout row') });
     expect(s.rows[6].editable).toMatchObject({ rung: null, reason: expect.stringContaining("package") });
     // A layout row (the map's `layout`, D14): set-row's reason, up front; the token it reads, offered.
     expect(s.rows[7].editable).toEqual({ rung: null, reason: expect.stringContaining('layout row'), link: null });
     expect(s.rows[8].editable).toEqual({ rung: 'token', token: 'space.md', modes: '' });
     // A file the server does not count as the app's own: a package's.
-    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir, own: new Set(['other.contract']) }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('package') });
+    const outside = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir, own: new Set(['other.contract']) });
+    expect(outside.rows[2].editable).toMatchObject({ rung: null, reason: expect.stringContaining('package') });
+    // (Its token, whole, still offered: a design edit, not the package's file.)
+    expect(outside.rows[0].editable).toEqual({ rung: 'token', token: 'surface.card', modes: '' });
     // A row that reads a param keeps the param rung, the default (T3), with its template's address for a detach.
     const params = new Map([['f1', { param: 'card.contract#Card.fill', short: 'Card.fill', token: null }]]);
     const tpl = { rung: 'template', file: 'card.contract', at: { line: 3, col: 9 }, sha256: 'x', row: 'background-color', instances: 1, text: 'Card.fill' };
     expect(editable({ source: 'authored', token: { names: ['card.contract#Card.fill'], text: 'card.contract#Card.fill', modes: '', implied: false } }, 'own', params, false, null, tpl)).toEqual({ rung: 'param', param: 'card.contract#Card.fill', short: 'Card.fill', modes: '', template: tpl });
+    // The map's columns are UTF-8 bytes: an attribute after wide characters is read at its own place.
+    const wide = '    text "你好你好你好" color="red" opacity=0.5';
+    expect(plainAt(wide, 1 + Buffer.byteLength('    text "你好你好你好" '), 'color')).toBe('red');
+    expect(plainAt(wide, 1 + Buffer.byteLength('    text "你好你好你好" '), 'opacity')).toBe(null);
+    // Literals as Contract writes them: an exponent, nested parentheses, a minus, a bare colour, a positional string after.
+    expect(['opacity=5e-1', 'opacity=((0.5))', 'opacity=-(0.5)', 'color=#1f9d62', 'color="red" "Hi"'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual(['5e-1', '0.5', '-0.5', '#1f9d62', 'red']);
+    expect(['color=alpha', 'opacity=0.5 - 1', 'color=(c ? "a" : "b")', 'opacity=(0.5'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual([null, null, null, null]);
     // Moved since: read-only, its token still linked.
     writeFileSync(card, `${text}// edited\n`);
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir }).rows[0].editable).toMatchObject({ rung: null, link: 'surface.card' });

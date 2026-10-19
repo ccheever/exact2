@@ -157,6 +157,8 @@ shape SelRow
   edit: string
   editLabel: string
   editText: string
+  // The editor's heading: the scope and the attribute written (a shorthand's whole for a longhand of it).
+  editWords: string
   // A template row's promotion (D6: to a new param; to a token where `tokenize`, an unconditional value),
   // and a param row's detach to its template: each move's address and value as written (JSON), or "".
   promote: string
@@ -1319,7 +1321,7 @@ component DesignTool
                         button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`selrow-state-${r.name}`
                           text r.stateLabel
                       if r.edit != ""
-                        button press=editRow(r.edit, r.editLabel, r.editText) buttonStyle="bordered" testId=`selrow-row-${r.name}`
+                        button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`selrow-row-${r.name}`
                           text r.editLabel
                       if r.promote != ""
                         button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) testId=`selrow-param-${r.name}`

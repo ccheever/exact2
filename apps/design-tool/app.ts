@@ -827,9 +827,9 @@ const sources: Sources = {
       ({ error, reply, used } = await call('/__tamber', { method: 'propose', ops: ops = moveOps(file, kind, (t = { ...(t ?? JSON.parse(target)), extra: [...(t?.extra ?? []), ...more] }), '', appParams, appKinds) })); // (a detach's closure, as the server names it, D6)
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
-    // A param's first `when` line was planned from the params of another
-    // revision than this proposal's: asked again once the design is read.
+    // A param's first `when` line was planned from the params of another revision than this proposal's: asked again once the design is read.
     if (!paramsOf(kind, when, ok.files)) return { ...idle, ok: false, error: 'The design changed: reading it again before this is proposed.' };
+    if (/^(set-state|set-row|promote-|detach-)/.test(kind) && selectionNow?.files !== digestKey(ok.files)) return { ...idle, ok: false, error: 'The files moved since this copy was selected: select it again.' }; // (the selected copy's source edited as reported, T4/T5)
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.

@@ -1110,13 +1110,18 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `set-row`'s address (at the place: the file relative to the app, the attribute's line and
   column and the file's digest as compiled; on a style: the style by the name its file declares
   it with, and its file), `row` the attribute as written (a shorthand's, for a longhand of it:
-  `set-row` edits the shorthand whole), `state` for a state row written under the node, `instances`
-  the copies of this source node in the map (a template edit is every one's), `text` the value as
-  written, and the token its whole value is, offered beside it, never the default. Only a plain
-  value is offered (one string or number, bare or in parentheses, as `set-row` replaces): an
+  `set-row` edits the shorthand whole), `state` for a state row written under the node (its `row`
+  the attribute its author wrote under the state, which the map does not name), `instances` the
+  copies of this source node in the map, one a call-site chain (a template edit is every one's; a
+  `button "…"`'s label is no second copy), `text` the value as written, and the token its whole
+  value is, offered beside it, never the default. Only a plain value is offered, as `set-row`'s
+  `plain` takes one: a string (its escapes decoded) or a bare `#…` colour, a number (an exponent
+  and a minus included), inside any parentheses, then the line's end, a comment, another
+  attribute or a positional string (read at the map's UTF-8 byte column, the attribute's name
+  checked there): an
   expression or a name in scope answers a reason, as does a file outside the app's own Contract
-  sources, and a layout row (its `layout`, D14: `set-row`'s reason, up front), which offers the
-  token rung where its whole value is one token. A row the map gives no place answers a reason (the source's to edit), or, a whole
+  sources, and a layout row (its `layout`, D14: `set-row`'s reason, up front; the selection's row
+  carries `layout` too); any of these offers the token rung where its whole value is one token. A row the map gives no place answers a reason (the source's to edit), or, a whole
   token, the token rung. Only an `:active`
   part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
   `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
