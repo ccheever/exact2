@@ -62,6 +62,30 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertNotNil(small.raster)
     }
 
+    /// A view that announced `load` and is then refused at a new viewport
+    /// announces `error`. Back at a size that decodes, it paints again and
+    /// announces nothing more: an `<img>`'s `error` is its last event.
+    func testSVGRefusedAtANewViewportAfterLoadAnnouncesError() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'><defs><pattern id='p' patternUnits='userSpaceOnUse' width='160' height='160'><rect width='1' height='1' fill='red'/></pattern></defs><rect width='64' height='64' fill='url(#p)'/></svg>"
+        try Data(svg.utf8).write(to: root.appendingPathComponent("pattern.svg"))
+        node.frame = CGRect(x: 0, y: 0, width: 32, height: 32); node.loadGeneration = 1
+        XCTAssertTrue(loader.load(node, source: "pattern.svg", resolver: resolver))
+        settle { node.raster != nil && !loader.testAnnounced.isEmpty }
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), [nil])
+        node.frame = CGRect(x: 0, y: 0, width: 512, height: 512)
+        loader.resized(node)
+        settle { loader.testAnnounced.count == 2 }
+        XCTAssertEqual(loader.testAnnounced.last?.failure, "unsupported SVG image feature")
+        node.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
+        loader.resized(node)
+        settle { images(loader).first?["failure"] as? String == "" && loader.loadingOnScreen == 0 }
+        XCTAssertNotNil(node.raster)
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), [nil, "unsupported SVG image feature"])
+        XCTAssertTrue(loader.testAnnounced.allSatisfy { $0.view == node.id })
+    }
+
     func testCancelledSuccessfulDecodeCannotEraseNewerNamedFailure() throws {
         let (root, resolver, presenter, node, loader, window) = try fixture()
         let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)

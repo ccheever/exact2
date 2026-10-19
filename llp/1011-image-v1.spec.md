@@ -5,7 +5,7 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-10-08 (bounded SVG image documents on Apple, #239); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Revised:** 2026-10-20 (SVG expansion and dash bounds, zero viewBox, 16px font default, fits without a natural size, #239); 2026-10-08 (bounded SVG image documents on Apple, #239); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
 **Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
@@ -310,9 +310,26 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   Embedded or external `image` elements, `foreignObject`, and filters
   (including CSS filter functions) are refused as `unsupported SVG image
   feature`; the decoder performs no secondary image or document fetch.
+  Before usvg converts anything, the expanded document is counted on the
+  parsed XML: an element is one unit, a path vertex one, a text character
+  32; a `<use>` adds its target, a shape a marker's content at each vertex,
+  and an element a paint server, clip path or mask it references, followed
+  transitively. Past 500,000 units the source is refused as `SVG document
+  exceeds limit`, in metadata inspection and in the render. Stroke dashes are
+  counted as tiny-skia makes them (contour length × dashes ÷ interval) over
+  every stroked path, in patterns, masks and text too; past 100,000 in the
+  document the render is refused by the same name.
   Patterns, masks, clips and isolated groups are admitted only when their
   concurrently live intermediate pixels fit the scratch reservation
-  (four output buffers' bytes plus 64 KiB), checked before painting. Text
+  (four output buffers' bytes plus 64 KiB), checked before painting.
+  A zero-sized `viewBox` disables its viewport (SVG 2): the root draws
+  nothing, and a nested `svg`, `symbol` or `marker` is not drawn.
+  Font-relative lengths and text with no `font-size` use 16px, the browser's
+  initial size; the default family is Times, and the generic `serif` and
+  `sans-serif` are Times and Helvetica, as Safari's and Chrome's on Apple.
+  A root with neither natural dimension (a `viewBox` alone) has its ratio
+  only: `object-fit: none` and `scale-down` contain it in the box, as the
+  default sizing algorithm does. Text
   resolves local font files and fallback faces through Core Text on the worker,
   including iOS and tvOS font locations. A document containing `text` reserves
   8 MiB of font staging before decode; at most eight font files and 128 faces
@@ -327,7 +344,8 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   (so `clock settle`, which waits for the decodes, can return just before
   the action runs; a drive reads them after `clock +<ms> real`). A decode
   that a resize retries after a refusal and that then lands sends no
-  `load`. A decode ImageIO or Core Graphics declines over bytes whose size
+  `load`. An SVG refused at a new viewport (a resize, padding or
+  `object-fit` change) after its `load` sends its `error`. A decode ImageIO or Core Graphics declines over bytes whose size
   it read (it does on a busy system) is asked for again after 250, 500 and
   1,000 ms, loading all the while, before it is the `error` `decode failed`
   (`RasterLoader.declineDelays`): a page's `<img>` errs for its file, never

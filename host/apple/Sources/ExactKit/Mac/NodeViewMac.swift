@@ -1038,6 +1038,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         syncDynamicRange(from: old)
+        syncObjectFit(from: old)
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
@@ -1350,7 +1351,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let fit = style["object_fit"]?.string ?? "fill"
             let content = contentBox()
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-            let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            let object = bitmap.objectRect(content: content, fit: fit)
             let rect = bitmap.displayRect(object)
             ctx.saveGState()
             ctx.clip(to: object)

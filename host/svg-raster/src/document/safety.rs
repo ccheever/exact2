@@ -1,7 +1,19 @@
-//! Bound resolved pattern tiles and compositor layers before resvg allocates them.
+//! Bound resolved pattern tiles, compositor layers and stroke dashes before
+//! resvg allocates them.
 use super::{tiny_skia, usvg, Error};
+use std::cell::Cell;
 
 type Surface = (u32, u32);
+
+/// Dashes a document may stroke. tiny-skia stops at a million per path and
+/// then strokes it undashed; each dash is a few path verbs, and a stroked one
+/// an outline, so a document's total is what bounds that memory.
+pub(super) const DASH_LIMIT: f64 = 100_000.0;
+
+struct Walk {
+    bounds: tiny_skia::IntRect,
+    dashes: Cell<f64>,
+}
 
 pub(super) fn renderable(
     tree: &usvg::Tree,
@@ -29,7 +41,11 @@ pub(super) fn renderable(
         tiny_skia::IntRect::from_ltrb(i32::MIN / 2, i32::MIN / 2, i32::MAX / 2, i32::MAX / 2)
             .unwrap()
     });
-    nodes(tree.root(), transform, (w, h), allowance, bounds)
+    let walk = Walk {
+        bounds,
+        dashes: Cell::new(0.0),
+    };
+    nodes(tree.root(), transform, (w, h), allowance, &walk)
 }
 
 fn reserve(surface: Surface, channels: usize, allowance: usize) -> Result<usize, Error> {
@@ -45,21 +61,22 @@ fn nodes(
     transform: tiny_skia::Transform,
     surface: Surface,
     allowance: usize,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Result<(), Error> {
     for node in root.children() {
         match node {
             usvg::Node::Group(group) => {
-                group_paints(group, transform, surface, allowance, bounds)?;
+                group_paints(group, transform, surface, allowance, walk)?;
             }
             usvg::Node::Path(path) if path.is_visible() => {
-                fill(path, transform, allowance, bounds)?;
+                fill(path, transform, allowance, walk)?;
                 if let Some(stroke) = path.stroke() {
-                    paint(stroke.paint(), transform, allowance, bounds)?;
+                    dashes(path, stroke, walk)?;
+                    paint(stroke.paint(), transform, allowance, walk)?;
                 }
             }
             usvg::Node::Text(text) => {
-                group_paints(text.flattened(), transform, surface, allowance, bounds)?;
+                group_paints(text.flattened(), transform, surface, allowance, walk)?;
             }
             usvg::Node::Image(_) => return Err(Error::Unsupported),
             _ => {}
@@ -73,24 +90,24 @@ fn group_paints(
     transform: tiny_skia::Transform,
     surface: Surface,
     allowance: usize,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Result<(), Error> {
     let transform = transform.pre_concat(group.transform());
     if !group.should_isolate() {
-        return nodes(group, transform, surface, allowance, bounds);
+        return nodes(group, transform, surface, allowance, walk);
     }
     // Match resvg's unfiltered render_group layer bounds. Shifting its layer
     // origin changes only translation, so subsequent tile scales stay the same.
-    let Some((layer, transform)) = layer(group, transform, bounds) else {
+    let Some((layer, transform)) = layer(group, transform, walk) else {
         return Ok(()); // resvg skips a layer with invalid or fully clipped bounds.
     };
     let remaining = reserve(layer, 4, allowance)?;
-    nodes(group, transform, layer, remaining, bounds)?;
+    nodes(group, transform, layer, remaining, walk)?;
     if let Some(clip) = group.clip_path() {
-        clip_paints(clip, transform, layer, remaining, bounds)?;
+        clip_paints(clip, transform, layer, remaining, walk)?;
     }
     if let Some(mask) = group.mask() {
-        mask_paints(mask, transform, layer, remaining, bounds)?;
+        mask_paints(mask, transform, layer, remaining, walk)?;
     }
     Ok(())
 }
@@ -98,7 +115,7 @@ fn group_paints(
 fn layer(
     group: &usvg::Group,
     transform: tiny_skia::Transform,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Option<(Surface, tiny_skia::Transform)> {
     let bbox = group.layer_bounding_box().transform(transform)?;
     let rect = tiny_skia::IntRect::from_xywh(
@@ -108,10 +125,10 @@ fn layer(
         (bbox.height().ceil() as u32).checked_add(4)?,
     )?;
     let rect = tiny_skia::IntRect::from_ltrb(
-        rect.left().max(bounds.left()),
-        rect.top().max(bounds.top()),
-        rect.right().min(bounds.right()),
-        rect.bottom().min(bounds.bottom()),
+        rect.left().max(walk.bounds.left()),
+        rect.top().max(walk.bounds.top()),
+        rect.right().min(walk.bounds.right()),
+        rect.bottom().min(walk.bounds.bottom()),
     )?;
     let mut dx = bbox.x();
     let mut dy = bbox.y();
@@ -126,7 +143,7 @@ fn clip_paints(
     transform: tiny_skia::Transform,
     surface: Surface,
     allowance: usize,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Result<(), Error> {
     // Clip coverage needs a colour pixmap and one-byte alpha mask. Keeping
     // both charged through nested clips conservatively bounds their peak.
@@ -136,10 +153,10 @@ fn clip_paints(
         transform.pre_concat(clip.transform()),
         surface,
         remaining,
-        bounds,
+        walk,
     )?;
     if let Some(clip) = clip.clip_path() {
-        clip_paints(clip, transform, surface, remaining, bounds)?;
+        clip_paints(clip, transform, surface, remaining, walk)?;
     }
     Ok(())
 }
@@ -149,24 +166,24 @@ fn clip_nodes(
     transform: tiny_skia::Transform,
     surface: Surface,
     allowance: usize,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Result<(), Error> {
     for node in root.children() {
         match node {
             usvg::Node::Path(path) if path.is_visible() => {
-                fill(path, transform, allowance, bounds)?;
+                fill(path, transform, allowance, walk)?;
             }
             usvg::Node::Text(text) => {
-                clip_nodes(text.flattened(), transform, surface, allowance, bounds)?;
+                clip_nodes(text.flattened(), transform, surface, allowance, walk)?;
             }
             usvg::Node::Group(group) => {
                 let transform = transform.pre_concat(group.transform());
                 if let Some(clip) = group.clip_path() {
                     let remaining = reserve(surface, 4, allowance)?;
-                    clip_nodes(group, transform, surface, remaining, bounds)?;
-                    clip_paints(clip, transform, surface, remaining, bounds)?;
+                    clip_nodes(group, transform, surface, remaining, walk)?;
+                    clip_paints(clip, transform, surface, remaining, walk)?;
                 } else {
-                    clip_nodes(group, transform, surface, allowance, bounds)?;
+                    clip_nodes(group, transform, surface, allowance, walk)?;
                 }
             }
             _ => {}
@@ -180,16 +197,65 @@ fn mask_paints(
     transform: tiny_skia::Transform,
     surface: Surface,
     allowance: usize,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Result<(), Error> {
     if mask.root().children().is_empty() {
         return Ok(());
     }
     // The mask pixmap and alpha coverage coexist with its rendered children.
     let remaining = reserve(surface, 5, allowance)?;
-    nodes(mask.root(), transform, surface, remaining, bounds)?;
+    nodes(mask.root(), transform, surface, remaining, walk)?;
     if let Some(mask) = mask.mask() {
-        mask_paints(mask, transform, surface, remaining, bounds)?;
+        mask_paints(mask, transform, surface, remaining, walk)?;
+    }
+    Ok(())
+}
+
+/// Count what tiny-skia's `dash` makes of a stroke: for each contour,
+/// length × (dashes ÷ 2) ÷ interval, in the path's own units. The length is
+/// the control polygon's, which a curve never exceeds.
+fn dashes(path: &usvg::Path, stroke: &usvg::Stroke, walk: &Walk) -> Result<(), Error> {
+    let Some(array) = stroke.dasharray() else {
+        return Ok(());
+    };
+    let interval: f64 = array.iter().map(|v| *v as f64).sum();
+    if interval.is_nan() || interval <= 0.0 {
+        return Ok(()); // usvg and tiny-skia draw such a stroke solid.
+    }
+    let mut length = 0.0f64;
+    let (mut start, mut last) = (None, tiny_skia::Point::zero());
+    let mut to = |p: tiny_skia::Point, last: &mut tiny_skia::Point| {
+        length += ((p.x - last.x) as f64).hypot((p.y - last.y) as f64);
+        *last = p;
+    };
+    for segment in path.data().segments() {
+        use tiny_skia::PathSegment as S;
+        match segment {
+            S::MoveTo(p) => {
+                start = Some(p);
+                last = p;
+            }
+            S::LineTo(p) => to(p, &mut last),
+            S::QuadTo(a, p) => {
+                to(a, &mut last);
+                to(p, &mut last);
+            }
+            S::CubicTo(a, b, p) => {
+                to(a, &mut last);
+                to(b, &mut last);
+                to(p, &mut last);
+            }
+            S::Close => {
+                if let Some(p) = start {
+                    to(p, &mut last);
+                }
+            }
+        }
+    }
+    let total = walk.dashes.get() + length * (array.len() / 2) as f64 / interval;
+    walk.dashes.set(total);
+    if !total.is_finite() || total > DASH_LIMIT {
+        return Err(Error::Limit);
     }
     Ok(())
 }
@@ -198,11 +264,11 @@ fn fill(
     path: &usvg::Path,
     transform: tiny_skia::Transform,
     allowance: usize,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Result<(), Error> {
     if path.data().bounds().width() > 0.0 && path.data().bounds().height() > 0.0 {
         if let Some(fill) = path.fill() {
-            paint(fill.paint(), transform, allowance, bounds)?;
+            paint(fill.paint(), transform, allowance, walk)?;
         }
     }
     Ok(())
@@ -212,7 +278,7 @@ fn paint(
     paint: &usvg::Paint,
     transform: tiny_skia::Transform,
     allowance: usize,
-    bounds: tiny_skia::IntRect,
+    walk: &Walk,
 ) -> Result<(), Error> {
     let usvg::Paint::Pattern(pattern) = paint else {
         return Ok(());
@@ -240,7 +306,7 @@ fn paint(
         tiny_skia::Transform::from_scale(sx, sy),
         surface,
         remaining,
-        bounds,
+        walk,
     )
 }
 

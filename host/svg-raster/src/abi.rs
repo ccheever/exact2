@@ -10,7 +10,7 @@
 
 /// The ABI this module speaks. A host that expects another refuses the
 /// module by name, as a missing symbol is refused.
-pub const ABI: u32 = 4;
+pub const ABI: u32 = 5;
 
 /// CoreText's selected file path and PostScript name, written as two UTF-8
 /// NUL-terminated fields. A zero return means the host cannot select a font.
@@ -94,27 +94,35 @@ pub unsafe extern "C" fn exact_svg_document_font_budget(bytes: *const u8, len: u
     crate::document::font_budget(unsafe { std::slice::from_raw_parts(bytes, len) }).unwrap_or(0)
 }
 
-/// Read the natural viewport of a bounded SVG image document.
+/// Read the natural viewport of a bounded SVG image document, and which of
+/// its dimensions are natural ([`crate::document::intrinsic`]'s bits).
 ///
 /// # Safety
-/// `bytes` is valid for `len` reads; `width` and `height` each for one write.
+/// `bytes` is valid for `len` reads; `width`, `height` and `natural` each
+/// for one write.
 #[no_mangle]
 pub unsafe extern "C" fn exact_svg_document_size(
     bytes: *const u8,
     len: usize,
     width: *mut f32,
     height: *mut f32,
+    natural: *mut u32,
 ) -> i32 {
-    if bytes.is_null() || width.is_null() || height.is_null() || len > crate::document::SOURCE_LIMIT
+    if bytes.is_null()
+        || width.is_null()
+        || height.is_null()
+        || natural.is_null()
+        || len > crate::document::SOURCE_LIMIT
     {
         return 2;
     }
-    // SAFETY: the caller supplies all three buffers for this call.
-    match crate::document::size(unsafe { std::slice::from_raw_parts(bytes, len) }) {
-        Ok((w, h)) => {
+    // SAFETY: the caller supplies all four buffers for this call.
+    match crate::document::intrinsic(unsafe { std::slice::from_raw_parts(bytes, len) }) {
+        Ok(((w, h), dimensions)) => {
             unsafe {
                 *width = w;
                 *height = h;
+                *natural = dimensions;
             }
             0
         }

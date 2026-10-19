@@ -21,13 +21,13 @@ final class SvgRasterModule {
     typealias Abi = @convention(c) () -> UInt32
     typealias Mask = @convention(c) (UnsafeMutablePointer<UInt8>?, Int, UInt8) -> Void
     typealias Filter = @convention(c) (UnsafePointer<Float>?, Int, UnsafeMutablePointer<UInt8>?, Int, Int, Float, Float, Float, Float) -> Int32
-    typealias DocumentSize = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<Float>?, UnsafeMutablePointer<Float>?) -> Int32
+    typealias DocumentSize = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<Float>?, UnsafeMutablePointer<Float>?, UnsafeMutablePointer<UInt32>?) -> Int32
     typealias DocumentRender = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<UInt8>?, UInt32, UInt32, Int, Float, Float, Float, Float) -> Int32
     typealias FontCallback = @convention(c) (UnsafePointer<UInt8>?, Int, UInt16, UInt8, UInt16, UInt32, UnsafeMutablePointer<UInt8>?, Int) -> Int
     typealias DocumentFonts = @convention(c) (FontCallback) -> Int32
     typealias DocumentFontBudget = @convention(c) (UnsafePointer<UInt8>?, Int) -> Int
     /// The ABI this host speaks (`exact_svg_raster_abi`).
-    static let abi: UInt32 = 4
+    static let abi: UInt32 = 5
     let mask: Mask
     let filter: Filter
     let documentSize: DocumentSize
@@ -75,8 +75,9 @@ final class SvgRasterModule {
         }
         let generic: String?
         switch family.lowercased() {
-        case "serif", "ui-serif": generic = "Times New Roman"
-        case "sans-serif", "ui-sans-serif": generic = "Arial"
+        // Safari's and Chrome's generic families on Apple platforms.
+        case "serif", "ui-serif": generic = "Times"
+        case "sans-serif", "ui-sans-serif": generic = "Helvetica"
         case "monospace", "ui-monospace": generic = "Courier New"
         case "cursive": generic = "Snell Roundhand"
         case "fantasy": generic = "Papyrus"

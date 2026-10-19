@@ -432,4 +432,26 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn dashed_text_strokes_count_toward_the_document_bound() {
+        let fonts = Fonts::with_lookup(|_| {
+            Ok(Some(Source {
+                path: fixture(),
+                postscript: "DejaVuSans".to_owned(),
+            }))
+        });
+        let source = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><text x='2' y='40' font-size='40' font-family='DejaVu Sans' stroke='black' stroke-dasharray='0.0005'>WWW</text></svg>";
+        let options = usvg::Options {
+            font_resolver: fonts.resolver(),
+            ..Default::default()
+        };
+        let tree = usvg::Tree::from_str(source, &options).unwrap();
+        fonts.check().unwrap();
+        let identity = super::super::tiny_skia::Transform::identity();
+        assert_eq!(
+            super::super::safety::renderable(&tree, identity, 64, 64, 64 * 64 * 4),
+            Err(Error::Limit)
+        );
+    }
 }

@@ -1,6 +1,7 @@
 //! Self-contained SVG image documents, decoded only by the loaded image module.
 use resvg::{tiny_skia, usvg};
 
+mod cost;
 pub(crate) mod fonts;
 mod safety;
 
@@ -53,7 +54,37 @@ fn xml(bytes: &[u8]) -> Result<roxmltree::Document<'_>, Error> {
     if filter_declarations(&xml) {
         return Err(Error::Unsupported);
     }
+    // Before usvg copies anything: `<use>`, markers and per-element paint
+    // servers can expand a small source without bound.
+    cost::check(&xml)?;
     Ok(xml)
+}
+
+/// A viewBox whose width or height is zero disables rendering of its element
+/// (SVG 2 §8.6). svgtypes rejects it and usvg would draw as if it were absent.
+fn zero_viewbox(node: roxmltree::Node<'_, '_>) -> bool {
+    let Some(value) = node.attribute("viewBox") else {
+        return false;
+    };
+    let numbers: Vec<f64> = svgtypes::NumberListParser::from(value)
+        .map_while(Result::ok)
+        .collect();
+    numbers.len() == 4 && (numbers[2] == 0.0 || numbers[3] == 0.0)
+}
+
+/// Nested viewports (`svg`, and `symbol` and `marker`, which a use or a shape
+/// instantiates as one) that a zero viewBox disables: their source ranges.
+fn disabled_viewports(xml: &roxmltree::Document<'_>) -> Vec<std::ops::Range<usize>> {
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    for node in xml.root_element().descendants().skip(1) {
+        if matches!(node.tag_name().name(), "svg" | "symbol" | "marker")
+            && zero_viewbox(node)
+            && !ranges.iter().any(|r| r.contains(&node.range().start))
+        {
+            ranges.push(node.range());
+        }
+    }
+    ranges
 }
 
 fn filter_declarations(xml: &roxmltree::Document<'_>) -> bool {
@@ -94,6 +125,11 @@ fn tree(xml: &roxmltree::Document<'_>, resolve_fonts: bool) -> Result<usvg::Tree
         },
         ..Default::default()
     };
+    // A browser's initial font-size is 16px (CSS Fonts 4 §2.5), which `em`
+    // root lengths and text without a font-size resolve against. Its default
+    // family on Apple is Times, as Safari's and Chrome's are.
+    options.font_size = 16.0;
+    options.font_family = "Times".to_owned();
     let fonts = resolve_fonts.then(fonts::Fonts::new);
     if let Some(fonts) = &fonts {
         options.font_resolver = fonts.resolver();
@@ -139,13 +175,23 @@ fn dimensions(w: f32, h: f32) -> Result<(f32, f32), Error> {
 
 /// Give only the outer SVG the negotiated viewport. Nested SVG sizes, the
 /// authored viewBox, and preserveAspectRatio remain intact.
+/// Disabled nested viewports are dropped from the source.
 fn with_viewport(xml: &roxmltree::Document<'_>, size: (f32, f32)) -> String {
-    with_lengths(xml, (&size.0.to_string(), &size.1.to_string()))
+    let mut text = xml.input_text().to_owned();
+    for range in disabled_viewports(xml).into_iter().rev() {
+        text.replace_range(range, "");
+    }
+    root_lengths(xml, text, (&size.0.to_string(), &size.1.to_string()))
 }
 
 fn with_lengths(xml: &roxmltree::Document<'_>, lengths: (&str, &str)) -> String {
+    root_lengths(xml, xml.input_text().to_owned(), lengths)
+}
+
+/// Replace the root's width and height in `text`, which is `xml`'s source
+/// with at most ranges after the root's start tag changed.
+fn root_lengths(xml: &roxmltree::Document<'_>, mut text: String, lengths: (&str, &str)) -> String {
     let root = xml.root_element();
-    let mut text = xml.input_text().to_owned();
     let mut ranges: Vec<_> = root
         .attributes()
         .filter(|a| a.namespace().is_none() && matches!(a.name(), "width" | "height"))
@@ -229,6 +275,37 @@ pub fn size(bytes: &[u8]) -> Result<(f32, f32), Error> {
     natural_size(&xml(bytes)?)
 }
 
+/// A natural width the root's own lengths give.
+pub const NATURAL_WIDTH: u32 = 1;
+/// A natural height the root's own lengths give.
+pub const NATURAL_HEIGHT: u32 = 2;
+
+/// [`size`] and which of its dimensions are natural ones. With neither, the
+/// size is the 300×150-bounded fallback that carries only the viewBox's
+/// ratio, and `object-fit: none` or `scale-down` sizes the object as the
+/// default sizing algorithm does with a ratio alone: contained in the box
+/// (CSS Images 3 §5.2, §5.5).
+pub fn intrinsic(bytes: &[u8]) -> Result<((f32, f32), u32), Error> {
+    let xml = xml(bytes)?;
+    let size = natural_size(&xml)?;
+    if pixel_viewport(&xml).is_some() {
+        return Ok((size, NATURAL_WIDTH | NATURAL_HEIGHT));
+    }
+    let absolute = |name| {
+        xml.root_element()
+            .attribute(name)
+            .and_then(|v| v.parse::<svgtypes::Length>().ok())
+            .is_some_and(|v| v.unit != svgtypes::LengthUnit::Percent)
+    };
+    let width = if absolute("width") { NATURAL_WIDTH } else { 0 };
+    let height = if absolute("height") {
+        NATURAL_HEIGHT
+    } else {
+        0
+    };
+    Ok((size, width | height))
+}
+
 /// Paint directly into the caller's reserved, padded, premultiplied BGRA8
 /// bitmap. Revalidate actual document dimensions before writing any pixels.
 pub fn render(
@@ -256,6 +333,10 @@ pub fn render(
         return Err(Error::Changed);
     }
     dimensions(viewport.0, viewport.1)?;
+    if zero_viewbox(xml.root_element()) {
+        pixels.fill(0);
+        return Ok(());
+    }
     let negotiated = with_viewport(&xml, viewport);
     let tree = tree(&self::xml(negotiated.as_bytes())?, true)?;
     // Integer bitmap allocation rounds outward; the document's transform is
@@ -475,5 +556,88 @@ mod tests {
         let mut rounded = vec![0; 6 * 7 * 4];
         render(svg, &mut rounded, 6, 7, 24, (5.2, 7.0), (5.2, 7.0)).unwrap();
         assert!(pixel(&rounded, 6, 5, 3)[3] < 80);
+    }
+
+    #[test]
+    fn intrinsic_reports_which_dimensions_are_natural() {
+        let both = NATURAL_WIDTH | NATURAL_HEIGHT;
+        assert_eq!(
+            intrinsic(b"<svg width='5' height='7'/>"),
+            Ok(((5.0, 7.0), both))
+        );
+        assert_eq!(
+            intrinsic(b"<svg width='2em' height='1cm' viewBox='0 0 1 1'/>").map(|v| v.1),
+            Ok(both)
+        );
+        assert_eq!(
+            intrinsic(b"<svg width='100' viewBox='0 0 200 200'/>"),
+            Ok(((100.0, 100.0), NATURAL_WIDTH))
+        );
+        assert_eq!(
+            intrinsic(b"<svg width='100%' height='50%' viewBox='0 0 200 100'/>"),
+            Ok(((300.0, 150.0), 0))
+        );
+        assert_eq!(
+            intrinsic(b"<svg viewBox='0 0 64 64'/>"),
+            Ok(((150.0, 150.0), 0))
+        );
+    }
+
+    #[test]
+    fn a_zero_viewbox_disables_its_viewport() {
+        let rect = "<rect width='64' height='64' fill='red'/>";
+        for viewbox in ["0 0 0 64", "0 0 64 0"] {
+            let svg = format!("<svg width='64' height='64' viewBox='{viewbox}'>{rect}</svg>");
+            assert_eq!(size(svg.as_bytes()), Ok((64.0, 64.0)));
+            let mut pixels = vec![9; 64 * 64 * 4];
+            render(
+                svg.as_bytes(),
+                &mut pixels,
+                64,
+                64,
+                256,
+                (64.0, 64.0),
+                (64.0, 64.0),
+            )
+            .unwrap();
+            assert!(pixels.iter().all(|v| *v == 0), "{viewbox}");
+        }
+        // Nested: an inner svg, a symbol a use shows, and a marker.
+        let blue = "<rect y='32' width='64' height='32' fill='blue'/>";
+        for content in [
+            format!("<svg width='64' height='32' viewBox='0 0 0 10'>{rect}</svg>"),
+            format!("<defs><symbol id='s' viewBox='0 0 10 0'>{rect}</symbol></defs><use href='#s' width='64' height='32'/>"),
+            format!("<defs><marker id='m' viewBox='0 0 0 4' markerWidth='64' markerHeight='64'>{rect}</marker></defs><path d='M0 0L1 1' marker-start='url(#m)'/>"),
+        ] {
+            let svg = format!("<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'>{content}{blue}</svg>");
+            let mut pixels = vec![0; 64 * 64 * 4];
+            render(svg.as_bytes(), &mut pixels, 64, 64, 256, (64.0, 64.0), (64.0, 64.0)).unwrap();
+            assert_eq!(pixel(&pixels, 64, 10, 10)[3], 0, "{content}");
+            assert_eq!(pixel(&pixels, 64, 10, 48), &[255, 0, 0, 255]);
+        }
+        // A negative size is an error that leaves the viewBox unset, not zero.
+        let svg = format!("<svg width='64' height='64' viewBox='0 0 -1 64'>{rect}</svg>");
+        let mut pixels = vec![0; 64 * 64 * 4];
+        render(
+            svg.as_bytes(),
+            &mut pixels,
+            64,
+            64,
+            256,
+            (64.0, 64.0),
+            (64.0, 64.0),
+        )
+        .unwrap();
+        assert_eq!(pixel(&pixels, 64, 10, 10), &[0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn font_relative_lengths_use_the_browser_initial_16px() {
+        assert_eq!(size(b"<svg width='2em' height='1em'/>"), Ok((32.0, 16.0)));
+        let svg = b"<svg width='64' height='64'><rect width='1em' height='1em' fill='red'/></svg>";
+        let mut pixels = vec![0; 64 * 64 * 4];
+        render(svg, &mut pixels, 64, 64, 256, (64.0, 64.0), (64.0, 64.0)).unwrap();
+        assert_eq!(pixel(&pixels, 64, 15, 15), &[0, 0, 255, 255]);
+        assert_eq!(pixel(&pixels, 64, 17, 17)[3], 0);
     }
 }

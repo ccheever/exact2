@@ -75,6 +75,12 @@ struct RasterMetadata: Equatable, Sendable {
     var svgNaturalSize: CGSize?
     /// Temporary font file/database storage reserved only for text documents.
     var svgFontBytes = 0
+    /// Which SVG natural dimensions the root gives (1 width, 2 height); with
+    /// neither, `svgNaturalSize` is a fallback carrying only the ratio.
+    var svgNaturalDimensions: UInt32 = 0
+    /// Whether `naturalSize` is a natural size, which `object-fit: none` and
+    /// `scale-down` show (CSS Images 3 §5.5).
+    var hasNaturalSize: Bool { !svg || svgNaturalDimensions != 0 }
     /// More than 8 bits a channel, or float samples (LLP 1100 D4).
     var deep = false
     /// A PQ or HLG transfer, or a gain map, as the header says (LLP 1100 D4).
@@ -106,13 +112,14 @@ struct RasterMetadata: Equatable, Sendable {
         if looksLikeXML(prefix) {
             guard prefix.count == encodedBytes else { throw RasterFailure.svgDocumentLimit }
             guard let module = SvgRasterModule.imageDecoder else { throw RasterFailure.svgModule }
-            var width: Float = 0, height: Float = 0
-            let result = prefix.withUnsafeBytes { module.documentSize($0.bindMemory(to: UInt8.self).baseAddress, prefix.count, &width, &height) }
+            var width: Float = 0, height: Float = 0, natural: UInt32 = 0
+            let result = prefix.withUnsafeBytes { module.documentSize($0.bindMemory(to: UInt8.self).baseAddress, prefix.count, &width, &height, &natural) }
             try svgResult(result)
             guard width.isFinite, height.isFinite, width > 0, height > 0 else { throw RasterFailure.dimensions }
             var metadata = try validated(width: Int(ceil(width)), height: Int(ceil(height)), orientation: 1, encodedBytes: encodedBytes, headerBytes: prefix.count)
             metadata.svg = true
             metadata.svgNaturalSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+            metadata.svgNaturalDimensions = natural
             metadata.svgFontBytes = prefix.withUnsafeBytes { module.documentFontBudget($0.bindMemory(to: UInt8.self).baseAddress, prefix.count) }
             return metadata
         }
@@ -410,6 +417,8 @@ final class RasterImage: @unchecked Sendable {
     /// An HDR bitmap's headroom over SDR white, else 0.
     let headroom: Float
     private let svgViewport: CGSize?
+    /// `RasterMetadata.hasNaturalSize`.
+    let hasNaturalSize: Bool
 
     /// The launch image as the asset catalog holds it, already at the
     /// screen's scale (`RasterInput.catalog`): drawn into the planned storage
@@ -429,9 +438,14 @@ final class RasterImage: @unchecked Sendable {
         return nil
         #endif
     }
-    private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?, headroom: Float = 0, svgViewport: CGSize? = nil) {
+    private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?, headroom: Float = 0, svgViewport: CGSize? = nil,
+                 hasNaturalSize: Bool = true) {
         self.image = image; naturalSize = natural; residentBytes = bytes; self.animation = animation; self.headroom = headroom
-        self.svgViewport = svgViewport
+        self.svgViewport = svgViewport; self.hasNaturalSize = hasNaturalSize
+    }
+    /// The object's rect in `content` at `fit` (CSS `object-fit`).
+    func objectRect(content: CGRect, fit: String) -> CGRect {
+        RasterGeometry.rect(natural: naturalSize, content: content, fit: RasterGeometry.fit(fit, natural: hasNaturalSize))
     }
     /// Ceil padding is outside the logical SVG viewport. Paint at the exact
     /// uniform raster scale, letting the content clip crop that extra fraction.
@@ -471,7 +485,8 @@ final class RasterImage: @unchecked Sendable {
                     Float(plan.svgViewport!.width), Float(plan.svgViewport!.height)) }
                 try svgResult(result)
                 guard let image = context.makeImage() else { throw RasterFailure.decode }
-                return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil, svgViewport: plan.svgViewport)
+                return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil,
+                                   svgViewport: plan.svgViewport, hasNaturalSize: metadata.hasNaturalSize)
             }
             guard let source = CGImageSourceCreateWithData(bytes as CFData,
                 [kCGImageSourceShouldCache: false] as CFDictionary),
@@ -634,6 +649,13 @@ func withScratch<T>(_ count: Int, _ body: (UnsafeMutableRawPointer) throws -> T?
 }
 
 enum RasterGeometry {
+    /// An object with no natural size (an SVG whose root gives only a
+    /// viewBox) has its ratio alone: `none` and `scale-down` then size it as
+    /// the default sizing algorithm does, contained in the box (CSS Images 3
+    /// §5.2), as a browser shows such an `<img>`.
+    static func fit(_ fit: String, natural: Bool) -> String {
+        natural || (fit != "none" && fit != "scale-down") ? fit : "contain"
+    }
     static func rect(natural: CGSize, content: CGRect, fit: String) -> CGRect {
         guard natural.width > 0, natural.height > 0 else { return .zero }
         if fit == "fill" { return content }

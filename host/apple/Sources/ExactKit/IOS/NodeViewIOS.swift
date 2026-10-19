@@ -1261,7 +1261,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         if old["accent_color"] != s["accent_color"] { applyAccentTint() }
-        updateSymbol(); syncDynamicRange(from: old)
+        updateSymbol(); syncDynamicRange(from: old); syncObjectFit(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         applyBoxMask()
         applyFilter()
@@ -1457,8 +1457,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // an unknown value is the initial `fill`.
             let fit = style["object_fit"]?.string ?? "fill"
             let content = contentBox()
-            let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
-            let rect = bitmap.displayRect(object)
+            let object = bitmap.objectRect(content: content, fit: fit), rect = bitmap.displayRect(object)
             ctx.saveGState()
             ctx.clip(to: object)
             path.addClip()

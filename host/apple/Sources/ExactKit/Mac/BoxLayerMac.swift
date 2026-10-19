@@ -275,7 +275,7 @@ extension NodeView {
     private var imagePlan: (shown: CGRect, unit: CGRect, radius: CGFloat, corners: CACornerMask)? {
         guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image else { return nil }
         let content = contentBox()
-        let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
+        let object = bitmap.objectRect(content: content, fit: style["object_fit"]?.string ?? "fill")
         let rect = bitmap.displayRect(object)
         let shown = object.intersection(content)
         let radii = cornerRadii(in: bounds)

@@ -90,7 +90,7 @@ extension NodeView {
         }
         let content = contentBox()
         let fit = style["object_fit"]?.string ?? "fill"
-        let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+        let object = bitmap.objectRect(content: content, fit: fit)
         let rect = bitmap.displayRect(object)
         let pixels = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
         // Gravity fits the bitmap's own aspect, which a decode's rounded pixel

@@ -433,8 +433,11 @@ final class RasterLoader {
         var decodeIdentity: RasterDecodeIdentity?
         var failure: String?
         var delivered = false
-        /// Its `load` or `error` went out: once per source, as `<img>`'s.
-        var announced = false
+        /// What it announced: nil, nothing yet; false, `load`; true, `error`.
+        /// An `<img>` announces once per source. A decode at a new viewport
+        /// can be refused after `load`, and that `error` is announced too;
+        /// after an `error`, nothing is.
+        var announced: Bool?
         /// The core's request queue was full: asked again on the next pass.
         var admissionDeferred = false
         /// Declined decodes since it last painted, and the delay it waits out
@@ -473,6 +476,8 @@ final class RasterLoader {
     private var pressure: DispatchSourceMemoryPressure?
     #if DEBUG
     private(set) var testReconciliations = 0
+    /// Each `load` (nil) or `error` (its reason) announced, by view.
+    private(set) var testAnnounced: [(view: UInt32, failure: String?)] = []
     /// Stands in for the core's request: a request id, or 0 and its refusal.
     var testRequest: ((ExactRasterDemand) -> (request: UInt64, refusal: UInt64?))?
     var testBeforeComplete: (() -> Void)? {
@@ -599,7 +604,8 @@ final class RasterLoader {
     private static func svgViewport(_ view: NodeView, _ metadata: RasterMetadata) -> CGSize {
         let content = view.contentBox()
         let size = content.width > 0 && content.height > 0
-            ? RasterGeometry.rect(natural: metadata.naturalSize, content: content, fit: view.style["object_fit"]?.string ?? "fill").size
+            ? RasterGeometry.rect(natural: metadata.naturalSize, content: content,
+                                  fit: RasterGeometry.fit(view.style["object_fit"]?.string ?? "fill", natural: metadata.hasNaturalSize)).size
             : metadata.naturalSize
         // Canonical Float values survive the worker/cache identity exactly.
         return CGSize(width: CGFloat(Float(size.width)), height: CGFloat(Float(size.height)))
@@ -660,10 +666,19 @@ final class RasterLoader {
         // after the loop: one layout for them all, not one each.
         var landed: [(view: NodeView, generation: Int, size: CGSize)] = []
         var settled: [(view: NodeView, generation: Int?, failure: String?)] = []
-        defer { report(landed); Self.announce(settled) }
-        // Each source's first outcome, its `load` or its `error`.
+        defer {
+            report(landed); Self.announce(settled)
+            #if DEBUG
+            testAnnounced += settled.map { ($0.view.id, $0.failure) }
+            #endif
+        }
+        // Each source's first outcome, its `load` or its `error`, and an
+        // `error` that follows its `load`.
         func settle(_ item: inout Interest, _ view: NodeView) {
-            if !item.announced { item.announced = true; settled.append((view, item.generation, item.failure)) }
+            let failed = item.failure != nil
+            if item.announced == nil || (item.announced == false && failed) {
+                item.announced = failed; settled.append((view, item.generation, item.failure))
+            }
         }
         for viewID in Array(interests.keys) {
             guard var item = interests[viewID], let view = item.view,
@@ -908,4 +923,13 @@ final class RasterLoader {
     /// A full request queue is temporary: every decode that lands or fails
     /// wakes reconciliation, which asks again. Any other refusal stands.
     static func transientRequestRefusal(_ code: UInt64) -> Bool { code == 8 }
+}
+
+extension NodeView {
+    /// A changed `object-fit` moves an SVG's viewport, and the size a raster
+    /// is decoded at, as a resize does.
+    func syncObjectFit(from old: NodeStyle) {
+        guard kind == "image", flightLook == nil, old["object_fit"] != style["object_fit"] else { return }
+        presenter?.session?.rasters.resized(self)
+    }
 }

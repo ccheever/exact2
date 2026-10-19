@@ -12,22 +12,32 @@ final class SVGImageLayoutMacTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><circle cx='50' cy='50' r='30' fill='red'/></svg>"
         let image = "data:image/svg+xml;base64," + Data(svg.utf8).base64EncodedString()
+        let unsized = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='30' fill='red'/></svg>"
+        let ratioOnly = "data:image/svg+xml;base64," + Data(unsized.utf8).base64EncodedString()
         let source = """
         component App
           state wide = false
           state padded = false
+          state contained = false
           action widen
             wide = true
           action pad
             padded = true
+          action contain
+            contained = true
           view
-            column width=600 height=400
+            column width=600
               column width=(wide ? 600 : 400)
                 image "\(image)" testId="relative" width=200 height=100 box-sizing="border-box" padding-left="10%" padding-right="calc(5% + 10px)"
               image "\(image)" testId="equivalent" width=130 height=100
               image "\(image)" testId="changing" width=200 height=100 box-sizing="border-box" padding-left=(padded ? 20 : 0)
+              image "\(image)" testId="fitting" width=200 height=100 object-fit=(contained ? "contain" : "fill")
+              row
+                image "\(ratioOnly)" testId="none" width=400 height=400 flex-shrink=0 object-fit="none"
+                image "\(ratioOnly)" testId="scale-down" width=400 height=400 flex-shrink=0 object-fit="scale-down"
               button "Widen" testId="widen" press=widen
               button "Pad" testId="pad" press=pad
+              button "Contain" testId="contain" press=contain
 
         """
         let contract = root.appendingPathComponent("app.contract"), plan = root.appendingPathComponent("app.plan")
@@ -100,6 +110,44 @@ final class SVGImageLayoutMacTests: XCTestCase {
             XCTAssertEqual(changing.contentBox(), CGRect(x: 20, y: 0, width: 180, height: 100))
             let updated = try XCTUnwrap(changing.raster?.image.image)
             XCTAssertEqual(Double(updated.width) / Double(updated.height), 1.8, accuracy: 0.01)
+        }
+    }
+
+    /// Only `object-fit` changes: the SVG is drawn again at its new viewport,
+    /// a circle staying round in the box, as a browser draws it.
+    func testObjectFitChangeAloneReplacesDecodedSVG() throws {
+        try withLayout { session, node, window in
+            let fitting = try node("fitting")
+            settle(window) { fitting.raster != nil }
+            let frame = fitting.frame, image = try XCTUnwrap(fitting.raster?.image)
+            XCTAssertEqual(Double(image.image.width) / Double(image.image.height), 2, accuracy: 0.01)
+            let batch = session.runtime.press(try node("contain").id, now: session.now())
+            XCTAssertFalse(batch.ops.contains { $0.op == .frame && $0.id == fitting.id })
+            session.apply(batch)
+            settle(window) { fitting.raster != nil && fitting.raster?.image !== image }
+            XCTAssertEqual(fitting.frame, frame)
+            let updated = try XCTUnwrap(fitting.raster?.image.image)
+            XCTAssertEqual(updated.width, updated.height)
+        }
+    }
+
+    /// A root with only a viewBox has a ratio and no natural size: `none`
+    /// and `scale-down` contain it in the box, as Chrome shows it (a square
+    /// in a 400×400 box is 400×400, not the 150×150 fallback).
+    func testViewBoxOnlySVGWithNoneOrScaleDownFillsTheBoxAsChromeDoes() throws {
+        try withLayout { _, node, window in
+            for testId in ["none", "scale-down"] {
+                let view = try node(testId)
+                settle(window) { view.raster != nil }
+                let image = try XCTUnwrap(view.raster?.image)
+                XCTAssertEqual(image.naturalSize, CGSize(width: 150, height: 150))
+                XCTAssertFalse(image.hasNaturalSize)
+                let content = view.contentBox()
+                XCTAssertEqual(content.size, CGSize(width: 400, height: 400))
+                XCTAssertEqual(image.objectRect(content: content, fit: testId), content, testId)
+                XCTAssertGreaterThanOrEqual(image.image.width, 400, "decoded for the 400-point viewport")
+                XCTAssertEqual(image.image.width, image.image.height)
+            }
         }
     }
 }
