@@ -127,6 +127,9 @@ public final class ActivityRender {
             result = try pass(CGSize(width: width, height: result.size.height))
         }
         laid[key] = result
+        // GeometryReader receives this resolved viewport, including a content-sized
+        // proposal's height. Drawing it is the same pass, not another kernel layout.
+        laid["\(placement.rawValue)|\(result.viewport.width)|\(result.viewport.height)"] = result
         return result
     }
 
@@ -282,7 +285,7 @@ public struct ActivityPlacementView: View {
         let margins = margins
         PlacementLayout(render: render, placement: placement) {
             GeometryReader { proxy in
-                if let laid = try? render.layout(placement, width: proxy.size.width, height: proxy.size.height) {
+                if proxy.size.width > 0, proxy.size.height > 0, let laid = try? render.layout(placement, width: proxy.size.width, height: proxy.size.height) {
                     let background = placement.hasMargins ? SnapshotActivity.background(of: laid, dark: scheme == .dark) : ActivityBackground(tint: nil, gradients: nil)
                     let bleed = CGRect(x: -margins.leading, y: -margins.top, width: proxy.size.width + margins.leading + margins.trailing, height: proxy.size.height + margins.top + margins.bottom)
                     let frame = CGRect(x: laid.root.frame.minX, y: laid.root.frame.minY, width: laid.root.frame.width, height: laid.root.frame.height)

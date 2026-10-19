@@ -6,6 +6,25 @@ import ExactCore
 
 #if canImport(WidgetKit)
 extension ActivityDriverTests {
+    func testActivityDrawReusesTheMeasuredLayouts() throws {
+        for (key, kind) in [("SNAPSHOT_DEPARTURE", "departure"), ("SNAPSHOT_SERVICE_ALERT", "service-alert")] {
+            let render = try self.render(try Self.plan(key), kind: kind, state: nil)
+            var measuring = 0, drawing = 0
+            for placement in ActivityPlacement.allCases {
+                let proposal = ProposedViewSize(width: 165, height: nil)
+                let before = render.layoutCount
+                _ = render.measure(placement, proposal: proposal)
+                measuring += render.layoutCount - before
+                let measured = render.layoutCount
+                _ = try XCTUnwrap(image(SnapshotActivity.view(render, placement: placement, environment: environment(placement))
+                    .frame(width: 165, alignment: .leading), proposal: proposal))
+                drawing += render.layoutCount - measured
+            }
+            print("LAYOUTS \(kind): measurement=\(measuring) draw=\(drawing)")
+            XCTAssertEqual(drawing, 0, "each GeometryReader must reuse the content-height layout that measurement computed")
+        }
+    }
+
     func testPlacementDrawUsesItsProposalAfterAnUnspecifiedProbe() throws {
         let render = try self.render(try Self.plan("SNAPSHOT_EDGES"), kind: "edges", state: nil)
         let layout = PlacementLayout(render: render, placement: .minimal)
