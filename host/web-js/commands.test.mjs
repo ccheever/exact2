@@ -6,6 +6,7 @@ test('relaunch reloads the browser document and keeps committed storage', async 
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
+    if (path === '/frame-messages.js') return new Response(Bun.file(new URL('../web/frame-messages.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     return new Response(`<button id="restart">Restart</button><output id="state"></output>
@@ -44,6 +45,7 @@ test("a prompt's Return commits its field, then presses its action", async () =>
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
+    if (path === '/frame-messages.js') return new Response(Bun.file(new URL('../web/frame-messages.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     return new Response(`<dialog role="alertdialog" open><input id="name">

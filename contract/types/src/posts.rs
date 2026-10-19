@@ -1,23 +1,30 @@
-//! `postMessage(message, target)` names a surface by literal: the app must
-//! declare a canvas with `surface=target(...)`, or the post is refused here
-//! rather than dropped by a host at run time.
+//! Posts name a literal canvas surface or a live iframe id. Canvas-only apps
+//! retain literal target checking; repeated iframe instances may compute ids.
 use super::{Sink, TypeError};
 use contract_syntax::{Expr, File, Node, Span, Stmt};
 use std::collections::BTreeSet;
 
+#[derive(Default)]
+struct Targets<'a> {
+    canvases: BTreeSet<&'a str>,
+    frames: BTreeSet<&'a str>,
+    dynamic_frames: bool,
+    has_frames: bool,
+}
+
 /// A call refused as ambiguous (`ambiguous`, LLP 1089 D1) is not checked.
 pub(super) fn check_targets(file: &File, ambiguous: &BTreeSet<Span>, sink: &mut Sink) {
-    let mut surfaces = BTreeSet::new();
+    let mut targets = Targets::default();
     for c in &file.components {
-        view(&c.view, &mut surfaces);
+        view(&c.view, &mut targets);
     }
     for c in &file.components {
         for a in &c.actions {
-            stmts(&a.body, &surfaces, ambiguous, sink);
+            stmts(&a.body, &targets, ambiguous, sink);
         }
     }
 }
-fn view<'a>(nodes: &'a [Node], out: &mut BTreeSet<&'a str>) {
+fn view<'a>(nodes: &'a [Node], out: &mut Targets<'a>) {
     for n in nodes {
         match n {
             Node::Element {
@@ -26,12 +33,22 @@ fn view<'a>(nodes: &'a [Node], out: &mut BTreeSet<&'a str>) {
                 children,
                 ..
             } => {
+                if tag == "iframe" {
+                    out.has_frames = true;
+                    for a in attrs.iter().filter(|a| a.name == "id") {
+                        if let Expr::Str(id, _) = &a.value {
+                            out.frames.insert(id);
+                        } else {
+                            out.dynamic_frames = true;
+                        }
+                    }
+                }
                 for a in attrs
                     .iter()
                     .filter(|a| a.name == "surface" && tag == "canvas")
                 {
                     if let Expr::Ident(name, _) | Expr::Call(name, _, _) = &a.value {
-                        out.insert(name);
+                        out.canvases.insert(name);
                     }
                 }
                 view(children, out);
@@ -52,40 +69,50 @@ fn view<'a>(nodes: &'a [Node], out: &mut BTreeSet<&'a str>) {
         }
     }
 }
-fn stmts(body: &[Stmt], surfaces: &BTreeSet<&str>, ambiguous: &BTreeSet<Span>, sink: &mut Sink) {
+fn stmts(body: &[Stmt], targets: &Targets<'_>, ambiguous: &BTreeSet<Span>, sink: &mut Sink) {
     for s in body {
         match s {
             Stmt::Command { name, args, span }
                 if name == "postMessage" && !ambiguous.contains(span) =>
             {
-                let Some(Expr::Str(target, span)) = args.get(1) else {
+                let Some(Expr::Str(target, target_span)) = args.get(1) else {
+                    if !targets.has_frames {
+                        sink.push(TypeError {
+                            id: "type-post-message",
+                            message: "a canvas target is named literally; string expressions address iframe ids".into(),
+                            span: *span,
+                        });
+                    }
                     continue;
                 };
-                if !surfaces.contains(target.as_str()) {
-                    let known = if surfaces.is_empty() {
-                        "this app declares no canvas surface".to_string()
-                    } else {
-                        let names: Vec<_> = surfaces.iter().map(|s| format!("`{s}`")).collect();
-                        format!("its canvases declare {}", names.join(", "))
-                    };
+                let canvas = targets.canvases.contains(target.as_str());
+                let frame = targets.frames.contains(target.as_str());
+                let message = if canvas && frame {
+                    Some(format!("postMessage target `{target}` is ambiguous: both a canvas surface and an iframe id"))
+                } else if !canvas && !frame && !targets.dynamic_frames {
+                    Some(format!(
+                        "`postMessage(message, \"{target}\")` names no canvas surface or iframe id"
+                    ))
+                } else {
+                    None
+                };
+                if let Some(message) = message {
                     sink.push(TypeError {
                         id: "type-post-message",
-                        message: format!(
-                            "`postMessage(message, \"{target}\")` names no surface: {known} (`canvas surface={target}()`)"
-                        ),
-                        span: *span,
+                        message,
+                        span: *target_span,
                     });
                 }
             }
             Stmt::If {
                 then, otherwise, ..
             } => {
-                stmts(then, surfaces, ambiguous, sink);
-                stmts(otherwise, surfaces, ambiguous, sink);
+                stmts(then, targets, ambiguous, sink);
+                stmts(otherwise, targets, ambiguous, sink);
             }
             Stmt::Match { some, none, .. } => {
-                stmts(&some.1, surfaces, ambiguous, sink);
-                stmts(none, surfaces, ambiguous, sink);
+                stmts(&some.1, targets, ambiguous, sink);
+                stmts(none, targets, ambiguous, sink);
             }
             _ => {}
         }

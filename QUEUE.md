@@ -873,12 +873,6 @@ sits on that list carries the trade it would take.
    controls; the reader needs a compact layout at that width.
    During verification the macOS timer-step smoke once read width 50 at t=1250
    instead of 75, then passed on repeat; investigate the intermittent clock fixture.
-5. **Shared elements, stage 2** (LLP 1013.000 §3; stage 1 built 2026-10-04: the
-   `sharedElement` attribute, live native flights on iOS/macOS, CSS View Transitions
-   on the web's JS target, `apps/shared-elements`). Next: velocity carried into a
-   flight (a release's, an interrupted flight's: Q5), drag-to-dismiss handing a hold
-   to the flight back, a name as the zoom's source (`navigationSource`), flights on
-   Linux and on the wasm web target, and a prop changed on a live node pairing.
 
 - **Rust replacement follow-ups** — **LLP 1029.000**: native/browser/Wasmi replacement
   and dev/prod controls are implemented. Next: physical-phone size/latency and
@@ -1208,6 +1202,15 @@ sits on that list carries the trade it would take.
   when a surface needs it.
 
 ## Later
+
+- **Shared elements, stage 2** (LLP 1013.000 §3; moved here 2026-10-19 as the take
+  for LLP 1020 §11's iframe host updates, `rules/DEFERRED.md`; stage 1 built
+  2026-10-04: the `sharedElement` attribute, live native flights on iOS/macOS, CSS
+  View Transitions on the web's JS target, `apps/shared-elements`). Waits for a named
+  consumer: velocity carried into a flight (a release's, an interrupted flight's: Q5),
+  drag-to-dismiss handing a hold to the flight back, a name as the zoom's source
+  (`navigationSource`), flights on Linux and on the wasm web target, and a prop
+  changed on a live node pairing.
 
 - **A followed end resolved by the host (deferred, 2026-10-05).** The
   proposal on `ide/doc/followed-end-one-target`
