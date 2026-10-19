@@ -35,14 +35,17 @@
 //   `forwarded` marker of the gateway's own is added, so the dev gate (as
 //   it is) calls the request not local: no install or tamber token can be
 //   handed to it whatever path the allow list someday passes.
-// - Downstream: Set-Cookie, CORS and hop-by-hop headers dropped; every
-//   loopback address in headers and in HTML, JSON and SSE bodies (raw,
-//   URL-encoded, JSON-escaped or a bare host:port; any 127/8, localhost or
-//   [::1] host, encoded hosts too, at any port) rewritten: the loop's own to
-//   `origin`, any other to `loopback.invalid`; `frame-ancestors` names the
-//   tool's remote origin (`toolOrigin`, never a loopback one) instead of any
-//   loopback source; `cache-control: no-store`; bodies streamed with
-//   backpressure.
+// - Downstream: Set-Cookie, CORS and hop-by-hop headers dropped. Loopback
+//   addresses (a URL or a bare host:port whose host WHATWG URL parses as
+//   loopback, at any port) in headers and text bodies (HTML, JS, CSS) are
+//   rewritten, and JSON bodies (and SSE's JSON data lines) are parsed and
+//   each string rewritten: the loop's own to `origin`, any other to
+//   `loopback.invalid`, no other host ever touched. Escaped spellings in
+//   text are a known limit (functional, not a boundary: theme2). Range is
+//   not passed on, so a rewritten body is never a slice. `frame-ancestors`
+//   names the tool's remote origin (`toolOrigin`, never a loopback one)
+//   instead of any loopback source; `cache-control: no-store`; bodies
+//   streamed with backpressure.
 // - Revoke and expiry (A's `onEnd`): each of the client's proxied requests
 //   (streams, long polls, uploads, downloads a client stopped reading) is
 //   ended at once (its upstream fetch aborted, its request and response
@@ -70,7 +73,7 @@ const BEACONS = new Set(['/__dev/reloaded', '/__dev/painted', '/__dev/gpu', '/__
 const WRITES = new Set(['/__dev/design', '/__dev/checkpoint', '/__dev/open']);
 const ENTRY = /^\/canvas\/([^/]+)\/$/;
 const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
-const DROP_UP = new Set(['host', 'cookie', 'origin', 'referer', 'x-exact-tamber-token', 'forwarded', 'x-real-ip', 'content-length', 'accept-encoding']);
+const DROP_UP = new Set(['host', 'cookie', 'origin', 'referer', 'x-exact-tamber-token', 'forwarded', 'x-real-ip', 'content-length', 'accept-encoding', 'range', 'if-range']);
 const DROP_DOWN = new Set(['set-cookie', 'set-cookie2', 'content-length', 'content-encoding', 'cache-control', 'alt-svc', 'strict-transport-security']);
 
 /** The request target as the gateway authorizes and forwards it,
@@ -109,52 +112,70 @@ const same = (a, b) => a.length === b.length && timingSafeEqual(a, b);
 
 /** Where an address that is no loop of ours points instead: never routed. */
 export const PLACEHOLDER = 'loopback.invalid';
-/** Whether a host (as WHATWG URL serializes it) is this machine's. */
-const isLoopback = host => host === 'localhost' || host.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(host) || host === '0.0.0.0'
-  || host === '[::1]' || host === '[::]' || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host);
-/** A URL authority's port when its host is loopback (`%6cocalhost` and
- * `0x7f.1` included: WHATWG URL canonicalizes it), else null. */
-function loopbackPort(authority, scheme) {
+/** Whether a host, as WHATWG URL parses it, is this machine's (one
+ * trailing dot dropped). */
+const isLoopback = parsed => {
+  const host = parsed.endsWith('.') ? parsed.slice(0, -1) : parsed;
+  return host === 'localhost' || host.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(host) || host === '0.0.0.0'
+    || host === '[::1]' || host === '[::]' || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host);
+};
+/** An authority's port when WHATWG URL parses its host as loopback, else
+ * null. Nothing is decoded first: `127.0.0.1%2F@evil.test` is evil.test's. */
+function loopbackPort(authority, scheme = 'http:') {
   let u;
-  try { u = new URL(`${scheme || 'http:'}//${decodeURIComponent(authority)}`); } catch { return null; }
+  try { u = new URL(`${scheme}//${authority}/`); } catch { return null; }
   if (!isLoopback(u.hostname)) return null;
-  return u.port || (u.protocol === 'https:' || u.protocol === 'wss:' ? '443' : '80');
+  return u.port || (scheme === 'https:' || scheme === 'wss:' ? '443' : '80');
 }
 
-const AUTH = String.raw`(?:[\w.~\-:@\[\]]|%[0-9a-f]{2})*`;
-const ENC_AUTH = String.raw`(?:[\w.~\-@]|%(?!2f|3f|23|26)[0-9a-f]{2})*`;
-const BARE_HOST = String.raw`localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\]|%5B%3A%3A1%5D`;
-// One pass, so what it writes is never read again: a URL (any scheme the
-// web routes, or scheme-relative; `\/\/` as JSON may escape it), its
-// URL-encoded form, and a bare loopback `host:port` standing alone (not in
-// a path, not inside a longer name).
+// Candidates, each decided by WHATWG URL: a web URL or a scheme-relative
+// one (its authority up to the first delimiter, whitespace, quote or
+// bracket of the text around it), and a bare `host:port` standing alone
+// (not in a path, not inside a longer name). Escaped spellings (HTML or
+// JSON escapes in text, percent-encoded URLs) are a known limit (§10).
 const ADDRESSES = new RegExp(
-  String.raw`(?<![\w.+\-\/\\:%])(?<scheme>(?:https?|wss?):)?(?<sep>\/\/|\\\/\\\/)(?<auth>${AUTH})`
-  + String.raw`|(?<![\w%])(?<escheme>(?:https?|wss?)%3A)?%2F%2F(?<eauth>${ENC_AUTH})`
-  + String.raw`|(?<![\w.\-\/\\%@:\[])(?<host>${BARE_HOST})(?<colon>:|%3A)(?<port>\d{1,5})(?![\w\-]|\.\w)`, 'gi');
+  String.raw`(?<![\w+.\-:\/\\%])(?<scheme>(?:https?|wss?):)?\/\/(?<auth>[^\s"'<>\x60\/?#\\(){}|^,;]+)`
+  + String.raw`|(?<![\w.\-\/\\%@:\[])(?<bare>\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.\-]*[a-z0-9])?\.?):(?<port>\d{1,5})(?![\w\-]|\.\w)`, 'gi');
 
-/** Every loopback address in a text: the loop's own (any loopback host at
- * its port) as `origin`; any other loopback authority as PLACEHOLDER, so no
- * other local service's address is handed out. */
+/** The rewriting of loopback addresses for a canvas client: the loop's own
+ * (any loopback host at its port) as `origin`; any other loopback address
+ * as PLACEHOLDER; no other host ever touched. `text` for headers, HTML and
+ * other text; `json` parses a JSON body and rewrites each string in it (its
+ * bytes unchanged when nothing is); `sse` a stream's lines, a `data:` line
+ * that is JSON as JSON. */
 export function rewriter(loop, origin) {
   const from = new URL(loop), to = new URL(origin);
   const port = from.port || '80';
-  const target = p => (p === port ? to.host : PLACEHOLDER);
-  const schemeFor = (scheme, p) => (!scheme || p !== port ? scheme : /^wss?:$/i.test(scheme) ? 'wss:' : to.protocol);
-  return text => text.replace(ADDRESSES, (m, ...args) => {
+  const text = t => t.replace(ADDRESSES, (m, ...args) => {
     const g = args.at(-1);
     if (g.auth !== undefined) {
-      const p = loopbackPort(g.auth, g.scheme);
-      return p == null ? m : `${schemeFor(g.scheme ?? '', p)}${g.sep}${target(p)}`;
+      const scheme = (g.scheme ?? '').toLowerCase();
+      const p = loopbackPort(g.auth, scheme || 'http:');
+      if (p == null) return m;
+      if (p !== port) return `${scheme}//${PLACEHOLDER}`;
+      return `${!scheme ? '' : scheme.startsWith('ws') ? 'wss:' : to.protocol}//${to.host}`;
     }
-    if (g.eauth !== undefined) {
-      const scheme = g.escheme ? decodeURIComponent(g.escheme).toLowerCase() : '';
-      const p = loopbackPort(g.eauth, scheme);
-      return p == null ? m : `${encodeURIComponent(schemeFor(scheme, p))}%2F%2F${encodeURIComponent(target(p))}`;
-    }
-    const t = target(g.port);
-    return g.colon === ':' ? t : encodeURIComponent(t);
+    const p = loopbackPort(`${g.bare}:${g.port}`);
+    return p == null ? m : p === port ? to.host : PLACEHOLDER;
   });
+  const json = body => {
+    let value;
+    try { value = JSON.parse(body); } catch { return text(body); }
+    let changed = false;
+    const walk = v => {
+      if (typeof v === 'string') { const w = text(v); if (w !== v) changed = true; return w; }
+      if (Array.isArray(v)) return v.map(walk);
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [walk(k), walk(x)]));
+      return v;
+    };
+    const out = walk(value);
+    return changed ? JSON.stringify(out) : body;
+  };
+  const sse = lines => lines.split('\n').map(line => {
+    const at = /^data: ?/.exec(line);
+    return at ? at[0] + json(line.slice(at[0].length)) : text(line);
+  }).join('\n');
+  return { text, json, sse };
 }
 
 /** A CSP's `frame-ancestors`: the loop's origin as the canvas's, any other
@@ -163,7 +184,7 @@ function frameAncestors(policy, loopPort, origin, toolOrigin) {
   const loopbackSource = s => {
     const bare = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
     const scheme = /^(https?|wss?):\/\//i.exec(s)?.[1];
-    return /^\w|^\[/.test(bare) ? loopbackPort(bare.replace(/\/.*$/, ''), scheme ? `${scheme}:` : '') : null;
+    return /^\w|^\[/.test(bare) ? loopbackPort(bare.replace(/\/.*$/, ''), scheme ? `${scheme.toLowerCase()}:` : undefined) : null;
   };
   return policy.split(',').map(one => one.split(';').map(d => {
     const words = d.trim().split(/\s+/);
@@ -411,16 +432,19 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
       for (const [k, v] of answer.headers) {
         const key = k.toLowerCase();
         if (HOP.has(key) || dropNamed.has(key) || DROP_DOWN.has(key) || key.startsWith('access-control-')) continue;
-        out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? rewrite(frameAncestors(v, loopPort, origin, toolOrigin)) : rewrite(v);
+        out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? rewrite.text(frameAncestors(v, loopPort, origin, toolOrigin)) : rewrite.text(v);
       }
       out['cache-control'] = 'no-store';
       const type = String(out['content-type'] ?? '');
       const stream = /^text\/event-stream\b/i.test(type);
-      const text = /^(?:text\/html|application\/(?:[\w.+-]+\+)?json)\b/i.test(type);
+      const isJSON = /^application\/(?:[\w.+-]+\+)?json\b/i.test(type);
+      // Text the page reads (HTML, JS, CSS, plain), whole; bytes (wasm, images) streamed as they are.
+      const text = isJSON || /^(?:text\/|application\/(?:x-)?javascript\b)/i.test(type);
       if (req.method === 'HEAD' || !answer.body) { res.writeHead(answer.status, out); res.end(); return; }
       if (text && !stream) {
-        // A page or JSON whole, so a URL split over two chunks is rewritten.
-        const bytes = Buffer.from(rewrite(Buffer.from(await answer.arrayBuffer()).toString('utf8')));
+        // Whole, so a URL split over two chunks is rewritten.
+        const whole = Buffer.from(await answer.arrayBuffer()).toString('utf8');
+        const bytes = Buffer.from(isJSON ? rewrite.json(whole) : rewrite.text(whole));
         if (signal.aborted) throw new Error('ended');
         res.writeHead(answer.status, out);
         res.end(bytes);
@@ -436,10 +460,10 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
           rest += decoder.decode(chunk, { stream: true });
           const at = rest.lastIndexOf('\n');
           if (at < 0) continue;
-          await put(res, rewrite(rest.slice(0, at + 1)), signal);
+          await put(res, rewrite.sse(rest.slice(0, at + 1)), signal);
           rest = rest.slice(at + 1);
         }
-        if (rest) await put(res, rewrite(rest), signal);
+        if (rest) await put(res, rewrite.sse(rest), signal);
       } else for await (const chunk of answer.body) await put(res, chunk, signal);
       res.end();
     } catch {

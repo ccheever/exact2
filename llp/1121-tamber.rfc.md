@@ -4268,11 +4268,19 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
     then the connection closed.
 - **Downstream:**
   - Set-Cookie, CORS, HSTS and hop-by-hop headers are dropped, with `cache-control: no-store`.
-  - Every loopback address (any 127/8 host, localhost or [::1], however encoded, at any port, the default included;
-    as a URL, scheme-relative, URL-encoded, JSON-escaped, or a bare `host:port` standing alone) is rewritten in every
-    header (Location, Link, CSP) and in HTML and JSON bodies (`page`, `url`, `/__dev/open`'s page) and SSE streams (a
-    line at a time). The loop's own (a loopback host at its port) becomes the canvas origin. Any other loopback
-    authority becomes `loopback.invalid`, which never resolves, so no other local service's address is handed out.
+  - Loopback addresses are rewritten (theme2's ruling: D12's "no loopback URL handed out" is functional, not a
+    security boundary). A candidate is a web or scheme-relative URL, or a bare `host:port` standing alone, and it is
+    decided by WHATWG URL's parse of it, nothing decoded first: a host that parses as loopback (127/8, localhost
+    and `*.localhost`, [::1], one trailing dot dropped) at any port, the default included.
+    - The loop's own (a loopback host at its port) becomes the canvas origin; any other loopback authority becomes
+      `loopback.invalid`, which never resolves. No other host is ever touched: `http://127.0.0.1%2F@evil.test/a`
+      is evil.test's and passes byte for byte.
+    - Headers (Location, Link, CSP) and text bodies (HTML, JS, CSS, plain) by those candidates; JSON bodies (an
+      envelope's type too) by parsing and rewriting each string, keys included, the bytes unchanged when nothing
+      is; SSE a line at a time, a `data:` line that is JSON as JSON.
+    - **A known limit:** escaped spellings in text (HTML character references, JSON `\u` escapes outside a JSON
+      body, a percent-encoded URL) and spellings WHATWG URL doesn't map pass as they came. A missed one only breaks
+      a link on the remote browser's own machine.
   - `frame-ancestors` names the canvas (`'self'`) and the tool's remote origin, with no loopback source.
   - Bodies are streamed with backpressure, as `forward()` streams them.
 - **Revoke and expiry (A's `onEnd`):**
@@ -4347,3 +4355,19 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
     client script parsing with the 403 fallback before the failure path; `install-page.test.mjs`, a later
     `x-forwarded-*` and the gateway's mark not local, with no admission links for it; `development.rs`, no links
     for a request that isn't local.
+- **After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT with two nits; theme2's ruling on the rewriter):**
+  - The rewriter decides each candidate by WHATWG URL's parse with nothing decoded first, and never touches a host
+    that isn't loopback: `http://127.0.0.1%2F@evil.test/a` passes byte for byte, in headers, text, JSON and SSE
+    (Astra 1). A trailing dot (`localhost.`) is dropped in the loopback test. A bare `host:port` goes through the
+    same parse, so `127.1:port`, `foo.localhost:port` and `[::ffff:127.0.0.1]:port` are caught (Grok 1).
+  - JSON bodies are parsed and each string rewritten, so a `\u` escape in a JSON body is caught; a body with
+    nothing to rewrite keeps its bytes; one that doesn't parse is text. SSE `data:` lines that are JSON likewise.
+  - JS, CSS and plain text bodies are rewritten as HTML is; the URL-encoded and JSON-escaped text rules are gone,
+    and escaped spellings in text are the known limit above (theme2).
+  - `Range` and `If-Range` are not passed on, so a rewritten body is never a slice (Grok 2).
+  - Astra's EADDRINUSE at fixture start: each test server binds 127.0.0.1:0 once and is never rebound; three
+    concurrent runs here pass. A refused bind now fails with a message naming it (a sandbox that forbids
+    listening).
+  - Tests: the address cases in headers, HTML, JS, CSS, JSON and SSE, the evil.test URL untouched in each; a JSON
+    body with no loopback byte for byte; a JSON key and a `\u`-escaped value rewritten; the known limits passing as
+    they came; Range and If-Range not reaching the loop.

@@ -62,9 +62,10 @@ const allows = (scope, need, local = false) => {
  * `/__dev/commands?wait=` open until the client goes. */
 let loop, loopBase, port;
 const seen = [], closed = [], pressed = new Set();
-/** Loopback addresses in each of their forms, a line each, and the lines a
- * canvas client sees for them (the loop's own as the canvas origin, any
- * other as the placeholder, a lookalike untouched). */
+/** Loopback addresses, a line each, and the lines a canvas client sees for
+ * them: the loop's own as the canvas origin, any other loopback address as
+ * the placeholder, any other host byte for byte, and the known limits
+ * (escaped spellings in text) as they came. */
 const ADDRESS_CASES = p => [
   [`http://127.0.0.1:${p}/a`, 'https://canvas.test:9443/a'],
   ['http://localhost:7000/b', `http://${PLACEHOLDER}/b`],
@@ -73,19 +74,27 @@ const ADDRESS_CASES = p => [
   [`https://127.0.0.2:${p}/e`, 'https://canvas.test:9443/e'],
   [`src="//[::1]:${p}/f"`, 'src="//canvas.test:9443/f"'],
   [`ws://localhost:${p}/g`, 'wss://canvas.test:9443/g'],
-  [`http:\\/\\/127.0.0.1:${p}\\/h`, 'https:\\/\\/canvas.test:9443\\/h'],
-  ['u=http%3A%2F%2F127.0.0.1%3A7000%2Fi', `u=http%3A%2F%2F${PLACEHOLDER}%2Fi`],
-  [`u=http%3A%2F%2Flocalhost%3A${p}%2Fj`, 'u=https%3A%2F%2Fcanvas.test%3A9443%2Fj'],
-  [`u=http%3A%2F%2F%256cocalhost%3A${p}%2Fj2`, 'u=https%3A%2F%2Fcanvas.test%3A9443%2Fj2'],
   [`"host": "localhost:${p}"`, '"host": "canvas.test:9443"'],
   ['"other": "127.0.0.1:7001"', `"other": "${PLACEHOLDER}"`],
   [`http://0x7f.1:${p}/k`, 'https://canvas.test:9443/k'],
   ['http://2130706433:7002/l', `http://${PLACEHOLDER}/l`],
   ['http://[::ffff:127.0.0.1]:7003/m', `http://${PLACEHOLDER}/m`],
+  [`http://localhost.:${p}/n`, 'https://canvas.test:9443/n'],
+  [`at 127.1:${p} and foo.localhost:7004 now`, `at canvas.test:9443 and ${PLACEHOLDER} now`],
+  [`(see http://user@localhost:${p}/o)`, '(see https://canvas.test:9443/o)'],
+  // Never another host: evil.test is this URL's host.
+  ['http://127.0.0.1%2F@evil.test/a', 'http://127.0.0.1%2F@evil.test/a'],
   ['https://example.test/localhost:9000.png', 'https://example.test/localhost:9000.png'],
   ['notlocalhost:9000 and see localhost:9000.', `notlocalhost:9000 and see ${PLACEHOLDER}.`],
-  ['https://example.test/x and http://192.168.1.20:8765/', 'https://example.test/x and http://192.168.1.20:8765/'],
+  ['https://example.test/x and http://192.168.1.20:8765/ and http://127.0.0.1.example.test/', 'https://example.test/x and http://192.168.1.20:8765/ and http://127.0.0.1.example.test/'],
+  // Known limits (§10): escaped spellings in text pass as they came.
+  [`u=http%3A%2F%2Flocalhost%3A${p}%2Fj`, `u=http%3A%2F%2Flocalhost%3A${p}%2Fj`],
+  [`http:\\/\\/127.0.0.1:${p}\\/h`, `http:\\/\\/127.0.0.1:${p}\\/h`],
+  [`http://localhos&#116;:${p}/q`, `http://localhos&#116;:${p}/q`],
 ];
+/** A JSON body: the cases as strings (one under a key that is a loopback
+ * URL), and one written with a \u escape, which parsing decodes. */
+const addressJSON = p => `{"cases":${JSON.stringify(ADDRESS_CASES(p).map(([from]) => from))},${JSON.stringify(`http://localhost:${p}/key`)}:1,"escaped":"http://localhos\\u0074:${p}/x"}`;
 const addresses = p => ADDRESS_CASES(p).map(([from]) => from).join('\n');
 beforeAll(async () => {
   loop = createServer((req, res) => {
@@ -98,7 +107,7 @@ beforeAll(async () => {
       res.on('close', () => closed.push(url.pathname));
       if (url.pathname === '/') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': ['loop=1; Path=/', 'other=2'], 'content-security-policy': `default-src 'self' ${me}; frame-ancestors 'self' http://127.0.0.1:7740`, 'access-control-allow-origin': '*', link: `<http://localhost:${port}/app.js>; rel=preload` });
-        res.end(`<!doctype html><a href="${me}/x">x</a><a href="http://[::1]:${port}/y">y</a><a href="exact://open?url=${encodeURIComponent(me + '/')}">open</a>`);
+        res.end(`<!doctype html><a href="${me}/x">x</a><a href="http://[::1]:${port}/y">y</a><p>open ${me}/ here</p>`);
       } else if (url.pathname === '/moved') {
         res.writeHead(302, { location: `http://localhost:${port}/next` }); res.end();
       } else if (url.pathname === '/app.js') {
@@ -113,13 +122,19 @@ beforeAll(async () => {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
         res.write(`data: ${JSON.stringify({ reload: 1, page: `${me}/` })}\n\n`);
       } else if (url.pathname === '/__dev/open') {
-        res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<a href="exact://x?u=${encodeURIComponent(me + '/')}">${me}/</a>`);
+        res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<p>build with --url ${me}/</p><a id="browser" href="${me}/">${me}/</a>`);
       } else if (url.pathname === '/addresses.html' || url.pathname === '/addresses.json') {
-        res.writeHead(200, { 'content-type': url.pathname.endsWith('json') ? 'application/json' : 'text/html', link: `<http://localhost:7000/x>; rel=preload, <http://%6cocalhost:${port}/y>; rel=preload`, 'x-addresses': addresses(port).split('\n')[0] });
-        res.end(addresses(port));
+        res.writeHead(200, { 'content-type': url.pathname.endsWith('json') ? 'application/vnd.exact.envelope+json' : 'text/html', link: `<http://localhost:7000/x>; rel=preload, <http://%6cocalhost:${port}/y>; rel=preload`, 'x-addresses': addresses(port).split('\n')[0], 'x-evil': 'http://127.0.0.1%2F@evil.test/a' });
+        res.end(url.pathname.endsWith('json') ? addressJSON(port) : addresses(port));
+      } else if (url.pathname === '/plain.json') {
+        // No loopback in it: its bytes, spacing and escapes, pass as they came.
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end('{ "a" : "https://example.test/\\u0041",\n "n": 1.50 }');
+      } else if (url.pathname === '/app.css' || url.pathname === '/app2.js') {
+        res.writeHead(200, { 'content-type': url.pathname.endsWith('css') ? 'text/css' : 'text/javascript' }); res.end(addresses(port));
       } else if (url.pathname === '/__dev/generation/stream') {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         for (const line of addresses(port).split('\n')) res.write(`data: ${line}\n\n`);
+        res.write(`data: {"page":"http://localhos\\u0074:${port}/","evil":"http://127.0.0.1%2F@evil.test/a"}\n\n`);
         res.end();
       } else if (url.pathname === '/big.bin') {
         // Endless, as fast as the reader takes it; `pressed` once a write waits.
@@ -134,18 +149,25 @@ beforeAll(async () => {
       }
     });
   });
-  await new Promise(ok => loop.listen(0, '127.0.0.1', ok));
+  await listening(loop);
   port = loop.address().port;
   loopBase = `http://127.0.0.1:${port}`;
 });
 afterAll(() => new Promise(ok => { loop.closeAllConnections?.(); loop.close(ok); }));
+
+/** `server` on a port the system picks on 127.0.0.1, bound once and never
+ * rebound (no close-then-reuse race); a refused bind says so. */
+const listening = server => new Promise((ok, fail) => {
+  server.once('error', e => fail(new Error(`the test could not bind 127.0.0.1:0 (${e.code}); this sandbox may not allow listening`)));
+  server.listen(0, '127.0.0.1', ok);
+});
 
 /** A gateway on loopback in front of the fake loop. */
 async function gateway(opts = {}) {
   const pairing = opts.pairing ?? fakePairing();
   const gw = canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, toolOrigin: TOOL, limiter, allows, ...opts });
   const server = createServer((req, res) => { gw.handle(req, res, new URL(req.url, 'http://x')); });
-  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  await listening(server);
   const base = `http://127.0.0.1:${server.address().port}`;
   const at = (path, init = {}) => fetch(`${base}${path}`, { redirect: 'manual', ...init });
   const stop = () => new Promise(ok => { gw.close(); server.closeAllConnections?.(); server.close(ok); });
@@ -203,7 +225,7 @@ test('mint, enter, cookie, 303, and the page proxied with nothing of the loop or
     expect(page.headers.get('link')).toBe(`<${ORIGIN}/app.js>; rel=preload`);
     expect(html).toContain(`href="${ORIGIN}/x"`);
     expect(html).toContain(`href="${ORIGIN}/y"`);
-    expect(html).toContain(encodeURIComponent(`${ORIGIN}/`));
+    expect(html).toContain(`<p>open ${ORIGIN}/ here</p>`);
 
     // Every passed answer: no loopback form of the loop's origin in a header or a body.
     const leak = loopbackOf(port);
@@ -542,28 +564,53 @@ test('through the gateway: dot segments, empty segments, encoded separators and 
 
 test('rewriter: the loop\'s own origin in every form as the canvas\'s, any other loopback authority as the placeholder, lookalikes untouched', () => {
   const rewrite = rewriter(loopBase, ORIGIN);
-  for (const [from, to] of ADDRESS_CASES(port)) expect(rewrite(from)).toBe(to);
+  for (const [from, to] of ADDRESS_CASES(port)) expect(rewrite.text(from)).toBe(to);
   // One pass: a canvas origin on loopback (a test listener's) is not rewritten again.
-  expect(rewriter(loopBase, 'https://127.0.0.1:9443')(`http://localhost:${port}/a 127.0.0.1:${port}`)).toBe('https://127.0.0.1:9443/a 127.0.0.1:9443');
+  expect(rewriter(loopBase, 'https://127.0.0.1:9443').text(`http://localhost:${port}/a 127.0.0.1:${port}`)).toBe('https://127.0.0.1:9443/a 127.0.0.1:9443');
   // A loop on the default port: an authority with no port is it.
-  expect(rewriter('http://127.0.0.1', ORIGIN)('http://localhost/x http://localhost:80/y http://localhost:8080/z')).toBe(`${ORIGIN}/x ${ORIGIN}/y http://${PLACEHOLDER}/z`);
+  expect(rewriter('http://127.0.0.1', ORIGIN).text('http://localhost/x http://localhost:80/y http://localhost:8080/z')).toBe(`${ORIGIN}/x ${ORIGIN}/y http://${PLACEHOLDER}/z`);
+  // JSON is parsed: an escaped spelling is decoded, keys too; no loopback, its bytes as they came; not JSON, as text.
+  expect(JSON.parse(rewrite.json(addressJSON(port)))).toEqual({ cases: ADDRESS_CASES(port).map(([from, to]) => (from.startsWith('http:\\/') || from.startsWith('u=http%3A') || from.includes('&#116;') ? from : to)), [`${ORIGIN}/key`]: 1, escaped: `${ORIGIN}/x` });
+  for (const body of ['{ "a" : "https://example.test/\\u0041",\n "n": 1.50 }', '[1, 2]', '"x"', 'null']) expect(rewrite.json(body)).toBe(body);
+  expect(rewrite.json(`not json http://localhost:${port}/`)).toBe(`not json ${ORIGIN}/`);
+  // SSE: a JSON data line as JSON, any other line as text.
+  expect(rewrite.sse(`data: {"u":"http://localhos\\u0074:${port}/"}\nid: http://localhost:7000/\n\n`)).toBe(`data: {"u":"${ORIGIN}/"}\nid: http://${PLACEHOLDER}/\n\n`);
   // A loopback toolOrigin is refused.
   for (const toolOrigin of ['http://127.0.0.1:7740', 'http://localhost:7740', 'http://[::1]:7740']) expect(() => canvasGateway({ loop: loopBase, pairing: fakePairing(), origin: ORIGIN, toolOrigin, limiter, allows })).toThrow(TypeError);
 });
 
-test('every loopback address is rewritten in headers, HTML, JSON and SSE', async () => {
+test('loopback addresses are rewritten in headers, HTML, JS, CSS, JSON and SSE; no other host is touched', async () => {
   const g = await gateway();
   try {
     const { cookie } = await enter(g, 'r', 'read');
     const want = ADDRESS_CASES(port).map(([, to]) => to).join('\n');
-    for (const path of ['/addresses.html', '/addresses.json']) {
-      const r = await g.at(path, { headers: { cookie } });
-      expect(await r.text()).toBe(want);
-      expect(r.headers.get('link')).toBe(`<http://${PLACEHOLDER}/x>; rel=preload, <${ORIGIN}/y>; rel=preload`);
-      expect(r.headers.get('x-addresses')).toBe(ADDRESS_CASES(port)[0][1]);
-    }
+    for (const path of ['/addresses.html', '/app.css', '/app2.js']) expect(await (await g.at(path, { headers: { cookie } })).text()).toBe(want);
+    const html = await g.at('/addresses.html', { headers: { cookie } });
+    expect(html.headers.get('link')).toBe(`<http://${PLACEHOLDER}/x>; rel=preload, <${ORIGIN}/y>; rel=preload`);
+    expect(html.headers.get('x-addresses')).toBe(ADDRESS_CASES(port)[0][1]);
+    expect(html.headers.get('x-evil')).toBe('http://127.0.0.1%2F@evil.test/a');
+    // JSON (an envelope's type too) by parsing: the escaped spelling caught, the evil.test URL untouched.
+    const json = await (await g.at('/addresses.json', { headers: { cookie } })).json();
+    expect(json.escaped).toBe(`${ORIGIN}/x`);
+    expect(json[`${ORIGIN}/key`]).toBe(1);
+    expect(json.cases).toContain('http://127.0.0.1%2F@evil.test/a');
+    expect(json.cases).toContain('https://canvas.test:9443/n');
+    expect(await (await g.at('/plain.json', { headers: { cookie } })).text()).toBe('{ "a" : "https://example.test/\\u0041",\n "n": 1.50 }');
     const sse = await (await g.at('/__dev/generation/stream', { headers: { cookie } })).text();
-    expect(sse).toBe(ADDRESS_CASES(port).map(([, to]) => `data: ${to}\n\n`).join(''));
+    expect(sse).toBe(ADDRESS_CASES(port).map(([, to]) => `data: ${to}\n\n`).join('') + `data: {"page":"${ORIGIN}/","evil":"http://127.0.0.1%2F@evil.test/a"}\n\n`);
+  } finally { await g.stop(); }
+});
+
+test('Range and If-Range are not passed on, so a rewritten body is never a slice', async () => {
+  const g = await gateway();
+  try {
+    const { cookie } = await enter(g, 'r', 'read');
+    seen.length = 0;
+    const r = await g.at('/addresses.html', { headers: { cookie, range: 'bytes=0-9', 'if-range': '"x"' } });
+    expect(r.status).toBe(200);
+    expect(seen.at(-1).headers.range).toBeUndefined();
+    expect(seen.at(-1).headers['if-range']).toBeUndefined();
+    expect(await r.text()).toBe(ADDRESS_CASES(port).map(([, to]) => to).join('\n'));
   } finally { await g.stop(); }
 });
 
