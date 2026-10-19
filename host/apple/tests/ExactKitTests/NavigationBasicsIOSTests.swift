@@ -954,6 +954,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let tapped = Agent(session: session).tap(["id": Int(try node(session, "detail-chat").id)])
         XCTAssertNil(tapped["error"], "\(tapped)")
         until("Chat's push started") { nav.viewControllers.count == 3 }
+        XCTAssertNotNil(nav.transitionCoordinator, "the tab is switched while Chat's push runs")
         tapTab(tabs, 1)
         until("Second selected") { tabs.selectedIndex == 1 }
         // (Home's push ends here, or, its stack off screen, when it shows again.)
@@ -977,6 +978,25 @@ final class NavigationBasicsIOSTests: XCTestCase {
         pop.interactive = false
         nav.popViewController(animated: true)
         until("back on Detail, the bar shows") { settled() && nav.viewControllers.count == 2 && barShows(tabs) }
+        session.presenter.navigation.setAppDelegate(nav, nil)
+        // A route that shows the tablist pushed over Chat, which hides it: hidden still, as Chat is under it.
+        nav.popToRootViewController(animated: true)
+        until("back at Home") { settled() && nav.viewControllers.count == 1 && barShows(tabs) }
+        spin(0.3)
+        try tapNode(session, "chat")
+        until("Chat") { settled() && nav.viewControllers.count == 2 && !barShows(tabs) }
+        spin(0.3)
+        try tapNode(session, "chat-detail")
+        until("Detail over Chat") { settled() && nav.viewControllers.count == 3 }
+        spin(0.4)
+        XCTAssertFalse(barShows(tabs), "Chat under Detail keeps the bar hidden")
+        try tapNode(session, "compose-detail") // a batch: the stack at rest is followed again
+        spin(0.4)
+        XCTAssertFalse(barShows(tabs), "and after an ordinary update")
+        nav.popViewController(animated: true)
+        until("back on Chat, hidden") { settled() && nav.viewControllers.count == 2 && !barShows(tabs) }
+        nav.popViewController(animated: true)
+        until("back at Home, shown") { settled() && nav.viewControllers.count == 1 && barShows(tabs) }
     }
 
     /// A real interactive pop from Photo, driven by a percent-driven

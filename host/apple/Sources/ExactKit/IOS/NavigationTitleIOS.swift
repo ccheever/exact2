@@ -482,8 +482,10 @@ extension NavigationHost {
             // pop with a guessed flag, or the tablist changing under it): the
             // bar follows now (iOS 18).
             guard c === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs else { continue }
-            // (An iPad's floating bar: the whole stack's wish, as on a push.)
+            // (An iPad's floating bar: the whole stack's wish, as on a push. A
+            // bar a route under this one hides, by UIKit's flag, is not shown.)
             let wish = floatingStackHides(nav) ?? hidden
+            if !wish, Self.underHides(nav, c) { continue }
             if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != wish {
                 tabs.setTabBarHidden(wish, animated: nav.view.window != nil)
                 tablistHidBar = wish
@@ -494,7 +496,9 @@ extension NavigationHost {
         // state: a push of a route whose tablist shows does not clear it,
         // only `hidesBottomBarWhenPushed` would. The selected route wanting
         // it shown brings it back now, pushed or not yet.
-        if !hidden, floatingStackHides(nav) != true, tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
+        // (Not while a route above the root still hides it, on a phone by UIKit's flag, on an iPad by Exact's.)
+        if !hidden, !nav.viewControllers.dropFirst().contains(where: { $0.hidesBottomBarWhenPushed }),
+           tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
             if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: nav.view.window != nil) }
             tablistHidBar = false
         }
@@ -582,17 +586,24 @@ extension NavigationHost {
         #endif
     }
 
+    /// Whether a route between the root and `c` (not `c`) hides the bar by
+    /// UIKit's flag, which keeps it hidden over `c` on a phone too.
+    static func underHides(_ nav: UINavigationController, _ c: UIViewController) -> Bool {
+        guard let at = nav.viewControllers.firstIndex(where: { $0 === c }), at > 1 else { return false }
+        return nav.viewControllers[1..<at].contains { $0.hidesBottomBarWhenPushed }
+    }
+
     /// The selected stack's top takes its wish again where nothing pushed or
     /// popped: a tab selected, the width becoming regular (once a resize's
     /// own transition is over; a push or pop has its own didShow).
     func refollowFloatingBar() {
         guard let tabs = tabController, let nav = tabs.selectedViewController as? UINavigationController, nav.topViewController != nil else { return }
         if let resizing = tabs.transitionCoordinator ?? nav.transitionCoordinator {
-            resizing.animate(alongsideTransition: nil) { [weak self, weak nav] _ in
+            let taken = resizing.animate(alongsideTransition: nil) { [weak self, weak nav] _ in
                 guard let self, let nav, nav.transitionCoordinator == nil, let top = nav.topViewController else { return }
                 self.followFloatingBar(nav, for: top, animated: false)
             }
-            return
+            if taken { return }
         }
         followFloatingBar(nav, for: nav.topViewController!, animated: false)
     }

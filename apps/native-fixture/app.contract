@@ -704,6 +704,9 @@ component NativeFixture
                     column padding=12 gap=8 min-height="100%" box-sizing="border-box"
                       button press=openPhoto testId="photo" padding=6 background-color="#e5e7eb"
                         text "Photo"
+                      // Detail over Chat: a route that shows the tablist over one that hides it.
+                      button press=detail testId="chat-detail" padding=6 background-color="#e5e7eb"
+                        text "Detail"
                       button press=toggleSubtitle testId="toggle-subtitle" padding=6 background-color="#e5e7eb"
                         text "Subtitle"
                       button press=toggleMuted testId="toggle-muted" padding=6 background-color="#e5e7eb"
