@@ -469,6 +469,14 @@ export function moduleDirectory(dir, platform) {
 
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
+  // A path (`--app ../my-app`, `--app /abs/app`, `--app .`) names an app as
+  // EXACT_APP_DIR does, which the processes it starts inherit: its name is
+  // its directory's, so nothing built from the name (a crate, a target
+  // subdirectory) lands in the app's own directory.
+  if (nameOrCrate && /[\\/]|^\.\.?$/.test(String(nameOrCrate))) {
+    process.env.EXACT_APP_DIR = resolve(String(nameOrCrate));
+    nameOrCrate = undefined;
+  }
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
   let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|windows|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
