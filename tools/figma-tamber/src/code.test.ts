@@ -368,3 +368,25 @@ test('round 4: a deleted variable is reported before a pull and on push; a raise
   expect(applied.collections).toEqual(names);
   expect(f.collections.map(c => c.name)).toEqual(names);
 });
+
+test('round 4 (Grok): a variable of a token\'s name the plugin did not make is not read, and a pull refuses it; the long default parked by a survivor of its cut name', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0];
+  f.variables.find(v => v.name === 'accent/fill').remove();
+  f.figma.variables.createVariable('accent/fill', col, 'COLOR');
+  const got = await send({ type: 'collect' }, 'collected');
+  expect(got.unread.map((u: any) => u.why)).toContain('the variable is gone from this file');
+  await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/did not make/);
+  await load(10);
+  const axis = 'appearance-of-the-darker-scheme';
+  const long = (drop: boolean) => variant(doc => {
+    const contexts = doc.modifiers.mode.contexts;
+    for (const c of Object.keys(contexts)) { contexts[c.replace('dark-style', axis)] = contexts[c]; delete contexts[c]; }
+    doc.modifiers.mode.default = `${axis}=black, light`;
+    if (drop) { delete contexts[`${axis}=black, light`]; doc.modifiers.mode.default = `${axis}=dim, light`; }
+  });
+  await send({ type: 'apply', text: long(false) }, 'applied');
+  await send({ type: 'apply', text: long(true) }, 'applied');
+  expect(f.collections[0].modes[0].name).toBe(`unused: ${axis}=black, light`.slice(0, 40));
+});

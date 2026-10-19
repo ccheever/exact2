@@ -55,11 +55,10 @@ async function valueOf(v: any, modeId: string, collections: any[]): Promise<{ va
 }
 
 /** A plan's variable in a collection: by the token it is (the plugin's mark
- * on it, so a variable renamed in Figma is still the token's), else by name. */
-const variableOf = (variables: any[], col: any, v: { name: string; token: string }) => {
-  const mine = variables.filter(x => x.variableCollectionId === col.id);
-  return mine.find(x => x.getSharedPluginData?.(KEY, 'token') === v.token) ?? mine.find(x => x.name === v.name && !x.getSharedPluginData?.(KEY, 'token'));
-};
+ * on it, so a variable renamed in Figma is still the token's), never by a
+ * stranger's name. */
+const variableOf = (variables: any[], col: any, v: { token: string }) =>
+  variables.find(x => x.variableCollectionId === col.id && x.getSharedPluginData?.(KEY, 'token') === v.token);
 /** A plan's collection by the id it was written with: that one or none. */
 const collectionIn = (collections: any[], c: Plan['collections'][number]) => collections.find(x => x.id === c.id) ?? null;
 /** A plan's mode by the id its context was written with: that one or none. */
@@ -108,6 +107,9 @@ async function write(plan: Plan, before: Plan | null) {
     const was = before?.collections.find(x => x.name === c.name);
     const col = (was && collectionIn(collections, was)) || collections.find((x: any) => x.name === c.name && !reserved.has(x.id) && !taken.has(x.id)) || null;
     if (col && !col.getSharedPluginData?.(KEY, 'owned')) throw new Error(`this file has a collection \`${col.name}\` that Tamber did not make: rename it, then pull`);
+    // (a variable of a token's name this plugin did not make: refused, not taken over)
+    const stranger = col && c.variables.find(v => !variableOf(variables, col, v) && variables.some((x: any) => x.variableCollectionId === col.id && x.name === v.name && !x.getSharedPluginData?.(KEY, 'token')));
+    if (stranger) throw new Error(`the collection \`${col.name}\` has a variable \`${stranger.name}\` that Tamber did not make: rename it, then pull`);
     if (col) taken.add(col.id);
     return { c, was, col };
   });
