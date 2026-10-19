@@ -27,8 +27,8 @@ pub enum Fate {
     NotColour,
     /// Its variable makes no token; it is read only through references.
     Aux,
-    /// It names a colour through more than 256 references, as no
-    /// stylesheet does; its variable makes no token.
+    /// It reads through more than 256 references, as no stylesheet does;
+    /// its variable makes no token.
     Deep,
     /// It is a colour, but its variable is no colour in this other block
     /// it is set in, so it makes no token (one side would wear the other's).
@@ -237,6 +237,12 @@ impl Read<'_> {
                 break (None, 0);
             };
             path.push((x, Some(r.clone())));
+            // Past `LINKS` references the walk stops: every block's walk
+            // costs at most that. Nothing on it is remembered, as each
+            // variable's own chain may be shorter.
+            if path.len() > LINKS {
+                return (None, usize::MAX);
+            }
             x = r;
         };
         // Back down the chain: each as it reads the next.
@@ -247,7 +253,7 @@ impl Read<'_> {
                     true => (resolved.clone(), resolved),
                     false => (self.names.names[&r].clone(), resolved),
                 });
-                links += 1;
+                links = links.saturating_add(1);
             }
             memo.insert((at.clone(), v), (found.clone(), links));
         }
@@ -287,7 +293,7 @@ pub fn assemble(
     for ((t, var), k) in &read.winners {
         let value = &decls[*k].2;
         let (colour, links) = read.seen(t, var);
-        if colour.is_some() && links > LINKS {
+        if links > LINKS {
             deep.insert((t.clone(), var.clone()));
             continue;
         }

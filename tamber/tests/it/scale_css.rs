@@ -283,3 +283,42 @@ fn marks_look_each_token_up_once() {
 // A loaded machine's debug build, with room: each path is linear now
 // (measured in §10).
 const BOUND: u64 = 5;
+
+#[test]
+fn chains_past_256_links_stop_there() {
+    // A root chain of 5,000 colour links read on both sides: each block's
+    // walk stops at 256 links, and what is further down is reported.
+    let mut css = String::from(":root{--c0: #102030;");
+    for i in 1..5_000 {
+        css += &format!("--c{i}: var(--c{});", i - 1);
+    }
+    css += "}.dark{--c4999: var(--c4998);}";
+    let (import, took) =
+        timed(|| shadcn::import(&css, "shadcn", &parse("tamber app\n").unwrap(), &vocab()));
+    let import = import.unwrap();
+    assert!(import.counted.mapped >= 257, "{:?}", import.counted);
+    assert!(took < Duration::from_secs(BOUND), "{took:?}");
+    // shadcn's other kinds: `--shadow-sm` through 256 references to a length
+    // is a length; through 257, no kind at all (not its name's, a shadow).
+    let kind = |links: usize| {
+        let mut css = String::from(":root{--shadow-sm: var(--a1);");
+        for i in 1..links {
+            css += &format!("--a{i}: var(--a{});", i + 1);
+        }
+        css += &format!("--a{links}: 4px;}}");
+        let import =
+            shadcn::import(&css, "shadcn", &parse("tamber app\n").unwrap(), &vocab()).unwrap();
+        import
+            .unmapped
+            .iter()
+            .find(|u| u.name == "--shadow-sm")
+            .map(|u| u.why.clone())
+    };
+    let at = kind(256);
+    let past = kind(257);
+    assert_ne!(at, past, "{at:?}");
+    assert!(
+        past.as_deref().is_some_and(|w| !w.contains("box-shadow")),
+        "{past:?}"
+    );
+}

@@ -420,16 +420,18 @@ impl<'a> Kinds<'a> {
     /// names.
     fn other_kind(&self, var: &str, value: &str) -> Option<&'static str> {
         self.through(var, value, &mut HashSet::new())
+            .unwrap_or(None)
     }
 
-    /// [`Kinds::other_kind`] through a chain of references (a cycle, or a
-    /// chain past 256, is none).
+    /// [`Kinds::other_kind`] through a chain of references: a cycle is none
+    /// (and each variable before it its name's kind), and a chain past 256
+    /// references none at all (`Err`, which no name's kind stands in for).
     fn through(
         &self,
         var: &'a str,
         value: &str,
         seen: &mut HashSet<&'a str>,
-    ) -> Option<&'static str> {
+    ) -> Result<Option<&'static str>, ()> {
         let named = || {
             if var == "--shadow" || var.starts_with("--shadow-") {
                 Some("box-shadow")
@@ -442,20 +444,24 @@ impl<'a> Kinds<'a> {
         // A reference: the kind of what it names, by its last declaration
         // (the one that wins), else this variable's by its name.
         if let Some(r) = engine::reference(value) {
-            if seen.contains(var) || r == var || seen.len() >= 256 {
-                return None;
+            if seen.contains(var) || r == var {
+                return Ok(None);
             }
             seen.insert(var);
-            let last = self.last.get(r).map(|&k| &self.decls[k]);
-            return last
-                .and_then(|(_, v, value, _)| self.through(v, value, seen))
-                .or_else(named);
+            if seen.len() > 256 {
+                return Err(());
+            }
+            let found = match self.last.get(r).map(|&k| &self.decls[k]) {
+                Some((_, v, value, _)) => self.through(v, value, seen)?,
+                None => None,
+            };
+            return Ok(found.or_else(named));
         }
-        if looks_like_length(value) {
+        Ok(if looks_like_length(value) {
             Some("length")
         } else {
             named()
-        }
+        })
     }
 }
 

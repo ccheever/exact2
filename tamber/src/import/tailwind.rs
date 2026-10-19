@@ -984,7 +984,12 @@ fn other_kinds(
                 if let Some(l) = leading.transpose()? {
                     out.push_str(&format!("/{l}"));
                 }
-                Ok(out)
+                // Its size, weight and leading each under the cap, and so the
+                // whole value.
+                match out.len() > LONGEST {
+                    true => Err(format!("its value is past {} KiB", LONGEST >> 10)),
+                    false => Ok(out),
+                }
             })();
         } else {
             for o in keys.iter().filter(|o| o.name != base) {

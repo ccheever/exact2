@@ -4832,8 +4832,11 @@ E23's round 5 found super-linear paths in the importers. They are fixed in two s
     budget that outruns it turns the budget's refusal into an RSS kill. Measured (release, designs over 64 contexts,
     one `when` per token): a fresh DTCG import holds about 12 bytes of RSS for each unit, a re-import about 30 (it
     exports the design to compare, each context's tree now charged as it is built). So `budget.rs` has a limit per
-    path, each refusing by about three quarters of the isolate: `IMPORT` = 3 × 2²⁴ (about 600 MB) and `REIMPORT` =
-    3 × 2²³ (about 750 MB); before, one `LIMIT` of 2²⁶ let a re-import reach about 2.9 GB.
+    path, each refusing before the isolate's kill (at 90% of 1 GiB): `IMPORT` = 3 × 2²⁴ (about 600 MB, 59% of 1
+    GiB) and `REIMPORT` = 3 × 2²³ (about 750 MB, 74%); before, one `LIMIT` of 2²⁶ let a re-import reach about 2.9
+    GB. The server's check of a client's baseline against the design's own export (`contract tamber` `plan`) builds
+    that export inside the re-import's budget too (`export::own_digest`), so a design too large for one re-import is
+    refused there with the budget's message, not exported whole first or told to pull.
   - **Supported size:** about 650 tokens over 64 contexts re-import, and about 880 import fresh; 3,000 tokens over
     about 14 contexts re-import (real Figma files: thousands of variables, usually 8 modes or fewer). 3,000 × 64 is
     refused with the budget's message (re-import: 0.36 s, 470 MB). This is less than the 3,000 × 64 first asked for;
@@ -4853,9 +4856,10 @@ E23's round 5 found super-linear paths in the importers. They are fixed in two s
       a list past 1,024 likewise; `& &` at each of 40 levels ran past two minutes;
     - colour aliases (`engine.rs`): each block's chain followed once and remembered, cycles found once (Tarjan's),
       and a failure carried down its chain a step at a time; a chain past 256 links is reported ("an alias chain
-      longer than 256", as the DTCG importer's). 20,000 aliases in 80 chains took 28 s in debug, now 1.3 s;
+      longer than 256", as the DTCG importer's), each block's walk stopping there, so blocks that share a long
+      chain cost at most 256 steps each. 20,000 aliases in 80 chains took 28 s in debug, now 1.3 s;
     - shadcn's other kinds: each variable's last declaration and its declarations read once, a reference chain past
-      256 none; the other-kind tokens grouped by variable once;
+      256 none (no name's kind standing in); the other-kind tokens grouped by variable once;
     - the kinds' fold check (`kinds::unfolded`, shared): tokens and the design's found by name through indexes, the
       probe's lines counted as it is written (it recounted the whole text per token), a diagnostic's token found by
       binary search;
