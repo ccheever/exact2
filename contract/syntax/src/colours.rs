@@ -44,4 +44,7 @@ pub struct DesignSource {
     /// (an `app.ts`, a Rust data crate, declared native modules or hatches):
     /// the driver's half of `names_tokens_outside_views` (LLP 1121 D7).
     pub bindable: bool,
+    /// The package whose design this is (LLP 1121 D11), by its
+    /// `package.json` name (`@exact/reading`); none for the app's.
+    pub package: Option<String>,
 }

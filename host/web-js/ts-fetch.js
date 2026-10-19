@@ -95,7 +95,7 @@ function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
   // turn to tie one to, so it says where to start it.
-  if (!call) return Promise.reject(new Error('fetch() with exactStream outside an answer: on the web a stream starts as its answer is asked, before the answer\'s first await'));
+  if (!call?.turn) return Promise.reject(new Error('fetch() with exactStream outside an answer: on the web a stream starts as its answer is asked, before the answer\'s first await'));
   if (call.stream) return Promise.reject(new Error('an answer streams one request'));
   // Checked and opened by ts-stream.js, which only a streaming module loads.
   call.stream = { input, init, redirect };

@@ -2,10 +2,14 @@ use super::*;
 
 /// A tick-boundary and presentation attachment. Its Transform is the fallback when the target is unavailable.
 /// Each attachment chooses its own joint; no bone entities or simulation transform writes.
+/// animation::step resolves tick sockets; the renderer follows the displayed joint pose.
 #[derive(Default, Clone, Debug, Data)]
 pub struct SocketFollow {
+    /// Target entity or name, resolved by lowest living slot.
     pub target: crate::FollowTarget,
+    /// Imported joint name on the target model.
     pub joint: String,
+    /// Joint-local pose; translation in metres, rotation quaternion, unitless scale.
     pub offset: Transform,
 }
 impl SocketFollow {

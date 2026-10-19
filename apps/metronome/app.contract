@@ -2,8 +2,10 @@
 // declares what plays, and the runner plays it a second ahead on its own
 // clock. A tempo stepper, an accent on beat 1, a count-in of four, a haptic on
 // each beat, and a four-track drum pattern whose tracks loop at their own
-// lengths. No action runs per beat; the beat shown is drawn from
-// `exactTransport()` in a frame task that runs only while it plays. With a
+// lengths. No action runs per beat. The beat readout is the one thing that
+// changes with the beat, so it is a frame task gated on the states that show
+// it, whose action writes the beat it reads from `exactTransport()`, not the
+// time: a frame on which the beat has not changed commits nothing. With a
 // MIDI output chosen (LLP 1125 stage 3) each click and drum is also a note on
 // the General MIDI percussion channel, and the output can be sent its clock.
 // With an input chosen to follow (stage 4) the sequence keeps that device's
@@ -76,7 +78,8 @@ component Metronome
   state countIn = true
   state haptics = false
   state groove = false
-  state now = 0
+  // The beat the readout shows: the floor of the transport's position, written by `draw`.
+  state beat = 0
   // The MIDI output chosen, by its id ("" for none), and whether it follows the clock.
   state output = ""
   state clock = false
@@ -87,8 +90,11 @@ component Metronome
   resource midi = exactMIDI() as shape MIDI
   derive tracks = groove ? [bar(accent, haptics, output)].concat(drums(output)) : [bar(accent, haptics, output)]
   derive clicks = [step(0, "assets/click-high.wav", 1, "", 76), step(1, "assets/click-high.wav", 1, "", 76), step(2, "assets/click-high.wav", 1, "", 76), step(3, "assets/click-high.wav", 1, "", 76)]
-  derive beat = transport.state == "stopped" ? 0 : floor(transport.anchorBeat + (now - transport.anchorAt) * transport.bpm / 60000)
-  derive shown = transport.state == "countin" ? `Count-in ${beat + 5}` : transport.state == "playing" ? `Beat ${beat % 4 + 1}` : transport.state == "waiting" ? "Waiting for clock" : "Stopped"
+  // The beat now: computed here so the transport's own commit (start, seek, the
+  // count-in's end) shows its first beat, not the one `draw` wrote before it;
+  // `beat` is read too so each beat `draw` writes recomputes it.
+  derive current = floor(transport.anchorBeat + (performanceNow() - transport.anchorAt) * transport.bpm / 60000) + 0 * beat
+  derive shown = transport.state == "countin" ? `Count-in ${current + 5}` : transport.state == "playing" ? `Beat ${current % 4 + 1}` : transport.state == "waiting" ? "Waiting for clock" : "Stopped"
   // Following a clock, the device's tempo while the sequence follows it.
   derive tempo = follow != "" and transport.state != "stopped" ? transport.bpm : bpm
 
@@ -109,7 +115,7 @@ component Metronome
   action shareCard
     share(title="Metronome", text=`${bpm} BPM`, files=["#card"])
   action draw
-    now = performanceNow()
+    beat = floor(transport.anchorBeat + (performanceNow() - transport.anchorAt) * transport.bpm / 60000)
   action connect
     requestMIDIAccess()
   action chooseOutput(id: string)
@@ -121,7 +127,7 @@ component Metronome
 
   sequence click when playing
     play(tracks, bpm=bpm, from=countIn ? -4 : 0, countIn=clicks, clock=follow, clockOut=clock ? output : "")
-  task playhead when playing
+  task readout when transport.state == "countin" or transport.state == "playing"
     every(frame, draw)
 
   view

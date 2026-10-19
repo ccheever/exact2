@@ -3,14 +3,56 @@
 // a builder reading it learns where the verbs are (`bun exact.mjs --help`), not this code. An
 // exact.mjs written before this file held all of it, and still runs; `bun exact.mjs update` thins it.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+
+/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
+ * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, Cargo's for a build
+ * script's (`warning: <crate>@<version>: …`) or a linked bake's (`warning: <app>: …`, linked-plan.mjs); its
+ * file from `cwd` when it is below it. */
+export function compilerWarnings(text, cwd = process.cwd()) {
+  const lines = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = /^(?:warning: [^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
+    if (!m) continue;
+    const near = relative(cwd, m[1]);
+    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
+  }
+  return [...lines];
+}
+
+/** A drive's lines for the compiler's `warnings` (`compilerWarnings`) of the app in `dir` built for `host`: the
+ * warnings no build of it said before, each in full, then one line counting them all and naming the file that lists
+ * them, `.exact/warnings-<host>.txt`, which this replaces. A drive repeated over unchanged warnings says the count
+ * alone; one with none says nothing. */
+export function warningLines(dir, host, warnings) {
+  const file = resolve(dir, '.exact', `warnings-${host}.txt`), shown = relative(process.cwd(), file);
+  let before = null; try { before = new Set(readFileSync(file, 'utf8').split('\n').filter(Boolean)); } catch { /* none said yet */ }
+  // Replaced whole, so a drive beside this one reads either list, never half of one.
+  try { mkdirSync(dirname(file), { recursive: true }); writeFileSync(`${file}.${process.pid}.tmp`, warnings.map((w) => `${w}\n`).join('')); renameSync(`${file}.${process.pid}.tmp`, file); } catch { /* said in full below */ }
+  if (!warnings.length) return [];
+  const fresh = before ? warnings.filter((w) => !before.has(w)) : warnings;
+  const where = shown.startsWith('..') ? file : shown;
+  const count = `compiler: ${warnings.length} warning${warnings.length === 1 ? '' : 's'}`;
+  if (!fresh.length) return [`${count}, as before (${where} lists them; bun exact.mjs contract build quotes each line)`];
+  // In the compiler's order (`contract::warning_rank`), the symbols only the web draws blank one line: 21 of them hid
+  // the euxy port's header warning.
+  const web = fresh.filter(webOnly), one = web.length === 1;
+  const group = web.length ? [`${web[0].split(' warning [')[0]} warning [lower-symbol-platform] ${web.length} SF Symbol use${one ? '' : 's'} draw${one ? 's' : ''} blank on the web, here first: an icon token or a role draws on every host (${where} lists each, and how)`] : [];
+  return [...fresh.filter((w) => !webOnly(w)), ...group, `${count}${fresh.length < warnings.length ? `, ${fresh.length} new (above)` : ''}; ${where} lists them all`];
+}
+
+/** A compiler warning only the web's picture shows: an SF Symbol drawn blank where the web is the one target besides
+ *  Apple's (contract's `web_only`). Its first use names the targets, `ships web (…), where it is blank`; a later one,
+ *  `blank on web too`. */
+export const webOnly = (w) => /warning \[lower-symbol-platform\] /.test(w) && (/ blank on web too/.test(w) || /ships web \((?:(?!\) and ).)*?, where it is blank/.test(w));
 
 /** exact2's verbs for the app `name` in `dir`: each the script it runs, from the checkout, and its
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */
 export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
   return {
+    status: ['scripts/exact.mjs', 'status', dir],
     web: ['host/web/dev.mjs', '--app', name],
     'web-build': ['host/web/build.mjs', name],
     test: ['scripts/agent.mjs', host, '--app', name],
@@ -29,9 +71,12 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     snapback: ['scripts/exact.mjs', 'snapback', dir],
     backend: ['scripts/exact.mjs', 'backend', dir],
     ...game ? {} : { pattern: ['scripts/exact.mjs', 'pattern'] },
+    docs: ['scripts/exact.mjs', 'docs'],
     feedback: ['scripts/feedback.mjs'],
     // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
     ...game ? {
+      check: ['game/app/shells.mjs', dir, '--check'],
+      game: ['scripts/exact.mjs', 'game'],
       'test-rust': ['game/app/shells.mjs', dir, '--test'],
       shells: ['game/app/shells.mjs', dir],
       lock: ['game/app/shells.mjs', dir, '--lock'],
@@ -43,6 +88,16 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
 
 /** `bun exact.mjs <verb> [arguments]` for the app `name` in `dir`, with the checkout `exact2`; the exit code. */
 export async function run({ dir, name, game = false, exact2, args }) {
+  // The design tool's tests, drives and verify run on this checkout's own port (port-lock.mjs `checkoutPort`, unless
+  // EXACT_TOOL_PORT names one), from a copy staged with that origin and its stub (tamber-tool-port.mjs
+  // `stageToolTests`), so its stub never binds the 7740 a person's tool holds; EXACT_TOOL_PORT=7740 runs them in place.
+  if (['test', 'agent', 'verify'].includes(args[0]) && !args.includes('--help') && !args.includes('-h') && existsSync(resolve(exact2, 'apps/design-tool')) && realpathSync(dir) === realpathSync(resolve(exact2, 'apps/design-tool'))) {
+    process.env.EXACT_TOOL_PORT ??= String((await import(resolve(exact2, 'scripts/port-lock.mjs'))).checkoutPort(resolve(exact2)));
+    const tool = await import(resolve(exact2, 'scripts/tamber-tool-port.mjs')), rest = args.slice(1);
+    const tested = tool.testFiles(args[0], rest, (await import(resolve(exact2, 'scripts/help.mjs'))).knownFlags(args[0]));
+    const staged = tool.stageToolTests(dir, rest, i => tested.has(i));
+    if (staged) { dir = staged.dir; args = [args[0], ...staged.args]; }
+  }
   const [verb, ...rest] = args;
   const host = (verb === 'test' || verb === 'agent' || verb === 'verify') && rest[0] && !rest[0].startsWith('-') ? rest.shift() : 'web';
   const verbs = appVerbs(name, dir, { host, game });
@@ -67,6 +122,12 @@ export async function run({ dir, name, game = false, exact2, args }) {
     if (!help) { console.error(`no exact2 at ${exact2}: EXACT2 names the checkout`); return 1; }
     return help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
   }
+  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+    const {readStatus, formatStatus, waitReady} = await import(resolve(exact2, 'game/status.mjs'));
+    if (verb === 'status') { console.log(formatStatus(readStatus(dir))); return 0; }
+    try { const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)}); console.log(`READY ${row.url}`); return 0; }
+    catch (e) { console.error(e.message); return 1; }
+  }
   if (!verbs[verb] && !own[verb]) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);
     return 2;
@@ -74,12 +135,13 @@ export async function run({ dir, name, game = false, exact2, args }) {
   // The automatic build reports on stderr, so a drive's stdout stays its reply (`--json`).
   // The child ends with this process: a signal here is passed on, and a dev server
   // stops when this process is gone however it ended (`EXACT_LAUNCHER_PID`).
-  const spawned = (command, args, stdio = 'inherit', cwd = undefined) => new Promise((done) => {
+  const spawned = (command, args, stdio = 'inherit', cwd = undefined, piped = () => {}) => new Promise((done) => {
     const child = spawn(command, args, {
       stdio,
       cwd,
       env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_APP_DIR: dir, EXACT2: exact2, EXACT_LAUNCHER_PID: String(process.pid) },
     });
+    piped(child);
     const pass = (signal) => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
     for (const signal of signals) process.on(signal, pass);
     child.on('error', () => done(1));
@@ -152,7 +214,9 @@ if (verb === 'contract') {
     // An `agent` drive's check hashes the build's inputs, and the driver need not again (LLP 1012.001.000 D1: once a drive).
     const checked = verb === 'agent' && drivesNative ? resolve(tmpdir(), `exact-build-check-${process.pid}`) : null;
     if (checked) process.env.EXACT_BUILD_CHECK_OUT = checked;
-    const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name], [], [0, 2, 2]);
+    // A web build says every compiler warning each time; the drive says the new ones and a count (`warningLines`).
+    const built = drivesWeb ? await webBuildQuiet(spawned, [resolve(exact2, verbs['web-build'][0]), ...verbs['web-build'].slice(1)], dir)
+      : await script(['scripts/agent-build.mjs', host, '--app', name], [], [0, 2, 2]);
     if (checked) { delete process.env.EXACT_BUILD_CHECK_OUT; try { process.env.EXACT_BUILD_CHECKED = readFileSync(checked, 'utf8'); rmSync(checked); } catch {} }
     if (built) return log(built);
   }
@@ -181,6 +245,24 @@ if (verb === 'contract') {
     }
     return failed;
   }, { verb: 'test', optional: true }));
+}
+
+/** The app's web build, run as a drive's first step: what it says goes to stderr as it comes, except the compiler's
+ * warnings, which are said after as `warningLines` gives them. Its exit code. */
+async function webBuildQuiet(spawned, args, dir) {
+  const warnings = [], streams = [];
+  const code = await spawned(process.execPath, args, ['inherit', 'pipe', 'pipe'], undefined, (child) => {
+    for (const stream of [child.stdout, child.stderr]) {
+      let rest = '';
+      const line = (text) => { const found = compilerWarnings(text); if (found.length) warnings.push(...found); else process.stderr.write(`${text}\n`); };
+      stream.setEncoding('utf8');
+      stream.on('data', (chunk) => { const lines = (rest + chunk).split('\n'); rest = lines.pop(); lines.forEach(line); });
+      streams.push(new Promise((done) => stream.on('end', () => { if (rest) line(rest); done(); })));
+    }
+  });
+  await Promise.all(streams);
+  for (const said of warningLines(dir, 'web', [...new Set(warnings)])) console.error(said);
+  return code;
 }
 
 /** Explicit app lock repair: preserve selected versions and resolve only manifest drift. */

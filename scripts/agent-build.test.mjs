@@ -311,14 +311,16 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.deepEqual([said, builds, bakes, kept()], [[], [], [], null]);
 
     // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it. The
-    // compiler's warnings the bake said follow it, one line each (LLP 1116.004 D7).
+    // compiler's warnings the bake said follow it, one line each the first time, then a count naming their file.
     write('app.contract', 'component App\n  view\n    text "hello again" color="#336699"\n');
     stamp('app.contract', 20);
     const warning = 'app.contract:3:31 warning [lower-colour-one-scheme] `#336699` on `color` stays the same in dark mode';
     bakeSays = `${warning}\n{"version":1}\n`;
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
     assert.equal(await drive(), 0);
-    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.deepEqual([said.slice(0, 2), builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.equal(said.length, 3);
+    assert.match(said[2], /^compiler: 1 warning; \S+\/\.exact\/warnings-ios\.txt lists them all$/);
     bakeSays = '';
     assert.deepEqual(kept(), { plan: resolve(overrideDir('ios', app), 'app.plan'), dir: overrideDir('ios', app) });
     assert.equal(readFileSync(kept().plan, 'utf8'), 'plan two');
@@ -348,13 +350,19 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.equal(kept(), null, 'kept for another build: never run as fresh');
 
     // Anything else edited is built, and what was kept goes with it; the warnings Cargo said for the bake's
-    // build script follow, in the compiler's own form.
+    // build script follow, in the compiler's own form: in full, since the bake before said none.
     reset();
     stamp('app.json', 60);
     buildSays = `   Compiling plan-log-apple v0.1.0\nwarning: plan-log-apple@0.1.0: ${warning}\nhost/apple: built\n`;
     assert.equal(await drive(), 0);
+    assert.deepEqual([bakes.length, builds.length, said[1], said.length], [0, 1, warning, 3]);
+    // Built again over the same warning: its count alone.
+    reset();
+    stamp('app.json', 70);
+    assert.equal(await drive(), 0);
     buildSays = '';
-    assert.deepEqual([bakes.length, builds.length, said.slice(1)], [0, 1, [warning]]);
+    assert.equal(said.length, 2);
+    assert.match(said[1], /^compiler: 1 warning, as before \(\S+\/warnings-ios\.txt lists them; /);
     assert.match(said[0], /^building for iOS: the build is older than its sources \((app\.contract, app\.json|app\.json, app\.contract) changed\); its log: /);
     assert.ok(!existsSync(overrideDir('ios', app)));
 
@@ -382,4 +390,38 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     if (trust === undefined) delete process.env.EXACT_UPDATE_TRUST; else process.env.EXACT_UPDATE_TRUST = trust;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// A drive's compiler warnings keep the compiler's order, the symbols only the web draws blank one line at the end;
+// the file beside the app lists each (the euxy port's header warning was one of 43, behind 21 of them).
+test('a drive says the web-only symbol warnings in one line and lists each in its file', async () => {
+  const { warningLines } = await import('./app-cli.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-warning-lines-')));
+  try {
+    const header = 'app.contract:9:3 warning [lower-header-unplaced] this `button` in this route\'s `header` is not shown on iOS';
+    const first = 'app.contract:4:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token';
+    const later = 'app.contract:5:5 warning [lower-symbol-platform] symbol `sf/b` is blank on web too: write `symbol:add`, the role, which draws on every host';
+    const native = 'app.contract:6:5 warning [lower-symbol-platform] symbol `sf/c` is blank on linux and web too: write `symbol:add`, the role, which draws on every host';
+    const said = warningLines(dir, 'ios', [header, native, first, later]);
+    assert.deepEqual(said.slice(0, 2), [header, native]);
+    assert.match(said[2], /^app\.contract:4:5 warning \[lower-symbol-platform\] 2 SF Symbol uses draw blank on the web, here first: .*\.exact\/warnings-ios\.txt lists each, and how\)$/);
+    assert.match(said[3], /^compiler: 4 warnings; /);
+    assert.equal(readFileSync(resolve(dir, '.exact', 'warnings-ios.txt'), 'utf8'), [header, native, first, later].map((w) => `${w}\n`).join(''));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// An Apple build's bake says its warnings on every build: the SF Symbols only the web draws blank one line where the
+// first was (euxy's 18, every Release build), the rest each.
+test('an Apple bake says the web-only symbol warnings in one line', async () => {
+  const { bakeWarnings } = await import('./linked-plan.mjs');
+  const alias = 'app.contract:2:5 warning [lower-symbol-alias] symbol `sf/arrow.up.arrow.down` is the role `sort`: write `symbol:sort`';
+  const first = 'app.contract:4:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token';
+  const later = 'app.contract:5:5 warning [lower-symbol-platform] symbol `sf/b` is blank on web too: write `symbol:add`, the role, which draws on every host';
+  assert.deepEqual(bakeWarnings('euxy', [alias, first, later]), [
+    `warning: euxy: ${alias}`,
+    'warning: euxy: app.contract:4:5 warning [lower-symbol-platform] 2 SF Symbol uses draw blank on the web, here first: an icon token or a role draws on every host (`bun exact.mjs contract build --json` says each, and how)',
+  ]);
+  assert.deepEqual(bakeWarnings('euxy', [alias]), [`warning: euxy: ${alias}`]);
 });

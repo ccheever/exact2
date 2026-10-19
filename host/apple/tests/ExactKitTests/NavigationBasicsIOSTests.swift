@@ -313,26 +313,51 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(partial["native"] as? String, "bar-readout", "\(partial)")
     }
 
+    /// Whether the tab bar insets a tab's content from below: a phone's (and
+    /// a compact width's) does; iPadOS's floating bar, at the top in a
+    /// regular width, insets nothing, so there the bar's own state is read.
+    private func barInsets(_ tabs: UITabBarController) -> Bool { tabs.tabBar.window != nil }
+    /// Whether the tab bar shows on screen: the bar, or an iPad's floating
+    /// list of its items, in the window, unhidden, opaque enough, on screen.
+    private func barShows(_ tabs: UITabBarController) -> Bool {
+        guard let bar: UIView = barInsets(tabs) ? tabs.tabBar : tabs.floatingTabList, let window = bar.window else { return false }
+        var at: UIView? = bar
+        while let v = at { if v.isHidden || v.alpha < 0.01 { return false }; at = v.superview }
+        let box = bar.convert(bar.bounds, to: window)
+        return box.height > 1 && box.intersects(window.bounds)
+    }
+
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let home = try XCTUnwrap((tabs.selectedViewController as? UINavigationController)?.topViewController)
+        let insets = barInsets(tabs)
+        if !insets { XCTAssertNotNil(tabs.floatingTabList, "no UITabBar in the window: an iPad's floating bar") }
+        XCTAssertTrue(barShows(tabs), "the tab bar shows over Home")
         let shown = home.view.safeAreaInsets.bottom
-        XCTAssertGreaterThan(shown, 40, "the tab bar insets the root")
+        if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         try tapNode(session, "detail")
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         until("Detail pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
         let detail = try XCTUnwrap(nav.topViewController)
         XCTAssertFalse(detail.hidesBottomBarWhenPushed, "the tablist shows over Detail")
-        XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5)
+        if insets { XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5) }
+        XCTAssertTrue(barShows(tabs), "and over Detail")
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
-        until("the tab bar left") { chat.view.safeAreaInsets.bottom < shown - 20 }
+        // (On an iPad the floating bar, which does not take
+        // `hidesBottomBarWhenPushed`, is hidden by `setTabBarHidden`.)
+        until("the tab bar left") { !barShows(tabs) && (!insets || chat.view.safeAreaInsets.bottom < shown - 20) }
+        // Another tab, its root showing the tablist, and back to Chat (selected by the app, as a link would).
+        tapTab(tabs, 1)
+        until("Second shows the bar") { tabs.selectedIndex == 1 && barShows(tabs) }
+        tapTab(tabs, 0)
+        until("back on Chat, the bar hidden again") { tabs.selectedIndex == 0 && nav.topViewController === chat && !barShows(tabs) }
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
-        until("the tab bar came back") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        until("the tab bar came back") { barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
     }
 
     /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
@@ -354,16 +379,17 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         let home = try XCTUnwrap(nav.topViewController as? RouteController)
+        let insets = barInsets(tabs)
         let shown = home.view.safeAreaInsets.bottom
-        XCTAssertGreaterThan(shown, 40, "the tab bar insets the root")
+        if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         let settled = { nav.transitionCoordinator == nil }
         // Hidden over the root: the bar goes.
         try tapNode(session, "toggle-choosing")
-        until("the bar left") { tabs.isTabBarHidden && home.view.safeAreaInsets.bottom < shown - 20 }
+        until("the bar left") { tabs.isTabBarHidden && (!insets || home.view.safeAreaInsets.bottom < shown - 20) }
         XCTAssertFalse(home.hidesBottomBarWhenPushed, "the root is never pushed: no flag")
         // Shown again: it comes back.
         try tapNode(session, "toggle-choosing")
-        until("the bar came back") { !tabs.isTabBarHidden && abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        until("the bar came back") { !tabs.isTabBarHidden && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
         // A hatch's hide, with the tablist shown and unchanged, stands; and
         // the tablist hidden and shown again over it leaves it standing too:
         // Exact did not make that hide.
@@ -416,7 +442,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         tapTab(tabs, 0)
         until("back to Home (2)") { nav.viewControllers.count == 1 && settled() }
         until("the bar is back over Home") { !tabs.isTabBarHidden }
-        until("Home inset by it again") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        if insets { until("Home inset by it again") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 } }
         // The pushed-route rule stands.
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
@@ -908,6 +934,69 @@ final class NavigationBasicsIOSTests: XCTestCase {
         bottomToolbar(nav, route, shown: true)
         until("showing the toolbar refits short content") { automaticBottom() > hidden + 1 && fits() }
         XCTAssertEqual(sv.contentInset.bottom, manual, accuracy: 0.5)
+    }
+
+    /// The tab bar follows the stack shown, on a phone by UIKit's
+    /// `hidesBottomBarWhenPushed`, on an iPad's floating bar by Exact's
+    /// `setTabBarHidden`: Chat (hiding it) over Detail (showing it) hides it;
+    /// a cancelled interactive pop back to Detail keeps it hidden, a completed
+    /// one shows it; another tab selected while Chat is still being pushed
+    /// shows it there, and Chat hides it again on return.
+    func testTheTabBarFollowsTheStackThroughCancelledPopsAndTabSwitches() throws {
+        let session = try fixture("basics-follow")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let settled = { nav.transitionCoordinator == nil }
+        try tapNode(session, "detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && settled() && barShows(tabs) }
+        spin(0.3)
+        // Chat pushed, and another tab selected before the push is over.
+        let tapped = Agent(session: session).tap(["id": Int(try node(session, "detail-chat").id)])
+        XCTAssertNil(tapped["error"], "\(tapped)")
+        until("Chat's push started") { nav.viewControllers.count == 3 }
+        XCTAssertNotNil(nav.transitionCoordinator, "the tab is switched while Chat's push runs")
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        // (Home's push ends here, or, its stack off screen, when it shows again.)
+        spin(0.6)
+        XCTAssertTrue(barShows(tabs), "Second's root shows the bar, Home's late push notwithstanding")
+        tapTab(tabs, 0)
+        until("back on Chat over Detail, hidden") { tabs.selectedIndex == 0 && settled() && nav.viewControllers.count == 3 && !barShows(tabs) }
+        spin(0.3)
+        // A cancelled interactive pop back to Detail keeps it hidden; a completed one shows it.
+        let pop = InteractivePop()
+        session.presenter.navigation.setAppDelegate(nav, pop)
+        pop.interactive = true
+        nav.popViewController(animated: true)
+        spin(0.05)
+        pop.interaction.update(0.4)
+        spin(0.1)
+        pop.interaction.cancel()
+        until("the cancelled pop leaves Chat, the bar hidden") { settled() && nav.viewControllers.count == 3 && !barShows(tabs) }
+        spin(0.3)
+        XCTAssertFalse(barShows(tabs), "still hidden over Chat")
+        pop.interactive = false
+        nav.popViewController(animated: true)
+        until("back on Detail, the bar shows") { settled() && nav.viewControllers.count == 2 && barShows(tabs) }
+        session.presenter.navigation.setAppDelegate(nav, nil)
+        // A route that shows the tablist pushed over Chat, which hides it: hidden still, as Chat is under it.
+        nav.popToRootViewController(animated: true)
+        until("back at Home") { settled() && nav.viewControllers.count == 1 && barShows(tabs) }
+        spin(0.3)
+        try tapNode(session, "chat")
+        until("Chat") { settled() && nav.viewControllers.count == 2 && !barShows(tabs) }
+        spin(0.3)
+        try tapNode(session, "chat-detail")
+        until("Detail over Chat") { settled() && nav.viewControllers.count == 3 }
+        spin(0.4)
+        XCTAssertFalse(barShows(tabs), "Chat under Detail keeps the bar hidden")
+        try tapNode(session, "compose-detail") // a batch: the stack at rest is followed again
+        spin(0.4)
+        XCTAssertFalse(barShows(tabs), "and after an ordinary update")
+        nav.popViewController(animated: true)
+        until("back on Chat, hidden") { settled() && nav.viewControllers.count == 2 && !barShows(tabs) }
+        nav.popViewController(animated: true)
+        until("back at Home, shown") { settled() && nav.viewControllers.count == 1 && barShows(tabs) }
     }
 
     /// A real interactive pop from Photo, driven by a percent-driven

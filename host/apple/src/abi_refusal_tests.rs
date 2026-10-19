@@ -285,3 +285,50 @@ fn refused_preparation_keeps_state() {
 fn missing_prepared_plan_keeps_state() {
     preserves_state(|bridge, _| bridge.commit_plan(), "no prepared plan");
 }
+
+#[test]
+fn activities_link_only_when_the_presenter_declares_a_packaged_arm() {
+    let plan = contract::compile(
+        r#"shape Facts
+  linked: bool
+shape ID
+  id: string
+shape State
+  title: string
+component App
+  resource facts = exactActivities() as shape Facts
+  mutation sent as shape ID
+  action start
+    send sent = startActivity("train", State(title="Train"))
+  view
+    text facts.linked.toString()
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::<()>::new();
+    bridge.boot(&plan, (), Hooks::none(), 390.0, 844.0);
+    let host = bridge.host.as_mut().unwrap();
+    assert!(format!("{:?}", host.runner_mut().act("start", vec![])).contains("not linked"));
+    assert!(!host.runner_mut().take_activities_demand());
+    bridge.link_activities();
+    for _ in 0..2 {
+        bridge.boot(&plan, (), Hooks::none(), 390.0, 844.0);
+        let host = bridge.host.as_mut().unwrap();
+        assert_eq!(
+            host.runner_mut().resource("facts"),
+            Some(&Value::record(vec![Value::Bool(true)]))
+        );
+        host.runner_mut().act("start", vec![]).unwrap();
+        assert_eq!(host.runner_mut().take_requests().len(), 1);
+        let failure = host.activities(r#"{"error":"dlopen: missing activity arm"}"#);
+        assert!(
+            failure.contains("dlopen: missing activity arm"),
+            "{failure}"
+        );
+        assert!(host
+            .runner()
+            .journal()
+            .any(|line| line.contains("dlopen: missing activity arm")));
+    }
+}

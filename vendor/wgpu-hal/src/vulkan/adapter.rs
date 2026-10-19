@@ -1520,9 +1520,12 @@ impl PhysicalDeviceProperties {
             .maintenance_3
             .map(|maintenance_3| maintenance_3.max_memory_allocation_size)
             .unwrap_or(u64::MAX);
+        // EXACT (EXACT-PATCHES.md, 14): a `maxBufferSize` below the spec's
+        // required minimum (2^30) is a driver's error, read as unreported.
         let max_buffer_size = self
             .maintenance_4
             .map(|maintenance_4| maintenance_4.max_buffer_size)
+            .filter(|&size| size >= 1 << 30)
             .unwrap_or(u64::MAX);
         let max_buffer_size = max_buffer_size.min(max_memory_allocation_size);
 
@@ -2972,7 +2975,7 @@ impl super::Adapter {
             texture_view_identity_factory: super::ResourceIdentityFactory::new(),
             // EXACT (EXACT-PATCHES.md, 6).
             surface_views: Mutex::new(Default::default()),
-            surface_framebuffers: Mutex::new(Default::default()),
+            framebuffers: Mutex::new(Default::default()),
             empty_descriptor_set_layout,
         });
 

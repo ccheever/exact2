@@ -100,11 +100,29 @@ mod tests {
     }
 
     #[test]
-    fn ios_entries_carry_the_exact_typescript_pair() {
+    fn apple_entries_carry_the_exact_typescript_pair() {
+        // Keep inherited build inputs out of this fixture without mutating
+        // the environment of other tests running in this process.
+        if ["EXACT_RUST_BUNDLE", "EXACT_GPU_PRODUCT"]
+            .iter()
+            .any(|key| std::env::var_os(key).is_some())
+        {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "widgets::tests::apple_entries_carry_the_exact_typescript_pair",
+                ])
+                .env_remove("EXACT_RUST_BUNDLE")
+                .env_remove("EXACT_GPU_PRODUCT")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
         let dir =
             TempDir(std::env::temp_dir().join(format!("exact-widget-pair-{}", std::process::id())));
         std::fs::create_dir_all(&dir.0).unwrap();
-        std::fs::write(dir.0.join("app.contract"), "shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n").unwrap();
+        std::fs::write(dir.0.join("app.contract"), "shape Props\n  title: string\ncomponent App\n  view\n    text \"app\"\ncomponent Card\n  props\n    title: string\n  view\n    text title\n").unwrap();
         std::fs::write(dir.0.join("app.json"), r#"{"app":{"id":"test.widget","name":"Test"},"widgets":[{"kind":"card","component":"Card","props":"Props","families":["systemSmall"],"refresh":"refresh","preview":{"title":"Hello"}}]}"#).unwrap();
         let entries = contract::snapshot::entries(&dir.0).unwrap();
         let out = dir.0.join("out");
@@ -135,6 +153,46 @@ mod tests {
         copy(&out, &copied, &assets).unwrap();
         assert_eq!(assets.len(), 2);
         assert!(!copied.join("typescript").exists());
+
+        // Exercise the receipt's platform selection, not just emit's Boolean:
+        // the Mac extension needs the same module pair as iOS (LLP 1126.001 WP16).
+        std::fs::write(dir.0.join("app.ts"), "").unwrap();
+        let manifest = Manifest::read(&dir.0).unwrap();
+        let plan = contract::compile_path(&dir.0.join("app.contract")).unwrap();
+        let baked = contract::snapshot::bake_app(&entries, plan, Refresh, Refresh).unwrap();
+        std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
+        for (platform, target) in [
+            ("ios", "aarch64-apple-ios-sim"),
+            ("macos", "aarch64-apple-darwin"),
+        ] {
+            let mut compat = crate::Compat {
+                id: "a".repeat(32),
+                inputs: json!({"trust":"development"}),
+                channel: "development".into(),
+                origin: None,
+                activate: "next-launch".into(),
+                target: target.into(),
+                embedded: Value::Null,
+                reach: Value::Null,
+            };
+            crate::receipt::emit(
+                &mut compat,
+                "development",
+                &dir.0,
+                (platform, target),
+                &manifest,
+                &out,
+                &entries,
+            )
+            .unwrap();
+            let assets = compat.embedded["assets"].as_array().unwrap();
+            for name in ["typescript/app.hbc", "typescript/app.module.json"] {
+                assert!(
+                    assets.iter().any(|card| card["name"] == name),
+                    "{platform}: {name}"
+                );
+            }
+        }
     }
 
     #[test]

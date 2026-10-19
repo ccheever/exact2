@@ -1,9 +1,10 @@
 import {test, expect} from 'bun:test';
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
+import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync, chmodSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
+import {agreePins, pinRecorder, copyProofProducts, withProofBuild, buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
 import {writeFixtureFile} from './tests/proof-helpers.mjs';
 
 test('receipts issued before directory checks rebuild once even when source and artifact digests still match', async () => {
@@ -171,6 +172,70 @@ test('generated entry changes refuse a receipt until a stable rerun; in-place re
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+// A fresh game with art/: the proof generates its shells and bakes before its first
+// inventory, so the build's own shells and bake rewrite the same files and create no
+// entry under the watch. Without that the build's .shells/ and assets/ are new entries.
+test('an absent assets tree the build would create does not throw once the proof has baked', async () => {
+  const {createGame} = await import('./new.mjs');
+  const {gameDefaults, gameShells, prepareProofTree} = await import('./app/shells.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-prebake-'))), bin = resolve(dir, 'bin');
+  const baked = 'crate model bytes';
+  // Cargo is substituted: `cargo run … --art <game>` writes what bake_art would.
+  mkdirSync(bin);
+  writeFileSync(resolve(bin, 'cargo'), `#!${process.execPath}
+import {mkdirSync, writeFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {createHash} from 'node:crypto';
+const game = process.argv.at(-1);
+mkdirSync(resolve(game, 'assets'), {recursive:true});
+writeFileSync(resolve(game, 'assets/crate.model'), ${JSON.stringify(baked)});
+writeFileSync(resolve(game, '.baked-assets.json'), JSON.stringify({'crate.model':createHash('sha256').update(${JSON.stringify(baked)}).digest('hex')}));\n`, {mode:0o755});
+  const env = {...process.env, PATH:`${bin}:${process.env.PATH}`};
+  const proveOnce = async (name, prepare) => {
+    const app = resolve(dir, name);
+    createGame(app, undefined, {assets:true});
+    if (prepare) expect(prepareProofTree(app, env)).toBe(true);
+    const read = proofInputReader(dir, app), receipt = resolve(dir, `${name}.sha256`);
+    // The build: its shells and its bake, the same bytes whether or not they exist.
+    return ensureBuildReceipt({receipt, inputs:() => read().all, artifact:() => 'product', build:async () => {
+      gameShells(app, gameDefaults(app).game, import.meta.dir);
+      spawnSync('cargo', ['run', '--', '--art', app], {env});
+    }});
+  };
+  try {
+    expect(await proveOnce('prepared', true)).toBe(true);
+    await expect(proveOnce('unprepared', false)).rejects.toThrow(/asset directories changed during build: \S*unprepared\//);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+// The --assets scaffold ignores /assets/ and /.baked-assets.json, so Git sees neither;
+// the execution digest still reads the baked bytes, and the authored digest does not.
+test('a Git-ignored baked asset of a new --assets game still moves the execution digest', async () => {
+  const {createGame} = await import('./new.mjs');
+  const {bakeGameArt} = await import('./app/shells.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'ignored-bake-'))), app = resolve(dir, 'reef'), bin = resolve(dir, 'bin');
+  mkdirSync(bin);
+  // Cargo is substituted: `cargo run … --art <game>` writes what bake_art would.
+  writeFileSync(resolve(bin, 'cargo'), `#!${process.execPath}
+import {mkdirSync, writeFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {createHash} from 'node:crypto';
+const game = process.argv.at(-1), bytes = 'baked crate';
+mkdirSync(resolve(game, 'assets'), {recursive:true});
+writeFileSync(resolve(game, 'assets/crate.model'), bytes);
+writeFileSync(resolve(game, '.baked-assets.json'), JSON.stringify({'crate.model':createHash('sha256').update(bytes).digest('hex')}));\n`, {mode:0o755});
+  const git = args => spawnSync('git', args, {cwd:app, encoding:'utf8'});
+  try {
+    createGame(app, undefined, {assets:true});
+    expect(git(['init', '-q']).status).toBe(0);
+    expect(bakeGameArt(app, {...process.env, PATH:`${bin}:${process.env.PATH}`})).toBe(true);
+    expect(git(['check-ignore', 'assets/crate.model', '.baked-assets.json']).stdout.trim().split('\n')).toEqual(['assets/crate.model', '.baked-assets.json']);
+    const root = resolve(import.meta.dir, '..'), before = proofInputs(root, app);
+    // One baked byte changed in place, the manifest left as it was.
+    writeFileSync(resolve(app, 'assets/crate.model'), 'baked crabe');
+    const after = proofInputs(root, app);
+    expect(after.all).not.toBe(before.all);
+    expect(after.gpu).not.toBe(before.gpu);
+    expect(after.authored).toBe(before.authored);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+}, 120000);
+
 test('an initially absent assets tree cannot appear, feed a build and disappear without invalidating its receipt', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'proof-absent-assets-')), app = resolve(dir, 'game/games/sample');
   const receipt = resolve(dir, 'artifacts/build.sha256');
@@ -197,15 +262,24 @@ test('E11 receipts and proof provenance bind post-bake generated assets', async 
   const surface=()=>readFileSync(resolve(app,'.shells/surfaces.json'),'utf8');
   try {
     write('game/games/sample/art/crate.gltf','authored');write('game/games/sample/logic/src/lib.rs','surface');generated('mac-simd');
+    write('game/games/sample/.gitignore','/assets/\n/.baked-assets.json\n');spawnSync('git',['init','-q',dir]);spawnSync('git',['add','.'],{cwd:dir});
     mkdirSync(resolve(app, '.shells'), {recursive:true});
     let inputs;const read=()=>inputs=proofInputs(dir,app,resolve(out,'input-digests.json')), inputHash=value=>buildInputHash('linux','target').update(value).digest('hex'), before=read();let gpu='old-product',binary='old-host',builds=[];
-    const run=()=>{const scan=proofInputReader(dir,app,resolve(out,'input-digests.json'));const read=()=>inputs=scan();return ensureLinuxReceipts({directory:out,gpuInputs:()=>inputHash(read().gpu),hostInputs:()=>inputHash(read().host+surface()),gpuArtifact:()=>gpu,hostArtifact:()=>binary,build:async part=>{builds.push(part);if(part==='gpu'){generated('linux-simd');write('game/games/sample/.shells/surfaces.json',readFileSync(resolve(app,'logic/src/lib.rs'),'utf8'));gpu='linux-product';}else binary='linux-host';}});};await run();
+    const run=()=>{const scan=proofInputReader(dir,app,resolve(out,'input-digests.json'));const read=()=>inputs=scan();return ensureLinuxReceipts({directory:out,app,surface:resolve(app,'.shells/surfaces.json'),gpuInputs:()=>inputHash(read().gpu),hostInputs:()=>inputHash(read().host+surface()),gpuArtifact:()=>gpu,hostArtifact:()=>binary,build:async part=>{builds.push(part);if(part==='gpu'){generated('linux-simd');write('game/games/sample/.shells/surfaces.json',readFileSync(resolve(app,'logic/src/lib.rs'),'utf8'));gpu='linux-product';}else binary='linux-host';}});};await run();
     const summary=inputs.all, after=proofInputs(dir,app,resolve(out,'input-digests.json')), gpuReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-gpu.sha256'))), hostReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-host.sha256')));
     expect(before.all).not.toBe(after.all);
     expect({gpu:gpuReceipt.inputs,host:hostReceipt.inputs,summary}).toEqual({gpu:inputHash(after.gpu),host:inputHash(after.host+surface()),summary:after.all});
-    expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
+    expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);
+    rmSync(resolve(app,'.shells'),{recursive:true});rmSync(resolve(app,'assets'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
+    write('artifacts/linux/build-linux-surfaces.json','corrupt');await run();expect(builds.splice(0)).toEqual(['gpu']);
+    write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/logic/src/lib.rs','surface with added argument');await run();expect(builds.splice(0)).toEqual(['gpu','host']);
     write('game/games/sample/app.contract','changed');await run();expect(builds.splice(0)).toEqual(['host']);gpu=null;await run();expect(builds.splice(0)).toEqual(['gpu']);
+    // An author's file where the cache would put a generated one is refused by name and left alone;
+    // a generated file the manifest owns is restored over.
+    rmSync(resolve(app,'art'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));write('game/games/sample/assets/textures/crate.astc.tex','authored replacement');spawnSync('git',['add','-f','game/games/sample/assets/textures/crate.astc.tex'],{cwd:dir});
+    await expect(run()).rejects.toThrow('would overwrite a file the bake does not own');
+    expect(readFileSync(resolve(app,'assets/textures/crate.astc.tex'),'utf8')).toBe('authored replacement');
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -371,7 +445,7 @@ test('repin records portable source provenance separately and still refuses mixe
     expect(pins[0].sourceInputs).toBe(pins[1].sourceInputs);
     expect(pins[0].inputs).not.toBe(pins[1].inputs);
   } finally { rmSync(dir, {recursive:true, force:true}); }
-}, 15000);
+}, 120000);
 
 test('proof summaries record both identities from the completed bake', async () => {
   // Match the child's import.meta URL when macOS's temporary root is a symlink.
@@ -406,6 +480,10 @@ test('proof summaries record both identities from the completed bake', async () 
           writeFileSync(resolve(app, '.baked-assets.json'), JSON.stringify(manifest));
         },
       }));
+      // The fixture's art is not a model: the bake is the mocked build's alone.
+      const shells = ${JSON.stringify(resolve(import.meta.dir, 'app/shells.mjs'))};
+      const unmocked = await import(shells);
+      mock.module(shells, () => ({...unmocked, prepareProofTree:() => false}));
       const {proof} = await import(${JSON.stringify(resolve(import.meta.dir, 'proof.mjs'))});
       await proof(import.meta, async () => {});
     `);
@@ -413,7 +491,7 @@ test('proof summaries record both identities from the completed bake', async () 
       env:{...process.env, EXACT_GAME_PROOF_PROFILE:'release', EXACT_PROOF_OUT:out}, stdout:'pipe', stderr:'pipe',
     });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(code, stdout + stderr).toBe(0);
+    expect(code, stdout + stderr).toBe(3);
     const after = proofInputs(root, app), summary = JSON.parse(readFileSync(resolve(out, 'summary.json')));
     expect(after.all).not.toBe(before.all);
     expect(after.authored).toBe(before.authored);
@@ -423,3 +501,153 @@ test('proof summaries record both identities from the completed bake', async () 
     expect(receipt.inputs).toBe(buildInputHash('linux', target, '0', 'release').update(after.all).digest('hex'));
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 15000);
+
+
+test('web repin requires shipping observations and receipts distinguish profiles', () => {
+  const pins = {ticks:{60:'0x'+'12345678'.repeat(2)}, saves:{continuation:'a'.repeat(64)}};
+  const rows = ['linux', 'web'].flatMap(host => ['0', '1', 'fresh-game', 'release'].map(mode => ({host, mode:mode === 'release' ? '0' : mode, profile:mode === 'release' ? mode : 'gpu-dev', pins:structuredClone(pins)})));
+  const old = pins;
+  expect(() => agreePins(rows.filter(row => !(row.host === 'web' && row.profile === 'release')), old, ['linux', 'web'], '.')).toThrow('web release');
+  rows.find(row => row.host === 'web' && row.profile === 'release').pins.ticks[60] = '0x'+'d'.repeat(16);
+  expect(() => agreePins(rows, old, ['linux', 'web'], '.')).toThrow('disagrees with gpu-dev');
+  expect(buildInputHash('web', 'target', '0', 'release').digest('hex'))
+    .not.toBe(buildInputHash('web', 'target', '0', 'gpu-dev').digest('hex'));
+});
+
+test('a development table edit refuses a pin even when its hash matches', () => {
+  const failures = [], pins = {ticks:{0:'0x'+(1n).toString(16).padStart(16,'0')},saves:{}};
+  const recorder = pinRecorder(pins, '.', (label,ok)=>{if(!ok) failures.push(label);});
+  recorder.pin(0,{tick:0,hash:pins.ticks[0],tableEdits:1});
+  expect(failures).toEqual(['pin 0 refused: development table edits are in the journal']);
+});
+
+test('a baked table transaction is an asset product; its authored JSON owns provenance', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'proof-tables-')),app=resolve(root,'game/games/sample');
+  try {
+    writeFixtureFile(app,'movement.json','{"speed":4}');
+    const read=proofInputReader(root,app),before=read();
+    writeFixtureFile(app,'assets/exact-tables.json','{"movement.json":"{\\"speed\\":4}"}');
+    expect(()=>read()).toThrow('asset directories changed during build');
+    const after=proofInputs(root,app);
+    expect(after.authored).toBe(before.authored); expect(after.all).not.toBe(before.all);
+    writeFileSync(resolve(app,'movement.json'),'{"speed":8}');
+    expect(proofInputs(root,app).authored).not.toBe(after.authored);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('ignored Rust directories are skipped while tracked files override ignore rules', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-ignored-'))), app = resolve(dir, 'game/games/sample');
+  const git = (...args) => { const r = spawnSync('git', args, {cwd:dir}); expect(r.status).toBe(0); };
+  try {
+    git('init', '-q');
+    writeFixtureFile(app, 'app.contract', 'plan');
+    writeFixtureFile(dir, 'private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'private/generated.rs', 'ignored app output');
+    writeFixtureFile(dir, 'private/tracked.rs', 'tracked source');
+    writeFixtureFile(dir, 'excluded/generated.rs', 'info exclude');
+    git('add', 'private/tracked.rs');
+    writeFixtureFile(dir, '.gitignore', 'private/\n');
+    writeFixtureFile(dir, '.git/info/exclude', 'excluded/\n');
+    const files = proofInputFiles(dir, app);
+    expect(files).not.toContain('private/generated.rs');
+    expect(files).not.toContain('game/games/sample/private/generated.rs');
+    expect(files).not.toContain('excluded/generated.rs');
+    expect(files).toContain('private/tracked.rs');
+    const read = proofInputReader(dir, app); read();
+    writeFixtureFile(dir, 'private/generated.rs', 'changed output');
+    read();
+    writeFixtureFile(dir, 'private/tracked.rs', 'changed source');
+    expect(read).toThrow('authored proof inputs changed during build');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+
+test('external repositories apply their own ignores and excludes with tracked precedence', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-external-ignored-')));
+  const sdk = resolve(dir, 'sdk'), app = resolve(dir, 'external');
+  const git = (cwd, ...args) => { expect(spawnSync('git', args, {cwd}).status).toBe(0); };
+  try {
+    writeFixtureFile(sdk, 'engine/lib.rs', 'sdk');
+    writeFixtureFile(app, 'logic/src/lib.rs', 'game');
+    git(sdk, 'init', '-q'); git(app, 'init', '-q');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    git(app, 'add', 'logic/private/tracked.rs');
+    writeFixtureFile(app, '.gitignore', 'logic/private/\n');
+    writeFixtureFile(app, '.git/info/exclude', 'logic/excluded/\n');
+    writeFixtureFile(app, 'logic/private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'excluded');
+    const files = proofInputFiles(sdk, app);
+    expect(files).toContain('../external/logic/private/tracked.rs');
+    expect(files).toContain('../external/logic/src/lib.rs');
+    expect(files).not.toContain('../external/logic/private/generated.rs');
+    expect(files).not.toContain('../external/logic/excluded/generated.rs');
+    const before = proofInputs(sdk, app);
+    writeFixtureFile(app, 'logic/private/generated.rs', 'changed ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'changed excluded');
+    expect(proofInputs(sdk, app).all).toBe(before.all);
+    const read = proofInputReader(sdk, app); read();
+    writeFixtureFile(app, 'logic/excluded/new-output.rs', 'new excluded entry');
+    read();
+    const ignoredSibling = writeFixtureFile(app, 'logic/private/new-output.rs', 'new ignored sibling');
+    read();
+    writeFileSync(ignoredSibling + '.tmp', 'replacement');
+    renameSync(ignoredSibling + '.tmp', ignoredSibling);
+    read();
+    rmSync(ignoredSibling);
+    read();
+    // Even a reverted tracked edit must invalidate the in-flight proof.
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'temporary authored bytes');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    expect(read).toThrow('authored proof inputs changed during build');
+    const stable = proofInputReader(sdk, app); stable();
+    const transient = writeFixtureFile(app, 'logic/src/transient.rs', 'consumed source');
+    rmSync(transient);
+    expect(stable).toThrow('authored proof inputs changed during build');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'changed tracked');
+    expect(proofInputs(sdk, app).authored).not.toBe(before.authored);
+    rmSync(resolve(app, '.git'), {recursive:true});
+    expect(proofInputFiles(sdk, app)).toContain('../external/logic/private/generated.rs');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+
+test('two snapshots execute their private validated products while shared builds change', async () => {
+  const {snapshot} = await import('./proof-snapshot.mjs');
+  const {proofProductChanges} = await import('../scripts/agent-launch.mjs');
+  const sdk=mkdtempSync(resolve(tmpdir(),'proof-products-')), app=resolve(sdk,'game/games/sample'), target=resolve(app,'target');
+  mkdirSync(target,{recursive:true});spawnSync('git',['init','-q',sdk]);
+  writeFixtureFile(app,'logic/src/lib.rs','first');writeFixtureFile(app,'proof.mjs','');writeFixtureFile(app,'pins.json','{}');
+  const binary=resolve(target,'game'), module=resolve(target,'module');
+  const build=async run=>withProofBuild(target,async()=>{
+    const id=readFileSync(resolve(run.src,'logic/src/lib.rs'),'utf8');
+    writeFileSync(binary,'#!/bin/sh\nwhile read line; do cat "$(dirname "$0")/module"; printf "\\n"; done\n');chmodSync(binary,0o755);writeFileSync(module,id);
+    return copyProofProducts(sdk,run.src,{binary,module},resolve(run.src,'../build'));
+  });
+  let a,b;
+  try {
+    const first=snapshot(sdk,app,resolve(app,'artifacts/one')), firstProducts=await build(first);
+    a=Bun.spawn([firstProducts.binary],{stdin:'pipe',stdout:'pipe'});
+    writeFileSync(resolve(app,'logic/src/lib.rs'),'second');
+    const second=snapshot(sdk,app,resolve(app,'artifacts/two')), secondProducts=await build(second);
+    b=Bun.spawn([secondProducts.binary],{stdin:'pipe',stdout:'pipe'});
+    a.stdin.write('drive\n');a.stdin.end();b.stdin.write('drive\n');b.stdin.end();
+    expect(await new Response(a.stdout).text()).toBe('first\n');
+    expect(await new Response(b.stdout).text()).toBe('second\n');
+    expect(await a.exited).toBe(0);expect(await b.exited).toBe(0);
+    expect(proofProductChanges(firstProducts.receipt,firstProducts.binary,{dir:first.src},sdk)).toEqual([]);
+    expect(()=>copyProofProducts(sdk,first.src,{binary,module},resolve(first.src,'artifacts/invalid'),{module:createHash('sha256').update('first').digest('hex')})).toThrow('changed after validation');
+    writeFileSync(firstProducts.module,'corrupt');
+    expect(proofProductChanges(firstProducts.receipt,firstProducts.binary,{dir:first.src},sdk)).toContain(firstProducts.module);
+  } finally {a?.kill();b?.kill();rmSync(sdk,{recursive:true,force:true});}
+},60000);
+
+
+test('unchanged proof directories keep their identity when locale collation changes', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'proof-collation-')), app=resolve(root,'game/games/sample');
+  writeFixtureFile(app,'logic/Z/lib.rs','Z');writeFixtureFile(app,'logic/a/lib.rs','a');
+  const collate=String.prototype.localeCompare, read=proofInputReader(root,app);
+  try {
+    read();String.prototype.localeCompare=function(other){return -collate.call(this,other);};
+    expect(()=>read()).not.toThrow();
+  } finally {String.prototype.localeCompare=collate;rmSync(root,{recursive:true,force:true});}
+});

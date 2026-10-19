@@ -4,7 +4,7 @@
 // open) and `UIHingeInteraction` (an update when the hinge moves, which
 // changes a region's `isActive` without changing any bounds). Resolved by
 // name, not compiled against the SDK: the repo's default Xcode 27.0 lacks
-// the symbols and ships the same Swift 6.4 as the 27.1 beta, so no
+// the symbols and ships the same Swift 6.4 as Xcode 27.1, so no
 // `#if compiler` or `canImport` tells the two SDKs apart; a 27.0 build
 // finds neither class at run time and reports a flat viewport, a 27.1
 // build on a Duo finds both. Below iOS 27.1 the classes do not exist.

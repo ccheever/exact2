@@ -1,17 +1,20 @@
 {
   "ticks": {
-    "0": "0x41e6f7a7fbccc126",
-    "90": "0x4d892b02503223cb"
+    "0": "0xa28d39d25aa334b7",
+    "90": "0x1dd0b2c4abc3cc01",
+    "98": "0x3e39671242e6ac85"
   },
   "saves": {
-    "continuation": "c4589053ef56077a92ddf40305e34c83e43bd4e008793c86163249ffa9d3fbb1"
+    "continuation": "05f57f19076ef91b983aed07bacb2a2c29537c0cb451f46c5c20f8f8f84d1585"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "4da9d338fb67b0e491566c8f65d83fbdcb68677fab22194e98f4e8ea4c811f9c",
+  "inputs": "304a02bd26e2262ddfa5c7632b24469952041c872db1926f1bddbd31c26f2e93",
+  "sourceInputs": "bf9b6f02f40d4de7edf183c924d79069eadf90a5344210ad8f5e1b777a981cd8",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "779261df56bf67b03b4a4f12acd918197a10cb09",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

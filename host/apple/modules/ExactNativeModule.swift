@@ -1090,6 +1090,7 @@ private let moduleCreate: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeM
 private let moduleDestroy: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
     guard let raw else { return }
     let m = Unmanaged<ExactModule>.fromOpaque(raw)
+    ExactExtensions.destroy(m.takeUnretainedValue())
     m.takeUnretainedValue().destroy()
     m.release()
 }
@@ -1102,7 +1103,7 @@ private let moduleLater: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer
     guard let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return reply.fail("the request was not a JSON object")
     }
-    m.later(request, reply: reply)
+    if !ExactExtensions.later(m, request, reply: reply) { m.later(request, reply: reply) }
 }
 
 private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, ExactModuleReplyFn?) -> Void = { raw, body, length, slot, fn in
@@ -1117,7 +1118,7 @@ private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<
         guard let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return answer(500, "the request was not a JSON object")
         }
-        let value = try m.call(request)
+        let value = try ExactExtensions.call(m, request) ?? m.call(request)
         guard JSONSerialization.isValidJSONObject(value) else { return answer(500, "the reply was not JSON") }
         answer(200, String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self))
     } catch {
@@ -1403,6 +1404,7 @@ private let table: UnsafeMutableRawPointer = {
     // hatch words this module was built to handle (LLP 1075.003.000.001
     // §4.3), so the host calls it with no word its code never compiled.
     let words = "\"hatches\":{\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
+        + ",\"extensions\":{\"names\":[" + ExactExtensions.names.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"

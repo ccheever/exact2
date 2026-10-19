@@ -16,6 +16,11 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
         ("exactPage", page::FIELDS, "page"),
         ("exactDelivery", &delivery::FIELDS[..], "delivery"),
         ("exactSurface", &[][..], "surfaces"),
+        (
+            "exactActivities",
+            &["activities", "frequentPushesEnabled", "linked"][..],
+            "activities",
+        ),
     ] {
         // Each reader by its resource name: its fields (by its own shape),
         // with what the build baked for delivery, or its surface and shape.
@@ -68,9 +73,73 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
             imports.push(format!("{name} as ${name}"));
         }
     }
-    Ok(if imports.is_empty() {
+    let facts = if imports.is_empty() {
         String::new()
     } else {
         format!("import{{{}}}from\"./facts.js\";", imports.join(","))
-    })
+    };
+    Ok(facts + &modules(plan, body))
+}
+
+/// The extensions the plan's module names belong to, each once, in order.
+pub fn extensions(plan: &Plan) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for m in &plan.modules {
+        let e = plan.str(m.extension).to_owned();
+        if !out.contains(&e) {
+            out.push(e);
+        }
+    }
+    out
+}
+
+/// A native module's sources and sends (LLP 1133.002 D13, §6), which
+/// modules.js answers as the runner's `modules.rs` does: each by its
+/// source's name, `[extension.name, send, its substitute, its type, when it
+/// asks for permission, its options record's type or null, live]`, an enum's
+/// members spelled out, so a preferred value outside them is refused; then a
+/// loader of each extension's web implementation (`ext-<name>.js`, which
+/// the build writes beside the app, LLP 1133.002 D15).
+fn modules(plan: &Plan, body: &mut String) -> String {
+    if plan.modules.is_empty() {
+        return String::new();
+    }
+    let rows: Vec<String> = plan
+        .modules
+        .iter()
+        .map(|m| {
+            let source = &plan.sources[m.source.0 as usize];
+            let key = format!("{}.{}", plan.str(m.extension), plan.str(m.declared));
+            let options = (plan.source_params.get(source.params.start as usize))
+                .filter(|_| source.params.len > 0)
+                .map_or("null".into(), |p| surface_type_json(plan, p.ty));
+            format!(
+                "{}:[{},{},{},{},{},{options},{}]",
+                serde_json::to_string(plan.str(source.name)).unwrap(),
+                serde_json::to_string(&key).unwrap(),
+                m.send,
+                plan.str(m.substitute),
+                surface_type_json(plan, source.ty),
+                serde_json::to_string(plan.str(m.request)).unwrap(),
+                m.live,
+            )
+        })
+        .collect();
+    let loaders: Vec<String> = extensions(plan)
+        .iter()
+        .map(|e| {
+            format!(
+                "{}:()=>import({})",
+                serde_json::to_string(e).unwrap(),
+                serde_json::to_string(&format!("./ext-{e}.js")).unwrap()
+            )
+        })
+        .collect();
+    let _ = write!(
+        body,
+        "$modules({{{}}},{{{}}});",
+        rows.join(","),
+        loaders.join(",")
+    );
+    "import{modules as $modules}from\"./modules.js\";".into()
 }

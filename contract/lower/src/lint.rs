@@ -134,22 +134,46 @@ pub(crate) fn react_native(name: &str) -> Option<&'static str> {
 
 /// The edit for HTML's `style=`: a node's own look is its attributes, and a
 /// look nodes share is a `style` block named by `class=`. CSS declarations
-/// (`"padding: 8px; color: red"`) are written back as the attributes.
+/// (`"padding: 8px; color: red"`) are written back as the attributes, each
+/// one the hint can say in Contract: a name that is an attribute identifier
+/// (a custom property is not), a plain number unquoted as the lexer wants
+/// it, `!important` dropped. A bare word is `class=` unless it is reserved
+/// (`none`, `if`).
+///
+/// The rewrite is written only for distinct properties that cannot overlap:
+/// CSS resolves a property written twice, or a shorthand beside its longhand,
+/// by importance and order, and Contract's attributes do not, so such a set
+/// gets the hint without a rewrite rather than one that means something else.
 fn style_hint(value: &contract_syntax::Expr) -> String {
     let shared = "a look nodes share is a `style Name` block in the file, named with `class=Name`";
     let contract_syntax::Expr::Str(text, _) = value else {
         return format!("; a node's look is its attributes (`padding=8 color=\"-exact-secondary-label\"`), and {shared}");
     };
-    let declarations: Option<Vec<String>> = text
-        .split(';')
-        .map(str::trim)
-        .filter(|d| !d.is_empty())
-        .map(|d| {
+    // Each declaration: its name, and its value as a string literal's text
+    // or a bare number.
+    let decls: Vec<(&str, String)> = declarations(text)
+        .into_iter()
+        .filter_map(|d| {
             let (name, value) = d.split_once(':')?;
+            let name = name.trim();
+            if !attribute_name(name) {
+                return None;
+            }
             // A string literal of the value: CSS's runs of whitespace as one
             // space, which mean the same, and every other control character,
             // a quote and a backslash escaped.
-            let value: String = value.split_whitespace().collect::<Vec<_>>().join(" ");
+            let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+            let value = match value.strip_suffix("important").map(str::trim_end) {
+                Some(v) if v.ends_with('!') => v[..v.len() - 1].trim_end(),
+                _ => value.as_str(),
+            };
+            // A number token begins with a digit (`.5` is not one).
+            if value.starts_with(|c: char| c.is_ascii_digit())
+                && value.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+                && value.parse::<f64>().is_ok()
+            {
+                return Some((name, value.to_string()));
+            }
             let value: String = value
                 .chars()
                 .map(|c| match c {
@@ -158,24 +182,102 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
                     c => c.to_string(),
                 })
                 .collect();
-            Some(format!("{}=\"{value}\"", name.trim()))
+            Some((name, format!("\"{value}\"")))
         })
         .collect();
-    match declarations {
-        Some(attrs) if !attrs.is_empty() => format!(
+    let distinct = decls
+        .iter()
+        .enumerate()
+        .all(|(i, a)| decls[i + 1..].iter().all(|b| !overlap(a.0, b.0)));
+    let word = text.trim();
+    if !decls.is_empty() && distinct {
+        let attrs: Vec<String> = decls.iter().map(|(n, v)| format!("{n}={v}")).collect();
+        format!(
             "; write the declarations as attributes, `{}`: a node's look is its attributes, and {shared}",
             attrs.join(" ")
-        ),
-        _ if text.trim().starts_with(|c: char| c.is_ascii_alphabetic())
-            && text.trim().chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
-        {
-            format!(
-                "; write `class={}`: {shared}, and a node's own look is its attributes",
-                text.trim()
-            )
-        }
-        _ => format!("; {shared}, and a node's own look is its attributes"),
+        )
+    } else if !text.contains(':') && attribute_name(word) && !contract_syntax::is_reserved(word) {
+        format!("; write `class={word}`: {shared}, and a node's own look is its attributes")
+    } else {
+        format!("; {shared}, and a node's own look is its attributes")
     }
+}
+
+/// Whether two CSS properties may set the same thing: one name, one a prefix
+/// of the other at a hyphen (`flex` and `flex-grow`, `border` and
+/// `border-top-left-radius`), or a shorthand whose longhands are named
+/// otherwise. CSS shorthands are not modelled further: a doubtful pair is an
+/// overlap.
+fn overlap(a: &str, b: &str) -> bool {
+    let prefix = |short: &str, long: &str| {
+        long.len() > short.len() && long.starts_with(short) && long.as_bytes()[short.len()] == b'-'
+    };
+    let family = |short: &str, long: &str| match short {
+        "font" => matches!(long, "line-height"),
+        "inset" => matches!(long, "top" | "right" | "bottom" | "left"),
+        "gap" => matches!(long, "row-gap" | "column-gap"),
+        "columns" => matches!(long, "column-width" | "column-count"),
+        "flex-flow" => matches!(long, "flex-direction" | "flex-wrap"),
+        "place-items" => matches!(long, "align-items" | "justify-items"),
+        "place-content" => matches!(long, "align-content" | "justify-content"),
+        "place-self" => matches!(long, "align-self" | "justify-self"),
+        "grid-area" => long.starts_with("grid-row") || long.starts_with("grid-column"),
+        "border-radius" => long.starts_with("border-") && long.ends_with("-radius"),
+        _ => false,
+    };
+    a == b || prefix(a, b) || prefix(b, a) || family(a, b) || family(b, a)
+}
+
+/// CSS declarations split at `;` outside quotes and parentheses
+/// (`font-family: "A; B"`, `url(data:;base64,…)`), empty ones left out.
+fn declarations(text: &str) -> Vec<&str> {
+    let (mut out, mut from, mut depth, mut quote) = (Vec::new(), 0, 0usize, None::<char>);
+    let mut chars = text.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), '\\') => {
+                chars.next();
+            }
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => depth = depth.saturating_sub(1),
+            (None, ';') if depth == 0 => {
+                out.push(&text[from..i]);
+                from = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&text[from..]);
+    out.into_iter()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .collect()
+}
+
+/// Whether `name` is an attribute identifier as the lexer reads one
+/// (contract-grammar.md, "Lexical rules"): a letter or `_` (`-exact-…` may
+/// lead with one hyphen), then alphanumerics, `_`, or a hyphen before a
+/// letter. A custom property (`--gap`) is not.
+fn attribute_name(name: &str) -> bool {
+    let body = name.strip_prefix('-').unwrap_or(name);
+    let mut chars = body.chars().peekable();
+    if !chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    {
+        return false;
+    }
+    while let Some(c) = chars.next() {
+        match c {
+            '-' if chars.peek().is_some_and(char::is_ascii_alphabetic) => {}
+            c if c.is_ascii_alphanumeric() || c == '_' => {}
+            _ => return false,
+        }
+    }
+    true
 }
 
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
@@ -225,6 +327,11 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
              `-exact-press-background-color`, `-exact-press-color` and `-exact-press-scale` \
              (and `-exact-press-haptic`), which the host shows while a pointer holds the node"
                 .into()
+        }
+        // Every host ends a hold the system took (a scroll, an alert, the
+        // window losing focus) with the hold's `pointerup`.
+        None if matches!(a.name.as_str(), "pointercancel" | "touchcancel" | "lostpointercapture") => {
+            "; a cancelled pointer ends with `pointerup` (its `buttons` 0), so the `pointerup` handler that ends a hold covers it".into()
         }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()

@@ -185,7 +185,9 @@ function decode(response) {
 }
 const request = (input) => ({ ...input, token: randomBytes(24).toString('hex') });
 export function filesystem(input) {
-  const result = spawnSync(executable(), [], { input: `${JSON.stringify(request(input))}\n`, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // A game asset tree includes every GPU texture family; base64 also adds a
+  // third to the on-disk size. A 210 MiB native bundle exceeds a 256 MiB reply.
+  const result = spawnSync(executable(), [], { input: `${JSON.stringify(request(input))}\n`, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`exact-filesystem exited before replying (status ${result.status}, signal ${result.signal ?? 'none'})${result.stderr ? `: ${result.stderr}` : ''}`);
   return decode(JSON.parse(result.stdout));
@@ -340,4 +342,33 @@ export function installedModules(modules = resolve(root, 'node_modules'), lock =
       rmSync(marker, { force: true });
     } finally { drop(lock, mine); }
   }
+  // What is installed is what `bun.lock` says (LLP 1133.001 D9): installed again from it when not, and
+  // refused by name when that does not mend it.
+  if (!lockMismatches(dirname(modules)).length) return;
+  console.error(`${resolve(root)}: node_modules differs from bun.lock (${lockMismatches(dirname(modules)).join('; ')}); bun install --frozen-lockfile there`);
+  if (spawnSync(process.execPath, ['install', '--frozen-lockfile'], { cwd: dirname(modules), stdio: ['ignore', 2, 2] }).status !== 0) throw new Error(`${dirname(modules)}: bun install --frozen-lockfile failed (above)`);
+  const left = lockMismatches(dirname(modules));
+  if (left.length) throw new Error(`${dirname(modules)}: node_modules still differs from bun.lock: ${left.join('; ')}`);
+}
+
+/** Each package `dir/bun.lock` pins at the top of its `node_modules` that is installed at another version,
+ * or not at all: a registry package's `name@version` (a workspace's, `file:`'s and `github:`'s have none to
+ * compare). `[]` without a lock. */
+export function lockMismatches(dir = root) {
+  let lock;
+  try { lock = JSON.parse(readFileSync(resolve(dir, 'bun.lock'), 'utf8').replace(/,(\s*[}\]])/g, '$1')); } catch { return []; }
+  const out = [];
+  for (const [key, entry] of Object.entries(lock.packages ?? {})) {
+    // A nested install (`rolldown/@oxc-project/types`) is the package beside its dependent, not at the top.
+    if (key.split('/').length > (key.startsWith('@') ? 2 : 1)) continue;
+    // A package for one platform (its `os` or `cpu`) is installed only there.
+    if (Array.isArray(entry) && entry.some(e => e && typeof e === 'object' && (e.os || e.cpu))) continue;
+    const spec = Array.isArray(entry) ? entry[0] : '', at = spec.lastIndexOf('@');
+    const version = at > 0 ? spec.slice(at + 1) : '';
+    if (!/^\d/.test(version)) continue;
+    let installed = null;
+    try { installed = JSON.parse(readFileSync(resolve(dir, 'node_modules', key, 'package.json'), 'utf8')).version; } catch { /* absent */ }
+    if (installed !== version) out.push(`${key} ${installed ?? 'missing'}, bun.lock ${version}`);
+  }
+  return out;
 }

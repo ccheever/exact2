@@ -193,6 +193,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         frame: &FrameInput<'_>,
         custom: &[CustomMaterial],
     ) {
+        // A look frame leaves the cache as the live frames left it: it draws
+        // every caster itself (`encode_shadows`).
+        if self.probe.is_some() {
+            return;
+        }
         let enabled = self.shadows.as_ref().is_some_and(|s| s.cache_enabled)
             && self.model_poses_current
             && custom.is_empty();

@@ -28,6 +28,8 @@ The only required reading; the rest is lookup.
    list whose rows push (beside its detail) need no code. The rows of a list the person deletes from swipe to
    delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
    `haptic("selection")` marks a choice in your own control, `haptic("success")` a task done.
+   A chat's messages are bubbles in a transcript that opens at the newest and follows each
+   new one, not a grouped list's rows (`chat-thread`).
 
 ## The workflow
 
@@ -58,8 +60,63 @@ refreshes it. `contract migrate app.contract` rewrites retired Contract syntax;
 mutation refusals too.
 Keep scratch files in `.exact/`: they do not make the build stale (a JSON file `app.ts` imports does).
 
+**To check a screen against a reference** (the original's screenshot, a design), drive to it and
+take `"screenshot .exact/home.png compare ref/home.png"`: it says in text, node by node, where
+the two differ, and draws `home.diff.png`, so neither picture needs viewing.
+
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed ([ios-driving](recipes/ios-driving.md)).
+
+## Look it up
+
+Look up what the nearest pattern (a tested app) lacks:
+`contract vocab` prints each name's answer in turn, a keyword, tag, function or part as well as a
+recipe (`docs/recipes/<name>.md`, whole), so one call fetches what a screen needs:
+
+```sh
+bun exact.mjs contract vocab list-rows search swipe            # a list with search and delete
+bun exact.mjs contract vocab for match persist grouped-form choice   # keywords, a settings form
+bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day's log
+```
+
+|Pattern|Already has|
+|---|---|
+|`one-screen`|a tracker: a total, quick-add buttons, a dated log in a file|
+|`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
+|`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
+|`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
+|`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
+
+|Not in a pattern|Look up|
+|---|---|
+|an entry or settings form|`grouped-form`|
+|rows added and removed in a form|`editable-rows`|
+|a write that may be refused|`after-a-write`|
+|a failure the person must acknowledge (an alert with OK)|`error-alert`|
+|tabular digits: numeric columns or values changing in place|`numeric-readout`|
+|a number field, a stepper's `step`|`number-field`, `stepper`|
+|a chat that opens at its newest message|`chat-thread`|
+|a welcome at first launch|`first-launch`|
+|SQLite, grants|`files-and-grants`|
+|location, or anything the person must allow|`permissions`|
+|another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
+|video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
+|a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
+|ports, Bun, Chrome and its stores|`ports-and-browsers`|
+|porting an app, a release build, helpers sharing a port|`porting-and-release`|
+|transitions, keyframes, exit and layout animation|`motion`|
+|brand colours, light and dark, icon tokens|`theme`, `tamber`|
+|a module in Swift that `app.ts` asks; launch arguments|`native-module`|
+|app.json keys, `assets/`, the `modules` folder|`app-json`|
+|a section of the long guides, whole, by its heading|`bun exact.mjs docs <heading words>`|
+
+The others are named for their topic (`timers`, `money`…).
+
+**A name in question:** `bun exact.mjs contract vocab` prints the card, or read `docs/card.md` (the same
+text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
+data, test. A lookup is for a name the card lacks or a compile error;
+`docs/contract-for-agents.md` and `reference.md` by section (`bun exact.mjs docs tabular numbers`
+prints one with its path and line); `apps/shelf` is a whole app.
 
 ## One screen: the view, its data, its test
 
@@ -234,56 +291,15 @@ snapshot. The backend’s clock stays its own.
    on a `button`, field or bar makes it your box. Emphasis is a part (above) or
    `buttonStyle="filled"` on the screen's main action. A `button` with no
    `buttonStyle` is the platform's: tinted text on iOS, so one that must read as a
-   button there says `"bordered"`, and Cancel or Edit says nothing.
+   button there says `"bordered"`, and Cancel or Edit says nothing. A field on its own is
+   the platform's bordered one; a document's own text (a note's title and body, as Notes
+   draws them) says `border="none"`, and a chat's composer is `chat-thread`'s.
 2. **A `header` holds a heading (`h1 "Title"`), one text after it (the subtitle) and
    buttons** (or a search field, a `tablist`); anything else isn't in the iOS bar. A
    control fixed under the bar goes with an inline title (`h2`); one that may scroll
    away, in the list's first section.
 3. **`width="100%"` with padding overflows**, as in CSS: drop the width; a `flex=1` field
    takes `min-width=0`.
-
-## Look it up
-
-Look up what the nearest pattern (a tested app) lacks:
-`contract vocab` prints each name's answer in turn, a keyword, tag, function or part as well as a
-recipe (`docs/recipes/<name>.md`, whole), so one call fetches what a screen needs:
-
-```sh
-bun exact.mjs contract vocab list-rows search swipe            # a list with search and delete
-bun exact.mjs contract vocab for match persist grouped-form choice   # keywords, a settings form
-bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day's log
-```
-
-|Pattern|Already has|
-|---|---|
-|`one-screen`|a tracker: a total, quick-add buttons, a dated log in a file|
-|`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
-|`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
-|`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
-|`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
-
-|Not in a pattern|Look up|
-|---|---|
-|an entry or settings form|`grouped-form`|
-|rows added and removed in a form|`editable-rows`|
-|a write that may be refused|`after-a-write`|
-|tabular digits: numeric columns or values changing in place|`numeric-readout`|
-|a number field, a stepper's `step`|`number-field`, `stepper`|
-|a chat that opens at its newest message|`chat-thread`|
-|a welcome at first launch|`first-launch`|
-|SQLite, grants|`files-and-grants`|
-|another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
-|video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
-|a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
-|ports, Bun, Chrome and its stores|`ports-and-browsers`|
-|porting an app, a release build, helpers sharing a port|`porting-and-release`|
-
-The others are named for their topic (`timers`, `money`…).
-
-**A name in question:** `bun exact.mjs contract vocab` prints the card, or read `docs/card.md` (the same
-text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
-data, test. A lookup is for a name the card lacks or a compile error;
-`docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.
 
 Consecutive `match` blocks in an action all run in order. Nest a match in the
 selected arm, or use `if`/`else`, for exclusive paths. Action reads still see

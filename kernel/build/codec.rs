@@ -624,7 +624,7 @@ fn metric_cell(name: &str, kind: &str, cell: &MetricCell) -> String {
             format!("MetricValue::Number({n:?})")
         }
         (_, MetricCell::Text(text)) if text == "unset" => "MetricValue::Text(\"unset\")".into(),
-        ("style", MetricCell::Text(text)) => {
+        ("style" | "style length", MetricCell::Text(text)) => {
             assert!(
                 !text.is_empty() && text.trim() == text && text.parse::<f64>().is_err(),
                 "schema: metric {name}: a number is written as one; text is CSS, `unset` for no row"
@@ -673,11 +673,13 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
         "pub struct Metric {\n",
         "    /// The metric's name, without `-exact-`.\n    pub name: &'static str,\n",
         "    /// What its values are.\n    pub kind: MetricKind,\n",
+        "    /// Its values are lengths: a `length` row, or a `style` row written on a length property (`style length` in the schema, theme2's unit flag), whose number is px.\n    pub length: bool,\n",
         "    /// On iOS.\n    pub ios: MetricValue,\n",
         "    /// On the Mac.\n    pub macos: MetricValue,\n",
         "    /// In the web's first look, which a process reads until its host says otherwise.\n    pub web: MetricValue,\n",
         "    /// In the neutral look: the web's, and a host's that paints its own controls.\n    pub neutral: MetricValue,\n",
         "    /// In Android's Material look: the web's first look unless the row says otherwise.\n    pub material: MetricValue,\n",
+        "    /// In the terminal (LLP 1121 stage 11 B): the web's first look, which it read before it had a column.\n    pub terminal: MetricValue,\n",
         "}\n",
     ));
     let mut names = BTreeSet::new();
@@ -697,11 +699,13 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
             "schema: metric {name} is already an `-exact-` name"
         );
         let variant = match kind.as_str() {
-            "style" => "Style",
+            "style" | "style length" => "Style",
             "length" => "Length",
             "number" => "Number",
-            _ => panic!("schema: metric {name}: a kind is style, length or number"),
+            _ => panic!("schema: metric {name}: a kind is style, style length, length or number"),
         };
+        style_length_marker(name, kind, &row[2..]);
+        let length = kind == "length" || kind == "style length";
         let unset = MetricCell::Text("unset".into());
         let [ios, macos, web, neutral, material] = match &row[2..] {
             [neutral] => [&unset, &unset, &unset, neutral, &unset],
@@ -710,10 +714,11 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
             _ => panic!("schema: metric {name}: a row is its name, its kind and a value for iOS, the Mac, the web and the neutral look (and Android's Material look where it is not the web's), or for the neutral look alone"),
         }
         .map(|cell| metric_cell(name, kind, cell));
+        // The terminal reads the web's first look's value (it did before it had a column).
         rows.push_str(&format!(
-            "Metric {{ name: {name:?}, kind: MetricKind::{variant}, ios: {ios}, macos: {macos}, web: {web}, neutral: {neutral}, material: {material} }},\n"
+            "Metric {{ name: {name:?}, kind: MetricKind::{variant}, length: {length}, ios: {ios}, macos: {macos}, web: {web}, neutral: {neutral}, material: {material}, terminal: {web} }},\n"
         ));
-        if kind != "style" {
+        if variant != "Style" {
             ids.push_str(&format!(
                 "    /// `{name}`.\n    pub const {}: usize = {index};\n",
                 name.replace('-', "_").to_ascii_uppercase()
@@ -726,6 +731,163 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
     w.push_str("/// Where each metric that code reads is in [`METRICS`], by its name.\npub mod metric {\n");
     w.push_str(&ids);
     w.push_str("}\n");
+}
+/// Whether a `style` row's name says a property that takes no length, as
+/// the grouped sheet writes it (`style::metrics`' row test): a colour, a
+/// line's style, a position, a font, a weight, a control size, an
+/// alignment, an appearance, a box model, a flex factor. Every other `style`
+/// row is written on a length property (a gap, an inset, a corner, a width or
+/// height, a padding, a margin, an offset).
+fn names_no_length(name: &str) -> bool {
+    name.ends_with("-fill")
+        || name.contains("-ground")
+        || name == "grouped-separator"
+        || [
+            "-style", "-color", "-position", "-tint", "-font", "-weight", "-align", "-appearance",
+            "-box-sizing", "-grow",
+        ]
+        .iter()
+        .any(|e| name.ends_with(e))
+        || name.ends_with("-size") && name.contains("switch")
+}
+/// theme2's unit flag (LLP 1121 stage 11 B): a `style` row that holds a
+/// length says so (`style length`), and the build holds the marker to the
+/// row both ways. A row whose name says a length property is refused
+/// without it; one with it is refused where its name says no length, or a
+/// cell is no length (a length is a number of px, `unset`, `auto`, a
+/// percentage, an `em`, `rem`, `px`, `vw` or `vh`, or a `calc()`).
+fn style_length_marker(name: &str, kind: &str, cells: &[MetricCell]) {
+    match kind {
+        "style" => assert!(
+            names_no_length(name),
+            "schema: metric {name}: a style row written on a length property says so: its kind is `style length`"
+        ),
+        "style length" => {
+            assert!(
+                !names_no_length(name),
+                "schema: metric {name}: `style length` on a row whose property takes no length"
+            );
+            for cell in cells {
+                let MetricCell::Text(text) = cell else { continue };
+                let unit = ["%", "rem", "em", "px", "vw", "vh"].iter().find_map(|u| text.strip_suffix(u));
+                assert!(
+                    text == "unset"
+                        || text == "auto"
+                        || calc_length(text)
+                        || unit.is_some_and(|n| n.parse::<f64>().is_ok_and(f64::is_finite)),
+                    "schema: metric {name}: `style length` holds no length in a cell: {text}"
+                );
+            }
+        }
+        _ => {}
+    }
+}
+/// Whether `text` is a `calc()` whose value is a length (round 3's re-check,
+/// Astra): CSS's typed grammar over numbers and lengths (`px`, `em`,
+/// `rem`, `vw`, `vh`, a percentage of one), `+` and `-` between two of one
+/// type (spaced, as CSS requires), `*` with a number on one side, `/` by a
+/// number, and parentheses. `calc(1deg)`, `calc(garbage)` and `calc(2 * 3)`
+/// are none.
+fn calc_length(text: &str) -> bool {
+    #[derive(Clone, Copy, PartialEq)]
+    enum T {
+        Number,
+        Length,
+    }
+    struct P<'a> {
+        s: &'a [u8],
+        i: usize,
+    }
+    impl P<'_> {
+        fn space(&mut self) -> bool {
+            let start = self.i;
+            while self.s.get(self.i) == Some(&b' ') {
+                self.i += 1;
+            }
+            self.i > start
+        }
+        fn sum(&mut self) -> Option<T> {
+            let t = self.product()?;
+            loop {
+                let at = self.i;
+                let spaced = self.space();
+                match self.s.get(self.i) {
+                    Some(b'+' | b'-') if spaced => {
+                        self.i += 1;
+                        if !self.space() {
+                            return None;
+                        }
+                        (self.product()? == t).then_some(())?;
+                    }
+                    _ => {
+                        self.i = at;
+                        return Some(t);
+                    }
+                }
+            }
+        }
+        fn product(&mut self) -> Option<T> {
+            let mut t = self.value()?;
+            loop {
+                let at = self.i;
+                self.space();
+                match self.s.get(self.i) {
+                    Some(&op @ (b'*' | b'/')) => {
+                        self.i += 1;
+                        self.space();
+                        let r = self.value()?;
+                        t = match (op, t, r) {
+                            (b'*', T::Number, r) => r,
+                            (b'*', l, T::Number) => l,
+                            (b'/', l, T::Number) => l,
+                            _ => return None,
+                        };
+                    }
+                    _ => {
+                        self.i = at;
+                        return Some(t);
+                    }
+                }
+            }
+        }
+        fn value(&mut self) -> Option<T> {
+            if self.s.get(self.i) == Some(&b'(') {
+                self.i += 1;
+                self.space();
+                let t = self.sum()?;
+                self.space();
+                (self.s.get(self.i) == Some(&b')')).then_some(())?;
+                self.i += 1;
+                return Some(t);
+            }
+            let start = self.i;
+            if matches!(self.s.get(self.i), Some(b'+' | b'-')) {
+                self.i += 1;
+            }
+            while self.s.get(self.i).is_some_and(|c| c.is_ascii_digit() || *c == b'.') {
+                self.i += 1;
+            }
+            let number = std::str::from_utf8(&self.s[start..self.i]).ok()?;
+            number.parse::<f64>().ok().filter(|n| n.is_finite())?;
+            let unit_start = self.i;
+            while self.s.get(self.i).is_some_and(|c| c.is_ascii_alphabetic() || *c == b'%') {
+                self.i += 1;
+            }
+            match &self.s[unit_start..self.i] {
+                b"" => Some(T::Number),
+                b"px" | b"em" | b"rem" | b"vw" | b"vh" | b"%" => Some(T::Length),
+                _ => None,
+            }
+        }
+    }
+    let Some(inner) = text.strip_prefix("calc(").and_then(|t| t.strip_suffix(')')) else {
+        return false;
+    };
+    let mut p = P { s: inner.as_bytes(), i: 0 };
+    p.space();
+    let t = p.sum();
+    p.space();
+    t == Some(T::Length) && p.i == p.s.len()
 }
 /// Every name the schema has that is written `-exact-<name>` and is no
 /// metric: a named length, a text style, a colour role.

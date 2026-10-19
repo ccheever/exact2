@@ -4,7 +4,7 @@
 // `navigator.mediaSession`'s calls recorded. The owner rule, what is
 // published and never thrown, a retired owner, the artwork, and the remote
 // play's latch over `playbackVisibilityThreshold`. Firefox and WebKit come from
-// Playwright (`bunx playwright@1.63.0 install firefox webkit`), Chrome from
+// Playwright (`bunx playwright@1.64.1 install firefox webkit`), Chrome from
 // the machine's; an engine that is missing is skipped.
 import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';

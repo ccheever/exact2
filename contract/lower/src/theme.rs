@@ -11,7 +11,10 @@
 //! outside its views (a data or a native module) every token, or its
 //! design's `exports`.
 
+pub(crate) mod packages;
 mod scan;
+mod scheme;
+pub(crate) use scheme::one_scheme_tokens;
 
 use crate::{LowerError, Lowerer};
 use contract_syntax::{Attr, Component, Expr, File, Span};
@@ -107,6 +110,9 @@ pub fn vocab() -> tamber::Vocab {
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
             exact_kernel::NAMED_LENGTHS.iter().copied(),
         ),
+        bases: exact_kernel::style::scale::names()
+            .map(String::from)
+            .collect(),
         sizes: tamber::Vocab::named_lengths(
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
             exact_kernel::NAMED_LENGTHS.iter().copied(),
@@ -118,6 +124,7 @@ pub fn vocab() -> tamber::Vocab {
             let px = f64::from(unit.basis(MEDIUM, MEDIUM, 1.0) * n);
             Some((name, exact_num::Shortest(px).to_string()))
         })
+        .chain(crate::scale::sizes())
         .collect(),
     }
 }
@@ -214,6 +221,7 @@ impl Lowerer<'_> {
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
+        crate::scale::declare(Vec::new());
         RETENTION.with(|r| *r.borrow_mut() = None);
         MOTION.with(|m| m.borrow_mut().clear());
         // The components' params, tokens of the design (D15): an app with
@@ -227,6 +235,16 @@ impl Lowerer<'_> {
         let Some((mut design, origin)) = found else {
             return exact_kernel::style::theme::declarations([]);
         };
+        // The axes it declares, before its fold: a refused token leaves them
+        // for `setMode` and the pins, so the build says the design's refusal
+        // and not that the design declares no axes.
+        AXES.with(|axes| {
+            *axes.borrow_mut() = design
+                .axes
+                .iter()
+                .map(|a| (a.name.value.clone(), a.values.clone()))
+                .collect()
+        });
         for t in design.tokens.iter().chain(&design.icons) {
             if t.name.value.starts_with(crate::params::PREFIX) {
                 self.push(LowerError {
@@ -387,6 +405,9 @@ impl Lowerer<'_> {
                 }
             }
         };
+        if self.package_references(&folding, file) {
+            return exact_kernel::style::theme::declarations([]);
+        }
         for e in crate::params::folded(&kinded, &folding, &overridden, None) {
             self.push(e);
         }
@@ -480,6 +501,7 @@ impl Lowerer<'_> {
                 .map(|e| (e.name.clone(), e.value.clone()))
                 .collect()
         });
+        crate::scale::declare(folding.tokens.iter().map(|t| t.name.clone()).collect());
         MEASURES.with(|m| {
             *m.borrow_mut() = self
                 .theme
@@ -563,9 +585,9 @@ impl Lowerer<'_> {
         ))
     }
 
-    /// The app's design as the crate reads it: `app.tamber` parsed, or the
-    /// inline `theme` built, one token an entry. Both is refused.
-    fn design(&mut self, file: &File) -> Option<(tamber::Design, Origin)> {
+    /// The app's own design: `app.tamber` parsed, or the inline `theme`
+    /// (its packages' join it in `packages`).
+    fn app_design(&mut self, file: &File) -> Option<(tamber::Design, Origin)> {
         if let (Some(_), Some(theme)) = (&file.design, &file.theme) {
             self.errors.push(LowerError {
                 id: "tamber-two-sources",
@@ -703,6 +725,10 @@ impl Lowerer<'_> {
     /// Where a design's token line is: its entry's span, or its place in
     /// the design file.
     fn token_span(&self, origin: &Origin, line: u32, col: u32) -> Span {
+        // A package's token: its line in its package's design (D11).
+        if let Some(span) = packages::span(line, col) {
+            return span;
+        }
         // A param's token: its default, where its component declares it.
         if (crate::params::LINE..SYNTHETIC).contains(&line) {
             let at = (line - crate::params::LINE) as usize;
@@ -743,7 +769,10 @@ impl Lowerer<'_> {
             let s = &said.synthetic[(d.line - SYNTHETIC) as usize];
             (s.span, format!("`{}`: {}", s.expr, d.message))
         } else {
-            (self.token_span(origin, d.line, d.col), d.message.clone())
+            (
+                self.token_span(origin, d.line, d.col),
+                packages::unband(&d.message),
+            )
         };
         self.push(LowerError {
             id: d.id,
@@ -971,6 +1000,12 @@ pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope 
         (None, Some(source)) => tamber::parse(&source.text).ok(),
         _ => (!params.is_empty()).then(tamber::Design::default),
     };
+    // Its packages' tokens too, which their views name (D11); what the
+    // build refuses of them is the build's to say.
+    let design = match (design, file.design.is_some() && file.theme.is_none()) {
+        (None, true) => None,
+        (design, _) => packages::merge(design, &file.package_designs).0,
+    };
     let folding = design.and_then(|mut d| {
         crate::params::add_to(&mut d, &params, &crate::params::identities(file));
         stand_in_profiles(&mut d);
@@ -987,6 +1022,7 @@ pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope 
             entries.iter().map(|n| (n.as_str(), "transparent", false)),
         );
     };
+    crate::scale::declare(folding.tokens.iter().map(|t| t.name.clone()).collect());
     MEASURES.with(|m| {
         *m.borrow_mut() = folding
             .tokens
@@ -1103,73 +1139,19 @@ pub(crate) fn stand_in_profiles(design: &mut tamber::Design) {
     }
 }
 
-/// The app's tokens that are one opaque colour in light and dark in some app
-/// tuple and not marked `scheme=fixed` (LLP 1121 D3), each by its name as
-/// declared with that colour's text and whether it is one colour in every
-/// tuple (only then may it be marked): what `lower-colour-one-scheme` reports
-/// at a token's declaration. Folded by the crate, so a `light-dark()` over a
-/// one-colour token is two colours and an expression is its result. A
-/// profile's colour (`color(--…)`) is the plan's, not judged here.
-pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
-    let mut design = match (&file.design, &file.theme) {
-        (None, Some(theme)) => inline_design(theme),
-        (Some(source), _) => match tamber::parse(&source.text) {
-            Ok(d) => d,
-            Err(_) => return Vec::new(),
-        },
-        (None, None) => return Vec::new(),
-    };
-    // As the build stands one in (`profiles`): nothing to judge.
-    stand_in_profiles(&mut design);
-    let Ok(folding) = tamber::check_design(design, &vocab()) else {
-        return Vec::new();
-    };
-    // A token fixed, or an alias of one (`ink = -exact-label` of a fixed
-    // `label`), by every name it answers to.
-    let pairs: Vec<_> = folding.tokens.iter().zip(&folding.design.tokens).collect();
-    let mut fixed: Vec<String> = Vec::new();
-    loop {
-        let before = fixed.len();
-        for (t, declared) in &pairs {
-            let value = declared.value.value.trim();
-            // Only a whole alias with no `when` of its own is the mark's.
-            let alias = declared.whens.is_empty() && fixed.iter().any(|f| same_name(f, value));
-            if (t.fixed || alias) && !fixed.contains(&declared.name.value) {
-                fixed.push(declared.name.value.clone());
-                fixed.push(t.name.clone());
-            }
-        }
-        if fixed.len() == before {
-            break;
-        }
-    }
-    pairs
-        .into_iter()
-        .filter(|(_, declared)| !fixed.contains(&declared.name.value))
-        .filter_map(|(t, declared)| {
-            // Opaque only: a translucent one is an overlay, which reads over
-            // either scheme's ground, and a transparent one paints nothing.
-            let one = t.values.iter().find(|v| {
-                matches!(v, tamber::Value::Color(tamber::Folded::One(h)) if h.wide().alpha >= 1.0 - 1e-9)
-            })?;
-            let every = t
-                .values
-                .iter()
-                .all(|v| matches!(v, tamber::Value::Color(tamber::Folded::One(_))));
-            Some((declared.name.value.clone(), one.css(), every))
-        })
-        .collect()
-}
-
 /// The design's length or number token `text` names, while its styles are
 /// lowered: its kind and its distinct values over the app's tuples.
+/// A base name the design leaves unset (LLP 1121 stage 11 B) is the
+/// scale's length, its values every column's that draws in px.
 pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
-    MEASURES.with(|m| {
-        m.borrow()
-            .iter()
-            .find(|(name, ..)| name == text.trim())
-            .map(|(_, kind, values)| (*kind, values.clone()))
-    })
+    MEASURES
+        .with(|m| {
+            m.borrow()
+                .iter()
+                .find(|(name, ..)| name == text.trim())
+                .map(|(_, kind, values)| (*kind, values.clone()))
+        })
+        .or_else(|| crate::scale::values(text).map(|values| (tamber::Kind::Length, values)))
 }
 
 /// The design's length or number token `text` names, while its styles are
@@ -1362,7 +1344,10 @@ pub(crate) fn measure_row(
                     return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` in some app mode, which `{}` does not take: {why}", a.name, a.name));
                 }
             }
-            if values.len() > 1 && rows.iter().any(|r| r.inherited()) {
+            if values.len() > 1
+                && rows.iter().any(|r| r.inherited())
+                && crate::scale::values(text).is_none()
+            {
                 return refuse("tamber-inherited-axis", format!("`{}=\"{text}\"`: `{text}` varies by an app axis, and `{}` is inherited: only a colour is chosen again at a mode boundary, so an inherited row names a token with one value (LLP 1121 D7)", a.name, a.name));
             }
             continue;

@@ -551,7 +551,7 @@ pub enum StyleValueError {
     BadTimelineScope {
         style: StyleId,
     },
-    /// Not none or a list of flip-block/flip-inline combinations.
+    /// Not none or a list of flip-block/flip-inline/flip-start combinations.
     BadPositionTryFallbacks {
         style: StyleId,
     },

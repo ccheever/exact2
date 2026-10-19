@@ -311,6 +311,10 @@ const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.ses
  *  on about 150 ms after the window dispatched it (`delaysContentTouches`). */
 export const REACH_MS = 250;
 
+/** How long before a real drag's lift its clock step (`drag.tick`, agent-drag.mjs `heldTick`) stops moving on real
+ *  time: the touch is seen to begin a log read late, and the step's last request must land while the finger is down. */
+export const TICK_MARGIN = 150;
+
 /** A drag's bounds (LLP 1080.000 §11): each duration in ms; the travel is bounded so its moves fit the dispatch log's ring (D5). */
 export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000 };
 
@@ -322,11 +326,16 @@ export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000
  * foreground and injects, and the window's dispatch log must show exactly
  * one new touch that began and ended (for a drag that moves, moved by the
  * asked delta) — else an error that says what the log saw. `drag` is
- * `{dx, dy, press, over, hold, during}`, points and ms; `during` are thunks
+ * `{dx, dy, press, over, hold, during, tick}`, points and ms; `during` are thunks
  * run while the finger is down after the move, each bracketed by the log:
- * begun before the first, not lifted after the last. `ask` is the app's carrier; `touches`
+ * begun before the first, not lifted after the last; `tick(until, down)`
+ * moves the app's clock after them, given the local time to stop moving on
+ * real time and whether the finger is still down. `ask` is the app's carrier; `touches`
  * the runner's.
  */
+// What a lost touch's error advises: the synthesizer, unlike XCTest's public calls, does not wait for the app to go idle
+const SETTLE_FIRST = 'a real touch played while native work still moves (a push, a sheet, the keyboard) can be lost, so `clock settle` first';
+
 export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // A failure of the runner or of the app's carrier: no diagnostic read follows it (`tapRefusal`).
   const transport = (message) => Object.assign(new Error(message), { transport: true });
@@ -343,8 +352,8 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   if (aim.error) throw new Error(aim.error);
   if (!sameAim(first.aim, aim.aim)) throw new Error(`${what}: the screen rotated or moved since aim`);
   const a = aim.aim;
-  // `screen`: where XCTest's synthesizer presses a tap (touches.swift).
-  let request = { op: 'tap', point: a.point, ...(a.fixed ? { screen: a.fixed } : {}) }, moves = false, ms = 0;
+  // `screen`: where XCTest's synthesizer presses a tap, on the display whose size is `display` (touches.swift).
+  let request = { op: 'tap', point: a.point, ...(a.fixed ? { screen: a.fixed, display: a.display } : {}) }, moves = false, ms = 0;
   if (drag) {
     // The end, from the start the host resolved just now, in the viewport it reported with it.
     const end = [a.at[0] + drag.dx, a.at[1] + drag.dy], [vw, vh] = a.viewport;
@@ -353,6 +362,11 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
     ms = drag.press + drag.hold + (moves ? drag.over : 0);
     // Points per second: what XCTest's velocity measured as on a 3x simulator, whatever its header says (§11).
     request = { op: 'drag', point: a.point, to: [a.point[0] + drag.dx, a.point[1] + drag.dy], press: drag.press / 1000, hold: drag.hold / 1000, velocity: moves ? Math.hypot(drag.dx, drag.dy) / (drag.over / 1000) : 0 };
+    // Both ends in the screen's fixed space too, where XCTest's synthesizer plays the drag (touches.swift)
+    if (a.fixed && a.fixedAxes) {
+      const [[rx, ry], [dx, dy]] = a.fixedAxes;
+      Object.assign(request, { screen: a.fixed, screenTo: [a.fixed[0] + drag.dx * rx + drag.dy * dx, a.fixed[1] + drag.dx * ry + drag.dy * dy], display: a.display });
+    }
   }
   const injecting = touches.ask(request, RUNNER_MS + ms);
   let finished = false;
@@ -368,7 +382,10 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // Whatever fails, the gesture is let finish first, and the runner's error
   // wins. Requests and touch dispatch share the main run loop, so a read
   // that finds no `ended` came before the window dispatched the lift.
-  if (drag?.during?.length) {
+  // A hold's clock (`drag.tick`) is moved the same way, after the ops, only while the touch is known to be down: a
+  // gesture with no ops whose touch the log does not show down is left to the barrier below, its clock unmoved.
+  const ops = drag?.during ?? [];
+  if (ops.length || drag?.tick) {
     const over = Symbol('over');
     const gestureEnd = injecting.then(() => new Promise((r) => setTimeout(r, 1000))).then(() => over);
     const raced = async (promise) => {
@@ -404,31 +421,39 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
     };
     const early = `${what}: the touch lifted before the ops during it`;
     try {
-      for (let touch; !(touch = ours(await entries()));) {
-        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen hold` : `${what}: the runner finished and no touch had begun`);
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      let touch = ours(await entries());
-      const seen = Date.now();
-      // A still finger on a view that reports it (a node, a native button): the ops wait for its `touchesBegan`
-      // (`reached`), so what they read is what a person holding it sees. A touch some recognizer keeps from the view
-      // runs them at the bound, or, with `drag.reach` (a held contact's reads), fails before them.
-      for (const by = Date.now() + REACH_MS; !moves && touch.reports && !touch.reached && !touch.lifted && Date.now() < by;) {
-        await new Promise((r) => setTimeout(r, 16));
-        touch = ours(await entries());
-      }
-      if (touch.lifted) throw new Error(`${early} began; lengthen hold`);
-      if (!moves && touch.reports) reachedIn = touch.reached ? Date.now() - seen : false;
-      if (drag.reach && reachedIn === false) throw new Error(`${what}: the touch did not reach the view it landed on within ${REACH_MS} ms (a recognizer kept it), so nothing inside it ran`);
-      // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
-      await new Promise((r) => setTimeout(r, Math.max(0, drag.press + (moves ? drag.over : 0) - (Date.now() - seen))));
-      // Each op only while the finger is still down: one that runs long stops the rest, never read unpressed.
-      for (const op of drag.during) {
-        const lifted = ours(await entries()).lifted;
-        if (lifted || finished) throw new Error(`${early} finished; lengthen hold`);
-        during.push(await raced(op()));
-      }
-      if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
+      // A `return` here leaves the touch to the barrier below, with nothing more run and the clock unmoved.
+      await (async () => {
+        for (let touch; !(touch = ours(await entries()));) {
+          if (finished && !ops.length) return;
+          if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen hold` : `${what}: the runner finished and no touch had begun; ${SETTLE_FIRST}`);
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        let touch = ours(await entries());
+        const seen = Date.now();
+        // A still finger on a view that reports it (a node, a native button): its ops wait for its `touchesBegan`
+        // (`reached`), so what they read is what a person holding it sees. A touch some recognizer keeps from the view
+        // runs them at the bound, or, with `drag.reach` (a held contact's reads), fails before them.
+        for (const by = Date.now() + REACH_MS; ops.length && !moves && touch.reports && !touch.reached && !touch.lifted && Date.now() < by;) {
+          await new Promise((r) => setTimeout(r, 16));
+          touch = ours(await entries());
+        }
+        if (touch.lifted && !ops.length) return;
+        if (touch.lifted) throw new Error(`${early} began; lengthen hold`);
+        if (ops.length && !moves && touch.reports) reachedIn = touch.reached ? Date.now() - seen : false;
+        if (drag.reach && reachedIn === false) throw new Error(`${what}: the touch did not reach the view it landed on within ${REACH_MS} ms (a recognizer kept it), so nothing inside it ran`);
+        // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
+        await new Promise((r) => setTimeout(r, Math.max(0, drag.press + (moves ? drag.over : 0) - (Date.now() - seen))));
+        // Each op only while the finger is still down: one that runs long stops the rest, never read unpressed.
+        for (const op of ops) {
+          const lifted = ours(await entries()).lifted;
+          if (lifted || finished) throw new Error(`${early} finished; lengthen hold`);
+          during.push(await raced(op()));
+        }
+        if (ops.length && ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
+        const down = async () => !finished && !ours(await entries()).lifted;
+        // Until shortly before the lift, asking before each step that the finger is still down (`heldTick`).
+        if (drag.tick) await raced(drag.tick(seen + drag.press + (moves ? drag.over : 0) + drag.hold - TICK_MARGIN, down));
+      })();
     } catch (error) {
       const done = await injecting;
       if (done.error) throw transport(`${what}: the touch runner: ${done.error}`);
@@ -491,7 +516,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         ...(a.avoided ? { avoided: a.avoided } : {}), ...(a.native ? { native: a.native } : {}),
       };
     }
-    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);
+    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)}); ${SETTLE_FIRST}`);
     await new Promise((r) => setTimeout(r, 16));
   }
 }

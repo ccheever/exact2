@@ -217,6 +217,27 @@ test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
+test('watch archives from nightly require matching bytes and the exact compiler unit', async () => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-watch-dep-'));
+  try {
+    const directory = resolve(root, 'aarch64-apple-watchos-sim/host-dev');
+    const out = resolve(directory, 'build/caltrain-apple/a11ce/out');
+    mkdirSync(out, { recursive: true });
+    const file = resolve(directory, 'libcaltrain_apple.a'), unit = resolve(out, 'libcaltrain_apple-a11ce.a');
+    const dep = resolve(out, 'caltrain_apple-a11ce.d'), src = resolve(root, 'lib.rs');
+    const metadata = { target_directory: root, build_directory: root, packages: [{ id: 'caltrain', name: 'caltrain-apple' }] };
+    const message = { package_id: 'caltrain', filenames: [file], target: { name: 'caltrain_apple', src_path: src } };
+    writeFileSync(file, 'selected archive'); writeFileSync(unit, 'different bytes');
+    writeFileSync(dep, `${dep}: ${src}\n`);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+    writeFileSync(unit, 'selected archive');
+    assert.equal(unitDepInfo(message, root, metadata), dep);
+    writeFileSync(dep, `${dep}: ${root}/wrong.rs\n`);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const { spawnSync } = await import('node:child_process');
@@ -347,6 +368,14 @@ test('E11 partial bakes select only their graph and production retains GPU bindi
   assert.equal(bindGpuProduct('gpu-dev','development'),false);
   assert.equal(bindGpuProduct('gpu-dev','production'),true);
   assert.equal(bindGpuProduct('release','development'),true);
+});
+
+test('production native bakes for Apple and Android link with fat LTO; developer builds and other hosts keep the profile', async () => {
+  const {wholeProgram} = await import('./app.mjs');
+  const fat = ['--config', 'profile.release.lto="fat"'];
+  for (const kind of ['apple', 'ios', 'macos', 'tvos', 'android']) assert.deepEqual(wholeProgram(kind, 'release'), fat, kind);
+  for (const [kind, profile] of [['android', 'host-dev'], ['ios', 'host-dev'], ['android', 'size'], ['linux', 'release'], ['windows', 'release'], ['web', 'web']])
+    assert.deepEqual(wholeProgram(kind, profile), [], `${kind} at ${profile}`);
 });
 
 test('D6 GPU modules bake beside the primary and each surface has one owner', async () => {
@@ -518,4 +547,57 @@ test.skipIf(!process.env.EXACT_WIDGET_GALLERY_TEST)('a snapshot driver edit make
     assert.equal(refused.status, 3, refused.stderr);
     assert.match(refused.stderr, /SnapshotDriver.swift/);
   } finally { writeFileSync(source, before); }
+});
+
+test('game web, release and unwired gpu-dev bakes never open registry generations', () => {
+  const dir=mkdtempSync(resolve('/tmp','exact-unwired-cache-'));
+  try {
+    // The child isolates module mocks. Only process execution and receipt
+    // collection are stubbed; every selected GPU and host build must finish.
+    const script=resolve(dir,'check.mjs');
+    writeFileSync(script, `import {mock} from 'bun:test';
+      import assert from 'node:assert/strict';
+      import {readFileSync} from 'node:fs';
+      let calls=0, lints=0, receipts=0;
+      const builds=[];
+      mock.module(${JSON.stringify(resolve(import.meta.dir,'../game/app/crates.mjs'))},()=>({keptGameCrates(){calls++;return {take(){calls++;},keep(){calls++;}};}}));
+      mock.module(${JSON.stringify(resolve(import.meta.dir,'../game/app/shells.mjs'))},()=>({gameDefaults(){},prepareGame(){},lintGame(){lints++;}}));
+      const appPath=${JSON.stringify(resolve(import.meta.dir,'app.mjs'))};
+      globalThis.stubBuild=(command,args)=>{
+        assert.equal(command,'cargo');
+        const pkg=args[args.indexOf('-p')+1]; builds.push(pkg);
+        return {stdout:JSON.stringify({reason:'compiler-artifact',package_id:pkg,filenames:[dir+'/'+pkg+'.so']})};
+      };
+      globalThis.stubReceipt=(app,platform,target,graph,messages,roots)=>{
+        assert.deepEqual(roots.map(r=>r.package),[graph.surface.id,graph.root.id]);
+        assert.equal(messages.length,2); receipts++;
+        return {products:messages.flatMap(m=>m.filenames)};
+      };
+      Bun.plugin({name:'stub-bake-execution',setup(builder){
+        builder.onLoad({filter:/[\\/]scripts[\\/]app\\.mjs$/},({path})=>{
+          assert.equal(path,appPath);
+          const source=readFileSync(path,'utf8')
+            .replace(/(function buildCommand\\([^\\n]+\\{)/,'$1 return globalThis.stubBuild(...arguments);')
+            .replace(/(function completeBuild\\([^\\n]+\\{)/,'$1 return globalThis.stubReceipt(...arguments);');
+          return {contents:source,loader:'js'};
+        });
+      }});
+      const {buildBake}=await import(appPath);
+      const dir=${JSON.stringify(dir)};
+      for(const [platform,profile,target] of [['web','web','wasm32-unknown-unknown'],['linux','release',${JSON.stringify(bakeTarget('linux'))}],['linux','gpu-dev',${JSON.stringify(bakeTarget('linux'))}]]) {
+        const name='fixture-'+platform;
+        const host={id:name,name,targets:[{kind:[platform==='web'?'cdylib':'bin'],name:'fixture'}]};
+        const gpu={id:'fixture-gpu',name:'fixture-gpu',targets:[{kind:['cdylib'],name:'surface'}]};
+        const metadata={workspace_root:dir,packages:[host,gpu],resolve:{nodes:[{id:host.id,deps:[]},{id:gpu.id,deps:[]}]}};
+        const app={dir,workspace:dir,target:dir+'/target',hasGpu:true,manifest:{app:{id:'fixture'},rust:false,game:{}},crate:kind=>'fixture-'+kind,prepare:()=>metadata};
+        const before=builds.length;
+        const receipt=buildBake(app,platform,target,{kind:platform,profile,output:dir+'/bakes',env:{EXACT_UPDATE_TRUST:'development'}});
+        assert.deepEqual(builds.slice(before),[gpu.name,host.name]);
+        assert.equal(receipt.products.length,2); assert.equal(calls,0);
+      }
+      assert.equal(receipts,3); assert.equal(lints,2); assert.equal(calls,0);
+    `);
+    const result=spawnSync(process.execPath,[script],{cwd:dir,encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

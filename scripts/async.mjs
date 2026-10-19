@@ -7,7 +7,7 @@
  * `#[ignore = "async lane: …"]`, every web host unit test found by one glob
  * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
- * (`host/web-js/conform.mjs --strict`), the separate game workspace tests,
+ * (`host/web-js/conform.mjs --strict`), the separate game workspace and in-repo game tests,
  * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
  * --no-install`) for any range beyond documentation-only edits,
  * the
@@ -36,7 +36,7 @@
  * worktree is the script's own and is checked out with --force.
  *
  * --tier 2 is the second lane: the platforms that ride on another host's
- * code (tvOS on the UIKit presenter, and cross-target Linux/Windows compile checks), in its own
+ * code (tvOS on the UIKit presenter, cross-target Linux/Windows compile checks, and an Android APK), in its own
  * worktree (<repo>-async2) and state, hourly by default. It checks only the
  * newest pending commit, so a failure it files names the range since the
  * last commit it checked, never one commit.
@@ -76,19 +76,25 @@ function laneTests() {
 
 const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
-// The second lane: tvOS uses Caltrain (its TypeScript-free build needs no
+// The second lane: watchOS compiles Caltrain with the pinned nightly and
+// rust-src (webToolchainEnv names their install); tvOS uses Caltrain (its TypeScript-free build needs no
 // Hermes) and installs it on an Apple TV simulator, which the first lane's
 // compile does not; Linux and Windows compile their target-only branches:
 // Windows with Windows Desk, Linux with every app (`*-linux` is the host and
-// each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too.
+// each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too. Android
+// builds Weatherlight's APK, which compiles the Android target's Rust, the
+// reader's Kotlin and a module's (LLP 1133.002 stage 4, Charlie's say-so).
 export function tierTwoChecks() {
   return [
+    ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']],
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
     ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
+    ['android', 'bun', ['scripts/agent-android.mjs', 'build', 'weatherlight', '--apk']],
   ];
 }
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
+export const gameScaffoldCheck = ['game-scaffold', 'bun', ['test', 'game/proof-game.test.mjs', 'game/new.test.mjs', '--test-name-pattern', 'proof script|worldPixels|AGENTS.md lists vocab|new logic/tests file']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 // Glue files that edit an app's checked-in sources while they run
 const EDITS_APPS = /\/dev-scheduler\.test\.mjs$/;
@@ -104,7 +110,8 @@ const LEFT_OUT = /^host\/web-js\/(bundle-size|document-agent)\.test\.mjs$/;
 export function glueTests(root) {
   const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
     .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
-  return [...files, ...['app-workspace', 'app-bake', 'app-apple', 'app-manifest', 'agent', 'agent-launch', 'tamber-server', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  // The glue lane is macOS: link.test reads Mach-O load commands with Apple tools.
+  return [...files, './host/apple/link.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'push', 'agent', 'agent-launch', 'tamber-server', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
@@ -118,7 +125,14 @@ export function checks(sha, since, selection = {}) {
     // and Fieldnotes as the dev loop builds it (its Rust drive, in `test`).
     prepareCheck,
     ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--tests', '--no-fail-fast']],
+    ['game-lock', 'bun', ['game/app/shells.mjs', '--update-lock']],
     gameCheck,
+    ['game-recipes', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '-p', 'exact-game', '--locked', '--doc', '--no-fail-fast']],
+    ['game-vocab', 'bun', ['test', 'game/vocab.test.mjs']],
+    ['game-pins', 'bun', ['game/app/shells.mjs', '--test']],
+    // The scaffold's standing checks: seconds, then the one that builds a game's tests twice.
+    gameScaffoldCheck,
+    ['game-assets-scaffold', 'bun', ['test', 'game/new.test.mjs', '--timeout', '3600000', '--test-name-pattern', 'assets scaffold']],
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
@@ -385,6 +399,10 @@ async function once(state) {
 }
 
 if (import.meta.main) {
+  if (process.argv.includes('--help')) {
+    console.log('Usage: bun scripts/async.mjs [--once] [--from <rev>] [--worktree <dir>] [--interval <s>] [--branch <ref>] [--tier 1|2] [--newest] [--explain [<rev>]]');
+    process.exit(0);
+  }
   if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);
   mkdirSync(STATE_DIR, { recursive: true });
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};

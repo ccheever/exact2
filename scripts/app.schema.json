@@ -44,6 +44,15 @@
         }
       ]
     },
+    "implementations": {
+      "description": "The implementation each module interface binds on a target (LLP 1133.001 D4), where the build cannot choose alone: {\"@exact/geolocation\": {\"web\": \"@fast/geolocation-web\"}}. Unnamed, a target binds the app's one direct dependency that implements the interface there, else the one the interface carries; two such dependencies are bake-implementation-ambiguous.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] },
+        "additionalProperties": { "type": "string" }
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,
@@ -89,6 +98,18 @@
         "audio": { "type": "boolean" },
         "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
+        "look": {
+          "type": "object",
+          "description": "The proof's look result (LLP 1127.000 D1): tells the game's look intends, silenced by name. A silenced tell is still printed and recorded.",
+          "additionalProperties": false,
+          "properties": {
+            "silence": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["near-black", "near-white", "clipped", "particles-uncovered", "no-shadow-casters"] }
+            }
+          }
+        },
         "render": {
           "type": "object",
           "description": "Optional GPU-only render hooks in render/ (formerly game.presentation, LLP 1046.008 amendment). The crate may read game logic types; logic and host metadata must not depend on it. hooks names its exact_game_render::Hooks type; shaders names its reflected registry symbol, a Rust path, not shader files: those come from gpu.shaderRoots and gpu.shaderPreludes.",
@@ -311,9 +332,29 @@
                 "systemExtraLarge",
                 "accessoryCircular",
                 "accessoryRectangular",
-                "accessoryInline"
+                "accessoryInline",
+                "accessoryCorner"
               ]
             }
+          },
+          "requiresSecrets": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set when this entry's refresh reads account data. Without shared Keychain profiles, the Mac shows its placeholder before reading cached props."
+          },
+          "watchFamilies": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline",
+                "accessoryCorner"
+              ]
+            },
+            "description": "Optional watchOS families; defaults to the accessory families in families."
           },
           "preview": {
             "type": "object"
@@ -480,7 +521,9 @@
             "backgroundModes": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!remote-notification$).*$",
+                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9)."
               }
             },
             "associatedDomains": {

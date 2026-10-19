@@ -145,9 +145,11 @@ package final class TextArea: UITextView {
             textUndo = NativeTextUndo(manager: manager, before: { [weak self] in
                 self?.markup?.applying = true
             }, after: { [weak self] in
-                guard let self, let editor = markup else { return }
-                editor.applying = false
-                editor.bookmark = selectedRange
+                guard let self else { return }
+                if let editor = markup {
+                    editor.applying = false
+                    editor.bookmark = selectedRange
+                }
                 owner?.textViewDidChange(self)
             })
         }
@@ -157,6 +159,8 @@ package final class TextArea: UITextView {
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     package var markup: MarkdownEditing?
+    /// A plain textarea's painted decorations (LLP 1114.007).
+    var decorations: FieldDecorations?
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         owner?.presenter?.supersedePress() // composed text, as typed text
@@ -165,14 +169,24 @@ package final class TextArea: UITextView {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
+    // A commit that changes no text posts no change: paint held back while
+    // it was marked catches up here.
+    package override func unmarkText() {
+        super.unmarkText()
+        owner?.restyleDecorations()
+    }
     package override func insertText(_ text: String) {
         owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         // UIKeyInput (including the software keyboard) need not ask the
-        // text-view delegate before insertion. Handle a plain Return here;
-        // the command's own native insertion bypasses through `applying`.
-        if text == "\n", let editor = markup, !editor.applying,
-           markedTextRange == nil, owner?.formatMarkup("newline", selection: selectedRange) == true { return }
+        // text-view delegate before insertion. Handle a plain Return here,
+        // the app's `beforeinput` first; the command's own native insertion
+        // bypasses through `applying`.
+        if text == "\n", let editor = markup, !editor.applying, markedTextRange == nil, let owner {
+            let line = { if !owner.formatMarkup("newline", selection: self.selectedRange) { super.insertText(text) } }
+            if let selections = owner.presenter?.fieldSelections { selections.nativeEdit(owner, replacement: text, marked: false, line) } else { line() }
+            return
+        }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
@@ -287,8 +301,14 @@ package final class TextArea: UITextView {
     var placeholder = "" { didSet { setNeedsDisplay() } }
     /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
     var placeholderColor: UIColor?
+    // A scroll view's own drawing does not move with its content: the
+    // decorations' lines are drawn again at each new offset.
+    package override var contentOffset: CGPoint {
+        didSet { if contentOffset != oldValue, decorations?.drawsLines == true { setNeedsDisplay() } }
+    }
     package override func draw(_ rect: CGRect) {
         super.draw(rect)
+        decorations?.drawLines(in: self)
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
@@ -382,6 +402,7 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        restyleDecorations()
         #if !os(tvOS)
         f.isEditable = !disabled && props["editable"] != "false"
         #endif

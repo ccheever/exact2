@@ -300,8 +300,10 @@ pub fn copy_xrgb(frame: &Pixmap, dst: &mut [u8], pitch: usize, width: u32, heigh
     }
 }
 
-fn mtime(path: &Path) -> Option<Vec<(std::path::PathBuf, SystemTime, u64)>> {
-    fn collect(path: &Path, rows: &mut Vec<(std::path::PathBuf, SystemTime, u64)>) {
+type ReloadStamp = Vec<(std::path::PathBuf, SystemTime, u64)>;
+
+fn mtime(path: &Path) -> Option<ReloadStamp> {
+    fn collect(path: &Path, rows: &mut ReloadStamp) {
         let Ok(metadata) = std::fs::metadata(path) else {
             return;
         };
@@ -337,6 +339,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     let (pw, ph) = display.size();
     let viewport = (pw as f32 / config.scale, ph as f32 / config.scale);
     let wall = || started.elapsed().as_secs_f64() * 1000.0;
+    config.clock_started = Some(started);
     let (mut p, error) = match crate::app::boot_presenter::<D>(config, viewport) {
         Ok(v) => v,
         Err(e) => {
@@ -350,6 +353,15 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     // The display's clock owns time (the timers RFC, D1)
     p.set_live_clock(Some(crate::presenter::wall_since(started)));
     let mut input = Input::open();
+    // @ref LLP 1132 D10 — a touch screen alone is `pointer: coarse`, `hover: none`.
+    if input.touch_only() {
+        let mut preferences = p.host().runner().viewport().preferences;
+        preferences.pointer = exact_runner::Pointer::Coarse;
+        preferences.hover = exact_runner::Hover::None;
+        if let Some(e) = p.set_preferences(preferences) {
+            eprintln!("exact: {e}");
+        }
+    }
     let mut vnc = match config.vnc.as_deref() {
         Some(addr) => match Vnc::start(addr, pw, ph) {
             Ok(v) => Some(v),
@@ -373,7 +385,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     }
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
     // The dev plan's modification time and since when it has waited on requests in flight.
-    let mut held: Option<(Option<Vec<(std::path::PathBuf, SystemTime, u64)>>, Instant)> = None;
+    let mut held: Option<(Option<ReloadStamp>, Instant)> = None;
     // First pixel is the first frame presented (LLP 1026 D11); the update
     // check follows two seconds after it, off the boot path.
     let mut first_pixel: Option<Instant> = None;

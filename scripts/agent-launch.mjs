@@ -1,3 +1,6 @@
+import {gameNonInput, proofInputFiles, executionInputFiles} from '../game/inputs.mjs';
+export {gameNonInput} from '../game/inputs.mjs';
+import {readStatus, formatStatus} from '../game/status.mjs';
 // Session setup shared by the agent CLI and its programmatic driver.
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -14,19 +17,9 @@ import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveAp
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
- * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, or Cargo's for a build
- * script's (`warning: <crate>@<version>: …`); its file from `cwd` when it is below it. */
-export function compilerWarnings(text, cwd = process.cwd()) {
-  const lines = new Set();
-  for (const line of String(text ?? '').split('\n')) {
-    const m = /^(?:warning: [\w-]+@[^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
-    if (!m) continue;
-    const near = relative(cwd, m[1]);
-    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
-  }
-  return [...lines];
-}
+// The compiler's warnings in a build's output, and the lines a drive says for them: app-cli.mjs, which runs a
+// drive's build first, has them; verify, the dev loop and agent-build.mjs read them from here.
+export { compilerWarnings, warningLines } from './app-cli.mjs';
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {
@@ -176,12 +169,24 @@ export function netOptions(environment = process.env) {
 export function resolveDevice(host, flags, appId) {
   if ((host === 'ios' || host === 'host-ios') && flags.device) { const ph = phone(flags.phone); flags.phone = ph.udid; return `phone ${ph.udid}`; }
   if (host === 'ios' || host === 'host-ios') {
-    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, hint: '--sim <udid|name> (or EXACT_SIM)' });
+    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, dir: resolveApp(flags.app).dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
     process.env.EXACT_SIM = sim.udid;
     return `simulator ${sim.udid}`;
   }
   if (host === 'android') { const serial = androidDevice(process.env); process.env.ANDROID_SERIAL = serial; return `android ${serial}`; }
   return 'this machine';
+}
+/** The store a drive that names none uses: on a native host, `default`, so the app's files are kept from one drive
+ * to the next as the app keeps them from one launch to the next (`--reset-storage` empties it, `--storage <name>`
+ * names another). On the web a named store is a Chrome profile emptied each drive, so a web drive names its own. */
+export function defaultStore(host, flags) {
+  return flags.storage ?? (['ios', 'macos', 'mac', 'linux'].includes(host) && !flags.url ? 'default' : undefined);
+}
+/** Says, at the first drive of the app on `device` that uses `defaultStore`, what that store is. */
+export function noteDefaultStore({ host, device, appId }, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
+  const part = (s) => String(s).replace(/[^\w.-]/g, '_');
+  if (existsSync(resolve(root, ...[host === 'mac' ? 'macos' : host, device, appId, 'default'].map(part)))) return;
+  console.error("note: no --storage named, so this drive uses the store `default`, kept from drive to drive as the app's own files are from launch to launch; --reset-storage empties it, --storage <name> names another");
 }
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
@@ -361,11 +366,16 @@ export function parseFlags(argv) {
     else if (argv[i] === '--port') flags.port = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
+    // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
+    else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
+    else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
   }
   if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
-  if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
+  // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
+  if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
 }
 
@@ -484,7 +494,8 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 export function refuseStale(what, built, changed, command) {
   // A file no build reads belongs in the app's `.exact/` (Depot: evidence JSON beside the app refused every drive).
   const hint = changed.some(p => /\.json$/.test(p) && !/(^|\/)(app|package|tsconfig)\.json$/.test(p)) ? '; a file no build reads (evidence, logs, runtime state) belongs in the app\'s `.exact/`, which no build, watcher or freshness check reads' : '';
-  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}`);
+  const progress = process.env.EXACT_APP_DIR ? formatStatus(readStatus(process.env.EXACT_APP_DIR).filter(r => r.state === 'running')) : '';
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}${progress && !progress.startsWith('No ') ? `; ${progress}` : ''}`);
 }
 
 /** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
@@ -792,15 +803,14 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
  * its proof, pins, documents, tests, shots, tools, repros, and helper scripts
  * outside the built trees. The proof's input digest (game/proof.mjs), the web
  * staleness check and a game's native receipt share it. */
-export function gameNonInput(path) {
-  path = path.replaceAll('\\', '/');
-  return /^(shots|tools|repros)\//.test(path)
-    || /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
-    || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
-}
 /** What a web build of `app` reads, modified after `since` (every file by default):
  * the app's own files and the shared host/runtime roots, as shown paths. */
 export function webInputs(app, js, since = -Infinity) {
+  if (app.manifest?.game) {
+    const files = proofInputFiles(ROOT, app.dir).map(file => resolve(ROOT, file));
+    const admitted = since === -Infinity ? files : files.filter(file => statSync(file).mtimeMs > since);
+    return {app:admitted.filter(file => file.startsWith(app.dir + '/')), shared:admitted.filter(file => !file.startsWith(app.dir + '/'))};
+  }
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
@@ -825,8 +835,13 @@ export function webChanges(dist, app) {
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
-  const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
+  // Candidates: what changed since the build read its inputs (`inputsAt`, as it started, less the file
+  // system's clock grain), else since its marker.
+  const since = typeof built.inputsAt === 'number' ? built.inputsAt - 2000 : statSync(marker).mtimeMs;
+  const { app: own, shared: roots } = webInputs(app, built.target === 'js', since);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
+  // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
+  for (const path of Object.keys(built.inputs ?? {})) if (path !== 'EXACT_BACKEND_ORIGIN' && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
@@ -1037,4 +1052,18 @@ export async function exclusiveIOS(udid, bundle, launch, { directory = resolve(t
     carrier.close = () => closed ??= (async () => { try { await close(); } finally { await unlock(); } })();
     return carrier;
   } catch (error) { await unlock(); throw error; }
+}
+
+/** A proof executes private products and checks those copies against their inputs. */
+export function proofProductChanges(receipt, bin, app, root = ROOT) {
+  const record = JSON.parse(readFileSync(receipt,'utf8')), changed = [];
+  if (record.binary !== bin) return ['proof receipt names another binary'];
+  const files = executionInputFiles(root,app.dir);
+  for (const file of new Set([...files,...Object.keys(record.inputs)])) {
+    const path = resolve(root,file);
+    if (!files.includes(file) || !existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== record.inputs[file]) changed.push(file);
+  }
+  for (const [path,hash] of Object.entries(record.products))
+    if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== hash) changed.push(path);
+  return changed;
 }

@@ -47,6 +47,7 @@ mod reader;
 mod regions;
 mod rem;
 mod symbol;
+mod symbol_color;
 mod support {
     pub mod reader;
 }
@@ -58,6 +59,7 @@ mod text_measurement_cache;
 mod text_style_move;
 mod timeline;
 mod timeline_scope;
+mod titlebar;
 mod transform_binding;
 mod video;
 mod wire;

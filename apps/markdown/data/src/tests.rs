@@ -207,3 +207,70 @@ fn a_running_parse_releases_the_lane_for_the_newest_file() {
     ));
     assert!(source.done.lock().unwrap().is_empty());
 }
+
+/// LLP 1069.010.000 D5: the kept list is one storage request, asked again
+/// when the list changes; a host that keeps nothing lists nothing.
+#[test]
+fn recent_documents_list_what_the_host_keeps_and_forget_one() {
+    let mut source = Markdown::new();
+    let mut store = Store::default();
+    let first = source.answer(&mut store, "recentDocuments", &[]).unwrap();
+    let Answer::Later(request) = &first else {
+        panic!()
+    };
+    let payload: Json = serde_json::from_slice(request.storage.as_ref().unwrap()).unwrap();
+    assert_eq!(payload["op"], "fs.recentDocuments");
+    let listed = json!([{"path":"doc:/7/notes","name":"notes","kind":"directory","mode":"readwrite","opened":1}]);
+    let Answer::Now(value) = source
+        .parse(&mut store, "recentDocuments", &[], reply(listed))
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        value,
+        Value::list(vec![Value::record(vec![
+            Value::str("doc:/7/notes"),
+            Value::str("notes"),
+            Value::str("directory")
+        ])])
+    );
+    let refused = Outcome::Storage(
+        serde_json::to_vec(&json!({"error":"unsupported storage operation fs.recentDocuments"}))
+            .unwrap(),
+    );
+    let Answer::Now(none) = source
+        .parse(&mut store, "recentDocuments", &[], refused)
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(none, Value::list(Vec::new()));
+    let forget = source
+        .answer(&mut store, "forgetDocument", &[Value::str("doc:/7/notes")])
+        .unwrap();
+    assert_eq!(
+        asked_for(&forget),
+        ("fs.forgetDocument".into(), "doc:/7/notes".into())
+    );
+}
+
+/// A refusal with nothing open yet (a kept document gone at launch) is
+/// still a whole `Document`: its list beside is empty, not missing.
+#[test]
+fn a_refusal_before_anything_opened_is_a_document_with_an_empty_list() {
+    let mut source = Markdown::new();
+    let asked = "doc:/9/gone.md";
+    source
+        .answer(&mut Store::default(), "open", &[Value::str(asked)])
+        .unwrap();
+    let refused = Outcome::Storage(
+        serde_json::to_vec(&json!({"error": "document ENOENT: doc:/9/gone.md"})).unwrap(),
+    );
+    let Answer::Now(value) = step(&mut source, asked, refused) else {
+        panic!()
+    };
+    let fields = fields(&value);
+    assert_eq!(fields[3], Value::str("document ENOENT: doc:/9/gone.md"));
+    assert_eq!(fields[7], Value::list(Vec::new()));
+}

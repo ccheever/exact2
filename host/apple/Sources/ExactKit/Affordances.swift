@@ -27,6 +27,23 @@ extension NodeView {
         if case .object(let o) = row, o["sys"]?.string == "@tint" { return nil }
         return channels("tint_color").map(TextEngine.color)
     }
+    /// A page symbol's ink where nobody tinted it and its author wrote its
+    /// `color`, on it or on the nearest ancestor that sets one (the kernel's
+    /// `symbolColorWritten`; LLP 1121 stage 9 B, D10): that colour. One that
+    /// names the accent follows it live: iOS's `nil` inherits UIKit's tint,
+    /// the Mac's is `inheritedTint`. `nil` elsewhere, the platform's
+    /// (`unsaidSymbolTint`). A control's face never reads it (D9).
+    var symbolInk: PlatformColor? {
+        guard style["tint_color"] == nil, props["symbolColorWritten"] == "1", let row = style["text_color"] else { return nil }
+        if case .object(let o) = row, o["sys"]?.string == "@tint" {
+            #if os(iOS) || os(tvOS)
+            return nil
+            #else
+            return inheritedTint
+            #endif
+        }
+        return channels("text_color").map(TextEngine.color)
+    }
     /// Whether a colour row is the platform's accent (`AccentColor`, iOS's
     /// inherited `tintColor`) rather than a colour of its own. An unset
     /// `tint-color` is its initial value, `AccentColor`.
@@ -51,7 +68,7 @@ extension NodeView {
     var symbolLookKey: String {
         [style["symbol_rendering"]?.string ?? "", (style["symbol_palette"] ?? .null).key,
          "\(number("symbol_value", -1))", (style["tint_color"] ?? .null).key, "\(drawsDark)",
-         "\(drawsHighContrast ?? SystemColor.highContrast)", "\(drawsElevated)", "\(SystemColor.generation)", bakedTintKey].joined(separator: "|")
+         "\(drawsHighContrast ?? SystemColor.highContrast)", "\(drawsElevated)", "\(SystemColor.generation)", bakedTintKey, bakedInkKey].joined(separator: "|")
     }
     /// The inherited tint, when the look bakes it into the image: a
     /// hierarchical glyph without its own tint or tinted by it (`Highlight`
@@ -62,6 +79,12 @@ extension NodeView {
             || (mode == "palette" && style["symbol_palette"]?.namesTint == true)
         guard bakes, let tint = viewTint else { return "" }
         return (SystemColor.channels("@tint", dark: drawsDark, tintColor: tint, fallback: nil) ?? []).map { "\($0)" }.joined(separator: ",")
+    }
+
+    /// The written `color` (`symbolInk`), when a hierarchical glyph bakes it.
+    private var bakedInkKey: String {
+        guard style["symbol_rendering"]?.string == "hierarchical", symbolTint == nil, symbolInk != nil else { return "" }
+        return (style["text_color"] ?? .null).key
     }
 
     /// What a symbol nobody tinted draws in: the role table's `symbol` row,
@@ -82,8 +105,9 @@ extension NodeView {
 
     /// The symbol's configuration: its size and weight, then its rendering
     /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
-    func symbolConfiguration(_ base: SymbolConfig) -> SymbolConfig {
-        let tint = symbolTint ?? unsaidSymbolTint
+    /// `face`: as a native control's face draws it, without the page's ink.
+    func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
+        let tint = symbolTint ?? (face ? nil : symbolInk) ?? unsaidSymbolTint
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
         case "multicolor": return base.applying(SymbolConfig.preferringMulticolor())
@@ -94,6 +118,16 @@ extension NodeView {
             return colors.isEmpty ? base : base.applying(SymbolConfig(paletteColors: colors))
         default: return base
         }
+    }
+
+    /// The image as a native control's face shows it (a projected segment):
+    /// in the control's tint, never the page's written colour, which a
+    /// hierarchical glyph bakes into the page's image (LLP 1121 D9, stage 9 B).
+    /// Any other image is the page's own.
+    var faceImage: SymbolImage? {
+        guard props["symbolPath"] == nil, symbolInk != nil, style["symbol_rendering"]?.string == "hierarchical", let name = props["symbolName"], !name.isEmpty else { return image }
+        let points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
+        return points > 0 ? symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight), face: true)) : nil
     }
 
     /// A symbol by name in that configuration, at its variable value (D11)

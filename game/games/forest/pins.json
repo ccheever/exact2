@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0xdd3bb86ac949b93b",
-    "4500": "0x1297ea42b0978dee"
+    "0": "0x537fcdc3493f9d36",
+    "4500": "0xc94561739993adcf"
   },
   "saves": {
-    "night": "9dcb4370104dae7a5df39544af94f33b33008cb9784b50df3735c07528ce70d4"
+    "night": "8ab0693eef2075ded1d1e2c1ee7fcb7de9ac2d2158453476d2324299d70ddc19"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "0e0016121ce4976b673617ee3218a9ed7ea004906e08d1d29b2310edc3807d79",
+  "inputs": "76fbc1bf538782601c5bcfe8cf850ead2efee637ffed74f035e5db55becba6ba",
+  "sourceInputs": "3c81d3ba2b544d16a7797b9465be5b074ff60ebe029cff120409ca4915fd8dfb",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "f6c5d6ae36bf6bb8a4f8d4628e9d47a8a292bd41",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

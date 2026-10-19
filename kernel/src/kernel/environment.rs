@@ -47,9 +47,9 @@ impl Kernel {
     }
 
     /// The page's environment: what `env(safe-area-inset-*)`,
-    /// `env(viewport-segment-*)` and the layout regions'
-    /// `env(-exact-<region>-inset-*)` lengths resolve to (LLP 1001 §2; LLP
-    /// 1078 D3; LLP 1123 D10).
+    /// `env(viewport-segment-*)`, `env(titlebar-area-*)` and the layout
+    /// regions' `env(-exact-<region>-inset-*)` lengths resolve to (LLP 1001
+    /// §2; LLP 1078 D3; LLP 1123 D10).
     pub fn env(&self) -> Env {
         self.arena.env().clone()
     }
@@ -60,8 +60,8 @@ impl Kernel {
         self.provisional_layouts
     }
 
-    /// Set the insets, the layout regions (LLP 1123 D10) and control text styles of the
-    /// environment — the safe-area insets and regions the host reports with the viewport (a
+    /// Set the insets, the layout regions (LLP 1123 D10), the title-bar area and control text
+    /// styles of the environment — what the host reports with the viewport (a
     /// rotation changes them); the segment grid
     /// `env` carries is ignored, [`Kernel::set_segments`] being its twin.
     /// Every node whose style holds an `env()` length gets its engine style
@@ -83,6 +83,7 @@ impl Kernel {
             button_fonts: env.button_fonts,
             screen: env.screen,
             regions: env.regions,
+            titlebar_area: env.titlebar_area,
             ..next
         };
         self.replace_env(next)

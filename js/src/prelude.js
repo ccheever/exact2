@@ -481,8 +481,8 @@
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
   // `claimed` once a settle has handed the executor its request, `release`
   // ends its watch on `signal`.
-  var pending = new Map();
-  var currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
+  var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
+  global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; } }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
   // A fetch's `signal` is watched through Ibex's own abort hooks natively,
   // which run before any listener and so cannot be stopped by one; a
   // browser realm's signal is the browser's, watched by a listener, and
@@ -1020,6 +1020,7 @@
     if (typeof path !== "string" || path.indexOf("doc:/") !== 0) throw new TypeError("storage.fs.watch(): path must be a doc:/ path");
     host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
   };
+  files.recentDocuments = function () { return kept(""); }; files.forgetDocument = function (path) { return kept("forget " + path); }; function kept(ask) { try { var r = host(6, "kept", ask); return Promise.resolve(r ? JSON.parse(r) : undefined); } catch (e) { return Promise.reject(storageError(String(e && e.message || e))); } } // LLP 1069.010.000 D5 (doc.keep): the host's kept list, which watch("doc:/") hears change, and the app's own removal
   // `fs.compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002
   // A1): its options are checked here, before anything is queued, and travel
   // to the host as two numbers; natively the reply is `width\theight\tsize`,
@@ -1210,6 +1211,16 @@
       "fetch, or share the resolved value rather than the promise. Storage is different: an answer queued behind another's " +
       "storage turn waits for it"));
   }
+  var nativeCall = global.__exact_module_sync = function (request) { // `native.call`, and a module binding's synchronous form (LLP 1133.002 D14)
+    if (overlaying) throw inOverlay("native.call()");
+    if (currentCall === background) {
+      journal("data: native.call() called from background work: it was never run");
+      throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
+    }
+    if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
+    try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
+    catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
+  };
   // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id
   // (a value given at once too: see its end) — then it drains microtasks and asks
   // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
@@ -1223,16 +1234,6 @@
     var result;
     currentCall = call;
     try {
-      var nativeCall = function (request) {
-        if (overlaying) throw inOverlay("native.call()");
-        if (currentCall === background) {
-          journal("data: native.call() called from background work: it was never run");
-          throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
-        }
-        if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
-        try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
-        catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
-      };
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the
       // build's, so asking `available` marks the answer as the device's: the

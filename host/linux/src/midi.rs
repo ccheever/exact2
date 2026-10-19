@@ -36,6 +36,16 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The agent's `prefer extension` (LLP 1124 D7), as the runner answers
+    /// it: a module source's preferred value, its readers asked again.
+    pub fn extension_agent(&mut self, request: &str) -> Option<Result<String, String>> {
+        let (receipts, reply) = self.runner.extension_agent(request)?;
+        match self.midi_commit(receipts, None) {
+            Some(e) => Some(Err(e)),
+            None => Some(reply),
+        }
+    }
+
     fn midi_commit(
         &mut self,
         receipts: Vec<exact_kernel::CommitReceipt>,

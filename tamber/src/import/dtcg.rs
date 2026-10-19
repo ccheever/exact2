@@ -42,6 +42,7 @@ use super::{counted, reconcile, Import, Mapped, Unmapped};
 use crate::import::kinds as other;
 use crate::{Design, Diagnostic};
 use serde_json::{Map, Value};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 mod kinds;
@@ -225,6 +226,7 @@ fn extended(
     stack: &mut Vec<String>,
 ) -> Result<Map<String, Value>, String> {
     let mut merged = Map::new();
+    crate::budget::spend(1)?;
     for key in ["$extends", "$ref"] {
         let Some(name) = node.get(key).and_then(Value::as_str) else {
             continue;
@@ -238,51 +240,60 @@ fn extended(
         let Some(inherited) = target(root, name).and_then(Value::as_object) else {
             return Err(format!("`{key}` names `{name}`, which is not there"));
         };
+        crate::budget::members(inherited)?;
         if token_like(root, &Value::Object(inherited.clone())) {
             return Err(format!("`{key}` names `{name}`, a token, not a group"));
         }
         stack.push(name.to_string());
         let base = extended(root, inherited, stack)?;
         stack.pop();
-        deep(root, &mut merged, &base);
+        deep(root, &mut merged, &base)?;
         if merged.get("$type").is_none() {
             if let Some(t) = inherited.get("$type") {
                 merged.insert("$type".into(), t.clone());
             }
         }
     }
+    crate::budget::members(node)?;
     let own: Map<String, Value> = node
         .iter()
         .filter(|(k, _)| *k != "$extends" && *k != "$ref")
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    deep(root, &mut merged, &own);
+    deep(root, &mut merged, &own)?;
     Ok(merged)
 }
 
 /// `over` merged into `into`: groups into groups, anything else (a token,
-/// a whole-token alias, a value) replacing.
-fn deep(root: &Value, into: &mut Map<String, Value>, over: &Map<String, Value>) {
+/// a whole-token alias, a value) replacing; each copy charged first.
+fn deep(
+    root: &Value,
+    into: &mut Map<String, Value>,
+    over: &Map<String, Value>,
+) -> Result<(), String> {
     for (k, v) in over {
+        crate::budget::copy(v)?;
         match (into.get_mut(k), v) {
             (Some(Value::Object(a)), Value::Object(b))
                 if !token_like(root, &Value::Object(a.clone())) && !token_like(root, v) =>
             {
+                crate::budget::members(a)?;
                 let b = b.clone();
-                deep(root, a, &b);
+                deep(root, a, &b)?;
             }
             _ => {
                 into.insert(k.clone(), v.clone());
             }
         }
     }
+    Ok(())
 }
 
 /// Every token in a tree: its dotted path and definition, `$type` (or a
 /// legacy group `type`) inherited from groups, `$root` a token of its group,
 /// `$extends` and a group's `$ref` merged under it; a token that is a whole
-/// `$ref` an alias. An error for a cycle, a missing target, or nesting past
-/// 64.
+/// `$ref` an alias. An error for a cycle, a missing target, nesting past
+/// 64, or more work than one import may do (`crate::budget`).
 fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
     fn walk(
         file: &str,
@@ -298,6 +309,7 @@ fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
         if path.len() > 64 {
             return Err(format!("`{}` nests deeper than 64", path.join(".")));
         }
+        crate::budget::spend(1)?;
         // A whole-token `$ref`: to a token, a `$value` or anything not a
         // group, it is an alias.
         if let Some(r) = map.get("$ref").and_then(Value::as_str) {
@@ -327,11 +339,9 @@ fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
                         .and_then(Value::as_str)
                 })
                 .map(str::to_string);
-            let value = map
-                .get("$value")
-                .or_else(|| map.get("value"))
-                .cloned()
-                .unwrap_or(Value::Null);
+            let value = map.get("$value").or_else(|| map.get("value"));
+            crate::budget::copy(value.unwrap_or(&Value::Null))?;
+            let value = value.cloned().unwrap_or(Value::Null);
             let refused = map
                 .get("$extensions")
                 .and_then(|e| e.get("studio.tokens"))
@@ -653,7 +663,9 @@ fn deref<'a>(
     if depth > 16 {
         return Err("references nest too deep".into());
     }
+    crate::budget::spend(1)?;
     let Some(r) = node.get("$ref").and_then(Value::as_str) else {
+        crate::budget::copy(node)?;
         return Ok((doc, node.clone()));
     };
     // Sibling keys written here keep this document: a `sources` among them
@@ -725,6 +737,7 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
         if depth > 16 {
             return Err("sets nest too deep".into());
         }
+        crate::budget::spend(1)?;
         let mut pushed = false;
         if let Some(r) = src.get("$ref").and_then(Value::as_str) {
             let key = format!("{}{r}", doc.name);
@@ -913,23 +926,6 @@ type Colour = (String, String, Option<String>);
 /// A path's colour in one tuple, or why not.
 type Seen = Result<Colour, String>;
 
-/// A path's type in a tuple: its own, else the type of what it aliases,
-/// however long the chain (a cycle has none).
-fn type_of(defs: &[Def], w: &BTreeMap<&str, usize>, path: &str) -> Option<String> {
-    let mut seen = BTreeSet::new();
-    let mut at = path.to_string();
-    loop {
-        let d = &defs[*w.get(at.as_str())?];
-        if d.ty.is_some() {
-            return d.ty.clone();
-        }
-        match alias(&d.value) {
-            Some(Ok(target)) if seen.insert(target.clone()) => at = target,
-            _ => return None,
-        }
-    }
-}
-
 /// A tuple's resolution: its winners, the token names, and each path's
 /// colour once found.
 struct Resolve<'a> {
@@ -937,6 +933,8 @@ struct Resolve<'a> {
     w: &'a BTreeMap<&'a str, usize>,
     names: &'a BTreeMap<String, String>,
     memo: HashMap<String, Seen>,
+    /// Each path's typed definition, once found (`type_of`).
+    types: RefCell<HashMap<String, Option<usize>>>,
 }
 
 impl Resolve<'_> {
@@ -1021,6 +1019,7 @@ pub fn import_with(
     vocab: &crate::Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |id: &'static str, m: String| vec![Diagnostic::new(id, m, 1, 1)];
+    let _work = crate::budget::Work::begin();
     let read = read(files).map_err(|m| refuse("tamber-import-source", m))?;
     let defs = &read.defs;
     // The dimensions: the scheme, and each axis with its values in order.
@@ -1173,15 +1172,18 @@ pub fn import_with(
             // A token and a group at one path: the later layer's stands,
             // the other's tokens go (a token replaces a group, a group a
             // token).
-            let paths: Vec<(&str, usize)> = w.iter().map(|(p, i)| (*p, *i)).collect();
-            for (p, i) in &paths {
-                for (q, j) in &paths {
-                    let under =
-                        q.len() > p.len() && q.starts_with(p) && q.as_bytes()[p.len()] == b'.';
-                    if under && j < i {
-                        w.remove(q);
-                    } else if under && i < j {
-                        w.remove(p);
+            // (each path against its own dotted ancestors, not every other path)
+            let paths: BTreeMap<&str, usize> = w.clone();
+            for (q, j) in &paths {
+                for (at, _) in q.match_indices('.') {
+                    match paths.get(&q[..at]) {
+                        Some(i) if j < i => {
+                            w.remove(q);
+                        }
+                        Some(i) if i < j => {
+                            w.remove(&q[..at]);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -1201,6 +1203,7 @@ pub fn import_with(
             w,
             names: &names,
             memo: HashMap::new(),
+            types: RefCell::new(HashMap::new()),
         })
         .collect();
     for &path in &paths {
@@ -1215,7 +1218,7 @@ pub fn import_with(
                 ));
                 continue;
             }
-            let ty = type_of(defs, w, path);
+            let ty = r.type_of(path);
             let k = match kind(ty.as_deref()) {
                 Kind::Colour => "colour",
                 Kind::Other(k) => k,
@@ -1438,7 +1441,7 @@ pub fn import_with(
         let token = names.get(&d.path).cloned();
         let ty =
             d.ty.clone()
-                .or_else(|| winners.iter().find_map(|w| type_of(defs, w, &d.path)));
+                .or_else(|| resolvers.iter().find_map(|r| r.type_of(&d.path)));
         let why = match (&d.refused, kind(ty.as_deref())) {
             (Some(why), _) => why.clone(),
             (None, Kind::Reported(why)) => {
@@ -1461,5 +1464,7 @@ pub fn import_with(
         offers: Vec::new(),
         unmapped,
         counted,
+        dials: Vec::new(),
+        pins: Vec::new(),
     })
 }

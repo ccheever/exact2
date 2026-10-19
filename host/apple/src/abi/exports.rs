@@ -24,9 +24,15 @@ macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::grouped_list_exports!();
         $crate::markup_exports!();
+
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
+        /// A textarea's decorations resolved against its text (LLP 1114.007).
+        #[no_mangle]
+        pub extern "C" fn exact_field_decorations(input: *const u8, len: usize, count: *mut usize) -> *const u8 {
+            $crate::decorations::read(input, len, count)
+        }
         $crate::raster_exports!();
         $crate::textflow_exports!();
         $crate::collapse_exports!();
@@ -152,6 +158,15 @@ macro_rules! host {
             ctx: *mut ::std::ffi::c_void,
         ) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, call, ctx));
+        }
+
+        /// Where a document the app forgot goes (LLP 1069.010.000 D5): off
+        /// the platform's recents, by the Swift host.
+        #[no_mangle]
+        pub extern "C" fn exact_on_document_forgotten(forgotten: Option<extern "C" fn(u64, u64)>) {
+            if let Some(forgotten) = forgotten {
+                $crate::documents::on_forgotten(forgotten);
+            }
         }
 
         /// The app module announced a topic (LLP 1016.002), on this thread.
@@ -396,8 +411,8 @@ macro_rules! host {
 
         /// The presenter's synchronous viewport union for an inline run.
         #[no_mangle]
-        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, ctx: *mut ::std::ffi::c_void) {
-            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, ctx));
+        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, range: Option<$crate::geometry::RangeFrameFn>, ctx: *mut ::std::ffi::c_void) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, range, ctx));
         }
 
         /// The open top-layer nodes before a native action read. No batch.
@@ -671,11 +686,35 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reads_on_line(), |_| 1)
         }
 
-        /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
-        /// ports or inputs, or the agent's `prefer midi` and `tap midi`.
+        /// The presenter declares a packaged arm before any boot.
+        #[no_mangle]
+        pub extern "C" fn exact_link_activities(rt: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.link_activities(), |_| ());
+        }
+
+        /// Activity facts or one send's completion in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_activities(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.activities(len), |n| n)
+        }
+
+        /// MIDI ports or messages from the host, or the agent's `prefer midi` and `tap midi`.
         #[no_mangle]
         pub extern "C" fn exact_midi(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.midi(len), |n| n)
+        }
+
+        /// The extensions the app's module composes, a name a line in the
+        /// input buffer (LLP 1133.001 D4).
+        #[no_mangle]
+        pub extern "C" fn exact_bind_extensions(rt: u32, len: usize) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.bind_extensions(len), |_| ())
+        }
+
+        /// The agent's `prefer extension` in the input buffer (LLP 1124 D7).
+        #[no_mangle]
+        pub extern "C" fn exact_extension(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.extension(len), |n| n)
         }
 
         /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
@@ -736,6 +775,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
         }
 
+        /// A placement root's resolved margins and its width's authorship (LLP 1126.001
+        /// WP10): the output holds JSON `[left, top, right, bottom, authored]`, no batch
+        /// around it; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_placement_box(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.placement_box(view), |n| n)
+        }
+
         /// Resolve a logical row key in the input buffer, or UINT32_MAX.
         #[no_mangle]
         pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {
@@ -765,6 +812,18 @@ macro_rules! host {
                 unsafe { std::slice::from_raw_parts(insets, count as usize) }
             };
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.regions(insets), |n| n)
+        }
+
+        /// The title-bar area beside the window's controls (Window Controls
+        /// Overlay): `count` is 4 (x, y, width, height) or 0 (none, so every
+        /// `env(titlebar-area-*)` is undefined); returns the batch's length.
+        #[no_mangle]
+        pub unsafe extern "C" fn exact_titlebar_area(rt: u32, rect: *const f32, count: u32) -> u32 {
+            let rect = if count == 0 || rect.is_null() { &[] } else {
+                // SAFETY: the caller keeps `count` floats live for this synchronous call.
+                unsafe { std::slice::from_raw_parts(rect, count as usize) }
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.titlebar_area(rect), |n| n)
         }
 
         /// The window's size, which every viewport unit resolves

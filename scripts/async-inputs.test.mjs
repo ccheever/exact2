@@ -1,11 +1,11 @@
 // The async lane's skip rule for the semantics checks (scripts/async-inputs.mjs).
-// No Cargo, Lean or Bun process runs here: inputs are temporary files.
+// Inputs are temporary files; the help check starts only the CLI usage path.
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Inputs, SCHEMA, Store, UNAVAILABLE, changedSince, checkEnv, decide, entry, fingerprint, outcomeOf } from './async-inputs.mjs';
-import { checks, semanticsChecks } from './async.mjs';
+import { checks, glueTests, semanticsChecks } from './async.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'async-inputs-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -100,6 +100,19 @@ test('a gated check is skipped on a pass under its inputs, and runs when the gat
   expect(failed).toEqual({ error: 'no graph' });
 });
 
+test('the lane tests in-repo game pins outside the engine workspace', () => {
+  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  expect(steps.find(([name]) => name === 'game-pins')).toEqual(['game-pins', 'bun', ['game/app/shells.mjs', '--test']]);
+});
+
+test("the lane runs the game scaffold's standing tests, the cheap ones apart from the one that builds", () => {
+  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  const scaffold = steps.find(([name]) => name === 'game-scaffold');
+  expect(scaffold[2]).toEqual(expect.arrayContaining(['game/proof-game.test.mjs', 'game/new.test.mjs']));
+  expect(scaffold[2].at(-1)).not.toContain('assets scaffold');
+  expect(steps.find(([name]) => name === 'game-assets-scaffold')[2].at(-1)).toBe('assets scaffold');
+});
+
 test('the semantics run as four gated checks, and only a finished run is an outcome', () => {
   const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
   expect(steps.filter(step => step[3]).map(([name]) => name)).toEqual(['lean', 'vm-extract', 'difftest', 'difftest-js']);
@@ -111,4 +124,22 @@ test('the semantics run as four gated checks, and only a finished run is an outc
   expect(outcomeOf(UNAVAILABLE, false)).toBe('unavailable');
   expect(outcomeOf(1, false)).toBe('fail');
   expect(outcomeOf(0, true)).toBe('fail');
+});
+
+test('async help exits before creating or checking out its worktree', () => {
+  const worktree = join(dir, 'help-must-not-create');
+  const result = Bun.spawnSync([process.execPath, 'scripts/async.mjs', '--help', '--worktree', worktree]);
+  expect(result.exitCode).toBe(0);
+  expect(new TextDecoder().decode(result.stdout)).toContain('Usage:');
+  expect(existsSync(worktree)).toBe(false);
+});
+
+
+test('the existing glue step runs Mac widget packaging, signing and migration tests', () => {
+  const glue = glueTests(join(import.meta.dir, '..'));
+  const step = checks('new', 'old', { lane: [], apple: false, glue }).find(([name]) => name === 'glue');
+  for (const file of ['scripts/app-apple.test.mjs', 'scripts/app-keychain.test.mjs', 'scripts/app-manifest.test.mjs', 'scripts/exact.test.mjs', 'host/apple/link.test.mjs']) {
+    expect(glue).toContain('./' + file);
+    expect(step[2].at(-1)).toContain('./' + file);
+  }
 });

@@ -116,6 +116,56 @@ fn a_grouped_rows_delete_is_its_swipe_and_its_lock_keeps_it() {
     assert!(id(&r, "note-1").is_none(), "the row is gone");
 }
 
+const WRITTEN: &str = "list appearance=\"auto\" flex=1
+  section
+    for n in notes key=n.id
+      scroll swipeContent=`row-${n.id}` swipeTrailing=`flag-${n.id}` testId=`swipe-${n.id}` overflow-x=\"scroll\" overflow-y=\"hidden\" scrollbar-width=\"none\" scroll-snap-type=\"x mandatory\"
+        button press=open(n.id) id=`row-${n.id}` testId=`note-${n.id}` width=\"100%\" flex-shrink=0 scroll-snap-align=\"start\"
+          text n.title testId=`title-${n.id}`
+          image \"symbol:forward-chevron\" testId=`chevron-${n.id}`
+        button press=remove(n.id) id=`flag-${n.id}` testId=`flag-${n.id}` flex-shrink=0 scroll-snap-align=\"start\"
+          text \"Flag\"
+    button press=open(\"plain\")
+      text \"Plain\" testId=\"title-plain\"
+      image \"symbol:forward-chevron\" testId=\"chevron-plain\"";
+
+/// A swipe written by hand in a grouped list is styled as `delete=`'s is:
+/// the row it names is the grouped row, with its inset and its parts'
+/// rules, and the scroll takes the row's box in the card, its content and
+/// actions side by side.
+#[test]
+fn a_hand_written_swipe_rows_content_is_the_grouped_row() {
+    let r = boot(WRITTEN);
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t).unwrap()).unwrap().frame;
+    let scroll = frame("swipe-1");
+    assert_eq!(
+        frame("title-1").x,
+        frame("title-plain").x,
+        "the text at the row's inset"
+    );
+    assert_eq!(
+        frame("title-1").x - scroll.x,
+        16.0,
+        "the scroll at the card's edge"
+    );
+    assert_eq!(
+        frame("chevron-1").x + frame("chevron-1").width,
+        frame("chevron-plain").x + frame("chevron-plain").width,
+        "the chevron at the row's trailing edge, the accessory"
+    );
+    assert_eq!(frame("note-1").height, 52.0, "a row's height");
+    assert_eq!(
+        frame("note-1").width,
+        scroll.width,
+        "the row as wide as its scroll"
+    );
+    assert!(
+        frame("flag-1").x >= frame("note-1").x + frame("note-1").width,
+        "the action beside it"
+    );
+}
+
 #[test]
 fn a_cells_delete_is_its_swipe() {
     let mut r = boot("list flex=1\n  for n in notes key=n.id\n    row id=`own-${n.id}` delete=remove(n.id) testId=`note-${n.id}`\n      text n.title");

@@ -511,15 +511,18 @@ fn field_hidden_on_down_keeps_pointerup_and_hatch_up_until_release() {
   state hidden = false
   state ups = 0
   state presses = 0
+  state clicked = ""
   action hide
     hidden = true
   action lifted
     ups = ups + 1
   action pressed
     presses = presses + 1
+  action ancestor(name: string)
+    clicked = name
   view
-    column hatch="outer" width=300 height=300 pointerup=lifted
-      column {parent}
+    column hatch="outer" width=300 height=300 pointerup=lifted press=ancestor("root")
+      column width=200 height=100 {parent} press=ancestor("parent")
         input testId="field" value="abcd" width=100 height=40 pointerdown=hide press=pressed {field} {feedback}
 "#
                     ),
@@ -543,7 +546,11 @@ fn field_hidden_on_down_keeps_pointerup_and_hatch_up_until_release() {
                 assert_eq!(notes(), ["outer Up handled=true inside=true"]);
                 let slots = state(&mut p)["slots"].clone();
                 assert_eq!(slots["ups"], 1);
-                assert_eq!(slots["presses"], u32::from(!feedback.is_empty()));
+                assert_eq!(slots["presses"], 0);
+                assert_eq!(
+                    slots["clicked"],
+                    if parent.is_empty() { "parent" } else { "root" }
+                );
             }
         }
     }

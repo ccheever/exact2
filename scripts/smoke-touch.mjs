@@ -17,7 +17,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
-import { HOST_DEV } from './app.mjs';
+import { HOST_DEV, resolveApp } from './app.mjs';
+import { appleArtifacts } from '../host/apple/build.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -25,6 +26,10 @@ if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') +
 if (argv.includes('--build')) {
   const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple'], { cwd: ROOT, stdio: 'inherit' });
   if (built.status !== 0) { console.error('FAIL ios-touch build: host/apple/build.mjs --ios caltrain-apple'); process.exit(1); }
+  // WP9's refusal scan uses this iOS app, its extension and its packaged arm.
+  const bundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator' }).bundle;
+  const refused = spawnSync('bun', ['test', 'host/apple/link.test.mjs'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ACTIVITY_APP: bundle } });
+  if (refused.status !== 0) { console.error('FAIL ios-touch activity refusals'); process.exit(1); }
 }
 const failures = [];
 const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
@@ -49,7 +54,8 @@ for (const timing of ['agent', 'platform']) {
     // A still press (§11): the finger down 300 ms, a read inside that hold, then up, presses as a tap does.
     const still = await s.tap('change-station', { drag: { dx: 0, dy: 0, hold: 300, during: [async () => (await s.tree()).nodes.length] } });
     check(still.delivery === 'platform' && still.touch?.moved === 0 && still.during?.[0] > 0, `${timing}: a still press was not one real touch with a read while down: ${JSON.stringify(still)}`);
-    if (timing === 'platform') await s.clock('settle');
+    // Settle the push the press started in either timing: a real touch played while it moves can be lost
+    await s.clock('settle');
     let tree = await s.tree();
     check(byTestId(tree, 'station-search'), `${timing}: a still real press on change-station did not open the stations (landed on ${JSON.stringify(still.landed)})`);
     // A whole real drag up the stations scrolls them: the row moves up the screen.
@@ -85,6 +91,8 @@ for (const timing of ['agent', 'platform']) {
   if (check(c.status === 0, `grouped: the fixture did not compile: ${c.stderr}`)) {
     try {
       s = await open({ host: 'ios', app: 'caltrain', plan, touch: 'platform' });
+      // Settle the launch first: a real tap during it can land on a switch that does not act yet
+      await s.clock('settle');
       const facts = async () => byTestId(await s.tree(), 'facts')?.props.text;
       for (const [target, want] of [['toggle', 'true 0 0'], ['toggle', 'false 0 0'], ['info', 'false 1 0'], ['open', 'false 1 1']]) {
         const r = await s.tap(target);

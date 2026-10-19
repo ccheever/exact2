@@ -5,7 +5,7 @@
 // D10); a sequence's retraction before a voice starts, and its timed haptics
 // (LLP 1125 D3); the held voice of a `{0, 0}` timestamp; the Audio Session
 // API; and the drop before a user activation. Firefox and
-// WebKit come from Playwright (`bunx playwright@1.63.0 install firefox
+// WebKit come from Playwright (`bunx playwright@1.64.1 install firefox
 // webkit`), Chrome from the machine's; an engine that is missing is skipped.
 import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';

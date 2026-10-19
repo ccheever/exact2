@@ -58,10 +58,12 @@ fn entry_refresh_answers_without_mutating_the_preview() {
     std::fs::create_dir_all(picked.parent().unwrap()).unwrap();
     std::fs::write(&picked, b"running app pick").unwrap();
     let widget = contract::Widget {
+        requires_secrets: false,
         kind: "test-entry".into(),
         title: None,
         description: None,
         families: vec!["systemSmall".into()],
+        watch_families: vec![],
         component: "Card".into(),
         props: "Props".into(),
         refresh: "refreshCard".into(),

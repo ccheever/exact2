@@ -540,7 +540,9 @@ struct DeviceShared {
     /// canvas does not make (and the driver set up and later tear down) a
     /// view and a framebuffer every frame.
     surface_views: Mutex<FastHashMap<SurfaceViewKey, IdentifiedTextureView>>,
-    surface_framebuffers: Mutex<FastHashMap<FramebufferKey, vk::Framebuffer>>,
+    /// EXACT (EXACT-PATCHES.md, 6 and 13): framebuffers whose attachments all
+    /// outlive a command encoder, until one of their views is destroyed.
+    framebuffers: Mutex<FastHashMap<FramebufferKey, vk::Framebuffer>>,
 
     empty_descriptor_set_layout: vk::DescriptorSetLayout,
 
@@ -552,7 +554,7 @@ struct DeviceShared {
 impl Drop for DeviceShared {
     fn drop(&mut self) {
         // EXACT (EXACT-PATCHES.md, 6).
-        for (_, fb) in self.surface_framebuffers.lock().drain() {
+        for (_, fb) in self.framebuffers.lock().drain() {
             unsafe { self.raw.destroy_framebuffer(fb, None) };
         }
         for (_, view) in self.surface_views.lock().drain() {
@@ -1070,14 +1072,14 @@ struct SurfaceViewKey {
 }
 
 impl DeviceShared {
-    /// EXACT (EXACT-PATCHES.md, 6): the device's framebuffer for attachments
-    /// that are all swapchain-image views (see `surface_framebuffers`).
-    fn make_surface_framebuffer(
+    /// EXACT (EXACT-PATCHES.md, 6 and 13): the device's framebuffer for
+    /// attachments that all outlive the command encoder (see `framebuffers`).
+    fn make_lasting_framebuffer(
         &self,
         key: FramebufferKey,
     ) -> Result<vk::Framebuffer, crate::DeviceError> {
         use hashbrown::hash_map::Entry;
-        Ok(match self.surface_framebuffers.lock().entry(key) {
+        Ok(match self.framebuffers.lock().entry(key) {
             Entry::Occupied(e) => *e.get(),
             Entry::Vacant(e) => {
                 let key = e.key();
@@ -1092,6 +1094,18 @@ impl DeviceShared {
                 *e.insert(raw)
             }
         })
+    }
+
+    /// EXACT (EXACT-PATCHES.md, 13): destroy every framebuffer drawing into
+    /// `view`, which is being destroyed; nothing submitted uses either any more.
+    fn forget_view(&self, view: ResourceIdentity<vk::ImageView>) {
+        self.framebuffers.lock().retain(|key, fb| {
+            let keep = !key.attachment_identities.contains(&view);
+            if !keep {
+                unsafe { self.raw.destroy_framebuffer(*fb, None) };
+            }
+            keep
+        });
     }
 
     /// EXACT (EXACT-PATCHES.md, 6): destroy the views of these swapchain
@@ -1109,7 +1123,7 @@ impl DeviceShared {
         }
         let gone_views: Vec<ResourceIdentity<vk::ImageView>> =
             gone.iter().map(|(_, v)| v.identity).collect();
-        self.surface_framebuffers.lock().retain(|key, fb| {
+        self.framebuffers.lock().retain(|key, fb| {
             let keep = !key
                 .attachment_identities
                 .iter()

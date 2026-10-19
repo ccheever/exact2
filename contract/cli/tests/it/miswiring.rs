@@ -473,3 +473,95 @@ fn a_replace_that_may_not_be_refused_or_reached_at_launch_is_not_named() {
     let src = "routes nav\n  tab today \"/\"\n  tab history \"/history\"\ncomponent App\n  action see\n    nav = replace(nav, path(\"history\"))\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\"\n      column\n        for t in nav.tabs key=t.name\n          column role=\"tabpanel\" id=`panel-${t.name}`\n            for e in t.stack key=e.id\n              column navigationKey=`${e.id}`\n                if e.name == \"today\"\n                  button press=see\n                    text \"History\"\n      row role=\"tablist\"\n        button role=\"tab\" aria-controls=\"panel-today\" aria-selected=(nav.tab == \"today\")\n          text \"Today\"\n        button role=\"tab\" aria-controls=\"panel-history\" aria-selected=(nav.tab == \"history\")\n          text \"History\"\n";
     assert_eq!(warned(src), [], "{src}");
 }
+
+/// The euxy port: a deep link into another tab, `go` then `select`, left the
+/// visit on the tab it left; the warning names the two forms that land it.
+#[test]
+fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
+    let app = |body: &str| {
+        format!("routes nav\n  tab today \"/\"\n  tab patterns \"/patterns\"\n    shared \"/patterns/open\"\ncomponent App\n  action follow(url: string)\n{body}  view\n    main navigationKey=`${{top(nav).id}}` navigate=follow\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}`\n          text e.name\n")
+    };
+    const SELECT: &str = "lower-select-after-push";
+    let src = app("    let n = go(nav, url)\n    nav = url.startsWith(\"/patterns/\") ? select(n, \"patterns\") : n\n");
+    assert_eq!(warned(&src), [(SELECT.to_string(), 8)]);
+    let m = &messages(&src)[0];
+    assert!(
+        m.contains("this `select` shows \"patterns\" as it was: `go` adds its visit to the selected tab's stack")
+            && m.contains("`go(select(nav, \"patterns\"), url)` (onto that tab's stack) or `open(nav, url)`"),
+        "{m}"
+    );
+    let src = app("    nav = select(push(nav, url), \"patterns\")\n");
+    assert_eq!(warned(&src), [(SELECT.to_string(), 7)]);
+    // The app's own `push` is no router verb.
+    let own = app("    nav = select(push(nav, url), \"patterns\")\n").replace(
+        "component App\n",
+        "fn push(r: Router, url: string): Router = r\ncomponent App\n",
+    );
+    assert_eq!(warned(&own), [], "{own}");
+    for body in [
+        "    nav = go(select(nav, \"patterns\"), url)\n",
+        "    nav = open(nav, url)\n",
+        "    let n = back(nav)\n    nav = select(n, \"today\")\n",
+        // A binder of the same name hides the pushed `let`.
+        "    let n = go(nav, url)\n    nav = match some(nav) { case some(n) => select(n, \"patterns\"), case none => n }\n",
+        "    let n = go(nav, url)\n    match some(nav)\n      case some(n)\n        nav = select(n, \"patterns\")\n      case none\n        nav = n\n",
+        // A choice is pushed only when every arm is.
+        "    let on = url.startsWith(\"/patterns/\")\n    let n = on ? go(nav, url) : nav\n    nav = on ? n : select(n, \"patterns\")\n",
+        // A `let` in another block.
+        "    if url == \"/\"\n      let n = go(nav, url)\n      nav = n\n    else\n      let n = nav\n      nav = select(n, \"patterns\")\n",
+    ] {
+        assert_eq!(warned(&app(body)), [], "{body}");
+    }
+}
+
+/// The euxy port: a template location is refused naming the `path()` that
+/// spells it, a query concatenated after it.
+#[test]
+fn a_template_location_names_its_path() {
+    let app = |location: &str| {
+        format!(
+            "routes nav\n  home \"/\"\n    day \"/day/:key\"\n    open \"/open\"\ncomponent App\n  state k = \"a\"\n  state ks = [\"a\"]\n  action visit\n    nav = push(nav, {location})\n  view\n    button press=visit\n      text \"Go\"\n"
+        )
+    };
+    let refusal = |location: &str| contract::compile(&app(location)).unwrap_err();
+    for (location, write) in [
+        ("`/day/${k}`", "path(\"day\", k)"),
+        (
+            "`/open?u=${encodeURIComponent(k)}`",
+            "path(\"open\") + `?u=${encodeURIComponent(k)}`",
+        ),
+        // A method and `length` as the author writes them.
+        (
+            "`/day/${k.trim().toLowerCase()}`",
+            "path(\"day\", k.trim().toLowerCase())",
+        ),
+        ("`/day/${ks.length}`", "path(\"day\", ks.length)"),
+    ] {
+        let e = refusal(location);
+        assert_eq!(e.id, "route-template", "{e}");
+        let quoted = match write.contains('`') {
+            true => format!("write `` {write} ``"),
+            false => format!("write `{write}`"),
+        };
+        assert!(e.message.ends_with(&quoted), "{e}");
+        // The repair compiles.
+        if let Err(e) = contract::compile(&app(write)) {
+            panic!("{write}: {e}");
+        }
+    }
+    // No route, or text a repair could not write back as it reads: the hint alone.
+    for location in [
+        "`/elsewhere/${k}`",
+        "`/day/\\${k}`",
+        "`/day/${k}?q=\\\\`",
+        "`/day/${k}?q=\\``",
+        "`/day/${\"a\\\"b\"}`",
+    ] {
+        let e = refusal(location);
+        assert_eq!(e.id, "route-template", "{location}: {e}");
+        assert!(
+            e.message.ends_with("would make another location)"),
+            "{location}: {e}"
+        );
+    }
+}

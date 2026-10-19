@@ -25,6 +25,11 @@ pub struct AppParams {
     /// The app's Contract did not load (the build says why): its params are
     /// unknown, not none.
     pub failed: bool,
+    /// The designs of the packages it links (LLP 1121 D11), which a fold of
+    /// the app's design joins as the build does.
+    pub packages: Vec<contract_syntax::DesignSource>,
+    /// Its tokens are an inline `theme` in its Contract, no design file.
+    pub inline: bool,
 }
 
 /// The app's params, loaded from `app_contract`; none when it has no
@@ -42,6 +47,8 @@ pub fn params_of(app_contract: &Path) -> AppParams {
         Ok((file, sources)) => AppParams {
             tokens: params::tokens(&file),
             identities: params::identities(&file),
+            packages: file.package_designs.clone(),
+            inline: file.theme.is_some(),
             files: sources
                 .paths()
                 .iter()
@@ -66,7 +73,18 @@ pub fn params_of(app_contract: &Path) -> AppParams {
 /// default, in its declaring file (its path, by the default's source),
 /// which is returned; every name in full.
 pub fn relocate(d: &mut exact_tamber::Diagnostic, app: &AppParams) -> Option<String> {
-    d.message = params::shown(&d.message, &app.tokens);
+    d.message = contract_lower::package_unband(&params::shown(&d.message, &app.tokens));
+    // A package token's (D11): at its line in its package's design.
+    if let Some((band, line)) = contract_lower::package_line(d.line) {
+        let source = app.packages.get(band)?;
+        d.line = line;
+        return Some(
+            app.files
+                .get(source.source_id as usize)
+                .cloned()
+                .unwrap_or_else(|| source.home.clone()),
+        );
+    }
     let p = app.tokens.get(d.line.checked_sub(params::LINE)? as usize)?;
     d.line = p.param.default_span.line;
     d.col = p.param.default_span.col;
@@ -89,9 +107,11 @@ pub fn located(d: &exact_tamber::Diagnostic, app: &AppParams, design: &Path) -> 
 }
 
 /// `design` laid out with the app's params as the build lays it (D15): each
-/// a token, each of its `params` lines in its param's place.
+/// a token, each of its `params` lines in its param's place; and its
+/// packages' tokens joined, as the build joins them (LLP 1121 D11).
 pub fn laid(design: &exact_tamber::Design, app: &AppParams) -> exact_tamber::Design {
-    let mut out = design.clone();
+    let mut out = contract_lower::with_package_designs(Some(design.clone()), &app.packages)
+        .unwrap_or_else(|| design.clone());
     params::add_to(&mut out, &app.tokens, &app.identities);
     out
 }
@@ -106,7 +126,16 @@ pub fn fold_with(
     vocab: &exact_tamber::Vocab,
 ) -> Result<(exact_tamber::Folding, exact_tamber::Design), Vec<exact_tamber::Diagnostic>> {
     let design = exact_tamber::parse(text)?;
+    // What the build refuses of the packages' designs, as it refuses it.
+    let refused = contract_lower::join_package_designs(Some(design.clone()), &app.packages).1;
+    if !refused.is_empty() {
+        return Err(refused.into_iter().map(|e| packaged(e, app)).collect());
+    }
     let folding = exact_tamber::check_design(laid(&design, app), vocab)?;
+    let wrong = contract_lower::package_references(&folding, &app.packages);
+    if !wrong.is_empty() {
+        return Err(wrong.into_iter().map(|e| packaged(e, app)).collect());
+    }
     // A `params` line the build refuses (ambiguous, or a param's second).
     let refused: Vec<exact_tamber::Diagnostic> =
         params::entry_errors(&design, &app.tokens, &app.identities)
@@ -122,6 +151,36 @@ pub fn fold_with(
         return Err(refused);
     }
     Ok((folding, design))
+}
+
+/// A refusal of a package's design as a diagnostic of the joined design:
+/// its line in its package's band, which [`relocate`] says at its file.
+fn packaged(e: contract_lower::LowerError, app: &AppParams) -> exact_tamber::Diagnostic {
+    let band = app
+        .packages
+        .iter()
+        .position(|p| p.source_id == e.span.source_id);
+    // Banded only where the band is one (a design past the bands' limit is
+    // refused at its own line, named in the message).
+    let encoded = band
+        .map(|b| (b, contract_lower::package_band_line(b, e.span.line)))
+        .filter(|(b, line)| contract_lower::package_line(*line).map(|(k, _)| k) == Some(*b));
+    let message = match (band, encoded) {
+        (Some(b), None) => format!("{}: {}", app.packages[b].home, e.message),
+        _ => e.message,
+    };
+    exact_tamber::Diagnostic {
+        id: e.id,
+        message,
+        line: encoded.map_or(e.span.line, |(_, line)| line),
+        col: e.span.col,
+    }
+}
+
+/// The package tokens a fold of the app's design joins (LLP 1121 D11), as
+/// the build numbers them: what the design server's plans fold beside it.
+pub fn joined(app: &AppParams) -> Vec<exact_tamber::Token> {
+    contract_lower::with_package_designs(None, &app.packages).map_or_else(Vec::new, |d| d.tokens)
 }
 
 /// The words of `text` a token name may be.

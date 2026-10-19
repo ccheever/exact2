@@ -624,3 +624,85 @@ fn live_time_ticks_in_the_terminal_without_an_app_task() {
     vt.render(&mut host);
     assert!(vt.text(false).contains("3 min. ago"));
 }
+
+/// LLP 1084 D7: a grouped row's separator is no border. It is drawn on the
+/// row's last line from its content edge, though no row has a bottom border
+/// width; not under the card's last row, which follows a row that comes and
+/// goes; and a colour the author gives the bottom edge alone recolours
+/// nothing.
+#[test]
+fn a_grouped_rows_separator_is_drawn_without_a_border_and_not_under_the_last_row() {
+    let plan = contract::compile(
+        r##"component App
+  state show = true
+  action toggle
+    show = not show
+  view
+    list appearance="auto" width=320 height=320
+      section
+        row press=toggle testId="first" border-bottom-color="#0000ff"
+          text "First"
+        if show
+          row testId="last"
+            text "Last"
+"##,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).unwrap();
+    let id = host.by_test_id("first").unwrap();
+    let row = host.kernel().node(id).unwrap();
+    assert_eq!(row.style.border_widths_in(&host.kernel().env())[2], 0.0);
+    let f = row.frame;
+    let x = ((f.x + 16.0) / 8.0).round() as usize;
+    let right = ((f.x + f.width) / 8.0).round() as usize;
+    let y = ((f.y + f.height) / 16.0).round() as usize - 1;
+    let frame = host.frame();
+    assert_ne!(frame.grid.cell(x - 1, y).text, "─", "not in the inset");
+    for col in x..right {
+        assert_eq!(frame.grid.cell(col, y).text, "─", "column {col}");
+        assert_ne!(
+            frame.grid.cell(col, y).style.fg,
+            Some(exact_terminal::grid::Rgb(0, 0, 255)),
+            "the platform's ink"
+        );
+    }
+    host.press(id);
+    assert_ne!(
+        host.frame().grid.cell(x, y).text,
+        "─",
+        "the card's only row has none"
+    );
+    host.press(id);
+    assert_eq!(host.frame().grid.cell(x, y).text, "─");
+}
+
+/// LLP 1084 D7: a native button row as wide as its row stays in its card:
+/// its inset is its margin and its widest the card less its insets.
+#[test]
+fn a_full_width_native_button_row_stays_in_its_card() {
+    let plan = contract::compile(
+        r#"component App
+  view
+    list appearance="auto" width=320 height=320
+      section
+        button appearance="auto" width="100%" testId="native"
+          text "Native"
+        row
+          text "Last"
+"#,
+    )
+    .unwrap();
+    let host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).unwrap();
+    let row = host
+        .kernel()
+        .node(host.by_test_id("native").unwrap())
+        .unwrap();
+    let card = host.kernel().node(row.parent.unwrap()).unwrap();
+    assert_eq!(row.frame.x - card.frame.x, 16.0, "its inset");
+    assert!(
+        row.frame.x + row.frame.width <= card.frame.x + card.frame.width,
+        "inside the card: {:?} in {:?}",
+        row.frame,
+        card.frame
+    );
+}

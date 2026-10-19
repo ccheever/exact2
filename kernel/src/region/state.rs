@@ -591,6 +591,10 @@ impl TextMeasurer for Candidate<'_> {
     ) -> Option<TextMetrics> {
         self.measurer.field_text(kind, request)
     }
+
+    fn measure_revision(&self) -> u64 {
+        self.measurer.measure_revision()
+    }
     fn height_free(&self) -> bool {
         self.height_free
     }

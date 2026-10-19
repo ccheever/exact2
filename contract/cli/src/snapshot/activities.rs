@@ -1,7 +1,7 @@
 //! One state and one plan for all of an activity's placements (LLP 1126.001 WP8).
 use super::{entry::RenderEntry, refusal, Declaration, Entry, STATE_SLOT};
 use crate::{manifest::Activity, CompileError};
-use contract_syntax::{Expr, File, Node, Span};
+use contract_syntax::{Attr, Expr, File, Node, Span};
 use exact_plan::{ActivitySlotsRow, NodesId, Plan, TypeKind, TypesId, ACTIVITY_PLACEMENTS};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -104,12 +104,51 @@ pub(super) fn compile_file(
                     ));
                 }
                 slots(std::mem::take(children), "expanded.", found)?;
-            } else if found.insert(full.clone(), node).is_some() {
-                return Err(refusal(
-                    "snapshot-placement",
-                    format!("placement `{full}` repeats; keep one view per slot"),
-                    at,
-                ));
+            } else {
+                // A placement is an absolutely positioned box at the top left
+                // of its region (the viewport the driver lays it out in), so
+                // CSS 2.1 §10.3.7 gives a `width: auto` root the shrink-to-fit
+                // width, a percentage its share of the region, `min-width`
+                // and `max-width` their say, and `margin: auto` nothing; the
+                // Lock Screen and the expanded bottom region, which the system
+                // sizes, take the region's width through `right: 0`. The
+                // driver draws the root as this layout placed it, so the
+                // position is the system's, never the author's.
+                if let Some(a) = attrs.iter().find(|a| {
+                    matches!(
+                        a.name.as_str(),
+                        "position" | "left" | "top" | "right" | "bottom"
+                    )
+                }) {
+                    return Err(refusal(
+                        "snapshot-placement",
+                        format!(
+                            "`{}` on a placement: its position is the system's; remove it",
+                            a.name
+                        ),
+                        a.span,
+                    ));
+                }
+                let fills = matches!(full.as_str(), "lockScreen" | "expanded.bottom");
+                let add = |name: &str, value: Expr| Attr {
+                    name: name.into(),
+                    value,
+                    span: at,
+                    written: false,
+                };
+                attrs.push(add("position", Expr::Str("absolute".into(), at)));
+                attrs.push(add("left", Expr::Number(0.0, at)));
+                attrs.push(add("top", Expr::Number(0.0, at)));
+                if fills {
+                    attrs.push(add("right", Expr::Number(0.0, at)));
+                }
+                if found.insert(full.clone(), node).is_some() {
+                    return Err(refusal(
+                        "snapshot-placement",
+                        format!("placement `{full}` repeats; keep one view per slot"),
+                        at,
+                    ));
+                }
             }
         }
         Ok(())
@@ -176,11 +215,12 @@ pub(super) fn placements(plan: &mut Plan) -> Result<(), Vec<CompileError>> {
         )]);
     }
     for (name, root) in ACTIVITY_PLACEMENTS.into_iter().zip(roots) {
-        let name = if let Some(i) = plan.strings.iter().position(|s| s == name) {
+        let found = plan.strings.iter().position(|s| s == name);
+        let name = if let Some(i) = found {
             exact_plan::StrId(i as u32)
         } else {
             let i = exact_plan::StrId(plan.strings.len() as u32);
-            plan.strings.push(name.into());
+            plan.strings.push(name);
             i
         };
         plan.activity_slots.push(ActivitySlotsRow { name, root });

@@ -184,6 +184,19 @@ test('document handlers and TypeScript source mounts accept their manifest shape
 });
 
 
+test('watchFamilies admits only the four accessory families', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-watch-families-'));
+  try {
+    const write = watchFamilies => writeFileSync(resolve(dir,'app.json'), JSON.stringify({name:'Watch', app:{id:'com.exact.watch', name:'Watch'}, widgets:[{kind:'train',families:['systemSmall'],watchFamilies,component:'Card',props:'Props',refresh:'refresh',preview:{}}]}));
+    const families = ['accessoryCircular','accessoryRectangular','accessoryInline','accessoryCorner'];
+    write(families); assert.deepEqual(readManifest(dir,'watch').widgets[0].watchFamilies, families);
+    for (const family of ['systemSmall','systemMedium','systemLarge','systemExtraLarge']) {
+      write([family]); assert.throws(() => readManifest(dir,'watch'), /watchFamilies/);
+    }
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
 test('activity labels reject whitespace and control characters in schema validation', async () => {
   const {validate} = await import('./app.mjs');
   const schema = await Bun.file(new URL('./app.schema.json', import.meta.url)).json();
@@ -200,4 +213,17 @@ test('activity labels reject whitespace and control characters in schema validat
       }
     }
   }
+});
+
+
+test('requiresSecrets scopes the account placeholder to its widget entry', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-widget-account-'));
+  try {
+    const widget = { kind: 'card', families: ['systemSmall'], component: 'Card', props: 'Props', refresh: 'refresh', preview: {} };
+    const write = requiresSecrets => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Account', app: { id: 'com.exact.account', name: 'Account' }, widgets: [{ ...widget, requiresSecrets }, { ...widget, kind: 'public' }] }));
+    write(true); assert.equal(readManifest(dir, 'account').widgets[0].requiresSecrets, true);
+    assert.equal(readManifest(dir, 'account').widgets[1].requiresSecrets, undefined);
+    write('yes'); assert.throws(() => readManifest(dir, 'account'), /requiresSecrets/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -127,10 +127,8 @@ function check({ files, objects }) {
       got = src.corner ? v.corners?.[['topStart', 'topEnd', 'bottomEnd', 'bottomStart'].indexOf(src.corner)] : v.dp ?? v.number;
       from = src.token;
     } else if (src.source) {
-      const text = files[src.source] ?? '';
-      const m = text.match(new RegExp(`^(?:internal |private )?(?:const )?val ${src.name}\\s*(?::\\s*\\w+\\s*)?=\\s*([\\d.]+)(?:\\.dp|f)?\\s*$`, 'm'));
-      got = m ? +m[1] : undefined;
-      from = `${src.source} ${src.name}`;
+      got = src.expr ? evaluate(files[src.source] ?? '', src.expr) : constant(files[src.source] ?? '', src.name);
+      from = `${src.source} ${src.expr ?? src.name}`;
     } else if (src.defaults) {
       got = defaults?.[src.defaults];
       from = src.defaults + (defaults ? '' : ' (not read: run the reference, `oracle.mjs`, first)');
@@ -149,6 +147,23 @@ function check({ files, objects }) {
   }
   console.log(ok ? `every Material row is Compose Material 3 ${pinned}'s` : `rows differ from Compose Material 3 ${pinned}`);
   return ok;
+}
+
+/**
+ * A file's constant in dp or a plain number: a literal, or a sum or difference of literals and the file's other
+ * constants (`TopAppBarTitleInset = 16.dp - TopAppBarHorizontalPadding`).
+ */
+function constant(text, name, depth = 0) {
+  const m = text.match(new RegExp(`^(?:internal |private )?(?:const )?val ${name}\\s*(?::\\s*\\w+\\s*)?=\\s*(.+?)\\s*$`, 'm'));
+  return m && depth <= 8 ? evaluate(text, m[1], depth) : undefined;
+}
+
+/** `expr`, a sum, difference, product or quotient of dp literals and `text`'s constants, in dp. */
+function evaluate(text, expr, depth = 0) {
+  const numbers = expr.replace(/\b(\d+(?:\.\d+)?)(?:\.dp|f)?(?!\w)/g, '$1')
+    .replace(/\b([A-Za-z_]\w*)\b/g, (_, n) => String(constant(text, n, depth + 1) ?? NaN));
+  if (!/^[\d.\s()+\-*/]+$/.test(numbers)) return undefined;
+  return Function(`return (${numbers})`)();
 }
 
 /** D8's report: every token whose value changed, appeared or went, and every other source file that changed. */

@@ -399,6 +399,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             size.width as f32 / self.scale as f32,
             size.height as f32 / self.scale as f32,
         );
+        self.config.clock_started = Some(self.started);
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
                 p.surface_lifecycle(self.minimized || self.occluded, !self.focused);

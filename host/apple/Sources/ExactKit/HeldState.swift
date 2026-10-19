@@ -67,6 +67,9 @@ enum HeldState {
         dropped = nil
         if let held {
             if state == "active" { if !(held.pressed && !held.pressPaint.outside) { held.showPress(false) }; held.heldHighlight() } else { held.relook() }
+            #if os(iOS)
+            if state == "hover" { held.lookHover(NodeView.look("hover", in: held.pressPaint.lookBase ?? [:]) != nil) } // the hold's recognizer off again
+            #endif
         }
         if let reason { told?(reason) }
     }
@@ -109,6 +112,13 @@ enum HeldState {
         if path.contains(where: { $0 === held }) != over { letGo("input") }
     }
 
+    /// A pointer came over `node` or left it (iOS, its look recognizer): a
+    /// hover held there lets go, as on the Mac.
+    static func lookHovered(_ node: NodeView, _ over: Bool) {
+        guard !swapping, state == "hover", let held = view, held === node, over != self.over else { return }
+        letGo("input")
+    }
+
     /// The focus moved to `focus` (nil: none): a focus held lets go when the
     /// focus comes into its node or leaves it.
     static func focusMoved(to focus: PlatformView?) {
@@ -131,13 +141,13 @@ enum HeldState {
     /// on the node its press resolves to through the logical tree (a flat
     /// leaf or an inline run, which have no view, included), `hover` and
     /// `focus-visible` on the node's own view. The state held, or why not:
-    /// `gone`, `disabled`, or unsupported here (iOS's hover, or a state no
+    /// `gone`, `disabled`, or unsupported here (tvOS's hover, or a state no
     /// host knows).
     static func hold(_ state: String?, on id: UInt32, in presenter: Presenter, dropped: ((String) -> Void)?) -> (held: String?, reason: String?, unsupported: Bool) {
         letGo("replaced")
         guard let state else { return (nil, nil, false) }
         guard states.contains(state) else { return (nil, nil, true) }
-        #if os(iOS) || os(tvOS)
+        #if os(tvOS)
         if state == "hover" { return (nil, nil, true) }
         #endif
         var at: UInt32? = id, found: NodeView?
@@ -158,6 +168,12 @@ enum HeldState {
         // Over it now: a live hit test of the resting pointer (a new generation's tree included), else the path last seen.
         #if os(macOS)
         over = presenter.pointerOver(node) ?? pointerPath.contains { $0.view === node }
+        #elseif os(iOS)
+        // As its look recognizer last said (one put on for the hold has said
+        // nothing: the pointer is taken to be elsewhere, so it coming over the
+        // node lets the hold go).
+        over = node.pressPaint.hovered
+        if state == "hover" { node.lookHover(true) }
         #else
         over = false
         #endif
@@ -173,23 +189,29 @@ enum HeldState {
     /// (`:active` lowers to them), else the look's rows.
     static func rows(for id: UInt32, in presenter: Presenter) -> [String: Any]? {
         guard let held = view, let state, held.id == id || asked == id, presenter.views[held.id] === held else { return nil }
+        // The runner's `node` answer for the node it is held on: its own D7 rows (`:active` lowered to them) or its
+        // look's, each with the token it read (stage 9 E), and its site and instance path.
+        let node = presenter.session.flatMap { s -> [String: Any]? in
+            guard let data = s.agent("{\"op\":\"node\",\"id\":\(held.id),\"plan\":true}").data(using: .utf8) else { return nil }
+            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        let own = state == "active" ? node?["style"] as? [String: Any] : (node?["looks"] as? [String: Any])?[state == "hover" ? "hover" : "focus_visible"] as? [String: Any]
+        let names = state == "active" ? ["press_scale", "press_opacity", "press_opacity_to", "press_background_color", "press_color"] : (own ?? [:]).keys.sorted()
         var rows: [[String: Any]] = []
-        if state == "active" {
-            let style = presenter.session.flatMap { s -> [String: Any]? in
-                guard let data = s.agent("{\"op\":\"node\",\"id\":\(held.id)}").data(using: .utf8),
-                      let node = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
-                return node["style"] as? [String: Any]
+        for name in names {
+            if let row = own?[name] as? [String: Any], let value = row["value"] {
+                rows.append(["name": name, "value": value].merging(row["token"].map { ["token": $0] } ?? [:]) { a, _ in a })
+            } else if node == nil, state == "active", let value = held.style[name] {
+                rows.append(["name": name, "value": css(value)]) // (no runner: the batch's)
             }
-            for name in ["press_scale", "press_opacity", "press_opacity_to", "press_background_color", "press_color"] {
-                if let style { if let row = style[name] as? [String: Any], let value = row["value"] { rows.append(["name": name, "value": value]) } }
-                else if let value = held.style[name] { rows.append(["name": name, "value": css(value)]) } // (no runner: the batch's)
-            }
-        } else {
-            // The runner's `node` op carries no looks: the batch's look rows, as the runner's CSS text writes them.
+        }
+        if node == nil, state != "active" {
             let look = NodeView.look(state == "hover" ? "hover" : "focus_visible", in: held.pressPaint.lookBase ?? held.style) ?? [:]
             rows = look.keys.sorted().map { ["name": $0, "value": css(look[$0]!)] }
         }
-        return ["state": state, "rows": rows]
+        var answer: [String: Any] = ["state": state, "node": Int(held.id), "rows": rows]
+        if let site = node?["site"] { answer["site"] = site; answer["instance"] = node?["instance"] ?? [] }
+        return answer
     }
 
     /// A batch value as the runner's CSS text writes it (runner/src/agent/row.rs):

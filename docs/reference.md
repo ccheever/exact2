@@ -405,6 +405,34 @@ installed profiles by its id. An archive (`--archive`) matches the extension's
 profile to the named one's method, and an Ad Hoc pair must cover the same
 devices.
 
+On macOS, `bun host/apple/build.mjs --run` packages the app's widgets in
+`Contents/PlugIns`. The Mac keeps `systemSmall`, `systemMedium`, `systemLarge`
+and `systemExtraLarge`; if no families remain it builds no extension. Live
+Activities do not create a Mac extension. The extension uses the same runtime
+framework and snapshot driver, in its own sandbox with outbound network access.
+The app keeps its existing sandbox policy and loads the reload arm on demand.
+
+Development Mac widgets need an Apple Development identity (`EXACT_IDENTITY`
+can name its SHA-1 or full certificate name). Without one, the build prints a
+notice and builds the ordinary app ad hoc, with no extension; agent drives,
+smokes and metrics remain available. Selecting a Developer ID identity for a
+development build takes the same ad hoc path. Distribution widgets use the
+Developer ID Application identity selected for release.
+Their container is `<TEAMID>.<app id>.widgets`, separate from iOS's group.
+Shared secrets additionally need matching macOS profiles for the app and
+`<app id>.widgets`, granting that container (or `<TEAMID>.*`) and the restricted
+Keychain group `<prefix>.<app id>` (or `<prefix>.*`). `EXACT_PROFILE` can name
+the app's profile; an iOS profile is ignored with a notice. Both are embedded
+when available. Without them, entries marked `"requiresSecrets": true` show
+the “Open app” placeholder;
+set this on each refresh that reads account data, leaving public entries false.
+Those entries neither read the app's login Keychain nor reuse cached account content.
+The first provisioned app launch moves its login-Keychain items to the shared
+data-protection Keychain, deleting each old item only after the copy succeeds.
+The move is one-way: an unprovisioned build cannot read the moved items.
+Unreadable items remain for the next launch; a migration error leaves I/O bound.
+Caltrain and Shelf need no shared secrets. See LLP 1126.001 WP16 and §5 Q5.
+
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
@@ -442,7 +470,51 @@ measures its `fit_content_height`. `snapshot_viewport` thus reads the current
 region's size; no app-visible slot selector is injected. The other slots' frames
 are not a shared surface layout. Rendering remains read-only, with the same
 clock, request, input and handler refusals as widgets. `time` and `progress`
-remain platform live views. Activity rendering and sends are separate host work.
+remain platform live views.
+
+The extension renders every activity through one `ActivityConfiguration` for
+the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10), a
+thin adapter over `ExactSnapshot`'s `ActivityResolver`: the attributes' `kind`
+names the plan, `plans/<kind>.plan` in the generation the attributes name,
+which is the one published under that name in the installed cohort or the
+bundle's embedded plans when their identity (`ExactWidgetGeneration`) makes
+that generation; any other generation is refused, the activity shows "Open
+<app>" until the app publishes again, and nothing is rendered in its place.
+The state is the envelope's when its shape digest is the registry's and the
+plan decodes it (then kept as the activity's last good state), else the last
+decodable state kept for the activity id (shown dimmed, the driver's outdated
+presentation; the system's `isStale` is the system's own), else the preview,
+redacted as a placeholder. A render is keyed by the activity, its generation,
+the state's bytes and every fact the session reads (the text size, Bold Text,
+contrast, transparency, the scheme, the display scale, the locale and time
+zone); the eight placements of one push share it. A placement's view answers
+the system's size proposals from the kernel (`ActivityRender`): the bake
+positions each placement's root absolutely at its region's top left, so in
+the region's viewport CSS 2.1 §10.3.7 gives a `width: auto` root the
+shrink-to-fit width (an authored `width` or `min-width` is kept, past the
+region too; a percentage resolves against the region; `margin: auto` is
+nothing; `flex-basis` does not apply, the root being no flex item), and the
+Lock Screen and expanded bottom roots, which the system sizes, take the
+region through `right: 0`. That one layout is measured and drawn: the region
+reports the root's margin box, a paragraph the region wrapped settles to its
+widest ink line, a content the region cannot hold is cut at the region, and
+each view draws the layout its size was measured from, whatever region's
+proposal last laid the session out. The Lock Screen placement sits inside the
+system's content margins or, where the system gives none, the standard
+layout margin for Live Activities on the Lock Screen, 14 points (Human
+Interface Guidelines, Live Activities: "The standard layout margin for Live
+Activities on the Lock Screen is 14 points"); its root's `background-color`
+is the `activityBackgroundTint`, its `background-image`'s gradient layers
+paint full bleed behind the margins over that tint, and both unsaid leave the
+system's material. A Live Activity's content is account content as a
+widget's is (D8): private on a locked phone but for a node that says
+`data-privacy="public"`, which Caltrain's placements do, a train's departure
+being nobody's account. A link in the Lock Screen or an expanded region is a
+`Link`; the first link of any placement is its URL. The development gallery
+shows the eight placements with the Island's geometry of one device (the
+iPhone 17 Pro's, `IslandGeometry`), its expanded regions allocated together
+as ActivityKit arranges them.
+The sends that start, update and end an activity are LLP 1126.001 WP9.
 
 The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
 `activities/<kind>.d.ts` (exporting `State`, `Attributes` and `ContentState`). The
@@ -470,9 +542,31 @@ flag. A failed write returns an error to the caller. ActivityKit's `isStale` is 
 fact. Rendering across a compatibility-changing binary update remains subject
 to LLP 1126.001 §5 Q6's pending ruling.
 
+`bun host/apple/build.mjs --watchos --no-install` builds a watch simulator
+companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
+--watch-sim <watch udid>` installs it on an existing, booted pair and opens its
+placeholder gallery. Add a complication through the watch face's editor.
+The watch extension keeps the accessory families (`accessoryCircular`,
+`accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
+`accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
+families; `families` still names its iOS families. An app with `app.ts` has all
+watch entries omitted with a message, including its Rust refreshes, until the
+watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
+refresh against the watch's own App Group and store. No account transfer is
+performed. The watch app is a placeholder gallery until the live driver lands.
+For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
+optional image. Only that leaf and image survive the inline archive; a
+container's background and layout do not. The bake evaluates the preview at
+225 × 26, 168 × 11.5 and 13.5 × 13.5 pt; at runtime the driver checks the actual
+size and props.
+A violation refuses the bake with an edit, or logs the entry name and renders
+“Open <app>” at runtime, including in the gallery (LLP 1126 D4). See
+Apple's [inline family](https://developer.apple.com/documentation/widgetkit/widgetfamily/accessoryinline).
+
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers
-fail with an edit. A snapshot declares no resource. The one fact a render reads
+fail with an edit. The author declares no resource; the bake synthesizes the
+`exactViewport` resource for the size inject. The one fact a render reads
 is the family's size, through the reserved inject `snapshot_viewport`: write
 `inject` with `snapshot_viewport: <shape>` on the entry's component (or one it
 uses; every injecting component names one shape), and the entry's plan
@@ -645,6 +739,10 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
+A Mac agent drive never takes the focus: the app is an accessory, never activated (a `type` makes its window key
+without activating it), so AppKit draws its controls as in an inactive app. `EXACT_AGENT_ACTIVATE=1`, which only
+`scripts/measure-controls.mjs` sets (never a default), activates that one run, and the app that was in front is put
+back when it exits, however it exits (LLP 1121 stage 9 F2).
 Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
@@ -817,7 +915,8 @@ the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
 one in flight: the module's storage queue is full, LLP 1097), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
-A drive's app storage is a scratch store it names (`--storage <name>`) or none.
+A drive's app storage is a scratch store it names (`--storage <name>`), on a
+native host `default` when it names none, or none (a web drive naming none).
 A native one is kept between drives until a drive passes `--reset-storage`, which
 empties all of it (`app:/` files, SQLite, kept state, secrets) at the app's boot
 and refuses a store reached through a symbolic link; one drive holds a native store
@@ -827,7 +926,7 @@ one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary
 roots across launches. A fresh drive clears them; the picker's temporary documents
-alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
+alone are cleared on each launch. A web drive with no `--storage` refuses app storage (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`; a file
 read rejects `ENOENT` instead, as an empty store's) and keeps
 no secrets. The driver's `state.storage` says
@@ -1401,7 +1500,7 @@ on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
 picker panel (a drive's held pickers still answer), so outside a drive only
 `open-file` delivers one there. The handles end with the
-session: nothing about a document is remembered across launches.
+session, unless the app keeps what the person chose (below).
 
 **A change on disk asks the answer again** (LLP 1069.010.000 D1). An answer
 that calls `storage.fs.watch(path)` is asked again when the file, a folder's
@@ -1430,6 +1529,34 @@ is refused with code `ECHANGED` and nothing is written (a file that is gone
 refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
+
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS). An
+app granted `doc.keep` keeps exactly what the person chose — a file or folder
+from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
+typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
+reads again after a relaunch, in any of the app's windows, with no panel.
+The kept set is File ▸ Open Recent's: Clear Menu, or an entry falling off
+the end of the list, ends its reopening (a window that has it open keeps it
+until the app quits).
+
+```ts
+export const grants = ['fs.read doc:/', 'doc.keep'].join('\n');
+storage.fs.watch('doc:/');                       // asked again when the list changes
+const recent = await storage.fs.recentDocuments();
+// [{ path: 'doc:/12/notes', name: 'notes', kind: 'directory', mode: 'readwrite', opened: 1760572800000 }, …]
+await storage.fs.forgetDocument(recent[0].path); // off the list and Open Recent; ENOENT if not kept
+```
+
+A Rust source sends `fs.recentDocuments` and `fs.forgetDocument` storage
+requests (`apps/markdown/data`). A kept item is the object chosen: a move
+or rename is followed and keeps its path (`<name>` is the name it was
+chosen by); a file another program replaced at its name is not the
+document, and the app's own `atomicWriteFile` carries the entry to the file
+it wrote (from Rust; not yet from TypeScript). A path whose entry is gone
+refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
+both calls are refused. Under the agent the kept set is the drive's scratch
+store (`--storage`), never the person's. Linux and iOS keep nothing yet and
+list nothing; the web has neither call yet.
 
 ### Bake and deliver a TypeScript module
 
@@ -1474,8 +1601,9 @@ For a module client's `build.rs`, depend on `exact-js-bake` and call
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
 `REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
 names, which includes `baked.rs`: `exact_plan()` and `exact_compat()`. An Apple build
-(`host/apple/build.mjs`) bakes before Cargo and links the plan and `compat.json` into
-the executable, so an edit that changes only the plan compiles no Rust. With a store (`"A"`), a signed update carries the module pair under
+(`host/apple/build.mjs`) bakes before Cargo and links the plan, `compat.json` and the
+module's bytecode into the executable, so an edit to the Contract or the TypeScript alone
+compiles no Rust; there `module.rs` has no `REVISION`. With a store (`"A"`), a signed update carries the module pair under
 `typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
 and exactly its grants. An app with both a TypeScript and a Rust module still sets its
 `deploy.store` entries to `"0"`: signed delivery of both is not implemented.

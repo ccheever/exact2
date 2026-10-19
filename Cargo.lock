@@ -1228,6 +1228,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "getrandom 0.3.4",
+ "libc",
  "p256",
  "same-file",
  "serde_json",
@@ -1394,6 +1395,7 @@ dependencies = [
  "exact-runner",
  "exact-svg-raster",
  "exact-textflow",
+ "exact-update",
  "fontconfig-parser",
  "fontique",
  "getrandom 0.3.4",
@@ -1525,7 +1527,6 @@ version = "0.1.0"
 name = "exact-markdown-editor"
 version = "0.1.0"
 dependencies = [
- "exact-kernel",
  "exact-markdown",
 ]
 
@@ -1598,6 +1599,7 @@ dependencies = [
  "contract",
  "exact-canvas",
  "exact-grants",
+ "exact-js-value",
  "exact-kernel",
  "exact-motion",
  "exact-num",
@@ -1639,6 +1641,7 @@ name = "exact-terminal"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "caltrain",
  "chrono",
  "chrono-tz",
  "contract",
@@ -3208,6 +3211,37 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "module-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "module-fixture-data",
+]
+
+[[package]]
+name = "module-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-data",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "module-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "module-fixture-data",
 ]
 
 [[package]]
@@ -5884,6 +5918,18 @@ dependencies = [
  "log",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "weatherlight-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]

@@ -39,7 +39,7 @@ mod grouped;
 mod handlers;
 mod headings;
 mod icon_svg;
-mod icons;
+pub mod icons;
 mod identity;
 mod intersect;
 mod keyframes;
@@ -54,6 +54,7 @@ mod nodes;
 mod overflow;
 pub mod params;
 mod routes;
+mod scale;
 mod shorthands;
 mod sites;
 mod sounds;
@@ -81,9 +82,54 @@ pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
-pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
+
+/// A line of a design joined with its packages' (LLP 1121 D11): the
+/// package design's index and its line in that file; none for the app's.
+pub fn package_line(line: u32) -> Option<(usize, u32)> {
+    theme::packages::band(line)
+}
+
+/// `design` (the app's, or none) with its packages' designs' tokens joined,
+/// as the build folds them (LLP 1121 D11); what it refuses of them is the
+/// build's to say.
+pub fn with_package_designs(
+    design: Option<exact_tamber::Design>,
+    packages: &[contract_syntax::DesignSource],
+) -> Option<exact_tamber::Design> {
+    theme::packages::merge(design, packages).0
+}
+
+/// [`with_package_designs`], and what the build refuses of the packages'
+/// designs before the fold (each at its line in its file).
+pub fn join_package_designs(
+    design: Option<exact_tamber::Design>,
+    packages: &[contract_syntax::DesignSource],
+) -> (Option<exact_tamber::Design>, Vec<LowerError>) {
+    theme::packages::merge(design, packages)
+}
+
+/// What the build refuses of a folded joined design's package tokens: a
+/// name, a pair or a dial that isn't theirs to name (LLP 1121 D11).
+pub fn package_references(
+    folding: &exact_tamber::Folding,
+    packages: &[contract_syntax::DesignSource],
+) -> Vec<LowerError> {
+    theme::packages::references(folding, packages)
+}
+
+/// Package `band`'s `line` as a joined design numbers it, and a message's
+/// `line N` in a band as its file's line (LLP 1121 D11).
+pub fn package_band_line(band: usize, line: u32) -> u32 {
+    theme::packages::banded(band, line)
+}
+
+/// A message with each `line N` in a package's band as that file's line.
+pub fn package_unband(message: &str) -> String {
+    theme::packages::unband(message)
+}
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
 pub use theme::{retention, synthetic_candidates};
 pub use warnings::{warnings, MAX_WARNINGS};
@@ -137,6 +183,7 @@ pub(crate) struct Lowerer<'a> {
     text_styles: Option<&'a mut warnings::TextStyles>,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
+    pub canvas_targets: std::collections::BTreeSet<String>,
     pub ty_ids: BTreeMap<String, TypesId>,
     pub slots: Vec<exact_plan::SlotsId>,
     pub derives: Vec<exact_plan::DerivesId>,
@@ -285,7 +332,6 @@ fn lower_with_sites(
         expanded: ex,
     } = checked;
     let root = &ex.root;
-    let root_types = &types.components[0];
     let is_fn = |name: &str| file.fns.iter().any(|f| f.name == name);
     let shared: Vec<Expr> = file
         .fns
@@ -299,6 +345,11 @@ fn lower_with_sites(
         text_styles,
         types,
         root,
+        canvas_targets: file
+            .components
+            .iter()
+            .flat_map(|c| stmts::canvas_targets(&c.view))
+            .collect(),
         ty_ids: BTreeMap::new(),
         slots: Vec::new(),
         derives: Vec::new(),
@@ -336,6 +387,49 @@ fn lower_with_sites(
         texts_used: Default::default(),
         profile,
     };
+    // A refusal that stops lowering is said after those collected before it
+    // (a refused token, then a statement no plan can hold), never in their
+    // place.
+    match lower_body(&mut l, checked, asset_root) {
+        Ok(()) => {
+            let plan = l.b.finish().map_err(|e| LowerError {
+                id: "lower-invalid-plan",
+                message: format!("{e:?}"),
+                span: root.span,
+            })?;
+            Ok((plan, l.sites))
+        }
+        Err(fatal) => {
+            let mut all = std::mem::take(&mut l.errors);
+            for e in fatal {
+                if !all
+                    .iter()
+                    .any(|o| o.id == e.id && o.span == e.span && o.message == e.message)
+                {
+                    all.push(e);
+                }
+            }
+            all.truncate(MAX_REFUSALS);
+            Err(all)
+        }
+    }
+}
+
+/// [`lower_with_sites`]'s declarations, bodies and view into `l`, for its
+/// plan: a refusal of its own as `Err`, those collected left in `l.errors`
+/// (an empty `Err` when only those stop it).
+fn lower_body(
+    l: &mut Lowerer<'_>,
+    checked: &Checked<'_>,
+    asset_root: Option<&Path>,
+) -> Result<(), Vec<LowerError>> {
+    let Checked {
+        file,
+        types,
+        expanded: ex,
+    } = checked;
+    let root = &ex.root;
+    let root_types = &types.components[0];
     l.declare_fonts(file, asset_root)?;
     l.declare_sounds(file, asset_root)?;
     // Bound before any style is parsed, the profiles first: an entry may be
@@ -421,14 +515,48 @@ fn lower_with_sites(
         let id = l.b.resource(&r.name, &r.source, &[], ty, None);
         l.resources.push(id);
     }
-    // The seam's signatures (LLP 1027 D2), in name order.
-    for (name, (params, ty)) in &root_types.sources {
+    // The seam's signatures (LLP 1027 D2), in name order; a native module's
+    // names among them are routed to the native slot (LLP 1133.002 D13).
+    // A used module's other names are there too, unread: its substitute reads
+    // them (its status, the source a send answers from).
+    let mut sources = root_types.sources.clone();
+    let used: Vec<&str> = (file.modules.iter())
+        .filter(|m| sources.contains_key(&m.name))
+        .map(|m| m.extension.as_str())
+        .collect();
+    for m in file
+        .modules
+        .iter()
+        .filter(|m| used.contains(&m.extension.as_str()))
+    {
+        let options = format!("{}__options", m.name);
+        let params = match l.types.shapes.map.contains_key(&options) {
+            true => vec![Ty::Record(options)],
+            false => Vec::new(),
+        };
+        if let Ok(ty) = l.types.shapes.resolve(&m.answers) {
+            sources.entry(m.name.clone()).or_insert((params, ty));
+        }
+    }
+    for (name, (params, ty)) in &sources {
         let mut ids = Vec::with_capacity(params.len());
         for p in params {
             ids.push(l.ty_id(p)?);
         }
         let ty = l.ty_id(ty)?;
-        l.b.source(name, &ids, ty);
+        let id = l.b.source(name, &ids, ty);
+        if let Some(m) = file.modules.iter().find(|m| m.name == *name) {
+            l.b.module(
+                id,
+                &m.extension,
+                &m.declared,
+                m.kind == contract_syntax::ModuleKind::Send,
+                m.live,
+                &m.request,
+                m.sync.as_deref().unwrap_or(""),
+                &m.substitute,
+            );
+        }
     }
     // A mutation is a slot of `option<T>`, `none` at boot, plus its row.
     for (i, m) in root.mutations.iter().enumerate() {
@@ -599,12 +727,11 @@ fn lower_with_sites(
             view[0].span(),
         ));
     }
-    l.host_transforms = tags::host_transform_recipients(&l, view);
+    l.host_transforms = tags::host_transform_recipients(l, view);
     l.nodes(view, None, None, &scope, 0, None)?;
     if !l.errors.is_empty() {
         // Row slots name regions a refused element may not have lowered.
-        l.errors.truncate(MAX_REFUSALS);
-        return Err(l.errors);
+        return Err(Vec::new());
     }
     // Child state (LLP 1017 P4c): each lifted state is initialized where its
     // instance is created — in its owning arm's scope, now that the arms
@@ -638,16 +765,15 @@ fn lower_with_sites(
         }
     }
     l.bake_texts()?;
+    // A refusal said after the elements' (none yet): never a plan beside it.
+    if !l.errors.is_empty() {
+        return Err(Vec::new());
+    }
     // @ref LLP 1121 D10 — the icons a computed source may name.
     for icon in icons::kept() {
         l.b.icon(&icon.name, &icon.sf, &icon.view_box, &icon.path, &icon.svg);
     }
-    let plan = l.b.finish().map_err(|e| LowerError {
-        id: "lower-invalid-plan",
-        message: format!("{e:?}"),
-        span: root.span,
-    })?;
-    Ok((plan, l.sites))
+    Ok(())
 }
 
 impl<'a> Lowerer<'a> {
@@ -1098,8 +1224,8 @@ impl<'a> Lowerer<'a> {
                 // CSS's one-to-four-value box shorthands: a binding a side.
                 if values::four_sided(rows) {
                     let fns = &self.fns;
-                    values::computed_list(&a.name, &a.value, &|f| fns.get(f).map(|(_, b)| *b))?;
-                    if let Some(sides) = values::sides(&a.name, &a.value)? {
+                    shorthands::computed_list(&a.name, &a.value, &|f| fns.get(f).map(|(_, b)| *b))?;
+                    if let Some(sides) = shorthands::sides(&a.name, &a.value)? {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };
@@ -1241,6 +1367,7 @@ impl<'a> Lowerer<'a> {
 /// declares). The driver finds what is on disk (`DesignSource::bindable`).
 pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentTypes) -> bool {
     file.design.as_ref().is_some_and(|d| d.bindable)
+        || file.package_designs.iter().any(|d| d.bindable)
         || root
             .sources
             .keys()

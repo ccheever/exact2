@@ -345,7 +345,7 @@ final class RegionReaderParagraph {
             }
             return false
         }
-        let box = node.contentBox()
+        let box = node.paragraphBox()
         let frame = imageFrame.offsetBy(dx: box.minX, dy: box.minY)
         guard ink.superlayer !== layer || ink.frame != frame || (ink.contents as AnyObject?) !== surface else { return true }
         CATransaction.begin()

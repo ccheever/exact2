@@ -4,13 +4,17 @@ use exact_game::{Sim, Transform};
 use small_game_logic::SmallGame;
 use small_game_logic::{Beacon, Options};
 
+/// The world every test here starts from.
+fn start(options: Options) -> Sim<SmallGame> {
+    Sim::new(options).unwrap()
+}
+
 #[test]
 fn movement_and_light() {
-    let mut game = Sim::<SmallGame>::new(Options {
+    let mut game = start(Options {
         seed: 7,
         ..Options::default()
-    })
-    .unwrap();
+    });
     // A new game has no verified pins until its first three-mode proof.
     let pins = include_str!("../../pins.json");
     #[derive(Default, exact_game::Data)]
@@ -52,11 +56,10 @@ fn acceleration_braking_and_ballistic_jump() {
     const TICK_MS: f64 = 8.334;
     const APEX_TOLERANCE: f32 = 0.000_1;
 
-    let mut game = Sim::<SmallGame>::new(Options {
+    let mut game = start(Options {
         seed: 7,
         ..Options::default()
-    })
-    .unwrap();
+    });
     game.hold("KeyW", 100.0);
     assert!(
         game.global_position("player").unwrap().z < 0.0
@@ -75,11 +78,10 @@ fn acceleration_braking_and_ballistic_jump() {
     assert_eq!(game.global_position("player").unwrap(), stopped);
 
     let saved = game.save().unwrap();
-    let mut reference = Sim::<SmallGame>::new(Options {
+    let mut reference = start(Options {
         seed: 7,
         ..Options::default()
-    })
-    .unwrap();
+    });
     reference.restore(&saved).unwrap();
     game.tap("Space");
     reference.tap("Space");
@@ -121,11 +123,10 @@ fn acceleration_braking_and_ballistic_jump() {
 #[test]
 fn proximity_nearest_unlit_plinths_bounds_and_restart() {
     use exact_game::{Mesh, Value};
-    let mut game = Sim::<SmallGame>::new(Options {
+    let mut game = start(Options {
         seed: 7,
         ..Options::default()
-    })
-    .unwrap();
+    });
     assert_eq!(game.world().published("near").unwrap().as_str(), Some(""));
     assert_eq!(
         *game.get::<Mesh>("plinth-1").unwrap(),
@@ -172,7 +173,7 @@ fn proximity_nearest_unlit_plinths_bounds_and_restart() {
 #[test]
 fn starter_keeps_grid_sky_fog_pads_and_saved_glow() {
     use exact_game::{Environment, Glow, Material};
-    let game = Sim::<SmallGame>::new(Options::default()).unwrap();
+    let game = start(Options::default());
     let w = game.world();
     let env = w.resource::<Environment>();
     assert_eq!(env.fog.unwrap().color, env.background);
@@ -186,7 +187,7 @@ fn starter_keeps_grid_sky_fog_pads_and_saved_glow() {
 
 #[test]
 fn held_w_matches_the_closed_form_acceleration_series() {
-    let mut game = Sim::<SmallGame>::new(Options::default()).unwrap();
+    let mut game = start(Options::default());
     game.hold("KeyW", 1500.);
     // v_k = min(k*a/h, v), d_n = a*m*(m+1)/(2*h*h)+(n-m)*v/h.
     let (h, n, a, v): (f64, f64, f64, f64) = (120., 180., 12., 4.);

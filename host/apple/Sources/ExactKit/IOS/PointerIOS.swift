@@ -19,7 +19,7 @@ extension Presenter {
     /// samples (the agent's pan, a long press) read it too.
     func client(_ windowPoint: CGPoint) -> CGPoint {
         let p = viewport.convert(windowPoint, from: nil)
-        return CGPoint(x: p.x - viewport.bounds.minX, y: p.y - viewport.bounds.minY)
+        return CGPoint(x: p.x - viewport.pageOrigin.x, y: p.y - viewport.pageOrigin.y)
     }
 }
 #endif

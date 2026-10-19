@@ -20,6 +20,8 @@ package final class TextArea: NSTextView {
 
     weak var owner: NodeView?
     package var markup: MarkdownEditing?
+    /// A plain textarea's painted decorations (LLP 1114.007).
+    var decorations: FieldDecorations?
     var nativeOrigin: NSPoint?
     // AppKit asks the first responder for the mask: the native bezel's
     // scroll view, or the bare node's whole authored box.
@@ -94,18 +96,23 @@ package final class TextArea: NSTextView {
     package override func unmarkText() {
         guard let owner else { super.unmarkText(); return }
         owner.settlingComposition(self) { super.unmarkText() }
+        // A commit that changes no text posts no change: paint held back
+        // while it was marked catches up here.
+        owner.restyleDecorations()
     }
 
-    package override func insertTab(_ sender: Any?) {
-        if markup != nil { super.insertTab(sender) } else { window?.selectNextKeyView(self) }
-    }
-    package override func insertBacktab(_ sender: Any?) {
-        if markup != nil { super.insertBacktab(sender) } else { window?.selectPreviousKeyView(self) }
-    }
+    /// Tab and Shift-Tab move the focus, the Markdown editor's too, as the
+    /// web's textarea does; an app that wants a tab or an indent prevents
+    /// the `key` and calls `setRangeText` (LLP 1045 D6).
+    package override func insertTab(_ sender: Any?) { window?.selectNextKeyView(self) }
+    package override func insertBacktab(_ sender: Any?) { window?.selectPreviousKeyView(self) }
 
+    /// Return: the app's `beforeinput` first, then the Markdown editor's
+    /// list continuation, else a line break (LLP 1045 D6).
     package override func insertNewline(_ sender: Any?) {
-        if markup != nil, !hasMarkedText(), owner?.formatMarkup("newline") == true { return }
-        super.insertNewline(sender)
+        guard markup != nil, !hasMarkedText(), let owner else { super.insertNewline(sender); return }
+        let line = { if !owner.formatMarkup("newline") { super.insertNewline(sender) } }
+        if let fields = owner.presenter?.fieldSelections { fields.nativeEdit(owner, replacement: "\n", marked: false, line) } else { line() }
     }
 
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -179,6 +186,7 @@ package final class TextArea: NSTextView {
     var placeholderColor: NSColor? { didSet { if placeholderColor != oldValue { needsDisplay = true } } }
     package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        decorations?.drawLines(in: self)
         if string.isEmpty, !placeholder.isEmpty {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
@@ -292,6 +300,7 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        restyleDecorations()
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
         applyTextChecking(f)

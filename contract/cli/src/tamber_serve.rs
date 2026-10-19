@@ -69,7 +69,7 @@ mod scrub;
 mod walk;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.11";
+pub const PROTOCOL: &str = "tamber/1.14";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -354,8 +354,7 @@ impl Server {
         };
         server.same_state()?;
         server.recover()?;
-        // A journal's removal flushed before its temporaries go: unflushed,
-        // the journal could come back without them.
+        // A journal's removal flushed before its temporaries go: unflushed, the journal could come back without them.
         if sync_dir(&server.state()).is_ok() {
             server.sweep();
         }
@@ -632,18 +631,19 @@ impl Server {
             Some("scrub-fold") => vec![reply(self.scrub_fold(&request))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
-            // The wire's own, for `history`, `revert` and `import`.
+            // The wire's own: history, revert, a re-import's marks (sources are read alone).
             Some("compare") => vec![reply(crate::tamber_history::compare(&request))],
             Some("revert-plan") => {
                 vec![reply(self.read_files(true).and_then(|now| {
                     crate::tamber_history::revert_plan(&request, &now)
                 }))]
             }
-            Some("import-plan") => vec![reply(self.texts().and_then(|now| {
-                let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
-                let kept = crate::tamber_export::kept(&self.dir.join(&self.design));
-                crate::tamber_import::plan(&request, design.map_or("tamber app\n", |t| t), &kept)
-            }))],
+            Some("import-plan") if crate::tamber_import::marks_only(&request) => {
+                vec![reply(self.texts().and_then(|now| {
+                    let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
+                    crate::tamber_import::plan(&request, design.map(String::as_str), &[])
+                }))]
+            }
             Some("export") => vec![reply(self.export(&request))],
             other => vec![reply(Err(
                 json!({"message": format!("no method {}", other.unwrap_or("(none)"))}),
@@ -723,12 +723,8 @@ impl Server {
         request: &Value,
         app: &contract::tamber_params::AppParams,
     ) -> Result<(Snapshot, exact_tamber::Folding, exact_tamber::Design), Value> {
-        let params = app.tokens.as_slice();
-        if params.is_empty() {
-            let (snap, folding) = self.design(request)?;
-            let design = folding.design.clone();
-            return Ok((snap, folding, design));
-        }
+        // Folded as the build folds it (an icon naming another included),
+        // with or without params.
         let snap = self.snapshot()?;
         let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
         let text = &snap
@@ -776,11 +772,15 @@ impl Server {
         let (_, folding) = self.design(&json!({}))?;
         let text = exact_tamber::export::dtcg(&folding, &self.vocab)
             .map_err(|all| refused(&self.design, all))?;
+        // `keep: false` (below write, stage 10 A1): keeping one can prune another's.
+        let digest = exact_tamber::export::digest(&text); // what a client's `import` names as its baseline (stage 10b)
+        if request.get("keep") == Some(&json!(false)) {
+            return Ok(json!({"kind": "dtcg", "text": text, "baseline": null, "digest": digest}));
+        }
         let kept = crate::tamber_export::keep(&self.dir.join(&self.design), &text)
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
         Ok(json!({
-            "kind": "dtcg",
-            "text": text,
+            "kind": "dtcg", "text": text, "digest": digest,
             "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
         }))
     }
@@ -837,6 +837,15 @@ impl Server {
             .iter()
             .map(|d| located(&file, d, &app))
             .collect();
+        // Each icon's entry says which source each shipped target draws
+        // (LLP 1121 stage 9 C, *1.12*).
+        if let Some(icons) = ir["icons"].as_array_mut() {
+            for entry in icons {
+                if let Some(icon) = folding.icons.iter().find(|i| entry["name"] == i.name) {
+                    entry["draws"] = crate::tamber_explain::draws(&self.dir, icon);
+                }
+            }
+        }
         Ok(
             json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
         )
@@ -934,6 +943,15 @@ impl Server {
     /// on, and the tokens those values name, as the checker resolved them.
     fn explain(&self, request: &Value) -> Result<Value, Value> {
         let (snap, folding, name) = self.lookup(request)?;
+        // An icon, an icon param's too (D10, *1.12*).
+        let app = self.app_params();
+        // The design asked about (`file`), whose lines set the app's values.
+        let design = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        if let Some(icon) =
+            crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
+        {
+            return Ok(icon);
+        }
         let (token, declared) = folding
             .tokens
             .iter()
@@ -947,9 +965,13 @@ impl Server {
                 json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value})
             })
             .collect();
-        Ok(
-            json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)}),
-        )
+        let mut out = json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)});
+        // A param (D15): where it is declared, its default as written, and
+        // the design's line that sets the app's value, *1.12*.
+        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
+            out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
+        }
+        Ok(out)
     }
 
     /// Where the app reads a token (`crate::tamber_uses`): each plan site
@@ -960,13 +982,24 @@ impl Server {
     /// `outline`).
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
         let (snap, folding, name) = self.lookup(request)?;
-        if !folding.tokens.iter().any(|t| t.name == name) {
+        let icon = folding.icons.iter().any(|i| i.name == name);
+        if !icon && !folding.tokens.iter().any(|t| t.name == name) {
             return Err(no_token(&folding, &name));
         }
         // A design file the app does not build has no sites.
         if optional(request, "file")?.is_some_and(|f| f != self.design) {
             return Ok(
                 json!({"token": name, "plan": null, "sites": [], "aliases": [], "files": files_json(&snap)}),
+            );
+        }
+        // An icon's image sites, an icon param's too (stage 9 C2, *1.12*).
+        if icon {
+            return crate::tamber_explain::icon_uses(
+                &self.dir,
+                &self.design,
+                &self.app_params(),
+                &snap,
+                &name,
             );
         }
         let aliases = contract::tamber_uses::aliases(
@@ -999,8 +1032,22 @@ impl Server {
                 &aliased,
             )
             .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+            // Each instance at the element or style holding a literal is a
+            // site (stage 9 C2, *1.12*).
+            let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
+                .map_err(
+                    |e| json!({"message": format!("the app does not build: {}", e.message)}),
+                )?;
+            let map: Value = serde_json::from_str(&map.json(&plan.encode()))
+                .map_err(|e| json!({"message": format!("source map: {e}")}))?;
+            let sites = contract::tamber_uses::motion_instances(
+                &self.dir.join("app.contract"),
+                sites,
+                &map,
+            )
+            .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
             return Ok(
-                json!({"token": name, "plan": null, "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
+                json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
             );
         }
         let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
@@ -1034,7 +1081,10 @@ impl Server {
             .iter()
             .filter(|(p, _, d)| {
                 (ops.iter().any(|(f, _)| f == p) || contract_ops.iter().any(|(f, _)| f == p))
-                    && match seen.get(p) {
+                    // A held proposal's base gives a file it planned on
+                    // and left as it was (a style op with no `file` that
+                    // changed nothing there) in `requires`: as seen.
+                    && match seen.get(p).or_else(|| requires.get(p)) {
                         Some(s) => s != d,
                         None => write,
                     }
@@ -1403,12 +1453,12 @@ fn temp_name(name: &str) -> bool {
         .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
 }
 
-/// Why `explain` or `uses` has no token `name`: an icon (a param's too) is
-/// read through `describe` and `resolve` (D10).
+/// Why `uses` has no token `name`: an icon (a param's too) is read through
+/// `describe`, `resolve` and `explain` (D10).
 fn no_token(folding: &exact_tamber::Folding, name: &str) -> Value {
     match folding.icons.iter().any(|i| i.name == name) {
         true => {
-            json!({"message": format!("`{name}` is an icon: `describe` and `resolve` read an icon's sources; `explain` and `uses` take a token")})
+            json!({"message": format!("`{name}` is an icon: `describe`, `resolve` and `explain` read an icon; `uses` takes a token")})
         }
         false => json!({"message": format!("no token `{name}`")}),
     }

@@ -7,6 +7,7 @@ pub mod documents;
 pub mod envelope;
 pub mod image;
 mod mixed;
+pub mod modules;
 pub mod placed;
 pub mod storage;
 pub use mixed::Mixed;

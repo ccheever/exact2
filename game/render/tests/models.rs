@@ -45,7 +45,7 @@ impl Game for ModelGame {
         ));
         w.insert_resource(Environment {
             fog: None,
-            background: Some([0.055, 0.065, 0.085]),
+            background: Some([0.055, 0.065, 0.085].into()),
             ..Default::default()
         });
     }

@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.11`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.14`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.11"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.14"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -72,6 +72,28 @@ on macOS and Linux.
   `hold`/`held` in its listing, a `selection`'s `held` rows, and a lowered `:active` row's `state`
   and `at` in the map; LLP 1122 T3 added the selection's param rung. The window's later additive
   changes (stage 8) add under the same version.
+- `tamber/1.12` (LLP 1121 stage 9, commit D1) added `set-row`'s address to the selection join:
+  a row its author wrote carries `at`, the attribute's place, with the file's `sha256` as
+  compiled, and `attr`, its name as written (a shorthand's for an expansion); real-time scrubs
+  added the long poll's held revision (`held` on each answer, and `held` on the request to leave
+  out an unchanged `proposals`); stage 9 E added the held state's names: a selection's `held` and
+  `layout`'s held answer name the node the state is held on (`node`, `site`, `instance`: the press
+  a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
+  row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
+  press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
+  `:active` part row is edited by `set-state`), and T5 the template and style rungs (a row its
+  author wrote, edited by `set-row`) and the map's `layout` on a written row (D14). Stage 9's later wire changes add under the same
+  version: D2's `set-row`, D3's `add-param` and `remove-param`; C1's `explain` of an icon and a
+  param, and `describe`'s icon `draws`; C2's `uses` of an icon and a motion token's sites by
+  instance.
+- `tamber/1.13` (LLP 1121 stage 10, commit A1) checks every request's scope in one place (see
+  Scopes, under Authentication): `hello` says the client's `scope` and whether its token is the
+  local one (`local`), and a request above its client's scope is 403 naming both (`scope`,
+  `needs`). Stage 10's later wire changes add under the same version: A2's pairing, clients and
+  revoke; `pair-code`'s `remote`, the remote doors open (B).
+- `tamber/1.14` (LLP 1121 stage 10b, after stage 10 closed) adds `import`'s `baseline`, a
+  re-import's `dials` and `pins`, `export`'s `digest`, and an import read in a process of its own
+  (413/503 past its cost). Stage 11's wire changes add under the same version.
 
 ## Where it runs
 
@@ -84,7 +106,7 @@ on macOS and Linux.
   `Content-Security-Policy: frame-ancestors 'self' http://127.0.0.1:7740` (*1.3*): the tool's
   origin and the page's own may frame it, no other. `'self'` lets a page the canvas shows frame
   its own pages. No `X-Frame-Options`. Development only; the tool never scripts the frame.
-- **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]` runs it with no app running.
+- **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>]` runs it with no app running.
   It binds loopback unless `--lan`, and a client reaching it over the LAN still can't get the token.
 - **One writer per project.** The design process holds `.exact/tamber.lock`. When a second server
   for the same app can't take the lock, its design process exits. Its `POST /__tamber` and
@@ -106,12 +128,13 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 | `/__tamber` | POST | one request, one reply |
 | `/__tamber/subscribe` | POST | the change stream, as server-sent events on the response |
 | `/__tamber/events` | POST | the change stream as a long poll, for a client whose `fetch` reads a whole body |
-| `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request only (*1.1*) |
+| `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request (*1.1*) and on the remote doors (stage 10 B) |
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to
   a browser POST whose `Origin` isn't the server's own (`scripts/install-page.mjs`).
-- **A body** is one JSON object, at most 1 MiB less 64 bytes (room for the id the wire adds). A
-  larger one gets 413, or the connection is cut while it is being read.
+- **A body** is one JSON object, at most 1 MiB less 4,672 bytes (room for the id the wire adds and
+  the digests an `import` carries to the server). A larger one gets 413, or the connection is cut
+  while it is being read.
 - **A field of the wrong type** is an error. An optional field given as `null` reads as absent.
 
 **Replies.** A reply is `{"ok": …}` with 200, or `{"error": {"message": …, …}}` with one of these
@@ -120,9 +143,12 @@ statuses:
 | Status | When |
 |---|---|
 | 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused |
+| 401 | a paired token revoked or expired, also a request whose client ended while it sent its body (*1.13*) |
+| 403 | above the client's scope (*1.13*): `{message, scope, needs}` in `error`, on a request or a change stream path alike |
 | 404 | an unknown proposal or commit |
-| 409 | a conflict (`conflict: true`); a revert refused; a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
+| 409 | a conflict (`conflict: true`); a revert refused; a hold from a client below `write` with 64 held and none its own (*1.13*); a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
 | 413 | too large |
+| 429 | too many pairing attempts from one peer (`retry-after`, *1.13*) |
 | 500 | reading git failed (`history`, `revert`, a write's baseline) |
 | 503 | the design server is down |
 | 504 | the design server didn't answer within 120 s |
@@ -143,7 +169,111 @@ statuses:
 - **Every POST** carries the token as `x-exact-tamber-token`, never in a URL. Reads need it too,
   since a design may be unreleased.
 - **A client follows no redirects** when fetching the token.
-- **Remote clients** (pairing, scoped tokens) are LLP 1121 stage 10, not yet built.
+- **Remote clients** pair (*1.13*, LLP 1121 stage 10 A2, below) for a token of their own; the
+  remote listener and its TLS are stage 10 B (below).
+- **No cookie** is ever read for authentication: a token travels only in `x-exact-tamber-token`
+  (canvas page code, the app under development, can set cookies this port receives).
+- **The remote listener** (stage 10 B, `scripts/tamber-remote.mjs`) is off unless asked:
+  `--remote <host:port>` on a dev loop (`bun exact.mjs web`) or on `tamber serve` opens a second
+  listener, bound only where it names, that speaks TLS only.
+  - Its certificate is self-signed, made for the run in memory (ECDSA P-256), never written to
+    disk. Its SHA-256 fingerprint is printed at start-up, for a remote client to pin.
+  - Plain HTTP to it gets no protocol: the handshake fails and the connection closes, the
+    pairing endpoint included.
+  - It serves `/__tamber`, `/__tamber/subscribe`, `/__tamber/events`, `/__tamber/pair`, and the
+    design tool's own static files under `/__tamber/tool/` (no token: they hold no secret). Every
+    other path, `/__tamber/token` and the app's pages included, is not found.
+  - A request there is never `access.local`: it is `{remote: true, tunnel: false, peer}`, the peer
+    its socket's (no forwarding header is read). Its `Cookie` header is removed before the wire
+    sees it, and a request whose `Origin` is not the listener's own is refused (403).
+  - Its answers send no referrer (`referrer-policy: no-referrer`), but for the design tool's own
+    files, which send their origin only (`strict-origin`).
+- **A trusted tunnel** (ssh -L, a VPN's forward; stage 10 B2) arrives on loopback looking local, so
+  it gets a port of its own: `--trust-tunnel <port>` opens a plain listener on `127.0.0.1:<port>`
+  for the tunnel's far end, said loudly at start-up. Its requests are routed as the remote
+  listener's, `{remote: true, tunnel: true, peer}`, answering to loopback names at any port:
+  only a paired token works through it, never the local one. The canvas has no tunnel port in
+  stage 10 (QUEUE). A tunnel with a certificate of its own (cloudflared, Tailscale Funnel) names
+  its public host with `--allow-host <name>` (port 443) or `--allow-host <name>:<port>`: the tunnel
+  door answers to that host and port too (a Host with no port is 443; `name:80` is not), and takes
+  a page of `https://<name>` at that port as its own origin. A port left out of an `Origin` or a
+  `Host` is its own scheme's default, never the other's. Any `forwarded` or `x-forwarded-*` header
+  keeps a request off the main loopback port's sandboxed path, as the dev gate's local test has it.
+- **A sandboxed page** (stage 10b: a Figma plugin's UI is an iframe whose origin is `null`) may call
+  the wire only with `--allow-plugin-origin`, on the tunnel door and on the main loopback port
+  (from this machine, naming a loopback host), never the TLS door. There, `Origin: null` on
+  `/__tamber`, `/__tamber/subscribe`, `/__tamber/events` and `/__tamber/pair` gets CORS
+  (`Access-Control-Allow-Origin: null`; a preflight `OPTIONS` answered 204, `POST` with
+  `content-type` and `x-exact-tamber-token`); every such request is a remote one, so only a
+  paired token works, never the local one. No other path gives a sandboxed page CORS: the token
+  route keeps the dev gate's rule, so such a page cannot read it.
+
+### Pairing (*1.13*)
+
+- **A code:** `pair-code {scope, name?}` (the local token only) answers `{code, scope, expires,
+  remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
+  code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
+  checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
+  local end. It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
+  read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
+  `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
+  oldest.
+- **`POST /__tamber/pair {code, name?}`** needs no token, and is the one request of the protocol a
+  remote request makes without one (the design tool's static files aside). It answers `{token, client, scope, expires}` once. A wrong code is 403,
+  saying nothing of which codes exist. A wrong attempt can't be told from a guess at any one code,
+  so it counts against every live code, and a code with five is burned. A peer gets a burst of
+  five attempts, refilled at five a minute; past them, 429 with `retry-after`, whatever the code,
+  before the request's body is read.
+  A code that is not a string of at most 32 characters is 400. Each burn and the first limit hit
+  of each burst are logged (with the peer, never a code) and told as a `pairing` event.
+- **The token** is 32 random bytes, kept in memory only (a restart revokes every paired client),
+  by its SHA-256. It lives 12 hours (`--pair-ttl <duration>` on `tamber serve` and the dev loops:
+  `90m`, `12h`, `2d`, from a minute to 30 days). It carries the scope its code gave.
+- **The client** is named by the server: `remote:`, the code's or the request's `name`, then `#n`
+  (`remote:laptop#1`). On every request a paired token makes, `client` is that name, whatever the
+  body says, so every event, held proposal, journal entry and conflict's `by` names it. `hello`
+  gives it as `client`, with `local: false`. A local client may not name itself `remote:…` (400),
+  so neither can act as the other.
+- **A revoke or an expiry and requests in flight:** a request still sending its body when its
+  client ends (or its deadline passes) is refused (401) once it has; a scrub release whose client
+  ends while the builds take its preview writes nothing (401), and the builds get the committed
+  design back; one already dispatched (a write sent to the design server) completes, as a local
+  edit in flight would.
+- **The local token** is the local tool's only on a request the development gate calls local: a
+  LAN peer holding it is no one (404).
+- **Off this machine** (stage 10 B's listener, or a tunnel the developer trusts) nothing is local:
+  no token page, and the local token is no one. Without a paired token a request reaches only
+  `POST /__tamber/pair`, and the design tool's own static files (no design is in them).
+- **`clients`** (the local token only) answers `{clients}`: the local token (`{client: "local",
+  local: true, scope: "write"}`), then each paired client's `{client, name, scope, peer, created,
+  expires, lastSeen}`. No token is ever listed.
+- **`revoke {client}`** (the local token only) ends a paired client at once, as its token's expiry
+  does: its subscriptions end, its long polls are answered 401, its scrub ends (the builds get the
+  committed design back), its pins, inspect mode, outlines and holds are handed back, and its next
+  request is 401. Its held proposals stay, marked `revoked: true`, for a `write` client to accept or
+  drop; they never apply themselves. A `revoked` event tells the others.
+
+### Scopes (*1.13*)
+
+Every method has one scope, in `scripts/tamber-pairing.mjs`'s table, which the wire checks
+before any handler runs. A method the table doesn't name is refused (400). A request above its
+client's scope is 403 with `{message, scope, needs}` in `error`, the change stream's paths too.
+
+| Scope | Requests |
+|---|---|
+| `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `scrub`, `scrub-release`, `scrub-cancel` |
+| the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
+
+The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
+`preview`, `outline` and `hold` are `write` because they change what the developer's screens show.
+`inspect` reads: below `write`, `refresh: true` answers `{selections}`, the selection each build
+last reported (as its `selection` event gave it), asking no build again, since a build's answer
+outlines on the developer's screens; turning inspect mode on or off takes the builds' input, and
+is `write`. A client below `write` may not drop another's held proposal, so with 64 held its own
+oldest goes to make room, and with none of its own its hold is refused (409). The local tool's
+token is `write`.
 
 ## Requests
 
@@ -168,11 +298,14 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 
 **`hello`** answers:
 - `protocol` and `format`;
+- `scope` and `local` (*1.13*): the client's scope, and whether its token is the local one; a
+  paired client's `client` too;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
-  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its last `held`
-  report's `{state, reason}`, *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
+  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its `held`
+  report's `{state, reason}` on the last hold frame sent it (null until it reports on that frame),
+  *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -198,7 +331,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `fallback` (a length's or number's is its default tuple's value, twice);
   - `exports`;
   - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
-    written, null where unwritten (D10).
+    written, null where unwritten (D10), and `draws` (*1.12*): `{target: source}` for each target the
+    app ships, the source that target draws (`sf`, `svg`) or null for none, by D10's rule (the one
+    `tamber-icon-missing` checks).
   - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
@@ -215,10 +350,11 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
   - `resolve`, `explain` and `uses` take a param's full or short name as `token` and answer by its
-    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`.
+    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`,
+    and since *1.12* through `explain` and `uses` too (below).
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
-  `describe` and `resolve` only.
+  `describe` and `resolve`, and since *1.12* `explain` and `uses`.
 - `files`;
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
@@ -267,6 +403,15 @@ tuple:
 - `dials` lists the dials it depends on, and `names` the tokens its values name, as the checker
   resolved them;
 - `files` gives the digests it read (*1.1*).
+- **An icon** (*1.12*) answers `{token, kind: "icon", value, whens: [], dials: [], names, icon,
+  files}`: `value` its line's value as written (an `icon(…)`, or another icon's name), `names` the
+  icon that value names (empty for an `icon(…)`), `icon` its `describe` entry (`draws` included:
+  what it draws, the named icon's sources for an alias). An icon param answers the same by its full name, its
+  `value` its default as written, `names` the icon or param that default names, and `param`
+  (below).
+- **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
+  where its line is, its default as written, and `set`, the design's line that sets the app's
+  value (`{file, line, value}`), or null.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
@@ -290,13 +435,30 @@ read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliase
 - `aliases`: the tokens whose values name it, directly or through another;
 - `files`: the digests it read.
 
-A duration or easing token (*1.9*) is written into its rows at build, so the plan has no node
-for it: `plan` is null, and each site is a source literal, `{site: null, row, file, line, col,
-end_col, argument?, via?}`. These are the literals of a motion row the build wrote it into
-(`row` is that row's name, `-` as `_`) in every source the app loads, a package's too, and the
-component arguments whose literals name it (`row` null, `argument: {component, name}`), which an
-expansion writes into a row. `via: {token}` says when the literal names the token through
-another token. A comment is no site.
+A duration or easing token (*1.9*) is written into its rows at build, so its sites are found
+through its source literals: the literals of a motion row the build wrote it into (`row` is that
+row's name, `-` as `_`) in every source the app loads, a package's too, and the component
+arguments whose literals name it (`row` null, `argument: {component, name}`), which an expansion
+writes into a row. `via: {token}` says when the literal names the token through another token. A
+comment is no site. Since *1.12* (stage 9 C2) the answer's `plan` is the digest, and each plan node
+declared at the element whose attribute holds a literal (in any part of its value: a condition's
+arm, a `+`'s side), or whose row the source map says is written at a `style`'s attribute holding
+it, is its own site: `site` that node, located as the map has it (`file`, `line`, `col`, `end_col`,
+`component`, `chain`), and `literal` `{file, line, col, end_col}` the literal's place, so a
+component used twice gives two sites for its one literal. A literal no node is declared or written
+at (a component no one uses, a component argument's) keeps the older shape, `{site: null, row,
+file, line, col, end_col, argument?, via?}` at the literal's place; before 1.12 every site had that
+shape and `plan` was null.
+
+An icon (*1.12*) is read where an `image`'s source names it (a string, a template with no `${}`,
+either arm of a condition or a `match`, a list's items): each plan node of such an image,
+located as the map has it, `row` `symbol` (the image's source, not a style row). Through an icon
+param of the image's component (by its identity) whose value (the design's line, by its full name
+or by its short name where only one component has it; else its default) resolves to the icon, to a
+fixed point, the site says `via: {token: <param>}`, and `aliases` lists those params; a source
+that is the thing asked about has no `via`. Asked about an icon param, `uses` answers by its full
+name with the images that read it (or a param resolving to it). A node that shares its element's span
+with another (a button's text child) is a motion site only where it binds the row's kind.
 
 A `file` that is not the design the app builds has no sites. The JS target's plan and a native
 bake of the same sources have the same sites. How many instances of each site are mounted on a
@@ -326,12 +488,16 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
 | `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
 | `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
 | `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.11*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
+| `set-row` | at a place: `file`, `at` `{line, col}` (1-based; `col` a UTF-8 byte column, as the map gives it), `sha256`, `row`, `state?`; or on a style: `style`, `row`, `state?`, `file?`; and `value` (a string, written as a Contract string: a token's or param's name too, `"param.fill"`; or a number) | one row of the app's own Contract, its value replaced where its author wrote it (*1.12*, stage 9 D2; LLP 1122 D6): at a place, the attribute the selection's row names (its `at`, `attr` and the file's `sha256` from the join), refused when the file moved, the attribute there is another, it is a layout row (D14), a prop, or written as an expression, or the row is a longhand of a shorthand written there (the shorthand and its text named: `set-row` edits the shorthand whole); on a style, a row it writes (a state part's is `set-state`'s); `rebuild`, no scrub |
+| `add-param` | `component`, `name`, `kind`, `default` (a token value, written as a Contract string), `attrs?` (`range`, `step`, `control`, `options`, `label`, `help`, `group`, `priority`: strings or numbers), `file?` | a line of the component's `params` (*1.12*, stage 9 D3; LLP 1121 D15), the section made before its `view` where it has none; D15 refuses a param no row reads, so it goes in one transaction with the `set-row` that reads it (promote to param); refused alone, with a `hint`; `rebuild`, no scrub |
+| `remove-param` | `component`, `name`, `file?` | the param's line, and the section with its last (*1.12*, stage 9 D3); refused while a row reads it, so it goes with the `set-row` that stops reading it (detach), with a `hint`; refused while the app sets a value for it in its design (unset it first, or in the same transaction: LLP 1122 D6); `rebuild`, no scrub |
 | `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
-- **A `.contract` write** (`set-state`, `unset-state`) finds its `style` in the app's own Contract
-  sources when it names no `file` (refused where none or two declare it, naming them), goes
+- **A `.contract` write** (`set-state`, `unset-state`, `set-row`, `add-param`, `remove-param`)
+  finds its `style` (or, for a param, its component) in the app's own Contract sources when it
+  names no `file` (refused where none or two declare it, naming them), goes
   through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
   build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
   unformatted file's included.
@@ -339,8 +505,8 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   every other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
   A `.contract` write is laid out whole by `contract fmt` (above): one line only in a file
   already formatted, and in one that isn't, its other lines laid out too.
-- **A state part written under a node** is `set-row`'s (LLP 1122 T5): a `set-state` naming a
-  `node` is refused, pointing there. A row written over more than one line is the author's to
+- **A state part written under a node** is `set-row`'s (*1.12*, LLP 1122 T5): a `set-state`
+  naming a `node` is refused, pointing there; `set-row` at the row's place, with `state`, edits it. A row written over more than one line is the author's to
   edit, and refused.
 - **The limits are the checker's:**
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
@@ -361,9 +527,16 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   token's is, `rebuild` for a duration or easing param (a motion param is written into its rows at
   build, wherever its component is used), and a live one can be scrubbed. A token's rename renames
   the `params` values naming it.
-- **Not yet built:**
-  - `set-row` (LLP 1122 T5);
-  - `preview` as an operation (it is a request instead: see the build channel).
+- **`set-row`'s places** (*1.12*): several in one file are spliced together into the file as the
+  tool saw it, from the last up, before the transaction's other writes to it, then laid out once.
+  Every refusal says why and where to edit instead (the source, the node, a param's or token's
+  rung).
+- **Promote and detach** (*1.12*, LLP 1122 D6): promote to param is an `add-param` with the
+  `set-row` naming `param.<name>`; promote to token an `add-token` (or `set-token`) with the
+  `set-row` naming the token, the design and the `.contract` file in one transaction with one
+  inverse; detaching a param's last reader sends its `remove-param` with the `set-row`. A param
+  added or removed alone is refused by the compile with a `hint` saying so.
+- **Not yet built:** `preview` as an operation (it is a request instead: see the build channel).
 
 ### `propose`
 
@@ -551,7 +724,7 @@ pushes.
 ### Held proposals (LLP 1122 D10)
 
 **`propose` with `hold: true`** and a `client` keeps the plan for 15 minutes, 64 at most (the
-oldest goes), and announces it.
+oldest goes; below `write`, only the client's own, else 409: see Scopes), and announces it.
 - **The reply** is the plan (as `propose`) plus `{proposal, client, expires, ops: [{index, op}],
   review?}`. `expires` is an ISO-8601 UTC time.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
@@ -574,7 +747,11 @@ with.
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
-`proposal` event shows it.
+`proposal` event shows it, except a long poll that names the list's current revision (below). A
+long poll's answer also carries the list's revision, `held` (*1.12*),
+which moves whenever a proposal is held, dropped, accepted, expires or is recomputed. A long poll
+that sends `held` with the revision it has (and this run's `epoch`) gets no `proposals` while the
+list is unchanged: it keeps its own.
 
 ### `history` (*1.1*, LLP 1122 D9)
 
@@ -587,7 +764,7 @@ with.
   - each file is `{file, status, diff, edits, refused?}`, and a rename shows as a deletion plus an
     addition.
 - **Each edit** is `{what, name, when: [{axis, value}], before, after}`:
-  - `what` is `token`, `dial`, `axis`, `other`, or `state` (a `.contract` file's, below);
+  - `what` is `token`, `dial`, `axis`, `other`, `state` or `row` (a `.contract` file's, below);
   - `before` and `after` are source text, or null;
   - they come from comparing the two versions' parsed declarations, so a version the checker
     would refuse still gives edits.
@@ -597,8 +774,13 @@ with.
   state parts are the design's. A `.contract` file's edits are its styles' state rows, each
   `{what: "state", name: <style>, state, row, when: [], before, after}`, the values as Contract
   writes them (`"#000000"` quoted, `0.5`); a block whose border colours change order is one
-  edit with `row` `border-*-color order`. The file says `code: true` where the commit changed
-  its other lines too. A `.contract` change with no state row is the app's code, not the
+  edit with `row` `border-*-color order`. A style's own row (*1.12*, stage 9 D2's `set-row` on a
+  style) is `{what: "row", name: <style>, row, when: [], before, after}`: a paint row alone on its
+  line, its value on that line; a layout row, a part's, one sharing its line, and the order of a
+  style's own rows are code. A node's own attribute (`set-row` at a place) has no key a node keeps
+  across versions and stays code, as does a component's `params` line (*1.12*, its revert needs
+  the row that reads it). The file says `code: true` where the commit changed its other
+  lines too. A `.contract` change with no state row or style row is the app's code, not the
   design's: it is left out, and a commit with nothing else is not listed (so a page may hold
   fewer than `limit`). History reads the Contract sources the server has now; a revert reads
   every one in the app outside `node_modules`, and refuses by name one the app no longer reads.
@@ -609,7 +791,8 @@ with.
 - **Planned on today's files** as operations, never a byte restore. Its `review.revert` is
   `{commit, subject, moved, already, code?, only?}`. `moved` lists the files whose bytes differ
   from the commit's result. A `.contract` file's state rows are set back with `set-state` or
-  `unset-state`; its other lines are left as they are, and `code` lists the files where the
+  `unset-state`, and a style's own row's value with `set-row` (*1.12*: one the commit added or
+  removed is refused, `set-row` adding or taking away none); its other lines are left as they are, and `code` lists the files where the
   commit changed some (*1.11*).
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
@@ -635,7 +818,7 @@ with.
 
 ### `import` (*1.1*, LLP 1122 T1a)
 
-`{kind, source, name?, prefix?, client}`, or `{kind, sources: [{name, text}], prefix?, client}`.
+`{kind, source, name?, prefix?, baseline?, client}`, or `{kind, sources: [{name, text}], prefix?, baseline?, client}`.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
   `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
   `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
@@ -651,7 +834,7 @@ with.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,
-  tokens}`:
+  tokens, dials?, pins?}` (the last two a re-import's, below):
   - `counted` is `{source, mapped, reported}`;
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;
@@ -662,15 +845,47 @@ with.
   [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
+- **An import is read in a process of its own** (*1.14*, stage 10b), one at a time, never in the
+  design's server: a source that takes more than about 1 GiB or 10 s to read, or whose review is
+  over 2 MiB, answers 413 or 503, "the source is too costly to read". With four imports already
+  waiting, two of this client's outstanding, or after 30 s waiting, an import answers 503 ("imports
+  are busy"). A proposal (its diff and review) over 4 MiB is not held: 413. With no design file, an
+  import answers 409. Within that, the DTCG importer's and re-import's work is bounded too
+  (references, groups and aliases that multiply are refused).
+- **A re-import's dials and pins** (*1.14*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
+  changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
+  in every context where that dial line wins, proposes `set-dial` for that dial instead of a literal
+  over the line. The review lists it in `dials`, `[{dial, value, from, impact}]`: `from` the tokens
+  the file changed, `impact` every token value the change moves alone against the design, `[{token,
+  tuple, before, after}]` (values as the plan carries them, so `#ff0000ff` beside the dial's
+  `#ff0000`), so accepting it is seen to reach past the one variable. A changed value whose line
+  followed dials or tokens by an expression is a literal over it, listed in `pins`, `[{token, when,
+  follows}]`, with what it no longer follows (D14's mark). Inverting an expression is not attempted.
+  Each list is absent when empty, and each entry names its operations (`items`), as an offer does; a
+  recomputed proposal (files moved since, or some items) is marked again on the design as it is, its
+  dials' `impact` and its `pins` read afresh, each dial keeping its `from`. Tokens that would set
+  one dial to different values, or a dial the design refuses, are proposed as literals instead, each
+  a pin marked with the dial. Colour values agree when they are the same colour (`#F00`, `red` and
+  `color(srgb 1 0 0)`). A role's row is followed by its bare name too (`background`).
+- **`baseline`** (*1.14*, stage 10b): the export text a client pulled, for a client below `write`,
+  whose `export` keeps none. It is taken when its header's digest is an export this server run gave
+  out, a kept one, or the design's own, and its contexts (each one's name, modes and scheme) and axes
+  are the design's now; else the import is refused, 409 with `stale: true` ("pull first"). It
+  decides only which of the file's values are the client's edits: the operations are planned
+  against the design as it is, so a baseline can at most make a client propose values it did not
+  change, never revert another's edit unseen.
 
 ### `export` (*1.4*, LLP 1121 D14)
 
 `{kind: "dtcg"}`, read-only for the design: the app's design as DTCG Format 2025.10 with the Resolver
 Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the same serializer.
-- **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
+- **The reply** is `{kind, text, baseline, digest}`: `text` is the file, `digest` its header's design
+  digest (*1.14*, the baseline an `import` may name), `baseline` where it is kept, by
   path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
-  every commit. A link in a baseline's place is replaced, never written through.
+  every commit. A link in a baseline's place is replaced, never written through. Below `write`
+  scope (*1.13*), or with `keep: false`, no baseline is kept (`baseline: null`): keeping one prunes
+  the oldest, which another client's import may compare against.
 - **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
   then `light` and `dark`, named `axis=value, …, light`), each a complete set of the design's
   tokens (every kind since stage 6 G, under *1.9*), a colour checked to read back as the colour a
@@ -745,9 +960,12 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 |---|---|
 | `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
 | `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
-| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?` |
+| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked) |
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |
+| `paired` | `client`, `scope` (*1.13*: a client paired) |
+| `revoked` | `client`, `reason`: `revoked` or `expired` (*1.13*) |
+| `pairing` | `what`: `burned` (a code had five wrong attempts), `limited` (a peer had too many) or `replaced` (a ninth code) (*1.13*) |
 | `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
 | `build-status` | `build`: one build, after its `status` report (one that moves only the design, up to 150 ms after: see the build channel's reports) |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
@@ -762,8 +980,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
   builds}`, then sends one `data:` line per later event. It replays nothing kept. Catching up is
   the long poll's job. Its body may be `{client}` (*1.2*), which makes that client present while
   it is open (see the build channel's ownership).
-- **`POST /__tamber/events`** `{after, epoch?, wait?, client?}` answers `{events, seq, epoch, missed, files,
-  proposals}`:
+- **`POST /__tamber/events`** `{after, epoch?, wait?, client?, held?}` answers `{events, seq, epoch, missed,
+  files, held, proposals?}` (`proposals` left out when `held` names the current revision, *1.12*):
   - with the events after `after`, once there is one, or after 25 s with none;
   - at once with `wait: false` (*1.1*), for a client's first ask.
 - **`missed`.** These are answered `missed: true`, with no events and the current `files`, and the
@@ -981,9 +1199,24 @@ The tool drives no input into an app; a command changes only what `prefer` would
   the client goes. A build that registers again is sent it again under the same plan (or `hold:
   null` when the server holds none for it); one that runs another plan (a `status` whose
   `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
-  the old site's source location, and when there is not exactly one, the build is sent `hold:
-  null` and every client told (`hold-cleared {build, client, reason}`). Each frame, a replay
-  included, has a new revision. Only a report naming the last hold frame's revision counts (an
+  the old site's source location and call-site chain: a component called at two places is two
+  copies there, one copy a chain (its sites, such as a `button "…"` and its label, told apart by
+  their order). With the same calls in both plans, the copy with that chain; with as many copies,
+  the copy of the same rank in source order where each pair has the same calls' files and
+  components, the copies share calls alike, and each file's calls moved as one edit there moves
+  them (those above it by none, those below by one count of lines), else the unmoved copies kept and the rest so among
+  themselves (one call moved: the one left over); with copies added or removed, the copy whose
+  calls did not move. The correspondence is by places alone (the map
+  carries no other identity of a call or an element), so it is a guess wherever places are
+  reused: calls reordered with their spacing kept, a call or element moved onto another's old
+  place (a line or a column), or a copy added or removed while one keeps its line, can carry
+  the hold to the other copy (where the copies' instance paths differ, the host finds no view
+  for it and lets it go, `gone`); and a slot filled at two outlets is one copy, its outlets told
+  apart by their order. A call moved past another with the lines between them changed clears
+  the hold. When there is not exactly one, the build is sent `hold: null` and every client
+  told (`hold-cleared {build, client, reason}`). Each frame, a replay included, has a new
+  revision, and the build's `held` in a listing is null until it reports on that frame. Only a
+  report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
   and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no
@@ -1000,7 +1233,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   event: `source` `{file, line, col, end_col, component, chain}` (the component call sites above
   it), and each row with its map `origin` (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
-  value is one token; `{rung: "param", param, short, token?, modes}` (*1.11*, LLP 1122 T3) for
+  value is one token; `{rung: "param", param, short, token?, modes, template?}` (*1.11*, LLP 1122 T3; `template` *1.12*, T5: the template rung's fields where the map places the row, which a detach writes at) for
   such a row whose whole value is one component param: `param` its full name, `short` its short
   one (null where two components share it), `token` the token it aliases directly (its value as
   the app has it, the line's or the default, when that names one declared token, a role override
@@ -1012,13 +1245,61 @@ The tool drives no input into an app; a command changes only what `prefer` would
   app's files change, for a new plan, and after a failed read) is left out, and the row is
   read-only, said so; while a new plan's read is out the names stand and no `token` is offered. A
   row whose one name is a param (an inherited or dynamic one) links it by its full name. A client
-  that knows no `param` rung offers no edit for it. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
-  expression, a boundary, or an expression over tokens links its token, never this node's edit;
-  a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
-  the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
-  unless it is one token. A selection made while a state is held carries `held` `{state, rows}`
-  (*1.11*): the rows that state shows (`active`: the press paint's; a look's otherwise), each with
-  `state` and `source` (an `:active` row's part's place, a look's row its node's). Each file the join reads is
+  that knows no `param` rung offers no edit for it. A row a style's state part writes (its map `state` and
+  `at`, the origin `class:<Name>`) answers `{rung: "state", style, state, row, file, text?, token?}`
+  (*1.12*, LLP 1122 T4), the default: the style by the name its file declares it with, the state,
+  the row as its author wrote it under the state (`background-color`, not the press paint's
+  `press_background_color`), the style's file relative to the app (what `set-state` takes), the
+  row's value as written there where it is one plain value (as the template rung's `text`, below;
+  else none, and an editor starts empty), and the token its whole value is, offered beside it, never the
+  default (D6). A style outside the app's own Contract sources as the server counts them (a
+  package's, a vendored or linked one included) answers a reason. A held state's rows carry the
+  same where the build names the held node (its `held.site`), whose parts' files count toward
+  `readOnly` too; with none named they are shown, not offered. A row its author wrote (the map's
+  `at` and `attr`, D1's address) answers, unless it reads a param (the param rung, above), the
+  **template** rung (origin `own`) `{rung: "template", file, at: {line, col}, sha256, row, state?,
+  instances, text, component?, token?, modes?}` (*1.12*, LLP 1122 T5; `component` the one whose
+  view it is in, by the name its file declares it with; a held state's row too, where it is
+  written under the node in that state and the build names the held node: its `instances` that
+  node's) or the **style** rung (origin a single
+  `class:<Name>`; a conditional class, `class:A/B`, is refused) `{rung: "style", style, row, file,
+  text, token?, modes?}`, the default (D6), for an `authored` row of that one origin only:
+  `set-row`'s address (at the place: the file relative to the app, the attribute's line and
+  column and the file's digest as compiled; on a style: the style by the name its file declares
+  it with, and its file), `row` the attribute as written (a shorthand's, for a longhand of it:
+  `set-row` edits the shorthand whole), `state` for a state row written under the node (its `row`
+  the attribute its author wrote under the state, which the map does not name), `instances` the
+  copies of this source node in the map, one a call-site chain (a template edit is every one's; a
+  `button "…"`'s label is no second copy), `text` the value as written, and the token its whole
+  value is, offered beside it, never the default. Only a plain value is offered, as `set-row`'s
+  `plain` takes one: a string (its escapes decoded) or a bare `#…` colour, a number (an exponent
+  and a minus included), inside any parentheses, then the line's end, a comment, another
+  attribute or a positional argument (a string, a template, one in parentheses or a name; read at the
+  map's UTF-8 byte column, the attribute's name checked there): an
+  expression or a name in scope answers a reason, as does a file outside the app's own Contract
+  sources, and a layout row (its `layout`, D14: `set-row`'s reason, up front; the selection's row
+  carries `layout` too); any of these offers the token rung where its whole value is one token. A row the map gives no place answers a reason (the source's to edit), or, a whole
+  token, the token rung. Only an `:active`
+  part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
+  `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  expression, a boundary, or an expression over tokens links its token, never this node's edit).
+  A row an `:active` part lowered to
+  the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
+  above for a style's part, the template rung with `state` for one written under the node). A row its author wrote on the node or in its class's `style` (*1.12*)
+  carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
+  as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
+  `padding` for `padding_top`; and `layout: true` where that attribute writes a layout row (LLP
+  1122 D14: `set-row` refuses it, by the same test), so a client offers it no `set-row` edit (a
+  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, a
+  folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
+  longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
+  (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
+  (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:
+  the press paint's; a look's otherwise), each with its value, the token it read, `state` and
+  `source` (an `:active` row's part's place, a look's row its node's), joined at the held node's
+  site. An `:active` row is named as its author wrote it under the part (`background-color`), the
+  press row it lowered to beside it (`row`, *1.12*). A host that cannot name a row's token says
+  `provenance: "incomplete"`. Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since
   makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
   likewise (the one the server serves, which the map must name), unless the build runs the
@@ -1035,7 +1316,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops
@@ -1078,8 +1359,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 ## The design tool's files (*1.1*)
 
-- **`GET /__tamber/tool/…`** serves the built tool (`target/design-tool-web`) to local requests
-  only. It serves no dot file, and follows no symlink out of the build.
+- **`GET /__tamber/tool/…`** serves the built tool (`target/design-tool-web`) to local requests,
+  and on stage 10 B's remote doors (no design is in it; it pairs before it reads one). It serves no
+  dot file, and follows no symlink out of the build.
 - **`bun exact.mjs tamber tool [<app>] [--via <dev url>]`** serves the tool at the fixed origin
   `http://127.0.0.1:7740`, which the tool's grant names. So one tool runs per machine, on one
   project. With `--via`, port 7740 forwards `/__tamber` to the dev loop that holds the design.
@@ -1091,7 +1373,5 @@ The tool drives no input into an app; a command changes only what `prefer` would
   candidate).
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
-- **Later stages:**
-  - component params (stage 7) and state parts (stage 8);
-  - `set-row` (LLP 1122 T5);
-  - pairing and remote clients (stage 10).
+- **Later stages:** stage 10's canvas gateway (C) and the design tool's remote mode (D, LLP 1122
+  T6); a hosted relay (stage 10c).

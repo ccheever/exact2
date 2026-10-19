@@ -72,7 +72,13 @@ pub struct NativeSlots {
     hosted: std::sync::Mutex<Option<NativeHandler>>,
     hosted_call: std::sync::Mutex<Option<NativeCall>>,
     announce: std::sync::Mutex<Option<Announce>>,
+    sync: std::sync::Mutex<Option<SyncAnswers>>,
 }
+
+/// Each module's synchronous form, by `extension.name`: the runner's answer
+/// now, or `None` where the host's own implementation answers (LLP 1133.002
+/// D14).
+pub type SyncAnswers = std::collections::BTreeMap<String, Option<Vec<u8>>>;
 
 /// Where a host takes the device topics a native module announces
 /// ([`Native::changed`]), from any thread (LLP 1016.002).
@@ -124,13 +130,45 @@ impl Native {
         *self.0.hosted_call.lock().unwrap_or_else(|e| e.into_inner()) = call;
     }
 
-    /// The app module's synchronous call, if the host installed one.
+    /// The app module's synchronous call, if the host installed one. A
+    /// module's synchronous form (`{"extension", "sync", "args"}`) is
+    /// answered by the runner's table first ([`Native::sync`]).
     pub fn hosted_call(&self) -> Option<NativeCall> {
-        self.0
-            .hosted_call
-            .lock()
+        let call = (self.0.hosted_call.lock())
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .clone()?;
+        let slots = self.0.clone();
+        Some(std::sync::Arc::new(move |body: &[u8]| {
+            let named = serde_json::from_slice::<serde_json::Value>(body)
+                .ok()
+                .and_then(|v| {
+                    Some(format!(
+                        "{}.{}",
+                        v.get("extension")?.as_str()?,
+                        v.get("sync")?.as_str()?
+                    ))
+                });
+            let Some(key) = named else { return call(body) };
+            let table = slots.sync.lock().unwrap_or_else(|e| e.into_inner());
+            match table.as_ref().and_then(|t| t.get(&key)) {
+                Some(Some(answer)) => Ok(answer.clone()),
+                Some(None) => {
+                    drop(table);
+                    call(body)
+                }
+                None => Ok(br#"{"error":"NotSupportedError"}"#.to_vec()),
+            }
+        }))
+    }
+
+    /// The modules' synchronous answers now (the runner's).
+    pub fn sync(&self, answers: SyncAnswers) {
+        *self.0.sync.lock().unwrap_or_else(|e| e.into_inner()) = Some(answers);
+    }
+
+    /// Whether the runner has said its synchronous answers.
+    pub fn synced(&self) -> bool {
+        (self.0.sync.lock().unwrap_or_else(|e| e.into_inner())).is_some()
     }
 
     /// Whether the host installed an app module.

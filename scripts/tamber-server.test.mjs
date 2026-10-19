@@ -3,8 +3,8 @@
 // one token where one conflicts, a hand edit, a new file and a `git checkout`
 // reaching a subscriber and a long poll, a write announced once, a server
 // whose lock is another's answering 503, and the dev loop answering `hello`.
-import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
+import { spawnOwned, stopAll } from './test-children.mjs';
 import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -274,6 +275,8 @@ beforeAll(async () => {
   headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
   await tamber.ready;
 }, 600_000); // a cold checkout builds the compiler first
+// A dev loop a test started ends with the test, a timeout included (test-children.mjs).
+afterEach(() => stopAll());
 afterAll(async () => {
   await tamber?.close();
   server?.close();
@@ -293,6 +296,9 @@ const post = async request => {
   const res = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: JSON.stringify(request) });
   return { status: res.status, ...(await res.json()) };
 };
+
+/** The long poll's answer. */
+const poll = async request => (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify(request) })).json();
 
 /** The change stream's events as they come. */
 async function subscribe() {
@@ -427,13 +433,10 @@ async function devLoop(flags = [], app = 'theme-fixture') {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-tamber-dev-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Owned: ended with what it starts when the test ends, a timeout included (test-children.mjs).
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = async () => {
-    if (dev.exitCode === null && dev.signalCode === null) {
-      const exit = new Promise(ok => dev.once('exit', ok));
-      dev.kill('SIGTERM');
-      if (!(await Promise.race([exit.then(() => true), new Promise(ok => setTimeout(() => ok(false), 30_000).unref())]))) dev.kill('SIGKILL');
-    }
+    await dev.stop(30_000);
     rmSync(dist, { recursive: true, force: true });
   };
   let out = '', err = '';
@@ -726,10 +729,12 @@ test('the JS loop: its own design server\'s lock is no edit, and an atomic save 
     // An editor's atomic save: a temporary beside the design, renamed over it.
     writeFileSync(`${file}.tmp`, was.replace('#16181c)', '#101010)'));
     renameSync(`${file}.tmp`, file);
-    // The batch, then its verifying build's word that it stands.
-    await until(() => said().includes('edit → checked'), 300_000);
+    // A value batch by either path: read, then `checked`; or, while the reader
+    // builds again, sent by the build (`built in`). Any other outcome ends the wait.
+    const outcome = /edit → checked|edit → batch ready [^\n]*\(built in|edit → plan ready|build failed/;
+    await until(() => outcome.test(said()), 300_000);
     expect(said()).toMatch(/edit → batch ready/);
-    expect(said()).not.toContain('edit → plan ready');
+    expect(said()).not.toMatch(/edit → plan ready|build failed/);
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });
@@ -754,7 +759,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.11');
+      expect(hello.protocol).toBe('tamber/1.14');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.
@@ -871,21 +876,38 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(held.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1b1b1b');
   await stream.until(e => e.some(x => x.event === 'proposal' && x.proposal === held.ok.proposal));
+  // The long poll's held revision (tamber/1.12): a poll that names it gets
+  // no list while it is unchanged; another run's epoch, or a change, the list.
+  const at = await poll({ after: 0, wait: false, client: 'tool' });
+  expect(at.proposals.map(p => p.proposal)).toContain(held.ok.proposal);
+  const same = await poll({ after: at.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect([same.held, same.proposals]).toEqual([at.held, undefined]);
+  expect((await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: at.seq, epoch: at.epoch, wait: false, held: String(at.held) }) })).status).toBe(400);
+  expect((await poll({ after: at.seq, epoch: 'another', wait: false, client: 'tool', held: at.held })).proposals).toEqual(at.proposals);
   const taken = await post({ method: 'accept', client: 'person', proposal: held.ok.proposal });
   expect(taken.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('ink = #1b1b1b');
   await stream.until(e => e.some(x => x.client === 'agent' && x.acceptedBy === 'person'));
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === held.ok.proposal && x.reason === 'accepted'));
   expect((await post({ method: 'accept', client: 'person', proposal: held.ok.proposal })).status).toBe(404);
+  const moved = await poll({ after: same.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect(moved.held).not.toBe(at.held);
+  expect(moved.proposals.map(p => p.proposal)).not.toContain(held.ok.proposal);
   // Stale: the file moves after review; the accept gives a new diff to accept.
   const second = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#1c1c1c' }] });
   writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace('#1b1b1b', '#1d1d1d'));
   await stream.until(e => e.at(-1)?.client === null && e.at(-1)?.edited.includes('app.tamber'));
+  const pending = await poll({ after: 0, wait: false, client: 'tool' });
   const stale = await post({ method: 'accept', client: 'person', proposal: second.ok.proposal });
   expect(stale.ok.recomputed).toBe(true);
   expect(stale.ok.proposal).not.toBe(second.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === second.ok.proposal && x.reason === 'replaced' && x.replacedBy === stale.ok.proposal));
   expect(stream.events.find(x => x.event === 'proposal' && x.proposal === stale.ok.proposal).replaces).toBe(second.ok.proposal);
+  // A recompute (dropped, held again as another) moves the revision too.
+  const recomputed = await poll({ after: pending.seq, epoch: pending.epoch, wait: false, client: 'tool', held: pending.held });
+  expect(recomputed.held).not.toBe(pending.held);
+  expect(recomputed.proposals.map(p => p.proposal)).toEqual(expect.arrayContaining([stale.ok.proposal]));
+  expect(recomputed.proposals.map(p => p.proposal)).not.toContain(second.ok.proposal);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
@@ -913,7 +935,12 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(part.ok.diff).toContain('#1f1f1f');
   expect(part.ok.diff).not.toContain('#1e1e1e');
   expect((await post({ method: 'drop', proposal: part.ok.proposal })).status).toBe(400);
+  const listed = await poll({ after: 0, wait: false, client: 'tool' });
   expect((await post({ method: 'drop', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
+  // A drop moves the held revision: the list comes again, without it.
+  const dropped = await poll({ after: listed.seq, epoch: listed.epoch, wait: false, client: 'tool', held: listed.held });
+  expect(dropped.held).not.toBe(listed.held);
+  expect(dropped.proposals.map(p => p.proposal)).not.toContain(part.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === part.ok.proposal && x.client === 'person'));
   stream.close();
 }, 30_000);

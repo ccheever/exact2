@@ -481,10 +481,20 @@ component App
     );
     let shown = s.ask(json!({"method": "resolve", "token": "App.shown"}));
     assert!(shown.to_string().contains("heart"), "{shown}");
+    // An icon param is explained as an icon (stage 9 C1), by its full name.
     let explained = s.ask(json!({"method": "explain", "token": "App.shown"}));
-    let message = explained["error"]["message"].as_str().unwrap_or_default();
+    assert_eq!(explained["ok"]["kind"], "icon", "{explained}");
     assert!(
-        message.contains("is an icon") && !message.contains("param.f"),
+        explained["ok"]["token"]
+            .as_str()
+            .is_some_and(|t| t.ends_with("App.shown"))
+            && !explained.to_string().contains("param.f"),
+        "{explained}"
+    );
+    // Its chain: the param its default names, by full name.
+    let chain = explained["ok"]["names"].as_array().unwrap();
+    assert!(
+        chain.len() == 1 && chain[0].as_str().unwrap().ends_with("App.base"),
         "{explained}"
     );
     let described = s.ask(json!({"method": "describe"}));

@@ -2,8 +2,14 @@
 import Foundation
 #if EXACT_WIDGET_RELOAD
 import WidgetKit
+#if EXACT_INSPECT
+import os
+#endif
 @_cdecl("exact_widget_reload")
 public func exactWidgetReload(_ bytes: UnsafePointer<UInt8>?, _ length: Int) {
+    #if EXACT_INSPECT
+    Logger(subsystem: "dev.exact.widgets", category: "reload").notice("reload requested pid=\(ProcessInfo.processInfo.processIdentifier)")
+    #endif
     if let bytes, let kinds = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: length)) as? [String] {
         for kind in kinds { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
     } else { WidgetCenter.shared.reloadAllTimelines() }
@@ -29,9 +35,19 @@ public enum WidgetContainer {
         }
     }
     public static var updateBase: URL? { root?.appendingPathComponent("Library/Application Support", isDirectory: true) }
-    private static var compatibility: String {
+    /// The baked compatibility id (LLP 1030 D3a): the cohort a generation belongs to.
+    package static var compatibility: String {
         let object = (try? JSONSerialization.jsonObject(with: Runtime.bakedCompat())) as? [String: Any]
         return object?["id"] as? String ?? ""
+    }
+    /// A generation's name: the digest of its cohort and its publication
+    /// (a signed bake or accepted delivery identifies the bytes already).
+    /// An embedded bundle's is the one its `ExactWidgetGeneration` makes.
+    package static func generationDigest(compatibility: String, publicationID: String) -> String {
+        let stamp = Data((compatibility + "\n" + publicationID).utf8)
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
     /// No lock, selection, repair or network access: read the pointer once and
     /// keep its immutable directory for this entire invocation. Stage 1 keeps
@@ -47,6 +63,21 @@ public enum WidgetContainer {
         let directory = base.appendingPathComponent(name, isDirectory: true)
         guard try String(contentsOf: directory.appendingPathComponent("compatibility"), encoding: .utf8) == compatibility else {
             throw HeadlessSession.Failure(description: "widget generation belongs to another compatibility cohort")
+        }
+        return directory
+    }
+    package static func pinCurrent(_ assets: AssetResolver, root: URL? = WidgetContainer.root, compatibility: String? = nil) throws -> URL {
+        let cohort = compatibility ?? self.compatibility
+        guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
+        // Only a missing or older pointer is the publisher's to fix; a corrupt
+        // one or another cohort is reported as pin finds it.
+        let current = root.appendingPathComponent("widget-generations/current")
+        guard FileManager.default.fileExists(atPath: current.path) else {
+            throw HeadlessSession.Failure(description: "widget generation not yet published")
+        }
+        let directory = try pin(root: root, compatibility: cohort)
+        guard directory.lastPathComponent == generationDigest(compatibility: cohort, publicationID: assets.publicationID) else {
+            throw HeadlessSession.Failure(description: "widget generation not yet published")
         }
         return directory
     }
@@ -134,10 +165,7 @@ public enum WidgetContainer {
     package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {
         // A signed bake or accepted delivery identifies the bytes already. An
         // unchanged launch reads only current, without opening any asset.
-        let stamp = Data((compatibility + "\n" + assets.publicationID).utf8)
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
-        let digest = hash.map { String(format: "%02x", $0) }.joined()
+        let digest = generationDigest(compatibility: compatibility, publicationID: assets.publicationID)
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
         let current = base.appendingPathComponent("current")
         if (try? String(contentsOf: current, encoding: .utf8)) == digest {

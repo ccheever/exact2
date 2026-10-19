@@ -559,3 +559,88 @@ fn state_looks_are_sheet_rules_for_the_nodes_set() {
         out.css
     );
 }
+
+/// LLP 1121 stage 9 B: under a written token colour, a mode boundary below
+/// writes the token again as its implied row, no author's, so the kernel's
+/// symbol under the boundary takes no written colour; one beside it does.
+/// So does one under a boundary whose own bound colour clears or is refused,
+/// step after step; a written value there is said. The JS target marks those under a boundary for
+/// symbols.js to decide by its implied row (`$xs`) and its binding
+/// (`$ink`), and the one beside as written.
+#[test]
+fn a_symbol_under_a_mode_boundary_is_decided_as_the_kernel_decides() {
+    let dir = std::env::temp_dir().join(format!("exact-web-js-modes-ink-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state ink = \"inherit\"\n  action paint(v: string)\n    ink = v\n  view\n    column color=\"text.primary\"\n      for v in [\"inherit\", \"unset\", \"currentcolor\", \"nope\", \"nada\", \"#ff0000\"] key=v\n        button v press=paint(v) testId=v\n      image \"symbol:star\" testId=\"beside\"\n      column -exact-mode=\"dark-style=dim\" testId=\"boundary\"\n        image \"symbol:star\" testId=\"under\"\n      column -exact-mode=\"dark-style=dim\" color=ink testId=\"bound\"\n        image \"symbol:star\" testId=\"bound-under\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut host, _) = exact_web::Host::boot(&plan.encode(), (), Default::default(), "/").unwrap();
+    let said = |host: &exact_web::Host<()>, id: &str| {
+        let kernel = host.runner().kernel();
+        let key = kernel.find_by_test_id(id)[0];
+        kernel.node_by_key(key).unwrap().symbol_color_said()
+    };
+    assert!(said(&host, "beside"));
+    assert!(
+        !said(&host, "under"),
+        "the boundary's implied row is no author's"
+    );
+    // A boundary whose own bound colour clears, or takes a value the row
+    // refuses, keeps its implied row, one clear after another included; a
+    // value its author wrote is said. The JS target's rule (symbols.js
+    // `inked`: the implied row first, then the binding) agrees at each step.
+    let js = |v: &str| !matches!(v, "inherit" | "unset" | "currentcolor" | "nope" | "nada");
+    let steps = [
+        "unset",
+        "currentcolor",
+        "nope",
+        "nada",
+        "#ff0000",
+        "inherit",
+        "#ff0000",
+        "unset",
+    ];
+    assert!(
+        !said(&host, "bound-under"),
+        "inherit at boot: its implied row"
+    );
+    for v in steps {
+        let button = {
+            let kernel = host.runner().kernel();
+            kernel.node_by_key(kernel.find_by_test_id(v)[0]).unwrap().id
+        };
+        host.dispatch(button, exact_runner::Event::Press);
+        assert_eq!(said(&host, "bound-under"), js(v), "after {v}");
+    }
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let props = |id: &str| {
+        let part = parts.iter().flatten();
+        let mut part = part.filter(|p| p.props.get("data-testid").is_some_and(|t| t == id));
+        part.next().unwrap().props.clone()
+    };
+    assert!(props("beside").contains_key("data-symbol-color"));
+    let under = props("under");
+    assert!(!under.contains_key("data-symbol-color"), "{under:?}");
+    assert_eq!(under.get("data-symbol-ink").map(String::as_str), Some("11"));
+    assert_eq!(
+        props("boundary").get("data-exact-ink").map(String::as_str),
+        Some("b")
+    );
+    let bound = props("bound-under");
+    assert_eq!(
+        bound.get("data-symbol-ink").map(String::as_str),
+        Some("11"),
+        "{bound:?}"
+    );
+    assert_eq!(
+        props("bound").get("data-exact-ink").map(String::as_str),
+        Some("1b")
+    );
+}

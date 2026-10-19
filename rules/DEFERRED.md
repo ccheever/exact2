@@ -199,16 +199,6 @@ Specific `accept` types remain bounded as above. `capture` stays refused
 (the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
-**Expanded (approved 2026-10-18; LLP 1114.007):** app-computed decorations on a
-plain-string `textarea`: inline and block styling, hidden source markers and atomic
-chips, action-time `rangeFrame`, and one undo step for an explicitly undoable
-`setRangeText` edit. T3 Code's Markdown composer is the consumer. Hidden markers
-are admitted on macOS; iOS keeps its phone-proof boundary. Web layout decorations
-use the editor loaded on demand, with the paint-only field path where available.
-Linux/Windows span support and Android/terminal paint differences are declared in
-the RFC. Take: the draft paint-only highlight API is folded into this capability;
-no second editor grammar, rich value type or app-owned native module is added.
-
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
 `lane/game` as an optional add-on, with a full-screen Weird Castle demo.
 `game/` is a separate Cargo workspace; games opt in through their GPU artifact,
@@ -571,6 +561,13 @@ names no take; `:focus-within` remains out.
   while its app is suspended. Still refused: push-to-start, remote
   notifications, and everything the click ruling left refused. Take: none
   named; the ruling stands as its own waiver.
+  **Expanded (Charlie, 2026-10-18, "recs work, go for it", on LLP 1133.002
+  §12 question 6):** a readable permission fact for geolocation,
+  `geolocationStatus()` (`granted`, `denied`, `prompt`, and its accuracy),
+  the first module of the standard library (LLP 1133). Consumer: Weatherlight's
+  "Use my location", which shows its button, its position or a way to Settings
+  by that fact. Take: waived. Notifications' own permission fact, and
+  everything else this entry refuses, stay refused until notifications' RFC.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
@@ -594,6 +591,12 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
+- **Expanded (Daehyeon Mun, 2026-10-19; trade):** `postMessage(text, iframeId)` sends
+  ordered strings to one mounted iframe: D2r's replies and host-initiated updates (LLP
+  1020 §11). Unblocks T3 Code's HTML and MCP App documents: live theme, shortcut and
+  `host-context-changed` updates. Take: QUEUE "Shared elements, stage 2" (LLP 1013.000
+  §3) moves to Later. Structured clone, broadcast, a permission broker and Linux
+  delivery stay no.
 - **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** short sounds an
   action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10

@@ -19,6 +19,23 @@ import WidgetKit
 @MainActor
 @available(iOS 17.0, macOS 14.0, visionOS 26.0, *)
 final class SnapshotDriverTests: XCTestCase {
+    #if os(macOS)
+    func testMacExtensionFindsTheContainingAppsCatalogAndImage() throws {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_ASSETS_EXTENSION"])
+        let bundle = try XCTUnwrap(Bundle(path: path))
+        let app = try XCTUnwrap(SnapshotBundles.containingApp(of: bundle))
+        XCTAssertEqual(app.bundleURL.lastPathComponent, "SnapshotAssets.app")
+        let color = try XCTUnwrap(SnapshotBundles.all(for: bundle).compactMap { NSColor(named: "WidgetInk", bundle: $0)?.usingColorSpace(.sRGB) }.first)
+        XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+        let roots = SnapshotBundles.imageRoots(for: bundle)
+        XCTAssertTrue(roots.map(\.path).contains(app.bundleURL.appendingPathComponent("Contents/Resources").path))
+        let image = try XCTUnwrap(SnapshotRasters().decode("assets/widget.png", roots: roots, appGroup: nil, box: CGSize(width: 1, height: 1), fit: "contain", scale: 1))
+        XCTAssertEqual(image.image.width, 1)
+        XCTAssertEqual(image.image.height, 1)
+    }
+    #endif
+
     enum Mode: String, CaseIterable { case fullColor, accented, vibrant }
     enum Content: String { case answered, placeholder, locked }
     struct Family {
@@ -197,6 +214,33 @@ final class SnapshotDriverTests: XCTestCase {
     }
 
     // MARK: Caltrain's countdown entry
+
+    func testInlineGuardChecksTheResizedTreeAndEmptyDepartures() throws {
+        let bytes = try Self.plan("SNAPSHOT_TRAINS")
+        for size in [CGSize(width: 225, height: 26), CGSize(width: 168, height: 11.5), CGSize(width: 13.5, height: 13.5)] {
+            let session = try HeadlessSession(plan: bytes, entry: "next-trains", size: CGSize(width: 184, height: 69.5), assetRoot: Self.out)
+            defer { session.close() }
+            XCTAssertFalse(SnapshotDriver.admitsInline(try session.snapshot()), "the rectangular layout has multiple leaves")
+            XCTAssertTrue(SnapshotDriver.admitsInline(try session.resize(to: size)))
+            let empty = try HeadlessSession(plan: bytes, entry: "next-trains", props: Data(#"{"station":"Mountain View","departures":[]}"#.utf8), size: size, assetRoot: Self.out)
+            defer { empty.close() }
+            let snapshot = try empty.snapshot()
+            XCTAssertTrue(SnapshotDriver.admitsInline(snapshot))
+            XCTAssertTrue(snapshot.nodes.values.contains { $0.props["text"] == "No departures" })
+        }
+    }
+
+    func testInlineGuardRejectsEveryNonContainerLeaf() {
+        let text = HeadlessSession.Node(id: 2, kind: "text", props: ["text":"Countdown"])
+        for leaf in [HeadlessSession.Node(id: 3, kind: "view", props: ["semanticTag":"hr"]),
+                     HeadlessSession.Node(id: 3, kind: "control", props: ["type":"progress"]),
+                     HeadlessSession.Node(id: 3, kind: "future-leaf")] {
+            let container = HeadlessSession.Node(id: 1, kind: "view", children: [2,3])
+            XCTAssertFalse(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:container,2:text,3:leaf])))
+        }
+        let container = HeadlessSession.Node(id: 1, kind: "view", props: ["semanticTag":"section"], children: [2])
+        XCTAssertTrue(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:container,2:text])))
+    }
 
     func testCaltrainEntryRendersEveryFamilyModeAppearanceAndSize() throws {
         let plan = try Self.plan("SNAPSHOT_TRAINS")

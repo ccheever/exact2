@@ -61,7 +61,10 @@ extension NodeView {
     }
     func editMarkupLink() { MarkdownLink.installed?.editLink(self) }
     func publishMarkupSelection(force: Bool = false) { MarkdownLink.installed?.publishSelection(self, force: force) }
-    func restyleMarkup() { MarkdownLink.installed?.restyle(self) }
+    func restyleMarkup() {
+        MarkdownLink.installed?.restyle(self)
+        restyleDecorations()
+    }
 }
 
 #if os(iOS) || os(tvOS)

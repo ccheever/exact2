@@ -330,3 +330,25 @@ fn a_linked_bake_gives_the_archive_what_rust_compiles() {
     );
     assert!(!out.0.join("app.plan").exists());
 }
+
+/// A linked bake's `module.rs` names neither the bytecode's bytes nor their
+/// hash, so an edit to the TypeScript alone compiles no Rust; the embedded
+/// one includes the bytecode and says its hash.
+#[test]
+fn a_linked_module_leaves_its_bytecode_to_the_link() {
+    let meta = serde_json::json!({"appId": "a", "grants": "", "module": {"sha256": "beef"}});
+    let linked = super::module_constants(&meta, false, "ios", true).unwrap();
+    assert!(
+        !linked.contains("beef") && !linked.contains("app.hbc"),
+        "{linked}"
+    );
+    assert!(
+        linked.contains("::exact_apple::baked::bytecode()"),
+        "{linked}"
+    );
+    let embedded = super::module_constants(&meta, false, "ios", false).unwrap();
+    assert!(
+        embedded.contains("REVISION: &str = \"beef\"") && embedded.contains("/app.hbc"),
+        "{embedded}"
+    );
+}

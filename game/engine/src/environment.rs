@@ -1,11 +1,12 @@
-use crate::{Data, Resource};
+use crate::{Color, Data, Resource};
 
 /// Linear sky colours and optional atmospheric/post-processing effects.
 /// Absence of this resource has the same presentation as its default.
 #[derive(Clone, Copy, Debug, PartialEq, Resource)]
 pub struct Environment {
-    /// Optional flat background, independent of ambient illumination.
-    pub background: Option<[f32; 3]>,
+    /// Optional flat background, independent of ambient illumination:
+    /// `Some(Color::hex("#7daba3"))`.
+    pub background: Option<Color<3>>,
     /// Overhead sky radiance.
     pub zenith: [f32; 3],
     /// Horizon sky radiance and default fog colour.
@@ -41,6 +42,41 @@ impl Default for Environment {
         }
     }
 }
+impl Environment {
+    /// Clear water seen from inside it: a tank or a shallow sea. The whole frame
+    /// sits in one medium, so the sky is the water's colour and fog is uniform.
+    /// Pair it with a sun of about 6,000 lux from above and no opaque surface
+    /// between the sun and the floor; [the underwater recipe](crate::recipes::underwater)
+    /// has the scene, its camera framing and the mean luminance it was measured at.
+    pub fn underwater() -> Self {
+        Self {
+            // The fog hides the whole sky, so a flat background would never show.
+            background: None,
+            // Light through the surface overhead: brighter, green-blue.
+            zenith: [0.3, 0.62, 0.7],
+            // The water's own colour, which the fog fades everything towards.
+            horizon: [0.03, 0.16, 0.2],
+            // Little light comes back up from below.
+            ground: [0.02, 0.05, 0.05],
+            ambient: 0.6,
+            // The sun is not seen as a disc through water.
+            sun_disc: 0.,
+            exposure: 0.9,
+            tone_mapping: ToneMapping::Aces,
+            // Uniform extinction (no height falloff): a surface 32.9 m away keeps
+            // 10% of its colour, ln 10 / 0.07.
+            fog: Some(Fog::new(0.07, 0.)),
+            // The default threshold on HDR brightness (the brightest channel,
+            // before exposure) at a weaker glow than the default 0.16.
+            bloom: Some(Bloom {
+                threshold: 1.,
+                intensity: 0.1,
+                radius: 1.5,
+            }),
+        }
+    }
+}
+
 /// An authored environment for image-based lighting: it replaces the procedural
 /// sky (`Environment`'s zenith, horizon and ground) as the source of ambient
 /// diffuse and specular light; the visible sky and background are unchanged.
@@ -148,8 +184,8 @@ impl SceneSamples {
 /// Height fog, or near/far fog along the camera's forward axis.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Fog {
-    /// Linear colour; None uses the horizon.
-    pub color: Option<[f32; 3]>,
+    /// Fog colour, `Some(Color::hex("#7daba3"))`; None uses the horizon.
+    pub color: Option<Color<3>>,
     /// Extinction per metre at Y=0.
     pub density: f32,
     /// Exponential height falloff per metre.

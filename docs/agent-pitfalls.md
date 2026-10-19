@@ -259,13 +259,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`prefer visibility-state hidden` then `visible` with no clock step between).
   (Web and iOS simulator, 2026-10-06.)
 
-- **A custom row in a grouped list overflows its card on the right.** Cause:
-  the sheet already gives each row the cell's margin at both ends (on iOS
-  UIKit's: 16 pt on an iPhone, 20 on the iPhone Duo; 40 more after an icon).
-  A custom row with `width="100%"` adds the margin on top and runs past the
-  card. Fix: leave custom row content at its natural width (`flex-grow=1` on
-  the part that should stretch), not `width="100%"`. (Signal Clone, build 15.)
-
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
   the resource failed (`Rust module rejected the call`). Cause: the JS target's
@@ -477,7 +470,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
 | `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
 | `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
-| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below); nothing when the same style has `overflow: "hidden"`, which iOS draws without its shadow |
 | `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
@@ -558,6 +551,29 @@ screen, 2026-10-16.)
   a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
   `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
   capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A capsule with a rim is a few points larger than the original's, and grows when the
+  rim thickens.** euxy's was 184 × 68 points where the original's was 180 × 64, its keys
+  2 points further in. Cause: the original drew the rim as `borderWidth` on a fixed-size
+  shell and gave the keys' padding to a child row as wide as the shell, so the rim lay
+  over the padding; its thicker armed rim was an overlay. A box with `padding=8` and
+  `border="2px solid …"` puts its content 10 points in, as CSS does, and a border whose
+  width changes with state moves the content. Fix: a rim that takes no room,
+  `box-shadow="inset 0 0 0 2px <colour>"`, with the original's padding.
+- **A glow on a tiny LED is barely there.** Cause: a blur spreads a small source thin, so
+  `box-shadow="0 0 7px …"` on a 5-pt dot is at most an eighth of its colour beside the
+  dot, in Chrome and on every host alike; the original's halo was a larger disc blurred
+  under the dot. A radial gradient instead draws a halo that is too big. Fix: Skia's
+  `<Circle r={R} opacity={a}><BlurMask blur={σ} /></Circle>` under a dot of radius `r` is
+  `box-shadow="0 0 <2σ>px <R − r>px <colour at a>"` on the dot: the spread grows the dot
+  to the halo's disc. euxy's `R=4.5, σ=4, a=0.55` under a 5-pt LED is
+  `box-shadow="0 0 8px 2px eu.glow"`, which matched the original's halo to within a
+  few levels.
+- **A bar's shadow casts a band over the strip below it.** Cause: the original cast the
+  shadow from a dock that ran to the screen's bottom edge, under the tab bar, so its
+  downward spill fell off screen; a route's content ends above the tab bar, so the same
+  `box-shadow` spills onto the strip there. Fix: keep the shadow and clip its spill with
+  `clip-path` past the box's top only (`clip-path="path('M 0 -40 L 2000 -40 L 2000 77 L 0
+  77 Z')"` on a 77-pt bar).
 - **A sheet sits a few points low, or ends short of the screen with its bottom corners
   showing.** Cause: a computed `navigationDetent` (`(screen height − 100) × 0.45`)
   guesses UIKit's maximum; and the original's `sheetCornerRadius` set the sheet's corner
@@ -626,6 +642,14 @@ screen, 2026-10-16.)
 
 ## Actions
 
+- **A send reads a derive from before the action's writes.** An action's writes
+  commit together; reading a derive after assigning one of its inputs still reads
+  the previous commit's derive. Build the next record explicitly for the send,
+  for example `DepartureState(current, at=current.at + 600000, status="Delayed")`,
+  and assign local state in the same action. Caltrain's activity update sent
+  "On time" after incrementing its delay until it built that next record
+  (`apps/caltrain/app.contract`, LLP 1126.001 WP9).
+
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
   words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
   (`syntax-expected-name`); nor can `length` name a function or action in a file
@@ -649,6 +673,17 @@ screen, 2026-10-16.)
   value. Fix: compute the value in a derive (from the `exactTime` source's
   `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
   the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
+
+- **A marker that moves by `if` costs a view each move.** Symptom: an animation
+  that moves a dot, a playhead or a selection ring from cell to cell several
+  times a second keeps a phone busier than a hand-built UIKit screen. Cause:
+  `if head == 0` around the marker destroys a node in one cell and creates one in
+  the next at every move: a view made and dropped, its style applied, and a
+  layout. Fix: keep the marker in every cell and move it by `opacity=(head == 0 ?
+  1 : 0)` (with `transition="none"` where it must not fade), as a hand-built app
+  toggles `alpha` or `isHidden`. Measured on euxy playing (sixty-eight step
+  cells, eight moves a second, iPhone 17 simulator): 7.1 → 5.5 % CPU, median of
+  four. (euxy CPU work, 2026-10-18.)
 
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
@@ -916,6 +951,31 @@ screen, 2026-10-16.)
 
 ## Driving and testing
 
+- **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
+  string form sets the whole textarea: AppKit selects all, then inserts the supplied
+  value. Even one character per call is replacement, so `" suffix"` does not append
+  to the existing prompt. Keep strings for whole-value setup. For incremental ASCII,
+  first verify the actual native selection is collapsed at the intended insertion
+  point, then send keys, including `Space` for a space:
+
+  ```js
+  await s.type('composer', 'seed'); // Replace the whole field.
+  // Verify the native caret is at source offset 4 before appending.
+  for (const character of ' a') {
+    const reply = await s.type('composer', {
+      key: character === ' ' ? 'Space' : character,
+    });
+    assert.equal(reply.delivery, 'platform');
+  }
+  ```
+
+  Wait for the app's accepted source after each key: `"seed "`, then `"seed a"`.
+  Assert one accepted-input serial increment per character and an unchanged owner;
+  the final value or a delivery receipt alone does not prove incremental input.
+  This ASCII example does not exercise IME composition. (T3 composer acceptance,
+  2026-10-19; [AgentMac.swift](../host/apple/Sources/ExactKit/Mac/AgentMac.swift),
+  textarea branch of `type`; [public driver](../scripts/agent.mjs), `type`.)
+
 - **A compiler fixture silently tests its helper instead of `App`.** The first
   component is the root; the name `App` has no special meaning. Put the root
   before its helpers. (SVG `use` warning's component-expansion test, 2026-10-17;
@@ -927,6 +987,29 @@ screen, 2026-10-16.)
   tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
   after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
   (Shelf recipe, 2026-10-10.)
+- **After a long press made with `axe touch --down --up --delay`, the iOS simulator
+  ignores taps.** An action sheet or alert the long press opened stays up whatever
+  is tapped, and relaunching the app does not help: Apple's Settings app on that
+  simulator ignores taps too, until the simulator reboots. In an Exact app the
+  symptom can be partial: the tab bar and an alert's buttons, which are UIKit's,
+  ignore taps while the app's own buttons still answer them. UIKit's controls do
+  that while another touch is down: with `axe touch --down` holding one finger,
+  Apple's Photos ignores a tap on its tab bar exactly as an Exact app's does, and
+  a sequencer's play button still plays. Cause: AXe 1.8.0's touch command, not
+  the app. Fix: make real touches with the agent, which taps
+  an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
+  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
+  prompt, and its tab bar after a relaunch, 2026-10-18.)
+- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
+  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+  one run); otherwise the app opens the link at once. A drive that then taps where
+  the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
+  taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
+  the link presented, and UIKit dismisses that sheet and pops the route, as it would
+  for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
+  `axe describe-ui` and tap Open by its label only when it is there; in a drive,
+  `"type <root> euxy://p/…"` delivers the link with no confirmation at all. (euxy
+  port's "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
@@ -1193,7 +1276,9 @@ screen, 2026-10-16.)
   session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
-  the app's files are there.** Cause: without `--storage <name>` the data
+  the app's files are there.** Cause: a web drive without `--storage <name>`
+  (a native one uses the store `default`, kept between drives), or an authored
+  test, whose store starts empty: the data
   module reads an empty store (`readFile`, `readdir`, `stat` and `realpath` reject
   with code `ENOENT`, as for a missing file) and every write throws "storage is
   unavailable in agent mode…", so a module that catches a missing file falls back
@@ -1412,13 +1497,9 @@ screen, 2026-10-16.)
 
 ## Games
 
-- **Older saves refuse to restore after adding a generated model.** `restore` names it:
-  ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
-  at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
-  assets"), even one that only changes how a unit looks. Fix: a model that is only
-  appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
-  for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
-  1046.012 F5, 2026-10-07.)
+A game's pitfalls (the world and its saves, game input, its tests, proof and setup)
+are in [game-pitfalls.md](game-pitfalls.md).
+
 
 ## Access hatches
 
@@ -1536,3 +1617,22 @@ its valid bindings disappear and return. Read it with
 - The root file's first component is the app root. A fixture component placed
   above it changes which component receives routes and may declare resources.
   Keep resources on the root and pass their values to child components.
+
+- **A game proof needs a stable source tree through its last assertion.** Do not
+  create scratch directories or run fixture-generating tests alongside it, even
+  under an ignored directory: the input reader observes directory metadata.
+  Prepare evidence paths first and keep fixture generation separate from proofs.
+
+- **A game agent page freezes its primary GPU module.** A successful dev side-module
+  rebuild does not replace that artifact for a new agent drive. Build the primary
+  module and restart the dev server before using a drive to verify Rust changes.
+
+- **Read the operation's receipt before assuming its shape.** A targeted `layout`
+  returns `node.space.viewport`. A delivered input can return `landError` when
+  settling its effects fails; it need not reject the call. Keep that receipt so a
+  proof checks the failure without sending the input twice.
+
+- Reloading a wasm-bindgen validator through a new file-URL query can reuse Bun's cached
+  JavaScript module. Load a fresh module instance and its matching wasm together; verify a
+  declaration added during the dev session without another JSON edit. The table watcher
+  uses a unique data URL for each primary build.

@@ -49,7 +49,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // another look's own (Android's Material rows) and no sheet's here.
   const neutralCell = (row) => (row.length === 3 ? row[2] : row[5]);
   const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics
-    .filter((row) => row[1] !== 'style' && neutralCell(row) !== 'unset');
+    .filter((row) => !row[1].startsWith('style') && neutralCell(row) !== 'unset'); // `style` and `style length`: the grouped sheet's
   const value = new Map(rows.map((row) => [row[0], neutralCell(row)]));
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
   // The properties each length is written on.

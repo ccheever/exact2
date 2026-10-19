@@ -22,7 +22,12 @@ final class WidgetContainerTests: XCTestCase {
         func publish(_ assets: AssetResolver) throws -> Bool {
             try WidgetContainer.publish(assets, root: root, kinds: ["card"], compatibility: "cohort")
         }
+        XCTAssertThrowsError(try WidgetContainer.pinCurrent(assets("first"), root: root, compatibility: "cohort"))
+        XCTAssertEqual(reads, 0, "a send cannot publish assets")
         XCTAssertTrue(try publish(assets("first")))
+        XCTAssertNoThrow(try WidgetContainer.pinCurrent(assets("first"), root: root, compatibility: "cohort"))
+        XCTAssertThrowsError(try WidgetContainer.pinCurrent(assets("second"), root: root, compatibility: "cohort"))
+        XCTAssertEqual(reads, 1, "a generation behind the app refuses without copying")
         let base = root.appendingPathComponent("widget-generations")
         let first = try String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8)
         try WidgetContainer.signal(root: root) {}

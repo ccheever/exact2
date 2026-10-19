@@ -1,7 +1,7 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
 use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
-use crate::{ast::*, sequence::Sequence, Span};
+use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
 /// Destructuring is exhaustive so new syntax must account for its locations.
@@ -68,7 +68,7 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue);
+leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue, ModuleKind);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
@@ -82,12 +82,12 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, fns, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, fns, modules, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
-    DesignSource { path, home, text, source_id, bindable }
+    DesignSource { path, home, text, source_id, bindable, package }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -96,6 +96,8 @@ structs! {
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
+    ModuleDecl { name, declared, package, extension, kind, options, words, answers, live, request, sync, substitute, span }
+    PlatformWords { platform, package, words }
     UseDecl { names, path, span }
     UseName { name, alias, span }
     StyleDecl { name, attrs, span }

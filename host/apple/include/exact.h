@@ -134,7 +134,8 @@ uint32_t exact_calc_parse(const uint8_t *text, size_t len);
 
 /* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
  * viewport width/height (the window's when a sheet is open), segment cols/rows, the layout
- * regions' count (0 or 20) and the regions (LLP 1123 D10), then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * regions' count (0 or 20) and the regions (LLP 1123 D10), the title-bar area's count (0 or 4)
+ * and its x,y,w,h, then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
  * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
 void *exact_calc_create(uint32_t handle, const double *values, size_t count);
 double exact_calc_resolve(const void *context, double basis);
@@ -362,6 +363,13 @@ void exact_app_answer(void *slot, uint32_t status, const uint8_t *bytes, size_t 
 void exact_app_changed(ExactRuntime rt, const uint8_t *topic, size_t len);
 void exact_app_reply(void *reply, uint32_t status, const uint8_t *bytes, size_t len);
 
+/* A document the app kept was forgotten by the app (LLP 1069.010.000 D5):
+ * called on a storage worker's thread with the object's device and inode;
+ * the host takes it off NSDocumentController's recents on the main thread.
+ * One hook for the process. */
+typedef void (*ExactForgottenFn)(uint64_t device, uint64_t inode);
+void exact_on_document_forgotten(ExactForgottenFn forgotten);
+
 /* Buffers. exact_in returns NULL for a handle nobody holds. */
 uint8_t *exact_in(ExactRuntime rt, size_t len);
 const uint8_t *exact_out(ExactRuntime rt);
@@ -462,7 +470,12 @@ void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, 
  * synchronously on the runtime owner; UI work is served on main. */
 typedef struct { double x, y, width, height; uint32_t available; } ExactInlineFrame;
 typedef ExactInlineFrame (*ExactInlineFrameFn)(void *ctx, uint32_t view);
-void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, void *ctx);
+typedef ExactInlineFrame (*ExactRangeFrameFn)(void *ctx, uint32_t view, uint32_t start, uint32_t end);
+void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, ExactRangeFrameFn range, void *ctx);
+/* A textarea's decorations (LLP 1114.007): UTF-8 JSON {record, current, styles} in,
+ * {provisional, spans, styles} out, valid until the next call on this thread; null when
+ * the request does not parse. */
+const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t *count);
 /* Open top-layer views in back-to-front order, with viewport x/y/width/height
  * in four doubles per id: where the host shows each, a block's root by its
  * block's rectangle (the root sits in it by its own frame) and any other view
@@ -589,10 +602,20 @@ uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
+/* @ref LLP 1126.001 WP9: declare the packaged arm before boot, then deliver
+ * its source snapshots or send completions through the input buffer. */
+void exact_link_activities(ExactRuntime rt);
+uint32_t exact_activities(ExactRuntime rt, size_t len);
 /* @ref LLP 1125 D6-D8: a MIDI message, JSON in the input buffer: the MIDI
  * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
  * `tap midi`. Returns the batch length. */
 uint32_t exact_midi(ExactRuntime rt, size_t len);
+/* @ref LLP 1124 D7: the agent's `prefer extension`, JSON in the input buffer:
+ * a native module source's preferred value. Returns the batch length. */
+uint32_t exact_extension(ExactRuntime rt, size_t len);
+/* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
+ * line in the input buffer: the runner sends their names to the module. */
+void exact_bind_extensions(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev
@@ -657,6 +680,10 @@ void exact_measure_work_later(void);
 uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
+/* A placement root's resolved margins and its width's authorship (LLP 1126.001 WP10): exact_out
+ * holds JSON [margin left, top, right, bottom, authored width 0|1] with no batch around it, or
+ * {"error": …}; returns its length. */
+uint32_t exact_placement_box(ExactRuntime rt, uint32_t view);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */
 uint32_t exact_list_index(ExactRuntime rt, uint32_t view, uint32_t len);
 /* Two concatenated UTF-8 keys in input; empty first key selects all text.
@@ -677,6 +704,13 @@ uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, flo
  * region is the safe area. A change re-sends the style of every node that
  * reads the environment and lays out again. */
 uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
+/* The title-bar area beside the window's controls (points, from the layout
+ * viewport), what env(titlebar-area-x|y|width|height) resolves to (Window
+ * Controls Overlay): count is 4, x, y, width, height (all zero while the area
+ * is hidden), or 0, when the window gives none and each variable is undefined.
+ * A change re-sends the style of every node that reads the environment and
+ * lays out again. */
+uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count);
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
@@ -736,9 +770,10 @@ uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
 uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
 /* A navigation root's tabs by the kernel's rule (LLP 1115.001 D11), JSON in the
  * output buffer, not a batch: {"tablist":view,"tabs":[view...],"panels":[view...],
- * "unsaid":bool}, the tabs that name a panel and those panels in tab order, and
- * whether the app left the bar's placement unsaid (the web's rule for its sidebar,
- * LLP 1116.004 D1.1); null for one stack. */
+ * "unsaid":bool,"covered":bool}, the tabs that name a panel and those panels in tab
+ * order, whether the app left the bar's placement unsaid (the web's rule for its
+ * sidebar, LLP 1116.004 D1.1), and whether the tablist is covered whole; null for
+ * one stack. */
 uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
 /* Whether the stack whose root route is `view` shows that route as a list beside
  * its detail, by the runner's rule (LLP 1115.002 D4), JSON in the output buffer,

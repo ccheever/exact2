@@ -25,14 +25,10 @@ final class TextSpecs {
     var cached: Spec?
 }
 
-final class NodeExtras {
-    var pressContact: PressContact?
-    var inlinePressed: UInt32?
-    /// A Markdown link pressed in this text: its target, followed on release over it.
-    var linkPressed: String?
-    var svgPressed: UInt32?
-    var clipPath: CGPath?
-    var clipRule: CGPathFillRule = .winding
+/// A box's gradient and shadows, apart from `NodeExtras`: most nodes that
+/// have one need none of its other fields, and an extras object is 1.5 KB
+/// (euxy's launch: 43 of its 47 extras held only these).
+final class NodePaintExtras {
     /// A `background-image` gradient Core Animation paints (LLP 1066).
     var boxGradient: CAGradientLayer?
     /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
@@ -41,6 +37,16 @@ final class NodeExtras {
     var shadowCaster: ShadowCaster?
     /// Inset `box-shadow`s (LLP 1077 D4).
     var insetCaster: InsetShadowCaster?
+}
+
+final class NodeExtras {
+    var pressContact: PressContact?
+    var inlinePressed: UInt32?
+    /// A Markdown link pressed in this text: its target, followed on release over it.
+    var linkPressed: String?
+    var svgPressed: UInt32?
+    var clipPath: CGPath?
+    var clipRule: CGPathFillRule = .winding
     var clipBox: PlainView?
     /// The box layout moved it from (LLP 1063).
     var layoutOffset: CGPoint = .zero
@@ -59,6 +65,10 @@ final class NodeExtras {
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: DragInput?
+    var contextTransform = CGAffineTransform.identity
+    var flightLook: FlightLook?
+    var columnRecord: ColumnRecord?
+    var liveText: String?
     var reorderPan: UIPanGestureRecognizer?
     var reorderPress: UILongPressGestureRecognizer?
     var reorderHold: AnyObject?
@@ -71,6 +81,7 @@ final class NodeExtras {
     var doubleRecognizer: UITapGestureRecognizer?
     #if !os(tvOS)
     var hoverRecognizer: UIHoverGestureRecognizer?
+    var lookHoverRecognizer: UIHoverGestureRecognizer?
     #endif
     var textArea: UITextView?
     var field: UITextField?
@@ -130,6 +141,15 @@ final class NodeExtras {
     weak var nativeScrollDelegate: (any UIScrollViewDelegate)?
     /// Content room implemented as native insets, not a smaller CSS viewport.
     var nativeScrollContentInsets = UIEdgeInsets.zero
+    /// The status bar's and the home indicator's bands its scroll view
+    /// reaches into past its box, inset by as much (LLP 1130 D3).
+    var pageBand = UIEdgeInsets.zero
+    /// The part of the band its scroll view's `contentInset` holds (LLP 1131 D2).
+    var bandInset = UIEdgeInsets.zero
+    /// A control bar over a scroller's content (LLP 1131 D3, D4): the scroller's paint rank, which it is placed
+    /// above, and UIKit's edge effect.
+    var bandOver: Int64?
+    var edgeInteraction: AnyObject?
     var scrollWritten: String?
     /// A hatched node whose hatch undoes its own additions: its row may be
     /// reused (LLP 1075.003.000.000 §8).
@@ -156,10 +176,15 @@ extension NodeView {
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
     var fieldInCell: Bool { get { extras?.fieldInCell ?? false } set { if newValue || extras != nil { more.fieldInCell = newValue } } }
-    var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
-    var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
-    var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
-    var insetCaster: InsetShadowCaster? { get { extras?.insetCaster } set { if newValue != nil || extras != nil { more.insetCaster = newValue } } }
+    var paintMore: NodePaintExtras {
+        if let paintExtras { return paintExtras }
+        let made = NodePaintExtras(); paintExtras = made
+        return made
+    }
+    var boxGradient: CAGradientLayer? { get { paintExtras?.boxGradient } set { if newValue != nil || paintExtras != nil { paintMore.boxGradient = newValue } } }
+    var aimedGradient: AimedGradient? { get { paintExtras?.aimedGradient } set { if newValue != nil || paintExtras != nil { paintMore.aimedGradient = newValue } } }
+    var shadowCaster: ShadowCaster? { get { paintExtras?.shadowCaster } set { if newValue != nil || paintExtras != nil { paintMore.shadowCaster = newValue } } }
+    var insetCaster: InsetShadowCaster? { get { paintExtras?.insetCaster } set { if newValue != nil || paintExtras != nil { paintMore.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
@@ -182,11 +207,25 @@ extension NodeView {
     package var transformRecognizer: UIPanGestureRecognizer? { get { extras?.transformRecognizer } set { if newValue != nil || extras != nil { more.transformRecognizer = newValue } } }
     package var transformHold: DragInput? { get { extras?.transformHold } set { if newValue != nil || extras != nil { more.transformHold = newValue } } }
     package var transformContact: TransformContact? { get { extras?.transformContact } set { if newValue != nil || extras != nil { more.transformContact = newValue } } }
+    /// A projection's transform over its layout (PresenterIOS), identity for every other node.
+    package var contextTransform: CGAffineTransform {
+        get { extras?.contextTransform ?? .identity }
+        set {
+            if !newValue.isIdentity || extras != nil { more.contextTransform = newValue }
+            if newValue.isIdentity { presenter?.contextNodes.remove(id) } else { presenter?.contextNodes.insert(id) }
+        }
+    }
+    /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
+    var flightLook: FlightLook? { get { extras?.flightLook } set { if newValue != nil || extras != nil { more.flightLook = newValue } } }
+    /// LLP 1093 D7: fragments or columns.
+    var columnRecord: ColumnRecord? { get { extras?.columnRecord } set { if newValue != nil || extras != nil { more.columnRecord = newValue } } }
+    var liveText: String? { get { extras?.liveText } set { if newValue != nil || extras != nil { more.liveText = newValue } } }
     var swipeOrigin: Double { get { extras?.swipeOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.swipeOrigin = newValue } } }
     var contextRecognizer: UILongPressGestureRecognizer? { get { extras?.contextRecognizer } set { if newValue != nil || extras != nil { more.contextRecognizer = newValue } } }
     var doubleRecognizer: UITapGestureRecognizer? { get { extras?.doubleRecognizer } set { if newValue != nil || extras != nil { more.doubleRecognizer = newValue } } }
     #if !os(tvOS)
     var hoverRecognizer: UIHoverGestureRecognizer? { get { extras?.hoverRecognizer } set { if newValue != nil || extras != nil { more.hoverRecognizer = newValue } } }
+    var lookHoverRecognizer: UIHoverGestureRecognizer? { get { extras?.lookHoverRecognizer } set { if newValue != nil || extras != nil { more.lookHoverRecognizer = newValue } } }
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
@@ -254,8 +293,15 @@ extension NodeView {
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses), or past native content room.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat {
-        scrollOrigin > 0 ? sv.adjustedContentInset.top : extras?.nativeScrollContentInsets.top ?? 0
+        scrollOrigin > 0 ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + pageBand.top
     }
+    /// Its page band (`NodeExtras.pageBand`), zero for most.
+    var pageBand: UIEdgeInsets { extras?.pageBand ?? .zero }
+    var bandInset: UIEdgeInsets { extras?.bandInset ?? .zero }
+    var bandOver: Int64? { get { extras?.bandOver } set { if newValue != nil || extras != nil { more.bandOver = newValue } } }
+    var edgeInteraction: AnyObject? { get { extras?.edgeInteraction } set { if newValue != nil || extras != nil { more.edgeInteraction = newValue } } }
+    /// Its scroll view's frame: its bounds, and the band past them.
+    package var scrollFrame: CGRect { bounds.inset(by: UIEdgeInsets(top: -pageBand.top, left: 0, bottom: -pageBand.bottom, right: 0)) }
     /// Native padding and footer space are content, unlike a bar or keyboard.
     package func scrollPortInsets(_ sv: UIScrollView) -> UIEdgeInsets {
         let inset = sv.adjustedContentInset, content = extras?.nativeScrollContentInsets ?? .zero
@@ -267,8 +313,8 @@ extension NodeView {
     /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
     /// scroll by the bar and the home indicator, as a table view's does not.
     func scrollFloor(_ sv: UIScrollView) -> CGFloat {
-        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height }
-        return max(0, sv.bounds.height - top - bottom)
+        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height - pageBand.top - pageBand.bottom }
+        return max(0, sv.bounds.height - top - bottom - pageBand.top - pageBand.bottom)
     }
 }
 extension UIColor {

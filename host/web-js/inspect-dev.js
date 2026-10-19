@@ -263,6 +263,8 @@ async function selectedReport(el, click = null) {
   if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
   const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: facts.plan, design: facts.design, revision: facts.revision });
   let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false };
+  // (The held node, named by this runtime's ids, where the glue could not number it.)
+  if (selected.held && selected.held.node == null && selected.held.el) selected.held.node = viewOf(selected.held.el);
   if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, token })), trimmed: true };
   while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
   if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
@@ -465,16 +467,32 @@ function hold(m) {
   holding = holding.then(() => holdNow(m)).catch((error) => console.error("exact dev:", String(error)));
   return holding;
 }
+// How long a hold waits for the input glue to load before saying it is not loaded.
+const HOLD_WAIT = 60_000;
+/** The input glue's `hold` once it has loaded (it says so: `exact-hold`), or null after `ms` or once `stale()`
+ * (a newer frame came). host/web/dev.js keeps the same wait. */
+export function glueHold(ms, stale = () => false) {
+  return new Promise((ok) => {
+    if (globalThis.exact?.hold) return ok(globalThis.exact.hold);
+    const until = Date.now() + ms;
+    const end = () => { clearInterval(tick); globalThis.removeEventListener?.("exact-hold", end); ok(globalThis.exact?.hold ?? null); };
+    const tick = setInterval(() => { if (globalThis.exact?.hold || stale() || Date.now() > until) end(); }, 250);
+    globalThis.addEventListener?.("exact-hold", end);
+  });
+}
 async function holdNow(m) {
   // (The latest frame, on the stream it came on: a new one's server knows nothing of it.)
   const current = () => holdLatest === m && m.epoch === epoch && m.stream === (env.nonce?.() ?? null);
-  // The input glue, which a page with no press may not have loaded yet, loads after paint.
-  if (!globalThis.exact?.hold) await import(runtime()).then((rt) => rt.pressFeedback?.()).catch(() => {});
-  for (let i = 0; i < 40 && !globalThis.exact?.hold; i++) await new Promise((ok) => setTimeout(ok, 50));
+  // A let-go needs no glue: with none loaded, nothing is held.
+  if (!m.hold) { if (!current()) return; globalThis.exact?.hold?.(null); env.report({ kind: "held", state: null, revision: m.revision }); return; }
+  // The input glue, which a page with no press may not have loaded yet, loads after paint: waited for (a page
+  // reloading after a rebuild, on a loaded machine, takes far longer than a fixed wait), unless a newer frame comes.
+  // (The runtime's own handle, which a bundled page has; else its module, where one is served beside app.js.)
+  if (!globalThis.exact?.hold) await (globalThis.__exactPressFeedback ? Promise.resolve().then(globalThis.__exactPressFeedback) : import(runtime()).then((rt) => rt.pressFeedback?.())).catch(() => {});
+  await glueHold(HOLD_WAIT, () => !current());
   if (!current()) return;
   const holds = globalThis.exact?.hold, h = m.hold, revision = m.revision;
   if (!holds) { env.report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
-  if (!h) { holds(null); env.report({ kind: "held", state: null, revision }); return; }
   // One ended here is not taken again; one addressing another plan (a rebuild this page reloads to) is nothing,
   // unsaid: the new page's registration replays it, its site corresponded.
   if (ended.has(revision) || (typeof m.plan === "string" && m.plan !== (globalThis.exact?.plan ?? null))) return;
@@ -528,6 +546,11 @@ export async function frame(m) {
  * `status()` the page's status, `facts()` its `{plan, design, revision}`. */
 export function install(given) {
   env = given;
+  // A held node's instance path, for the held answer (input-glue.js `heldOf`): the inspect table's, once read.
+  (globalThis.exact ??= {}).instanceOf = (el) => {
+    const entry = table && el?.dataset?.site != null ? table.sites[String(el.dataset.site)] : null;
+    return entry ? instanceOf(table, el, entry) : null; // (a site the table lacks has no path to say)
+  };
   // The dev client's own stand-in (its cover and shield while this loaded) goes.
   document.getElementById("exact-inspect-early")?.remove();
   document.getElementById("exact-inspect-early-shield")?.remove();

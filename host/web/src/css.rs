@@ -354,6 +354,12 @@ fn css_text_in(
                     out.truncate(start);
                     out.push_str("AccentColor");
                 }
+                // The ink on the accent is worked out from the accent (neutral.css):
+                // as the accent itself it is the browser's keyword, no cycle.
+                if &out[start..] == "var(--exact-accent-text, AccentColorText)" {
+                    out.truncate(start);
+                    out.push_str("AccentColorText");
+                }
                 out.push(';');
                 // An authored accent, apart from the page's own in
                 // --exact-accent: what a spinner reads (LLP 1121 D9). The

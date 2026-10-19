@@ -14,6 +14,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -23,10 +24,12 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -57,7 +60,8 @@ fun Specimen(id: String, scheme: ColorScheme) {
     MaterialTheme(colorScheme = scheme) {
         Surface(Modifier.fillMaxSize()) {
             when (id) {
-                "top-app-bar" -> TopBar()
+                "top-app-bar" -> TopBar("Library", up = false)
+                "top-app-bar-up" -> TopBar("Detail", up = true)
                 "navigation-bar", "defect-label-low" -> Box(Modifier.fillMaxSize()) {
                     NavBar(Modifier.align(Alignment.BottomCenter), lowLabel = id == "defect-label-low")
                 }
@@ -75,8 +79,11 @@ private fun Inline(id: String) {
         "text-field-disabled" -> Field("Moby-Dick", enabled = false)
         "text-field-focused" -> Field("Moby-Dick", focused = true)
         "filled-button" -> Button(onClick = {}) { Text("Save") }
+        "filled-button-disabled" -> Button(onClick = {}, enabled = false) { Text("Save") }
         "checkbox-checked" -> Checkbox(checked = true, onCheckedChange = {})
         "checkbox-unchecked" -> Checkbox(checked = false, onCheckedChange = {})
+        "radio-selected" -> RadioButton(selected = true, onClick = {})
+        "radio-unselected" -> RadioButton(selected = false, onClick = {})
         "defect-missing-control" -> Box(Modifier.size(48.dp))
         "defect-neighbour-role" -> Button(
             onClick = {},
@@ -159,10 +166,16 @@ private fun ThinField(value: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TopBar() {
+private fun TopBar(title: String, up: Boolean) {
     // The tag on a box round the bar: on the bar itself it lands on a node the window's height.
     Box(Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top).testTag(SPECIMEN)) {
-        TopAppBar(title = { Text("Library") }, windowInsets = WindowInsets(0))
+        TopAppBar(
+            title = { Text(title) },
+            navigationIcon = {
+                if (up) IconButton(onClick = {}) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+            },
+            windowInsets = WindowInsets(0),
+        )
     }
 }
 

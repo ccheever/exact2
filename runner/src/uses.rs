@@ -272,7 +272,7 @@ pub fn uses(plan: &Plan) -> Uses {
     // A segment length is a value, not a row: any string of the plan's
     // naming one (a literal, a template's piece) can reach a dimension row,
     // so the set is never smaller than what a run can reach.
-    if plan.strings.iter().any(|s| names_segment(s)) {
+    if plan.strings.iter().any(names_segment) {
         uses = uses.with(Capability::Segments);
     }
     if !plan.surfaces.is_empty()

@@ -11,6 +11,9 @@
 // FFI to the JNI, jnigraphics and AHardwareBuffer APIs.
 #![allow(unsafe_code)]
 
+#[path = "jni_extensions.rs"]
+pub mod jni_extensions;
+
 /// Define the JNI for an app over `CanvasHost<$data>` with the plan and
 /// compat the app's build script writes to `OUT_DIR` (`app.plan`,
 /// `compat.json`). `hatches = …` is the app's [`crate::hatches::Install`]
@@ -83,6 +86,8 @@ macro_rules! canvas_jni {
                 release(env, s, p);
                 out
             }
+
+            $crate::canvas_jni_extensions!();
 
             fn flag(b: bool) -> jboolean {
                 if b {
@@ -677,6 +682,25 @@ macro_rules! canvas_jni {
                 action: jint,
             ) {
                 with(|h| h.field_action(id as u32, generation as u32, action));
+            }
+
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_moduleEvent(
+                env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                slot: jint,
+                generation: jint,
+                kind: jstring,
+                payload: jstring,
+            ) {
+                let kind = string(env, kind);
+                let payload = string(env, payload);
+                let key = $crate::canvas::ModuleKey {
+                    index: slot as u32,
+                    generation: generation as u32,
+                };
+                with(|h| h.module_event(id as u32, key, &kind, payload));
             }
 
             /// The reader moved scroller `id` by (`dx`, `dy`) pixels,

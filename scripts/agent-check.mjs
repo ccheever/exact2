@@ -276,13 +276,13 @@ export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
 }
 
 /** The runs judged, each against the tree its own scheme showed (`trees[i]`): what `accept` takes is the run's `accepted`, each
- *  with its line and the entry; every finding is named. `{check, text}`, as `check` replies. */
+ *  with its line and the entry; every finding is named, with its line (the text shows at most SHOWN). `{check, text}`, as `check` replies. */
 export function settle(runs, trees, accept, host) {
   for (const [n, r] of runs.entries()) {
     const nodes = trees[n], taken = r.findings.map((f) => accepts(accept, f, nodes));
     r.accepted = r.findings.flatMap((f, i) => (taken[i] ? [{ ...f, line: `${line({ ...f, hint: undefined }, nodes)}; accepted: ${taken[i].why}`, accept: taken[i] }] : []));
     r.findings = r.findings.filter((_, i) => !taken[i]);
   }
-  const named = (fs, nodes) => fs.map((f) => ({ ...f, node: who(f, nodes) }));
+  const named = (fs, nodes) => fs.map((f) => ({ line: line(f, nodes), ...f, node: who(f, nodes) }));
   return { check: runs.map((r, i) => ({ ...r, findings: named(r.findings, trees[i]), accepted: named(r.accepted, trees[i]) })), text: report(runs, trees, host) };
 }

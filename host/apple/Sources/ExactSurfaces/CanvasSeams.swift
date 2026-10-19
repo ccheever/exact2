@@ -174,6 +174,7 @@ extension CanvasesHost {
     static let postBound = 64
     /// `postMessage(text, name)`: one message event for the live canvas of that
     /// surface name with the lowest view id, stamped now, held until one is live.
+    func hasSurface(_ name: String) -> Bool { entries.values.contains { $0.name == name } }
     func post(_ name: String, _ text: String) {
         guard pendingPosts.filter({ $0.name == name }).count < CanvasesHost.postBound else {
             fputs("exact: postMessage: dropped: \(CanvasesHost.postBound) posts already wait for surface \"\(name)\"\n", stderr)
@@ -389,6 +390,14 @@ extension CanvasesHost {
         return result == 0
     }
 
+    func retainEdits(_ e: Entry) {
+        guard e.id != 0, let m = e.module, let ask = m.agent else { return }
+        let data = Data("{\"op\":\"state\"}".utf8)
+        let length = data.withUnsafeBytes { ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+        if let answer = m.output(length), let value = try? JSONSerialization.jsonObject(with: answer) as? [String: Any],
+           let world = value["world"] as? [String: Any], world["developmentEdits"] as? Bool == true { editsAdmitted = true }
+    }
+
     func agent(_ view: UInt32, _ request: [String: Any]) -> [String: Any]? {
         guard let e = live(view), let s = session, let m = e.module, let ask = m.agent else { return nil }
         var request = request
@@ -407,7 +416,13 @@ extension CanvasesHost {
             fputs("exact gpu: view \(view): world reply must be an object\n", stderr)
             return nil
         }
+        if request["op"] as? String == "state", value["entities"] is [Any] {
+            editsAdmitted = editsAdmitted || value["developmentEdits"] as? Bool == true
+            value["sessionDevelopmentEdits"] = editsAdmitted
+        }
         if request["op"] as? String == "state", var world = value["world"] as? [String: Any] {
+            editsAdmitted = editsAdmitted || world["developmentEdits"] as? Bool == true
+            world["sessionDevelopmentEdits"] = editsAdmitted
             if let error = e.restoreError { world["restoreError"] = error }
             let children = e.view.overlay?.subviews.compactMap { $0 as? NodeView } ?? []
             world["presentation"] = ["sessionRenders": rendered, "sessionCaptures": captures,
@@ -442,14 +457,17 @@ extension CanvasesHost {
                 reply["nodes"] = nodes
             }
         case "state":
-            let world = worlds(["op": "state"])
+            let world = worlds(["op": "state", "trace_export": request["trace_export"] as? Bool ?? false])
             if !world.isEmpty { reply["world"] = world }
+            reply["sessionDevelopmentEdits"] = editsAdmitted
         case "logs":
             var world: [[String: Any]] = []
             for id in entries.keys.sorted() {
-                guard let e = live(id), let journal = agent(id, ["op": "logs", "since": e.logCursor]), journal["error"] == nil,
+                guard let e = live(id) else { continue }
+                let since = (request["all"] as? Bool) == true ? 0 : e.logCursor
+                guard let journal = agent(id, ["op": "logs", "since": since]), journal["error"] == nil,
                       let from = journal["from"] as? Int, let next = journal["next"] as? Int, let lines = journal["lines"] as? [Any] else { continue }
-                world.append(["canvas": id, "from": from, "next": next, "lines": lines, "dropped": max(0, from - e.logCursor)])
+                world.append(["canvas": id, "from": from, "next": next, "lines": lines, "dropped": max(0, from - since)])
                 e.logCursor = next
             }
             world.append(contentsOf: restoreJournal); restoreJournal.removeAll()
