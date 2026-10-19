@@ -56,7 +56,9 @@ final class HatchScopes {
 
 extension NativeViews {
     /// The app's facts as a hatch reads them, by source (§2.1): the page's
-    /// (LLP 1069.000 D2) and the display preferences `prefer` sets.
+    /// (LLP 1069.000 D2) and the display preferences `prefer` sets. `onLine`
+    /// is as last read: a hatch's `app.onLine` asks the host
+    /// (`hatchOnLine`), which starts the path monitor at its first read.
     private var appFacts: [String: Any] {
         #if os(macOS)
         let dark = DisplayPreferences.systemDark
@@ -64,7 +66,7 @@ extension NativeViews {
         // The scene's, as the session tells Contract (Session.swift `preferenceBits`).
         let dark = session?.view?.window?.windowScene?.traitCollection.userInterfaceStyle == .dark
         #endif
-        return ["visibilityState": PageFacts.hidden ? "hidden" : "visible", "onLine": PageFacts.onLine,
+        return ["visibilityState": PageFacts.hidden ? "hidden" : "visible", "onLine": PageFacts.lastOnLine,
                 "prefersColorScheme": dark ? "dark" : "light", "prefersContrast": DisplayPreferences.contrast,
                 "prefersReducedMotion": DisplayPreferences.reducedMotion, "prefersReducedTransparency": DisplayPreferences.reducedTransparency]
     }

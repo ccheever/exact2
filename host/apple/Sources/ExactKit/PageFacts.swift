@@ -37,16 +37,21 @@ package enum PageFacts {
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
     private static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
 
-    /// One path monitor for the process, started when a session's plan
-    /// reads `onLine`: it loads Network and keeps a queue, which an app that
-    /// never asks should not pay. Until its first update the device is taken
-    /// to be online, as a browser starts.
+    /// One path monitor for the process, started at the first read of
+    /// `onLine`: by a session whose plan reads it, or by a native module's
+    /// `app.onLine`. It loads Network and keeps a queue, which an app that
+    /// never asks should not pay. The first read waits for the monitor's
+    /// first path, about a millisecond (`currentPath` is unsatisfied until
+    /// then), so it answers as `navigator.onLine` does: at once, and the
+    /// device's answer.
     nonisolated(unsafe) private static var monitor: NWPathMonitor?
+    /// Online as main last heard it; online until the monitor's first path.
     nonisolated(unsafe) private static var satisfied = true
     private static func startMonitor() {
         guard monitor == nil else { return }
-        let m = NWPathMonitor()
+        let m = NWPathMonitor(), first = DispatchSemaphore(value: 0)
         m.pathUpdateHandler = { path in
+            first.signal()
             let online = path.status == .satisfied
             DispatchQueue.main.async {
                 guard online != satisfied else { return }
@@ -56,6 +61,10 @@ package enum PageFacts {
         }
         m.start(queue: DispatchQueue(label: "exact.page.path"))
         monitor = m
+        guard first.wait(timeout: .now() + .milliseconds(100)) == .success, m.currentPath.status != .satisfied else { return }
+        // What a hatch was told before anything asked (online) is now wrong.
+        satisfied = false
+        DispatchQueue.main.async { changed() }
     }
 
     /// Nothing of the app can be seen: iOS in the background; macOS hidden,
@@ -77,6 +86,8 @@ package enum PageFacts {
         startMonitor()
         return satisfied
     }
+    /// `onLine` as last read, starting no monitor: online until something reads it.
+    static var lastOnLine: Bool { substituted ? agent.onLine : satisfied }
     /// Both Apple platforms have a share sheet.
     static var canShare: Bool { substituted ? agent.canShare : true }
     /// iOS's and the Mac's sheets take file URLs and a node's picture
@@ -178,7 +189,7 @@ package enum PageFacts {
     /// 9 a share takes files and pictures. A session whose plan does not read
     /// `onLine` starts no monitor for it.
     static func bits(_ window: FocusWindow?, readsOnLine: Bool = true) -> UInt32 {
-        let online = readsOnLine ? onLine : substituted ? agent.onLine : satisfied
+        let online = readsOnLine ? onLine : lastOnLine
         return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
     }
 

@@ -340,7 +340,10 @@ public final class ExactApp {
     public internal(set) var processOwner = false
     /// `visible` or `hidden` (`document.visibilityState`).
     public internal(set) var visibilityState = "visible"
-    public internal(set) var onLine = true
+    /// `navigator.onLine`, read from the host when asked: the host watches
+    /// the network only once something reads it.
+    public var onLine: Bool { hatches?.onLine() ?? toldOnLine }
+    var toldOnLine = true
     /// `light` or `dark`.
     public internal(set) var prefersColorScheme = "light"
     /// `no-preference`, `more`, `less` or `custom`.
@@ -366,7 +369,7 @@ public final class ExactApp {
         data = ExactData(json["data"] as? [String: String] ?? [:])
         let facts = json["facts"] as? [String: Any] ?? [:]
         visibilityState = facts["visibilityState"] as? String ?? visibilityState
-        onLine = facts["onLine"] as? Bool ?? onLine
+        toldOnLine = facts["onLine"] as? Bool ?? toldOnLine
         prefersColorScheme = facts["prefersColorScheme"] as? String ?? prefersColorScheme
         prefersContrast = facts["prefersContrast"] as? String ?? prefersContrast
         prefersReducedMotion = facts["prefersReducedMotion"] as? Bool ?? prefersReducedMotion
@@ -503,6 +506,9 @@ final class ExactHatches {
     /// One of 104 or more: the bindings' answer (LLP 1121 D12; ExactTamber.swift).
     typealias TamberFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
     let tamberFn: TamberFn?
+    /// One of 120 or more: `app.onLine`.
+    typealias OnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
+    let onLineFn: OnLineFn?
     #if os(iOS) || os(tvOS)
     /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
     typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -545,7 +551,11 @@ final class ExactHatches {
         stackFn = table.load(as: UInt32.self) >= 112
             ? table.load(fromByteOffset: 104, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: StackFn.self) } : nil
         #endif
+        onLineFn = table.load(as: UInt32.self) >= 120
+            ? table.load(fromByteOffset: 112, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OnLineFn.self) } : nil
     }
+
+    func onLine() -> Bool? { onLineFn.map { $0(host) != 0 } }
 
     func log(_ line: String) {
         let bytes = Array(line.utf8)
