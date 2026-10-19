@@ -15,7 +15,7 @@ import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../
 import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const INSTALL = 'bunx playwright@1.63.0 install firefox webkit';
+const INSTALL = `bunx playwright@${JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies['playwright-core']} install firefox webkit`;
 const WORLD_LIMIT = 256 * 1024 * 1024;
 
 const FIREFOX_PREFS = {

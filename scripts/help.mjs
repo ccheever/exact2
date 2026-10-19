@@ -37,7 +37,7 @@ const DRIVE = [
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
   ['--fail-fetch <prefix> · --permission <name>=<state>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted)'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
-  ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
+  ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
