@@ -462,7 +462,8 @@ fn run(
 /// [`apply_all`] in two halves, for a caller that tries operations one group
 /// at a time on what it has accepted (re-import's transaction): `ops` applied
 /// to `src` with no check (a refused operation is `Err`, as [`apply_all`]
-/// says it), then [`accepts`] the text. `stepped(stepped(src, a), b)` then
+/// says it), then [`accepts`] the text. With no `Restore` among them (which
+/// `apply_all` refuses before any step), `stepped(stepped(src, a), b)` then
 /// `accepts` is `apply_all(src, a ++ b)`: each operation reads only the text
 /// before it.
 pub(crate) fn stepped(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {

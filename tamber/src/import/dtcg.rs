@@ -933,8 +933,8 @@ struct Resolve<'a> {
     w: &'a BTreeMap<&'a str, usize>,
     names: &'a BTreeMap<String, String>,
     memo: HashMap<String, Seen>,
-    /// Each path's type, once found (`type_of`).
-    types: RefCell<HashMap<String, Option<String>>>,
+    /// Each path's typed definition, once found (`type_of`).
+    types: RefCell<HashMap<String, Option<usize>>>,
 }
 
 impl Resolve<'_> {

@@ -25,14 +25,16 @@ impl Resolve<'_> {
     /// A path's type in this tuple: its own, else the type of what it
     /// aliases, however long the chain (a cycle has none). Every path the
     /// walk passes takes the walk's answer, as each one's own walk is the
-    /// rest of this one, so each path is walked once a tuple.
+    /// rest of this one, so each path is walked once a tuple. What is kept is
+    /// the definition that has the type, not a copy of it (a long type over
+    /// many aliases would otherwise be held once for each).
     pub(super) fn type_of(&self, path: &str) -> Option<String> {
         let mut memo = self.types.borrow_mut();
         let (mut walked, mut on) = (Vec::new(), HashSet::new());
         let mut at = path.to_string();
         let found = loop {
-            if let Some(known) = memo.get(&at) {
-                break known.clone();
+            if let Some(&known) = memo.get(&at) {
+                break known;
             }
             // Back on the walk: a cycle, which no type ends.
             if !on.insert(at.clone()) {
@@ -44,7 +46,7 @@ impl Resolve<'_> {
             };
             let d = &self.defs[i];
             if d.ty.is_some() {
-                break d.ty.clone();
+                break Some(i);
             }
             match alias(&d.value) {
                 Some(Ok(target)) => at = target,
@@ -52,9 +54,9 @@ impl Resolve<'_> {
             }
         };
         for p in walked {
-            memo.insert(p, found.clone());
+            memo.insert(p, found);
         }
-        found
+        found.and_then(|i| self.defs[i].ty.clone())
     }
 
     /// A path's value in this tuple: its aliases followed, and each alias
