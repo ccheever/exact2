@@ -1059,6 +1059,11 @@ pub(crate) fn check_prop_value(
 ) -> Result<(), LowerError> {
     media::check(name, value, span)?;
     let want = tags::prop_ty(prop);
+    if prop == PropId::Popover
+        && matches!(ty, Ty::Option(inner) if matches!(**inner, Ty::String | Ty::Enum(_) | Ty::Unknown))
+    {
+        return Ok(());
+    }
     // An app's browsing contexts are its window and new ones: `_parent` and
     // `_top` name frames an app does not have, a name one it cannot open.
     if prop == PropId::Target
