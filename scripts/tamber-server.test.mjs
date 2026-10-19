@@ -729,10 +729,12 @@ test('the JS loop: its own design server\'s lock is no edit, and an atomic save 
     // An editor's atomic save: a temporary beside the design, renamed over it.
     writeFileSync(`${file}.tmp`, was.replace('#16181c)', '#101010)'));
     renameSync(`${file}.tmp`, file);
-    // The batch, then its verifying build's word that it stands.
-    await until(() => said().includes('edit → checked'), 300_000);
+    // A value batch by either path: read, then `checked`; or, while the reader
+    // builds again, sent by the build (`built in`). Any other outcome ends the wait.
+    const outcome = /edit → checked|edit → batch ready [^\n]*\(built in|edit → plan ready|build failed/;
+    await until(() => outcome.test(said()), 300_000);
     expect(said()).toMatch(/edit → batch ready/);
-    expect(said()).not.toContain('edit → plan ready');
+    expect(said()).not.toMatch(/edit → plan ready|build failed/);
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });
