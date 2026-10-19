@@ -335,7 +335,7 @@ fn stage_rust_bundle(
         serde_json::from_slice(&receipt).map_err(|e| format!("Rust bundle receipt: {e}"))?;
     if meta["version"].as_u64() != Some(1)
         || meta["kind"] != "rust"
-        || meta["abi"].as_u64() != Some(2)
+        || meta["abi"].as_u64() != Some(crate::compat::RUST_ABI.into())
     {
         return Err("Rust bundle has an unsupported receipt or ABI".into());
     }
@@ -1002,7 +1002,7 @@ component App
         let inputs =
             json!({"app":"com.exact.caltrain","grantCeiling":"","rustGrants":"","rustMode":"wasm"});
         let module = b"\0asm\x01\0\0\0";
-        let receipt = json!({"version":1,"kind":"rust","abi":2,"appId":inputs["app"],"grants":"",
+        let receipt = json!({"version":1,"kind":"rust","abi":crate::compat::RUST_ABI,"appId":inputs["app"],"grants":"",
             "target":"wasm32-unknown-unknown","executor":"wasm",
             "plan":{"file":"app.plan","sha256":hash(plan),"bytes":plan.len()},
             "module":{"file":"app.module.wasm","sha256":hash(module),"bytes":module.len()}});
