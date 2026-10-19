@@ -154,7 +154,8 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     // Names in two steps, each first to a name no mode has or will have, so
     // two modes trading names never ask for one another still has.
     // (each parked name its own, within Figma's 40 characters, told apart from the others and the plan's)
-    const taken = new Set(c.modes), unused = parked.map(([ctx]) => {
+    const mine = new Set([...used, ...parked.map(([, id]) => id)]);
+    const taken = new Set([...c.modes, ...col.modes.filter((x: any) => !mine.has(x.modeId)).map((x: any) => x.name)]), unused = parked.map(([ctx]) => {
       let name = `unused: ${ctx}`.slice(0, 40);
       for (let i = 2; taken.has(name); i++) name = `${`unused: ${ctx}`.slice(0, 40 - String(i).length - 2)}… ${i}`;
       taken.add(name);

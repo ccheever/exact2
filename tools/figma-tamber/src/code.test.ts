@@ -666,8 +666,10 @@ test('round 16: two parked modes whose cut names would be one get names of their
   await send({ type: 'apply', text: three(all.filter(c => c !== ctx('black', 'light')), ctx('dim', 'light')) }, 'applied');
   const dimLight = col.modes.find((m: any) => m.name === ctx('dim', 'light').slice(0, 39) + '…' || m.name === ctx('dim', 'light'));
   col.modes.splice(col.modes.indexOf(dimLight), 1); col.modes.unshift(dimLight);
+  // The person has a mode named what the second parked name would first be.
+  col.addMode(`${`unused: ${ctx('dim', 'light')}`.slice(0, 37)}… 2`);
   await send({ type: 'apply', text: three(all.filter(c => ![ctx('black', 'light'), ctx('dim', 'light')].includes(c)), ctx('grey', 'light')) }, 'applied');
   const names = col.modes.map((m: any) => m.name);
   expect(new Set(names).size).toBe(names.length);
-  expect(names.filter((n: string) => n.startsWith('unused: ')).length).toBe(2);
+  expect(names.filter((n: string) => n.startsWith('unused: ')).length).toBe(3); // two parked, and the person's
 });
