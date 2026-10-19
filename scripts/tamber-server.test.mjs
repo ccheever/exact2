@@ -3,7 +3,7 @@
 // one token where one conflicts, a hand edit, a new file and a `git checkout`
 // reaching a subscriber and a long poll, a write announced once, a server
 // whose lock is another's answering 503, and the dev loop answering `hello`.
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
-import { spawnOwned } from './test-children.mjs';
+import { spawnOwned, stopAll } from './test-children.mjs';
 import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -275,6 +275,8 @@ beforeAll(async () => {
   headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
   await tamber.ready;
 }, 600_000); // a cold checkout builds the compiler first
+// A dev loop a test started ends with the test, a timeout included (test-children.mjs).
+afterEach(() => stopAll());
 afterAll(async () => {
   await tamber?.close();
   server?.close();
