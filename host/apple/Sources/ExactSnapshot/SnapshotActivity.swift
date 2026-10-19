@@ -293,7 +293,7 @@ public struct ActivityPlacementView: View {
                         if let paint = background.gradients { paint.gradients(in: CGRect(origin: .zero, size: bleed.size)) } else { Color.clear }
                         SnapshotNodeView(node: laid.root, tree: laid.snapshot, environment: environment, isRoot: placement.hasMargins)
                     }
-                    .clipShape(RegionClip(size: CGSize(width: laid.authoredWidth ? laid.size.width : max(laid.minimumWidth, min(proxy.size.width, laid.size.width)), height: laid.size.height), margins: margins))
+                    .clipShape(RegionClip(size: CGSize(width: laid.authoredWidth ? laid.size.width : max(laid.minimumWidth + laid.margins.left + laid.margins.right, min(proxy.size.width, laid.size.width)), height: laid.size.height), margins: margins))
                     .widgetURL(SnapshotActivity.url(laid, environment: environment))
                     .modifier(Tinted(color: background.tint))
                 }
