@@ -324,6 +324,36 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let m = self.mirror.entry(id).or_default();
+            // LLP 1131 D2: a scroller takes what its neighbours leave, which
+            // the iOS host asks before drawing it under them: an item of a
+            // column flex container growing by 1 or more with no
+            // `max-height`, which takes every point of the free space (CSS
+            // Flexbox §9.7; a factor under 1 takes only that share).
+            let column = node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
+                p.style.display == exact_kernel::Display::Flex
+                    && matches!(
+                        p.style.flex_direction,
+                        exact_kernel::FlexDirection::Column
+                            | exact_kernel::FlexDirection::ColumnReverse
+                    )
+            });
+            let grows = (scrolls
+                && column
+                && node.style.flex_grow >= 1.0
+                && !node.style.mask.has(exact_kernel::StyleId::MaxHeight))
+            .then(|| "true".to_string());
+            if m.props.get("flexGrows") != grows.as_ref() {
+                match grows {
+                    Some(value) => {
+                        batch.props(id, &[("flexGrows", value.clone())], &[]);
+                        m.props.insert("flexGrows".into(), value);
+                    }
+                    None => {
+                        batch.props(id, &[], &["flexGrows"]);
+                        m.props.remove("flexGrows");
+                    }
+                }
+            }
             let field_content = published_content_box(&node, kernel);
             let field_cell = node.is_cell_field();
             if self.layout_withheld
