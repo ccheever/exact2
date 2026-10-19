@@ -439,16 +439,19 @@ test('pairing end to end: the code names the doors and the fingerprint; the othe
     // certificate is the one named before a byte of the code is sent.
     const { connect: tlsConnect } = await import('node:tls');
     const body = JSON.stringify({ code: minted.body.ok.code, name: 'laptop' });
-    const answer = await new Promise(ok => {
+    const pairOn = expected => new Promise(ok => {
       let text = '';
       const s = tlsConnect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => {
-        if (s.getPeerCertificate().fingerprint256 !== fingerprint) { s.destroy(); return ok(null); }
+        if (s.getPeerCertificate().fingerprint256 !== expected) { s.destroy(); return ok(null); }
         s.write(`POST /__tamber/pair HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
       });
       s.on('data', d => (text += d));
       s.on('close', () => ok(text));
       s.on('error', () => ok(text));
     });
+    // A pin that is not this certificate's: nothing is sent, and the code still pairs after.
+    expect(await pairOn(fingerprint.replace(/^../, fingerprint.startsWith('00') ? '11' : '00'))).toBe(null);
+    const answer = await pairOn(fingerprint);
     expect(answer).toStartWith('HTTP/1.1 200');
     const answered = answer.slice(answer.indexOf('\r\n\r\n') + 4); // (its one JSON body, chunked or not)
     const { token: paired_token, scope } = JSON.parse(answered.slice(answered.indexOf('{'), answered.lastIndexOf('}') + 1)).ok;

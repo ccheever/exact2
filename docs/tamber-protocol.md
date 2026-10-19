@@ -1326,5 +1326,5 @@ The tool drives no input into an app; a command changes only what `prefer` would
   candidate).
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
-- **Later stages:**
-  - pairing and remote clients (stage 10).
+- **Later stages:** stage 10's canvas gateway (C) and the design tool's remote mode (D, LLP 1122
+  T6); a hosted relay (stage 10c).
