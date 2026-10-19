@@ -354,8 +354,7 @@ impl Server {
         };
         server.same_state()?;
         server.recover()?;
-        // A journal's removal flushed before its temporaries go: unflushed,
-        // the journal could come back without them.
+        // A journal's removal flushed before its temporaries go: unflushed, the journal could come back without them.
         if sync_dir(&server.state()).is_ok() {
             server.sweep();
         }

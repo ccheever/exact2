@@ -61,6 +61,13 @@ pub struct Candidate {
 /// or the line and why they are refused too.
 pub(crate) type Literal = Result<Vec<Op>, (String, String)>;
 
+/// A tuple: every axis and its value.
+type Modes = Vec<(String, String)>;
+/// Which line of a token wins in a tuple.
+type Branch<'a> = &'a dyn Fn(&Modes, bool) -> Option<usize>;
+/// The same, for the token named and the contexts it is read under.
+type TokenBranch<'a> = &'a dyn Fn(&Token, &[&str], &Modes, bool) -> Option<usize>;
+
 /// Two colours' texts the same colour, to a reprint's rounding (`#ff0000`,
 /// `red`, `color(srgb 1 0 0)`), as re-import compares values.
 fn same(a: &str, b: &str) -> bool {
@@ -91,10 +98,10 @@ pub(crate) fn candidate(
     cur: &Folding,
     decl: &Token,
     written: &str,
-    tuples: &[(Vec<(String, String)>, [String; 2])],
+    tuples: &[(Modes, [String; 2])],
     changed: &dyn Fn(&str) -> bool,
     want: &dyn Fn(&str) -> Option<String>,
-    branch: &dyn Fn(&Vec<(String, String)>, bool) -> Option<usize>,
+    branch: Branch,
 ) -> Option<Candidate> {
     let dial_of = |b: Option<usize>| {
         let text = b
@@ -276,7 +283,7 @@ pub(crate) fn marks(
     changes: &mut [DialChange],
     vocab: &Vocab,
     under: &[&str],
-    branch: &dyn Fn(&Token, &[&str], &Vec<(String, String)>, bool) -> Option<usize>,
+    branch: TokenBranch,
 ) -> Vec<Pin> {
     let mut pins = Vec::new();
     for op in ops {
