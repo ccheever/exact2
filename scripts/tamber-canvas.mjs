@@ -262,6 +262,7 @@ const readBody = (req, limit, signal) => new Promise(done => {
 /** `write` with backpressure: resolved once `res` drains or closes, or
  * `signal` aborts (a client that never reads ends with its revoke). */
 const drained = (res, signal) => new Promise(ok => {
+  if (signal.aborted || res.destroyed || res.writableEnded) return ok(); // (already over: nothing more will fire)
   const done = () => { res.off('drain', done); res.off('close', done); signal.removeEventListener('abort', done); ok(); };
   res.on('drain', done); res.on('close', done); signal.addEventListener('abort', done, { once: true });
 });
@@ -272,11 +273,14 @@ const put = async (res, chunk, signal) => {
   // that is reading gets there), and only a socket stuck 30 s is cut.
   const queued = () => res.socket?.writableLength || 0;
   if (queued() > 8 << 20) {
-    for (const until = Date.now() + 30_000; queued() > 4 << 20; await new Promise(ok => setTimeout(ok, 50))) {
+    // (30 s without any progress cuts it; every byte that leaves starts the 30 s again)
+    for (let low = queued(), until = Date.now() + 30_000; queued() > 4 << 20; await new Promise(ok => setTimeout(ok, 50))) {
       if (signal.aborted || res.destroyed) throw new Error('ended');
+      if (queued() < low) { low = queued(); until = Date.now() + 30_000; }
       if (Date.now() > until) { res.destroy(); throw new Error('ended'); }
     }
   }
+  if (signal.aborted || res.destroyed || res.writableEnded) throw new Error('ended');
   if (!res.write(chunk)) await drained(res, signal);
   if (signal.aborted) throw new Error('ended');
 };
