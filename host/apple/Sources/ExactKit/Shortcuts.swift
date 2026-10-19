@@ -25,18 +25,20 @@ extension Presenter {
             .last { $0.props["accessibilityModal"] == "true" && $0.accessibilityVisible }
     }
 
-    /// Whether `node`'s shortcut may take `key` (the web's name) with the
-    /// modifiers `held` (`KeyCodes.held`), the focus being `focus`.
     /// Press `node` as its shortcut: a world's control is a down and an up
-    /// of its action on the assistive contact, which moves no focus. A
+    /// of its action on the assistive contact, which moves no focus, then
+    /// its authored `press`, if it has one, as the web's click runs both. A
     /// disabled button takes its key and presses nothing, as on the web.
     func pressShortcut(_ node: NodeView) {
         guard !node.disabled else { return }
         guard node.isSurfaceControl else { return press(node.id) }
         let contact = NodeView.assistiveContact
         if node.control("down", id: contact) { _ = node.control("up", id: contact) }
+        if node.handlers.contains("press") { press(node.id) }
     }
 
+    /// Whether `node`'s shortcut may take `key` (the web's name) with the
+    /// modifiers `held` (`KeyCodes.held`), the focus being `focus`.
     func shortcutAdmits(_ node: NodeView, key: String, held: String, focus: NodeView?) -> Bool {
         if let modal = shortcutModal, !logicallyWithin(node, modal) { return false }
         if held.isEmpty, key == "Enter" || key == " " || key == "Space", let focus, focus !== node,

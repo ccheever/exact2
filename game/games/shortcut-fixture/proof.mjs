@@ -85,5 +85,11 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, pin, pi
   check('restored, Digit1 presses Buy once and not the world', got.buys === 3 && got.ones === 0, got);
   held = await input(r);
   check('restored, nothing is held after the tap', settled(held), held);
+  // A button with a world action and an authored press: one key runs both, once.
+  await rw.tap('Digit2');
+  await rw.run(100);
+  got = await shop(rw);
+  const noted = (await r.tree()).nodes.find(n => n.props?.testId === 'noted')?.props?.text;
+  check('Digit2 on a button with action and press buys once and runs its press once', got.buys === 4 && got.ones === 0 && noted === '2 · Noted 1', {got, noted});
   await r.close();
 });

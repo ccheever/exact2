@@ -5,7 +5,8 @@
 //! further, its default prevented. A focused world's canvas is such a
 //! focus: it never hears the chord. A button bound to a world's action
 //! (`action="buy"`) is pressed as the web's assistive click presses it, a
-//! down and an up of that action that moves no focus, so a focused world
+//! down and an up of that action that moves no focus, then its authored
+//! `press` if it has one, as the web's click runs both, so a focused world
 //! keeps its held keys and a shortcut and the world's own binding of the
 //! same chord never both act (LLP 1132 D11). A disabled button still takes
 //! its key and presses nothing, as on the web. None behind the frontmost shown
@@ -164,6 +165,15 @@ impl<D: DataSource> Presenter<D> {
                 for phase in ["down", "up"] {
                     let contact = crate::surfaces::controls::ASSISTIVE_CONTACT;
                     self.control_input(button, phase, x, y, contact, now_ms);
+                }
+                // Then its authored `press`, as the web's click runs both.
+                if self
+                    .host
+                    .runner()
+                    .handlers_of(button)
+                    .contains(&EventKind::Press)
+                {
+                    self.activate_with(button, now_ms, false);
                 }
             } else {
                 self.activate_with(button, now_ms, false);

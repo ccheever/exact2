@@ -708,8 +708,9 @@ function listen(entry) {
   });
   const inactive = event => blur(event);
   window.addEventListener("blur", inactive);
-  // Assistive technology activates a button without a pointer/key sequence.
-  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } });
+  // Assistive technology, and a declared shortcut (input-glue.js), activate a button without a pointer/key sequence;
+  // heard in the capture phase, as a button's own `press` stops the click's propagation (navigation.js): both run.
+  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } }, true);
   on("focusin", event => { if (editable(event.target)) blur(event); });
   on("focusout", event => {
     if (controls.size || el.contains(event.relatedTarget)) return;
