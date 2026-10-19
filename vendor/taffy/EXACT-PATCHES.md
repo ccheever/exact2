@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55 and 56 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57 and 58 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1824,6 +1824,58 @@ controls cover an authored width cap, zero minimum, scrolling, another ratio,
 both box-sizing modes, shorter and wrapping text, and growth. Block and
 absolute children, the root and flex-start column items with a 120px child
 keep 120×60 in Chrome and the kernel; main's 60×60 is not a cap to restore.
+
+## Patch 58: preserve grid ratio minima and bound track contributions
+
+Grid alignment keeps `minimum_ratio_width` in its final minimum-width clamp
+when the inline size depends on the ratio.
+The shared minimum already respects authored `max-width`; a maximum
+transferred from `max-height` must not erase wider content. Grid track sizing
+clamps a preferred size by its resolved minimum and maximum before using it
+as the item's minimum contribution, as `known_dimensions` already does.
+This applies on both axes, including items without a ratio.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+17 literal `Chrome 151 grid ratio maximum` cases, measured with Chrome
+151.0.7922.34 on 2026-10-19. Before the patch, 22 frames differed. The
+reported grid changes from 50×80 to 50×60 and its item from 60×60 to 120×60.
+Controls cover explicit auto columns, start alignment, narrower content,
+no maximum, block parents, authored widths and bounds, zero minima,
+hidden overflow, a minimum height above the maximum, ratio 2, both box-sizing
+modes with padding and borders, no ratio, and a max-width counterpart.
+An automatic height capped by a transferred max-width despite taller content
+remains separate work in `QUEUE.md`.
+
+Explicit inline stretch supplies the grid area's width before resolving the
+ratio, so neither the ratio's automatic inline minimum nor transferred bounds
+replace that width. Auto margins cancel stretch; authored width limits still
+apply. This follows [Chromium 151's inline sizing](https://github.com/chromium/chromium/blob/782af9cb30a53f54487e5d2e44738645a8ec457c/third_party/blink/renderer/core/layout/length_utils.cc#L527).
+Intrinsic track contributions retain the shared content minimum. A derived
+width is not an authored preferred width: an automatic minimum follows the
+auto-track, overflow and fixed-track-limit rules. Thus a fixed 60px track
+stretches the item to 60px, while an auto track sized by its 120px content
+stretches it to 120px.
+
+The same test holds 32 `Chrome 151 grid ratio stretch` cases, measured with
+the same version and date. Before this correction, 20 frames differed.
+They cover fixed widths below and above the ratio transfer and content,
+implicit and explicit auto columns, intrinsic and fractional tracks, capped
+auto minima, normal and start alignment, auto and fixed margins, authored
+widths and limits, height limits, overflow, and both box-sizing modes.
+Second-row siblings expose the auto column's width independently of the
+ratio item's final size. No `justify-self` row is exposed by the kernel.
+
+The automatic-minimum predicates inspect only the tracks the item spans,
+as required by [CSS Grid §6.6](https://www.w3.org/TR/css-grid-1/#min-size-auto).
+An unrelated fractional track must not erase the content minimum; an
+unrelated auto minimum must not enable it. Both axes use the same predicates.
+The same test holds 12 `Chrome 151 grid ratio span` cases, measured with the
+same version and date. Six frames failed before this correction, including
+items without ratios on both axes. Controls cover preceding and following
+fractional tracks, a fraction inside the span, a single track, gaps, normal
+alignment and zero minima. Four `Chrome 151 grid ratio minimum floor` cases
+also retain measured 100×100 items with `min-height:100px`, in max-content
+and absolute shrink-to-fit grids, with normal and stretch alignment.
 
 ## Cargo workspace boundary
 

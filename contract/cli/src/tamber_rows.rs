@@ -101,10 +101,8 @@ fn layout(row: &str) -> String {
 
 /// Whether `set-row` edits `a`'s row on a style: a paint row (history
 /// reads these as a style's own rows; a layout row or a part's is code).
-pub(crate) fn paint_row(a: &Attr) -> bool {
-    let rows = contract_lower::tags::rows(a);
-    !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
-}
+/// The source map says the same of a written row (`layout`).
+pub(crate) use contract::paint_row;
 
 /// Refused unless `a` is a paint row's attribute named `row` (in `state`'s
 /// part when one is named); each refusal says why and what to do instead.

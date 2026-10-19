@@ -36,6 +36,13 @@ pub(crate) fn css_rows(css: &str) -> Rows {
         );
         let v = match (px, percent, value) {
             (Ok(_), _, _) if name == "line-height" => t(value),
+            _ if matches!(
+                name,
+                "grid-template-columns" | "grid-template-rows" | "grid-column" | "grid-row"
+            ) =>
+            {
+                t(value)
+            }
             (Ok(x), _, _) => n(x),
             (_, _, "auto") if !text => StyleValue::Auto,
             (_, Some(Ok(x)), _) if name != "width" && name != "height" => StyleValue::Percent(x),
@@ -104,6 +111,10 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "break-after" => &[BreakAfter],
             "break-inside" => &[BreakInside],
             "gap" => &[RowGap, ColumnGap],
+            "grid-template-columns" => &[GridTemplateColumns],
+            "grid-template-rows" => &[GridTemplateRows],
+            "grid-column" => &[GridColumn],
+            "grid-row" => &[GridRow],
             "white-space" => &[WhiteSpace],
             "line-height" => &[LineHeight],
             "font-size" => &[FontSize],
