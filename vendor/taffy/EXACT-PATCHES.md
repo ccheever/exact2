@@ -1904,6 +1904,18 @@ hidden overflow, a second ratio, padding and borders under both box-sizing
 modes, and block, flex and grid contents. The existing replaced-element
 constraint tests retain their ratio caps.
 
+The column content cap floors `max-width` by `min-width` before converting
+it through the ratio. A conflicting width minimum wins on that axis;
+the preferred height and authored maximum height still cap the resulting
+automatic minimum. The same test holds 25 `Chrome 151 ratio column conflicting
+widths` cases, measured with the same version and date. Seventeen frames
+failed before this correction. The reported item with an 80px height changes
+from 100×60 to 100×80; its automatic-height sibling changes from 100×60 to
+100×100. Controls cover height bounds, overflow, both box-sizing modes,
+percentage bounds, short content, nested flex/grid contents, ratios 2 and 0.5,
+and reversed columns. Non-binding and binding 70px width maxima retain
+40×70 and 70×70 items respectively.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

@@ -1359,14 +1359,15 @@ fn determine_flex_base_size(
             // https://www.w3.org/TR/css-flexbox-1/#min-size-auto
             // EXACT PATCH 57: Chrome 151 lets a non-replaced row item's wider
             // content minimum exceed the converted max-height when its height
-            // is definite. Columns, replaced items and auto-height rows keep
-            // the transferred cap. This follows the measured browser behavior.
+            // is definite. Other rows retain the transferred cap; columns
+            // use the cross-axis bounds below.
             let content_max = if dir.is_column() {
                 // EXACT PATCH 59: a column's content size suggestion is
-                // capped by max-width through the ratio even with a
-                // preferred height or max-height (CSS Flexbox §4.5).
+                // capped by max-width through the ratio, floored by min-width
+                // before transfer. Authored max-height still caps the result
+                // (CSS Flexbox §4.5).
                 ratio.zip(child.max_size.width)
-                    .map(|(ratio, width)| ratio.height(width).maybe_min(child.max_size.height))
+                    .map(|(ratio, width)| ratio.height(width.maybe_max(child.min_size.width)).maybe_min(child.max_size.height))
                     .or(child.max_size.height)
             } else if replaced_ratio.is_none() && child_cross_size_is_definite {
                 child.max_size.main(dir)

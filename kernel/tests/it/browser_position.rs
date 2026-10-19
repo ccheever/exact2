@@ -83,6 +83,9 @@
 //! content under a transferred height maximum in block, absolute and grid
 //! layout. Controls cover short content, flex rows and columns, authored
 //! height bounds, explicit minima, overflow, ratios, insets and nested layouts.
+//! `Chrome 151 ratio column conflicting widths` uses that version and date
+//! for column content caps when min-width exceeds max-width, including
+//! preferred heights, height bounds, reversed columns and non-binding maxima.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
