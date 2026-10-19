@@ -5249,3 +5249,21 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
   reaches with stage 11 D's `bases`, the app's override of that token, the param's own app value), with A2 part 2's
   `package`/`file` fields once they land. Also: `uses` names a package file by its absolute path, where `explain`
   names it relative to the app.
+- **After review round 1 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A short name only where `set-param` takes it** (Astra 1 = Grok 1). `describe`'s `short` read the Contract
+    components' identities alone, so two packages' `Map`, or the app's `Map` and a package's, each said
+    `short: "Map.pin"`, which `set-param` refused as ambiguous. It now reads every param's identity too, as
+    `resolve` does (`tamber_params::short`). Tests: both `Map.pin`s, across two packages and across the app and a
+    package, have no `short`; `Card.inset` keeps its own.
+  - **The server's retention key sees a package's components** (Astra 2). Retention now has a package design's
+    component params as roots, but the server's cached build of it was keyed by the walk, which leaves design files
+    out. A param a package came to declare after the server primed was no root, and an override of it varying by an
+    axis said `live`. The key now holds each package design's components (`Server::synthetic`). Test: prime, add
+    `size` to the package's `Map`, then set it under `when mode=b`: `rebuild`, as a fresh server says. It said
+    `live` without the fix, checked by hand.
+  - **A package param's default names its package's own** (Grok 2). The package reference check (`references`)
+    read only the package band's tokens, so a param's default could name another package's token, an app token or
+    a dial. A package design's param is now held to its package's rule: its own tokens, roles, base names and its
+    component's other params (`param.pin`), and no dial. A refusal is `tamber-unknown-token` at the default, in the
+    package's file. A param the app sets is the app's value and is not held to it. Tests: `maps.pin` and `ink` are
+    refused at `reading.tamber:9`; a sibling param is admitted; the app's `Map.pin = ink` builds.

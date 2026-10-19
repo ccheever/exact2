@@ -226,7 +226,133 @@ fn two_packages_components_of_one_name_stay_apart() {
     let op = |name: &str| json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [{"op": "set-param", "name": name, "value": "#ffffff"}]});
     let (short, _) = s.ask(op("Map.pin"));
     assert_eq!(short["error"]["id"], "tamber-param-ambiguous", "{short}");
+    // describe advertises no short name that `set-param` would refuse
+    // (round 1, Astra 1 and Grok 1); `Card.inset` stays short.
+    for p in params(&described) {
+        let name = p["name"].as_str().unwrap();
+        if name.ends_with("#Map.pin") {
+            assert!(p["short"].is_null(), "{p}");
+        } else {
+            assert!(!p["short"].is_null(), "{p}");
+        }
+    }
     let (full, _) = s.ask(op("@acme/maps/maps.tamber#Map.pin"));
     assert!(full.get("ok").is_some(), "{full}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1 (Astra 1): an app's own design component and a package's of one
+/// name: neither is advertised by its short name.
+#[test]
+fn an_apps_component_and_a_packages_of_one_name_have_no_short_name() {
+    let dir = reading("pkg-params-app-map");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n\ncomponent Map\n  params\n    pin: color = ink\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (described, _) = s.ask(json!({"method": "describe"}));
+    let maps: Vec<Value> = params(&described)
+        .into_iter()
+        .filter(|p| p["name"].as_str().unwrap().ends_with("#Map.pin"))
+        .collect();
+    assert_eq!(maps.len(), 2, "{described}");
+    assert!(maps.iter().all(|p| p["short"].is_null()), "{maps:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1 (Astra 2): a param a package's design comes to declare after the
+/// server read the app is a root of retention at once: overriding it over
+/// an axis is a rebuild, as a fresh server says, never `live`.
+#[test]
+fn a_package_param_added_after_priming_is_retained() {
+    let dir = reading("pkg-params-prime");
+    let file = dir.join("app.tamber");
+    std::fs::write(
+        &file,
+        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #111111\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-token", "name": "ink", "value": "#222222"});
+    let (primed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
+    assert!(primed.get("ok").is_some(), "{primed}");
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&design).unwrap();
+    std::fs::write(&design, format!("{text}    size: length = 4px\n")).unwrap();
+    let vary = json!([
+        {"op": "set-param", "name": "Map.size", "value": "6px"},
+        {"op": "set-param", "name": "Map.size", "when": [{"axis": "mode", "value": "b"}], "value": "8px"}
+    ]);
+    let (after, _) = s.ask(json!({"method": "propose", "ops": vary}));
+    // One server holds the design at a time.
+    drop(s);
+    let mut fresh = Serve::start(&dir, &[]);
+    let (expected, _) = fresh.ask(json!({"method": "propose", "ops": vary}));
+    assert!(expected.get("ok").is_some(), "{expected}");
+    assert_eq!(
+        after["ok"]["class"], expected["ok"]["class"],
+        "{after} {expected}"
+    );
+    assert_eq!(expected["ok"]["class"], "rebuild", "{expected}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1 (Grok 2): a package param's default names its package's own
+/// tokens, roles, base names and its component's params only, and no dial:
+/// another package's token or an app token is refused at the default, in
+/// the package's file. A value the app sets names the app's tokens freely.
+#[test]
+fn a_package_params_default_names_its_packages_own() {
+    let dir = reading("pkg-params-refs");
+    package(
+        &dir,
+        "maps",
+        "component Pin\n  view\n    text \"p\"\n",
+        "tamber maps\n\ntheme\n  maps.pin = #223344\n",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\nuse Pin from \"@acme/maps\"\ncomponent App\n  view\n    column\n      Card()\n      Pin()\n",
+    )
+    .unwrap();
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&design).unwrap();
+    for (default, said) in [("maps.pin", "maps.pin"), ("ink", "ink")] {
+        std::fs::write(
+            &design,
+            text.replace(
+                "pin: color = reading.pin",
+                &format!("pin: color = {default}"),
+            ),
+        )
+        .unwrap();
+        let e = contract::compile_path(&dir.join("app.contract")).expect_err("refused");
+        assert_eq!(e.id, "tamber-unknown-token", "{default}: {e}");
+        let shown = format!("{e}");
+        assert!(
+            shown.contains("reading.tamber:9:") && shown.contains(said),
+            "{default}: {shown}"
+        );
+    }
+    // Its own token, and a sibling param, are its own.
+    std::fs::write(
+        &design,
+        text.replace(
+            "    pin: color = reading.pin\n",
+            "    pin: color = reading.pin\n    edge: color = param.pin\n",
+        ),
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
+    // The app sets the param to its own token: the app's value.
+    std::fs::write(&design, &text).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n\nparams\n  Map.pin = ink\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
     let _ = std::fs::remove_dir_all(&dir);
 }

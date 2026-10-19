@@ -279,8 +279,10 @@ pub fn hide(ir: &mut Value) {
 }
 
 /// A param's short name, `Component.param`, when no other component of
-/// that name is in the app (`identities`), with params or none.
-fn short(p: &ParamToken, identities: &[String]) -> Option<String> {
+/// that name is in the app (`identities`, with params or none, and every
+/// param's own: a design's and a package design's components, which
+/// `resolve` reads too; stage 12 B1 round 1), else none.
+fn short(p: &ParamToken, identities: &[String], all: &[ParamToken]) -> Option<String> {
     let component = |identity: &str| {
         identity
             .rsplit_once('#')
@@ -289,6 +291,7 @@ fn short(p: &ParamToken, identities: &[String]) -> Option<String> {
     let name = component(&p.identity);
     let ambiguous = identities
         .iter()
+        .chain(all.iter().map(|q| &q.identity))
         .any(|o| *o != p.identity && component(o) == name);
     (!ambiguous).then(|| format!("{name}.{}", p.param.name))
 }
@@ -363,7 +366,7 @@ pub fn components(
                 });
                 json!({
                     "name": q.full,
-                    "short": short(q, &app.identities),
+                    "short": short(q, &app.identities, &app.tokens),
                     "param": q.param.name,
                     "token": q.token,
                     "kind": q.param.kind,

@@ -307,6 +307,49 @@ pub(crate) fn references(folding: &tamber::Folding, packages: &[DesignSource]) -
             }
         }
     }
+    // A package design's component params (stage 12 B1 round 1, Grok 2):
+    // a default names what the package's tokens may, and its own
+    // component's params besides, said at the default in the package's file.
+    for (band, source) in packages.iter().enumerate() {
+        let params = crate::params::design_tokens(source).0;
+        let package = source.package.as_deref().unwrap_or_default();
+        for p in &params {
+            let Some(checked) = folding.tokens.iter().find(|t| t.name == p.token) else {
+                continue;
+            };
+            // One the app sets is the app's value, which names the app's.
+            let set = folding.design.params.iter().any(|e| {
+                crate::params::resolve(&params, &[], &e.name.value)
+                    .is_ok_and(|q| q.token == p.token)
+            });
+            if set {
+                continue;
+            }
+            let sibling = |name: &str| {
+                params
+                    .iter()
+                    .any(|q| q.identity == p.identity && q.token == name)
+            };
+            let mut wrong = |what: String| {
+                refused.push(LowerError {
+                    id: "tamber-unknown-token",
+                    message: format!("`{}`'s default names {what}: a package's param names its package's own tokens, roles, base names and its component's params only, and no dial (D11)", p.full),
+                    span: p.param.default_span,
+                })
+            };
+            for name in checked.names.iter().chain(&checked.pairs) {
+                if !own(band, name) && !shared(name) && !sibling(name) {
+                    let shown = crate::params::shown(name, &params);
+                    wrong(format!(
+                        "`{shown}`, a token that isn't the package `{package}`'s"
+                    ));
+                }
+            }
+            for dial in &checked.reads {
+                wrong(format!("the dial `{dial}`"));
+            }
+        }
+    }
     refused
 }
 
