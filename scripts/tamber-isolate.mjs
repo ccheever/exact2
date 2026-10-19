@@ -36,13 +36,19 @@ function contract(args) {
 
 /** A process's resident KiB, by `ps`, or null when it can't be read. */
 const residentKb = pid => new Promise(done => {
-  execFile('ps', ['-o', 'rss=', '-p', String(pid)], { timeout: 1000 }, (e, out) => done(e || !/^\s*\d+\s*$/.test(out) ? null : Number(out)));
+  execFile('ps', ['-o', 'rss=', '-p', String(pid)], { timeout: 300 }, (e, out) => done(e || !/^\s*\d+\s*$/.test(out) ? null : Number(out)));
 });
 
 // The one planner's permit: the next starts once the last has exited (an
 // answer goes back as soon as it is known; a killed planner still holds
 // the permit until the kernel has reaped it).
 let last = Promise.resolve(), queued = 0;
+// The planner running now: stopped with the wire (its group is its own, so
+// nothing else would), and when this process exits.
+let running = null;
+const killGroup = child => { if (child?.pid > 1) { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } } };
+export const stopImports = () => killGroup(running);
+process.once('exit', stopImports);
 const mine = new Map(); // each client's imports outstanding, at most two
 const busy = { status: 503, error: { message: 'imports are busy: try again shortly' } };
 
@@ -99,7 +105,8 @@ async function designText(path, appDir, max) {
 function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = contract, probe = residentKb }) {
   const child = spawnPlan(['tamber', 'import-plan', design]);
   if (!child) return [Promise.resolve({ status: 503, error: { message: 'the compiler is not built yet: try again once the design server is up' } }), Promise.resolve()];
-  const exited = new Promise(ok => child.on('close', ok));
+  running = child;
+  const exited = new Promise(ok => child.on('close', () => { if (running === child) running = null; ok(); }));
   return [new Promise(done => {
     let out = '', bytes = 0, err = '', settled = false, probing = false, gone = false;
     child.on('exit', () => { gone = true; });
@@ -112,7 +119,7 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
     };
     const stop = reply => {
       // Its group, whatever it started (never a group that is not its own); its pipes let go of.
-      if (child.pid > 1) { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } }
+      if (!gone) killGroup(child);
       child.stdin.destroy();
       child.stdout.destroy();
       child.stderr.destroy();
@@ -128,8 +135,9 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
       probe(child.pid).then(kb => {
         probing = false;
         if (settled || gone) return;
-        if (kb === null) stop({ status: 503, error: { message: 'the import could not be watched: try again' } });
-        else if (kb > rssKb) stop(costly(`reading it took more than ${Math.round(rssKb / 1024)} MiB`));
+        // A sample that can't be read may be the planner exiting: unwatchable only if it is still running a moment later.
+        if (kb === null) setTimeout(() => { if (!gone && !settled) stop({ status: 503, error: { message: 'the import could not be watched: try again' } }); }, 200);
+        else if (kb > rssKb * 0.9) stop(costly(`reading it took more than ${Math.round(rssKb / 1024)} MiB`)); // (a sample's headroom)
       });
     };
     const watch = setInterval(sample, 50);

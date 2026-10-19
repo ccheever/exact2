@@ -95,7 +95,7 @@ import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMa
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
-import { planAlone, sourcesOf } from './tamber-isolate.mjs';
+import { planAlone, sourcesOf, stopImports } from './tamber-isolate.mjs';
 import { importReview, marked } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
@@ -125,7 +125,8 @@ const notFound = res => json(res, 404, { message: 'Not found.' });
  * `"tamber"` names, else `app.tamber`; null when there is none. */
 export function designPath(appDir) {
   let named = null;
-  try { named = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8')).tamber ?? null; } catch { /* no manifest */ }
+  // (a regular file of at most 1 MiB: a FIFO or a giant there never stalls the server)
+  try { const m = resolve(appDir, 'app.json'), st = statSync(m); if (st.isFile() && st.size <= 1 << 20) named = JSON.parse(readFileSync(m, 'utf8')).tamber ?? null; } catch { /* no manifest */ }
   const path = resolve(appDir, typeof named === 'string' ? named : 'app.tamber');
   return existsSync(path) ? path : null;
 }
@@ -1134,7 +1135,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
 
   function close() {
-    gateway?.close();
+    stopImports();
     pairs.close();
     clearTimeout(timer);
     clearInterval(absence);
