@@ -206,7 +206,7 @@ component MobileGitOverview
         if data.worktree != ""
           column gap=3.5 border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
             text "WORKTREE" font-size=10.5 font-weight=700 letter-spacing="0.9px" color=colors.secondary
-            text data.worktree font-size=14 font-weight=500 color=colors.foreground line-clamp=1
+            text data.worktree user-select="text" font-size=14 font-weight=500 color=colors.foreground line-clamp=1
 
 component MobileGitCommit
   props
@@ -244,7 +244,7 @@ component MobileGitCommit
                   border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=(file.included ? colors.card : colors.subtle) padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
                   row align-items="start" gap=10.5
                     column flex=1 gap=3.5
-                      text file.path font-size=14 font-weight=700 color=(file.included ? colors.foreground : colors.muted)
+                      text file.path user-select="text" font-size=14 font-weight=700 color=(file.included ? colors.foreground : colors.muted)
                       if not file.included
                         text "Excluded from this commit" font-size=10.5 line-height="15.75px" color=colors.muted
                     column gap=3.5 align-items="end"

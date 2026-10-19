@@ -78,7 +78,7 @@ component ThreadLocalFeedback
               button press=command("feedback-dismiss", item.id, "") padding=3.5 aria-label="Dismiss feedback notice" retainFocus=true
                 t3-symbol symbol-name="xmark" symbol-tint=colors.iconMuted width=14 height=14
           if item.description.length > 0
-            text item.description font-size=13 line-height="17px" color=colors.muted
+            text item.description user-select="text" font-size=13 line-height="17px" color=colors.muted
           if item.status == "sent"
             button press=command("feedback-copy", item.id, item.feedbackId) align-self="flex-start" padding-top=3.5 padding-bottom=3.5 retainFocus=true
               text "Copy ID" font-size=14 line-height="19px" color=colors.foreground
