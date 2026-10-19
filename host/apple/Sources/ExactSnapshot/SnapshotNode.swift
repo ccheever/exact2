@@ -40,6 +40,7 @@ struct SnapshotNodeView: View {
             .modifier(PathClip(path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
             .modifier(Privacy(word: environment.placeholder ? nil : SnapshotData.words(node)["privacy"]))
+            .modifier(Pressed(node: node.id, live: node.handlers.contains("press") ? environment.live : nil))
             .modifier(Semantics(node: node))
             .modifier(Linked(url: link))
     }
@@ -49,16 +50,86 @@ struct SnapshotNodeView: View {
         switch node.kind {
         case "text", "time": SnapshotTextView(node: node, environment: environment)
         case "image": SnapshotImageView(node: node, environment: environment)
+        case let kind where (kind == "control" || kind == "input") && environment.live != nil:
+            LiveLeaf(node: node, live: environment.live!)
         default:
             if node.props["type"] == "progress" {
                 SnapshotProgressView(node: node, environment: environment)
             } else {
                 let children = node.children.compactMap { tree.nodes[$0] }
-                FrameLayout(frames: children.map(\.frame), size: node.frame.size) {
+                let layout = FrameLayout(frames: children.map(\.frame), size: node.scrollContent ?? node.frame.size) {
                     ForEach(children, id: \.id) { SnapshotNodeView(node: $0, tree: tree, environment: environment) }
+                }
+                if let live = environment.live, ["scroll", "auto"].contains(style.string("overflow_y") ?? "") {
+                    ScrollView(.vertical) { layout }.modifier(ScrollReport(node: node.id, live: live))
+                } else {
+                    layout
                 }
             }
         }
+    }
+}
+
+/// What a live session takes from the view: a press on a node with a
+/// `press` handler, and a scroller's offset.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+package struct SnapshotLiveInput {
+    package var press: (UInt32) -> Void
+    package var scrolled: (UInt32, CGPoint) -> Void
+    /// A native control's title, which its node has no text child for.
+    package var title: (UInt32) -> String?
+    /// A field's text as the person edits it.
+    package var edited: (UInt32, String) -> Void
+    package init(press: @escaping (UInt32) -> Void, scrolled: @escaping (UInt32, CGPoint) -> Void,
+                 title: @escaping (UInt32) -> String?, edited: @escaping (UInt32, String) -> Void) {
+        self.press = press; self.scrolled = scrolled; self.title = title; self.edited = edited
+    }
+}
+
+/// The platform's leaves for what the kernel left to it: a native button
+/// (`control`) and a text field (`input`), at the kernel's frame.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+private struct LiveLeaf: View {
+    let node: HeadlessSession.Node
+    let live: SnapshotLiveInput
+    @State private var text = ""
+
+    var body: some View {
+        if node.kind == "input" {
+            TextField(node.props["placeholder"] ?? "", text: $text)
+                .onAppear { text = node.props["value"] ?? "" }
+                .onChange(of: node.props["value"] ?? "") { _, value in if value != text { text = value } }
+                .onSubmit { live.edited(node.id, text) }
+        } else {
+            Text(live.title(node.id) ?? node.props["accessibilityLabel"] ?? "")
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Capsule().fill(.secondary.opacity(0.25)))
+        }
+    }
+}
+
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+private struct Pressed: ViewModifier {
+    let node: UInt32
+    let live: SnapshotLiveInput?
+    func body(content: Content) -> some View {
+        if let live {
+            Button { live.press(node) } label: { content }.buttonStyle(.plain)
+        } else { content }
+    }
+}
+
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+private struct ScrollReport: ViewModifier {
+    let node: UInt32
+    let live: SnapshotLiveInput
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, macOS 15.0, watchOS 11.0, visionOS 2.0, *) {
+            content.onScrollGeometryChange(for: CGPoint.self) { $0.contentOffset } action: { _, offset in
+                live.scrolled(node, offset)
+            }
+        } else { content }
     }
 }
 

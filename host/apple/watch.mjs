@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
 import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
+import { profile, identity } from './devices.mjs';
 import { platformWidgetEntries, prepareWidgetCore, sharedWidgetCore, packageWidgets } from './widgets.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 
@@ -22,7 +23,8 @@ export function watchSimulator(args) {
   return id;
 }
 export async function buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent }) {
-  if (args.some(a => ['--device', '--archive', '--tvos', '--host', '--embed', '--test', '--url'].includes(a))) throw new Error('--watchos currently builds the watch simulator companion; use --sim for its iPhone and --watch-sim for its paired watch');
+  if (args.includes('--device')) return buildWatchDevice(app, args, { runApple, appleArtifacts, appleBuildLock, receipt });
+  if (args.some(a => ['--archive', '--tvos', '--host', '--embed', '--test', '--url'].includes(a))) throw new Error('--watchos currently builds the watch simulator companion; use --sim for its iPhone and --watch-sim for its paired watch');
   if (args.includes('--run') && args.includes('--no-install')) throw new Error('--no-install takes no --run');
   const watchSim = watchSimulator(args);
   const release = appleBuildLock(app);
@@ -99,5 +101,60 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     runApple('xcrun', ['simctl', 'install', pair.phone.udid, parent.bundle]);
     runApple('xcrun', ['simctl', 'install', pair.watch.udid, bundle]);
     if (args.includes('--run')) runApple('xcrun', ['simctl', 'launch', pair.watch.udid, watch.id]);
+  } finally { release(); }
+}
+
+// @ref LLP 1126 D10 — the live watch app alone on a real watch (spike): arm64 at watchOS 26, the minimum Rust's
+// aarch64-apple-watchos takes, signed with the team's development identity and a profile naming the watch
+// (`--phone <watch udid>`). No complications: their extension and App Group need profiles of their own.
+async function buildWatchDevice(app, args, { runApple, appleArtifacts, appleBuildLock, receipt }) {
+  if (args.some(a => ['--archive', '--tvos', '--host', '--embed', '--test', '--url', '--sim', '--watch-sim'].includes(a))) throw new Error('--watchos --device builds the watch app alone; name the watch with --phone <udid>');
+  const udid = args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined;
+  if (!udid || udid.startsWith('--')) throw new Error('--watchos --device needs --phone <watch udid> (xcrun devicectl list devices)');
+  const release = appleBuildLock(app);
+  try {
+    const watch = { ...app, id: `${app.id}.watchkitapp` };
+    const parent = appleArtifacts(app, { destination: 'ios' });
+    const directory = resolve(parent.namespace, 'watchos-device'), bundle = resolve(directory, `${executableName(app)}.app`);
+    const minimum = '26.0', target = 'aarch64-apple-watchos', triple = `arm64-apple-watchos${minimum}`;
+    rmSync(bundle, { recursive: true, force: true });
+    mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
+    const production = args.includes('--release') || process.env.EXACT_UPDATE_TRUST === 'production';
+    const buildProfile = production ? 'release' : HOST_DEV, trust = production ? 'production' : 'development';
+    const sdk = runApple('xcrun', ['--sdk', 'watchos', '--show-sdk-path']).stdout.trim();
+    const env = { ...developmentBuildEnv(), EXACT_UPDATE_TRUST: trust, WATCHOS_DEPLOYMENT_TARGET: minimum, SDKROOT: sdk, EXACT_APPLE_LINK: 'plan' };
+    const baked = buildBake({ ...app, hasGpu: false }, 'ios', target, { env, profile: buildProfile });
+    const libDir = resolve(app.target, target, buildProfile), crate = app.crate('ios');
+    const swiftRoot = resolve(directory, 'swift');
+    const swiftArgs = ['build', '-c', production ? 'release' : 'debug', '--scratch-path', swiftRoot, ...(!production ? ['-Xswiftc', '-O'] : []),
+      '--triple', triple, '--sdk', sdk, '-Xcc', '-isysroot', '-Xcc', sdk, '-Xlinker', '-syslibroot', '-Xlinker', sdk,
+      '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk];
+    const swiftEnv = { ...process.env, WATCHOS_DEPLOYMENT_TARGET: minimum, EXACT_LIB_DIR: libDir, EXACT_LIB: crate.replaceAll('-', '_'), EXACT_WIDGET_GALLERY: '0', EXACT_UPDATE_TRUST: trust };
+    delete swiftEnv.SDKROOT;
+    const prepared = prepareWidgetCore({ app: watch, directory: resolve(directory, 'core'), swiftBuildRoot: swiftRoot, swiftArgs, triple, platform: 'watchos', device: true,
+      swiftc: runApple('xcrun', ['swiftc', '--version']).stdout });
+    const shared = sharedWidgetCore({ app: watch, prepared, libDir, crate, env: swiftEnv, runApple });
+    cpSync(shared.framework, resolve(bundle, 'Frameworks/ExactCore.framework'), { recursive: true });
+    for (const name of ['assets']) if (existsSync(resolve(app.dir, name))) cpSync(resolve(app.dir, name), resolve(bundle, name), { recursive: true });
+    const info = { CFBundleIdentifier: watch.id, CFBundleName: app.displayName, CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWatch', CFBundlePackageType: 'APPL',
+      CFBundleVersion: '1', CFBundleShortVersionString: '0.1.0', CFBundleSupportedPlatforms: ['WatchOS'], DTPlatformName: 'watchos', MinimumOSVersion: minimum, UIDeviceFamily: [4],
+      WKApplication: true, WKWatchOnly: true, ExactAppIdentifier: app.id };
+    writeFileSync(resolve(bundle, 'Info.plist'), plistFile(info));
+    const options = { cwd: pkg, env: { ...swiftEnv, EXACT_CORE_FRAMEWORK: relative(pkg, shared.xcframework) } };
+    const executableArgs = [...swiftArgs, '-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks'];
+    runApple('swift', [...executableArgs, '--product', 'ExactWatch'], options);
+    const bin = runApple('swift', [...executableArgs, '--show-bin-path'], options).stdout.trim();
+    copyFileSync(resolve(bin, 'ExactWatch'), resolve(bundle, 'ExactWatch'));
+    const signing = profile(udid, watch.id), sha1 = identity(signing.team);
+    copyFileSync(signing.path, resolve(bundle, 'embedded.mobileprovision'));
+    const entitlementPath = resolve(directory, 'watch-entitlements.plist');
+    writeFileSync(entitlementPath, plistFile({ 'application-identifier': `${signing.prefix}.${watch.id}`, 'com.apple.developer.team-identifier': signing.team, 'get-task-allow': !production }));
+    runApple('codesign', ['--force', '--sign', sha1, resolve(bundle, 'Frameworks/ExactCore.framework')]);
+    runApple('codesign', ['--force', '--sign', sha1, '--entitlements', entitlementPath, bundle]);
+    writeFileSync(resolve(directory, 'receipt.json'), receipt(app, { platform: 'watchos', target, sdk, bundle, compatibilityId: baked.compat.id, build: baked }));
+    console.log(`host/apple: ${bundle}; signed with ${signing.name}`);
+    if (args.includes('--no-install')) return;
+    runApple('xcrun', ['devicectl', 'device', 'install', 'app', '--device', udid, bundle]);
+    if (args.includes('--run')) runApple('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', udid, watch.id]);
   } finally { release(); }
 }
