@@ -267,6 +267,46 @@ const kindOf=(options)=>options?.kind==='require-call' ? 'require' : 'import';
 // the page and Hermes run the same file of a package; `process.env.NODE_ENV`
 // is the constant packages test.
 export const bundleOptions={platform:'browser',transform:{define:{'process.env.NODE_ENV':'"production"'}}};
+// An async function resumes under the answer it began in (LLP 1133.002 D14),
+// so a call it makes after an `await` is that answer's, even when it awaited
+// a promise another answer made. No engine carries context across a native
+// `await`, so a data module's bundles lower `async` to generators
+// (`lowered`) and drive each step through `asyncContextHelper`, which puts
+// back the answer current when the function was called and restores the one
+// before after the step. The runtime that runs the module owns
+// `__exact_async_context` (js/src/prelude.js, host/web-js/ts-data.js); a
+// realm without one runs the steps as the stock helper would.
+export const lowered={target:'es2016'};
+const ASYNC_HELPER=/@oxc-project\+runtime@[^/]*\/helpers\/esm\/asyncToGenerator\.js$/;
+export const asyncContextHelper=`export default function _asyncToGenerator(fn) {
+  return function () {
+    var self = this, args = arguments, context = globalThis.__exact_async_context;
+    var at = context ? context.current() : undefined;
+    return new Promise(function (resolve, reject) {
+      var gen = fn.apply(self, args);
+      function step(key, arg) {
+        var before = context ? context.swap(at) : undefined, info;
+        try { info = gen[key](arg); }
+        catch (error) { if (context) context.swap(before); reject(error); return; }
+        if (context) context.swap(before);
+        if (info.done) resolve(info.value);
+        else Promise.resolve(info.value).then(function (v) { step("next", v); }, function (e) { step("throw", e); });
+      }
+      step("next", undefined);
+    });
+  };
+}
+`;
+/** Rolldown resolves the helpers its lowering names itself, never through a
+ * plugin's `resolveId`, but passes them through `transform`: this replaces
+ * `asyncToGenerator` there. */
+export function asyncContext() {
+  return { name:'exact-async-context', transform(code,id) { return ASYNC_HELPER.test(id) ? { code:asyncContextHelper, map:null } : null; } };
+}
+/** The native bundle of a data module, the same for the one-shot producer
+ * and the resident compiler. */
+export const dataBundle=(stage)=>({...bundleOptions, transform:{...bundleOptions.transform, ...lowered},
+  plugins:[asyncContext(), capturedSources(stage)]});
 /** The captured graph's Rolldown plugin, the same in every producer: app
  * files load only from the stage, package code only from its capture, and
  * the clock (`ambientRefusals`) or what no executor has (`packageRefusals`)

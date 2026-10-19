@@ -7,6 +7,7 @@ mod body_from;
 mod caltrain;
 mod castle;
 mod compress;
+mod context;
 mod ecdsa;
 mod entropy;
 mod forget;
