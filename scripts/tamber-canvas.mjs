@@ -313,10 +313,12 @@ const entryHtml = tool => `<!doctype html><html lang="en"${tool ? ` data-tool="$
  * `toolOrigin` are given at construction or once by `serve(...)`, when the
  * canvas port is bound (`openCanvas`); until then it mints nothing and
  * answers nothing. */
-export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin = null, now = Date.now, limiter = pairingLimiter, allows = pairingAllows, log = () => {} }) {
+export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin = null, now = Date.now, limiter = pairingLimiter, allows = pairingAllows, log = () => {}, mints: shared = null }) {
   if (typeof limiter !== 'function' || typeof allows !== 'function') throw new TypeError('canvasGateway takes A\'s `limiter` and `allows`');
-  // One bucket per client, for grant minting.
-  const mints = limiter({ ...MINT_RATE, clock: now });
+  // One bucket per client, for grant minting: another gateway's (`mints`,
+  // stage 10c R1b's relay canvas) when given, so a client's cap is one
+  // across every door.
+  const mints = shared ?? limiter({ ...MINT_RATE, clock: now });
   // Every canvas request is remote: never the local token's `local`.
   const may = (scope, need) => allows(scope, need, false);
   let loopOrigin, loopHost, loopPort, rewrite, served = false;
@@ -582,7 +584,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
     sessions.clear();
   }
 
-  return { mint, handle, serve, close, get origin() { return served ? origin : null; }, get live() { return [...live.values()].reduce((n, s) => n + s.size, 0); } };
+  return { mint, handle, serve, close, mints, get origin() { return served ? origin : null; }, get live() { return [...live.values()].reduce((n, s) => n + s.size, 0); } };
 }
 
 /** The canvas port on B's remote doors (`openRemote`), for `tamber`'s
@@ -614,7 +616,8 @@ export function openRelayCanvas(doors, tamber, { loop, say = console.log }) {
   const shut = doors.close;
   doors.close = () => { gateway?.close(); return shut(); };
   doors.onRelay(({ tool, canvas }) => {
-    gateway = canvasGateway({ pairing: tamber.pairing });
+    // (the TLS door's mint limiter, shared: one cap a client, whichever door)
+    gateway = canvasGateway({ pairing: tamber.pairing, ...(tamber.canvas?.mints ? { mints: tamber.canvas.mints } : {}) });
     gateway.serve({ loop, origin: `https://${canvas}`, toolOrigin: `https://${tool}` });
     doors.relayCanvas((req, res, url, access) => gateway.handle(req, res, url, access));
     tamber.relayCanvas(gateway);
