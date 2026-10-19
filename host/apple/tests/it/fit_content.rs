@@ -718,3 +718,74 @@ fn a_roots_extent_is_its_box_and_what_overflows_it_down_to_a_clip() {
     let grown = host.dispatch_at(view(&host, "grow"), Event::Press, 0.0);
     assert_eq!(heights(&grown, 1), [44.0 + 1200.0 + 10.0], "{grown}");
 }
+
+/// A `text` that is a flex container draws its lines as CSS's anonymous
+/// flex item (Flexbox §4): centred down a 52-point row by `align-items`,
+/// as a grouped section's bare text row is, not from its top; its padding
+/// is not counted as lines, and `wrap-reverse` swaps its cross ends.
+#[test]
+fn a_flex_texts_lines_are_placed_as_its_anonymous_item() {
+    let src = r##"component Row
+  view
+    main width="100%" height="100%"
+      text "Flour" testId="centred" display="flex" align-items="center" height=52
+      text "Flour" testId="padded" display="flex" align-items="center" height=52 padding=10 box-sizing="border-box"
+      text "Flour" testId="reversed" display="flex" flex-wrap="wrap-reverse" align-items="flex-end" height=52
+      text "Sugar" testId="top" display="flex" height=52
+      text "Flour" testId="clipped" display="flex" align-items="center" height=52 padding=10 box-sizing="border-box" overflow="hidden"
+      text "Flour" testId="logical" display="flex" flex-wrap="wrap-reverse" align-items="start" height=52
+      text "Flour" testId="line" display="flex" flex-wrap="wrap" align-content="flex-start" align-items="center" height=52
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let offset = |id: u32| -> Option<f32> {
+        let marker = format!("\"op\":\"props\",\"id\":{id},");
+        let at = first.find(&marker)?;
+        let rest = &first[at..];
+        let key = "\"textOffset\":\"";
+        let v = &rest[rest.find(key)? + key.len()..];
+        v[..v.find('"')?].parse().ok()
+    };
+    let line = 52.0
+        - 2.0
+            * offset(view(&host, "centred"))
+                .expect("a centred text says how far down its lines go");
+    assert!(line > 0.0 && line < 52.0, "{line}");
+    assert_eq!(
+        offset(view(&host, "padded")),
+        Some((32.0 - line) / 2.0),
+        "inside its padding, which is not lines"
+    );
+    assert_eq!(
+        offset(view(&host, "reversed")),
+        None,
+        "under wrap-reverse flex-end is the top"
+    );
+    assert_eq!(
+        offset(view(&host, "top")),
+        None,
+        "a text stretched down its row draws from its top, as before"
+    );
+    assert_eq!(
+        offset(view(&host, "clipped")),
+        Some((32.0 - line) / 2.0),
+        "a box that clips counts its bottom padding too"
+    );
+    assert_eq!(
+        offset(view(&host, "logical")),
+        None,
+        "`start` is the writing mode's, not flipped by wrap-reverse"
+    );
+    assert_eq!(
+        offset(view(&host, "line")),
+        None,
+        "a wrapping box's one line is placed by align-content"
+    );
+}

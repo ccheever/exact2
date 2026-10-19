@@ -94,11 +94,12 @@ import { scrubSessions } from './tamber-scrub.mjs';
 import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
-import { openRemote, remoteArgs } from './tamber-remote.mjs';
+import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
+import { canvasGateway } from './tamber-canvas.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { readBody, parseRequest as parse, tooDeep } from './tamber-request.mjs';
+import { readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
@@ -151,8 +152,9 @@ function spawnContract(appDir) {
  * pairing's time (tests), `remote()` the run's open remote doors (stage 10
  * B's `list()`), shown with each pairing code. The returned `pairing` is the
  * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`); `canvas(pairing)`
- * makes that gateway (scripts/tamber-canvas.mjs), which `canvas` answers. */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = null }) {
+ * makes that gateway (scripts/tamber-canvas.mjs; null for none), which
+ * `canvas` answers once its port is open (`openCanvas`). */
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = pairing => canvasGateway({ pairing }) }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -494,10 +496,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       else json(res, 200, { token });
       return true;
     }
+    const wire = ['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname);
+    // Plain HTTP from off this machine (a --lan bind's peer) reaches nothing
+    // of the wire, pairing and paired tokens included: remote use is B's TLS
+    // door or a tunnel the developer trusts, never plaintext (LLP 1122 D12).
+    if ((wire || url.pathname === '/__tamber/pair') && !viaDoor(access)) { notFound(res); return true; }
     // The one path that needs no token (stage 10 A2): a pairing code for a
     // token, once.
     if (url.pathname === '/__tamber/pair') { await pairEndpoint(req, res, access); return true; }
-    if (!['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname)) return false;
+    if (!wire) return false;
     const who = req.method === 'POST' ? principalOf(req, access) : null;
     if (!who) { if (req.method === 'POST' && wasRevoked(req)) json(res, 401, { error: { message: GONE } }); else notFound(res); return true; }
     const scope = who.scope;
@@ -655,6 +662,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Presence is also checked as requests come, not only every 5 s.
     absent();
     // A paired client's canvas grant (stage 10 C), for the token it came with.
+    // (Plain HTTP from off this machine never reaches here: `viaDoor`, above.)
     if (request.method === 'canvas') return !gateway ? { status: 404, error: { message: 'this server has no canvas gateway' } } : paired ? gateway.mint(paired) : { status: 400, error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } };
     if (request.method === 'pair-code') {
       // Beside the code, where a remote client reaches this server and the certificate it checks (1.13).
@@ -1142,12 +1150,14 @@ const appOf = given => (/\.(contract|tamber)$/.test(given) ? dirname(given) : gi
 /** A listener on `host`:`port` behind the development gate, each request
  * given to `handle(req, res, url, access)` (a false return is a not-found);
  * stopped, with `stop()`'s own end, on a signal or when its launcher goes. */
-async function listen({ host, port, handle, stop }) {
+async function listen({ host, port, handle, stop, first = null }) {
   const server = createServer();
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(port, host, ok); });
   const origins = installBrowserOrigins({ host, port: server.address().port });
   const gate = developmentGate(origins, server.address().port);
   server.on('request', async (req, res) => {
+    // A request `first` answers is no other's (a sandboxed page's wire request, stage 10b).
+    if (first && await first(req, res)) return;
     const access = gate.check(req);
     if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     let url; try { url = new URL(req.url, 'http://localhost'); } catch { notFound(res); return; }
@@ -1166,7 +1176,7 @@ async function listen({ host, port, handle, stop }) {
  * have the token); `--remote` and `--trust-tunnel` add its remote doors (scripts/tamber-remote.mjs). */
 export async function serveAlone(argv) {
   const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && !['--port', '--remote', '--trust-tunnel', '--pair-ttl'].includes(argv[i - 1])) ?? '.'));
+  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && !['--port', '--remote', '--trust-tunnel', '--pair-ttl', '--allow-host'].includes(argv[i - 1])) ?? '.'));
   if (!designPath(dir)) { console.error(`tamber serve: ${dir} has no design (app.tamber, or the file app.json's "tamber" names)`); return 1; }
   let asked;
   try { asked = remoteArgs(argv); } catch (e) { console.error(`tamber serve: ${e.message}`); return 2; }
@@ -1176,7 +1186,7 @@ export async function serveAlone(argv) {
   const tamber = tamberServer({ appDir: dir, pairTtlMs: ttl, remote: () => doors?.list() ?? [] });
   // The remote doors first: one that cannot bind leaves nothing listening.
   doors = await openRemote(tamber, asked).catch(async e => { console.error(`tamber serve: ${e.message}`); await tamber.close(); process.exit(1); });
-  const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: async () => { await Promise.all([tamber.close(), doors?.close()]); } })
+  const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: async () => { await Promise.all([tamber.close(), doors?.close()]); }, first: asked.plugin ? (req, res) => pluginOnLoopback(tamber, req, res) : null })
     .catch(async e => { console.error(`tamber serve: cannot listen: ${e.code ?? e.message}`); await Promise.all([tamber.close(), doors?.close()]); process.exit(1); });
   console.log(origins.map(o => `${o.origin}/__tamber`).join('\n'));
   console.log(`  (the design server for ${dir}; the token at GET /__tamber/token from this machine only; ctrl-c to stop)`);

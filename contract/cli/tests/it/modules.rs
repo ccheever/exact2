@@ -615,3 +615,34 @@ fn a_synchronous_form_answers_from_the_substitute_until_its_module_is_bound() {
     r.bind_extensions(&["geolocation"]);
     assert_eq!(now(status), r#"{"state":"module"}"#);
 }
+
+#[test]
+fn the_rust_binding_is_the_plans_modules_with_their_wire_names() {
+    let app = App::new("rust");
+    let plan = app.compile(APP).unwrap_or_else(|e| panic!("{e:?}"));
+    let rust = contract::module_rust(&plan).unwrap();
+    for expected in [
+        "pub mod geolocation {",
+        // A call's options and a platform's words, in Rust's names.
+        "pub struct GetCurrentPositionOptions {",
+        "pub struct GetCurrentPositionApple {",
+        "pub fn get_current_position(options: &GetCurrentPositionOptions) -> Result<exact_runner::Request, m::ModuleError>",
+        "pub fn get_current_position_reply(outcome: &exact_runner::Outcome) -> Result<GeolocationPosition, m::ModuleError>",
+        // A name that takes nothing; every name of a used module, read or not.
+        "pub fn geolocation_status() -> exact_runner::Request",
+        "pub fn watch_position(",
+        // The wire keeps the declared names; an enum is checked.
+        "m::put(&mut o, \"enableHighAccuracy\", &self.enable_high_accuracy)?;",
+        "m::member(x, &[\"bestForNavigation\"",
+    ] {
+        assert!(rust.contains(expected), "{expected}\n---\n{rust}");
+    }
+    // Rust has no synchronous form (LLP 1133.002 D14).
+    assert!(!rust.contains("Sync"), "{rust}");
+    // A plan that calls no module has no binding.
+    let none = App::new("rust-none");
+    let plan = none
+        .compile("component App\n  view\n    text \"x\"\n")
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(contract::module_rust(&plan).unwrap().lines().count(), 1);
+}

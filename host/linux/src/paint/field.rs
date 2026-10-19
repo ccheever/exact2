@@ -130,6 +130,15 @@ impl PaintedField {
 }
 
 impl PaintedBox {
+    /// Drawn without a perspective (`space.rs`), a rotation or a skew, so
+    /// its box, and any clip round it, is square to the screen.
+    pub(crate) fn flat(&self) -> bool {
+        self.projective.is_none()
+            && self
+                .affine
+                .is_none_or(|(ts, _)| ts.kx == 0.0 && ts.ky == 0.0)
+    }
+
     /// A viewport point in the island where the field was painted. Its
     /// affine transform is inverted by `PaintedField::hit` afterwards.
     pub(crate) fn field_point(&self, x: f32, y: f32) -> (f32, f32) {

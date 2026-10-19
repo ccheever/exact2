@@ -1131,6 +1131,12 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         self.boxes();
+        self.painted_hit(x, y, current)
+    }
+
+    /// The deepest box of the latest paint under a point, as [`Self::hit`]
+    /// finds it once the boxes are fresh and the page takes a press.
+    pub(super) fn painted_hit(&self, x: f32, y: f32, current: bool) -> Option<ViewId> {
         self.boxes
             .iter()
             .rev()

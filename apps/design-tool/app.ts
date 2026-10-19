@@ -11,6 +11,9 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
+import { pageOf } from './origins';
+import { pairingSources } from './pairing';
+import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
@@ -22,11 +25,12 @@ export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
 // one origin and port.
 export const API = 'http://127.0.0.1:7740';
-// And the files the person picks to import, which the host copies under
-// app:/tmp/picked/, and nothing else of app:/tmp.
-export const grants = `net.fetch ${API}\nfs.read app:/tmp/picked`;
+// Another machine's design server, paired with (T6): an https door, or a
+// tunnel to this machine's loopback (wire.ts `doorOf` refuses any other
+// before a request). And the files the person picks to import, which the
+// host copies under app:/tmp/picked/, and nothing else of app:/tmp.
+export const grants = `net.fetch ${API}\nnet.fetch https:\nnet.fetch http:\nfs.read app:/tmp/picked`;
 
-const RESTARTED = 'The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again.';
 // A write's wait: longer than the server's own for a write (two minutes),
 // so the tool never gives up on one that then lands.
 const WRITE_WAIT = 130_000;
@@ -36,81 +40,10 @@ const READ_WAIT = WRITE_WAIT;
 // The resolves a read has in flight at once (a browser opens six
 // connections to one origin).
 const RESOLVES_AT_ONCE = 4;
-const NO_SERVER = `No design server answers at ${API}. Start one for your app with \`bun exact.mjs tamber tool <app>\`, then try again.`;
+// The one `tamber/1` client (wire.ts): this machine's server at API, or
+// another machine's the tool paired with.
+const { call, RESTARTED, pairWith, remote, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
 
-type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
-type Reply = { ok?: any; error?: { message?: string; diagnostics?: Diagnostic[]; hint?: string } };
-/** A refusal's words: its message, and each diagnostic's file, line, id
- * and explanation, which say what to correct. */
-const refusal = (error: Reply['error'], status: number) => {
-  const said = (error?.diagnostics ?? []).map(d => (typeof d === 'string' ? d : `${d.file ?? ''}${d.line ? `:${d.line}` : ''} ${d.id ?? ''}: ${d.message ?? ''}`.trim()));
-  return [error?.message ?? `The design server refused the request (${status}).`, ...said, ...(error?.hint ? [error.hint] : [])].join('\n');
-};
-let token: string | null = null;
-// One ask at a time: the first reads start together.
-let asking: Promise<{ token: string | null; error: string }> | null = null;
-
-/** The token, asked once; null with the words to show when there is none. */
-function tokenOf(): Promise<{ token: string | null; error: string }> {
-  if (token) return Promise.resolve({ token, error: '' });
-  asking ??= askToken().finally(() => { asking = null; });
-  return asking;
-}
-
-async function askToken(): Promise<{ token: string | null; error: string }> {
-  try {
-    const res = await fetch(`${API}/__tamber/token`, { exactTimeout: 5000, redirect: 'error' });
-    if (!res.ok) return { token: null, error: `${API} gave no design server token: it answers only this machine's loopback, and only while \`bun exact.mjs tamber tool\` runs.` };
-    token = String(((await res.json()) as { token?: unknown }).token ?? '') || null;
-    return { token, error: token ? '' : NO_SERVER };
-  } catch (e) {
-    if ((e as { code?: string }).code === 'bake') throw e; // no server at build
-    return { token: null, error: NO_SERVER };
-  }
-}
-
-/** One `tamber/1` request: its reply (and the token it went with), or the
- * words to show. A token the server no longer knows (it restarted: a bare
- * not-found, which an operation's own refusal never is) is asked for again,
- * once, for a read. A write goes with the token of the server run it
- * belongs to (`bound`: the one its review, or its inverse, came from), and
- * never with another, so it cannot reach whatever server holds the port
- * since: that is a refusal, the server restarted. */
-async function call(path: string, body: unknown, timeout = 15000, bound?: string): Promise<{ error: string; reply: Reply; used: string }> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const got = bound ? { token: bound, error: '' } : await tokenOf();
-    if (!got.token) return { error: got.error, reply: {}, used: '' };
-    try {
-      const res = await fetch(`${API}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
-        headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
-      const reply = (await res.json().catch(() => ({}))) as Reply;
-      const unknown = res.status === 404 && !reply.error;
-      if (unknown && bound) { if (token === bound) token = null; return { error: RESTARTED, reply: {}, used: bound }; }
-      if (unknown && attempt === 0) { token = null; continue; }
-      if (res.ok) return { error: '', reply, used: got.token };
-      return { error: refusal(reply.error, res.status), reply, used: got.token };
-    } catch (e) {
-      if ((e as { code?: string }).code === 'bake') throw e;
-      return { error: NO_SERVER, reply: {}, used: '' };
-    }
-  }
-  return { error: NO_SERVER, reply: {}, used: '' };
-}
-
-// A dev loop's page the canvas may frame: a loopback origin, no path
-// (hello's `page`), never the tool's own port (a frame of its own origin
-// could lift its sandbox); anything else is none. Its URL as the dev loop
-// prints it (127.0.0.1, an address its gate admits), for "Open in a tab"
-// and --via, and the canvas's: localhost on that port (the dev loop answers
-// on both loopback addresses), another site than the tool's, so a browser
-// with site isolation runs the page in its own process and a busy one
-// cannot stall the tool.
-const pageOf = (page: unknown) => {
-  const m = typeof page === 'string' ? /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})$/.exec(page) : null;
-  const port = m ? Number(m[2]) : 0;
-  if (!m || port < 1 || port > 65535 || port === Number(new URL(API).port)) return { page: '', frame: '' };
-  return { page: `http://127.0.0.1:${port}`, frame: `http://localhost:${port}` };
-};
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
 type Change = Result<'waitChanges'>['recent'][number];
@@ -414,7 +347,7 @@ const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stal
 // The poll now (a newer one replaces it), and whether the build list must
 // be read again from hello (the poll started again, and no read has
 // succeeded since).
-let polls = 0, resync = true, polled = '';
+let polls = 0, resync = true, polled = '', seeded = '';
 const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
 /** Builds as the panel lists them: each one's effective scheme, contrast,
  * mode and root font size from its status (an app's own setScheme beats a
@@ -457,8 +390,8 @@ let commitsTold = 0;
 // The scrubs open on the server, any client's, as its events tell them:
 // while one is, a build's status or a frame re-reads nothing.
 const scrubsOpen = new Set<string>();
-// Each scrub opened or ended (two in one answer still move it).
-let scrubMoves = 0;
+// Each scrub opened or ended (two in one answer still move it); each client paired or gone (the list read again).
+let scrubMoves = 0, clientMoves = 0;
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -678,15 +611,20 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 }
 
 const sources: Sources = {
+  ...pairingSources(call, pairWith, remote),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
-    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false };
+    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
     const ok = reply.ok ?? {};
+    // Paired, the server is another machine's whatever its hello says: never this machine's pages.
+    const local = remote() === '' && ok.local !== false;
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...pageOf(ok.page), live: liveTable };
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...(local ? pageOf(ok.page, Number(new URL(API).port)) : { page: '', frame: '' }), live: liveTable,
+      // Its scope, and whether it is the local tool's token (tamber/1.13): a server before 1.13 has the local one alone.
+      scope: String(ok.scope ?? 'write'), local, client: String(ok.client ?? ''), epoch: String(ok.epoch ?? '') };
   },
   loadDesign: async ([file]) => {
     const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;
@@ -845,6 +783,8 @@ const sources: Sources = {
     const ops = read.ops;
     const op = ops.at(-1)!;
     const move = ops.length === 1 ? await rescopeFor(file, op, read.token, read.files) : null;
+    // A client paired at `propose` (T6) holds it for someone with write to accept instead.
+    if (scopeNow() === 'propose') { const held = await call('/__tamber', { method: 'propose', hold: true, client, ops }, WRITE_WAIT, read.token); return { ...stacks(!held.error, held.error, ''), note: held.error ? '' : `Held for review as ${held.reply.ok?.proposal}: someone with write accepts it.` }; }
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
     const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops }, WRITE_WAIT, read.token);
@@ -929,7 +869,7 @@ const sources: Sources = {
     const { error, reply, used } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
     // No answer from the server (not a refusal): the scrub may still be
     // open there, so it stays, to keep or cancel again.
-    if (error && !reply.error && error !== RESTARTED) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
+    if (error && !reply.error && error !== RESTARTED && error !== GONE) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
@@ -950,6 +890,8 @@ const sources: Sources = {
     scrubEnded = '';
     const error = s ? await closeScrub(s) : '';
     // It did not land: the scrub stays, to cancel again.
+    // (Revoked, the server ended it: said so, and nothing is sent again.)
+    if (error === GONE) return stacks(false, GONE, '');
     if (error && s) { if (!scrubbing) scrubbing = s; return stacks(false, `Cancel did not reach the server (${error}): the running copies may still show the preview; cancel again.`, ''); }
     return { ...stacks(true, '', ''), note };
   },
@@ -1028,7 +970,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1065,7 +1007,7 @@ const sources: Sources = {
     // Events missed: an end among them would be lost, so a scrub open is
     // ended here (cancelled, if the server still has it).
     // Missed, inspect mode's state is not known either: Inspect sends it again.
-    if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); }
+    if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
     if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
       const s = scrubbing;
       endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
@@ -1077,7 +1019,7 @@ const sources: Sources = {
     // Where the changes start from: the files as the poll has them when it
     // starts again (the first answer, a gap it says it missed, a new run).
     const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
-    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
+    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; clientMoves += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
     // A gap in this run: said in the list, which is no longer complete.
     if (epoch && r.missed && r.epoch === place.epoch) {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
@@ -1091,6 +1033,7 @@ const sources: Sources = {
     for (const [i, e] of ((r.events ?? []) as any[]).entries()) {
       // (The design server gone: its scrubs with it.)
       if (e.event === 'down') { scrubMoves += 1; scrubsOpen.clear(); }
+      if (e.event === 'paired' || e.event === 'revoked') clientMoves += 1;
       if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
       if (e.event === 'changed' && e.files) filesAt = e.files;
       // Each as it comes, so a reload told in one answer still ends a
@@ -1387,6 +1330,16 @@ const sources: Sources = {
     return { axes: axes.map(a => ({ name: a.name, values: a.values })) };
   },
   loadSelection: async () => {
+    // Below write (paired, T6), once a server run, its builds and the design read: the selection each build
+    // last reported, as the server keeps it (a read-only refresh); its events before the poll began are not
+    // sent, and Inspect is not this client's.
+    // It is shown as reported, not as current (the server keeps no cursor of when): it offers no edit.
+    // Asked again after a failure, or once the poll missed events, until one answers.
+    if (scopeNow() !== 'write' && place.epoch && seeded !== place.epoch && snapshots.size && (!selectionNow || selectionNow.stale)) {
+      const sel = await call('/__tamber', { method: 'inspect', client: polled, refresh: true }), e = (sel.reply.ok?.selections ?? []).at(-1);
+      if (!sel.error) seeded = place.epoch;
+      if (!sel.error && e && (!selectionNow || selectionNow.stale)) { const b = buildsNow.get(String(e.build)); selectionNow = { e: { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: 'the build reported it before this client joined', files: digestKey(lastFiles) }; }
+    }
     latch();
     const b = selectionNow ? buildsNow.get(String(selectionNow.e.build)) : undefined;
     const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '');

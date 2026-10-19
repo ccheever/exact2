@@ -1056,12 +1056,12 @@ pub(super) fn check_command(
     }
     if name == "postMessage" {
         // The web's argument order, `postMessage(message, target)`: the target
-        // is a surface's literal name, checked against the app's canvases.
+        // is a surface name or the id of an iframe.
         const USAGE: &str = "`postMessage(text, \"world\")`";
         let [text, surface] = args else {
             return err(
                 "type-post-message",
-                format!("{USAGE}: the message, then a surface's literal name"),
+                format!("{USAGE}: the message, then a canvas surface name or iframe id"),
                 span,
             );
         };
@@ -1072,10 +1072,10 @@ pub(super) fn check_command(
                 text.span(),
             );
         }
-        if !matches!(surface, Expr::Str(..)) {
+        if !infer(surface, scope, shapes)?.is_string() {
             return err(
                 "type-post-message",
-                format!("the surface is named literally, as in `surface=world()`: {USAGE}"),
+                format!("the target is a string naming a canvas surface or iframe id: {USAGE}"),
                 surface.span(),
             );
         }

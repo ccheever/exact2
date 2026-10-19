@@ -6,11 +6,15 @@
 // - `mint(token)`, the `canvas` method's body (`read`): a single-use grant
 //   (256 bits, 30 s, bound to the client) and the entry URL,
 //   `<origin>/canvas/<client>/`. Rate-limited per client with A's `limiter`.
-// - `POST /canvas/<client>/` with `grant` in the body (form or JSON, never
-//   a query string): the grant compared timing-safe and burned, a session id
-//   (256 bits) bound here to the client, its token and that grant, set as
-//   `__Host-exact-canvas` (Secure, HttpOnly, SameSite=Strict, Path=/), and a
-//   303 to `/`. The cookie only names a session: a value this map didn't
+// - The entry: the tool frames `/canvas/<client>/#g=<grant>` (theme2's
+//   approval of the fragment entry: the single-use 30 s grant, never the
+//   token, in a fragment no server sees). GET serves a static page whose one
+//   script (hashed in its CSP) takes the fragment out of its address and
+//   history first, then POSTs `{grant}` as JSON, same-origin: the grant
+//   compared timing-safe and burned, a session id (256 bits) bound here to
+//   the client, its token and that grant, set as `__Host-exact-canvas`
+//   (Secure, HttpOnly, SameSite=Strict, Path=/), 204; the page goes to `/`.
+//   A grant in a query or a path is never read. The cookie only names a session: a value this map didn't
 //   mint (page code can set a cookie of that name; cookies aren't
 //   port-scoped) is an unknown session, and a token is never read from it.
 // - Every other request: the session, then its client's token through A's
@@ -18,7 +22,7 @@
 //   scope through `allows`. An unknown, missing, revoked or expired session
 //   is not-found, the same answer for each; a scope refused is 403 naming
 //   both scopes. Allowed POSTs also need `Origin` to be the canvas's own;
-//   the entry needs an explicit Origin, the canvas's or the tool's.
+//   so does the entry's POST (the tool's origin no longer posts it).
 // - The raw request target is checked (`canonical`): one the loop could
 //   read as another path (an empty or dot segment, an encoded separator,
 //   dot or unreserved character, a backslash or control character) is
@@ -53,6 +57,8 @@
 //   the cap ends its own; a client has at most 32 in flight.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { allows as pairingAllows, limiter as pairingLimiter } from './tamber-pairing.mjs';
+import { openRemote } from './tamber-remote.mjs';
+import { viaDoor } from './tamber-request.mjs';
 
 export const CANVAS_COOKIE = '__Host-exact-canvas';
 export const GRANT_MS = 30_000;
@@ -205,8 +211,11 @@ export function rewriter(loop, origin) {
   return { text, json, sse };
 }
 
-/** A CSP's `frame-ancestors`: the loop's origin as the canvas's, any other
- * loopback source (the local tool's) gone, the tool's remote origin added. */
+/** A CSP's `frame-ancestors` through the canvas: `'self'` (the canvas's
+ * own origin, which can already do anything a frame of its own could, and
+ * apps frame their own routes) and the tool's remote origin, nothing else:
+ * the loop's own origin is 'self' here, and any other source (the local
+ * tool's, a foreign one a page names) goes, so no other origin frames it. */
 function frameAncestors(policy, loopPort, origin, toolOrigin) {
   const loopbackSource = s => {
     const bare = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
@@ -216,7 +225,8 @@ function frameAncestors(policy, loopPort, origin, toolOrigin) {
   return policy.split(',').map(one => one.split(';').map(d => {
     const words = d.trim().split(/\s+/);
     if (words[0]?.toLowerCase() !== 'frame-ancestors') return d;
-    const kept = words.slice(1).flatMap(s => { const p = loopbackSource(s); return p == null ? [s] : p === loopPort ? [origin] : []; });
+    // (Read after the addresses are rewritten: another loopback source is the placeholder by then, and goes too.)
+    const kept = words.slice(1).flatMap(s => s.toLowerCase() === "'self'" ? ["'self'"] : s === origin || loopbackSource(s) === loopPort ? [origin] : []);
     if (toolOrigin && !kept.includes(toolOrigin)) kept.push(toolOrigin);
     return ` frame-ancestors ${kept.length ? kept.join(' ') : "'none'"}`;
   }).join(';')).join(',');
@@ -261,6 +271,21 @@ const put = async (res, chunk, signal) => {
   if (signal.aborted) throw new Error('ended');
 };
 
+/** The entry page's one script (theme2's approval of dtool2's fragment
+ * entry): the grant from `#g=…`, the fragment taken out of the address and
+ * its history entry first (`replaceState`, before any request), then POSTed
+ * same-origin as JSON (its own referrer policy, so the POST carries its
+ * Origin under the page's `no-referrer`), then tells the remote tool it
+ * entered (`exact-canvas-entered`, to the tool's origin alone, which the page
+ * carries as `data-tool`; nothing when there is none; no secret, no client),
+ * then `/`. Refused: one short message, and no further request. */
+export const ENTRY_SCRIPT = `(async()=>{const g=new URLSearchParams(location.hash.slice(1)).get('g');history.replaceState(null,'',location.pathname);const no=()=>{document.getElementById('m').textContent='This canvas link has expired; ask for a new one.'};if(!g)return no();let r=null;try{r=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant:g}),credentials:'same-origin',cache:'no-store',redirect:'error',referrerPolicy:'same-origin'})}catch{}if(r&&r.ok){const t=document.documentElement.dataset.tool;if(t)parent.postMessage({type:'exact-canvas-entered'},t);location.replace('/')}else no()})()`;
+export const ENTRY_SCRIPT_HASH = `sha256-${createHash('sha256').update(ENTRY_SCRIPT).digest('base64')}`;
+/** The entry page, one script whatever the gateway (its hash fixed); the remote tool's origin, an
+ * origin and no secret, in `data-tool` for its one message. */
+const attr = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const entryHtml = tool => `<!doctype html><html lang="en"${tool ? ` data-tool="${attr(tool)}"` : ''}><meta charset="utf-8"><title>Canvas</title><p id="m" role="status"></p><script>${ENTRY_SCRIPT}</script></html>`;
+
 /** The gateway for the dev loop at `loop` (its loopback origin), served on
  * `origin` (the canvas's public origin), framed by `toolOrigin`. Stage 10
  * A's interface (scripts/tamber-pairing.mjs): `pairing` is the run's, as
@@ -269,22 +294,35 @@ const put = async (res, chunk, signal) => {
  * ended) ends its streams. `limiter` and `allows` are that module's.
  * `log` hears each client's end and its reason (`'revoked'` or
  * `'expired'`), never a secret. A server makes it with
- * `tamberServer({canvas: pairing => canvasGateway({loop, pairing, origin,
- * toolOrigin})})`, and answers `canvas` with its `mint`. */
-export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = Date.now, limiter = pairingLimiter, allows = pairingAllows, log = () => {} }) {
+ * `tamberServer({canvas: pairing => canvasGateway({pairing})})` (its
+ * default) and answers `canvas` with its `mint`. `loop`, `origin` and
+ * `toolOrigin` are given at construction or once by `serve(...)`, when the
+ * canvas port is bound (`openCanvas`); until then it mints nothing and
+ * answers nothing. */
+export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin = null, now = Date.now, limiter = pairingLimiter, allows = pairingAllows, log = () => {} }) {
   if (typeof limiter !== 'function' || typeof allows !== 'function') throw new TypeError('canvasGateway takes A\'s `limiter` and `allows`');
   // One bucket per client, for grant minting.
   const mints = limiter({ ...MINT_RATE, clock: now });
   // Every canvas request is remote: never the local token's `local`.
   const may = (scope, need) => allows(scope, need, false);
-  const loopOrigin = new URL(loop).origin, loopHost = new URL(loop).host, loopPort = new URL(loop).port || (new URL(loop).protocol === 'https:' ? '443' : '80');
-  origin = new URL(origin).origin;
-  if (toolOrigin) {
-    toolOrigin = new URL(toolOrigin).origin;
-    // The remote tool's origin: a loopback one would frame the canvas from this machine's other services.
-    if (isLoopback(new URL(toolOrigin).hostname)) throw new TypeError('canvasGateway: `toolOrigin` is the tool\'s remote origin, never a loopback one');
+  let loopOrigin, loopHost, loopPort, rewrite, served = false;
+  /** Where it proxies from and is served on, once. */
+  function serve(at) {
+    if (served) throw new Error('canvasGateway: served already');
+    const u = new URL(at.loop);
+    const tool = at.toolOrigin ? new URL(at.toolOrigin).origin : null;
+    // The remote tool's origin, B's TLS door: never a plain one (the local
+    // tool's http://127.0.0.1:7740, or any other service on this machine).
+    if (tool && new URL(tool).protocol !== 'https:') throw new TypeError('canvasGateway: `toolOrigin` is the remote tool\'s https origin (B\'s door), never a plain or local one');
+    // A host name or address only (B's door names one): nothing an HTML attribute or a header could misread.
+    if (tool && !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?$/i.test(tool)) throw new TypeError('canvasGateway: `toolOrigin` is a plain https origin (a host name or address and a port)');
+    [loopOrigin, loopHost, loopPort] = [u.origin, u.host, u.port || (u.protocol === 'https:' ? '443' : '80')];
+    origin = new URL(at.origin).origin;
+    toolOrigin = tool;
+    rewrite = rewriter(loopOrigin, origin);
+    served = true;
   }
-  const rewrite = rewriter(loopOrigin, origin);
+  if (loop && origin) serve({ loop, origin, toolOrigin });
   // Keyed by SHA-256 of the secret, and the hash compared timing-safe.
   const grants = new Map(); // hash hex → {hash, client, token, expires}
   const sessions = new Map(); // hash hex → {hash, client, token, grant}
@@ -336,6 +374,7 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
 
   function mint(token) {
     if (closed) return { status: 503, error: { message: 'the canvas gateway is closed' } };
+    if (!served) return { status: 404, error: { message: 'this server has no canvas port (--remote)' } };
     const rec = valid(token);
     if (!rec) return { status: 401, error: { message: 'no such client' } };
     if (!may(rec.scope, 'read')) return { status: 403, error: { message: 'canvas needs read', scope: rec.scope, needs: 'read' } };
@@ -352,17 +391,18 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
   }
 
   async function enter(req, res, target, client) {
-    // POST only, the grant only in the body: any query is refused.
-    if (req.method !== 'POST' || target.query) return notFound(res);
-    // An explicit Origin, the canvas's or the tool's: none, `null` or another is refused.
-    const given = req.headers.origin;
-    if (typeof given !== 'string' || (given !== origin && given !== toolOrigin)) return notFound(res);
+    // The entry page (GET), which carries no secret; the grant only in a POST's body: any query is refused.
+    if (target.query) return notFound(res);
+    if (req.method === 'GET' || req.method === 'HEAD') { entryPage(req, res); return; }
+    if (req.method !== 'POST') return notFound(res);
+    // The entry page's own POST: an explicit Origin, the canvas's; none, `null` or another (the tool's too) is refused.
+    if (req.headers.origin !== origin) return notFound(res);
     const read = await readBody(req, ENTRY_LIMIT);
     if (!read.body) { if (read.over) refuseBody(req, res, () => notFound(res)); else if (!res.destroyed) notFound(res); return; }
     const text = read.body.toString('utf8'), type = String(req.headers['content-type'] ?? '');
     let grant = null;
     try {
-      grant = /^application\/json\b/i.test(type) ? JSON.parse(text)?.grant : /^application\/x-www-form-urlencoded\b/i.test(type) ? new URLSearchParams(text).get('grant') : null;
+      grant = /^application\/json\b/i.test(type) ? JSON.parse(text)?.grant : null;
     } catch { grant = null; }
     if (typeof grant !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(grant)) return notFound(res);
     const hash = sha(grant), key = hash.toString('hex');
@@ -379,8 +419,21 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
     const sessionHash = sha(session);
     sessions.set(sessionHash.toString('hex'), { hash: sessionHash, client, token: held.token, grant: key });
     watch(client);
-    res.writeHead(303, { location: '/', 'cache-control': 'no-store', 'set-cookie': `${CANVAS_COOKIE}=${session}; Secure; HttpOnly; SameSite=Strict; Path=/` });
+    // The page goes on to `/` itself (`location.replace`).
+    res.writeHead(204, { 'cache-control': 'no-store', 'set-cookie': `${CANVAS_COOKIE}=${session}; Secure; HttpOnly; SameSite=Strict; Path=/` });
     res.end();
+  }
+
+  /** `GET /canvas/<client>/`, the entry page the tool frames with the grant
+   * in its fragment (`#g=<grant>`, never sent to a server): its one inline
+   * script takes the grant out of its address before any request, posts it
+   * here, and goes on to `/`. Static, and framed by the tool alone. */
+  function entryPage(req, res) {
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
+      'content-security-policy': `default-src 'none'; script-src '${ENTRY_SCRIPT_HASH}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${toolOrigin ?? "'none'"}`,
+    });
+    res.end(req.method === 'HEAD' ? undefined : entryHtml(toolOrigin));
   }
 
   /** The session a request's cookie names, with its token still good. */
@@ -397,9 +450,12 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
   }
 
   /** The canvas port's every request. `req.url`, the raw target, is what
-   * is checked and forwarded (`url`, a parse of it, is not trusted). */
-  async function handle(req, res, url) {
-    const target = closed ? null : canonical(req.url ?? (url && url.pathname + url.search));
+   * is checked and forwarded (`url`, a parse of it, is not trusted);
+   * `access` says which door it came through (B's `addPort` gives `remote`). */
+  async function handle(req, res, url, access) {
+    // Only through the canvas's TLS door (B's `addPort`: `remote`), or from this machine: never plain HTTP from a LAN peer.
+    const door = viaDoor(access);
+    const target = closed || !served || !door ? null : canonical(req.url ?? (url && url.pathname + url.search));
     if (!target) { notFound(res); return true; }
     const entry = ENTRY.exec(target.path);
     if (entry) {
@@ -461,7 +517,7 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
       for (const [k, v] of answer.headers) {
         const key = k.toLowerCase();
         if (HOP.has(key) || dropNamed.has(key) || DROP_DOWN.has(key) || key.startsWith('access-control-')) continue;
-        out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? rewrite.text(frameAncestors(v, loopPort, origin, toolOrigin)) : rewrite.text(v);
+        out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? frameAncestors(rewrite.text(v), loopPort, origin, toolOrigin) : rewrite.text(v);
       }
       out['cache-control'] = 'no-store';
       const type = String(out['content-type'] ?? '');
@@ -512,5 +568,31 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
     sessions.clear();
   }
 
-  return { mint, handle, close, get live() { return [...live.values()].reduce((n, s) => n + s.size, 0); } };
+  return { mint, handle, serve, close, get origin() { return served ? origin : null; }, get live() { return [...live.values()].reduce((n, s) => n + s.size, 0); } };
+}
+
+/** The canvas port on B's remote doors (`openRemote`), for `tamber`'s
+ * gateway: another TLS listener on `host`, the same certificate (B's
+ * Origin check: its own only), and the gateway served at `https://<the shown name>:<its
+ * port>`, proxying `loop`. The port is bound first and its handler defers to
+ * the gateway, which answers nothing until `serve` (no request can come
+ * before the origin is known). Null without the TLS listener or a gateway. */
+export async function openCanvas(doors, tamber, { loop, host, port = 0, say = console.log }) {
+  const gateway = tamber?.canvas, info = doors?.info?.();
+  if (!gateway || !info) return null;
+  const toolOrigin = info.origin;
+  const bound = await doors.addPort({ host, port, handler: (req, res, url, access) => gateway.handle(req, res, url, access) });
+  const origin = `https://${new URL(toolOrigin).hostname}:${bound}`;
+  gateway.serve({ loop, origin, toolOrigin });
+  say(`  canvas (TLS only, the same certificate): ${origin}, a paired client's view of this loop, entered by a grant from \`canvas\``);
+  return origin;
+}
+
+/** A dev loop's remote doors (`openRemote`) and, with the TLS listener, its
+ * canvas port, proxying `loop` (the loop's own loopback origin). A canvas
+ * port that cannot bind closes the doors, and the error is thrown. */
+export async function openRemoteCanvas(tamber, asked, loop, options) {
+  const doors = await openRemote(tamber, asked, options);
+  try { await openCanvas(doors, tamber, { loop, host: asked.remote?.host, ...options }); } catch (e) { await doors?.close(); throw e; }
+  return doors;
 }

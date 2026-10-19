@@ -180,4 +180,7 @@ whose design the port serves.
   server on a copy of `apps/theme-fixture`. Both run on the checkout's own
   port (`EXACT_TOOL_PORT` names another), never a person's 7740: `bun
   exact.mjs test` here runs a copy staged for that origin
-  (`scripts/tamber-tool-port.mjs`).
+  (`scripts/tamber-tool-port.mjs`), and so does a drive or verify named
+  straight to `scripts/agent.mjs` or `scripts/verify.mjs` (`--app
+  design-tool`, `scripts/tool-drive.mjs`). `EXACT_TOOL_PORT=7740` runs any
+  of them in place, on 7740.

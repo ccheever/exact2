@@ -1306,7 +1306,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 for child in children { sv.addSubview(child) }
             }
             scroll = sv
-            if pageBand != .zero { more.pageBand = .zero } // a new scroll view reaches no band until asked (LLP 1130 D3)
+            if pageBand != .zero || bandInset != .zero { more.pageBand = .zero; more.bandInset = .zero } // a new scroll view reaches no band until asked (LLP 1130 D3)
             scrollWritten = nil
             updateRefresh()
             presenter?.navigation.scrollBackendChanged(self)
@@ -1319,7 +1319,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 sv.removeFromSuperview()
             }
             scroll = nil
-            if pageBand != .zero { more.pageBand = .zero }
+            if pageBand != .zero || bandInset != .zero { more.pageBand = .zero; more.bandInset = .zero }
         }
         scroll?.scrollsX = (ox == "scroll" || ox == "auto")
         scroll?.scrollsY = (oy == "scroll" || oy == "auto")
