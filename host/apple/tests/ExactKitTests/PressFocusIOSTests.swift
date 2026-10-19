@@ -615,10 +615,17 @@ final class PressFocusIOSTests: XCTestCase {
         }
         let session = try fixture()
         let p = session.presenter
+        // The agent's clock, stopped: the note's answer (a second's timer)
+        // stays unanswered however long the sheet takes to come up. Under
+        // load it could land mid-presentation, and the sync it deferred
+        // would hold the handoff (still the press's work) past the dismissal.
+        _ = Agent(session: session).clock(["take": true])
         let opener = try XCTUnwrap(fixtureNode(p, "open-focused-note"))
         tap(opener)
         until { self.window.rootViewController?.presentedViewController?.isBeingPresented == false }
         let sheet = try XCTUnwrap(window.rootViewController?.presentedViewController)
+        XCTAssertNil(fixtureNode(p, "note-text"), "dismissed before the answer")
+        XCTAssertNotNil(p.pressHandoff, "the sheet's route holds the handoff till then")
         let controller = try XCTUnwrap(sheet.presentationController)
         // A finished swipe: UIKit dismisses the sheet, then tells its delegate.
         sheet.presentingViewController?.dismiss(animated: false)
