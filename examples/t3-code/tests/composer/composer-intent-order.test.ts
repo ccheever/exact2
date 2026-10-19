@@ -192,19 +192,16 @@ describe('actual root composer intent ordering', () => {
     f.call('composerIntentOwnerChanged'); expect(f.state.composerIntentNotice).toBe('');
   });
 
-  test('typing in a code body is the field\'s own; only an empty fence\'s first text is admitted', () => {
+  test('typing in a code body, an empty one included, is the field\'s own', () => {
     const projected = (f: ReturnType<typeof fixture>) => ({richComposer: {...f.projection, ...composerRichProjection({value: String(f.state.draft), owner: 'draft', styling: true, literal: false})}});
     const body = fixture('```ts\nx\n```', 7); body.state.composerComposing = true;
     body.call('composerBeforeInput', [{value: body.state.draft, selectionStart: 7, selectionEnd: 7,
       isComposing: false, cancelable: true, inputType: 'insertText', data: '字'}], projected(body));
     expect(body.suppressed).toBe(0); expect(body.state.composerComposing).toBe(false); expect(body.state.composerIntentQueue).toEqual([]);
-    // The canonical empty fence shares one newline between its lines; its first text adds the closing line's own.
-    const f = fixture('```ts\n```', 6); f.state.composerComposing = true;
-    f.call('composerBeforeInput', [{value: f.state.draft, selectionStart: 6, selectionEnd: 6,
-      isComposing: false, cancelable: true, inputType: 'insertText', data: '字'}], projected(f));
-    expect(f.suppressed).toBe(1); expect(f.state.composerComposing).toBe(false);
-    f.call('composerIntentPump'); f.reply(); f.accept(); f.call('composerIntentConfirmed');
-    expect(f.state.draft).toBe('```ts\n字\n```'); expect(f.state.composerIntentNotice).toBe('');
+    const empty = fixture('```ts\n\n```', 6);
+    empty.call('composerBeforeInput', [{value: empty.state.draft, selectionStart: 6, selectionEnd: 6,
+      isComposing: false, cancelable: true, inputType: 'insertText', data: 'c'}], projected(empty));
+    expect(empty.suppressed).toBe(0); expect(empty.state.composerIntentQueue).toEqual([]);
   });
   test('composition start invalidates deferred keys while leaving composition input native-owned', () => {
     const f = fixture(); f.press();
