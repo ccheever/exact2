@@ -23,11 +23,12 @@ pub(super) struct Look<const ASSETS: bool> {
     /// The device-less surface's device, made on first use.
     #[cfg(not(target_arch = "wasm32"))]
     gpu: Option<Result<exact_gpu::Gpu, String>>,
-    /// The device-less surface's look renderer and format, between look frames.
-    stash: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
+    /// The device-less surface's look renderer and format, between look frames
+    /// (boxed, as `pending` is, so a surface stays small on the stack).
+    stash: Option<Box<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>>,
     stash_format: Option<wgpu::TextureFormat>,
     /// A readback still mapping (on the web, until the page's next turn).
-    pending: Option<Pending>,
+    pending: Option<Box<Pending>>,
     /// The tells the last judged frame told `logs`: a settled frame tells once.
     logged: crate::tells::Logged,
     /// Tell lines the next `logs` reply carries. They stay out of the world's
@@ -200,7 +201,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let (tick, hash) = (sim.world().tick(), sim.world().hash());
         // A readback still mapping answers the same question at the same tick.
         let mut pending = match self.look.pending.take() {
-            Some(p) if p.ask == ask && p.tick == tick && p.hash == hash => p,
+            Some(p) if p.ask == ask && p.tick == tick && p.hash == hash => *p,
             _ => {
                 let points = self.look.points;
                 if points.0 <= 0. || points.1 <= 0. {
@@ -222,7 +223,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         };
         loop {
             if !pending.readback.ready(&pending.device)? {
-                self.look.pending = Some(pending);
+                self.look.pending = Some(Box::new(pending));
                 return Ok(format!("{{\"tick\":{tick},\"pending\":\"readback\"}}"));
             }
             if !pending.bounds_stage {
@@ -309,8 +310,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         if !live {
             // The device-less surface draws with its look renderer; its own
             // headless state comes back untouched below.
-            std::mem::swap(&mut self.render, &mut self.look.stash);
-            std::mem::swap(&mut self.format, &mut self.look.stash_format);
+            self.swap_stash();
             if let Some((_, feed)) = &mut self.render {
                 feed.reset();
             }
@@ -331,8 +331,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             !bounds_stage,
         );
         if !live {
-            std::mem::swap(&mut self.render, &mut self.look.stash);
-            std::mem::swap(&mut self.format, &mut self.look.stash_format);
+            self.swap_stash();
             (self.dirty, self.device, self.ready_work, self.assets_dirty) = saved;
         }
         let (readback, facts, records, labels) = drawn?;
@@ -351,6 +350,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             bounds_stage,
             bounds,
         })
+    }
+
+    /// Swap the device-less surface's headless renderer and format with its
+    /// look renderer's.
+    fn swap_stash(&mut self) {
+        let stash = self.look.stash.take().map(|b| *b);
+        self.look.stash = std::mem::replace(&mut self.render, stash).map(Box::new);
+        std::mem::swap(&mut self.format, &mut self.look.stash_format);
     }
 
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
