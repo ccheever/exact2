@@ -74,9 +74,12 @@ impl FlowSource {
         for line in layout.lines() {
             super::lines::extract(&line, layout.styles(), 0.0, &mut ink);
         }
+        // Empty source ranges distinguish a truncation token from real text.
         ink.glyphs
             .iter()
             .map(|g| LayoutGlyph {
+                start: if text == "…" { 0 } else { g.start },
+                end: if text == "…" { 0 } else { g.end },
                 metadata: run as u32,
                 face: faces.face(ink.faces[g.face as usize].clone()),
                 ..*g

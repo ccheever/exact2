@@ -15,6 +15,9 @@
 //! in the box. Glyphs are rasterized by swash once per (glyph, color) into
 //! small premultiplied pixmaps.
 
+#[cfg(test)]
+mod background_tests;
+pub(crate) mod backgrounds;
 pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;

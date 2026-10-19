@@ -384,3 +384,58 @@ fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
         "replacement kernels invalidate ranks"
     );
 }
+
+#[test]
+fn inline_border_radius_cuts_the_background_corners() {
+    let draw = |radius| {
+        let mut p = fixture(&format!(
+            "      text font-size=24 color=\"transparent\"\n        text \"rounded inline\" background-color=\"#ff0000\" border-radius={radius}\n"
+        ));
+        *p.text().borrow_mut() = TextEngine::from_font_files(
+            &[std::path::Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/Inter-Regular.ttf"
+            ))],
+            "Inter",
+        );
+        p.frame().clone()
+    };
+    let square = draw(0);
+    let rounded = draw(8);
+    let first = square
+        .pixels()
+        .iter()
+        .position(|p| p.red() == 255 && p.green() == 0 && p.alpha() == 255)
+        .expect("the inline background paints red");
+    assert!(
+        rounded.pixels()[first].green() > 200,
+        "border-radius must expose the page at the background's corner"
+    );
+    assert!(has_color(&rounded, [255, 0, 0, 255]));
+}
+
+#[test]
+fn nested_visible_inline_backgrounds_keep_both_boxes_square() {
+    let p = fixture(
+        "      text testId=\"paragraph\"\n        text background-color=\"#ff0000\" border-radius=6 testId=\"outer\"\n          text \"before\"\n          text\n            text \"inner\" background-color=\"#0000ff\" border-radius=9\n          text \"after\"\n        text background-color=\"#00ff00\" border-radius=3\n          text \"independent\" background-color=\"transparent\"\n",
+    );
+    let kernel = p.host().kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("paragraph")[0])
+        .unwrap();
+    let backgrounds = text_backgrounds(kernel, &node, false, None);
+    assert_eq!(backgrounds.len(), 4);
+    let values: Vec<_> = backgrounds.into_iter().map(Option::unwrap).collect();
+    assert_eq!(values[0].id, values[2].id);
+    assert_ne!(values[0].id, values[1].id);
+    assert_eq!(values[0].color, [255, 0, 0, 255]);
+    assert_eq!(values[1].color, [0, 0, 255, 255]);
+    for value in &values[..3] {
+        assert_eq!(value.radii, [Dimension::Points(0.0); 4]);
+    }
+    assert_eq!(
+        values[3].radii,
+        [Dimension::Points(3.0); 4],
+        "a transparent descendant keeps its ancestor's rounding"
+    );
+}

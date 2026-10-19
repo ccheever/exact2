@@ -149,7 +149,7 @@ type Pieces = Vec<(Range<usize>, usize)>;
 /// each paragraph separator (`\r\n` one), the last empty piece dropped,
 /// and one empty line for no text. Each line's pieces: (range in the
 /// line, run index).
-fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
+pub(super) fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
     let mut out: Vec<(String, Pieces)> = vec![(String::new(), Vec::new())];
     let mut after_cr = false;
     for (index, run) in spec.runs.iter().enumerate() {
