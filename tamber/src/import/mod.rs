@@ -343,7 +343,35 @@ pub struct Deep {
 pub fn css_read(css: &str) -> (Vec<Block>, Vec<Deep>) {
     let (text, comments) = stripped(css);
     let mut read = Reading::default();
-    body(&text, 0, &[], &mut read);
+    let marks = marks(&text);
+    // Each `{`'s matching `}`, by mark index, found once (as a scan from
+    // the `{` counting braces finds it).
+    let mut matched = vec![usize::MAX; marks.len()];
+    let mut open = Vec::new();
+    for (k, &(_, c)) in marks.iter().enumerate() {
+        match c {
+            '{' => open.push(k),
+            '}' => {
+                if let Some(o) = open.pop() {
+                    matched[o] = k;
+                }
+            }
+            _ => {}
+        }
+    }
+    let marked = Marked {
+        text: &text,
+        marks: &marks,
+        matched: &matched,
+    };
+    body(
+        &marked,
+        (0, text.len()),
+        (0, marks.len()),
+        0,
+        &[],
+        &mut read,
+    );
     let Reading { out, mut deep, .. } = read;
     deep.sort_by_key(|d| d.1);
     // Each one's line: the source's, counting a comment's newlines.
@@ -394,9 +422,11 @@ struct Reading {
 }
 
 impl Reading {
-    /// A block with `context`, or, past [`COPIED`], a rule not read.
+    /// A block with `context`, or, past [`COPIED`], a rule not read. Its
+    /// cost is its context, kept once and copied into the label of each of
+    /// its declarations, and each one's report.
     fn push(&mut self, context: &[String], decls: Vec<(String, String)>, at: usize) {
-        let cost: usize = context.iter().map(String::len).sum();
+        let cost = context.iter().map(|p| p.len() + 1).sum::<usize>() * (1 + 2 * decls.len());
         if self.copied + cost > COPIED {
             let prelude = context
                 .last()
@@ -462,7 +492,8 @@ fn stripped(css: &str) -> (String, Vec<(usize, usize)>) {
 }
 
 /// The byte index of each top-level `{`, `}` and `;` in `text`: outside
-/// strings and parentheses.
+/// strings and parentheses (a stray `)` closes none, so every rule's body
+/// reads its marks as the whole text does).
 fn marks(text: &str) -> Vec<(usize, char)> {
     let mut out = Vec::new();
     let (mut quote, mut nesting, mut escaped) = (None, 0i32, false);
@@ -485,18 +516,36 @@ fn marks(text: &str) -> Vec<(usize, char)> {
             '\\' => escaped = true,
             '"' | '\'' => quote = Some(c),
             '(' | '[' => nesting += 1,
-            ')' | ']' => nesting -= 1,
-            '{' | '}' | ';' if nesting <= 0 => out.push((i, c)),
+            ')' | ']' => nesting = (nesting - 1).max(0),
+            '{' | '}' | ';' if nesting == 0 => out.push((i, c)),
             _ => {}
         }
     }
     out
 }
 
-fn body(text: &str, at: usize, context: &[String], read: &mut Reading) {
-    let marks = marks(text);
+/// A stylesheet's text with its marks and each `{`'s matching `}`.
+struct Marked<'a> {
+    text: &'a str,
+    marks: &'a [(usize, char)],
+    matched: &'a [usize],
+}
+
+/// The blocks of the body `bytes` (start, end) of `css`, whose marks are
+/// `range` (start, end) of its marks, under `context`; `at` is where its
+/// prelude starts, for a report. Each level reads its own marks once and
+/// passes over a nested rule's, so the whole stylesheet is read once.
+fn body(
+    css: &Marked<'_>,
+    (lo, hi): (usize, usize),
+    (from, to): (usize, usize),
+    at: usize,
+    context: &[String],
+    read: &mut Reading,
+) {
+    let (text, marks) = (css.text, css.marks);
     let mut decls = Vec::new();
-    let (mut start, mut k) = (0, 0);
+    let (mut start, mut k) = (lo, from);
     let declaration = |segment: &str, decls: &mut Vec<(String, String)>| {
         if let Some((name, value)) = segment.split_once(':') {
             let name = name.trim();
@@ -512,24 +561,10 @@ fn body(text: &str, at: usize, context: &[String], read: &mut Reading) {
             read.push(context, std::mem::take(decls), at);
         }
     };
-    // The mark index of the `}` matching the `{` at mark `k`, if any.
-    let matching = |k: usize| {
-        let mut depth = 0;
-        for (j, &(_, m)) in marks.iter().enumerate().skip(k) {
-            match m {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(j);
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    };
-    while k < marks.len() {
+    // The mark index of the `}` matching the `{` at mark `k`, if any, in
+    // this body.
+    let matching = |k: usize| Some(css.matched[k]).filter(|&j| j < to);
+    while k < to {
         let (i, c) = marks[k];
         match c {
             ';' => {
@@ -538,7 +573,9 @@ fn body(text: &str, at: usize, context: &[String], read: &mut Reading) {
                 k += 1;
             }
             '{' => {
-                let prelude = text[start..i].trim();
+                let raw = &text[start..i];
+                let prelude = raw.trim();
+                let prelude_at = start + (raw.len() - raw.trim_start().len());
                 let end = matching(k);
                 // A custom property's value may hold braces: its declaration
                 // runs on to the `;` after them.
@@ -550,26 +587,27 @@ fn body(text: &str, at: usize, context: &[String], read: &mut Reading) {
                 // Unclosed: the rest is its body.
                 let (j, close) = match end {
                     Some(j) => (j, marks[j].0),
-                    None => (marks.len(), text.len()),
+                    None => (to, hi),
                 };
                 flush(&mut decls, read);
                 if context.len() >= NESTING {
                     let prelude = prelude.chars().take(80).collect();
-                    read.deep.push((prelude, at + i, "nested past 64 rules"));
-                    start = (close + 1).min(text.len());
+                    read.deep
+                        .push((prelude, prelude_at, "nested past 64 rules"));
+                    start = (close + 1).min(hi);
                     k = j + 1;
                     continue;
                 }
                 let mut inner = context.to_vec();
                 inner.push(prelude.to_string());
                 let before = read.out.len();
-                body(&text[i + 1..close], at + i + 1, &inner, read);
+                body(css, (i + 1, close), (k + 1, j), prelude_at, &inner, read);
                 // An `@theme` with no custom properties still marks where
                 // Tailwind writes the theme.
                 if prelude.starts_with("@theme") && read.out.len() == before {
-                    read.push(&inner, Vec::new(), at + i);
+                    read.push(&inner, Vec::new(), prelude_at);
                 }
-                start = (close + 1).min(text.len());
+                start = (close + 1).min(hi);
                 k = j + 1;
             }
             // A stray close: passed over.
@@ -580,8 +618,8 @@ fn body(text: &str, at: usize, context: &[String], read: &mut Reading) {
         }
     }
     // The last declaration may have no `;`.
-    if start < text.len() {
-        declaration(&text[start..], &mut decls);
+    if start < hi {
+        declaration(&text[start..hi], &mut decls);
     }
     flush(&mut decls, read);
 }

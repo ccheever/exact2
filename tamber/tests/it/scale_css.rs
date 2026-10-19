@@ -41,6 +41,13 @@ fn nesting_reads_each_level_and_stops_at_its_cap() {
         import.unmapped[0].why,
         "not read: nested past 64 rules (line 1)"
     );
+    // Its line is its prelude's, where that starts.
+    let (_, deep) = css_read(&format!(
+        "{}\n.deep\n{{--x: 1;}}{}",
+        ".a{".repeat(64),
+        "}".repeat(64)
+    ));
+    assert_eq!((deep[0].prelude.as_str(), deep[0].line), (".deep", 2));
     // Far deeper, closed or not: no stack spent per level past the cap.
     let (blocks, took) = timed(|| css_blocks(&at(200_000)));
     assert!(blocks.is_empty());
@@ -65,7 +72,41 @@ fn nesting_reads_each_level_and_stops_at_its_cap() {
         .iter()
         .all(|d| d.why == "its enclosing rules copy past 8 MiB"));
     assert_eq!(blocks.len() + deep.len(), 20_000);
-    for t in [took, took_open, took_wide, took_copied] {
+    // A custom property full of braces, deep in rules: the marks read once,
+    // not again at each level; and braces it leaves open, each matched once.
+    let braces = format!(
+        "{}--x: {{{}}};{}",
+        ".a{".repeat(64),
+        "{}".repeat(250_000),
+        "}".repeat(64)
+    );
+    let (_, took_braces) = timed(|| css_read(&braces));
+    let open = format!(":root{{--x: {};}}", "{".repeat(100_000));
+    let (_, took_unmatched) = timed(|| css_read(&open));
+    // A long prelude around many declarations: each declaration's label
+    // copies it, which the cap counts.
+    let label = format!(
+        "@layer {}{{:root{{{}}}}}",
+        "x".repeat(200_000),
+        (0..6_000)
+            .map(|i| format!("--c{i}: #000;"))
+            .collect::<String>()
+    );
+    let (import, took_labels) =
+        timed(|| shadcn::import(&label, "shadcn", &parse("tamber app\n").unwrap(), &vocab()));
+    let import = import.unwrap();
+    assert!(import.unmapped.iter().any(|u| u
+        .why
+        .starts_with("not read: its enclosing rules copy past 8 MiB")));
+    for t in [
+        took,
+        took_open,
+        took_wide,
+        took_copied,
+        took_braces,
+        took_unmatched,
+        took_labels,
+    ] {
         assert!(t < Duration::from_secs(BOUND), "{t:?}");
     }
 }
@@ -175,6 +216,36 @@ fn tailwind_writes_each_key_out_once() {
         "{:?}",
         import.unmapped.iter().map(|u| &u.why).collect::<Vec<_>>()
     );
+    assert!(took < Duration::from_secs(BOUND), "{took:?}");
+}
+
+#[test]
+fn wide_themes_read_each_key_once() {
+    // Tailwind: 20,000 keys, and an `inline` key the stylesheet redefines
+    // that 2,000 keys read down a chain.
+    let mut css = String::from("@theme inline {\n  --color-k0: #000000;\n");
+    for i in 1..2_000 {
+        css += &format!("  --color-k{i}: var(--color-k{});\n", i - 1);
+    }
+    css += "}\n@theme {\n";
+    for i in 0..20_000 {
+        css += &format!("  --spacing-s{i}: {}px;\n", i % 64);
+    }
+    css += "}\n:root { --color-k0: #ffffff; }\n";
+    let (import, took) = timed(|| tailwind::import(&css, "", &parse("tamber app\n").unwrap()));
+    let import = import.unwrap();
+    assert_eq!(import.counted.source, 22_001);
+    assert!(took < Duration::from_secs(BOUND), "{took:?}");
+    // shadcn: 20,000 lengths of the other kinds.
+    let css = format!(
+        ":root{{{}}}",
+        (0..20_000)
+            .map(|i| format!("--radius-r{i}: {}px;", i % 64))
+            .collect::<String>()
+    );
+    let (import, took) =
+        timed(|| shadcn::import(&css, "shadcn", &parse("tamber app\n").unwrap(), &vocab()));
+    assert_eq!(import.unwrap().counted.source, 20_000);
     assert!(took < Duration::from_secs(BOUND), "{took:?}");
 }
 

@@ -389,10 +389,18 @@ pub fn import_with(
     }
     // The theme as Tailwind builds it: in order, a reset clears what it
     // names, a default yields to a value the key has, a later value wins.
-    let mut keys: Vec<(String, usize)> = Vec::new();
+    // The keys in the order Tailwind first holds them (a reset leaves a
+    // gap), and each live one's place by name.
+    let mut slots: Vec<Option<(String, usize)>> = Vec::new();
+    let mut by_name: std::collections::BTreeMap<String, usize> = Default::default();
     let mut gone: Vec<(usize, String)> = Vec::new();
     for (k, e) in theme.iter().enumerate() {
-        let held = |name: &str| keys.iter().find(|(n, _)| n == name).map(|(_, at)| *at);
+        let held = |name: &str| {
+            by_name
+                .get(name)
+                .and_then(|&s| slots[s].as_ref())
+                .map(|(_, at)| *at)
+        };
         // A default yields to a value the key has, its own reset too; a
         // namespace reset clears whatever its declaration.
         if e.default && !e.name.ends_with("-*") {
@@ -403,27 +411,45 @@ pub fn import_with(
             }
         }
         if e.value.trim().eq_ignore_ascii_case("initial") {
-            keys.retain(|(name, at)| {
-                let cleared = resets(&e.name, name);
-                if cleared {
-                    gone.push((*at, format!("reset by `{}: initial`", e.name)));
+            // What it clears, in the order they are held: the names under
+            // its namespace (`--*` all of them), or its own.
+            let under = match e.name.strip_suffix("-*") {
+                Some(_) if e.name == "--*" => "",
+                Some(ns) => ns,
+                None => e.name.as_str(),
+            };
+            let mut cleared: Vec<usize> = by_name
+                .range::<str, _>((std::ops::Bound::Included(under), std::ops::Bound::Unbounded))
+                .take_while(|(name, _)| name.starts_with(under))
+                .filter(|(name, _)| resets(&e.name, name))
+                .map(|(_, &slot)| slot)
+                .collect();
+            cleared.sort_unstable();
+            for slot in cleared {
+                if let Some((name, at)) = slots[slot].take() {
+                    gone.push((at, format!("reset by `{}: initial`", e.name)));
+                    by_name.remove(&name);
                 }
-                !cleared
-            });
+            }
             gone.push((k, "a reset: what it names before it is not imported".into()));
             continue;
         }
-        match keys.iter().position(|(name, _)| *name == e.name) {
-            Some(i) => {
+        match by_name.get(&e.name) {
+            Some(&slot) => {
+                let held = slots[slot].as_mut().expect("a live key");
                 gone.push((
-                    keys[i].1,
+                    held.1,
                     "declared again later in the theme, which wins".into(),
                 ));
-                keys[i].1 = k;
+                held.1 = k;
             }
-            None => keys.push((e.name.clone(), k)),
+            None => {
+                by_name.insert(e.name.clone(), slots.len());
+                slots.push(Some((e.name.clone(), k)));
+            }
         }
     }
+    let keys: Vec<(String, usize)> = slots.into_iter().flatten().collect();
     for (k, why) in &gone {
         let e = &theme[*k];
         report(
@@ -435,7 +461,7 @@ pub fn import_with(
             None,
         );
     }
-    let inline: Vec<String> = keys
+    let inline: HashSet<String> = keys
         .iter()
         .filter(|(_, k)| theme[*k].inline)
         .map(|(n, _)| n.clone())
@@ -461,29 +487,31 @@ pub fn import_with(
     // The inline keys the stylesheet redefines, and what reads one, through
     // backing variables and redefinitions, to the end of the chain (the
     // inline key's own token stays).
-    let first: Vec<String> = inline
+    let own_names: HashSet<&str> = own.iter().map(|e| e.name.as_str()).collect();
+    let first: HashSet<String> = inline
         .iter()
-        .filter(|n| own.iter().any(|e| e.name == **n))
+        .filter(|n| own_names.contains(n.as_str()))
         .cloned()
         .collect();
-    let mut shadowed = first.clone();
-    loop {
-        let reads =
-            |value: &str| engine::reference(value).is_some_and(|r| shadowed.iter().any(|n| n == r));
-        let more: Vec<String> = keys
-            .iter()
-            .map(|(_, k)| &theme[*k])
-            .chain(own.iter())
-            .filter(|e| !shadowed.contains(&e.name) && reads(&e.value))
-            .map(|e| e.name.clone())
-            .collect();
-        if more.is_empty() {
-            break;
+    // Who reads each variable, then everything that reads a shadowed one,
+    // each found once.
+    let mut readers: HashMap<&str, Vec<&str>> = HashMap::new();
+    for e in keys.iter().map(|(_, k)| &theme[*k]).chain(own.iter()) {
+        if let Some(r) = engine::reference(&e.value) {
+            readers.entry(r).or_default().push(&e.name);
         }
-        shadowed.extend(more);
+    }
+    let mut shadowed: HashSet<String> = first.clone();
+    let mut next: Vec<String> = first.iter().cloned().collect();
+    while let Some(n) = next.pop() {
+        for &reader in readers.get(n.as_str()).into_iter().flatten() {
+            if shadowed.insert(reader.to_string()) {
+                next.push(reader.to_string());
+            }
+        }
     }
     let tainted = |name: &String| shadowed.contains(name) && !first.contains(name);
-    let dark_set: Vec<String> = own
+    let dark_set: HashSet<String> = own
         .iter()
         .enumerate()
         .filter(|(k, e)| e.dark && own_gone[*k].is_none())
@@ -548,7 +576,7 @@ pub fn import_with(
             ),
         }
     }
-    let theme_keys: Vec<&String> = keys.iter().map(|(n, _)| n).collect();
+    let theme_keys: HashSet<&String> = keys.iter().map(|(n, _)| n).collect();
     for (k, e) in own.iter().enumerate() {
         if tainted(&e.name) {
             let r = engine::reference(&e.value).unwrap_or_default();
@@ -568,7 +596,7 @@ pub fn import_with(
             continue;
         }
         let backing = matches!(kind(&e.name), Kind::Colour(_) | Kind::Reported(UNNAMED));
-        if theme_keys.contains(&&e.name) && !backing {
+        if theme_keys.contains(&e.name) && !backing {
             report(
                 &mut unmapped,
                 &e.block,
@@ -593,11 +621,11 @@ pub fn import_with(
     // In the stylesheet's order, the theme where Tailwind writes it.
     decls.sort_by_key(|(seq, _)| *seq);
     let decls: Vec<Decl> = decls.into_iter().map(|(_, d)| d).collect();
-    let keyset: Vec<String> = keys.iter().map(|(n, _)| n.clone()).collect();
+    let keyset: HashSet<String> = keys.iter().map(|(n, _)| n.clone()).collect();
     let named = engine::name(&decls, |var| match kind(var) {
         // A colour the theme declares is a token; any other variable backs
         // one.
-        Kind::Colour(segs) if keyset.contains(&var.to_string()) => {
+        Kind::Colour(segs) if keyset.contains(var) => {
             let refs: Vec<&str> = segs.iter().map(String::as_str).collect();
             Some(tamber_name(prefix, &refs))
         }
@@ -785,7 +813,7 @@ struct Other {
 fn other_kinds(
     others: &[Other],
     colours: &std::collections::BTreeMap<String, String>,
-    (redefined, shadowed): (&[(String, String)], &[String]),
+    (redefined, shadowed): (&[(String, String)], &HashSet<String>),
     (design, vocab): (&Design, &crate::Vocab),
     (tokens, unmapped, sources): super::Written<'_>,
 ) -> usize {

@@ -490,33 +490,34 @@ fn other_kinds(
             token: names.get(var).cloned(),
         });
     };
+    // Each variable, first seen first, with its declarations in order.
     let mut vars: Vec<&str> = Vec::new();
-    for (i, _) in others {
-        if !vars.contains(&decls[*i].1.as_str()) {
-            vars.push(&decls[*i].1);
+    let mut own_of: HashMap<&str, Vec<(usize, &'static str)>> = HashMap::new();
+    for &(i, kind) in others {
+        let var = decls[i].1.as_str();
+        let own = own_of.entry(var).or_default();
+        if own.is_empty() {
+            vars.push(var);
         }
+        own.push((i, kind));
     }
     let start = tokens.len();
     // A token made: a colour, or one of these.
-    let colours: Vec<String> = tokens.iter().map(|t| t.name.clone()).collect();
+    let colours: HashSet<String> = tokens.iter().map(|t| t.name.clone()).collect();
     let token_of = |var: &str| {
         names
             .get(var)
-            .filter(|n| colours.contains(n) || vars.contains(&var))
+            .filter(|n| colours.contains(*n) || own_of.contains_key(var))
             .cloned()
     };
     // Each token made: its kind, and the declarations it carries.
     let mut made: Vec<(&'static str, Vec<usize>)> = Vec::new();
     for &var in &vars {
-        let own: Vec<(usize, &'static str)> = others
-            .iter()
-            .filter(|(i, _)| decls[*i].1 == var)
-            .copied()
-            .collect();
+        let own: &[(usize, &'static str)] = &own_of[var];
         let kind = own[0].1;
         // Each block's winner: the last that sets it.
         let mut winner: std::collections::BTreeMap<&Target, &str> = Default::default();
-        for (i, _) in &own {
+        for (i, _) in own {
             for t in &decls[*i].3 {
                 winner.insert(t, &decls[*i].2);
             }
