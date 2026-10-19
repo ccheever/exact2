@@ -546,10 +546,33 @@ fn the_style_hint_suggests_only_what_compiles() {
             "aria-label: f(a; b); width: calc(100% - 16px)",
             "aria-label=\"f(a; b)\" width=\"calc(100% - 16px)\"",
         ),
-        // `!important` is dropped.
+        // `!important` is resolved, then dropped: of one property the
+        // important declaration wins, else the later one; a longhand a
+        // shorthand beats in CSS is left out, since a longhand overrides its
+        // shorthand's part here whatever the order; important ones go last.
         (
             "color: red !important; padding: 8px ! important",
             "color=\"red\" padding=\"8px\"",
+        ),
+        ("padding: 8px !important; padding: 0", "padding=\"8px\""),
+        ("padding: 8px; padding: 0", "padding=0"),
+        (
+            "padding-left: 16px !important; padding: 0",
+            "padding=0 padding-left=\"16px\"",
+        ),
+        ("padding: 0 !important; padding-left: 16px", "padding=0"),
+        ("padding-left: 16px; padding: 0", "padding=0"),
+        (
+            "padding: 0; padding-left: 16px",
+            "padding=0 padding-left=\"16px\"",
+        ),
+        (
+            "top: 4px; inset: 0 !important; color: red",
+            "color=\"red\" inset=0",
+        ),
+        (
+            "border-top-left-radius: 8px; border: 1px solid red",
+            "border-top-left-radius=\"8px\" border=\"1px solid red\"",
         ),
         // A custom property is not an attribute; the others are.
         ("--gap: 8px; padding: 8px", "padding=\"8px\""),

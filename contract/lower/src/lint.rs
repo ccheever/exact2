@@ -136,15 +136,22 @@ pub(crate) fn react_native(name: &str) -> Option<&'static str> {
 /// look nodes share is a `style` block named by `class=`. CSS declarations
 /// (`"padding: 8px; color: red"`) are written back as the attributes, each
 /// one the hint can say in Contract: a name that is an attribute identifier
-/// (a custom property is not), its value without `!important`, a plain
-/// number unquoted as the lexer wants it. A bare word is `class=` unless it
-/// is reserved (`none`, `if`).
+/// (a custom property is not), a plain number unquoted as the lexer wants
+/// it. A bare word is `class=` unless it is reserved (`none`, `if`).
+///
+/// `!important` is resolved before it is dropped (CSS Cascade 4 §6.1): of
+/// two declarations of one property the important one wins, else the later.
+/// A longhand overrides its shorthand's part whatever the order here, where
+/// CSS goes by importance and order; so a longhand a shorthand beats in CSS
+/// is left out, and the important declarations are written last.
 fn style_hint(value: &contract_syntax::Expr) -> String {
     let shared = "a look nodes share is a `style Name` block in the file, named with `class=Name`";
     let contract_syntax::Expr::Str(text, _) = value else {
         return format!("; a node's look is its attributes (`padding=8 color=\"-exact-secondary-label\"`), and {shared}");
     };
-    let attrs: Vec<String> = declarations(text)
+    // Each declaration: its name, its value as a string literal's text or a
+    // bare number, and whether it is important.
+    let mut decls: Vec<(&str, String, bool)> = declarations(text)
         .into_iter()
         .filter_map(|d| {
             let (name, value) = d.split_once(':')?;
@@ -156,16 +163,16 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
             // space, which mean the same, and every other control character,
             // a quote and a backslash escaped.
             let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
-            let value = match value.strip_suffix("important").map(str::trim_end) {
-                Some(v) if v.ends_with('!') => v[..v.len() - 1].trim_end(),
-                _ => value.as_str(),
+            let (value, important) = match value.strip_suffix("important").map(str::trim_end) {
+                Some(v) if v.ends_with('!') => (v[..v.len() - 1].trim_end(), true),
+                _ => (value.as_str(), false),
             };
             // A number token begins with a digit (`.5` is not one).
             if value.starts_with(|c: char| c.is_ascii_digit())
                 && value.bytes().all(|b| b.is_ascii_digit() || b == b'.')
                 && value.parse::<f64>().is_ok()
             {
-                return Some(format!("{name}={value}"));
+                return Some((name, value.to_string(), important));
             }
             let value: String = value
                 .chars()
@@ -175,8 +182,47 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
                     c => c.to_string(),
                 })
                 .collect();
-            Some(format!("{name}=\"{value}\""))
+            Some((name, format!("\"{value}\""), important))
         })
+        .collect();
+    // Of one property, the winner: important, else the last written.
+    let mut i = 0;
+    while i < decls.len() {
+        let later = decls[i + 1..]
+            .iter()
+            .position(|d| d.0 == decls[i].0)
+            .map(|k| i + 1 + k);
+        match later {
+            Some(k) if decls[i].2 && !decls[k].2 => {
+                decls.remove(k);
+            }
+            Some(_) => {
+                decls.remove(i);
+            }
+            None => i += 1,
+        }
+    }
+    // A shorthand that beats a longhand in CSS (important over normal, or
+    // later at one importance) would lose to it here: leave the longhand out.
+    let beaten: Vec<bool> = (0..decls.len())
+        .map(|l| {
+            decls.iter().enumerate().any(|(k, s)| {
+                shorthand_of(s.0, decls[l].0)
+                    && ((s.2 && !decls[l].2) || (s.2 == decls[l].2 && k > l))
+            })
+        })
+        .collect();
+    let decls: Vec<_> = decls
+        .into_iter()
+        .zip(beaten)
+        .filter(|(_, beaten)| !beaten)
+        .map(|(d, _)| d)
+        .collect();
+    let attrs: Vec<String> = decls
+        .iter()
+        .filter(|d| !d.2)
+        .chain(decls.iter().filter(|d| d.2))
+        .map(|(name, value, _)| format!("{name}={value}"))
         .collect();
     let word = text.trim();
     if !attrs.is_empty() {
@@ -188,6 +234,22 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
         format!("; write `class={word}`: {shared}, and a node's own look is its attributes")
     } else {
         format!("; {shared}, and a node's own look is its attributes")
+    }
+}
+
+/// Whether `short` is a CSS shorthand that sets `long`: `padding` sets
+/// `padding-left`, `border-top` sets `border-top-width` (and `border` both),
+/// `inset` the four offsets, `gap` the two gaps; `border` leaves the radii.
+fn shorthand_of(short: &str, long: &str) -> bool {
+    match short {
+        "inset" => matches!(long, "top" | "right" | "bottom" | "left"),
+        "gap" => matches!(long, "row-gap" | "column-gap"),
+        "border" => long.starts_with("border-") && !long.ends_with("-radius"),
+        _ => {
+            long.len() > short.len() + 1
+                && long.starts_with(short)
+                && long.as_bytes()[short.len()] == b'-'
+        }
     }
 }
 
