@@ -127,6 +127,10 @@ final class InspectIOSTests: XCTestCase {
         let second = try XCTUnwrap(items.last)
         let picked = InspectHost.target(at: CGPoint(x: second.box.midX, y: second.box.midY), in: window, ExactApp.shared)
         XCTAssertEqual(picked.id, second.id, "\(picked)")
+        // On an iPad the floating bar covers what runs under it, for reveal.
+        if let list = tabs.floatingTabList, let scroller = session.presenter.views.values.compactMap(\.scrollView).first(where: { $0.window === window }) {
+            XCTAssertTrue(Agent(session: session).bars(over: scroller).contains(list))
+        }
         // Its box is the item's, for the press and the outline.
         let node = try XCTUnwrap(session.presenter.views[second.id])
         let place = try XCTUnwrap(InspectHost.place(of: node, in: session), "a tab has a place")
@@ -155,11 +159,12 @@ final class InspectIOSTests: XCTestCase {
         XCTAssertTrue(field.becomeFirstResponder())
         func toTop() -> [UIScrollView] {
             var found: [UIScrollView] = [], pending: [UIView] = [window]
-            while !pending.isEmpty { let v = pending.removeFirst(); if let s = v as? UIScrollView, s.scrollsToTop, !(s is UITextView), !s.isDescendant(of: field) { found.append(s) }; pending += v.subviews }
+            while !pending.isEmpty { let v = pending.removeFirst(); if let s = v as? UIScrollView, s.scrollsToTop, !(s is UITextView), !s.isDescendant(of: field), !tabChrome(s, tabs) { found.append(s) }; pending += v.subviews }
             return found
         }
-        // (Only it: an iPad's floating tab bar, a list of its items, takes none.)
-        if let list = tabs.floatingTabList { XCTAssertFalse(list.scrollsToTop) }
+        // (Not counting UIKit's own: an iPad's floating tab bar is a list of
+        // its items, a scroll view that fits. The one-scroller rule is the
+        // iPhone's, UIScrollView.h says; the app's scrollers are all counted.)
         let before = toTop()
         XCTAssertEqual(before.count, 1, "the route's content scroller takes the status-bar tap")
         Inspect.set(true, seq: 1)

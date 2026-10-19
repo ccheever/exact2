@@ -460,19 +460,39 @@ extension UITabBarController {
     /// window (`tabBar` is out of it), but a list of the tabs' items at the
     /// top, a collection view whose first section has a cell per tab, in
     /// their order, and whose others are empty (iPadOS 27 keeps a second,
-    /// for tabs a person adds), beside the selected tab's view. Nil where the
-    /// bar is UIKit's classic one, or no such list shows.
+    /// for tabs a person adds), beside the selected tab's view. Its cells
+    /// carry their items' accessibility identifiers (the tabs' test ids,
+    /// `syncItems`), or their titles as labels, as the agent's aim reads
+    /// them: a list of the same shape whose cells name other things (a
+    /// hatch's) is not it. Nil where the bar is UIKit's classic one, where
+    /// no such list shows, or where two would.
     var floatingTabList: UICollectionView? {
-        guard tabBar.window == nil, let count = viewControllers?.count, count > 0, let selected = selectedViewController?.viewIfLoaded else { return nil }
-        var pending: [UIView] = view.subviews
+        guard tabBar.window == nil, let controllers = viewControllers, case let items = controllers.compactMap(\.tabBarItem), !items.isEmpty, items.count == controllers.count,
+              let selected = selectedViewController?.viewIfLoaded else { return nil }
+        func names(_ cell: UIView, _ item: UITabBarItem) -> Bool {
+            let id = item.accessibilityIdentifier ?? ""
+            if id.isEmpty, (item.title ?? "").isEmpty { return false }
+            var pending = [cell]
+            while !pending.isEmpty {
+                let v = pending.removeFirst()
+                if id.isEmpty ? v.accessibilityLabel == item.title : v.accessibilityIdentifier == id { return true }
+                pending += v.subviews
+            }
+            return false
+        }
+        var found: [UICollectionView] = [], pending: [UIView] = view.subviews
         while !pending.isEmpty {
             let v = pending.removeFirst()
-            guard v !== selected, !v.isHidden else { continue }
-            if let list = v as? UICollectionView, list.numberOfSections >= 1, list.numberOfItems(inSection: 0) == count,
-               (1..<list.numberOfSections).allSatisfy({ list.numberOfItems(inSection: $0) == 0 }) { return list }
+            guard v !== selected, !v.isHidden, !(v is NodeView) else { continue }
+            if let list = v as? UICollectionView, list.numberOfSections >= 1, list.numberOfItems(inSection: 0) == items.count,
+               (1..<list.numberOfSections).allSatisfy({ list.numberOfItems(inSection: $0) == 0 }) {
+                let shown = list.indexPathsForVisibleItems.filter { $0.section == 0 }
+                if !shown.isEmpty, shown.allSatisfy({ path in list.cellForItem(at: path).map { names($0, items[path.item]) } ?? false }) { found.append(list) }
+                continue
+            }
             pending += v.subviews
         }
-        return nil
+        return found.count == 1 ? found[0] : nil
     }
 }
 #endif
