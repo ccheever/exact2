@@ -70,7 +70,8 @@ export function stageTool({ tests = false } = {}) {
  * this checkout's tool: on the checkout's own port (`checkoutPort`, unless
  * EXACT_TOOL_PORT names one), from a stage with its stub and tests, built
  * into its own dist; the stage's dir, and `args` with each test file or glob
- * in the tool's sources (by its real path) the stage's; null to run as it is
+ * (`….test.contract`) in the tool's sources, by its real path, the stage's,
+ * and nothing else (a URL, an op, a flag's value); null to run as it is
  * (another app, or EXACT_TOOL_PORT=7740). */
 export function stageToolTests(dir, args) {
   const from = resolve(ROOT, 'apps/design-tool');
@@ -79,6 +80,6 @@ export function stageToolTests(dir, args) {
   process.env.EXACT_WEB_DIST = staged.dist;
   // (A glob's real path is its directory's, up to its first wildcard.)
   const realOf = a => { const at = resolve(a), glob = at.search(/[*?[]/); if (glob < 0) return existsSync(at) ? realpathSync(at) : at; const head = dirname(at.slice(0, glob + 1)); return existsSync(head) ? realpathSync(head) + at.slice(head.length) : at; };
-  const into = a => { if (!/\.test\.contract$/.test(a) && !/[*?[]/.test(a)) return a; const at = realOf(a); return at === real || at.startsWith(`${real}/`) ? resolve(staged.dir, relative(real, at)) : a; };
+  const into = a => { if (!/\.test\.contract$/.test(a)) return a; const at = realOf(a); return at === real || at.startsWith(`${real}/`) ? resolve(staged.dir, relative(real, at)) : a; };
   return { dir: staged.dir, args: args.map(a => (a.startsWith('-') ? a : into(a))) };
 }

@@ -62,8 +62,8 @@ test('the contract tests\' stage: a file or glob named in the tool\'s sources is
   const link = resolve(tmpdir(), `dt-port-link-${process.pid}`);
   symlinkSync(ROOT, link);
   try {
-    const linked = at(17998, `return m.stageToolTests(${JSON.stringify(src)}, ['web', ${JSON.stringify(resolve(link, 'apps/design-tool/app.test.contract'))}, ${JSON.stringify(resolve(link, 'apps/design-tool/*.test.contract'))}, '--shots', '.', '--storage', 'app.ts'])`);
-    expect(linked.args).toEqual(['web', resolve(stage, 'app.test.contract'), resolve(stage, '*.test.contract'), '--shots', '.', '--storage', 'app.ts']);
+    const linked = at(17998, `return m.stageToolTests(${JSON.stringify(src)}, ['web', ${JSON.stringify(resolve(link, 'apps/design-tool/app.test.contract'))}, ${JSON.stringify(resolve(link, 'apps/design-tool/*.test.contract'))}, '--shots', '.', '--storage', 'app.ts', '--url', 'http://127.0.0.1:8765/?agent=1', 'type name Ada?'])`);
+    expect(linked.args).toEqual(['web', resolve(stage, 'app.test.contract'), resolve(stage, '*.test.contract'), '--shots', '.', '--storage', 'app.ts', '--url', 'http://127.0.0.1:8765/?agent=1', 'type name Ada?']);
   } finally { rmSync(link, { force: true }); }
   // Another app, or 7740 itself: run as it is.
   expect(at(17998, `return m.stageToolTests(${JSON.stringify(resolve(ROOT, 'apps/theme-fixture'))}, ['web'])`)).toBe(null);

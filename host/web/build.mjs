@@ -63,9 +63,10 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   mkdirSync(dirname(dist), { recursive: true });
   let stage = mkdtempSync(`${dist}.stage-`);
   process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });
-  // What this build reads, as it starts: a source changed or gone while it compiles, or a build
-  // published over it meanwhile, is then a change to the next check (webChanges), never taken as built.
-  const inputs = webInputDigests(app, true);
+  // What this build reads, and when, as it starts: the next check (webChanges) compares every input
+  // changed since then, so a source changed or gone while it compiles, or a build published over it
+  // meanwhile, is a change, never taken as built.
+  const inputsAt = Date.now(), inputs = webInputDigests(app, true);
   const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
   // What it says names the output, not the stage.
   const said = (text) => (text ?? '').replaceAll(stage, dist);
@@ -80,7 +81,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     for (const line of compiler) console.error(line);
     for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs }) + '\n');
+      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs, inputsAt }) + '\n');
     replaceBuild(stage, dist);
     stage = null;
     process.exit(0);

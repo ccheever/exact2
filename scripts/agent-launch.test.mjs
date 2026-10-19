@@ -504,7 +504,7 @@ test('mutation requests issued by an automatic clock step receive their own mill
 
 test('web freshness tracks backend selection creation, edits and deletion',async()=>{
   const {webChanges,webInputDigests}=await import('./agent-launch.mjs');
-  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');
+  const {mkdtempSync,mkdirSync,writeFileSync,rmSync,utimesSync}=await import('node:fs');
   const {tmpdir}=await import('node:os');const {join}=await import('node:path');
   const dir=mkdtempSync(join(tmpdir(),'exact-origin-freshness-'));
   const app={dir,manifest:{}},dist=join(dir,'dist'),selection=join(dir,'.exact/backend-origin');
@@ -520,6 +520,11 @@ test('web freshness tracks backend selection creation, edits and deletion',async
     // A source the build read, deleted since: a change, though nothing is newer than the build.
     const source=join(dir,'dials.ts');writeFileSync(source,'export {};\n');bake();expect(webChanges(dist,app).all).toEqual([]);
     rmSync(source);expect(webChanges(dist,app).app).toEqual([source]);
+    // A source edited while the build compiled (after it read its inputs, before its marker): a change.
+    writeFileSync(source,'export {};\n');
+    const inputsAt=Date.now()-10_000;writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true),inputsAt}));
+    writeFileSync(source,'export const edited = 1;\n');utimesSync(source,new Date(inputsAt+5_000),new Date(inputsAt+5_000));
+    expect(webChanges(dist,app).app).toEqual([source]);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
