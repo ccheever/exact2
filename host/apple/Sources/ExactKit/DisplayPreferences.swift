@@ -97,7 +97,7 @@ enum DisplayPreferences {
     static var input: Preferences {
         if let agentInput { return agentInput }
         #if os(iOS)
-        return touchScreenInput(mouse: GCMouse.current)
+        return touchScreenInput(mouse: pointable ? GCMouse.current : nil)
         #else
         return .platformInput
         #endif
@@ -182,8 +182,13 @@ enum DisplayPreferences {
         #endif
     }
     #if os(iOS)
+    /// Whether a trackpad or mouse can point in this app: on an iPad, or on
+    /// a Mac running it. An iPhone's (AssistiveTouch) only sends touches, and
+    /// GameController, asked, starts its keyboard and mouse service (about
+    /// 0.3 MB), so an iPhone never asks.
+    private static let pointable = UIDevice.current.userInterfaceIdiom == .pad || ProcessInfo.processInfo.isiOSAppOnMac
     /// A trackpad or mouse attached or removed changes `pointer` and `hover`.
-    private static let pointingDevices: [Notification.Name] = [.GCMouseDidConnect, .GCMouseDidDisconnect]
+    private static let pointingDevices: [Notification.Name] = pointable ? [.GCMouseDidConnect, .GCMouseDidDisconnect] : []
     #elseif !os(macOS)
     private static let pointingDevices: [Notification.Name] = []
     #endif
