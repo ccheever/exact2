@@ -176,9 +176,22 @@ impl Server {
         // The base scale (*1.14*): every base name's row, this design's
         // overrides, and the targets the app ships with their columns.
         let (base, targets) = base_rows(self, request, &design)?;
-        Ok(
-            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings, "base": base, "targets": targets}),
-        )
+        // A package token's rows name its package and file; the package designs listed (*1.14*, D11).
+        let text = snap
+            .iter()
+            .find(|(f, _, _)| *f == file)
+            .map_or("", |(_, t, _)| t.as_str());
+        crate::tamber_packages::mark(
+            ir["tokens"]
+                .as_array_mut()
+                .map_or(&mut [][..], |r| &mut r[..]),
+            &app,
+            text,
+            &file,
+        );
+        let mut out = json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings, "base": base, "targets": targets});
+        crate::tamber_packages::packaged(&app, &mut out, false);
+        Ok(out)
     }
 
     /// A token's stored value per tuple and scheme; a host value (a role, a
@@ -281,6 +294,8 @@ impl Server {
         if let Some(base) = base {
             out["base"] = base;
         }
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        crate::tamber_packages::fields(&self.app_params(), &snap, &file, &name, &mut out, false);
         Ok(out)
     }
 
@@ -336,6 +351,7 @@ impl Server {
         if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
             out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
         }
+        crate::tamber_packages::fields(&app, &snap, &design, &name, &mut out, true);
         Ok(with(out))
     }
 }

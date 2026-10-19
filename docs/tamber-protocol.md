@@ -95,7 +95,20 @@ on macOS and Linux.
   re-import's `dials` and `pins`, `export`'s `digest`, and an import read in a process of its own
   (413/503 past its cost). Stage 11's wire changes add under the same version, and so do LLP 1122
   T7's: the `navigate` method and command, and a `status`'s `location`; and stage 10c's relay
-  (`pair-code`'s relay entry, a relayed session's own pairing bucket).
+  (`pair-code`'s relay entry, a relayed session's own pairing bucket). Stage 11 A2's, for an app
+  whose sources link packages with designs (LLP 1121 D11; nothing changes for one without):
+  `hello` and `describe` list `packages`, `[{package, file, digest}]`, each package design
+  read-only (its `file` is `<package>/<file>`, its `digest` its text's), an op naming one refused;
+  a package token's `describe` rows say `package` and `file` (the file its value comes from: the
+  package's, or the app's design when the app sets it), and `resolve` and `explain` add
+  `package`, `file` and `identity` (`<package>/<file>#<token>`), with `explain`'s `package_value`
+  (`{value, whens, file}`, the package's own line) when the app sets the token. `set-token` of a
+  name the app's design doesn't define but a package or the base scale does writes the app's
+  override line (no `when` until the app sets the token; the reply's `changed` names the app's
+  file); `add-token` refuses a package's or the base scale's name, and a new name in a package's
+  namespace, as `rename-token` refuses renaming onto one. A package design changed on disk is a
+  `changed` event naming it in `edited`, with `packages`; a held proposal is planned again on
+  accept, on the packages as they are then.
 
 ## Where it runs
 

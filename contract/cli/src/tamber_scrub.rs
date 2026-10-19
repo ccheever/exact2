@@ -74,6 +74,13 @@ impl Server {
             );
         }
         crate::tamber_ops::param_names(&mut ops, &base.snap, &base.params)?;
+        // A package's or base token's first set is the app's override, as a write's is (*1.14*, D11).
+        let design = base
+            .snap
+            .iter()
+            .find(|(f, _, _)| *f == self.design)
+            .map_or(String::new(), |(_, t, _)| t.clone());
+        crate::tamber_packages::ops(&mut ops, &base.params, None, &self.design, &design, false)?;
         let texts: Vec<(String, String)> = base
             .snap
             .iter()

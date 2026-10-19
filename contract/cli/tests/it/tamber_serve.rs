@@ -843,7 +843,8 @@ fn a_write_that_makes_a_base_name_a_colour_is_refused() {
     let file = dir.join("app.tamber");
     let before = std::fs::read_to_string(&file).unwrap();
     let mut s = Serve::start(&dir, &[]);
-    let op = json!({"op": "add-token", "name": "space.md", "value": "#ff0000"});
+    // `set-token` sets a base name for this app (theme2's 17:09 ruling: `add-token` refuses one).
+    let op = json!({"op": "set-token", "name": "space.md", "value": "#ff0000"});
     let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
     assert_eq!(
         proposed["error"]["diagnostics"][0]["id"], "tamber-base-kind",
@@ -856,7 +857,7 @@ fn a_write_that_makes_a_base_name_a_colour_is_refused() {
     );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
     // A length is the app's to set.
-    let length = json!({"op": "add-token", "name": "space.md", "value": "12px"});
+    let length = json!({"op": "set-token", "name": "space.md", "value": "12px"});
     let (ok, _) = s.ask(json!({"method": "propose", "ops": [length]}));
     assert!(ok.get("ok").is_some(), "{ok}");
     drop(s);

@@ -87,6 +87,9 @@ pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
 
+/// The base scale's names (LLP 1121 stage 11, the lead's ruling 2).
+pub const BASE_SCALE: [&str; 9] = theme::packages::BASE;
+
 /// A line of a design joined with its packages' (LLP 1121 D11): the
 /// package design's index and its line in that file; none for the app's.
 pub fn package_line(line: u32) -> Option<(usize, u32)> {

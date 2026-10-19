@@ -99,6 +99,7 @@ import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs';
+import { packageDesigns } from './tamber-package-designs.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
@@ -376,11 +377,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (first && !down) setTimeout(rescan, 2000).unref?.();
       return;
     }
-    // The first read is the baseline, not a change.
-    // The first read is the baseline only while nothing has been announced.
-    if (first && known.size === 0) { first = false; for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d); }
+    // The first read is the baseline only while nothing has been announced (its packages' too, *1.14*).
+    const baseline = first && known.size === 0; if (baseline) { first = false; for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d); }
     else { first = false; publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files))); }
-    watchAll(Object.keys(reply.ok.files));
+    packaged(reply.ok.packages, baseline, reply.ok.watch); watchAll(Object.keys(reply.ok.files));
     learnParams(reply.ok.files);
   };
   // The app's component params (LLP 1122 T3), read again when its files
@@ -407,7 +407,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       else failed();
     }, failed);
   };
-  const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : answerMs, done: read });
+  const refresh = () => ask({ method: 'hello', paths: true }, { wait: first ? 0 : answerMs, done: read });
   // The app's directory (where a new design beside it appears) and the
   // design's, whatever the first read gave, and any other holding a file.
   // A directory removed and made again is watched again (by its inode).
@@ -446,7 +446,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // The directories that held a design file or a Contract source.
   const holding = new Set();
   // The directories between the app's and each design file's, by name.
-  const holders = new Set(relative(appDir, dirname(designPath(appDir) ?? resolve(appDir, design))).split(sep).filter(Boolean));
+  const holders = new Set([...relative(appDir, dirname(designPath(appDir) ?? resolve(appDir, design))).split(sep).filter(Boolean), 'node_modules']); const packaged = packageDesigns({ log, changed: () => { clearTimeout(timer); timer = setTimeout(rescan, settle); }, announce: (edited, packages) => { scrubs.compete(); params.key = null; send({ event: 'changed', seq: ++seq, epoch, changed: null, client: null, files: Object.fromEntries(known), edited, packages }); } });
   // While a write is in flight its own renames are not a hand edit.
   const rescan = () => {
     timer = null;
@@ -677,7 +677,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (need === null) return { status: 400, error: { message: `\`${request.method}\` has no scope on this wire` } };
     if (!allows(scope, need, local)) return refusal(request.method, scope, need);
     // Presence is also checked as requests come, not only every 5 s.
-    absent();
+    absent(); delete request.restore; // `restore` (a revert's or an import's override line, *1.14*) is the server's
     // A paired client's canvas grant (stage 10 C), for the token it came with.
     // (Plain HTTP from off this machine never reaches here: `viaDoor`, above.)
     if (request.method === 'canvas') return !gateway ? { status: 404, error: { message: 'this server has no canvas gateway' } } : paired ? gateway.mint(paired) : { status: 400, error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } };
@@ -713,7 +713,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers`, `dials` and `pins` lists of objects with `items` (indices), its `tokens` a count' } };
       // A revert's review is the server's own: it is planned again from it.
       if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
-      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope);
+      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope, undefined, local && !!request.review?.importer);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'history') return history(request);
@@ -723,7 +723,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // edit in place, no reload (LLP 1121 stage 4's live table); `design`:
     // the file an operation with no `file` edits; `page`: the dev loop's own
     // origin, which the design tool frames, null with no dev loop (1.3).
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, scope, local, ...(local ? {} : { client: request.client }), app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
+    if (request.method === 'hello') return ask({ ...request, paths: false }).then(r => (r.ok ? { ok: { ...r.ok, scope, local, ...(local ? {} : { client: request.client }), app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
     if (request.method === 'outline') return needsClient(request) ?? outline(request);
@@ -921,7 +921,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** The proposals held now, as a reconnecting client reads them. */
   // A paired client past its deadline is shown as revoked before its end runs.
   const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
-  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined) {
+  async function hold(client, ops, files, replaces, review, requires, scope = 'write', signal = undefined, restoring = false) {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
@@ -938,7 +938,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Guards it found itself (a source it left as it was, by the plan's own
     // digest): planned again on a fresh read, never carried as the caller's.
     let inferred = [];
-    const propose = guards => ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}), texts: true });
+    const propose = guards => ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}), texts: true, restore: restoring });
     let planned = await propose(guards);
     if (!planned.ok) return planned;
     // A state part's write without a `file` touches the Contract source it
@@ -978,7 +978,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none is this client's: one must be accepted or dropped first` } };
       forget(own[0], { client, reason: 'too many held' });
     }
-    proposals.set(id, { client, ops, base, guards, inferred, expires, shown, size }); heldRevision++;
+    proposals.set(id, { client, ops, base, guards, inferred, expires, shown, size, restoring }); heldRevision++;
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
@@ -1007,7 +1007,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const replan = async (only = p.shown.review.revert.only) => {
       const plan = await planRevert(reverted, only);
       if (!plan.ok) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' }); return plan; }
-      return replaced(await hold(p.client, plan.ok.ops, plan.ok.files, id, plan.ok.review));
+      return replaced(await hold(p.client, plan.ok.ops, plan.ok.files, id, plan.ok.review, undefined, 'write', undefined, true));
     };
     const replaced = fresh => {
       if (!fresh.ok) { restore(id, p); return fresh; } else if (p.reimport) proposals.get(fresh.ok.proposal).reimport = true;
@@ -1022,7 +1022,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
       let fresh; // A re-import (the server's own mark, never its review's fields) is marked again on the design as it is, and held on that same text, else marked again (stage 10b).
-      const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); return hold(p.client, ops, m.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: m.ok.digest } : undefined, id, review, own); };
+      const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); return hold(p.client, ops, m.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: m.ok.digest } : undefined, id, review, own, 'write', undefined, p.restoring); };
       // Some of a revert's items: on the files it was planned on, or that
       // selection planned again.
       if (reverted) review.revert = { ...review.revert, only: ops.map(revertKey) };
@@ -1030,7 +1030,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // moved since, checks what the whole was planned on.
       const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
       if (!p.reimport && review) { delete review.dials; delete review.pins; } // a client's own marks are not carried past its operations
-      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own); } catch (e) { restore(id, p); throw e; }
+      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };
@@ -1047,7 +1047,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       else if (!v?.error?.conflict) restore(id, p);
       else if (!waiting) send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' });
     };
-    const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops, ...(Object.keys(p.guards).length ? { requires: p.guards } : {}) }, { acceptedBy: request.client, proposal: id }, settled);
+    const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops, ...(Object.keys(p.guards).length ? { requires: p.guards } : {}), restore: p.restoring }, { acceptedBy: request.client, proposal: id }, settled);
     waiting = false;
     if (done.error?.conflict) return reverted ? replan() : recompute(p.ops);
     return done;
@@ -1087,7 +1087,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** A past commit's inverse on today's files, held for review. */
   async function revert(request, scope = 'write') {
     const plan = await planRevert(request.commit);
-    return plan.ok ? hold(request.client, plan.ok.ops, plan.ok.files, undefined, plan.ok.review, undefined, scope) : plan;
+    return plan.ok ? hold(request.client, plan.ok.ops, plan.ok.files, undefined, plan.ok.review, undefined, scope, undefined, true) : plan;
   }
   /** A past commit's inverse planned on today's files: its operations, the
    * digests they were planned on, and the review; or refused, naming each
@@ -1140,7 +1140,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const gone = { status: 503, error: { message: 'the import was cancelled' } };
       if (signal?.aborted) return gone;
       const cut = signal && new Promise(ok => signal.addEventListener('abort', () => ok(gone), { once: true }));
-      const held = await Promise.race([hold(request.client, ops, { [relative(appDir, target)]: planned.ok.digest }, undefined, review, undefined, scope, signal), ...(cut ? [cut] : [])]);
+      const held = await Promise.race([hold(request.client, ops, { [relative(appDir, target)]: planned.ok.digest }, undefined, review, undefined, scope, signal, true), ...(cut ? [cut] : [])]);
       if (held === gone) return gone;
       if (held.ok) proposals.get(held.ok.proposal).reimport = true; else if (held.error?.conflict && tries < 2) continue; return held;
     }
@@ -1152,7 +1152,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     clearTimeout(timer);
     clearInterval(absence);
     clearInterval(expiry);
-    for (const w of watchers.values()) w.watcher.close();
+    for (const w of watchers.values()) w.watcher.close(); packaged.close();
     for (const res of subscribers) res.end();
     subscribers.clear();
     for (const poll of polls) poll();

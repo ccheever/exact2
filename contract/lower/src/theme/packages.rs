@@ -24,7 +24,7 @@ const BAND: u32 = 1 << 20;
 
 /// The base scale's names (stage 11 B, the lead's ruling 2), which a package
 /// token may name as it names a role.
-const BASE: [&str; 9] = [
+pub(crate) const BASE: [&str; 9] = [
     "space.xs",
     "space.sm",
     "space.md",

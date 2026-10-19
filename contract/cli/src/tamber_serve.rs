@@ -61,12 +61,15 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+#[path = "tamber_answers.rs"]
+mod answers;
 #[path = "tamber_base.rs"]
 mod base;
 #[path = "tamber_scrub.rs"]
 mod scrub;
 #[path = "tamber_walk.rs"]
 mod walk;
+use answers::{diagnostic, located, modes_of, no_token, refused, temp_name};
 
 /// The protocol this server speaks (D13: minor versions only add).
 pub const PROTOCOL: &str = "tamber/1.14";
@@ -660,9 +663,13 @@ impl Server {
         // client's (and the wire's watcher's) baseline. A file not there is
         // left out; an unreadable one is an error.
         let files = files_json(&self.read_files(true)?);
-        Ok(
-            json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": [], "files": files}),
-        )
+        let mut out = json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": [], "files": files});
+        let paths = request["paths"] == json!(true);
+        crate::tamber_packages::packaged(&self.app_params(), &mut out, paths);
+        if paths {
+            out["watch"] = crate::tamber_packages::watched(&self.dir.join("app.contract"));
+        }
+        Ok(out)
     }
 
     /// A write's reply, and its event when it wrote.
@@ -887,6 +894,30 @@ impl Server {
             false => None,
         };
         let snap = self.snapshot()?;
+        // A package's design is read-only; set-token is the app's override (*1.14*, D11).
+        let design = snap
+            .iter()
+            .find(|(f, _, _)| *f == self.design)
+            .map_or(String::new(), |(_, t, _)| t.clone());
+        // A write judges package files on a fresh load, never a cached one (D11).
+        let app = match write {
+            true => std::rc::Rc::new(contract::tamber_params::params_of(
+                &self.dir.join("app.contract"),
+            )),
+            false => self.app_params(),
+        };
+        crate::tamber_packages::ops(
+            &mut ops,
+            &app,
+            Some(&self.dir),
+            &self.design,
+            &design,
+            request["restore"] == json!(true),
+        )?;
+        // Every write (a Contract op's too) puts its temporary files and journal in `.exact`.
+        if write {
+            crate::tamber_packages::read_only(&app, &self.dir, std::iter::empty())?;
+        }
         let contract_ops = crate::tamber_contract::files(written, &snap)?;
         let stale: Vec<&String> = snap
             .iter()
@@ -946,6 +977,12 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap), "stale": stale}),
             );
         }
+        // A file that has become a package's since (a link made to it) is read-only now too (D11).
+        crate::tamber_packages::read_only(
+            &contract::tamber_params::params_of(&self.dir.join("app.contract")),
+            &self.dir,
+            issued.ops.iter().map(|(f, _)| f.as_str()),
+        )?;
         let result = self.run(&snap, &issued.ops, &[], Some(client), true, false);
         if result.is_ok() {
             self.issued.remove(&id);
@@ -1255,56 +1292,4 @@ impl Server {
             )),
         }
     }
-}
-
-/// Whether `name` is one of this server's temporary files in `.exact`.
-fn temp_name(name: &str) -> bool {
-    name.strip_prefix("tamber-")
-        .and_then(|n| n.strip_suffix(".tmp"))
-        .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
-}
-
-/// Why `uses` has no token `name`: an icon (a param's too) is read through
-/// `describe`, `resolve` and `explain` (D10).
-fn no_token(folding: &exact_tamber::Folding, name: &str) -> Value {
-    match folding.icons.iter().any(|i| i.name == name) {
-        true => {
-            json!({"message": format!("`{name}` is an icon: `describe`, `resolve` and `explain` read an icon; `uses` takes a token")})
-        }
-        false => json!({"message": format!("no token `{name}`")}),
-    }
-}
-
-fn diagnostic(file: &str, d: &exact_tamber::Diagnostic) -> Value {
-    json!({"file": file, "line": d.line, "col": d.col, "id": d.id, "message": d.message})
-}
-
-/// [`diagnostic`], one of a param's (D15) in its declaring file, at its
-/// default, every name in full.
-fn located(
-    file: &str,
-    d: &exact_tamber::Diagnostic,
-    app: &contract::tamber_params::AppParams,
-) -> Value {
-    let mut d = d.clone();
-    let declaring = contract::tamber_params::relocate(&mut d, app);
-    diagnostic(declaring.as_deref().unwrap_or(file), &d)
-}
-
-fn refused(file: &str, all: Vec<exact_tamber::Diagnostic>) -> Value {
-    json!({"message": "the design is refused", "diagnostics": all.iter().map(|d| diagnostic(file, d)).collect::<Vec<_>>()})
-}
-
-/// Tuple `tuple`'s modes, `{axis: value}`, the first axis most significant.
-fn modes_of(axes: &[exact_tamber::Axis], tuple: usize) -> Value {
-    let mut rest = tuple;
-    let mut out = vec![(String::new(), String::new()); axes.len()];
-    for (i, a) in axes.iter().enumerate().rev() {
-        out[i] = (
-            a.name.value.clone(),
-            a.values[rest % a.values.len()].clone(),
-        );
-        rest /= a.values.len();
-    }
-    Value::Object(out.into_iter().map(|(a, v)| (a, json!(v))).collect())
 }

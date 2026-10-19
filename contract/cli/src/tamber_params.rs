@@ -30,16 +30,31 @@ pub struct AppParams {
     pub packages: Vec<contract_syntax::DesignSource>,
     /// Its tokens are an inline `theme` in its Contract, no design file.
     pub inline: bool,
+    /// Each package root its load resolved (LLP 1121 D11), real: direct,
+    /// hoisted or vendored, what the server never writes into.
+    pub package_roots: Vec<std::path::PathBuf>,
 }
 
 /// The app's params, loaded from `app_contract`; none when it has no
 /// Contract, or it does not load (the build says why).
 pub fn params_of(app_contract: &Path) -> AppParams {
-    let Ok(src) = std::fs::read_to_string(app_contract) else {
-        return AppParams::default();
+    // None when it has no Contract; one there that can't be read is a load that failed (its
+    // packages unknown: the server writes no package-looking file, LLP 1121 D11).
+    let src = match std::fs::read_to_string(app_contract) {
+        Ok(src) => src,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return AppParams::default(),
+        Err(_) => {
+            return AppParams {
+                failed: true,
+                ..AppParams::default()
+            }
+        }
     };
     let Ok(root) = crate::app_root(app_contract) else {
-        return AppParams::default();
+        return AppParams {
+            failed: true,
+            ..AppParams::default()
+        };
     };
     let dir = app_contract.parent().unwrap_or(Path::new("."));
     let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
@@ -49,6 +64,11 @@ pub fn params_of(app_contract: &Path) -> AppParams {
             identities: params::identities(&file),
             packages: file.package_designs.clone(),
             inline: file.theme.is_some(),
+            package_roots: crate::sources::packages::packages(&sources)
+                .0
+                .into_iter()
+                .filter_map(|p| p.root.canonicalize().ok())
+                .collect(),
             files: sources
                 .paths()
                 .iter()
@@ -61,8 +81,15 @@ pub fn params_of(app_contract: &Path) -> AppParams {
                 .collect(),
             failed: false,
         },
+        // Its packages' roots as far as it loaded (a source past them can't be read): still the server's
+        // never to write into (LLP 1121 D11).
         Err(_) => AppParams {
             failed: true,
+            package_roots: crate::source_graph(app_contract)
+                .packages
+                .into_iter()
+                .filter_map(|p| p.root.canonicalize().ok())
+                .collect(),
             ..AppParams::default()
         },
     }
