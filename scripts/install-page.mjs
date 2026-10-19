@@ -294,7 +294,8 @@ export function developmentGate(origins, port, allowHosts = []) {
       if (req.method === 'POST' && headers.origin !== undefined) {
         try { crossSite = new URL(headers.origin).host.toLowerCase() !== host; } catch { crossSite = true; }
       }
-      const copy = new RegExp(`^exact-copy-[1-9]\\d?\\.localhost:${port}$`).test(host);
+      // (At port 80 a browser names no port.)
+      const copy = new RegExp(`^exact-copy-[1-9]\\d?\\.localhost(?::${port})${port === 80 ? '?' : ''}$`).test(host);
       const admitted = !crossSite && (names.has(host) || copy || allowed.some(a => a === host || a === name));
       return { allowed: admitted, local: admitted && !forwarded && loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
     },

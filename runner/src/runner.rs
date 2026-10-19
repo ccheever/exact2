@@ -29,6 +29,8 @@ mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod live;
 mod mode;
+mod held;
+pub use held::Asked;
 mod root_font;
 mod shown;
 mod sounds;
@@ -554,6 +556,8 @@ pub struct Runner<D: DataSource> {
     midi: crate::midi::Midi,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
+    /// What a development host holds over the app's own, and what the app asked of it (LLP 1122 T7).
+    held: held::Held,
     fonts: std::rc::Rc<std::cell::RefCell<crate::bridge::RuntimeFonts>>,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
@@ -874,6 +878,7 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             sounds: Default::default(),
             root_font: Default::default(),
+            held: Default::default(),
             fonts: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),

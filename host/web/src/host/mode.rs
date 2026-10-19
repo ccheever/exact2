@@ -37,6 +37,80 @@ impl<D: DataSource> Host<D> {
         format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
     }
 
+    /// [`Bridge::hold_facts`](crate::Bridge::hold_facts)'s request: held,
+    /// handed back (a batch), or asked; each answer with `asked`, what the
+    /// app last asked of the scheme, each axis and the root size.
+    pub fn hold_facts(&mut self, text: &str) -> String {
+        let (receipts, error) = match text {
+            "?" => (vec![], None),
+            "-" => match self.runner.hold_facts(None) {
+                Ok(Some(receipt)) => (
+                    vec![Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }],
+                    None,
+                ),
+                Ok(None) => (vec![], None),
+                Err(e) => (vec![], Some(format!("hold: {e:?}"))),
+            },
+            _ => {
+                let (flags, pins) = text.split_once(':').unwrap_or((text, ""));
+                let pins: Option<Vec<(&str, &str)>> = pins
+                    .split(',')
+                    .filter(|p| !p.is_empty())
+                    .map(|p| p.split_once('='))
+                    .collect();
+                match pins {
+                    None => (vec![], Some("hold: write <flags>:axis=value,…".to_owned())),
+                    Some(pins) => match self.runner.hold_facts(Some((
+                        flags.contains('s'),
+                        &pins,
+                        flags.contains('r'),
+                    ))) {
+                        Ok(_) => (vec![], None),
+                        Err(e) => (vec![], Some(format!("hold: {e:?}"))),
+                    },
+                }
+            }
+        };
+        let asked = self.runner.asked();
+        let mut said = String::from("{\"asked\":{");
+        let mut first = true;
+        let mut field = |name: &str, said: &mut String| {
+            if !first {
+                said.push(',');
+            }
+            first = false;
+            exact_runner::agent::quote(name, said);
+            said.push(':');
+        };
+        if let Some(s) = &asked.scheme {
+            field("scheme", &mut said);
+            exact_runner::agent::untyped_json(s, &mut said);
+        }
+        if !asked.modes.is_empty() {
+            field("mode", &mut said);
+            said.push('{');
+            for (i, (a, v)) in asked.modes.iter().enumerate() {
+                if i > 0 {
+                    said.push(',');
+                }
+                exact_runner::agent::quote(a, &mut said);
+                said.push(':');
+                exact_runner::agent::quote(v, &mut said);
+            }
+            said.push('}');
+        }
+        if let Some(r) = &asked.root {
+            field("rootFontSize", &mut said);
+            exact_runner::agent::untyped_json(r, &mut said);
+        }
+        said.push_str("},");
+        let batch = self.batch_for(&receipts, error.as_deref());
+        format!("{said}{}", &batch[1..])
+    }
+
     /// Whether [`Host::set_modes`] would take `pins`, changing nothing: the
     /// window's modes, or the refusal.
     pub fn check_modes(&mut self, pins: &[(&str, &str)]) -> String {

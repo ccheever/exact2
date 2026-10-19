@@ -39,6 +39,23 @@ impl<D: DataSource> Bridge<D> {
 }
 
 impl<D: DataSource> Bridge<D> {
+    /// The facts a development page holds over the app's own (LLP 1122 T7,
+    /// theme2's F2 ruling), in the input buffer: `<flags>:<pins>` holds the
+    /// scheme (`s` among the flags), the root size (`r`) and each pinned
+    /// axis (`axis=value`, comma-separated); `-` hands them back, in one
+    /// batch; `?` asks only what the app asked. Every answer says that.
+    pub fn hold_facts(&mut self, len: usize) -> u32 {
+        let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
+            return self.refuse("hold: invalid UTF-8");
+        };
+        let text = text.to_owned();
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.hold_facts(&text),
+        );
+        self.emit(out)
+    }
+
     /// A `tamber-batch` or `tamber-snapshot` frame from the dev stream in the
     /// input buffer (LLP 1121 stage 4): applied in place; returns the batch.
     pub fn design_rows(&mut self, len: usize) -> u32 {
@@ -63,6 +80,13 @@ macro_rules! mode_exports {
         #[no_mangle]
         pub extern "C" fn exact_set_mode(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_mode(len as usize))
+        }
+
+        /// The facts a development page holds over the app's own (LLP 1122
+        /// T7) in the input buffer; returns the answer's length.
+        #[no_mangle]
+        pub extern "C" fn exact_hold_facts(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().hold_facts(len as usize))
         }
 
         /// A live design batch or snapshot in the input buffer (LLP 1121

@@ -517,6 +517,7 @@ test('a development server answers only to its printed names; its token and phon
   assert.deepEqual(shared.check(request('127.0.0.1:8879','192.168.1.33')),{allowed:true,local:false});
   assert.deepEqual(shared.loopbackOrigins,['http://127.0.0.1:8879','http://localhost:8879']);
   assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('127.0.0.1','127.0.0.1')).allowed,true);
+  assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('exact-copy-2.localhost','127.0.0.1')).allowed,true);
   assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
   assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);

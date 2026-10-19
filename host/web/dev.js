@@ -435,29 +435,22 @@ if (es) {
   };
   // In a copy the design tool pins (LLP 1122 T7, theme2's F2 ruling), the
   // pin holds over the app's own setScheme, setMode and setRootFontSize for
-  // the facts it pins (elsewhere the app's own wins, D3): what the app asked
-  // instead is kept, said beside the status (`app`), and takes effect when
-  // the pin is handed back.
+  // the facts it pins (elsewhere the app's own wins, D3): the runner keeps
+  // what the app asks of a held fact, applies none of it, and applies its
+  // latest when the pin is handed back (`exact_hold_facts`). What the app
+  // asked against the pin is said beside the status (`app`).
+  let asked = {};
   function appAsked() {
     const p = channel.held?.pin;
     if (!copy || !p) return null;
-    const out = {}, own = document.documentElement.style.colorScheme;
-    if (p.scheme && own && own !== p.scheme) out.scheme = own;
-    const size = document.getElementById("exact-root-font-size")?.textContent?.match(/font-size:([^!;}]+)/)?.[1];
-    if (p.rootFontSize && size) out.rootFontSize = size.trim().slice(0, 64);
-    const mode = Object.fromEntries(Object.entries(channel.appMode ?? {}).filter(([a, v]) => p.mode?.[a] !== undefined && p.mode[a] !== v));
+    const out = {};
+    if (p.scheme && asked.scheme != null && asked.scheme !== p.scheme) out.scheme = String(asked.scheme).slice(0, 32);
+    if (p.rootFontSize && asked.rootFontSize != null && asked.rootFontSize !== p.rootFontSize) out.rootFontSize = String(asked.rootFontSize).slice(0, 64);
+    const mode = Object.fromEntries(Object.entries(asked.mode ?? {}).filter(([a, v]) => p.mode?.[a] !== undefined && p.mode[a] !== v));
     if (Object.keys(mode).length) out.mode = mode;
     return Object.keys(out).length ? out : null;
   }
-  // (The app's own setMode moved a pinned axis: its choice kept, the pin's put back.)
-  const holdPin = async () => {
-    const p = channel.held?.pin;
-    if (!copy || !p?.mode) return;
-    const now = await modes(), moved = Object.keys(p.mode).filter((a) => now?.[a] !== undefined && now[a] !== p.mode[a]);
-    if (!moved.length) return;
-    channel.appMode = { ...(channel.appMode ?? {}), ...Object.fromEntries(moved.map((a) => [a, now[a]])) };
-    await wasmCall("exact_set_mode", globalThis.exact.writeIn(Object.entries({ ...now, ...p.mode }).map(([a, v]) => `${a}=${v}`).join(",")));
-  };
+  const holdFacts = async (text) => { if (!copy) return; const out = await wasmCall("exact_hold_facts", globalThis.exact.writeIn(text)); if (out?.asked) asked = out.asked; return out; };
   const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
   // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
@@ -471,7 +464,7 @@ if (es) {
     setTimeout(() => {
       designing = designing.then(async () => {
         due = false;
-        await holdPin();
+        if (copy && channel.held) await holdFacts("?");
         const body = await facts();
         if (JSON.stringify(body) !== channel.told) { channel.told = JSON.stringify(body); report(body); }
       }).catch((error) => console.error("exact dev:", String(error)));
@@ -530,6 +523,8 @@ if (es) {
     // replaces the whole set.
     channel.before ??= { fontSize: root.fontSize, hostFont: root.getPropertyValue("--exact-host-font-size"), mode: await modes() };
     const x = globalThis.exact, pins = (m) => Object.entries(m).map(([a, v]) => `${a}=${v}`).join(",");
+    // (A copy's held facts first: the app's own root size gives way before the pinned one is set.)
+    if (p) { const held = await holdFacts(`${p.scheme ? "s" : ""}${p.rootFontSize ? "r" : ""}:${pins(p.mode ?? {})}`); if (held?.error) report({ kind: "unsupported", what: "pin.hold", detail: String(held.error).slice(0, 1024), revision: frame.revision }); }
     // The scheme is the system's, beneath the app's `setScheme` (the root's
     // own style): a rule over the page's `light dark`, and the system scheme
     // the runner's `prefers-color-scheme` reads (navigation.js
@@ -547,8 +542,8 @@ if (es) {
     else if (channel.before.hostFont) root.setProperty("--exact-host-font-size", channel.before.hostFont);
     else root.removeProperty("--exact-host-font-size");
     await wasmCall("exact_set_root_font_size", hostSize());
-    // (Handed back in a copy, a mode is the app's latest own choice.)
-    const mode = pins({ ...(channel.before.mode ?? {}), ...(p ? {} : channel.appMode ?? {}), ...(p?.mode ?? {}) });
+    // (Handed back, only the axes the last pin set go back: the app's own on any other stands.)
+    const last = channel.held?.pin?.mode ?? {}, mode = pins(p ? { ...(channel.before.mode ?? {}), ...(p.mode ?? {}) } : Object.fromEntries(Object.entries(channel.before.mode ?? {}).filter(([a]) => a in last)));
     if (mode) {
       // A mode refused leaves the modes before the first pin, not the last pin's.
       const out = await wasmCall("exact_set_mode", x.writeIn(mode));
@@ -556,7 +551,8 @@ if (es) {
     }
     // A page cannot override the browser's `prefers-contrast`.
     if (p?.contrast) report({ kind: "unsupported", what: "pin.contrast", detail: "a web page cannot pin the browser's contrast", revision: frame.revision });
-    if (!p) { channel.before = null; channel.appMode = null; }
+    // (Handed back, a copy's held facts are the app's latest own choices.)
+    if (!p) { channel.before = null; await holdFacts("-"); }
     channel.held = p ? frame : null;
     channel.revision = frame.revision;
     status();

@@ -33,6 +33,10 @@ component App
     nav = go(nav, url == "/post/0" ? "/post/9" : url)
   action dim
     setMode("dark-style", "dim")
+  action dark
+    setScheme("dark")
+  action big
+    setRootFontSize(24)
   view
     main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%" position="relative"
       for t in nav.tabs key = t.name
@@ -48,6 +52,10 @@ component App
               text \`Taps \${taps}\`
             button press=dim testId="dim"
               text "Dim"
+            button press=dark testId="dark"
+              text "Dark"
+            button press=big testId="big"
+              text "Big"
 `;
 
 const free = async () => { const s = createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const { port } = s.address(); await new Promise(ok => s.close(ok)); return port; };
@@ -166,13 +174,17 @@ async function copies(wasm) {
     await until(listed, bs => Object.values(six).every(id => bs.find(b => b.id === id)?.status?.location === '/'), 'six copies report');
     // A pinned copy holds its pin over the app's own setMode (theme2's F2 ruling), says what the app asked, and takes the app's choice when handed back.
     const c1 = six['exact-copy-1'], status1 = async () => (await listed()).find(b => b.id === c1)?.status;
-    await call({ method: 'pin', client: 'copies', build: c1, pin: { scheme: 'dark', mode: { 'dark-style': 'black' } } });
-    await until(status1, st => st?.mode?.['dark-style'] === 'black' && st?.scheme === 'dark', 'copy 1 pinned black');
-    await page.frame({ name: 'exact-copy-1' }).click('[data-testid="dim"]');
-    const held = await until(status1, st => st?.app?.mode?.['dark-style'] === 'dim', 'copy 1 says the app asked dim');
-    expect(held.mode['dark-style']).toBe('black');
+    // (The JS fixture also sets its scheme and root size; the theme fixture its mode alone.)
+    const pinned = wasm ? { scheme: 'dark', mode: { 'dark-style': 'black' } } : { scheme: 'light', mode: { 'dark-style': 'black' }, rootFontSize: 18 };
+    await call({ method: 'pin', client: 'copies', build: c1, pin: pinned });
+    await until(status1, st => st?.mode?.['dark-style'] === 'black' && st?.scheme === pinned.scheme && (wasm || st?.rootFontSize === 18), 'copy 1 pinned');
+    const host1 = page.frame({ name: 'exact-copy-1' });
+    for (const id of wasm ? ['dim'] : ['dim', 'dark', 'big']) await host1.click(`[data-testid="${id}"]`);
+    const held = await until(status1, st => st?.app?.mode?.['dark-style'] === 'dim' && (wasm || (st.app.scheme === 'dark' && st.app.rootFontSize === '24')), 'copy 1 says what the app asked');
+    expect([held.mode['dark-style'], held.scheme, wasm || held.rootFontSize]).toEqual(['black', pinned.scheme, wasm || 18]);
+    expect(await host1.evaluate(() => document.documentElement.getAttribute('data-x-modes') ?? 'none')).not.toContain('dim');
     await call({ method: 'pin', client: 'copies', build: c1, pin: null });
-    const back = await until(status1, st => st?.mode?.['dark-style'] === 'dim', 'copy 1 handed back takes the app\'s dim');
+    const back = await until(status1, st => st?.mode?.['dark-style'] === 'dim' && (wasm || (st.scheme === 'dark' && st.rootFontSize === 24)), 'copy 1 handed back takes the app\'s latest');
     expect(back.app ?? null).toBe(null);
     presence.abort();
   } finally {

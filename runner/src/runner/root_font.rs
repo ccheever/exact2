@@ -221,6 +221,16 @@ impl<D: DataSource> Runner<D> {
         result.map(Some)
     }
 
+    /// The app's own size set aside for the host's (a development host
+    /// holding the root size, LLP 1122 T7): the kernel takes the host's in
+    /// the next commit, and the app's latest is applied again when handed
+    /// back.
+    pub(super) fn drop_app_root(&mut self) {
+        if self.root_font.app.take().is_some() {
+            let _ = self.kernel.set_root_font_size(self.root_font.host as f32);
+        }
+    }
+
     /// The app's `setRootFontSize(px)`, `("125%")` for a share of the
     /// host's size that follows it, or `("medium")` for the host's size
     /// again, inside the commit of the action that called it: the kernel

@@ -4,6 +4,9 @@
 // runtime carries (files diary F5: `selectText` was refused here).
 import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
 import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
+// A development page may hold a fact over the app's own (LLP 1122 T7, theme2's F2 ruling: a copy the design tool pins):
+// the app's choice kept as asked, with how to apply it, and applied only when the fact is not held.
+const asked = (fact, value, apply) => { const x = globalThis.exact; if (!x) return apply(); (x.asked ??= {})[fact] = { value, apply }; if (!x.held?.[fact]) apply(); else x.onAsked?.(); };
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
@@ -42,7 +45,7 @@ export const commands = say => ({
   },
   // `:root { font-size }` (LLP 1069.000 D3): the stylesheet's `rem` rows
   // follow it; checked here, where no runner checked it first.
-  setRootFontSize: v => appRootFontSize(v, say),
+  setRootFontSize: v => asked('rootFontSize', v, () => appRootFontSize(v, say)),
   // The window's app modes (LLP 1121 D5, D7): modes.js's, which an app with
   // axes loads; any other refuses it, as the runner does.
   setMode: (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`),
