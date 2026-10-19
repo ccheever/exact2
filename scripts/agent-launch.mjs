@@ -195,6 +195,14 @@ export function noteDefaultStore({ host, device, appId, dir }, root = resolve(ho
   try { mkdirSync(store, { recursive: true }); writeFileSync(mark, ''); } catch { /* noted again next time */ }
   console.error("note: no --storage named, so this drive keeps the store `default`, what earlier drives of this app on this device stored (one that compares with a reference starts empty); --reset-storage empties it, --storage <name> names another");
 }
+/** What a drive with XCTest's touches says when the simulator `udid`'s accessibility automation was off: the touches
+ * turn it on and it stays on, across reboots, so UIKit loads its accessibility runtime at every launch (euxy's debug
+ * launch: 1.25 s, then 2.45 s, iPhone 17 on iOS 27). Null when it was on already. */
+export function accessibilityNote(udid, touch) {
+  const read = spawnSync('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', 'com.apple.Accessibility', 'AutomationEnabled'], { encoding: 'utf8' });
+  return read.stdout?.trim() === '1' ? null
+    : `--touch ${touch} turns this simulator's accessibility automation on, and it stays on: every launch is then about a second slower, so time a launch on a simulator no such drive has used`;
+}
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
  * the drive names it (`device`: a simulator, a phone, an Android device, or this machine), the app's id and the store,
