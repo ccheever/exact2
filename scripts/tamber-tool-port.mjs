@@ -82,17 +82,17 @@ export function stageToolTests(dir, args, tested = () => false) {
   // (A glob's real path is its directory's, up to its first wildcard.)
   const realOf = a => { const at = resolve(a), glob = at.search(/[*?[]/); if (glob < 0) return existsSync(at) ? realpathSync(at) : at; const head = dirname(at.slice(0, glob + 1)); return existsSync(head) ? realpathSync(head) + at.slice(head.length) : at; };
   const into = a => { const at = realOf(a); return at === real || at.startsWith(`${real}/`) ? resolve(staged.dir, relative(real, at)) : a; };
-  return { dir: staged.dir, args: args.map((a, i) => (tested(i) ? into(a) : a)) };
+  return { dir: staged.dir, args: args.map((a, i) => (!tested(i) ? a : a.startsWith('--test=') ? `--test=${into(a.slice(7))}` : into(a))) };
 }
 
 /** Which of a verb's arguments (after the verb) are test files: a test verb's
- * operands after its host, and `--test`'s value; `valued` is help.mjs
+ * operands after its host, and `--test`'s value (`--test=<file>` itself); `valued` is help.mjs
  * `knownFlags(verb)` (each flag, and whether it takes a value). */
 export function testFiles(verb, rest, valued) {
   const tested = new Set();
   for (let i = 0, operands = 0; i < rest.length; i++) {
     const flag = rest[i].startsWith('-') ? rest[i].split('=')[0] : null;
-    if (flag) { if (valued.get(flag) && !rest[i].includes('=')) { if (flag === '--test') tested.add(i + 1); i++; } continue; }
+    if (flag) { if (flag === '--test' && rest[i].includes('=')) tested.add(i); else if (valued.get(flag) && !rest[i].includes('=')) { if (flag === '--test') tested.add(i + 1); i++; } continue; }
     if (verb === 'test' && operands++ > 0) tested.add(i);
   }
   return tested;

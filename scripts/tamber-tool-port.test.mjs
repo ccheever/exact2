@@ -53,11 +53,11 @@ const at = (port, body) => {
 
 test('the contract tests\' stage: a file or glob named in the tool\'s sources is the stage\'s, its own dist, a port the tests use for a page refused, the stub pruned', () => {
   const src = resolve(ROOT, 'apps/design-tool');
-  const tested = 'i => [1, 2, 5].includes(i)';
-  const r = at(17998, `return m.stageToolTests(${JSON.stringify(src)}, ['web', 'apps/design-tool/app.test.contract', ${JSON.stringify(resolve(src, '*.test.contract'))}, '--size', '390x844', 'tests/elsewhere.test.contract'], ${tested})`);
+  const tested = 'i => [1, 2, 5, 6].includes(i)';
+  const r = at(17998, `return m.stageToolTests(${JSON.stringify(src)}, ['web', 'apps/design-tool/app.test.contract', ${JSON.stringify(resolve(src, '*.test.contract'))}, '--size', '390x844', 'tests/elsewhere.test.contract', '--test=apps/design-tool/app.test.contract'], ${tested})`);
   const stage = resolve(ROOT, 'target/design-tool-test-17998');
   expect(r.dir).toBe(stage);
-  expect(r.args).toEqual(['web', resolve(stage, 'app.test.contract'), resolve(stage, '*.test.contract'), '--size', '390x844', 'tests/elsewhere.test.contract']);
+  expect(r.args).toEqual(['web', resolve(stage, 'app.test.contract'), resolve(stage, '*.test.contract'), '--size', '390x844', 'tests/elsewhere.test.contract', `--test=${resolve(stage, 'app.test.contract')}`]);
   expect(at(17998, 'm.stageToolTests(' + JSON.stringify(src) + ', []); return process.env.EXACT_WEB_DIST')).toBe(resolve(ROOT, 'target/design-tool-test-web-17998'));
   // By another spelling of its path (a link to the checkout), and only test files and globs: a flag's value is the caller's.
   const link = resolve(tmpdir(), `dt-port-link-${process.pid}`);
@@ -85,4 +85,5 @@ test('the test files among a verb\'s arguments, by their roles: a test verb\'s o
   expect(files('test', ['a.test.contract'])).toEqual([]);
   expect(files('agent', ['web', '--test', 'a.test.contract', '--url', 'http://x/y.test.contract', 'type name app.test.contract'])).toEqual(['a.test.contract']);
   expect(files('verify', ['web', '--shots', 'x.test.contract'])).toEqual([]);
+  expect(files('agent', ['web', '--test=a.test.contract', '--storage=b.test.contract'])).toEqual(['--test=a.test.contract']);
 });
