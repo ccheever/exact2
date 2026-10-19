@@ -1,6 +1,7 @@
 // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
 // Upstream 365aa87982 appearance section components and appearancePreferences.ts.
 import { themeCards } from './shared/settings-appearance';
+import { mobileHomeColors } from './design';
 import { MOBILE_THEME_ARTWORK } from './settings-theme-data';
 import { mobileTextRoles, normalizeMobilePreferences, resolveMobileAppearance, type MobilePreferences, type MobileThemeId } from './settings-preferences';
 import t0 from './themes/light.json';
@@ -54,10 +55,13 @@ export function settingsAppearanceView(input: unknown, systemScheme: string, rea
         pr: Math.hypot(Math.max(spec.px, 1 - spec.px), Math.max(spec.py, 1 - spec.py)) * 64 };
     }),
   }));
-  const modes = (['system', 'light', 'dark'] as const).map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1),
-    selected: preferences.themeMode === id, split: id === 'system',
-    left: wire(id === 'dark' ? preferences.darkThemeId : preferences.lightThemeId, id === 'dark' ? 'dark' : 'light'),
-    right: wire(id === 'light' ? preferences.lightThemeId : preferences.darkThemeId, id === 'light' ? 'light' : 'dark') }));
+  const modes = (['system', 'light', 'dark'] as const).map(id => {
+    const left = wire(id === 'dark' ? preferences.darkThemeId : preferences.lightThemeId, id === 'dark' ? 'dark' : 'light');
+    const frame = id === 'system' ? mobileHomeColors(appearance.scheme, appearance.themeId) : left;
+    return { id, label: id[0]!.toUpperCase() + id.slice(1), selected: preferences.themeMode === id, split: id === 'system',
+      frame: { border: frame.border, drawer: frame.drawer, muted: frame.muted }, left,
+      right: wire(id === 'light' ? preferences.lightThemeId : preferences.darkThemeId, id === 'light' ? 'light' : 'dark') };
+  });
   return { ready, bottom: Math.max(safeBottom, 18) + 18, colors, roles, cards, modes, ...appearance,
     terminalLabel: `${appearance.terminalFontSize.toFixed(1)} pt`, codeLabel: `${appearance.codeFontSize} pt`, baseLabel: `${appearance.baseFontSize} pt`,
     bodyLine: Math.max(18, Math.round(23 * preferences.baseFontSize / 16)), sampleSmallSize: Math.max(10, Math.round(14 * preferences.baseFontSize / 16)),
