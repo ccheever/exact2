@@ -4432,6 +4432,12 @@ C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
     `no-referrer` a POST would otherwise say `Origin: null`. On 204 (the cookie set) it does `location.replace('/')`.
   - Refused, it shows "This canvas link has expired; ask for a new one." and makes no further request; with no grant
     in the fragment, it makes no request at all.
+  - Entered, and just before `location.replace('/')`, it tells the tool: `parent.postMessage({type:
+    'exact-canvas-entered'}, <the tool's origin>)`, to that origin alone, with no secret and no client name (review2's
+    T6 note, the lead). The origin rides in the page as `data-tool`, so the one script, and its CSP hash, stay the same
+    for every gateway and client; with no remote tool there is no `data-tool` and no message. Tested: the call order
+    (replaceState, fetch, postMessage to exactly the tool's origin, replace), no message on a refusal or without a
+    tool, and the hash of the served script.
   - **A bounded exception to "no secrets in URLs":** the fragment carries only the grant: single use, 30 s, bound to
     one client, burned on any try, and never the token. A fragment is never sent to a server, a Referer or a log
     line, and the page removes it before its first request.

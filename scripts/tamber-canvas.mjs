@@ -275,11 +275,15 @@ const put = async (res, chunk, signal) => {
  * entry): the grant from `#g=…`, the fragment taken out of the address and
  * its history entry first (`replaceState`, before any request), then POSTed
  * same-origin as JSON (its own referrer policy, so the POST carries its
- * Origin under the page's `no-referrer`), then `/`. Refused: one short
- * message, and no further request. */
-export const ENTRY_SCRIPT = `(async()=>{const g=new URLSearchParams(location.hash.slice(1)).get('g');history.replaceState(null,'',location.pathname);const no=()=>{document.getElementById('m').textContent='This canvas link has expired; ask for a new one.'};if(!g)return no();let r=null;try{r=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant:g}),credentials:'same-origin',cache:'no-store',redirect:'error',referrerPolicy:'same-origin'})}catch{}if(r&&r.ok)location.replace('/');else no()})()`;
+ * Origin under the page's `no-referrer`), then tells the remote tool it
+ * entered (`exact-canvas-entered`, to the tool's origin alone, which the page
+ * carries as `data-tool`; nothing when there is none; no secret, no client),
+ * then `/`. Refused: one short message, and no further request. */
+export const ENTRY_SCRIPT = `(async()=>{const g=new URLSearchParams(location.hash.slice(1)).get('g');history.replaceState(null,'',location.pathname);const no=()=>{document.getElementById('m').textContent='This canvas link has expired; ask for a new one.'};if(!g)return no();let r=null;try{r=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant:g}),credentials:'same-origin',cache:'no-store',redirect:'error',referrerPolicy:'same-origin'})}catch{}if(r&&r.ok){const t=document.documentElement.dataset.tool;if(t)parent.postMessage({type:'exact-canvas-entered'},t);location.replace('/')}else no()})()`;
 export const ENTRY_SCRIPT_HASH = `sha256-${createHash('sha256').update(ENTRY_SCRIPT).digest('base64')}`;
-const ENTRY_PAGE = `<!doctype html><html lang="en"><meta charset="utf-8"><title>Canvas</title><p id="m" role="status"></p><script>${ENTRY_SCRIPT}</script></html>`;
+/** The entry page, one script whatever the gateway (its hash fixed); the remote tool's origin, an
+ * origin and no secret, in `data-tool` for its one message. */
+const entryHtml = tool => `<!doctype html><html lang="en"${tool ? ` data-tool="${tool}"` : ''}><meta charset="utf-8"><title>Canvas</title><p id="m" role="status"></p><script>${ENTRY_SCRIPT}</script></html>`;
 
 /** The gateway for the dev loop at `loop` (its loopback origin), served on
  * `origin` (the canvas's public origin), framed by `toolOrigin`. Stage 10
@@ -426,7 +430,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
       'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
       'content-security-policy': `default-src 'none'; script-src '${ENTRY_SCRIPT_HASH}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${toolOrigin ?? "'none'"}`,
     });
-    res.end(req.method === 'HEAD' ? undefined : ENTRY_PAGE);
+    res.end(req.method === 'HEAD' ? undefined : entryHtml(toolOrigin));
   }
 
   /** The session a request's cookie names, with its token still good. */

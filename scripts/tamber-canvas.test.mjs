@@ -323,26 +323,31 @@ test('the entry page: static, no-store, no referrer, framed by the tool alone, i
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
     expect(scripts).toEqual([ENTRY_SCRIPT]);
     expect(ENTRY_SCRIPT_HASH).toBe(`sha256-${createHash('sha256').update(scripts[0]).digest('base64')}`);
-    expect(html).not.toMatch(/https?:\/\/|src=|href=/);
+    // The remote tool's origin, for its one message, and no other address.
+    expect(html).toContain(`<html lang="en" data-tool="${TOOL}">`);
+    expect(html.replace(` data-tool="${TOOL}"`, '')).not.toMatch(/https?:\/\/|src=|href=/);
     // The same page for any client (it holds nothing); a query or more path is not it.
     expect(await (await g.at('/canvas/x/')).text()).toBe(html);
     expect((await g.at('/canvas/x/?a=1')).status).toBe(404);
     expect((await g.at('/canvas/x/y')).status).toBe(404);
 
     // Its script in a stand-in page: what it calls, in order.
-    const run = async (hash, answer) => {
+    const run = async (hash, answer, tool = TOOL) => {
       const calls = [];
       const location = { hash, pathname: '/canvas/remote%3Aa%231/', replace: to => calls.push(['replace', to]) };
       const history = { replaceState: (s, t, to) => { calls.push(['replaceState', to]); location.hash = ''; } };
       const fetch = async (to, init) => { calls.push(['fetch', to, init.method, init.body, init.referrerPolicy, init.credentials, location.hash]); if (answer === 'throw') throw new TypeError('failed'); return { ok: answer === 204, status: answer }; };
       const m = { textContent: '' };
-      const document = { getElementById: id => (id === 'm' ? m : null) };
-      await new Function('location', 'history', 'fetch', 'document', `return ${ENTRY_SCRIPT.replace(/^\(async/, '(async').replace(/\)\(\)$/, ')()')}`)(location, history, fetch, document);
+      const document = { getElementById: id => (id === 'm' ? m : null), documentElement: { dataset: tool ? { tool } : {} } };
+      const parent = { postMessage: (message, target) => calls.push(['postMessage', message, target]) };
+      await new Function('location', 'history', 'fetch', 'document', 'parent', `return ${ENTRY_SCRIPT}`)(location, history, fetch, document, parent);
       return { calls, said: m.textContent };
     };
     const grant = 'G'.repeat(43);
     const good = await run(`#g=${grant}`, 204);
-    expect(good.calls).toEqual([['replaceState', '/canvas/remote%3Aa%231/'], ['fetch', '/canvas/remote%3Aa%231/', 'POST', JSON.stringify({ grant }), 'same-origin', 'same-origin', ''], ['replace', '/']]);
+    expect(good.calls).toEqual([['replaceState', '/canvas/remote%3Aa%231/'], ['fetch', '/canvas/remote%3Aa%231/', 'POST', JSON.stringify({ grant }), 'same-origin', 'same-origin', ''], ['postMessage', { type: 'exact-canvas-entered' }, TOOL], ['replace', '/']]);
+    // No remote tool (no `data-tool`): no message.
+    expect((await run(`#g=${grant}`, 204, null)).calls.map(c => c[0])).toEqual(['replaceState', 'fetch', 'replace']);
     expect(good.said).toBe('');
     for (const answer of [404, 'throw']) {
       const bad = await run(`#g=${grant}`, answer);
