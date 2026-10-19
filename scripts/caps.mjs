@@ -274,7 +274,7 @@ function helps(root) {
     return;
   }
   for (const p of found) fail(p.code, p.message, p.detail);
-  counted.push(`helps: each verb's flags against its script's, ${found.length} disagreeing`);
+  counted.push(`helps: each verb's flags against its script's, its rows and lengths, ${found.length} problems`);
 }
 
 function main() {

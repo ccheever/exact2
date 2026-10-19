@@ -1,6 +1,7 @@
 // The helps against the scripts they describe (LLP 1116 D4, LLP 1116.009 D6), read from source with no browser
-// and no build: each verb's help names exactly the flags its script parses, each help and the index stay short,
-// and the index's forms name only flags their verb parses. scripts/help.test.mjs asserts the same; caps.mjs runs
+// and no build: each verb's help names exactly the flags its script parses, every row it names is shown, each help
+// and the index stay short, and the index's forms name only flags their verb parses. scripts/help.test.mjs asserts
+// these and more (the helps' wording and the index's forms, which no flag edit moves); caps.mjs runs
 // `helpParity` before every push, so a flag with no help row, or a help row a flag's edit hid, stops the push
 // rather than turning main red.
 import { readFileSync } from 'node:fs';
@@ -22,13 +23,17 @@ export function parsed(...sources) {
  * source moved out from under a slice this reads. */
 export function scriptFlags(root) {
   const read = (file) => readFileSync(resolve(root, file), 'utf8');
-  const exact = read('scripts/exact.mjs'), between = (from, to) => exact.slice(exact.indexOf(from), exact.indexOf(to, exact.indexOf(from)));
-  const appCLI = read('scripts/app-cli.mjs');
-  const readiness = appCLI.slice(appCLI.indexOf("if (verb === 'status'"), appCLI.indexOf('if (!verbs[verb]'));
+  // A slice from one marker to the next after it, or a throw naming the one gone (never an empty slice, which would
+  // parse no flags and agree with a help that names none).
+  const slice = (file, text, from, to) => {
+    const start = text.indexOf(from), end = start < 0 ? -1 : text.indexOf(to, start + from.length);
+    if (start < 0 || end < 0) throw new Error(`${file} has no ${JSON.stringify(start < 0 ? from : to)}${start < 0 ? '' : ` after ${JSON.stringify(from)}`}, where a verb's flags are read`);
+    return text.slice(start, end);
+  };
+  const exact = read('scripts/exact.mjs'), between = (from, to) => slice('scripts/exact.mjs', exact, from, to);
+  const readiness = slice('scripts/app-cli.mjs', read('scripts/app-cli.mjs'), "if (verb === 'status'", 'if (!verbs[verb]');
   // The dev loops read `--pair-ttl` through stage 10 A's pairTtlOf; the rest of that module is `tamber pair`'s.
-  const pairing = read('scripts/tamber-pairing.mjs'), from = pairing.indexOf('export function pairTtlOf('), to = pairing.indexOf('\n}\n', from);
-  if (!(from >= 0 && to > from)) throw new Error('scripts/tamber-pairing.mjs has no pairTtlOf, where the dev loops read --pair-ttl');
-  const pairTtl = pairing.slice(from, to);
+  const pairTtl = slice('scripts/tamber-pairing.mjs', read('scripts/tamber-pairing.mjs'), 'export function pairTtlOf(', '\n}\n');
   const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'), read('host/apple/bundle.mjs'));
   const agent = parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'));
   return [
@@ -51,8 +56,9 @@ export function scriptFlags(root) {
 export function helpParity(root) {
   const out = [], fail = (code, message, detail) => out.push({ code, message, detail });
   const where = 'scripts/help.mjs';
-  let flags;
-  try { flags = scriptFlags(root); } catch (e) { fail('help:sources', `the helps' flags could not be read from their scripts: ${e.message}`, 'scripts/help-parity.mjs scriptFlags names the files and slices each verb parses; follow the move.'); return out; }
+  let flags = [];
+  // (The checks after the flags' need no script, so they run either way.)
+  try { flags = scriptFlags(root); } catch (e) { fail('help:sources', `the helps' flags could not be read from their scripts: ${e.message}.`, 'scripts/help-parity.mjs scriptFlags names the files and markers each verb\'s flags are read between: follow the move there.'); }
   for (const [verb, theirs] of flags) {
     if (!HELP[verb]) { fail('help:verb', `${where} has no help for ${verb}, whose script parses ${theirs.join(' ') || 'no flags'}.`, `Add HELP['${verb}'].`); continue; }
     const ours = new Set(knownFlags(verb).keys()), parses = new Set(theirs);
@@ -62,15 +68,21 @@ export function helpParity(root) {
   }
   for (const verb of Object.keys(HELP)) {
     const lines = helpText(verb, { all: true }).split('\n').length;
-    if (lines > 36) fail('help:long', `${verb}'s help is ${lines} lines, over 36.`, 'It is replayed in an agent\'s context: put two short rows on one line (`a · b`), or move one to `more`.');
+    if (lines > 36) fail('help:long', `${verb}'s help (--help all) is ${lines} lines, over 36.`, 'It is replayed in an agent\'s context: put two short rows on one line (`a · b`), or shorten one.');
   }
   for (const verb of ['web', 'test', 'agent']) {
-    const bytes = helpText(verb).length;
-    if (HELP[verb] && bytes > 1800) fail('help:long', `${verb} --help is ${bytes} bytes, over 1800.`, 'A first build reads it: move a row to `more`, which --help all shows.');
+    if (!HELP[verb]) { fail('help:verb', `${where} has no help for ${verb}.`, `Add HELP['${verb}'].`); continue; }
+    const bytes = helpText(verb).length, all = helpText(verb, { all: true });
+    if (bytes > 1800) fail('help:long', `${verb} --help is ${bytes} bytes, over 1800.`, 'A first build reads it: move a row to `more`, which --help all shows.');
+    // Every row's flag is in --help all: a row another edit replaced is gone from it.
+    for (const [row] of [...HELP[verb].flags, ...(HELP[verb].more ?? [])]) {
+      for (const spec of row.split(' · ')) if (!all.includes(spec.split(' ')[0])) fail('help:hidden', `${verb} --help all does not show ${spec.split(' ')[0]}, which a row of its help names.`, `Its row in HELP['${verb}'] in ${where} is not rendered: an edit to another row took its place.`);
+    }
   }
   const index = indexText({ verbs: Object.keys(HELP).filter((v) => !['new', 'add'].includes(v)) });
   const indexLines = index.split('\n').length, indexBytes = Buffer.byteLength(index);
-  if (indexLines > 36 || indexBytes > 2800) fail('help:long', `the help index is ${indexLines} lines and ${indexBytes} bytes, over 36 and 2800.`, 'It is the one read a builder makes: shorten a verb\'s line or a form.');
+  if (indexLines > 36) fail('help:long', `the help index is ${indexLines} lines, over 36.`, 'It is the one read a builder makes: shorten a verb\'s line or a form.');
+  if (indexBytes > 2800) fail('help:long', `the help index is ${indexBytes} bytes, over 2800.`, 'It is the one read a builder makes: shorten a verb\'s line or a form.');
   for (const [verb, entry] of Object.entries(HELP)) {
     if (verb === 'contract') continue; // the compiler's own subcommand flags
     const known = knownFlags(verb), rows = [...entry.flags, ...(entry.more ?? [])];

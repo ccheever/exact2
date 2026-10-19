@@ -2,7 +2,7 @@
 // name, and a help row naming a flag no script parses, are each found, in a copy of the scripts it reads.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { helpParity } from './help-parity.mjs';
@@ -23,7 +23,8 @@ function over(edit) {
 test('the helps agree with their scripts here, and caps says it checked them', () => {
   expect(helpParity(ROOT)).toEqual([]);
   const caps = spawnSync(process.execPath, [resolve(ROOT, 'scripts/caps.mjs')], { cwd: ROOT, encoding: 'utf8' });
-  expect(caps.stdout).toContain("helps: each verb's flags against its script's, 0 disagreeing");
+  expect(caps.status).toBe(0);
+  expect(caps.stdout).toContain("helps: each verb's flags against its script's, its rows and lengths, 0 problems");
 });
 
 test('a flag with no help row, and a row whose flag no script parses, are each said', () => {
@@ -39,4 +40,47 @@ test('a flag with no help row, and a row whose flag no script parses, are each s
   ]);
   // A slice it reads gone is said, not taken for agreement.
   expect(over((edit) => edit('scripts/tamber-pairing.mjs', (s) => s.replace('export function pairTtlOf(', 'function ttl(')))[0].code).toBe('help:sources');
+  // So is a verb's slice of exact.mjs gone (docs parses no flags: an empty slice would agree with its help).
+  const moved = over((edit) => edit('scripts/exact.mjs', (s) => s.replace('export function docs(', 'export function guides(')));
+  expect(moved.map((p) => p.code)).toEqual(['help:sources']);
+  expect(moved[0].message).toContain('export function docs(');
+});
+
+const RULES = `# Rules
+- **6 blocking checks, 65s total.** **[check]**
+- **15 documents in the working set.** **[check]**
+- **10 documents in the foundation.** **[check]**
+- **This file: 700 words.** **[check]**
+- **1,500 lines per source file.** **[check]**
+## Time budgets
+| | |
+|---|---|
+| Cold start to interactive | 100ms |
+## The six checks
+\`build\` · \`test\` · \`lint\` · \`caps\` · \`boot\` · \`workspace\`
+`;
+
+/** caps.mjs's exit and output in a throwaway repository whose scripts/help-parity.mjs is `parity`. */
+function caps(parity) {
+  const dir = mkdtempSync(join(tmpdir(), 'help-caps-'));
+  try {
+    for (const [f, body] of [['rules/RULES.md', RULES], ...(parity === null ? [] : [['scripts/help-parity.mjs', parity]])]) { mkdirSync(join(dir, f, '..'), { recursive: true }); writeFileSync(join(dir, f), body); }
+    spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/caps.mjs')], { cwd: dir, encoding: 'utf8' });
+    return { code: r.status, out: `${r.stdout}${r.stderr}` };
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('caps fails on every problem the helps have, and fails closed when their check cannot run', () => {
+  const two = caps("export const helpParity = () => [{ code: 'help:unsaid', message: 'verify parses --frobnicate, which its help does not name.', detail: 'Add a row.' }, { code: 'help:long', message: 'web --help is 1900 bytes, over 1800.' }];\n");
+  expect(two.code).toBe(1);
+  expect(two.out).toContain('verify parses --frobnicate, which its help does not name.');
+  expect(two.out).toContain('web --help is 1900 bytes, over 1800.');
+  expect(two.out).toContain('2 violations.');
+  const broken = caps("export const helpParity = () => { throw new Error('no HELP'); };\n");
+  expect(broken.code).toBe(1);
+  expect(broken.out).toContain('help:parity');
+  expect(broken.out).toContain('no HELP');
+  // A checkout without the file (another repository caps runs in) checks no helps, and passes.
+  expect(caps(null).out).not.toContain('helps:');
 });
