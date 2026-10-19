@@ -8,6 +8,8 @@ function native(notices:unknown=manifest,opened=true):Native {return {available:
 test('bundle identity and actual manifest decode without any server or storage operation',async()=>{
  calls.length=0;await mobileInformationPrepare('settingsAbout',native());const data=mobileInformationSnapshot();
  expect(data.version).toBe('2.3.4');expect(data.build).toBe('42');expect(data.licensesReady).toBe(true);expect(data.licenses.length).toBe(manifest.entries.length);
+ expect(data.licenses.find(row=>row.name==='@pierre/diffs')).toMatchObject({accessibilityLabel:'@pierre/diffs, Apache-2.0',metadata:'1.5.2 · Apache-2.0'});
+ expect(data.licenses.find(row=>row.name==='DM Sans')).toMatchObject({accessibilityLabel:'DM Sans, OFL-1.1',metadata:'OFL-1.1'});
  expect(calls.map(call=>obj(call).op)).toEqual(['mobileInformation']);expect(data.coverage).toContain('have not been verified');
 });
 test('search requires every term; encoded detail ID returns full notice and real source',async()=>{
