@@ -155,14 +155,23 @@ private:
 };
 
 // Engines may retain bytecode storage for as long as evaluated functions are
-// live, so installation copies the caller's span into an owned JSI buffer.
+// live. A span aligned for Hermes's file header is read where the caller
+// keeps it (`CompiledScript`: for the runtime's life); any other is copied,
+// since Hermes refuses an unaligned buffer.
 class CompiledBytes : public jsi::Buffer {
 public:
-  CompiledBytes(const uint8_t* data, size_t len) : bytes_(data, data + len) {}
-  size_t size() const override { return bytes_.size(); }
-  const uint8_t* data() const override { return bytes_.data(); }
+  CompiledBytes(const uint8_t* data, size_t len) : data_(data), len_(len) {
+    if (reinterpret_cast<uintptr_t>(data) % 16 != 0) {
+      bytes_.assign(data, data + len);
+      data_ = bytes_.data();
+    }
+  }
+  size_t size() const override { return len_; }
+  const uint8_t* data() const override { return data_; }
 private:
   std::vector<uint8_t> bytes_;
+  const uint8_t* data_;
+  size_t len_;
 };
 
 // Convert a result. For bytes this TAKES OWNERSHIP and clears `value`, so the

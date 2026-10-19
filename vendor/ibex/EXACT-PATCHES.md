@@ -257,6 +257,16 @@ path beneath it, and refuses `rm`, `mkdir` and `readdir` on it. `bindings/storag
 answers from the host's kept list; no Ibex source runs either. Replay both on
 a refresh.
 
+## Local patch 16, bindings' bytecode read where it is linked
+
+`bindings.rs` links each binding's `.hbc` and `HARDEN_BYTECODE` at a 16-byte
+boundary (`aligned_bytecode!`), and `bindings/install.cc`'s `CompiledBytes`
+lends such a span to Hermes instead of copying it, since Hermes keeps a
+module's buffer for the runtime's life and the statics live as long; a span
+not so aligned is still copied. `include/ibex2_jsi.h` says so at
+`CompiledScript`. In euxy on iOS the copies were 81 KB of malloc at idle.
+Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
