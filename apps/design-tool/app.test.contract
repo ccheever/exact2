@@ -1907,17 +1907,41 @@ test "stage 11: the base scale's rows are read-only, with each platform the app 
   expect tree has "set-for-app-reading.measure"
   request POST "/__stub/restart" {} as ada
 
-test "T7: a grid of live copies, each pinned to its mode on the build its own frame said, whichever registers first; a copy moved leads the others, one that can't navigate is reloaded there; one copy again hands the pins back"
+test "T7: a grid of live copies, each pinned to its mode on the build its own frame said, whichever registers first; a copy moved leads the others, one that can't navigate is reloaded there; Mirror off moves none; a smaller grid and one copy hand the pins back"
   request POST "/__stub/restart" {} as ada
-  request POST "/__stub/copies" {"delays": {"exact-copy-1": 1500}, "noNavigate": ["exact-copy-3"]} as ada
+  request POST "/__stub/copies" {"delays": {"exact-copy-1": 4000}, "noNavigate": ["exact-copy-3"]} as ada
   type "name" "Ada"
   tap "save-name"
   clock data
   type "canvas-view" "grid"
   clock data
-  expect text "grid-shared" == "Copies share this app's data: a write in one shows in the others, and mirrored navigation replays no actions."
+  expect text "grid-shared" == "Each copy is its own origin, with its own storage: each starts with its own data. Mirrored navigation replays no actions."
   expect tree missing "canvas-frame"
-  // Copy 1's build registers last (1.5 s after the others): it waits, and no other copy's pin lands on it.
+  // Copy 1's build registers last (4 s after the others), and still takes its own pin, no other's.
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
   clock +1000 real
   clock data
   clock +1000 real
@@ -1938,8 +1962,16 @@ test "T7: a grid of live copies, each pinned to its mode on the build its own fr
   expect text "grid-note-exact-copy-4" == "light · 22px · /"
   expect text "build-pin-copy-1" == "pinned: light"
   expect text "build-pin-copy-3" == "pinned: dark, dark-style=dim"
-  // The person moves copy 2: the others follow; copy 3's build can't navigate, so its frame reloads there.
+  // Copy 2's app asked for Dim; its pin held (theme2's F2 ruling), and the tile says so.
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/", "app": {"mode": {"dark-style": "dim"}}}}} as ada
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "The app set dark-style=dim; pinned to dark, dark-style=black."
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/"}}} as ada
+  // The person moves copy 2: the others follow; copy 3's build can't navigate, so its frame reloads there, and says so.
   request POST "/__stub/move" {"build": "copy-2", "location": "/post/3"} as ada
+  clock +1000 real
+  clock data
   clock +1000 real
   clock data
   clock +1000 real
@@ -1948,7 +1980,16 @@ test "T7: a grid of live copies, each pinned to its mode on the build its own fr
   clock data
   expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
   expect text "grid-note-exact-copy-6" == "dark · dark-style=dim · 22px · /post/3"
-  expect text "grid-note-exact-copy-3" == "Reloaded at the leader's place: this build cannot navigate."
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  // Mirror off: a copy moved leads no other.
+  tap "grid-mirror"
+  request POST "/__stub/move" {"build": "copy-1", "location": "/post/9"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/9"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /post/3"
   // Fewer copies: the two left out are handed back.
   type "grid-cap" "4"
   clock +1000 real
@@ -1969,7 +2010,7 @@ test "T7: a grid of live copies, each pinned to its mode on the build its own fr
   expect tree missing "build-pin-copy-4"
   request POST "/__stub/restart" {} as ada
 
-test "T7: the selected view's states side by side, each copy holding one on the selection's site in the selection's mode, kept while its pins move the selected build; One copy lets them go"
+test "T7: the selected view's states side by side, each copy holding one on the selection's site in the selection's plan and mode, kept while its pins move the selected build; the grid lets the holds go, and so does One copy"
   request POST "/__stub/restart" {} as ada
   request POST "/__stub/copies" {} as ada
   type "name" "Ada"
@@ -2018,7 +2059,15 @@ test "T7: the selected view's states side by side, each copy holding one on the 
   expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 22px · / · held pressed"
   // The copy the view was selected in, no longer shown, is handed back.
   expect tree missing "build-pin-copy-5"
-  // One copy: the holds let go, the pins handed back.
+  // The grid again: its copies hold no state.
+  type "canvas-view" "grid"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /"
+  // One copy: the pins handed back.
   type "canvas-view" "one"
   clock +1000 real
   clock data

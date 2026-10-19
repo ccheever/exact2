@@ -372,7 +372,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
   if (note) holdNotes.set(id, note); else holdNotes.delete(id);
   // Another hold, none, or a new frame of the same one (its report forgotten at the server): asked afresh.
   if (!sameHold(holding.hold, was?.holding.hold) || (holding.hold && was?.holding.held && !holding.held)) { forgetHeld(id); asked.delete(id); }
-  return { id, host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, planDigest: typeof b.planDigest === 'string' ? b.planDigest : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding };
+  return { id, host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding };
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {

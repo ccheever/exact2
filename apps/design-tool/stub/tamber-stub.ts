@@ -109,14 +109,14 @@ let held: Record<string, unknown>[] = [], holds = 0;
 let copyDelays: Record<string, number> = {}, noNavigate: string[] = [];
 const navs: { client: string; build: string; location: string }[] = [];
 const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
-  const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name }) });
+  const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
   const { id } = await r.json().catch(() => ({}));
   if (id && parent !== window) parent.postMessage({ type: 'exact-build', id }, '*');
   document.getElementById('at').textContent = id ?? 'no copy';
 })();</script>`;
 /** A copy's build as the server would list it: its facts its pin's (a page reports what it paints). */
-const copyBuild = (id: string, name: string) => ({ id, host: 'web', capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
-  status: { scheme: 'light', contrast: 'no-preference', mode: {}, rootFontSize: 16, revision: 0, location: '/' }, pin: null, pinRevision: 0, hold: null, held: null, unsupported: null });
+const copyBuild = (id: string, name: string, location = '/') => ({ id, host: 'web', capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
+  status: { scheme: 'light', contrast: 'no-preference', mode: {}, rootFontSize: 16, revision: 0, location }, pin: null, pinRevision: 0, hold: null, held: null, unsupported: null });
 const copyFacts = (b: any, pin: any) => ({ ...b.status, scheme: pin?.scheme ?? 'light', mode: pin?.mode ?? {}, rootFontSize: pin?.rootFontSize ?? 16 });
 // What a page reports held when a refresh asks it again (`/__stub/held-answer`).
 let heldAnswer: Record<string, unknown> | null = null;
@@ -576,14 +576,17 @@ Bun.serve({ hostname, port: Number(port), routes: {
 // The copies' dev loop: its own origin (hello's page is never the tool's
 // server's), whose root is a copy's page and which takes its registration.
 const copies = Bun.serve({ hostname, port: 0, routes: {
-  '/': { GET: () => new Response(COPY_PAGE, { headers: { 'content-type': 'text/html' } }) },
+  // (Every path: a copy reloaded at a place is the same page there.)
+  '/*': { GET: () => new Response(COPY_PAGE, { headers: { 'content-type': 'text/html' } }) },
   '/__stub/copy': {
     POST: async (req) => {
-      const name = String((await req.json().catch(() => ({}))).name ?? '');
+      const body = await req.json().catch(() => ({})), name = String(body.name ?? ''), at = /^\/[\w/?=&-]*$/.test(String(body.location)) ? String(body.location) : '/';
       if (!/^exact-copy-\d{1,2}$/.test(name)) return send({ id: null });
       await new Promise(ok => setTimeout(ok, copyDelays[name] ?? 0));
       const id = `copy-${name.slice('exact-copy-'.length)}`;
-      BUILDS = BUILDS.filter(b => b.id !== id).concat([copyBuild(id, name)]);
+      // (Registered again, a copy keeps the pin the server holds for it, as the server replays it.)
+      const was = BUILDS.find(b => b.id === id);
+      BUILDS = BUILDS.filter(b => b.id !== id).concat([{ ...copyBuild(id, name, at), ...(was?.pin ? { pin: was.pin, pinRevision: was.pinRevision, status: { ...copyFacts(was, was.pin), revision: was.pinRevision, location: at } } : {}) }]);
       log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
       save();
       return send({ id });

@@ -752,7 +752,7 @@ component DesignTool
   state gridMirror = true
   state gridPoll = 0
   derive gridPage = hello.local ? hello.frame : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
-  resource gridAt = loadGrid(client, canvasView, gridAxis, gridLarge, gridCap, gridPage, gridMirror, canWrite, gridPoll, changes.answer) as shape Grid else empty(ok=true)
+  resource gridAt = loadGrid(client, canvasView, gridAxis, gridLarge, gridCap, gridPage, gridMirror, canWrite, hello.epoch, hello.local, gridPoll, changes.answer) as shape Grid else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
   state file = ""
@@ -1563,7 +1563,7 @@ component DesignTool
                       row gap=4 align-items="center"
                         input type="checkbox" checked=gridMirror change=toggleGridMirror aria-label="Mirror navigation" testId="grid-mirror"
                         text "Mirror navigation"
-                  text "Copies share this app's data: a write in one shows in the others, and mirrored navigation replays no actions." color="-exact-secondary-label" font="-exact-footnote" testId="grid-shared"
+                  text (hello.local ? "Each copy is its own origin, with its own storage: each starts with its own data. Mirrored navigation replays no actions." : "Copies through the gateway share its storage: what one writes, the others may read. Mirrored navigation replays no actions.") color="-exact-secondary-label" font="-exact-footnote" testId="grid-shared"
                   if not canWrite
                     text "Pins and holds need write scope: each copy shows the app's own mode." color="-exact-secondary-label" font="-exact-footnote" testId="grid-scope"
                   if gridPage == ""
