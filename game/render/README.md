@@ -748,7 +748,9 @@ until it has, and the driver asks again.
   measurement a tell reads that the frame could not take is a gap, listed in
   `look.gaps` (`particles: not measured (…)`, `sun shadow maps: not measured (…)`,
   an empty readback), and leaves a proof's look unverified, never passed. A reduced
-  frame (`resolution` below 1, a contact sheet's) is a picture and is not judged.
+  frame (`resolution` below 1, a contact sheet's) and an orbit or plan view are
+  pictures: only a whole frame from the game's camera is judged, logged and
+  remembered for the next.
   Tells see brightness and coverage, not colour or composition: a grey meadow, a
   model facing backwards and an overflowing panel take a look at the picture.
 - **Particle coverage** (`quad_coverage.rs`): counted by the particle draws
@@ -813,7 +815,8 @@ until it has, and the driver asks again.
   for meshes and its account says which test dropped one (`not-drawn` names a level
   of detail not drawn when the account marks it, and `lod-hidden` comes from the
   frame's level selection, its distance measured from where the frame drew the
-  entity, with the selection's hysteresis); the CPU cull answers for
+  entity, with the selection's hysteresis, wherever the draw path applies it: a
+  direct frame draws level 0 whole and answers `drawn`); the CPU cull answers for
   blended models; for sprites and emitters the quads' own decision this frame
   answers: a texture not resident, outside the view by the quad's own extent about
   its anchor, or drawn.
