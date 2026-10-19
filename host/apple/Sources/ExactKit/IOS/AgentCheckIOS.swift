@@ -37,7 +37,9 @@ extension Agent {
         var bars: [(view: UIView, box: CGRect, top: Bool)] = []
         func findBars(_ v: UIView) {
             guard !v.isHidden, v.alpha > 0.01 else { return }
-            if Agent.isBar(v) { let b = v.convert(v.bounds, to: nil); if b.intersects(port) { bars.append((v, b, b.midY < port.midY)) }; return }
+            // A floating bar's glass lies over part of the screen's width, and cuts nothing beside it; what it covers,
+            // `cover` judges by its glass.
+            if Agent.isBar(v), !Agent.isFloatingBar(v) { let b = v.convert(v.bounds, to: nil); if b.intersects(port) { bars.append((v, b, b.midY < port.midY)) }; return }
             for s in v.subviews { findBars(s) }
         }
         roots.forEach(findBars)
@@ -186,7 +188,7 @@ extension Agent {
             guard let hit = win.hitTest(p, with: nil), hit !== v, !hit.isDescendant(of: v), !v.isDescendant(of: hit) else { return nil }
             var owner: UIView? = hit, bar: UIView? = nil
             while let cur = owner, !(cur is NodeView) {
-                if Agent.isBar(cur) { bar = cur }
+                if Agent.isBar(cur), !Agent.barBox(cur).isNull { bar = cur }
                 owner = cur.superview
             }
             // The cover whole — a bar, the node the hit is part of, or a scroller's own view (its edge effect) —
@@ -203,10 +205,10 @@ extension Agent {
                 bar = bars.first { $0.box.minX <= p.x && p.x <= $0.box.maxX && ($0.top ? p.y < $0.box.maxY : p.y > $0.box.minY) }?.view
             }
             let whole: UIView = bar ?? (own ? hit : owner ?? hit)
-            let cb = whole.convert(whole.bounds, to: nil), above = cb.midY < seen.midY
+            let cb = bar.map(Agent.barBox) ?? whole.convert(whole.bounds, to: nil), above = cb.midY < seen.midY
             if reachable(v, hit: hit, above: above, by: above ? cb.maxY - p.y : p.y - cb.minY) { return nil }
             let sheet = presenter.surface(containing: hit).map { ($0.kind == .route || $0.kind == .dialog) && !v.isDescendant(of: $0.view) } ?? false
-            let barName = bar.map { String(describing: Swift.type(of: $0)) }
+            let barName = bar.map { Agent.isFloatingBar($0) ? "UIKit's floating bar" : String(describing: Swift.type(of: $0)) }
             var c: [String: Any] = ["kind": barName != nil ? "bar" : sheet ? "sheet" : "node", "name": barName ?? String(describing: Swift.type(of: hit))]
             if bar == nil, let n = owner as? NodeView { c["by"] = Int(n.id) }
             return c
@@ -484,9 +486,26 @@ extension Agent {
     /// UIKit's bars: what a finger at the top or the bottom of a screen meets.
     static func isBar(_ v: UIView) -> Bool {
         #if os(iOS)
-        if v is UIToolbar { return true }
+        if v is UIToolbar || isFloatingBar(v) { return true }
         #endif
         return v is UINavigationBar || v is UITabBar
+    }
+
+    /// iOS 26's floating bar, which holds a bottom search field or a floating toolbar: a container as large as the
+    /// window that draws only its glass.
+    static func isFloatingBar(_ v: UIView) -> Bool {
+        String(describing: Swift.type(of: v)) == "_UIFloatingBarContainerView"
+    }
+
+    /// The part of the window bar `v` draws: its frame, or a floating bar's glass (null when it shows none).
+    static func barBox(_ v: UIView) -> CGRect {
+        guard isFloatingBar(v) else { return v.convert(v.bounds, to: nil) }
+        func glass(_ v: UIView) -> CGRect {
+            guard !v.isHidden, v.alpha > 0.01 else { return .null }
+            if String(describing: Swift.type(of: v)) == "UIPlatformGlassInteractionView" { return v.convert(v.bounds, to: nil) }
+            return v.subviews.reduce(CGRect.null) { $0.union(glass($1)) }
+        }
+        return glass(v)
     }
 
     /// The software keyboard's top in the window, or nil while it is down.
