@@ -2812,6 +2812,10 @@ ends the drag on another node (refused by name when it is not mounted or off
 screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`. On iOS
 without `--touch platform` a drag scrolls the scroll or list it starts on with the
 finger, no fling; any other drag there is refused, naming the flag.
+Under `--touch platform` a tap replies `viewGone: true` when its view left the
+window before the finger lifted, so that view had no lift (UIKit rebuilds a
+grouped row's detail button in the first seconds after the list appears).
+Read the state, and tap again if nothing changed.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires

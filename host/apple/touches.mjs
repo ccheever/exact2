@@ -512,6 +512,9 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         touch: { began: began.t, ended: end.t, moved: moved.length, type: began.type, ...(drag ? { travel, lastMove: moved.at(-1)?.t ?? null } : {}) },
         ...(drag ? { drag: { dx: drag.dx, dy: drag.dy, press: drag.press, over: moves ? drag.over : 0, hold: drag.hold } } : {}),
         ...(during.length ? { during } : {}), ...(reachedIn !== undefined ? { reached: reachedIn } : {}),
+        // The view the touch began on left the window before the lift (D5): it had no lift, though another view may
+        // have acted on the touch (a scroller under a drag, a press on its down), so the caller reads the state
+        ...(end.viewGone ? { viewGone: true } : {}),
         injected: injected.injected, aim: a.point, orientation: a.orientation,
         ...(a.avoided ? { avoided: a.avoided } : {}), ...(a.native ? { native: a.native } : {}),
       };
