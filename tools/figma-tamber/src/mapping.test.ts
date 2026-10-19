@@ -143,3 +143,10 @@ test('quick re-check: a light mode\'s edit is checked against each light context
   tokensOf(moved)['dark-style=dim, light']['accent.fill'].$value = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' };
   expect(conflicts(plan, moved, figma).map(c => [c.mode, c.context, c.figmaOnly ?? false])).toEqual([['light', 'dark-style=black, light', true], ['light', 'dark-style=dim, light', false]]);
 });
+
+test('the plugin builds (its main thread and its UI, as Figma loads them)', async () => {
+  for (const entry of ['code.ts', 'ui.ts']) {
+    const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife' });
+    expect([entry, built.success, built.logs.map(String)]).toEqual([entry, true, []]);
+  }
+});
