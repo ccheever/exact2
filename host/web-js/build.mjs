@@ -28,7 +28,12 @@ import { withLook } from '../web/look.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const args = process.argv.slice(2);
-const app = args[0];
+// A path names the app as EXACT_APP_DIR does (scripts/app.mjs resolveApp), so
+// what is made from the name (the module crate under web-js-modules, the
+// default --out) stays out of the app's own directory.
+const given = args[0] && /[\\/]|^\.\.?$/.test(args[0]) ? resolve(args[0]) : null;
+if (given) process.env.EXACT_APP_DIR = given;
+const app = given ? basename(given) : args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
 if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none] [--check]'); process.exit(2); }
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).

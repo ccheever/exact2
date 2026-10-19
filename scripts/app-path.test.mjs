@@ -1,10 +1,13 @@
-// `--app <path>` (the lead's 08:39Z; x2-perf4's stage 10 C2 found it): a path
-// names an app as EXACT_APP_DIR does, so its name is its directory's and
-// nothing built from the name (a crate, the dev loop's GPU side root, the JS
-// build's GPU cache) lands in the app's own directory.
+// `--app <path>` (the lead's 08:39Z; x2-perf4's stage 10 C2 found a crate/ in
+// apps/theme-fixture): a path names an app as EXACT_APP_DIR does, so its name
+// is its directory's and nothing built from the name (the JS build's module
+// crate, the dev loop's GPU side root, the JS build's GPU cache) lands in the
+// app's own directory.
 import { afterEach, expect, test } from 'bun:test';
-import { realpathSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve } from 'node:path';
 import { resolveApp } from './app.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
@@ -34,3 +37,18 @@ test('a name still resolves under apps/, as before', () => {
   expect(process.env.EXACT_APP_DIR).toBe(undefined);
   expect(resolveApp('theme-fixture-web').name).toBe('theme-fixture');
 });
+
+test('the JS build given a path writes its module crate under the target, none in the app', () => {
+  const dir = realpathSync(resolve(ROOT, 'apps/theme-fixture'));
+  const out = mkdtempSync(join(tmpdir(), 'exact-app-path-'));
+  try {
+    const env = { ...process.env };
+    delete env.EXACT_APP_DIR;
+    const built = spawnSync(process.execPath, ['host/web-js/build.mjs', dir, '--out', out, '--render', 'none'], { cwd: ROOT, env, encoding: 'utf8' });
+    expect(built.status, built.stderr).toBe(0);
+    expect(existsSync(resolve(dir, 'crate'))).toBe(false);
+    expect(existsSync(resolve(resolveApp('theme-fixture').target, 'web-js-modules/theme-fixture/crate'))).toBe(true);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+}, 600_000);
