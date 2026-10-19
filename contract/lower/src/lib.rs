@@ -70,6 +70,7 @@ mod theme;
 mod timers;
 mod type_tokens;
 mod values;
+pub mod warning_rank;
 pub use shorthands::style_values;
 pub mod vocab;
 mod warnings;

@@ -191,7 +191,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
             ));
         }
     }
-    out.truncate(MAX_WARNINGS);
+    crate::warning_rank::keep_first(&mut out);
     out.extend(platform);
     crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     one_scheme(

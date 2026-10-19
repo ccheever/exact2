@@ -350,9 +350,10 @@ fn a_sectioned_list_with_no_appearance_is_named() {
     };
     let classed = |style: &str| listed("Look", "", style);
     assert_eq!(classed("appearance=\"auto\""), Vec::<String>::new());
+    // In rank order (`contract_lower::warning_rank`): the row that cannot delete first.
     assert_eq!(
         classed("padding=8"),
-        ["lower-list-section", "lower-delete-row"]
+        ["lower-delete-row", "lower-list-section"]
     );
     // A class chosen between two styles is read as lowering reads it (`class::rows`):
     // a row both set alike is that row, and one they set differently is a choice,
@@ -360,7 +361,7 @@ fn a_sectioned_list_with_no_appearance_is_named() {
     let chosen = "(opened == \"\" ? Look : Plain)";
     assert_eq!(
         listed(chosen, "", "padding=8"),
-        ["lower-list-section", "lower-delete-row"]
+        ["lower-delete-row", "lower-list-section"]
     );
     assert_eq!(
         listed(chosen, "appearance=\"none\"", "padding=8"),

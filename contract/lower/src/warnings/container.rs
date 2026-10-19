@@ -8,8 +8,11 @@
 //!
 //! Only the certain case is named: the box's `display` is `block`, written
 //! or its tag's. A computed `display`, a `class` the walk cannot see
-//! through, and `none` are left alone. `align-content` is not named: Box
-//! Alignment gives it a meaning on a block container.
+//! through, and `none` are left alone. Box Alignment gives `align-content`
+//! and `justify-items` a meaning on a block container (the children's
+//! default `justify-self`, which Chrome draws), so neither is named; nor are
+//! `justify-content` and the gaps on a multi-column box, which lay out its
+//! columns (CSS Multi-column 2, Box Alignment 3).
 
 use super::width::{last, rows};
 use crate::LowerError;
@@ -27,7 +30,6 @@ const GRID: &[&str] = &[
 const BOTH: &[&str] = &[
     "align-items",
     "justify-content",
-    "justify-items",
     "gap",
     "row-gap",
     "column-gap",
@@ -102,7 +104,6 @@ fn check(
     if !matches!(display, None | Some("block")) {
         return;
     }
-    // Multi-column layout's gap is `column-gap` (CSS Multi-column 1 §4.1).
     let columns = rows
         .iter()
         .any(|a| matches!(a.name.as_str(), "columns" | "column-count" | "column-width"));
@@ -110,7 +111,8 @@ fn check(
     for a in rows.iter().filter(|a| a.written) {
         let name = a.name.as_str();
         let container = FLEX.contains(&name) || GRID.contains(&name) || BOTH.contains(&name);
-        let multicol = columns && matches!(name, "gap" | "column-gap");
+        let multicol =
+            columns && matches!(name, "gap" | "column-gap" | "row-gap" | "justify-content");
         if container && !multicol && !named.contains(&name) {
             named.push(name);
         }

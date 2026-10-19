@@ -97,13 +97,31 @@ fn what_the_walk_cannot_be_sure_of_or_css_gives_a_meaning_is_not_named() {
     for boxed in [
         "row justify-content=\"center\"",
         "view display=\"grid\" justify-items=\"center\"",
+        // The children's default `justify-self` (Box Alignment 3), which Chrome draws.
+        "view justify-items=\"center\"",
         "view display=(true ? \"flex\" : \"block\") align-items=\"center\"",
         "view display=\"none\" align-items=\"center\"",
         // Box Alignment gives these a meaning on a block container.
         "view align-content=\"center\"",
-        // A multi-column box's gap is its column gap.
-        "view column-count=2 gap=4",
+        // A multi-column box's gaps and `justify-content` lay out its columns.
+        "view column-count=2 gap=4 row-gap=4 column-gap=4 justify-content=\"center\"",
+        "view columns=\"2\" justify-content=\"center\"",
     ] {
         assert_eq!(flagged(boxed), Vec::<String>::new(), "{boxed}");
     }
+}
+
+/// Twenty earlier warnings of a lower rank (a symbol by another spelling
+/// than its role, each) do not crowd it out of lowering's cap.
+#[test]
+fn twenty_lower_warnings_before_it_do_not_crowd_it_out() {
+    let images = "      image \"symbol:sf/plus\"\n".repeat(21);
+    let src = format!("component App\n  view\n    column\n{images}      view align-items=\"center\"\n        text \"a\"\n");
+    let ids: Vec<String> = warned(&src).into_iter().map(|(id, _)| id).collect();
+    assert_eq!(ids.len(), contract_lower::MAX_WARNINGS, "{ids:?}");
+    assert_eq!(ids[0], ID, "{ids:?}");
+    assert!(
+        ids[1..].iter().all(|id| id == "lower-symbol-alias"),
+        "{ids:?}"
+    );
 }
