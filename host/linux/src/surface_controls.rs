@@ -593,6 +593,16 @@ impl<D: DataSource> Presenter<D> {
             return Some(select);
         }
         let hit = self.hit(x, y)?;
+        self.press_hit_after_down(hit, (x, y), now_ms, field_focus_before_down)
+    }
+
+    pub(crate) fn press_hit_after_down(
+        &mut self,
+        hit: ViewId,
+        (x, y): (f32, f32),
+        now_ms: f64,
+        field_focus_before_down: Option<Option<ViewId>>,
+    ) -> Option<ViewId> {
         self.note_press_from(hit, false, field_focus_before_down.unwrap_or(self.focus));
         let focus = field_focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit);
         // A popover's invoker, or a dialog's button: the top layer's, where

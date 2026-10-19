@@ -814,7 +814,11 @@ impl<D: DataSource> Presenter<D> {
                     self.begin_swipe(key, now_ms)
                 }
                 _ => {
-                    if contact.press.is_some() {
+                    if contact.press.is_some()
+                        || (contact.candidate.is_none()
+                            && contact.retained.is_none()
+                            && !self.contact_is_direct())
+                    {
                         self.contact = Some(contact);
                     } else {
                         self.set_collection_interaction(None);
@@ -897,6 +901,11 @@ impl<D: DataSource> Presenter<D> {
         result
     }
     fn pointer_lift(&mut self, x: f32, y: f32, now_ms: f64, event_ms: f64) -> Result<bool, String> {
+        // The physical release target precedes authored pointerup mutations.
+        // The retained pointerup path is not the mouse's hit at release.
+        let click = (!self.contact_is_direct())
+            .then(|| self.mouse_click_target(x, y))
+            .flatten();
         // DOM's order: the node's `pointerup`, then any click.
         if let Some(error) = self.pointer_lifted(Some((x, y)), now_ms) {
             return Err(error);
@@ -989,6 +998,20 @@ impl<D: DataSource> Presenter<D> {
                     .map_or(Ok(true), Err),
                 _ => Ok(true),
             }
+        } else if !self.contact_is_direct() && contact.retained.is_none() {
+            if let Some(hit) = click
+                .filter(|_| self.menu_press(x, y).is_none())
+                .and_then(|key| self.host.kernel().node_by_key(key))
+            {
+                let (id, key) = (hit.id, hit.key);
+                // A click on an ancestor does not focus it. Fields already
+                // decided focus on down, even when down hid the field.
+                let focus = contact
+                    .field_focus_before_down
+                    .or_else(|| (key != contact.hit).then_some(self.focus));
+                self.press_hit_after_down(id, (x, y), now_ms, focus);
+            }
+            Ok(false)
         } else if let Some((key, box_)) = contact.press {
             let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
             let visible = |id| {
@@ -1050,6 +1073,30 @@ impl<D: DataSource> Presenter<D> {
             self.set_collection_interaction(None);
         }
         result
+    }
+    fn mouse_click_target(&mut self, x: f32, y: f32) -> Option<NodeKey> {
+        let contact = self.contact.as_ref()?;
+        if contact.canvas.is_some()
+            || contact.retained.is_some()
+            || contact.group
+            || contact.panning
+            || contact.hold.is_some()
+        {
+            return None;
+        }
+        let down = contact.hit;
+        let up = self.hit(x, y)?;
+        let kernel = self.host.kernel();
+        // A removed down node cancels the click; there is no surviving-parent
+        // fallback. Walk from the original node, including it, toward the root.
+        let mut at = Some(kernel.node_by_key(down)?.id);
+        while let Some(id) = at {
+            if id == up || self.is_inside(up, id) {
+                return kernel.node(id).map(|n| n.key);
+            }
+            at = self.display.parent(kernel, id);
+        }
+        None
     }
     fn end_contact(&mut self, held: &Hold, end: HoldEnd, now_ms: f64) -> Result<(), String> {
         match held.kind {

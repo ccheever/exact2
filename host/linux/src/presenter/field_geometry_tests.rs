@@ -261,6 +261,43 @@ fn field_down_revalidates_after_authored_pointerdown() {
 }
 
 #[test]
+fn mouse_click_on_a_common_ancestor_keeps_down_focus_and_caret() {
+    for feedback in ["", "-exact-press-scale=0.9"] {
+        for release in [(140., 20.), (250., 160.)] {
+            let (mut p, field) = boot_source(&format!(
+                r#"component App
+  state seen = ""
+  action record(name: string)
+    seen = `${{seen}}${{name}} `
+  view
+    box width=400 height=600 tabindex=0 press=record("root")
+      box width=220 height=100 tabindex=0 press=record("parent")
+        input testId="field" value="abcd" width=100 height=60 appearance="none" font-size=16 focus=record("focus") press=record("field") {feedback}
+        input width=100 height=60 position="absolute" left=120 top=0 press=record("sibling")
+      text seen testId="log"
+"#
+            ));
+            p.pointer_down(20., 20., 1.).unwrap();
+            assert_eq!(p.focus(), Some(field));
+            let caret = p.field_selection(field);
+            p.pointer_move(release.0, release.1, 2.).unwrap();
+            p.pointer_up(release.0, release.1, 3.).unwrap();
+            assert_eq!(p.focus(), Some(field), "{feedback} {release:?}");
+            assert_eq!(p.field_selection(field), caret);
+            assert_eq!(
+                contact_log(&p),
+                if release.0 == 140. {
+                    "focus parent "
+                } else {
+                    "focus root "
+                },
+                "{feedback} {release:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn context_preview_field_prevents_mouse_focus_and_caret() {
     for down in [
         "shown = shown",

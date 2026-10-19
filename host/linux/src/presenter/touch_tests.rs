@@ -173,8 +173,13 @@ fn a_tap_that_drifts_inside_the_systems_slop_still_presses() {
         p.pointer_move(x + by, y, at + 1.).unwrap();
         p.pointer_up(x + by, y, at + 2.).unwrap();
     };
-    // The shared slop is 4 points: a contact that moves 6 is no tap.
+    // A mouse can move within the button and still click it.
     let mut p = boot(BUTTONS);
+    drift(&mut p, 6., 1.);
+    assert_eq!(log(&p), "1");
+    // Direct touch's default slop is 4 points: 6 is no tap.
+    let mut p = boot(BUTTONS);
+    p.set_pointer_kind(PointerKind::Touch);
     drift(&mut p, 6., 1.);
     assert_eq!(log(&p), "0");
     drift(&mut p, 3., 5.);
@@ -194,6 +199,7 @@ fn a_tap_that_drifts_inside_the_systems_slop_still_presses() {
         ..phone
     };
     assert!(p.set_device(&desk).is_none());
+    p.set_pointer_kind(PointerKind::Touch);
     drift(&mut p, 6., 1.);
     assert_eq!(log(&p), "0");
 }
