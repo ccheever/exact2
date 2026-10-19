@@ -458,7 +458,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // Paired clients (stage 10 A2, scripts/tamber-pairing.mjs). A burn or a
   // rate-limit hit is logged with its peer and told to the clients without
   // it, never with a code.
-  const pairs = pairing({ ttlMs: pairTtlMs, clock, say: w => { log(`tamber: pairing: ${w.what}${w.peer ? ` (from ${w.peer})` : ''}${w.why ? `: ${w.why}` : ''}`); send({ event: 'pairing', seq: ++seq, epoch, what: w.what }); } });
+  const pairs = pairing({ ttlMs: pairTtlMs, clock, say: w => { log(w.relay ? `tamber: relayed pairing limited (10 a minute): try again in ${w.retry} s` : `tamber: pairing: ${w.what}${w.peer ? ` (from ${w.peer})` : ''}${w.why ? `: ${w.why}` : ''}`); send({ event: 'pairing', seq: ++seq, epoch, what: w.what }); } });
   const gateway = canvas ? canvas(pairs) : null;
   // A build's report (a registration replays pins, inspect and holds) comes
   // after every paired client past its deadline has ended, as a request does.
@@ -657,7 +657,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       log(`tamber: ${client} ${reason}`);
       send({ event: 'revoked', seq: ++seq, epoch, client, reason });
     });
-    log(`tamber: ${client} paired (${reply.ok.scope}) from ${peer}`);
+    log(`tamber: ${client} paired (${reply.ok.scope}) from ${peer}${access?.reported ? ` (${String(access.reported).slice(0, 64)}, as the relay reports it)` : ''}`);
     send({ event: 'paired', seq: ++seq, epoch, client, scope: reply.ok.scope });
     json(res, 200, { ok: reply.ok });
   }
@@ -1210,7 +1210,7 @@ async function listen({ host, port, handle, stop, first = null }) {
  * have the token); `--remote` and `--trust-tunnel` add its remote doors (scripts/tamber-remote.mjs). */
 export async function serveAlone(argv) {
   const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && !['--port', '--remote', '--trust-tunnel', '--pair-ttl', '--allow-host'].includes(argv[i - 1])) ?? '.'));
+  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && !['--port', '--remote', '--trust-tunnel', '--pair-ttl', '--allow-host', '--relay', '--relay-account', '--relay-cert', '--relay-key', '--relay-name'].includes(argv[i - 1]) && argv[i - 2] !== '--relay-name') ?? '.'));
   if (!designPath(dir)) { console.error(`tamber serve: ${dir} has no design (app.tamber, or the file app.json's "tamber" names)`); return 1; }
   let asked;
   try { asked = remoteArgs(argv); } catch (e) { console.error(`tamber serve: ${e.message}`); return 2; }

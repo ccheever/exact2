@@ -94,7 +94,8 @@ on macOS and Linux.
 - `tamber/1.14` (LLP 1121 stage 10b, after stage 10 closed) adds `import`'s `baseline`, a
   re-import's `dials` and `pins`, `export`'s `digest`, and an import read in a process of its own
   (413/503 past its cost). Stage 11's wire changes add under the same version, and so do LLP 1122
-  T7's: the `navigate` method and command, and a `status`'s `location`.
+  T7's: the `navigate` method and command, and a `status`'s `location`; and stage 10c's relay
+  (`pair-code`'s relay entry, a relayed session's own pairing bucket).
 
 ## Where it runs
 
@@ -208,6 +209,21 @@ statuses:
   `content-type` and `x-exact-tamber-token`); every such request is a remote one, so only a
   paired token works, never the local one. No other path gives a sandboxed page CORS: the token
   route keeps the dev gate's rule, so such a page cannot read it.
+- **A hosted relay** (*1.14*; stage 10c R1, LLP 1121 §5 10c): `--relay <host[:port]> --relay-account
+  <label>` with `--relay-cert`/`--relay-key` (PEM files for the relay's names) dials out to a relay
+  that hands each client's TCP stream down unopened; the client's TLS ends in this server, on that
+  certificate, so the relay reads only the ClientHello's name and never a token, a design or a
+  canvas. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
+  unless only its owner may read it), never logged, never in a URL. A relay whose own certificate
+  fails WebPKI is never sent it, and no flag turns that check off. The session's names are the
+  relay's (`<id>-tool.<label>.<relay>`), or the developer's own with `--relay-name <tool>
+  <canvas>`. A relayed request is routed as the TLS listener's, at the tool's name (port 443):
+  `{remote: true, tunnel: false, peer: "relay:<tool name>", reported}`, `reported` the client's
+  address as the relay says it, shown in logs only. Names under a relay's domain aren't secret
+  (certificate transparency publishes them), and until that domain is a public suffix another
+  account's names there are same-site to yours: nothing here relies on site isolation. The
+  canvas through the relay is R1's follow-up; until then its name is closed unanswered. The
+  connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
 
 ### Pairing (*1.13*)
 
@@ -215,7 +231,7 @@ statuses:
   remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
   code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
   checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
-  local end. It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
+  local end, and `{origin, fingerprint, relay: true}` for a relay's session (*1.14*). It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
   read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
   `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
   oldest.
@@ -223,7 +239,8 @@ statuses:
   remote request makes without one (the design tool's static files aside). It answers `{token, client, scope, expires}` once. A wrong code is 403,
   saying nothing of which codes exist. A wrong attempt can't be told from a guess at any one code,
   so it counts against every live code, and a code with five is burned. A peer gets a burst of
-  five attempts, refilled at five a minute; past them, 429 with `retry-after`, whatever the code,
+  five attempts, refilled at five a minute (a relay's session, one peer for every client it hands
+  down, ten a minute in a bucket of its own: *1.14*); past them, 429 with `retry-after`, whatever the code,
   before the request's body is read.
   A code that is not a string of at most 32 characters is 400. Each burn and the first limit hit
   of each burst are logged (with the peer, never a code) and told as a `pairing` event.

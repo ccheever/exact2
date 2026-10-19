@@ -219,6 +219,10 @@ const normal = c => String(c ?? '').toUpperCase().replace(/[\s-]/g, '').replace(
 export function pairing({ ttlMs = PAIR_TTL_MS, clock = Date.now, say = () => {} } = {}) {
   const codes = [], tokens = new Map(), clients = new Map(), ends = new Map(), names = new Map(), gone = new Map();
   const attempts = limiter({ rate: 5, per: 60_000, clock });
+  // A relay's session is one peer for every client it hands down (stage
+  // 10c, theme2's 6): 10 a minute across them, its own bucket, so a flood
+  // through the relay never limits the direct doors or the local tool.
+  const relayed = limiter({ rate: 10, per: 60_000, clock });
   const live = () => { const now = clock(); for (let i = codes.length - 1; i >= 0; i--) if (codes[i].expires <= now || codes[i].burned) codes.splice(i, 1); };
   const end = (client, reason) => {
     const c = clients.get(client);
@@ -246,9 +250,11 @@ export function pairing({ ttlMs = PAIR_TTL_MS, clock = Date.now, say = () => {} 
     /** One attempt from `peer` taken, or the 429 for it: the endpoint asks
      * before it reads a body. */
     admit(peer) {
-      if (attempts.take(peer)) return null;
-      if (attempts.first(peer)) say({ what: 'limited', peer });
-      return { status: 429, retry: Math.ceil(attempts.wait(peer) / 1000), error: { message: 'too many pairing attempts from here: wait and try again' } };
+      const relay = String(peer).startsWith('relay:'), bucket = relay ? relayed : attempts;
+      if (bucket.take(peer)) return null;
+      const retry = Math.ceil(bucket.wait(peer) / 1000);
+      if (bucket.first(peer)) say({ what: 'limited', peer, ...(relay ? { relay: true, retry } : {}) });
+      return { status: 429, retry, error: { message: relay ? `pairing is limited through the relay: try again in ${retry} s` : 'too many pairing attempts from here: wait and try again' } };
     },
     pair({ code, name } = {}, peer = 'unknown', { admitted = false } = {}) {
       if (!admitted) { const limited = this.admit(peer); if (limited) return limited; }
