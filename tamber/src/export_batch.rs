@@ -1,7 +1,7 @@
 //! Re-import's proposal judged whole (LLP 1121 stage 10b; theme2's 13:16Z
 //! ruling, option B): the tokens' operations applied together and checked
 //! once, and only when that is refused, each token the design refuses found
-//! by the lines its diagnostics are on (split in two in source order where
+//! by the lines its diagnostics are on (split in two, in the members' order, where
 //! one is on no line of theirs), with its own reason. A proposal
 //! is applied as the whole edit it is: a token refused alone but taken with
 //! the others lands with them, and one taken alone but refused with the
@@ -22,7 +22,7 @@ pub(crate) struct Judged {
     pub(crate) refused: Vec<(usize, Vec<Diagnostic>)>,
 }
 
-/// `members`' operations (each a token's, in source order) on `base`, judged
+/// `members`' operations (each a token's, in the order re-import lists names: the export's) on `base`, judged
 /// whole; a refused set's tokens found by the lines the design refuses (each
 /// diagnostic on one of their lines), and where a diagnostic is on no line of
 /// theirs (another token's, or the operations' own refusal), halved, the first
@@ -226,7 +226,7 @@ pub(crate) fn rounds(
     }
 }
 
-/// [`rounds`] for the tokens `set` (source order).
+/// [`rounds`] for the tokens `set` (in that order).
 #[allow(clippy::too_many_arguments)]
 fn settle(
     set: &[usize],
