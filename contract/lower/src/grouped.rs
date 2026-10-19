@@ -1292,8 +1292,15 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 n("min-width", 0.0, at),
             ],
         ),
+        // An author's `flex=1` on a menu or date grows it from its own width,
+        // as on a text field: from CSS's 0% basis the row never wrapped it
+        // under its label, and at the accessibility sizes it took a sliver
+        // its title broke into letters in (grocery-list's Aisle, round 24).
         ("input" | "select", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Picker) => {
-            with(child, vec![n("min-width", 0.0, at)])
+            with(
+                &grown_field(child).unwrap_or_else(|| child.clone()),
+                vec![n("min-width", 0.0, at)],
+            )
         }
         ("column", _) if stack => subtitle(child),
         _ if !stack && stacks(child) => {
