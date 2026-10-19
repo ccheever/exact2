@@ -831,7 +831,7 @@ list is unchanged: it keeps its own.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,
-  tokens}`:
+  tokens, dials?, pins?}` (the last two a re-import's, below):
   - `counted` is `{source, mapped, reported}`;
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;
@@ -846,10 +846,14 @@ list is unchanged: it keeps its own.
   changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
   in every context, proposes `set-dial` for that dial instead of a literal over the line. The review
   lists it in `dials`, `[{dial, value, from, impact}]`: `from` the tokens the file changed, `impact`
-  every token value the change moves, `[{token, tuple, before, after}]`, so accepting it is seen to
-  reach past the one variable. A changed value whose line followed dials or tokens by an expression
+  every token value the change moves alone against the design, `[{token, tuple, before, after}]`
+  (values as the plan carries them, so `#ff0000ff` beside the dial's `#ff0000`), so accepting it is
+  seen to reach past the one variable. A changed value whose line followed dials or tokens by an expression
   is a literal over it, listed in `pins`, `[{token, when, follows}]`, with what it no longer follows
-  (D14's mark). Inverting an expression is not attempted. Each list is absent when empty.
+  (D14's mark). Inverting an expression is not attempted. Each list is absent when empty, and each
+  entry names its operations (`items`), as an offer does; a recomputed proposal keeps the entries
+  whose operations it kept, a dial's without its `impact` (read against the design as it was).
+  Tokens that would set one dial to different values are reported, not proposed.
 - **`baseline`** (*1.13*, stage 10b): the export text a client pulled, for a client below `write`,
   whose `export` keeps none. It is taken when its header's digest is an export this server run gave
   out, a kept one, or the design's own; else the import is refused, 409 with `stale: true` ("pull

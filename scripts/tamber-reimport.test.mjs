@@ -84,7 +84,7 @@ test('a propose client\'s changed accent is the dial\'s change, every token it m
   const accent = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(pulled.ok.text, (_, t) => { t.accent.fill.$value = RED; }), baseline: pulled.ok.text }, token);
   expect(accent.status).toBe(200);
   const review = accent.ok.review;
-  expect(review.dials.map(d => [d.dial, d.value, d.from])).toEqual([['accent', '#ff0000', ['accent.fill']]]);
+  expect(review.dials.map(d => [d.dial, d.value, d.from, d.items])).toEqual([['accent', '#ff0000', ['accent.fill'], [0]]]);
   expect(new Set(review.dials[0].impact.map(i => i.token))).toEqual(new Set(['accent.fill', 'accent.soft']));
   expect(review.pins).toBeUndefined();
   const held = (await post({ after: 0, wait: false }, local, '/__tamber/events')).proposals.find(p => p.proposal === accent.ok.proposal);
@@ -94,7 +94,7 @@ test('a propose client\'s changed accent is the dial\'s change, every token it m
   const soft = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(pulled.ok.text, (_, t) => { t.accent.soft.$value = RED; }), baseline: pulled.ok.text }, token);
   expect(soft.status).toBe(200);
   expect(soft.ok.review.dials).toBeUndefined();
-  expect(soft.ok.review.pins).toEqual([{ token: 'accent.soft', when: [], follows: ['accent', 'lift'] }]);
+  expect(soft.ok.review.pins).toEqual([{ token: 'accent.soft', when: [], follows: ['accent', 'lift'], items: [0] }]);
 }, 120_000);
 
 test('a baseline this server never gave out, nor keeps, nor is the design\'s own, is refused: pull first', async () => {
@@ -108,4 +108,21 @@ test('a baseline this server never gave out, nor keeps, nor is the design\'s own
   expect(refused.error.message).toMatch(/^pull first/);
   const typed = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: pulled, baseline: 7 }, token);
   expect(typed.status).toBe(400);
+}, 120_000);
+
+test('a file whose header a tool dropped reads against the baseline the client names', async () => {
+  const token = await paired('propose');
+  const pulled = (await post({ method: 'export', kind: 'dtcg' }, token)).ok.text;
+  // Another client writes, so the design's own export differs from the one pulled.
+  const files = (await post({ method: 'hello', client: 'person' })).ok.files;
+  expect((await post({ method: 'transaction', client: 'person', files, ops: [{ op: 'set-token', name: 'surface.raised', value: '#123456' }] })).status).toBe(200);
+  const doc = JSON.parse(edited(pulled, (_, t) => { t.accent.fill.$value = RED; }));
+  const strip = v => { if (v && typeof v === 'object') { delete v.$extensions; for (const k of Object.keys(v)) strip(v[k]); } };
+  strip(doc);
+  const got = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: JSON.stringify(doc), baseline: pulled }, token);
+  expect(got.status).toBe(200);
+  expect(got.ok.review.dials?.[0]?.dial).toBe('accent');
+  // A baseline for a source that is no Tamber export: 400.
+  const css = await post({ method: 'import', client: 'figma', kind: 'shadcn', source: ':root { --primary: #ff0000; }', baseline: pulled }, token);
+  expect(css.status).toBe(400);
 }, 120_000);

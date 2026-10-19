@@ -704,12 +704,49 @@ pub fn reimport(
     current: &str,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    reimport_against(incoming, None, kept, current, vocab)
+}
+
+/// [`reimport`] against `explicit`, the export a client says it pulled
+/// (stage 10b's `baseline`), when given: that one only, never another kept
+/// one or the design's own, and only while its axes and contexts are the
+/// design's (an export from before an axis moved is pulled again).
+pub fn reimport_against(
+    incoming: &str,
+    explicit: Option<&str>,
+    kept: &[String],
+    current: &str,
+    vocab: &Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let doc: Value =
         serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
     let cur = crate::check(current, vocab)?;
     let fresh = dtcg(&cur, vocab)?;
-    let baseline = baseline_for(&doc, kept, &fresh).map_err(refuse)?;
+    let baseline = match explicit {
+        Some(b) => {
+            let (theirs, ours): (Value, Value) = (
+                serde_json::from_str(b)
+                    .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?,
+                serde_json::from_str(&fresh)
+                    .map_err(|e| refuse(format!("the design's export: {e}")))?,
+            );
+            let names = |d: &Value| {
+                context_map(d).map(|c| c.into_iter().map(|(n, ..)| n).collect::<Vec<_>>())
+            };
+            let axes = |d: &Value| header(d).map(|h| h["axes"].clone());
+            if names(&theirs).is_none()
+                || names(&theirs) != names(&ours)
+                || axes(&theirs) != axes(&ours)
+            {
+                return Err(refuse(
+                    "pull first: the baseline's axes or contexts are not the design's".into(),
+                ));
+            }
+            b.to_string()
+        }
+        None => baseline_for(&doc, kept, &fresh).map_err(refuse)?,
+    };
     let base: Value = serde_json::from_str(&baseline)
         .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?;
     let contexts =
@@ -812,6 +849,9 @@ pub fn reimport(
         });
     }
     let mut accepted: Vec<(String, Vec<Op>)> = Vec::new();
+    // Tokens whose every changed context is on a line that is one colour dial
+    // alone, moved to one literal: the dial's change (D14; stage 10b).
+    let mut dialed: Vec<crate::export_dials::Candidate> = Vec::new();
     for name in &names {
         if !in_base(name) {
             report(&mut unmapped, name, "", "not in the export it came from: a new token is added to the design, not by re-import".into());
@@ -1000,6 +1040,18 @@ pub fn reimport(
                     comment: None,
                 })
             };
+        if let Some(c) = crate::export_dials::candidate(
+            &cur,
+            decl,
+            &written,
+            &tuples,
+            &changed,
+            &|c| want(c).map(|(t, _)| t),
+            &|modes, dark| branch(decl, &under, modes, dark),
+        ) {
+            dialed.push(c);
+            continue;
+        }
         let mut token_ops: Vec<Op> = Vec::new();
         let mut why = None;
         // A light side under an axis under scheme=dark shows its base's: an
@@ -1319,10 +1371,14 @@ pub fn reimport(
     }
     // A changed value whose line is one dial alone is that dial's change
     // (D14; stage 10b), first in the transaction.
-    let (mut ops, mut dials) = crate::export_dials::dials(&cur, current, &mut accepted, vocab);
+    let dialed = crate::export_dials::dials(&cur, current, dialed, vocab);
+    for (name, why) in &dialed.refused {
+        report(&mut unmapped, name, "", why.clone());
+    }
+    let (mut ops, mut dials) = (dialed.ops, dialed.changes);
+    let mut mapped = dialed.kept + dials.iter().map(|d| d.from.len()).sum::<usize>();
     // Together, as one transaction: a token whose operations the design
     // refuses beside the others' (a dial nothing uses any more) is reported.
-    let mut mapped = 0;
     for (name, token_ops) in accepted {
         if !token_ops.is_empty() {
             let mut trial = ops.clone();

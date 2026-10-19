@@ -144,3 +144,126 @@ fn a_literal_token_changed_is_neither() {
     );
     assert_eq!(import.ops.len(), 1);
 }
+
+/// `design`'s export, `f` applied to every context's tree, re-imported.
+fn edited_in(
+    design: &str,
+    f: impl Fn(&str, &mut Value),
+) -> (String, String, exact_tamber::import::Import) {
+    let text = dtcg(&check(design, &vocab()).unwrap(), &vocab()).unwrap();
+    let mut doc: Value = serde_json::from_str(&text).unwrap();
+    for (name, c) in doc["modifiers"]["mode"]["contexts"]
+        .as_object_mut()
+        .unwrap()
+    {
+        f(name, &mut c[0]);
+    }
+    let file = doc.to_string();
+    let import = reimport(&file, std::slice::from_ref(&text), design, &vocab()).unwrap();
+    (text, file, import)
+}
+
+#[test]
+fn a_dial_with_one_token_is_its_dial_change_not_an_inert_dial() {
+    let design = "tamber t\n\ndials\n  accent: color = #1083fe\n\ntheme\n  accent.fill = accent\n";
+    let (text, file, import) = edited_in(design, |_, t| t["accent"]["fill"]["$value"] = red());
+    assert_eq!(
+        import.ops,
+        vec![Op::SetDial {
+            name: "accent".into(),
+            value: "#ff0000".into()
+        }],
+        "{:?}",
+        import.unmapped
+    );
+    // Accepted, the same file proposes nothing more: the dial has the value.
+    let accepted = exact_tamber::apply_all(design, &import.ops, &vocab())
+        .unwrap()
+        .text;
+    let again = reimport(&file, &[text], &accepted, &vocab()).unwrap();
+    assert!(
+        again.ops.is_empty() && again.dials.is_empty() && again.unmapped.is_empty(),
+        "{again:?}"
+    );
+}
+
+#[test]
+fn a_when_line_that_is_the_dial_moves_the_dial() {
+    let design = "tamber t\n\naxes\n  brand = plain | loud\n\ndials\n  accent: color = #1083fe\n\ntheme\n  accent.fill = #000000\n    when brand=loud: accent\n  accent.soft = oklch(from accent calc(l + 0.1) c h)\n";
+    let (_, _, import) = edited_in(design, |name, t| {
+        if name.contains("brand=loud") {
+            t["accent"]["fill"]["$value"] = red()
+        }
+    });
+    assert_eq!(
+        import.ops,
+        vec![Op::SetDial {
+            name: "accent".into(),
+            value: "#ff0000".into()
+        }],
+        "{:?} {:?}",
+        import.unmapped,
+        import.pins
+    );
+    assert!(
+        import.dials[0]
+            .impact
+            .iter()
+            .any(|i| i.token == "accent.soft" && i.tuple == "brand=plain"),
+        "{:?}",
+        import.dials[0].impact
+    );
+}
+
+#[test]
+fn two_tokens_on_one_dial_agree_or_are_reported() {
+    let design = "tamber t\n\ndials\n  accent: color = #1083fe\n\ntheme\n  accent.fill = accent\n  accent.line = accent\n";
+    let (_, _, agree) = edited_in(design, |_, t| {
+        t["accent"]["fill"]["$value"] = red();
+        t["accent"]["line"]["$value"] = red();
+    });
+    assert_eq!(agree.ops.len(), 1);
+    assert_eq!(
+        agree.dials[0].from,
+        vec!["accent.fill".to_string(), "accent.line".to_string()]
+    );
+    let (_, _, apart) = edited_in(design, |_, t| {
+        t["accent"]["fill"]["$value"] = red();
+        t["accent"]["line"]["$value"] =
+            json!({"colorSpace": "srgb", "components": [0.0, 0.0, 1.0], "hex": "#0000ff"});
+    });
+    assert!(apart.ops.is_empty(), "{:?}", apart.ops);
+    assert_eq!(
+        apart
+            .unmapped
+            .iter()
+            .filter(|u| u.why.contains("different values"))
+            .count(),
+        2,
+        "{:?}",
+        apart.unmapped
+    );
+}
+
+#[test]
+fn an_explicit_baseline_is_the_only_one_and_must_have_the_designs_axes() {
+    use exact_tamber::export::reimport_against;
+    let text = dtcg(&check(DESIGN, &vocab()).unwrap(), &vocab()).unwrap();
+    let mut doc: Value = serde_json::from_str(&text).unwrap();
+    for (_, c) in doc["modifiers"]["mode"]["contexts"]
+        .as_object_mut()
+        .unwrap()
+    {
+        c[0]["accent"]["soft"]["$value"] = red();
+    }
+    let ok = reimport_against(&doc.to_string(), Some(&text), &[], DESIGN, &vocab()).unwrap();
+    assert_eq!(ok.pins.len(), 1);
+    // A baseline whose axes are not the design's: refused, pull first.
+    let other = DESIGN.replace(
+        "dark-style = black | dim",
+        "dark-style = black | dim | grey",
+    );
+    let theirs = dtcg(&check(&other, &vocab()).unwrap(), &vocab()).unwrap();
+    let refused = reimport_against(&theirs, Some(&theirs), &[], DESIGN, &vocab()).unwrap_err();
+    assert!(refused[0].message.starts_with("pull first"), "{refused:?}");
+}

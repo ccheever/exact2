@@ -102,9 +102,9 @@ import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './t
 import { readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
-// The server's own line limit, less room for the id this adds.
+// The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
-const BODY_LIMIT = LINE_LIMIT - 64;
+const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
 const body = req => readBody(req, BODY_LIMIT);
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
@@ -1001,6 +1001,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const review = old && {
         ...old,
         offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
+        // A re-import's marks follow their operations; a recomputed dial's impact is dropped, read on the design as it was (stage 10b).
+        ...Object.fromEntries(['dials', 'pins'].filter(k => old[k]).map(k => [k, old[k]
+          .map(({ impact, ...m }) => ({ ...m, items: (m.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) }))
+          .filter(m => m.items.length)])),
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
       let fresh;
@@ -1461,8 +1465,13 @@ function importReview(imported) {
     ops.push(...o.ops);
     return { role: o.role, token: o.token, items, note: o.note };
   });
-  // A re-import's dial changes and marked pins (stage 10b), when it has any.
-  const marks = { ...(imported.dials?.length ? { dials: imported.dials } : {}), ...(imported.pins?.length ? { pins: imported.pins } : {}) };
+  // A re-import's dial changes and marked pins (stage 10b), when it has any,
+  // each naming the operations it is (`items`), as an offer does.
+  const same = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+  const at = test => ops.flatMap((op, i) => (test(op) ? [i] : []));
+  const dials = (imported.dials ?? []).map(d => ({ ...d, items: at(op => op.op === 'set-dial' && op.name === d.dial) }));
+  const pins = (imported.pins ?? []).map(p => ({ ...p, items: at(op => op.op === 'set-token' && op.name === p.token && same(op.when, p.when)) }));
+  const marks = { ...(dials.length ? { dials } : {}), ...(pins.length ? { pins } : {}) };
   return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...marks } };
 }
 

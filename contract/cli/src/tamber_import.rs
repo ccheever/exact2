@@ -84,7 +84,15 @@ pub fn run(args: &[String]) -> ExitCode {
         .and_then(|a| crate::tamber::design(Path::new(a)))
         .map(|p| crate::tamber_export::kept(&p))
         .unwrap_or_default();
-    let imported = match import_with(&kind, &files, prefix.as_deref(), &design, &current, &kept) {
+    let imported = match import_with(
+        &kind,
+        &files,
+        prefix.as_deref(),
+        &design,
+        &current,
+        &kept,
+        None,
+    ) {
         Some(i) => i,
         None => {
             eprintln!(
@@ -118,12 +126,16 @@ fn import_with(
     design: &exact_tamber::Design,
     current: &str,
     kept: &[String],
+    explicit: Option<&str>,
 ) -> Option<Result<Import, Vec<exact_tamber::Diagnostic>>> {
     let text = files.first().map(|(_, t)| t.as_str()).unwrap_or_default();
     let vocab = contract_lower::tamber_vocab();
     if kind == "dtcg" && files.len() == 1 && exact_tamber::export::is_own(text) {
-        return Some(exact_tamber::export::reimport(text, kept, current, &vocab));
+        return Some(exact_tamber::export::reimport_against(
+            text, explicit, kept, current, &vocab,
+        ));
     }
+
     Some(match kind {
         "shadcn" => shadcn::import(text, prefix.unwrap_or("shadcn"), design, &vocab),
         "tailwind" => tailwind::import_with(text, prefix.unwrap_or("tw"), design, &vocab),
@@ -184,9 +196,14 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
     // the design's own; else refused, so a client pulls first. It decides
     // only which of the file's values are the client's edits: the operations
     // are planned against the design as it is.
-    let mut kept: Vec<String> = kept.to_vec();
-    match &request["baseline"] {
-        Value::Null => {}
+    let own = kind == "dtcg" && files.len() == 1 && exact_tamber::export::is_own(&files[0].1);
+    if !request["baseline"].is_null() && !own {
+        return Err(bad(
+            "a `baseline` is for re-importing a Tamber export, one file",
+        ));
+    }
+    let explicit = match &request["baseline"] {
+        Value::Null => None,
         Value::String(baseline) => {
             let digest = exact_tamber::export::digest(baseline)
                 .ok_or_else(|| bad("`baseline` is a Tamber export, as `export` gave it"))?;
@@ -206,10 +223,11 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
                     json!({"message": "pull first: the baseline is no export of this design this server gave out, kept or has now", "stale": true}),
                 );
             }
-            kept.insert(0, baseline.clone());
+            Some(baseline.as_str())
         }
         _ => return Err(bad("`baseline` is the export text the client pulled")),
-    }
+    };
+
     let design = exact_tamber::parse(current).map_err(|all| {
         json!({"message": "the design does not parse", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()})
     })?;
@@ -219,7 +237,8 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
         field("prefix")?.as_deref(),
         &design,
         current,
-        &kept,
+        kept,
+        explicit,
     ) {
         None => Err(bad(&format!(
             "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
