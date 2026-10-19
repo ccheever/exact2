@@ -161,6 +161,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
+  let kept = 0;
   // The digests of the exports this run gave out, newest last (at most 64): a
   // client's `import` may name one as the baseline it pulled (stage 10b).
   const exported = [];
@@ -172,13 +173,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const design = basename(designPath(appDir) ?? 'app.tamber');
 
   const send = event => {
-    events.push(event);
-    if (events.length > KEPT) events.shift();
     let line;
-    try { line = `data: ${JSON.stringify(event)}\n\n`; } catch { log(`tamber: an event could not be sent (${event.event})`); events.pop(); return; }
+    try { line = `data: ${JSON.stringify(event)}\n\n`; } catch { log(`tamber: an event could not be sent (${event.event})`); return; }
+    // The last 256 kept, at most 64 MiB of them (each event's size beside it).
+    events.push(Object.defineProperty(event, 'bytes', { value: line.length })); kept += line.length;
+    while (events.length > KEPT || kept > 64 << 20) kept -= events.shift().bytes;
     // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
     // A paired subscriber past its deadline gets nothing more (`live` ends it now).
-    for (const res of subscribers) if (!res.writableEnded && (!res.paired || pairs.live(res.paired)) && (!event.only || res.client === event.only)) res.write(line);
+    // A subscriber 8 MiB behind is cut (it reconnects and catches up from `events`), never buffered without end.
+    for (const res of subscribers) if (!res.writableEnded && (!res.paired || pairs.live(res.paired)) && (!event.only || res.client === event.only)) { if (res.writableLength > 8 << 20) { subscribers.delete(res); res.destroy(); } else res.write(line); }
     for (const poll of polls) poll();
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
@@ -952,6 +955,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
+    if (JSON.stringify(planned.ok.diff ?? '').length + JSON.stringify(review ?? {}).length > 4 << 20) return { status: 413, error: { message: 'the proposal is over 4 MiB: propose it in parts' } };
     const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
     // At most 64 held. A client below `write` may not drop another's
     // (theme2's ruling (a)): at the cap its own oldest goes, and with none
@@ -1119,7 +1123,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // out, is kept, or is the design's own (stage 10b). Held on the design text it was planned and marked on, else planned again.
     for (let tries = 0, target = designPath(appDir) ?? resolve(appDir, design); ; tries++) {
       // (planned in a process of its own, watched: scripts/tamber-isolate.mjs)
-      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, target, importLimits, appDir);
+      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, target, importLimits, appDir, request.client);
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
       if (!planned.ok.digest) return { status: 409, error: { message: 'the design file is not there: create it, then import' } }; // (no digest, no guard)
       const { ops, review } = importReview(planned.ok);
@@ -1468,12 +1472,13 @@ export async function importTheme(argv) {
   const words = argv.filter((a, i) => !a.startsWith('-') && !['--app', '--prefix'].includes(argv[i - 1]));
   const [kind, source, base] = words;
   if (!kind || !source || !base) { console.error('usage: bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>] [--prefix <prefix>]'); return 2; }
-  // Planned here, watched as the wire's imports are (scripts/tamber-isolate.mjs); Astryx resolves its package with a Bun install, through its CLI, in a time limit.
-  const app = resolve(at('--app') ?? '.'), args = ['run', '-q', '-p', 'contract', '--', 'tamber', 'import', kind, resolve(source), '--app', app, ...(at('--prefix') ? ['--prefix', at('--prefix')] : [])];
-  const r = kind === 'astryx' ? spawnSync('cargo', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20, timeout: 120_000 }) : null;
-  const planned = r ? (r.status === 0 ? { ok: JSON.parse(r.stdout) } : { error: { message: r.error?.message ?? r.stderr ?? 'failed' } }) : await planAlone({ kind, sources: sourcesOf(resolve(source)), prefix: at('--prefix') }, designPath(app) ?? resolve(app, 'app.tamber'), {}, app);
+  // Planned here, watched as the wire's imports are (scripts/tamber-isolate.mjs); Astryx's theme as resolved on this machine.
+  const app = resolve(at('--app') ?? '.');
+  const planned = await planAlone({ kind, sources: sourcesOf(resolve(source)), prefix: at('--prefix'), ...(kind === 'astryx' ? { resolved: true } : {}) }, designPath(app) ?? resolve(app, 'app.tamber'), {}, app);
   if (!planned.ok) { console.error(`tamber import: ${planned.error?.message}${planned.error?.diagnostics ? `\n  ${planned.error.diagnostics.map(d => d.message ?? d).join('\n  ')}` : ''}`); return 1; }
   const imported = planned.ok;
+  // Held on the design it was planned on (its digest), as the wire's imports are; with no design file, refused.
+  if (!imported.digest) { console.error('tamber import: the design file is not there: create it, then import'); return 1; }
   const origin = new URL(base).origin;
   const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error' });
   if (!got.ok) { console.error(`tamber import: ${origin} gave no token (${got.status}); it answers this machine's loopback only`); return 1; }
@@ -1489,7 +1494,7 @@ export async function importTheme(argv) {
   // The source as the design has it already: nothing to propose; a role
   // override declined before is not offered again on its own.
   if (!imported.ops.length) { console.log('nothing to propose: the design has every mapped value already'); return 0; }
-  const res = await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: JSON.stringify({ method: 'propose', hold: true, client, ops, review }) });
+  const res = await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: JSON.stringify({ method: 'propose', hold: true, client, ops, review, ...(imported.digest ? { files: { [relative(app, designPath(app))]: imported.digest } } : {}) }) });
   const held = await res.json();
   if (!held.ok) { console.error(`tamber import: ${held.error?.message}`); return 1; }
   console.log(`proposal ${held.ok.proposal}: ${ops.length} operations (${imported.ops.length} tokens and axes, ${offered.length} offered), held for review`);

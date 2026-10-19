@@ -219,7 +219,9 @@ pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Va
         );
     }
     let kind = field("kind")?.ok_or_else(|| bad("`kind` is shadcn, tailwind or dtcg"))?;
-    if kind == "astryx" {
+    // Astryx's theme resolved by a Bun install on this machine (`resolved`,
+    // which only `bun exact.mjs tamber import` sets; the wire never forwards it).
+    if kind == "astryx" && request["resolved"] != true {
         return Err(bad("Astryx resolves its theme package with a Bun install: run `bun exact.mjs tamber import astryx <source> <url> --app <app>`"));
     }
     // One file's text (`source`, named by `name`), or several (`sources`, each

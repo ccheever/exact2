@@ -846,9 +846,10 @@ list is unchanged: it keeps its own.
 - **An import is read in a process of its own** (*1.13*, stage 10b), one at a time, never in the
   design's server: a source that takes more than about 1 GiB or 10 s to read, or whose review is
   over 2 MiB, answers 413 or 503, "the source is too costly to read". With four imports already
-  waiting, or after 30 s waiting, an import answers 503 ("imports are busy"). Within that, the
-  DTCG importer's and re-import's work is bounded too (references, groups and aliases that multiply
-  are refused).
+  waiting, two of this client's outstanding, or after 30 s waiting, an import answers 503 ("imports
+  are busy"). A proposal (its diff and review) over 4 MiB is not held: 413. With no design file, an
+  import answers 409. Within that, the DTCG importer's and re-import's work is bounded too
+  (references, groups and aliases that multiply are refused).
 - **A re-import's dials and pins** (*1.13*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
   changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
   in every context where that dial line wins, proposes `set-dial` for that dial instead of a literal

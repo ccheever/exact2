@@ -92,3 +92,11 @@ test('a waiting import expires on its own clock; a FIFO in the design\'s place i
     expect([fifo.status, fifo.error.message]).toEqual([400, 'the design is not a regular file']);
   });
 }, 60_000);
+
+test('one client holds at most two imports; another is still taken', async () => {
+  await withApp(async (design, app) => {
+    const slow = sh('sleep 0.3; echo \'{"ok":{}}\'');
+    const three = await Promise.all([1, 2, 3].map(() => planAlone({}, design, { spawnPlan: slow }, app, 'figma')).concat(planAlone({}, design, { spawnPlan: slow }, app, 'tool')));
+    expect(three.map(r => r.status ?? 200)).toEqual([200, 200, 503, 200]);
+  });
+}, 60_000);

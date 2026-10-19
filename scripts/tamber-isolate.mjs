@@ -26,11 +26,12 @@ function contract(args) {
   if (!existsSync(cmd)) return null;
   // (a process group of its own, so a kill stops whatever it started)
   if (process.platform !== 'linux') return spawn(cmd, argv, { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
-  // Linux enforces an address-space limit, set too. Address space is not
+  // Linux enforces an address-space limit, set too (soft and hard at once:
+  // lowering the hard one first fails under an unlimited soft one). Address space is not
   // resident memory (an allocator reserves ahead), so it is generous: the
   // resident watch is the bound, this the backstop.
   const kb = LIMITS.rssKb * 4;
-  return spawn('sh', ['-c', `ulimit -H -v ${kb} && ulimit -S -v ${kb} && exec "$0" "$@"`, cmd, ...argv], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+  return spawn('sh', ['-c', `ulimit -v ${kb} && exec "$0" "$@"`, cmd, ...argv], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
 }
 
 /** A process's resident KiB, by `ps`, or null when it can't be read. */
@@ -42,16 +43,18 @@ const residentKb = pid => new Promise(done => {
 // answer goes back as soon as it is known; a killed planner still holds
 // the permit until the kernel has reaped it).
 let last = Promise.resolve(), queued = 0;
+const mine = new Map(); // each client's imports outstanding, at most two
 const busy = { status: 503, error: { message: 'imports are busy: try again shortly' } };
 
 /** `request` (import-plan's) planned alone against the design at `design`
  * (a file of the app at `appDir`, read when its turn comes): `{ok}` or
  * `{error}` as the serve answers, or a status and error when the watchdog
  * stopped it, the queue is full, or it waited past `waitMs`. */
-export function planAlone(request, design, limits = {}, appDir = null) {
+export function planAlone(request, design, limits = {}, appDir = null, who = null) {
   const l = { ...LIMITS, ...limits };
-  if (queued > l.waiting) return Promise.resolve(busy);
+  if (queued > l.waiting || (who !== null && (mine.get(who) ?? 0) >= 2)) return Promise.resolve(busy);
   queued++;
+  if (who !== null) mine.set(who, (mine.get(who) ?? 0) + 1);
   let answer, expired = false;
   const reply = new Promise(ok => { answer = ok; });
   // Each waiting entry expires on its own clock, whatever is ahead of it.
@@ -59,13 +62,14 @@ export function planAlone(request, design, limits = {}, appDir = null) {
   const turn = last.then(async () => {
     clearTimeout(wait);
     if (expired) return;
-    const t = await designText(design, appDir, l.designBytes);
+    // (the whole read within 2 s: a stalled one gives up the turn, answered 503)
+    const t = await Promise.race([designText(design, appDir, l.designBytes), new Promise(ok => setTimeout(() => ok({ status: 503, error: { message: 'the design took too long to read' } }), 2000))]);
     if (!('text' in t)) return answer(t);
     const [planned, exited] = planOnce(request, design, t.text, l);
     planned.then(answer);
     await exited;
   });
-  last = turn.catch(() => {}).finally(() => { queued--; });
+  last = turn.catch(() => {}).finally(() => { queued--; if (who !== null) { const n = mine.get(who) - 1; if (n) mine.set(who, n); else mine.delete(who); } });
   return reply;
 }
 
@@ -152,14 +156,21 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
 
 /** A source path's files as `import`'s `sources` (`contract tamber
  * import`'s reading): the file, or each `.json` under the directory, by its
- * path from it, at most 256. */
+ * path from it; regular files only, at most 256 and 16 MiB in all. */
 export function sourcesOf(path) {
-  if (!statSync(path).isDirectory()) return [{ name: path.split(sep).at(-1), text: readFileSync(path, 'utf8') }];
+  let total = 0;
+  const read = (p, name) => {
+    const st = statSync(p);
+    if (!st.isFile()) throw new Error(`${p}: not a regular file`);
+    if ((total += st.size) > 16 << 20) throw new Error(`${path}: over 16 MiB of sources`);
+    return { name, text: readFileSync(p, 'utf8') };
+  };
+  if (!statSync(path).isDirectory()) return [read(path, path.split(sep).at(-1))];
   const out = [], walk = dir => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else if (e.isFile() && e.name.toLowerCase().endsWith('.json')) out.push({ name: relative(path, p).split(sep).join('/'), text: readFileSync(p, 'utf8') });
+      else if (e.isFile() && e.name.toLowerCase().endsWith('.json')) out.push(read(p, relative(path, p).split(sep).join('/')));
       if (out.length > 256) throw new Error(`${path}: more than 256 .json files`);
     }
   };
