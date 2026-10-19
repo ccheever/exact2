@@ -203,7 +203,7 @@ describe('actual root composer intent ordering', () => {
       isComposing: false, cancelable: true, inputType: 'insertText', data: 'c'}], projected(empty));
     expect(empty.suppressed).toBe(0); expect(empty.state.composerIntentQueue).toEqual([]);
   });
-  test('text and Backspace at a restored fence without a body line keep its closing fence whole', () => {
+  test('text at a restored fence without a body line keeps its closing fence whole; Backspace unwraps it', () => {
     const draft = '```ts\n```', blocks = composerRichProjection({value: draft, owner: 'draft', styling: true, literal: false}).blocks;
     const typed = fixture(draft, 6); typed.projection = {...typed.projection, blocks} as typeof typed.projection;
     typed.call('composerBeforeInput', [{value: draft, selectionStart: 6, selectionEnd: 6, isComposing: false, cancelable: true, inputType: 'insertText', data: 'x'}]);
@@ -216,8 +216,9 @@ describe('actual root composer intent ordering', () => {
     const erased = fixture(draft, 6); erased.projection = {...erased.projection, blocks} as typeof erased.projection;
     erased.call('composerGrammarKey', ['Backspace', {shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false}, false], {composerCodeStart: codeStart});
     expect(erased.suppressed).toBe(1);
-    erased.call('composerIntentPump'); erased.reply();
-    expect(erased.replies[0]?.kind).toBe('handled'); expect(erased.commands).toEqual([]); expect(erased.state.draft).toBe(draft);
+    erased.call('composerIntentPump'); erased.reply(); erased.accept(); erased.call('composerIntentConfirmed');
+    expect(erased.commands).toEqual([['composer', '', 0, 9, 'preserve']]);
+    expect([erased.state.draft, erased.state.composerSelectionStart, erased.state.composerIntentQueue]).toEqual(['', 0, []]);
   });
   test('composition start invalidates deferred keys while leaving composition input native-owned', () => {
     const f = fixture(); f.press();

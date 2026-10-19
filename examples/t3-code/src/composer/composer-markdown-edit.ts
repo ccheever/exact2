@@ -80,12 +80,14 @@ export function composerMarkdownKey(source: string, selection: ComposerRange, ke
   if (!Number.isInteger(selection.start) || !Number.isInteger(selection.end) || selection.start < 0 || selection.end < selection.start || selection.end > source.length) return DEFAULT;
   const parsed = composerMarkdown(source, { blockOrigins }), block = codeAt(parsed.blocks, selection), collapsed = selection.start === selection.end;
   if (key.name === 'Enter' && key.command) return { kind: 'send' };
-  if (!block && emptyFenceAt(parsed.blocks, selection)) {
+  const empty = block ? null : emptyFenceAt(parsed.blocks, selection);
+  if (empty) {
     // A caret at an empty fence's closing line stands for its empty code: Tab
-    // and Enter open the body line, and Backspace leaves the fence whole.
+    // and Enter open the body line, and Backspace unwraps the fence as at any
+    // body start, leaving its one empty line.
     if (key.name === 'Tab') return key.shift ? HANDLED : composerCodeInput(source, selection, CODE_BLOCK_INDENT, parsed.blocks);
     if (key.name === 'Enter') return composerCodeInput(source, selection, '\n', parsed.blocks);
-    return key.name === 'Backspace' ? HANDLED : DEFAULT;
+    return key.name === 'Backspace' ? edit(empty.start, empty.end, '', { start: empty.start, end: empty.start }) : DEFAULT;
   }
   if (block) {
     if (key.name === 'Tab') return indentCode(source, selection, block, key.shift);
