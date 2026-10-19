@@ -5,7 +5,7 @@
 // request: a pull (export) and a push (import, held as a proposal for a person
 // to accept; the plugin never writes the design).
 
-import { doorOf, newEnough } from './mapping';
+import { doorOf, newEnough, plainWhy } from './mapping';
 
 const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
 // The server and its token, together: a token goes only to the server it was
@@ -103,7 +103,7 @@ async function pushDesign() {
   const r = got.review ?? {};
   // What the design could not take, and why (a length changed in Light only, say: both schemes take one value).
   const unmapped = [
-    ...(r.unmapped ?? []).map((u: any) => `not proposed: ${u.name}${u.block ? ` (${u.block})` : ''}: ${u.why}`),
+    ...(r.unmapped ?? []).map((u: any) => `not proposed: ${u.name}${u.block ? ` (${u.block})` : ''}: ${plainWhy(u.why)}`),
     // Values the plugin could not read (an alias to nowhere, a cycle): sent as they were pulled.
     ...unread.map((u: any) => `not read: ${u.variable} (${u.mode}): ${u.why}`),
   ];

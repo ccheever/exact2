@@ -371,3 +371,13 @@ export function newEnough(protocol: unknown): boolean {
   const m = /^tamber\/(\d+)\.(\d+)$/.exec(String(protocol));
   return !!m && (Number(m[1]) > 1 || (Number(m[1]) === 1 && Number(m[2]) >= 14));
 }
+
+/** A server's reason a value was not proposed, in the person's words where
+ * the design's rule is one a Figma edit trips (the live test: two Light
+ * values of one token): which value differs and what to make equal, never
+ * the rule's id. Any other reason as the server gave it. */
+export function plainWhy(why: string): string {
+  const light = /tamber-under-light: the light side `([^`]+)` is not the default's `([^`]+)`/.exec(why);
+  if (light) return `its Light value ${light[1]} differs from its other Light value ${light[2]}, and Tamber keeps one Light value a token: set it the same in every Light mode, then push`;
+  return why;
+}

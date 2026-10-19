@@ -1,8 +1,8 @@
 // The Figma plugin's mapping (tools/figma-tamber/src/mapping.ts), on the
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
-import { expect, test } from 'bun:test';
+import { plainWhy, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, plainWhy, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 // The fixture's export as read (its dark-style axis under scheme=dark: one light mode), and the
 // same with that axis an ordinary one (a mode for each context), which most tests use.
@@ -185,4 +185,10 @@ test('one choice a token and light side: two light sides of one token are asked 
   expect(clashes.map(c => c.key)).toEqual(['c@density=a, dark-style=black, light', 'c@density=b, dark-style=black, light']);
   const out = tokensOf(JSON.parse(push(JSON.stringify(doc), plan, now, { [clashes[0].key]: 'Tamber · density=a, dark-style=black', [clashes[1].key]: 'Tamber · density=b, dark-style=dim' })));
   expect([ctx('a', 'black', 'light'), ctx('a', 'dim', 'light'), ctx('b', 'black', 'light'), ctx('b', 'dim', 'light')].map(k => out[k].c.$value.hex)).toEqual(['#ff0000', '#ff0000', '#0000ff', '#0000ff']);
+});
+
+test('a value not proposed for two Light values says which differ and what to make equal, never the rule\'s id', () => {
+  const why = "the design would refuse it (tamber-under-light: the light side `#1df032ff` is not the default's `#1d9bf0ff`: an axis `under scheme=dark` varies the dark side only)";
+  expect(plainWhy(why)).toBe('its Light value #1df032ff differs from its other Light value #1d9bf0ff, and Tamber keeps one Light value a token: set it the same in every Light mode, then push');
+  expect(plainWhy('no token of that name')).toBe('no token of that name');
 });
