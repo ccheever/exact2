@@ -2,7 +2,7 @@
 import { highlight } from '../highlight/timeline-highlight';
 import { composerMarkdown, type ComposerBlockOrigin, type ComposerDecorations } from './composer-markdown';
 import { codeLanguageEntry, codeLanguageLabel, languageOfInfoString } from './composer-code-languages';
-import { chipDecorations, composerChips, type ComposerChip } from './composer-source-chips';
+import { chipDecorations, composerChips, composerChipsInBlocks, type ComposerChip } from './composer-source-chips';
 import type { ComposerRange } from './composer-markdown-inline';
 import type { ComposerMode } from './composer-source-session';
 
@@ -43,5 +43,5 @@ export function composerRichProjection(input: ComposerRichInput): ComposerRichPr
     contentStart: 'contentStart' in block ? block.contentStart : block.start,
     bodyStart: block.kind === 'code' ? block.body.start : block.start,
     bodyEnd: block.kind === 'code' ? block.body.end : block.end }));
-  return { owner: input.owner, value: input.value, mode: input.literal ? 'literal' : input.styling ? 'rich' : 'plain', decorations: parsed.decorations, headers, blocks, chips: chips.filter(chip => parsed.decorations.atoms.some(atom => atom.start === chip.start && atom.end === chip.end)) };
+  return { owner: input.owner, value: input.value, mode: input.literal ? 'literal' : input.styling ? 'rich' : 'plain', decorations: parsed.decorations, headers, blocks, chips: composerChipsInBlocks(input.value, parsed.blocks, chips) };
 }

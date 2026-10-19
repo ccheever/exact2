@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { cancelFreshCitation, chipDecorations, composerChips, composerTrigger, insertCitation, moveFreshCitation, pastedPathQueryLength, reconcileComposerChips } from '../../src/composer/composer-source-chips';
+import { cancelFreshCitation, chipDecorations, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, pastedPathQueryLength, reconcileComposerChips } from '../../src/composer/composer-source-chips';
 import { applyComposerEdit } from '../../src/composer/composer-markdown-edit';
 import { composerMarkdown } from '../../src/composer/composer-markdown';
 
@@ -45,6 +45,35 @@ describe('composer source chips and active triggers', () => {
     const changed = ('x' + withoutSpace).slice(0, last.start + 3) + '☃' + ('x' + withoutSpace).slice(last.start + 4);
     expect(reconcileComposerChips('x' + withoutSpace, changed, shifted).map(chip => chip.start)).toEqual([shifted[0]?.start]);
     expect(reconcileComposerChips(source, '$new ', original).map(chip => chip.label)).toEqual(['new']);
+  });
+  test('source content admits references without an atom table and retains repeated payloads', () => {
+    const context = '[Thread](t3-context://v1/thread/thread_one)', image = '![image](t3-context://v1/image/image_one)';
+    const value = `😀 > ${context}\n- [ ] ${context}\n${citation} ${citation}\n${image} [x.ts](src/x.ts) `;
+    const parsed = composerMarkdown(value), candidates = composerChips(value);
+    expect(parsed.decorations.atoms).toEqual([]);
+    const accepted = composerChipsInBlocks(value, parsed.blocks, candidates);
+    expect(accepted).toEqual(candidates);
+    expect(accepted.map(chip => chip.source)).toEqual([context, context, citation, citation, image, '[x.ts](src/x.ts)']);
+    expect(accepted[0]?.start).toBe(5);
+    expect(accepted.filter(chip => chip.kind === 'citation').map(chip => chip.href)).toEqual([citation.slice('[Assistant quote]('.length, -1), citation.slice('[Assistant quote]('.length, -1)]);
+    expect(accepted.find(chip => chip.kind === 'context' && chip.image)).toMatchObject({ contextId: 'image_one', image: true });
+    expect(accepted.find(chip => chip.kind === 'mention')).toMatchObject({ path: 'src/x.ts' });
+  });
+  test('source admission excludes code, rules, hidden prefixes, stale slices and invalid ranges', () => {
+    const value = '# $heading \n---\n```ts $info\n$body \n```\n$tail ';
+    const parsed = composerMarkdown(value), candidates = composerChips(value), tail = candidates.at(-1);
+    if (!tail) throw new Error('tail reference must exist');
+    const invalid = [
+      { ...tail, source: '$old' }, { ...tail, start: -1 }, { ...tail, end: value.length + 1 },
+      { ...tail, start: tail.start + 0.5 }, { ...tail, end: tail.start },
+      { ...tail, start: 0, end: 2, source: '# ' },
+      { ...tail, start: value.indexOf('---'), end: value.indexOf('---') + 3, source: '---' },
+      { ...tail, start: tail.start - 1, source: '\n' + tail.source },
+    ];
+    expect(composerChipsInBlocks(value, parsed.blocks, [...candidates, ...invalid]).map(chip => chip.source)).toEqual(['$heading', '$tail']);
+    const completed = composerChips('$deploy '), carried = reconcileComposerChips('$deploy ', '$deploy', completed);
+    expect(composerChips('$deploy')).toEqual([]);
+    expect(composerChipsInBlocks('$deploy', composerMarkdown('$deploy').blocks, carried)).toEqual(completed);
   });
   test('commands open only at the line start; code and chip interiors suppress suggestions', () => {
     expect(composerTrigger('line\n/plan', 10)).toMatchObject({ kind: 'slash-command', query: 'plan', start: 5 });

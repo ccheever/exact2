@@ -5,7 +5,7 @@
 // and a remount (Advanced on or off) starts it again from the sample. Its textarea is the
 // composer's shared source producer, with rich syntax disabled as in PromptFontPreview.
 // Its editable sample has its own value and never changes the active thread's metadata.
-use ComposerChipControls, ComposerChipLayout from "../composer/composer-chip-controls.contract"
+use ComposerChipControls from "../composer/composer-chip-controls.contract"
 use ComposerRichView from "../composer/composer-rich.contract"
 use cmp-bold, cmp-italic, cmp-strike, cmp-code-inline, cmp-h1, cmp-h2, cmp-h3, cmp-h4 from "../composer/composer-rich.contract"
 use cmp-h5, cmp-h6, cmp-quote, cmp-rule, cmp-code-block, cmp-list-depth0, cmp-list-depth1, cmp-list-depth2 from "../composer/composer-rich.contract"
@@ -30,7 +30,6 @@ component PromptFontPreview
     promptPreviewOwner: string
     promptPreviewSnapshotOwner: string
     promptPreviewSerial: number
-    promptPreviewChipLayout: ComposerChipLayout
   props
     family: string
     size: number
@@ -48,4 +47,4 @@ component PromptFontPreview
             // The editor's placeholder role (text-placeholder, at 75% there); the palette has no 75% token.
             ::placeholder
               color=pal.muted
-          ComposerChipControls(source=richPromptPreview, layout=promptPreviewChipLayout, owner=promptPreviewOwner, value=promptPreviewText, serial=promptPreviewSerial, surface="preview", size=size, family=family)
+      ComposerChipControls(source=richPromptPreview, owner=promptPreviewOwner, value=promptPreviewText, serial=promptPreviewSerial, surface="preview", size=size, family=family)
