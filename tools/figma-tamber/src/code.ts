@@ -95,7 +95,7 @@ async function holding(plan: Plan): Promise<{ now: Held; unread: { variable: str
  * longer has go, a variable whose type changed is made again. A collection
  * of the plan's name this plugin did not make is refused, never taken
  * over. Each collection's id and its modes' are written into the plan. */
-async function write(plan: Plan, before: Plan | null) {
+async function write(plan: Plan, before: Plan | null, fresh = false) {
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
   const variables = await figma.variables.getLocalVariablesAsync();
   // Each collection first, refused before anything is touched: the one the
@@ -104,8 +104,9 @@ async function write(plan: Plan, before: Plan | null) {
   const reserved = new Set((before?.collections ?? []).map(c => collectionIn(collections, c)?.id).filter(Boolean));
   const taken = new Set<string>();
   const cols = plan.collections.map(c => {
-    const was = before?.collections.find(x => x.name === c.name);
-    const col = (was && collectionIn(collections, was)) || collections.find((x: any) => x.name === c.name && !reserved.has(x.id) && !taken.has(x.id)) || null;
+    // (fresh: every collection new, the last pull's left for the migration to take away)
+    const was = fresh ? undefined : before?.collections.find(x => x.name === c.name);
+    const col = fresh ? null : (was && collectionIn(collections, was)) || collections.find((x: any) => x.name === c.name && !reserved.has(x.id) && !taken.has(x.id)) || null;
     if (col && !col.getSharedPluginData?.(KEY, 'owned')) throw new Error(`this file has a collection \`${col.name}\` that Tamber did not make: rename it, then pull`);
     // (a variable of a token's name this plugin did not make: refused, not taken over)
     const stranger = col && c.variables.find(v => !variableOf(variables, col, v) && variables.some((x: any) => x.variableCollectionId === col.id && x.name === v.name && !x.getSharedPluginData?.(KEY, 'token')));
@@ -165,7 +166,8 @@ async function write(plan: Plan, before: Plan | null) {
 }
 /** Whether the document changed since the last undo step was committed. */
 let dirty = false;
-const tooManyModes = (e: any) => /limit/i.test(String(e?.message ?? e)) && /mode/i.test(String(e?.message ?? e));
+/** Figma's refusal of one mode too many (`in addMode: Limited to N modes only`), and nothing else. */
+const tooManyModes = (e: any) => /\blimited to \d+ modes?\b/i.test(String(e?.message ?? e));
 /** The modes a collection may have, from Figma's refusal (`Limited to N modes`). */
 const limitOf = (e: any) => Number(/limited to (\d+)/i.exec(String(e?.message ?? e))?.[1] ?? 2);
 
@@ -208,7 +210,15 @@ figma.ui.onmessage = async (msg: any) => {
             undo();
             figma.commitUndo();
             plan = pull(doc, Math.min(2, limitOf(e))); // a 1-mode file: Tamber needs Light and Dark
-            await write(plan, before);
+            try { await write(plan, before); } catch (e2) {
+              // Still too many: a parked default mode holds a place. With the
+              // contexts moved (the person said yes), new collections, the
+              // last pull's taken away.
+              if (!tooManyModes(e2) || !(moved?.added.length || moved?.removed.length)) throw e2;
+              undo();
+              figma.commitUndo();
+              await write(plan, before, true);
+            }
           }
           // A layout the design outgrew (one collection to one a tuple, or
           // back): the earlier pull's collections go.

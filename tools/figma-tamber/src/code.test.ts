@@ -390,3 +390,34 @@ test('round 4 (Grok): a variable of a token\'s name the plugin did not make is n
   await send({ type: 'apply', text: long(true) }, 'applied');
   expect(f.collections[0].modes[0].name).toBe(`unused: ${axis}=black, light`.slice(0, 40));
 });
+
+test('round 5: a refusal that names a mode and a limit is still a refusal, not the mode limit; a parked default making room short gives new collections', async () => {
+  await load(10);
+  const doc = JSON.parse(TEXT);
+  for (const c of Object.values<any>(doc.modifiers.mode.contexts)) c[0].mode = { limit: { $type: 'number', $value: 1 } };
+  const text = JSON.stringify(doc);
+  await send({ type: 'apply', text }, 'applied');
+  const col = f.collections[0];
+  f.variables.find(v => v.name === 'mode/limit').remove();
+  f.figma.variables.createVariable('mode/limit', col, 'FLOAT');
+  let undos = 0;
+  const trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { undos++; trigger(); };
+  await expect(send({ type: 'apply', text }, 'applied')).rejects.toThrow(/did not make/);
+  expect([undos, f.collections.length, f.collections[0]]).toEqual([0, 1, col]);
+  // Two modes a collection, one tuple in one collection; the tuple renamed: its default parked, the new pair needs three.
+  await load(2);
+  const one = (style: string) => variant(d => {
+    const contexts = d.modifiers.mode.contexts;
+    for (const c of Object.keys(contexts)) if (!c.startsWith('dark-style=black')) delete contexts[c];
+    for (const s of ['light', 'dark']) { contexts[`dark-style=${style}, ${s}`] = contexts[`dark-style=black, ${s}`]; if (style !== 'black') delete contexts[`dark-style=black, ${s}`]; }
+    d.modifiers.mode.default = `dark-style=${style}, light`;
+  });
+  await send({ type: 'apply', text: one('black') }, 'applied');
+  const first = f.collections[0];
+  const applied = await send({ type: 'apply', text: one('grey') }, 'applied');
+  expect(applied.collections).toEqual(['Tamber']);
+  expect(f.collections.length).toBe(1);
+  expect(f.collections[0]).not.toBe(first);
+  expect(f.collections[0].modes.map((m: any) => m.name)).toEqual(['dark-style=grey, light', 'dark-style=grey, dark']);
+});
