@@ -46,6 +46,12 @@ struct Paren {
     joins: Join,
 }
 
+/// ECMAScript's line terminators (ECMA-262 §12.3), each a statement boundary
+/// for automatic semicolon insertion and the end of a line comment.
+fn line_terminator(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+}
+
 /// Past the block comment opening at `i` (Rust's nest, TypeScript's do
 /// not), or `None` when it never closes.
 fn block_comment_end(s: &[char], mut i: usize, typescript: bool) -> Option<usize> {
@@ -72,7 +78,7 @@ fn block_comment_end(s: &[char], mut i: usize, typescript: bool) -> Option<usize
 /// Whether the literal `text` that ends at index `j` is joined to more text:
 /// by the macro around it, or by what follows past white space and
 /// comments: `+`, or another literal on the same statement (TypeScript ends
-/// a statement at a line break before one).
+/// a statement at a line terminator before one, a comment's included).
 fn joined(s: &[char], j: usize, typescript: bool, parens: &mut [Paren], text: &str) -> bool {
     if let Some(p) = parens.last_mut() {
         if p.joins == Join::Format {
@@ -86,17 +92,20 @@ fn joined(s: &[char], j: usize, typescript: bool, parens: &mut [Paren], text: &s
     let (mut j, mut broke_line) = (j, false);
     loop {
         while j < s.len() && s[j].is_whitespace() {
-            broke_line |= s[j] == '\n';
+            broke_line |= line_terminator(s[j]);
             j += 1;
         }
         match (s.get(j), s.get(j + 1)) {
             (Some('/'), Some('/')) => {
-                while j < s.len() && s[j] != '\n' {
+                while j < s.len() && !line_terminator(s[j]) {
                     j += 1;
                 }
             }
             (Some('/'), Some('*')) => match block_comment_end(s, j, typescript) {
-                Some(end) => j = end,
+                Some(end) => {
+                    broke_line |= s[j..end].iter().copied().any(line_terminator);
+                    j = end;
+                }
                 None => return true,
             },
             (Some('+'), _) => return true,
@@ -169,7 +178,7 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
         let c = s[i];
         let next = s.get(i + 1).copied();
         if c == '/' && next == Some('/') {
-            while i < n && s[i] != '\n' {
+            while i < n && !(line_terminator(s[i]) && (typescript || s[i] == '\n')) {
                 i += 1;
             }
             continue;
@@ -283,17 +292,16 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
     holes.is_empty().then_some(lits)
 }
 
-/// The key each `device.<name> <key>` in `lits` names. A literal whose line
-/// is built otherwise (joined to more text, its key missing or cut short)
-/// is left out; `None` when such a literal is the only one that names the
-/// device, since the grant may be in it.
+/// The key each `device.<name> <key>` in `lits` names. A line built
+/// otherwise (joined to more text, its key missing or cut short) is left
+/// out; `None` when no certain key remains and such a line was seen, since
+/// the grant may be in it.
 pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
     let key_char = |c: char| c.is_alphanumeric() || matches!(c, '.' | '-' | '_');
     let mut keys = Vec::new();
     let mut uncertain = false;
-    'lits: for lit in lits {
+    for lit in lits {
         let t = &lit.text;
-        let mut own = Vec::new();
         for (at, _) in t.match_indices("device.") {
             // A grant line begins the literal, or follows white space or an escape (`\n`).
             let head = &t[..at];
@@ -309,14 +317,14 @@ pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
             let after = &rest[device.len()..];
             if after.is_empty() && lit.joined {
                 uncertain = true;
-                continue 'lits;
+                continue;
             }
             if device != name {
                 continue;
             }
             let Some(spelled) = after.strip_prefix([' ', '\t']) else {
                 uncertain = true;
-                continue 'lits;
+                continue;
             };
             let spelled = spelled.trim_start_matches([' ', '\t']);
             let key: String = spelled.chars().take_while(|c| key_char(*c)).collect();
@@ -330,11 +338,10 @@ pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
                     .is_none_or(|c| c.is_whitespace() || c == '\\');
             if !certain {
                 uncertain = true;
-                continue 'lits;
+                continue;
             }
-            own.push(key);
+            keys.push(key);
         }
-        keys.append(&mut own);
     }
     if keys.is_empty() && uncertain {
         return None;
@@ -467,7 +474,38 @@ mod tests {
             ),
             None
         );
-        // A built line beside a written one leaves the written one's key.
+        // A line terminator inside a comment, or any ECMAScript line
+        // terminator, ends the statement too.
+        assert_eq!(
+            read(
+                "export const grants = 'device.midi purpose.midi' /*\n*/ 'x';",
+                true
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "export const grants = 'device.midi purpose.midi'\u{2028}'x';",
+                true
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "export const grants = 'device.midi purpose.midi' /* a */ 'x';",
+                true
+            ),
+            None
+        );
+        // A built line beside a written one, in another literal or the same,
+        // leaves the written one's key.
+        assert_eq!(
+            read(
+                "const g = 'device.midi purpose.midi\\ndevice.midi ' + name;",
+                true
+            ),
+            key("purpose.midi")
+        );
         assert_eq!(
             read(
                 "const shown = 'device.midi ' + state;\nexport const grants = 'device.midi purpose.midi';",
