@@ -903,14 +903,14 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
         // tint, which an authored accent-color sets (LLP 1116.004 D2).
         let symbolNode = symbolView(of: id)
-        // A tint that follows the accent leaves the image the cell's tint (nil here, on purpose).
-        let followsAccent = symbolNode.map { $0.style["tint_color"] != nil && $0.followsTint("tint_color") } ?? false
-        // Untinted, a colour its author wrote, on it or above (LLP 1121 stage
-        // 9 B, `symbolInk`): the row is a page image on the web and the Mac.
+        // The row the image is drawn in: its tint; untinted, a colour its
+        // author wrote, on it or above (LLP 1121 stage 9 B, `symbolInk`), as
+        // the row is a page image on the web and the Mac.
+        let key = symbolNode.map { $0.style["tint_color"] == nil && $0.props["symbolColorWritten"] == "1" } == true ? "text_color" : "tint_color"
+        // One that follows the accent leaves the image the cell's tint (nil here, on purpose).
+        let followsAccent = symbolNode.map { $0.style[key] != nil && $0.followsTint(key) } ?? false
         // A destructive or disabled row's colour still goes over it (below).
         if let symbol = symbolNode {
-            let written = symbol.style["tint_color"] == nil && symbol.props["symbolColorWritten"] == "1"
-            let key = written ? "text_color" : "tint_color"
             if let value = symbol.style[key], !symbol.followsTint(key) {
                 c.imageProperties.tintColor = UIColor { traits in
                     value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
