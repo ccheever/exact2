@@ -2,11 +2,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
-import { chromium, launchFacts } from './agent-launch.mjs';
+import { chromium, launchFacts, noteDefaultStore } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
@@ -410,6 +411,18 @@ test('compare: the CLI form and the reference are checked before any comparison'
   assert.match(helpText('agent'), /screenshot <png> \[over <ms> every <ms>\] \[window\] {2}window: bars/);
   assert.match(helpText('agent'), /screenshot <png> compare <ref>/);
   assert.match(helpText('agent'), /\(a select, date or checkbox: its value\)/);
+});
+
+// The euxy port's "BPM +5 per tap": a library an earlier plain drive stored, where compare drives start empty.
+test('the first drive from an app directory that keeps the store `default` says so, once per directory and device', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-store-note-')), said = [], error = console.error;
+  console.error = (line) => said.push(line);
+  try {
+    const drive = (dir, device = 'sim-a') => noteDefaultStore({ host: 'ios', device, appId: 'dev.example.app', dir }, root);
+    drive('/ports/one'); drive('/ports/one'); drive('/ports/two'); drive('/ports/one', 'sim-b');
+    assert.equal(said.length, 3);
+    assert.match(said[0], /^note: no --storage named, so this drive keeps the store `default`, what earlier drives of this app on this device stored \(one that compares with a reference starts empty\)/);
+  } finally { console.error = error; rmSync(root, { recursive: true, force: true }); }
 });
 
 test('a native named store is kept unless the drive resets it, under its lock; a web one starts empty unless kept', async () => {

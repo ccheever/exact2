@@ -171,7 +171,9 @@ next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
 for the drive, including its `reload`). A native drive that names none uses the
 store `default`, kept the same way, as the app keeps its files from launch to
-launch. A web drive without one has no
+launch. A drive that compares with a reference (`screenshot … compare`) starts
+empty on every host unless it passes `--keep-storage`, so a plain drive after
+one can show what an earlier plain drive stored. A web drive without one has no
 app storage: an `app:/` file read finds an empty store (code `ENOENT`, as a
 fresh install's first launch does), and a write or SQLite request is refused (`storage
 is unavailable in agent mode unless the drive names a scratch store (--storage

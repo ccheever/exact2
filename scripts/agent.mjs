@@ -1392,13 +1392,13 @@ export async function main(argv, injected = {}) {
   // starts empty unless the drive keeps it (`--keep-storage`, LLP 1086 EX4). A native host empties the whole scratch tree at its first boot (picker.rs
   // `empty_fresh_tree`), refusing one under a link. A drive that compares with a reference starts empty on every host unless kept: what an earlier drive stored is no part of the screen (euxy port); it, or --reset-storage, empties the app server's database too.
   const compares = ops.some((l) => /^\s*screenshot\s.*\scompare\s/.test(l)), fresh = flags.storage !== undefined && (host === 'web' || compares ? !flags.keepStorage : flags.resetStorage);
-  if (fresh && host !== 'web' && !flags.resetStorage) console.error(`note: --storage ${flags.storage} starts empty, as a drive that compares with a reference does (--keep-storage keeps it)`);
+  if (fresh && host !== 'web' && !flags.resetStorage) console.error(`note: --storage ${flags.storage} starts empty, as a drive that compares with a reference does, where one that does not keeps it (--keep-storage keeps it here)`);
   // The app's own server, if it has one (LLP 1116.008 D1): started under the store's lock, and stopped if the launch fails.
   let served = null; const launch = async () => { served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage, undefined, { fresh: fresh && (compares || !!flags.resetStorage) }); try { return await (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, bind: flags.bind, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port }); } catch (e) { await served?.stop(); throw e; } };
   // A native named store is one drive's at a time, on its device: another drive's reset would empty it under this one.
   // The device is resolved first, and the drive launches that one, so a default and its name are one lock.
   const locking = host !== 'web' && flags.storage !== undefined, appId = locking ? resolveApp(flags.app).id : null;
-  const device = locking ? (injected.resolveDevice ?? resolveDevice)(host, flags, appId) : null; if (locking && !named) noteDefaultStore({ host, device, appId });
+  const device = locking ? (injected.resolveDevice ?? resolveDevice)(host, flags, appId) : null; if (locking && !named && !fresh) noteDefaultStore({ host, device, appId, dir: resolveApp(flags.app).dir });
   const s = locking
     ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host: host === 'mac' ? 'macos' : host, device, appId, storage: flags.storage }, launch)
     : await launch();

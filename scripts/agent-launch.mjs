@@ -5,7 +5,7 @@ import {readStatus, formatStatus} from '../game/status.mjs';
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -182,11 +182,18 @@ export function resolveDevice(host, flags, appId) {
 export function defaultStore(host, flags) {
   return flags.storage ?? (['ios', 'macos', 'mac', 'linux'].includes(host) && !flags.url ? 'default' : undefined);
 }
-/** Says, at the first drive of the app on `device` that uses `defaultStore`, what that store is. */
-export function noteDefaultStore({ host, device, appId }, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
+/** Says, at the first drive from the app's directory `dir` on `device` that keeps `defaultStore`, that it is kept.
+ * A drive that compares starts empty and a plain one does not, so a plain drive can show what an earlier one stored
+ * (the euxy port's library); and another checkout of the same app id (a second port on this simulator) shares the store. */
+export function noteDefaultStore({ host, device, appId, dir }, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
   const part = (s) => String(s).replace(/[^\w.-]/g, '_');
-  if (existsSync(resolve(root, ...[host === 'mac' ? 'macos' : host, device, appId, 'default'].map(part)))) return;
-  console.error("note: no --storage named, so this drive uses the store `default`, kept from drive to drive as the app's own files are from launch to launch; --reset-storage empties it, --storage <name> names another");
+  let source = String(dir);
+  try { source = realpathSync(source); } catch { /* the path as given */ }
+  const store = resolve(root, ...[host === 'mac' ? 'macos' : host, device, appId, 'default'].map(part));
+  const mark = resolve(store, `.noted-${createHash('sha256').update(source).digest('hex').slice(0, 16)}`);
+  if (existsSync(mark)) return;
+  try { mkdirSync(store, { recursive: true }); writeFileSync(mark, ''); } catch { /* noted again next time */ }
+  console.error("note: no --storage named, so this drive keeps the store `default`, what earlier drives of this app on this device stored (one that compares with a reference starts empty); --reset-storage empties it, --storage <name> names another");
 }
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
