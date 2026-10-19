@@ -104,7 +104,7 @@ final class MIDIMacTests: XCTestCase {
     /// probe sees every delay a send or a batch meets, and timing says nothing.
     private func machineBusy() -> (busy: Bool, load: Double) {
         var load = [0.0, 0, 0]
-        guard getloadavg(&load, 3) > 0 else { return (false, 0) }
+        guard getloadavg(&load, 3) > 0 else { return (true, .nan) } // no evidence of a quiet machine
         return (load[0] > Double(2 * ProcessInfo.processInfo.activeProcessorCount), load[0])
     }
 
@@ -245,8 +245,9 @@ final class MIDIMacTests: XCTestCase {
                               ["op": "send", "id": 2, "output": out, "data": [0x80, 60, 0], "at": now + 2000]]])
         output.apply(["boot": true, "ops": []])
         // Until the note-off came (a loaded machine delays it), then long
-        // enough that a note-on let go would have.
-        wait(2) { self.lock.withLock { !self.arrived.isEmpty } }
+        // enough that a note-on let go would have; 1 s at most, well before
+        // the held messages' own 2 s, which a boot that kept them would send.
+        wait(1) { self.lock.withLock { !self.arrived.isEmpty } }
         wait(0.3)
         XCTAssertEqual(lock.withLock { arrived }.map(\.status), [0x80], "the note-off at once, the note-on never")
         output.shutdown()
@@ -266,7 +267,7 @@ final class MIDIMacTests: XCTestCase {
                               ["op": "send", "id": 2, "output": out, "data": [0x80, 62, 0], "at": now + 2000]]])
         wait(0.01)
         output.apply(["boot": true, "ops": []])
-        wait(2) { self.lock.withLock { self.arrived.count >= 2 } }
+        wait(1) { self.lock.withLock { self.arrived.count >= 2 } }
         wait(0.1)
         let got = lock.withLock { arrived }
         XCTAssertEqual(got.map(\.status), [0x90, 0x80], "the note-on, then its note-off")
@@ -291,7 +292,7 @@ final class MIDIMacTests: XCTestCase {
         output.apply(["boot": true, "ops": []])
         // Until all four came: a loaded machine delays them (two of four by
         // 300 ms at load 80); their order and stamps are what is checked.
-        wait(2) { self.lock.withLock { self.arrived.count >= 4 } }
+        wait(1) { self.lock.withLock { self.arrived.count >= 4 } }
         wait(0.1)
         let got = lock.withLock { arrived }
         XCTAssertEqual(got.map(\.status), [0x90, 0x90, 0x80, 0x80])
@@ -400,7 +401,9 @@ final class MIDIMacTests: XCTestCase {
                 let at = CACurrentMediaTime()
                 self.system(status, at: at)
                 self.lock.withLock { sent.append((status, at)) }
-                self.pause(status == 0xF8 ? 0.5 / 24 : 0.03)
+                // After the last tick, past its batch's 50 ms before Start: a
+                // Start wrongly batched cannot ride that drain and look on time.
+                self.pause(status == 0xF8 ? 0.5 / 24 : status == 0xFE ? 0.08 : 0.03)
             }
             self.lock.withLock { finished = true }
         }
@@ -505,7 +508,7 @@ final class MIDIMacTests: XCTestCase {
         // Timed only on a quiet main queue: an attempt whose main lagged more
         // than 20 ms just before or after its wait proves nothing either way,
         // and its ceiling is never widened toward the coalesced 150 ms.
-        var timed = 0, worst = 0.0
+        var timed = 0, worst = 0.0, loadSeen = 0.0
         for _ in 0..<12 where timed < 3 {
             // Measured around the wait, never during it: a wakeup of main
             // then would run a coalesced drain on time.
@@ -522,13 +525,15 @@ final class MIDIMacTests: XCTestCase {
             after.stop()
             let late = max(before.most, after.most)
             worst = max(worst, late)
+            loadSeen = max(loadSeen, machineBusy().load)
             guard late <= 0.020, !machineBusy().busy else { continue }
             timed += 1
             let tick = try XCTUnwrap(messages(deliveries).first { $0.list.contains { $0.status == 0xF8 } })
             XCTAssertGreaterThan(tick.at - at, 0.040, "a lone tick waits for its batch")
             XCTAssertLessThan(tick.at - at, 0.100, "and goes when its 50 ms are up, not a coalesced 150 later")
         }
-        if timed == 0 { throw XCTSkip("the main queue lagged past 20 ms around every attempt (\(worst) s): too loaded to time a batch") }
+        print("MIDIMacTests: \(timed) lone ticks timed (main lagged up to \(worst) s, load up to \(loadSeen))")
+        if timed == 0 { throw XCTSkip("the main queue lagged past 20 ms or the load passed twice the cores around every attempt (lag \(worst) s, load \(loadSeen)): too loaded to time a batch") }
         output.shutdown()
     }
 
