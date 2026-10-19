@@ -224,3 +224,29 @@ fn an_expression_over_a_base_name_is_refused() {
     ))
     .unwrap();
 }
+
+/// Round 2 (Astra 2): outside Exact (the DTCG export) an alias to a base name
+/// the design leaves unset writes the neutral column's px, from the kernel's
+/// table, never an invented 1px; the base name is the source it keeps.
+#[test]
+fn an_alias_to_a_base_name_exports_the_neutral_columns_length() {
+    use exact_kernel::style::{metrics::Column, scale};
+    let design = "tamber t\n\ntheme\n  card.pad: length = space.md\n  pill: length = radius.full\n";
+    let vocab = contract_lower::tamber_vocab();
+    let folding = exact_tamber::check_design(exact_tamber::parse(design).unwrap(), &vocab).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&exact_tamber::export::dtcg(&folding, &vocab).unwrap()).unwrap();
+    let text = json.to_string();
+    let neutral = match scale::of("space.md", Column::Neutral).unwrap() {
+        scale::ScaleValue::Px(n) => n,
+        other => panic!("{other:?}"),
+    };
+    let light = &json["modifiers"]["mode"]["contexts"]["light"][0];
+    let px = |v: f64| serde_json::json!({"value": v, "unit": "px"});
+    assert_eq!(light["card"]["pad"]["$value"], px(neutral), "{text}");
+    assert_eq!(
+        light["card"]["pad"]["$extensions"]["exact"]["lossy"],
+        "space.md"
+    );
+    assert_eq!(light["pill"]["$value"], px(scale::RADIUS_FULL), "{text}");
+}

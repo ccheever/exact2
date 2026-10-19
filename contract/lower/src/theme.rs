@@ -122,6 +122,7 @@ pub fn vocab() -> tamber::Vocab {
             let px = f64::from(unit.basis(MEDIUM, MEDIUM, 1.0) * n);
             Some((name, exact_num::Shortest(px).to_string()))
         })
+        .chain(crate::scale::sizes())
         .collect(),
     }
 }
@@ -426,15 +427,6 @@ impl Lowerer<'_> {
             &exported,
         );
         self.errors.extend(refused);
-        // A base name the app sets is a length (stage 11 B, theme2's (c)).
-        for (line, col, message) in crate::scale::misnamed(&folding) {
-            let span = self.token_span(&origin, line, col);
-            self.push(LowerError {
-                id: "tamber-base-kind",
-                message,
-                span,
-            });
-        }
         let mut entries = Vec::new();
         for (i, t) in folding.tokens.iter().enumerate() {
             let Some(value) = t.values.first() else {
@@ -451,9 +443,6 @@ impl Lowerer<'_> {
             };
             let role = synthetic.is_none().then(|| role_named(&name)).flatten();
             let at = &folding.design.tokens[i].name;
-            if exact_kernel::style::scale::is_base(&name) && t.kind != tamber::Kind::Length {
-                continue; // refused above (`scale::misnamed`)
-            }
             if synthetic.is_none()
                 && value.color().is_some_and(|v| {
                     !self.admitted(&name, role.as_ref(), v, (at.line, at.col), &origin)

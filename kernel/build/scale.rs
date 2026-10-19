@@ -20,9 +20,18 @@ const SCALE_NAMES: [&str; 9] = [
 /// the neutral cell for `Column::Web`, theme2 2026-10-19.)
 const SCALE_COLUMNS: [&str; 5] = ["ios", "macos", "neutral", "material", "terminal"];
 
+/// The `style` rows a scale cell may name: those the grouped sheet writes
+/// on a length property, by the name's ending, as the kernel's
+/// `every_value_is_one_a_row_takes` maps them (a gap, an inset, a corner, a
+/// width or a height). A `style` row's bare number is px or not by the row
+/// it is written on, which the table does not say: a weight, a flex factor
+/// or an offset's number is no length (round 2, Astra 4).
+const LENGTH_STYLE_ENDINGS: [&str; 5] = ["-gap", "-inset", "-radius", "-width", "-height"];
+
 /// Metric `name`'s value in `column` (`SCALE_COLUMNS`' index), in px: a
-/// `length` or `style` row's number there. The build refuses any other: a
-/// reference reads a length, never text, `em`, `rem` or `unset`.
+/// `length` row's number there, or a `style` row's that holds a length
+/// (`LENGTH_STYLE_ENDINGS`). The build refuses any other: a reference reads
+/// a length, never text, `em`, `rem`, `unset`, a weight or a flex factor.
 fn scale_metric(metrics: &[MetricRow], cell: &str, column: usize, name: &str) -> f64 {
     let row = metrics
         .iter()
@@ -34,6 +43,11 @@ fn scale_metric(metrics: &[MetricRow], cell: &str, column: usize, name: &str) ->
     assert!(
         kind == "length" || kind == "style",
         "schema: scale {cell}: `={name}` is a {kind} metric, not a length"
+    );
+    assert!(
+        kind == "length" || LENGTH_STYLE_ENDINGS.iter().any(|e| name.ends_with(e)),
+        "schema: scale {cell}: `={name}` is a style metric that holds no length (a weight, a \
+         flex factor, an offset): name a gap, an inset, a corner, a width or a height"
     );
     // The metrics row's own column for this scale column (its columns are
     // iOS, the Mac, the web's first look, neutral, Material), as

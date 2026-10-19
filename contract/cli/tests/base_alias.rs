@@ -7,7 +7,11 @@
 use exact_kernel::style::metrics::{set_column, Column};
 use exact_kernel::style::scale;
 use exact_kernel::{Kernel, StyleId};
-use exact_runner::{DataError, DataSource, Runner, Value};
+use exact_runner::tamber::{Length, Token};
+use exact_runner::{DataError, DataSource, Place, Runner, Value};
+
+const CARD_PAD: Token<Length> = Token::new("card.pad");
+const SPACE_XL: Token<Length> = Token::new("space.xl");
 use std::path::PathBuf;
 
 struct NoData;
@@ -78,12 +82,43 @@ fn an_alias_to_a_base_name_reads_each_columns_and_the_apps_own_live() {
             "{column:?}: {}",
             padding(&r)
         );
+        // A native binding reads the alias, and a base name itself, as a row does (round 2, Astra 1).
+        let number = |v: Option<f64>| format!("({:?})", v.unwrap());
+        assert_eq!(
+            number(r.tamber().get(CARD_PAD, Place::Root)),
+            px("space.md", column),
+            "{column:?}"
+        );
+        assert_eq!(
+            number(r.tamber().get(SPACE_XL, Place::Root)),
+            px("space.xl", column),
+            "{column:?}"
+        );
         // The `when` arm's base name, in the same column.
         r.set_mode("tone", "wide").unwrap();
         assert!(
             padding(&r).contains(&px("space.lg", column)),
             "{column:?}: {}",
             padding(&r)
+        );
+        assert_eq!(
+            number(r.tamber().get(CARD_PAD, Place::Root)),
+            px("space.lg", column),
+            "{column:?}"
+        );
+        // After an edit of the alias: a row and a binding read the new base.
+        r.set_mode("tone", "plain").unwrap();
+        r.set_token("card.pad", "space.xs", &["space.xs", "space.lg"])
+            .unwrap();
+        assert!(
+            padding(&r).contains(&px("space.xs", column)),
+            "{column:?}: {}",
+            padding(&r)
+        );
+        assert_eq!(
+            number(r.tamber().get(CARD_PAD, Place::Root)),
+            px("space.xs", column),
+            "{column:?}"
         );
     }
     // The app's own `space.md` is its token: it wins through the alias, which

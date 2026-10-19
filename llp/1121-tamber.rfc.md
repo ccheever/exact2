@@ -829,6 +829,17 @@ No spacing or radius scale ships in the base yet: the platform's metrics are alr
 rows. A base scale, with platform values rather than a brand's 4 px grid, is wanted later
 (Charlie, 2026-10-13) and is stage 11.
 
+*Amended 2026-10-19 (stage 11 B; theme2):* the base scale ships as nine base names (`space.xs`
+to `space.xl`, `radius.sm` to `radius.full`), each a length in each host's column of the
+kernel's table. A design value or a `when` arm may name one bare (`card.pad: length = space.md`,
+an alias), and what it means depends on the app's design:
+- **the base name is unset:** the alias is a per-host reference, kept as written and never
+  folded, so each host reads its own column; an expression over it (`calc(space.md + 4px)`) is
+  refused until QUEUE's entry lands;
+- **the app's design sets it:** it is the app's own token, and every reader folds through it as
+  through any token reference, so the app's value wins everywhere, an edit of it re-folds the
+  alias, and a ranged param naming it keeps its px.
+
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
 may set any of them by full name. Two definitions of one name from different files are a
@@ -4655,7 +4666,9 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
       definition first (`theme::measure`). Both reads are recorded, so an edit of either sets the row again. A base name
       set to itself reads the scale.
     - A base name the design sets is its token, folded as any token reference is. Its value wins through the alias, an
-      edit of it re-folds the alias for the design server's batch, and a ranged param naming it keeps its px.
+      edit of it re-folds the alias for the design server's batch, and a ranged param naming it keeps its px. theme2
+      accepted this (2026-10-19): "never folded" applies to an unset base name only. D11 is amended with both cases:
+      unset, a per-host reference never folded; set, the app's token, folded as any reference.
     - An expression over a base name the design leaves unset (`calc(space.md + 4px)`, a shadow's length) is refused,
       `tamber-base-expression`, telling the author to name it bare. QUEUE has the later work. Over one the design sets,
       it is that token's expression.
@@ -4666,10 +4679,27 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
       - `tamber_base_scale.rs`: the expression refusals.
       - `style::scale`: the kernel's alias reads.
   - **An icon named as a base name is refused** (Astra 2). `tamber-base-kind` covers icon declarations as well as tokens
-    (`contract_lower::scale::misnamed`), with a refusal test. A dial's name is an identifier, so none can be one.
+    (at lowering then; round 2 moves it into the shared checker), with a refusal test. A dial's name is an identifier, so none can be one.
   - **The build checks each source against its entry** (Astra 3): a `measured` or `guideline` id with no entry in
     `docs/scale-measured.md` stops the build, and the page is a rerun dependency. The rerun is said in
     `build/scale.rs`, not `build.rs`, which the schema digest hashes, so the digest does not move.
   - **Each documented value is bound to its step** (Astra 4). Every entry has a `Binds:` line (`space.xs = 4`), and both
     the build and the provenance test require the cell's exact `name = value` there. A shared entry's other numbers no
     longer stand in: Material radius.md 8 → 4 now fails the build.
+- **After review round 2:**
+  - **The runner's length binding reads an alias** (fix 1). `Tamber::length` reads its token through `theme::measure`
+    at the binding's tuple, so `card.pad = space.md` resolves through the kernel's scale in the process's column, as a
+    style row's does. `base_alias.rs` binds `Token<Length>` reads of `card.pad` and `space.xl` in each column, after a
+    mode change and after an edit to `space.lg`.
+  - **The DTCG export of an alias to an unset base** (fix 2). It wrote 1px; now it writes the neutral column's px from
+    the kernel's table (the web's look; radius.full its 9999), the name kept in `lossy`. The export's conversions say
+    so. `contract_lower::theme::vocab` lists the base names' lengths in `sizes`, which `tamber gen`'s CSS reads too, so
+    neither writes a bare `space.md` outside Exact. Test: `tamber_base_scale.rs`.
+  - **`tamber-base-kind` is the shared checker's** (fix 3). `check_design` refuses a base name declared as an icon or
+    as any token but a length, by `Vocab::bases`, so a write's plan refuses it before it lands, as the build does; the
+    lowering's copy is gone. Test: `tamber_serve.rs` (`propose` and `transaction` refused, file unchanged, a length
+    accepted).
+  - **A scale cell names a metric that holds a length** (fix 4). A `style` row's bare number may be a weight or a flex
+    factor, which the table doesn't mark, so a `style` reference must end in `-gap`, `-inset`, `-radius`, `-width` or
+    `-height`, the endings the kernel's row test maps to length properties. `=grouped-header-weight` stops the build,
+    checked by hand.

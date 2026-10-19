@@ -268,9 +268,22 @@ impl<D: DataSource> Tamber<'_, D> {
         }
     }
 
-    /// Length token `name` at `place`, in points (stage 6 G).
+    /// Length token `name` at `place`, in points (stage 6 G), as a row reads
+    /// it: through the kernel's token lookup under the place's tuple, so an
+    /// alias to a base name the design leaves unset (`card.pad = space.md`)
+    /// and a base name itself read this process's column, the design's own
+    /// definition first (LLP 1121 stage 11 B, round 2).
     pub fn length(&mut self, name: &str, place: Place) -> Option<f64> {
-        let text = self.entry(name, exact_kernel::style::theme::Kind::Length, place)?;
+        use exact_kernel::style::theme;
+        let table = crate::bridge::theme_table_at(&self.runner.plan, self.tuple(place));
+        let text = {
+            let _scope = theme::bind(&table);
+            theme::measure(name, |k, _| k == theme::Kind::Length).map(|(_, v)| v.to_string())
+        };
+        let Some(text) = text else {
+            self.say_once(name, "no such token `{name}` in this plan");
+            return None;
+        };
         self.points(&text, place)
     }
 
