@@ -5,7 +5,6 @@ import { mobileModelSelectionReady } from './model-availability';
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftNoteBranch, mobileNewTaskDraftLookup, mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch, mobileNewTaskDraftCurrent, mobileNewTaskDraftChoicesUpdate } from './mobile-new-task-drafts';
 import { mobileComposerTarget, mobileComposerTargetRequire, mobileComposerTargetCurrent } from './composer-target';
-import { mobileVoiceBlocksSubmission } from './voice-data';
 import { mobileNewTaskTransferBusy } from './new-task-transfer';
 import { mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 import { mobileNewTaskCloneSnapshot } from './new-task-clone';
@@ -286,7 +285,7 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
       mobileComposerTargetRequire(client, id);
       if (!id || captured.kind !== 'ordinary' || !mobileNewTaskDraftCurrent(client) || !client.preferencesLoaded)
         throw new ClientError('Choose the current new task before changing its mode.');
-      if (interactionBlocked || mobileVoiceBlocksSubmission(client)) throw new ClientError('Wait for the current draft import or recording to finish.');
+      if (interactionBlocked) throw new ClientError('Wait for the current draft import to finish.');
       if (!interactionPresentation(client, preferences).planModeEnabled) throw new ClientError('Plan mode is not available for this draft.');
       if (value !== 'plan' && value !== 'default') throw new ClientError('That mode is not supported.');
       if (!mobileNewTaskDraftChoicesUpdate(client, captured.key, { interactionMode: value })) throw new ClientError('The draft changed.', 'superseded');
