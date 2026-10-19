@@ -177,4 +177,7 @@ whose design the port serves.
   (`bun exact.mjs tamber import astryx …`) and is reviewed the same way.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
   `scripts/design-tool.test.mjs` drives the built tool against a real
-  server on a copy of `apps/theme-fixture`.
+  server on a copy of `apps/theme-fixture`. Both run on the checkout's own
+  port (`EXACT_TOOL_PORT` names another), never a person's 7740: `bun
+  exact.mjs test` here runs a copy staged for that origin
+  (`scripts/tamber-tool-port.mjs`).

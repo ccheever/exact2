@@ -357,7 +357,9 @@ one, each role override apart; every source value is mapped or reported, counted
 tool is the design tool (LLP 1122), built if stale, served by the design server at
 http://127.0.0.1:7740/__tamber/tool/ and opened. docs/recipes/tamber.md.
 Ports    serve: a loopback port (printed), until ctrl-c; tool: 127.0.0.1:7740, the one its
-grants name, until ctrl-c. The rest: none; they run to completion.`,
+grants name, until ctrl-c (EXACT_TOOL_PORT names another: the tool is built for it, and a dev
+loop must be started with the same to let it frame its pages). The rest: none; they run to
+completion.`,
     example: 'bun exact.mjs tamber eval . --mode dark-style=dim',
   },
   hatch: {

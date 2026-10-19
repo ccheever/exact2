@@ -87,14 +87,16 @@ import { existsSync, readFileSync, realpathSync, statSync, watch } from 'node:fs
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
+import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
+export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
 import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, remoteArgs } from './tamber-remote.mjs';
-import { serveTool, TOOL_DIST } from './tamber-tool-files.mjs';
-export { serveTool, serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
+import { serveTool } from './tamber-tool-files.mjs';
+export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
 import { readBody, parseRequest as parse, tooDeep } from './tamber-request.mjs';
 
@@ -1181,9 +1183,6 @@ export async function serveAlone(argv) {
   await new Promise(() => {});
 }
 
-/** The design tool's own local URL: its grants name this one origin
- * (apps/design-tool/app.ts). */
-export const TOOL_ORIGIN = 'http://127.0.0.1:7740';
 // The header a dev loop's HTML carries (LLP 1122 T2): framed by the design
 // tool's origin and the page's own ('self': a page the canvas shows may frame
 // its own pages), never another's.
@@ -1224,7 +1223,8 @@ async function buildTool() {
   const { webChanges } = await import('./agent-launch.mjs');
   // This checkout's tool, whatever app the caller's EXACT_APP_DIR names.
   const caller = process.env.EXACT_APP_DIR;
-  process.env.EXACT_APP_DIR = resolve(ROOT, 'apps/design-tool');
+  const staged = TOOL_PORT === 7740 ? null : stageTool();
+  process.env.EXACT_APP_DIR = staged ? staged.dir : resolve(ROOT, 'apps/design-tool');
   let app;
   try { app = resolveApp(); } finally { if (caller === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = caller; }
   // This app's whole JS-target build (every file its marker lists), with
@@ -1298,7 +1298,7 @@ export async function toolCommand(argv) {
     open();
     return 0;
   }
-  const port = Number(new URL(TOOL_ORIGIN).port);
+  const port = TOOL_PORT;
   if (target) {
     const upstream = await toolAnswers(target);
     let same = false;

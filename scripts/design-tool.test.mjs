@@ -11,11 +11,19 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
-import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
-import { takePort } from './port-lock.mjs';
+import { checkoutPort, takePort } from './port-lock.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+// The tool's port for these runs: this checkout's own (one of 200 above 17740,
+// by its path), not the 7740 a person's tool holds, so a run here waits on
+// another checkout's only where their paths share a port (then it takes its
+// turn); EXACT_TOOL_PORT names another. Every child the tests spawn serves and
+// frames that origin.
+process.env.EXACT_TOOL_PORT ??= String(checkoutPort(ROOT));
+const { TOOL_DIST, TOOL_ORIGIN, TOOL_PORT, stageTool } = await import('./tamber-server.mjs');
+// The app a drive names: the staged tool (no server of its own) on another port, so no drive starts the stub on 7740.
+const DRIVEN = TOOL_PORT === 7740 ? { args: ['--app', 'design-tool'], env: process.env } : { args: [], env: { ...process.env, EXACT_APP_DIR: stageTool().dir } };
 // The stub's app (its components' params, which the stub's design sets):
 // the app beside a copy of stub/dials.tamber.
 const STUB_APP = readFileSync(resolve(ROOT, 'apps/design-tool/stub/app.contract'), 'utf8');
@@ -66,8 +74,8 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
   let drive, other;
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
-    drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-${process.pid}`, '--json',
-      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'state'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-${process.pid}`, '--json',
+      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'state'], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
     const out = lines(drive);
@@ -170,13 +178,13 @@ test('every control on the dials panel comes from the design as describe gives i
       expect(canned.resolve[t.name]).toEqual(await ask({ method: 'resolve', token: t.name }));
       expect(canned.explain[t.name]).toEqual(await ask({ method: 'explain', token: t.name }));
     }
-    const drive = spawnSync(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-dials-${process.pid}`, '--json',
+    const drive = spawnSync(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-dials-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', 'tap more-Colour', 'tap more-Tone', 'tree dials',
       // The sliders' own range and step, which the page keeps a value to:
       // a step of 0.001 to 0.005, a value past the end held at it.
       'type dial-fine-slider 0.004', 'state', 'type dial-fine-slider 1', 'state', 'type dial-lift-slider 0.374', 'state', 'type dial-chroma-slider -1', 'state',
       // A length dial's value, written in px, which the real server takes (stage 6).
-      'type dial-gap-slider 10', 'clock data', 'tap apply', 'clock data'], { cwd: ROOT, encoding: 'utf8' });
+      'type dial-gap-slider 10', 'clock data', 'tap apply', 'clock data'], { cwd: ROOT, env: DRIVEN.env, encoding: 'utf8' });
     expect(drive.status, drive.stderr).toBe(0);
     const out = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const tree = out.find(r => r.nodes);
@@ -241,7 +249,7 @@ test('every control on the dials panel comes from the design as describe gives i
  * (spawned, not run synchronously: the proxy below answers in this
  * process). */
 async function drive(url, storage, ops, { keepStorage = false } = {}) {
-  const child = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, ...(keepStorage ? ['--keep-storage'] : []), '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', storage, ...(keepStorage ? ['--keep-storage'] : []), '--json', ...ops], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   child.stderr.on('data', d => { said = (said + d).slice(-4000); });
   const out = lines(child);
@@ -978,7 +986,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       }
     };
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
-    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
+    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // accent.fill, the default branch: a value, its proposal live (the
       // moment before any scrub), then scrubbed to another.
@@ -998,7 +1006,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       // one is live: D7's retention.)
       'type new-name -exact-label', 'type new-value #ff0000', 'tap add-token', 'clock data', 'state',
       'tree proposal', 'clock +6000 real',
-    ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    ], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
     const out = lines(drive);
@@ -1127,7 +1135,7 @@ async function kindsOnTheJsLoop() {
       }
     };
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
-    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
+    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // The length, by its amount field: proposed live, then scrubbed.
       'tap cell-space.card-0-light', 'clock data', 'type part-amount-field 14', 'clock data', 'state', 'tree typed', 'clock +6000 real',
@@ -1137,7 +1145,7 @@ async function kindsOnTheJsLoop() {
       'tap cell-duration.card-0-light', 'clock data', 'type branch-value 300ms', 'type branch-value key Enter', 'clock data', 'state', 'tree branch', 'clock +2000 real',
       // The font-weight token: inline on the JS target.
       'tap cell-weight.title-0-light', 'clock data', 'type part-amount-field 700', 'clock data', 'state', 'tree icons', 'clock +2000 real',
-    ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    ], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
     const out = lines(drive);
