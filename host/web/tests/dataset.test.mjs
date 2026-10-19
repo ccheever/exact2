@@ -1,6 +1,5 @@
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 test('a data-word read includes literal and bound attributes in tree order', async () => {
   // The build stages these modules together; serve that same layout to a real DOM.
@@ -15,7 +14,7 @@ test('a data-word read includes literal and bound attributes in tree order', asy
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(server.url.href);
     const snapshots = await page.evaluate(async () => {

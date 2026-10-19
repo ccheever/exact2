@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir, loadavg } from 'node:os';
 import { resolve, join, extname } from 'node:path';
 import { build, dist, browserWorld, macWorld, summarize, displayReady, stop, track, focus } from './exact.mjs';
+import { chromium } from '../../scripts/agent-launch.mjs';
 
 const here = resolve(new URL('.', import.meta.url).pathname);
 if (process.argv[2] === 'compare') {await (await import('./compare.mjs')).compare();process.exit(0);}
@@ -25,7 +26,7 @@ const seconds = process.env.BENCH_SECONDS ?? '8';
 const headless = process.env.BENCH_HEADLESS === '1';
 if (!(Number(seconds)>0 && Number(seconds)<=60) || !/^[1-9][0-9]*$/.test(n)) throw new Error('N must be positive and BENCH_SECONDS must be in (0, 60]');
 const GODOT = process.env.GODOT ?? resolve(process.env.HOME, 'Library/Caches/exact2-game/godot/Godot.app/Contents/MacOS/Godot');
-const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = chromium({ needs: ['gpu', 'perf'] }).executable;
 
 // The largest N that holds the refresh rate (BENCH_HZ, default 120): at least 96% of
 // its frames per second, and a p95 frame under one and a half intervals — a browser's

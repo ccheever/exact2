@@ -5,8 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const root = resolve(new URL('../../..', import.meta.url).pathname);
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-popflip-'));
@@ -108,7 +107,7 @@ print("\\(p.x),\\(p.y)")
 afterAll(() => { server?.stop(true); rmSync(dir, { recursive: true, force: true }); });
 
 test('authored fallback CSS reaches Chrome; native rectangles match its edge cases', async () => {
-  const browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 420, height: 600 } });
     await page.goto(`http://127.0.0.1:${server.port}/`);

@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, watchFile, unwatchFile, statSync, lstatSync, readlinkSync, utimesSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
-import {open, Cdp} from '../../../scripts/agent.mjs';
+import {open} from '../../../scripts/agent.mjs';
 import {compilerPaths, gpuModules, pendingBuildInputs} from '../../../scripts/app.mjs';
 import {createHash} from 'node:crypto';
 import {runInNewContext} from 'node:vm';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
 import {watchStaticTrees} from '../serve.mjs';
-import {chromium} from '../../../scripts/agent-launch.mjs';
+import {cdpBrowser, chromium} from '../../../scripts/agent-launch.mjs';
 import {need} from '../../../scripts/coverage.mjs';
-const {executable:chrome,unavailable}=chromium();
+const {unavailable}=chromium();
 // A test that edits an app's files and writes them back also puts their
 // times back, so a later test's build-freshness check is not tripped.
 const keepTimes = paths => { const kept = paths.map(p => [p, statSync(p)]); return () => { for (const [p, st] of kept) utimesSync(p, st.atime, st.mtime); }; };
@@ -137,8 +137,8 @@ need('chrome', unavailable)('a page whose first build failed reloads into the fi
   const contract=resolve(new URL('../../../apps/realworld/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
-  const profile=mkdtempSync(join(tmpdir(),'exact-dev-error-')),dist=mkdtempSync(join(tmpdir(),'exact-dev-error-dist-'));
-  let dev,browser,lines='';
+  const dist=mkdtempSync(join(tmpdir(),'exact-dev-error-dist-'));
+  let dev,suite,lines='';
   const waitFor=async (read,accept,ms=60000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,50))}throw new Error(`not observed: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};
   try {
     writeFileSync(contract,original+'\nthis is not Contract (\n');
@@ -146,10 +146,8 @@ need('chrome', unavailable)('a page whose first build failed reloads into the fi
     dev.stdout.on('data',d=>{lines+=d});dev.stderr.on('data',d=>{lines+=d});
     const url=`http://127.0.0.1:${port}/`;
     await waitFor(()=>fetch(url).then(r=>r.status),status=>status===200,180000);
-    browser=spawn(chrome,['--headless=new','--remote-debugging-pipe','--no-sandbox',`--user-data-dir=${profile}`,'--no-first-run','about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
-    const cdp=new Cdp(browser.stdio[3],browser.stdio[4]);
-    const page=await waitFor(()=>cdp.send('Target.getTargets'),r=>r.targetInfos.some(t=>t.type==='page'),20000);
-    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId:page.targetInfos.find(t=>t.type==='page').targetId,flatten:true});
+    suite=await cdpBrowser();
+    const {cdp}=suite,{sessionId}=await suite.page();
     const evaluate=expression=>cdp.send('Runtime.evaluate',{expression,returnByValue:true},sessionId).then(r=>r.result.value);
     await cdp.send('Page.navigate',{url},sessionId);
     await waitFor(()=>evaluate("document.readyState"),s=>s==='complete',20000);
@@ -159,9 +157,8 @@ need('chrome', unavailable)('a page whose first build failed reloads into the fi
   } finally {
     writeFileSync(contract,original);
     restoreTimes();
-    if(browser?.exitCode===null){browser.kill('SIGKILL');await new Promise(ok=>{const t=setTimeout(ok,2000);browser.once('exit',()=>{clearTimeout(t);ok()})})}
+    await suite?.close();
     if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
-    rmSync(profile,{recursive:true,force:true});
     rmSync(dist,{recursive:true,force:true});
   }
 },420_000);

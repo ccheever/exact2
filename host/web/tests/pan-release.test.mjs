@@ -5,18 +5,15 @@
 // a cancelled contact releases at rest, and the journal says why. The tracker itself is the engine's
 // (host/web/src/pan_velocity.rs); here a stand-in records what the glue feeds it.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const page = `<!doctype html>
@@ -58,13 +55,9 @@ check('a pan that began releases once with its velocity; a tap none; a cancel at
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'input-glue.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-panrelease-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=600,900', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: ['--window-size=600,900'] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -124,8 +117,7 @@ check('a pan that began releases once with its velocity; a tap none; a cancel at
     // The journal says the browser took it, and what keeps it (files diary F10).
     expect(log.filter(([kind]) => kind === 'journal').map(([, line]) => line)).toEqual([expect.stringMatching(/^pan cancelled: the browser took the touch contact .*touch-action="none"/)]);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }, 60000);

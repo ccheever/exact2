@@ -14,6 +14,7 @@ import { request } from 'node:http';
 import { spawnOwned } from './test-children.mjs';
 
 import { DRIVEN, drive, lines, proxied, ROOT, stop, STUB_APP, TOOL_DIST, TOOL_ORIGIN, toolTurns } from './design-tool-harness.mjs';
+import { suiteBrowser } from './agent-launch.mjs';
 
 toolTurns();
 
@@ -1109,8 +1110,7 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const { chromium } = await import('playwright-core');
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const browser = await suiteBrowser();
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;

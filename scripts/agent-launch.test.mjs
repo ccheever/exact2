@@ -4,7 +4,7 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Cdp, chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 
 test('drive clock warnings compare explicit and default epochs with the actual backend clock', async () => {
@@ -103,16 +103,22 @@ test('--epoch now is the machine clock read once at launch, reported as that ins
   expect(time(60000)).toEqual([facts.epoch, 0]);
 });
 
-test('Windows browser discovery accepts an installed Chrome and explicit executable paths with spaces', () => {
+test('the pinned headless shell by default, the full build for a need, and CHROME over both, with spaces in a path', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact browser paths-'));
   try {
-    const chrome = resolve(dir, 'Google/Chrome/Application/chrome.exe');
-    mkdirSync(dirname(chrome), {recursive:true});
-    writeFileSync(chrome, '');
-    chmodSync(chrome, 0o755);
-    expect(chromium({ProgramFiles:dir}, 'win32').executable).toBe(chrome);
-    expect(chromium({CHROME:chrome}, 'win32').unavailable).toBe(null);
-    expect(chromium({CHROME:resolve(dir, 'missing.exe')}, 'win32').unavailable).toBeTruthy();
+    const full = resolve(dir, 'ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing');
+    const shell = resolve(dir, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell');
+    const at = (environment, needs) => chromium({ needs, environment, platform: 'darwin', arch: 'arm64', full });
+    expect(at({}).unavailable).toMatch(/headless shell is missing .*install chromium-headless-shell/);
+    for (const path of [full, shell]) { mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, ''); chmodSync(path, 0o755); }
+    expect(at({})).toEqual({ executable: shell, unavailable: null });
+    expect(at({}, ['gpu'])).toEqual({ executable: full, unavailable: null });
+    expect(at({CHROME: shell}, ['gpu']).executable).toBe(shell);
+    expect(at({CHROME: resolve(dir, 'missing')}).unavailable).toBeTruthy();
+    expect(() => at({}, ['webgl'])).toThrow(/unknown need webgl/);
+    expect(chromiumBuilds('C:\\pw\\chromium-1248\\chrome-win64\\chrome.exe', 'win32', 'x64').shell)
+      .toBe('C:\\pw\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe');
+    expect(chromiumBuilds('/pw/chromium-1248/chrome-linux/chrome', 'linux', 'riscv64').shell).toBe(null);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 // App farm wave 1 (21 builds): a builder on a shared machine keeps every listener in its assigned range.

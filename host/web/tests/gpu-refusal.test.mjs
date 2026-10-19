@@ -41,9 +41,7 @@ test('a wasm trap while the world is borrowed leaves host diagnostics readable w
 }, 60000);
 
 test('browser agent settling retains render traps and quarantines all later module entries', async () => {
-  const {spawn} = await import('node:child_process');
-  const {chromium} = await import('../../../scripts/agent-launch.mjs');
-  const {Cdp} = await import('../../../scripts/agent.mjs');
+  const {cdpBrowser} = await import('../../../scripts/agent-launch.mjs');
   const {glueDeclarations} = await import('./glue-fixture.mjs');
   const web = resolve(import.meta.dir,'..'), profile = mkdtempSync('/tmp/gpu-refusal-browser-');
   const compiled = Bun.spawn(['rustc',resolve(web,'../../game/engine/tests/fixtures/gpu-borrow-panic.rs'),'--crate-type','cdylib','--target','wasm32-unknown-unknown','-C','panic=abort','-o',resolve(profile,'panic.wasm')],{stderr:'pipe'});
@@ -81,14 +79,12 @@ test('browser agent settling retains render traps and quarantines all later modu
     if(path==='/gpu.js')return new Response(moduleSource,{headers:{'content-type':'text/javascript'}});
     return new Response(Bun.file(path==='/panic.wasm'?resolve(profile,'panic.wasm'):path==='/gpu-glue.js' && process.env.E2B_GPU_SOURCE ? process.env.E2B_GPU_SOURCE : resolve(web,path.slice(1))));
   }});
-  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
-  const exited=new Promise(ok=>child.once('exit',ok));
-  const cdp=new Cdp(child.stdio[3],child.stdio[4]), hostLines=[];
+  const suite=await cdpBrowser(),{cdp}=suite, hostLines=[];
+  let listener;
   try {
-    const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
-    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
+    const {sessionId}=await suite.page();
     const call=(method,params={})=>cdp.send(method,params,sessionId);
-    cdp.listeners.push(msg => { if(msg.method==='Runtime.consoleAPICalled')hostLines.push(msg.params.args.map(a=>a.value??a.description).join(' ')); });
+    cdp.listeners.push(listener = msg => { if(msg.sessionId===sessionId && msg.method==='Runtime.consoleAPICalled')hostLines.push(msg.params.args.map(a=>a.value??a.description).join(' ')); });
     await call('Runtime.enable');
     const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
     await call('Page.navigate',{url:`http://127.0.0.1:${server.port}/`});
@@ -108,9 +104,8 @@ test('browser agent settling retains render traps and quarantines all later modu
     expect(await evaluate('entries')).toBe(entries);
     expect(hostLines.join('\n')).toContain('borrowed world fixture');
   } finally {
-    await cdp.send('Browser.close',{},undefined,2000).catch(()=>{});
-    if(child.exitCode===null && child.signalCode===null)child.kill('SIGKILL');
-    await exited;server.stop(true);rmSync(profile,{recursive:true,force:true});
+    if(listener)cdp.listeners.splice(cdp.listeners.indexOf(listener),1);
+    await suite.close();server.stop(true);rmSync(profile,{recursive:true,force:true});
   }
 },120000);
 

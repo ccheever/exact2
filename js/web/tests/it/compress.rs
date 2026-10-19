@@ -11,15 +11,6 @@ const GRANTS: [&str; 2] = [
 
 #[test]
 fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
-    if !Path::new(&chrome).exists() {
-        missing(
-            "chrome",
-            "compressImage browser check unavailable: set CHROME",
-        );
-        return;
-    }
     let sets = GRANTS
         .iter()
         .map(|spec| {
@@ -34,7 +25,6 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
         .collect::<serde_json::Map<_, _>>();
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
-        .env("CHROME", chrome)
         .env(
             "EXACT_GRANT_SETS",
             serde_json::Value::Object(sets).to_string(),
@@ -42,6 +32,14 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output()
         .unwrap();
+    if let Some(why) = String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("missing chrome: "))
+        .map(str::to_owned)
+    {
+        missing("chrome", &why);
+        return;
+    }
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
         result.status.success(),
@@ -172,6 +170,9 @@ fn check(engine: &str, report: &serde_json::Value) {
 
 const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { chromium } from './scripts/agent-launch.mjs';
+const { executable: browserExecutable, unavailable: browserMissing } = chromium();
+if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -190,7 +191,7 @@ const server = createServer((req, res) => {
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const profile = mkdtempSync(resolve(tmpdir(), 'exact-compress-browser-'));
-const child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+const child = spawn(browserExecutable, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]);
 const exited = new Promise(r => child.on('exit', () => { cdp.fail('browser closed'); r(); }));
 // The same checks in the page and in a module worker: `realm` runs them
