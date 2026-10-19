@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 test.each(['tap', 'pan', 'reveal', 'pointer', 'hover', 'wheel', 'check', 'contextpopover', 'autofocus', 'drop'])('a modal escapes an inert ancestor for agent %s input', async input => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -175,8 +176,6 @@ ${input === 'reveal' ? `        box height=1200
 
 
 test('a dev checkpoint restores modal focus past inert ancestors, but not within inert content', async () => {
-  const { chromium } = await import('playwright-core');
-  const { chromium: browserPath } = await import('../../scripts/agent-launch.mjs');
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/rt.js') return new Response('export const clock = {}; export const carryRouter = null, launchLocation = null, res = null, sig = null;', { headers: { 'content-type': 'text/javascript' } });
@@ -192,7 +191,7 @@ test('a dev checkpoint restores modal focus past inert ancestors, but not within
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true, args: ['--no-sandbox'] });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(server.url.href);
     await page.waitForFunction(() => typeof window.restore === 'function');

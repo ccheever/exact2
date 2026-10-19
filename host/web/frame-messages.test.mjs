@@ -1,6 +1,5 @@
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 // The real browser performs origin checks and Window ownership; no DOM doubles.
 test('iframe replies keep order and ownership, with no queue across replacement or navigation', async () => {
@@ -23,7 +22,7 @@ test('iframe replies keep order and ownership, with no queue across replacement 
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(server.url.href);
     await page.waitForFunction(() => document.querySelectorAll('iframe').length === 3);

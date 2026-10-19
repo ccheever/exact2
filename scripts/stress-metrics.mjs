@@ -1,9 +1,10 @@
 // @ref LLP 1041 §5 — callback/DOM observations, never a physical-display FPS claim.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { arch, cpus, platform, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from './agent.mjs';
+import { chromium } from './agent-launch.mjs';
 
 export function summarize(values, target) {
   const a = values.filter(x => Number.isFinite(x) && x >= 0).toSorted((a, b) => a - b);
@@ -73,8 +74,8 @@ function instrument(inputId, echoId) {
 
 export async function runStressMetrics(args) {
   const options = stressOptions(args);
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  if (!existsSync(chrome)) throw new Error('set CHROME to a Chrome executable');
+  const { executable: chrome, unavailable } = chromium({ needs: ['perf'] });
+  if (unavailable) throw new Error(unavailable);
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-stress-'));
   const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
     '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',

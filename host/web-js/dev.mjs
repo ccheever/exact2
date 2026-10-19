@@ -32,6 +32,14 @@ const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
+/** Whether `path` changed from `since` (ms) until now, by the entry's own times (lstat: a link replaced by one to an older
+ * file is new, though its target is not): its modification, or its status change, which alone moves when an older file
+ * is renamed over it. A time past now is a file dated ahead (an archive's, a clock's), which a build read as it is, so it is no change. Throws
+ * for a path that is gone, which each caller reads its own way. */
+const changedSince = (path, since) => { const s = lstatSync(path), now = Date.now() + 1; return [s.mtimeMs, s.ctimeMs].some((t) => t >= since && t <= now); };
+/** Whether a watcher's event for `path` is an edit since `since`: macOS reports a build's reads of a tree (the assets it
+ * copies) as events too, and a path unchanged since then is none. A path that is gone is an edit. */
+const movedSince = (path, since) => { try { return changedSince(path, since); } catch { return true; } };
 
 let building = null; // the build in flight, stopped with the server
 /** Stop the build in flight and what it runs (its own process group). */
@@ -114,10 +122,7 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
       // the design, app.ts, app.json and the backend's origin (one come or
       // gone is moved), by their times. Asked again just before it is
       // published or kept, after the work before that.
-      // A time past now is a file dated ahead (an archive's, a clock's),
-      // which this build read as it is: only one since it began and by now
-      // is a change.
-      const since = (path) => { const s = lstatSync(path), now = Date.now() + 1; return [s.mtimeMs, s.ctimeMs].some((t) => t >= began && t <= now); };
+      const since = (path) => changedSince(path, began);
       lastSources = packages.sources;
       const newer = () => packages.sources.some((path) => { try { return since(path); } catch { return known.has(path); } })
         || own.some((path) => { try { lstatSync(path); } catch { return there.has(path); } return !there.has(path) || since(path); });
@@ -183,7 +188,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   let built, startMoved = false;
   for (let moved = false, tries = 1; ; moved = false, tries++) {
     const input = (name) => name && ((!skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') || /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)));
-    const early = [watch(app.dir, { recursive: true }, (_, name) => { if (input(name)) moved = true; }), watch(resolve(root, 'host/web-js'), { recursive: true }, (_, name) => { if (name && !skipped.test(String(name))) moved = true; })];
+    const begun = Date.now();
+    const early = [watch(app.dir, { recursive: true }, (_, name) => { if (!moved && input(name) && movedSince(resolve(app.dir, String(name)), begun)) moved = true; }), watch(resolve(root, 'host/web-js'), { recursive: true }, (_, name) => { if (!moved && name && !skipped.test(String(name)) && movedSince(resolve(root, 'host/web-js', String(name)), begun)) moved = true; })];
     try { built = await build(app, dist, () => false, null, tries < 3 ? () => moved : null); } finally { for (const w of early) w.close(); }
     startMoved = moved;
     if (!built.superseded) break;
@@ -638,9 +644,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (base === app.dir && OUTPUT.test(String(name)) && !INPUT_TREE.test(String(name)) && !JSON.stringify(app.manifest ?? {}).includes(String(name))) return;
     // A package's events are all edits: a link replaced by one to an older
     // file is newer than nothing, and its target's time says nothing of it.
-    // The entry's own time (lstat): a link replaced by one to an older file
-    // is new, though its target is not.
-    try { if (fresh && name && !backendMoved && lstatSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
+    if (fresh && name && !backendMoved && !movedSince(resolve(base, String(name)), since)) return;
     if (!timer) saved = Date.now();
     const path = resolve(base, String(name ?? ''));
     edited.add(path);

@@ -480,8 +480,8 @@ export function sdkReport(env = process.env) {
   rows.push(row('wasm-opt', opt, BINARYEN, opt === BINARYEN, 'exact setup'));
   const modules = existsSync(resolve(ROOT, 'node_modules/.bin/rolldown'));
   rows.push(row('node_modules', modules ? 'installed' : '', 'bun.lock', modules, `bun install --frozen-lockfile in ${ROOT}`));
-  const browser = chromium(env);
-  rows.push(row('Chrome', browser.unavailable ? '' : browser.executable, 'any', !browser.unavailable, 'install Google Chrome, or set CHROME'));
+  const browser = chromium({ environment: env });
+  rows.push(row('Chrome', browser.unavailable ? '' : browser.executable, 'any', !browser.unavailable, "install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME"));
   if (process.platform === 'darwin') {
     const developer = output('xcode-select', ['-p']);
     const xcode = /\.app\/Contents\/Developer$/.test(developer);

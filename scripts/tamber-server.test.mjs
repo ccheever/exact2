@@ -15,6 +15,7 @@ import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
+import { suiteBrowser } from './agent-launch.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const DESIGN = 'tamber t\n\ntheme\n  ink = #000000\n  edge = #101010\n';
@@ -510,8 +511,7 @@ test('no web build ships inspect: it lives in dev.js, which no build copies', as
 // LLP 1122 T2b: inspect mode in the wasm host, on the theme fixture's page.
 test('inspect on the wasm page: no tap reaches the app, a click selects the node the hit test finds and reports its site, instance and rows, a refresh reports it again, and Escape leaves', async () => {
   const { base, stop, said } = await devLoop(['--wasm'], 'theme-fixture');
-  const { chromium } = await import('playwright-core');
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const browser = await suiteBrowser();
   let polling = true;
   try {
     const { token } = await (await fetch(`${base}/__tamber/token`)).json();
@@ -641,8 +641,7 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
 // built in the page from the build's inspect table, and the join and
 // outline drawn from the page's own plan's map.
 test('inspect on the JS page: no tap reaches the app, and each node answers as on the wasm page, row for row, joined to the same source, with the same editability', async () => {
-  const { chromium } = await import('playwright-core');
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const browser = await suiteBrowser();
   const ids = ['page', 'dim', 'swap', 'card', 'light', 'dim-preview', 'black-preview'];
   const polls = [], stops = [];
   try {

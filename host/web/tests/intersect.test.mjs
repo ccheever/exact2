@@ -1,12 +1,11 @@
 // LLP 1005: the adapter must preserve Chrome's IntersectionObserver entries.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { chromium } from 'playwright-core';
-import { chromium as installedChrome } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 test('intersection matches Chrome for margins, scroll, clipping, zero area and removal', async () => {
   const source = readFileSync(new URL('../intersect-glue.js', import.meta.url), 'utf8');
-  const browser = await chromium.launch({ executablePath: installedChrome().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 600, height: 500 } });
     await page.setContent(`<style>body{margin:0} #port{width:200px;height:100px;overflow:auto}
@@ -105,7 +104,7 @@ test('intersection matches Chrome for margins, scroll, clipping, zero area and r
 
 test('intersection initial entries follow scroll, resize and registration order', async () => {
   const source = readFileSync(new URL('../intersect-glue.js', import.meta.url), 'utf8');
-  const browser = await chromium.launch({ executablePath: installedChrome().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent(`<style>body{margin:0}.port{width:200px;height:100px;overflow:hidden}.row{width:100px;height:50px}</style>
@@ -133,7 +132,7 @@ test('intersection initial entries follow scroll, resize and registration order'
 
 test('invalid margins cannot block later intersection targets', async () => {
   const source = readFileSync(new URL('../intersect-glue.js', import.meta.url), 'utf8');
-  const browser = await chromium.launch({ executablePath: installedChrome().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent('<div id="bad"></div><div id="good"></div><div id="later"></div>');
@@ -182,7 +181,7 @@ test('invalid margins cannot block later intersection targets', async () => {
 
 test('intersection geometry follows Chrome for rotated roots and sticky targets', async () => {
   const source = readFileSync(new URL('../intersect-glue.js', import.meta.url), 'utf8');
-  const browser = await chromium.launch({ executablePath: installedChrome().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 400, height: 800 } });
     for (const [rootStyle, targetStyle, ratio] of [

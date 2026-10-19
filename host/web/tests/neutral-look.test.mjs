@@ -4,7 +4,7 @@
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { withLook } from '../look.mjs';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
@@ -189,7 +189,7 @@ const helpers = `
 `;
 const launch = async (engine) => {
   const playwright = await import('playwright-core');
-  return playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: browserPath().executable } : {}) });
+  return suiteBrowser(engine);
 };
 
 // One set of numbers for the three engines. A colour is what the engine paints: [r, g, b, alpha].

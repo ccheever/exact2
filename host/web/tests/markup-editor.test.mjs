@@ -2,9 +2,8 @@
 import { afterAll, test, expect } from 'bun:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { buildEditor } from '../../web-js/module.mjs';
-import * as playwright from 'playwright-core';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
@@ -89,7 +88,7 @@ async function editor(engine, source, drive, runtime = false) {
 // its own (its page, its undo, its storage), closed when it is done.
 const launched = new Map();
 function browser(engine) {
-  if (!launched.has(engine)) launched.set(engine, playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chrome.executable } : {}) }));
+  if (!launched.has(engine)) launched.set(engine, suiteBrowser(engine));
   return launched.get(engine);
 }
 afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); }, 60000);

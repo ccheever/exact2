@@ -5,15 +5,16 @@ import {readStatus, formatStatus} from '../game/status.mjs';
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
-import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -323,20 +324,114 @@ export function launchFailure(error, log, { alive, chrome, env = process.env }) 
 // Blink's ui::PointerType fine is 4; ui::HoverType hover is 2. CDP emulation can override them.
 export const DESKTOP_INPUT = '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2';
 
-/** One browser lookup for the agent and its tests: an explicit override,
- * otherwise the platform's ordinary Chromium installation. A bare CHROME
- * name is resolved through PATH before a test decides whether to skip. */
-export function chromium(environment = process.env, platform = process.platform) {
-  const named = environment.CHROME ? [environment.CHROME] : platform === 'win32' ? [
-    resolve(environment.ProgramFiles ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'),
-    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
-    ...(environment.LOCALAPPDATA ? [resolve(environment.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe')] : []),
-    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe'),
-  ] : [platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'];
-  const candidates = named.flatMap(name => /[/\\]/.test(name) ? [resolve(name)]
-    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, name)));
-  const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
-  return { executable: executable ?? named[0], unavailable: executable ? null : `Chromium is missing at ${named.join(', ')}; set CHROME to an installed browser` };
+/** The needs that take Playwright's full Chromium (Chrome for Testing, run with `--headless=new`) in place of its
+ * headless shell: WebGPU and WebGL on the GPU (the shell has only SwiftShader, whose fallback adapter a GPU app takes
+ * silently and then draws wrong), the PDF viewer, HEVC, the back/forward cache (the shell restores no page
+ * from it), and timings that should match a person's browser. */
+export const CHROMIUM_NEEDS = ['gpu', 'pdf', 'hevc', 'bfcache', 'perf'];
+const SHELL = { 'darwin-arm64': 'chrome-headless-shell-mac-arm64', 'darwin-x64': 'chrome-headless-shell-mac-x64',
+  'linux-x64': 'chrome-headless-shell-linux64', 'linux-arm64': 'chrome-headless-shell-linux-arm64', 'win32-x64': 'chrome-headless-shell-win64' };
+/** Playwright's two Chromium builds, from its full build's path: the headless shell is the same revision, beside it in
+ * the same browsers directory (Playwright has no public path for the shell). */
+export function chromiumBuilds(full, platform = process.platform, arch = process.arch) {
+  const at = /^(.*)([/\\])chromium-(\d+)\2/.exec(full), dir = SHELL[`${platform}-${arch}`];
+  if (!at || !dir) return { full, shell: null };
+  const [, browsers, separator, revision] = at, exe = platform === 'win32' ? '.exe' : '';
+  return { full, shell: [browsers, `chromium_headless_shell-${revision}`, dir, `chrome-headless-shell${exe}`].join(separator) };
+}
+let pinned;
+const playwrightFull = () => pinned ??= createRequire(import.meta.url)('playwright-core').chromium.executablePath();
+const playwrightVersion = () => JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies['playwright-core'];
+const executableAt = (path) => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } };
+/** What a web drive of `app` (resolveApp's) needs of Chromium: the GPU when the app has a GPU module. */
+export const webNeeds = app => app?.hasGpu || (app?.manifest && gpuModules(app.manifest).length) ? ['gpu'] : [];
+/** The Chromium a drive or test launches: CHROME when it is set (a bare name is resolved through PATH; one that names
+ * no browser is `unavailable`), else the build Playwright pins (package.json): its headless shell, or its full build for a need in CHROMIUM_NEEDS. A browser
+ * that is not there is no error: `unavailable` says why and how to install it, so a test can skip on it. `environment`,
+ * `platform`, `arch` and `full` (the full build's path) are the machine's unless a test of this function names them. */
+export function chromium({ needs = [], environment = process.env, platform = process.platform, arch = process.arch, full } = {}) {
+  const unknown = needs.filter((need) => !CHROMIUM_NEEDS.includes(need));
+  if (unknown.length) throw new Error(`chromium: unknown need ${unknown.join(', ')} (${CHROMIUM_NEEDS.join(', ')})`);
+  if (environment.CHROME) {
+    const name = environment.CHROME, candidates = /[/\\]/.test(name) ? [resolve(name)]
+      : (environment.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => resolve(dir, name));
+    const executable = candidates.find(executableAt);
+    return { executable: executable ?? name, unavailable: executable ? null : `CHROME names no browser: ${name}` };
+  }
+  const builds = chromiumBuilds(full ?? playwrightFull(), platform, arch), wantsFull = needs.length > 0;
+  const executable = wantsFull ? builds.full : builds.shell;
+  if (executable && executableAt(executable)) return { executable, unavailable: null };
+  const [what, browser] = wantsFull ? ['Chromium', 'chromium'] : ['Chromium headless shell', 'chromium-headless-shell'];
+  const where = executable ? `at ${executable}` : `for ${platform}-${arch}`;
+  return { executable: executable ?? builds.full, unavailable: `${what} is missing ${where}; install it with bunx playwright@${playwrightVersion()} install ${browser}, or set CHROME to a browser` };
+}
+
+const sharedBrowsers = new Map();
+/** A test suite's browser: the process's one Playwright browser of this engine (`chromium`, `firefox`, `webkit`), Chromium
+ * build (`needs`, as `chromium` takes them) and launch options, shared by every suite that asks for the same, so only the
+ * first suite to ask launches it. What a suite opens on it is its own: `newContext` and `newPage` each make a browser context, and `close`
+ * closes those, never the browser, which Playwright closes when the process exits. */
+export async function suiteBrowser(engine = 'chromium', { needs = [], timeout, ...launch } = {}) {
+  const playwright = await import('playwright-core');
+  const options = { headless: true, ...(engine === 'chromium' ? { executablePath: chromium({ needs }).executable } : {}), ...launch };
+  // A launch timeout is not part of the key: it launches the same browser.
+  const key = JSON.stringify([engine, options]);
+  if (!sharedBrowsers.has(key)) {
+    const launching = playwright[engine].launch({ ...options, timeout });
+    sharedBrowsers.set(key, launching);
+    const forget = () => { if (sharedBrowsers.get(key) === launching) sharedBrowsers.delete(key); };
+    launching.then((browser) => browser.on('disconnected', forget), forget);
+  }
+  const browser = await sharedBrowsers.get(key), contexts = new Set();
+  const own = (context) => { contexts.add(context); context.on('close', () => contexts.delete(context)); return context; };
+  return {
+    browser,
+    newContext: async (options) => own(await browser.newContext(options)),
+    newPage: async (options) => (own(await browser.newContext(options))).newPage(),
+    close: async () => { await Promise.all([...contexts].map((context) => context.close().catch(() => {}))); },
+  };
+}
+
+const sharedCdpBrowsers = new Map();
+/** A test suite's Chromium over the DevTools pipe, for a test that speaks CDP itself (`Cdp`): the process's one browser
+ * for this build (`needs`, as `chromium` takes them) and these flags (`args`, after the common ones), shared by every
+ * suite that asks for the same, so only the first suite to ask launches it. The suite has a browser context of its
+ * own: `page(url)` opens a target in it and attaches (flatten), and `close` disposes of the context, never the
+ * browser, which ends with the process (its pipe closes) or when it exits (the next suite launches another).
+ * `lines` holds the browser's stderr, past its diagnostic noise; a suite may empty it. */
+export async function cdpBrowser({ needs = [], args = [] } = {}) {
+  const { executable, unavailable } = chromium({ needs });
+  if (unavailable) throw new Error(unavailable);
+  const key = JSON.stringify([executable, args]);
+  if (!sharedCdpBrowsers.has(key)) {
+    const profile = mkdtempSync(resolve(tmpdir(), 'exact-cdp-'));
+    const child = spawn(executable, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`, '--no-sandbox',
+      '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-background-networking', '--disable-component-update', ...args,
+      'about:blank'],
+    { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    const shared = { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines: [] };
+    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) shared.lines.push(l); });
+    child.on('exit', () => {
+      if (sharedCdpBrowsers.get(key) === shared) sharedCdpBrowsers.delete(key);
+      shared.cdp.fail('Chrome exited');
+      rmSync(profile, { recursive: true, force: true });
+    });
+    // Shared, it must not hold the process open: a pending call's deadline does that while one waits.
+    for (const handle of [child, child.stderr, child.stdio[3], child.stdio[4]]) handle.unref?.();
+    process.once('exit', () => child.kill('SIGKILL'));
+    sharedCdpBrowsers.set(key, shared);
+  }
+  const { cdp, lines } = sharedCdpBrowsers.get(key);
+  const { browserContextId } = await cdp.send('Target.createBrowserContext');
+  return {
+    cdp, lines, browserContextId,
+    page: async (url = 'about:blank') => {
+      const { targetId } = await cdp.send('Target.createTarget', { url, browserContextId });
+      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+      return { targetId, sessionId };
+    },
+    close: () => cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {}),
+  };
 }
 
 export function parseFlags(argv) {

@@ -5,19 +5,16 @@
 // (`data-exact-held`, which the looks rules take); a disabled node refuses one;
 // real input on the node, its disabling and its going let it go, said why.
 import { expect, beforeAll, afterAll } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
@@ -41,7 +38,7 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
   window.dropped = []; window.ready = true;
 </script>`;
 
-let server, profile, child, cdp;
+let server, suite, cdp;
 beforeAll(async () => {
   if (unavailable) return;
   server = createServer((req, res) => {
@@ -49,20 +46,16 @@ beforeAll(async () => {
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'input-glue.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  profile = mkdtempSync(resolve(tmpdir(), 'exact-hold-'));
-  child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=600,900', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-  cdp = new Cdp(child.stdio[3], child.stdio[4]);
+  suite = await cdpBrowser({ args: ['--window-size=600,900'] });
+  ({ cdp } = suite);
 });
-afterAll(() => {
-  child?.kill();
+afterAll(async () => {
+  await suite?.close();
   server?.close();
-  if (profile) rmSync(profile, { recursive: true, force: true });
 });
 
 check('a held state is the real one, until real input, its disabling or its going lets it go', async () => {
-  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  const { targetId, sessionId } = await suite.page();
   const call = (method, params) => cdp.send(method, params, sessionId);
   const evaluate = async (expression) => {
     const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
