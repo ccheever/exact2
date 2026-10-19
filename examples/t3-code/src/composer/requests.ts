@@ -130,7 +130,8 @@ export function requestPresentation(client: T3Client) {
     return { id: approval.requestId, label: approvalLabel(approval.kind), appName: approval.appName,
       count: pendingApprovals.length > 1 ? `1/${pendingApprovals.length}` : '', mono: approval.kind !== 'mcp-elicitation',
       detail: approval.live ? approval.detail || approvalLabel(approval.kind) : NOT_RESUMABLE,
-      canRespond: !reason, live: approval.live, responding: responding(approval.requestId), responseReason: reason,
+      // canOperateThread: without orchestration:operate the card shows with its actions disabled.
+      canRespond: !reason, operable: client.scopes.includes('orchestration:operate'), live: approval.live, responding: responding(approval.requestId), responseReason: reason,
       options: options.filter(option => option.primary), more: options.filter(option => !option.primary) };
   });
   const active = approvals.length ? undefined : composerInput(client);
