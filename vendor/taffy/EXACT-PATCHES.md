@@ -1827,7 +1827,8 @@ keep 120×60 in Chrome and the kernel; main's 60×60 is not a cap to restore.
 
 ## Patch 58: preserve grid ratio minima and bound track contributions
 
-Grid alignment keeps `minimum_ratio_width` in its final minimum-width clamp.
+Grid alignment keeps `minimum_ratio_width` in its final minimum-width clamp
+when the inline size depends on the ratio.
 The shared minimum already respects authored `max-width`; a maximum
 transferred from `max-height` must not erase wider content. Grid track sizing
 clamps a preferred size by its resolved minimum and maximum before using it
@@ -1844,6 +1845,25 @@ hidden overflow, a minimum height above the maximum, ratio 2, both box-sizing
 modes with padding and borders, no ratio, and a max-width counterpart.
 An automatic height capped by a transferred max-width despite taller content
 remains separate work in `QUEUE.md`.
+
+Explicit inline stretch supplies the grid area's width before resolving the
+ratio, so neither the ratio's automatic inline minimum nor transferred bounds
+replace that width. Auto margins cancel stretch; authored width limits still
+apply. This follows [Chromium 151's inline sizing](https://github.com/chromium/chromium/blob/782af9cb30a53f54487e5d2e44738645a8ec457c/third_party/blink/renderer/core/layout/length_utils.cc#L527).
+Intrinsic track contributions retain the shared content minimum. A derived
+width is not an authored preferred width: an automatic minimum follows the
+auto-track, overflow and fixed-track-limit rules. Thus a fixed 60px track
+stretches the item to 60px, while an auto track sized by its 120px content
+stretches it to 120px.
+
+The same test holds 32 `Chrome 151 grid ratio stretch` cases, measured with
+the same version and date. Before this correction, 20 frames differed.
+They cover fixed widths below and above the ratio transfer and content,
+implicit and explicit auto columns, intrinsic and fractional tracks, capped
+auto minima, normal and start alignment, auto and fixed margins, authored
+widths and limits, height limits, overflow, and both box-sizing modes.
+Second-row siblings expose the auto column's width independently of the
+ratio item's final size. No `justify-self` row is exposed by the kernel.
 
 ## Cargo workspace boundary
 
