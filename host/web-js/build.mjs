@@ -1,4 +1,4 @@
-import { asyncContext, bundleOptions, lowered } from '../../js/bake/src/typescript.mjs';
+import { asyncContext, bundleOptions, lowered, webImplementations } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -198,8 +198,19 @@ writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-d
 // (`advance`, a nested shape) once hid `exactTime` and its app could not boot.
 const sources = JSON.parse(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=(\{.*?\});export const wait=/)?.[1] ?? '{}');
 const time = Object.hasOwn(sources, 'exactTime');
-// A source a data module answers: not one the runtime reserves (`exact…`).
-const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name));
+// A native module's names and extensions (modules.js, LLP 1133.002 D13): each
+// extension's web implementation is a chunk of its own, `ext-<name>.js`, loaded
+// outside the agent on first use; an extension with none answers by name.
+const moduleFlag = existsSync(resolve(gen, 'modules.flag')) ? JSON.parse(readFileSync(resolve(gen, 'modules.flag'), 'utf8')) : { extensions: [], sources: [] };
+if (moduleFlag.extensions.length) {
+  const bound = webImplementations(appDir);
+  for (const extension of moduleFlag.extensions) {
+    const at = bound.get(extension);
+    writeFileSync(resolve(gen, `ext-${extension}.js`), at ? `export { implementation } from ${JSON.stringify(at)};\n` : 'export const implementation = null;\n');
+  }
+}
+// A source a data module answers: not one the runtime reserves (`exact…`), nor a native module's.
+const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name) && !moduleFlag.sources.includes(name));
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
 // `showNotification` or `closeNotification` (notify.js), linked by use.
@@ -517,9 +528,12 @@ const inside = (path, root) => { const child = relative(root, path); return chil
 // `lower`: the page's bundle lowers `async` so an answer's context survives
 // its awaits (`asyncContext`, LLP 1133.002 D14); the server render, which
 // runs at build with no device to call, does not.
+// A native module's web implementation is the page's, as an app's own page module is.
+const implementationRoots = [...webImplementations(appDir).values()].map(at => dirname(realpathSync(at)));
 const scopedModule = (code, id, lower = false) => {
   if (!ts || !isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
+  if (implementationRoots.some(root => inside(id, root) || inside(realpathSync(id), root))) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
   // and the browser's own I/O, as the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',

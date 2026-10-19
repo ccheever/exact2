@@ -29,11 +29,12 @@
 
 use super::{CommitReceipt, DataError, DataSource, Runner, RunnerError, Target};
 use crate::failure::FailureCode;
-use crate::request::{Answer, Dispatch, Outcome, Request, Response, Work};
+use crate::request::{Answer, Dispatch, Outcome, Reply, Request, Response, Work};
 use crate::HoldAnswer;
 use exact_plan::{ModulesRow, TypesId, Value};
 use serde_json::{json, Map, Value as Json};
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 /// The continuation tokens the runner keeps for its held module requests:
 /// a data source's count up from zero, far below, and its reserved ones
@@ -57,7 +58,11 @@ pub(super) struct Extensions {
 
 /// A module request the runner holds for the agent.
 struct Held {
+    /// Its continuation token; a data-code call's, its id.
     token: u64,
+    /// A data-code call's reply, which the agent's answer completes; `None`
+    /// for a Contract read or send, released through `release_work`.
+    reply: Option<Arc<Mutex<Pending>>>,
     /// The device hold the agent answers, `@N`.
     hold: u64,
     /// Its source's name in the plan.
@@ -65,12 +70,46 @@ struct Held {
     send: bool,
     waits: Waits,
     dispatched: bool,
+    /// The request's own timeout (its declared `timeout` option), ms.
+    timeout: Option<f64>,
+    /// When a value ticket fails `TIMEOUT` on the agent's clock: set when the
+    /// value is first sought, after any permission ticket (D2).
+    deadline: Option<f64>,
+}
+
+/// A held data-code call's two halves, whichever comes first: the host's
+/// reply, or the answer to send through it.
+#[derive(Default)]
+struct Pending {
+    reply: Option<Reply>,
+    outcome: Option<Outcome>,
+}
+
+impl Pending {
+    fn complete(slot: &Mutex<Pending>, outcome: Outcome) {
+        let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
+        match s.reply.take() {
+            Some(reply) => reply.send(outcome),
+            None => s.outcome = Some(outcome),
+        }
+    }
+}
+
+fn response(answer: &Json) -> Outcome {
+    Outcome::Response(Response {
+        status: 200,
+        headers: Vec::new(),
+        body: answer.to_string().into_bytes(),
+    })
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum Waits {
     Permission,
     Value,
+    /// A send that raises what its `answers` source says (`raise`: precise
+    /// location for a task, D10).
+    Raise,
 }
 
 /// What a name's substitute decides now.
@@ -107,16 +146,23 @@ impl<D: DataSource> Runner<D> {
                 Target::Resource(i),
                 source,
                 waits,
+                None,
             ))),
         };
         answer.map_err(|error| RunnerError::Data { resource, error })
     }
 
     /// What answers a send of mutation `m` to `source`, a module's name.
-    pub(super) fn module_send(&mut self, m: usize, source: &str) -> Result<Answer, DataError> {
+    pub(super) fn module_send(
+        &mut self,
+        m: usize,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
         let row = self.module_row(source);
         let key = self.key(&row);
-        match self.decide(&row, true) {
+        let timeout = self.timeout(&row, &self.args_json(&row, args));
+        match self.decide_timed(&row, true, timeout) {
             Decision::Now(json) => {
                 self.log(format!(
                     "send {}: {key} (substituted)",
@@ -129,7 +175,54 @@ impl<D: DataSource> Runner<D> {
                 Target::Mutation(m),
                 source,
                 waits,
+                timeout,
             ))),
+        }
+    }
+
+    /// A call's arguments as JSON: its one options record, by field name.
+    fn args_json(&self, row: &ModulesRow, args: &[Value]) -> Json {
+        let source = &self.plan.sources[row.source.0 as usize];
+        let (Some(arg), Some(param)) = (
+            args.first(),
+            self.plan.source_params.get(source.params.start as usize),
+        ) else {
+            return json!({});
+        };
+        (exact_js_value::Shape::from_plan(&self.plan, param.ty).ok())
+            .and_then(|shape| exact_js_value::to_json(arg, &shape).ok())
+            .unwrap_or(json!({}))
+    }
+
+    /// The request's timeout, ms: the option its declaration's `timeout` names.
+    fn timeout(&self, row: &ModulesRow, args: &Json) -> Option<f64> {
+        let option = self.substitute(row)["timeout"].as_str()?.to_owned();
+        args.get(option)?.as_f64().filter(|t| *t >= 0.0)
+    }
+
+    /// [`Self::decide`], where a value ticket that would wait `timeout=0`
+    /// fails `TIMEOUT` at once (D2: an eligible cached fix, or none).
+    fn decide_timed(&mut self, row: &ModulesRow, send: bool, timeout: Option<f64>) -> Decision {
+        match self.decide(row, send) {
+            Decision::Hold(Waits::Value) if timeout == Some(0.0) => {
+                Decision::Now(json!({ "error": "TIMEOUT" }))
+            }
+            decision => decision,
+        }
+    }
+
+    /// Value tickets whose timeout has passed on the agent's clock (§6):
+    /// each fails `TIMEOUT`, its ticket retired.
+    pub(super) fn module_deadlines(&mut self, now_ms: f64) {
+        let due: Vec<(u64, u64)> = (self.extensions.held.iter())
+            .filter(|h| h.deadline.is_some_and(|d| d <= now_ms))
+            .map(|h| (h.token, h.hold))
+            .collect();
+        for (token, hold) in due {
+            self.log(format!("device position {hold}: timed out"));
+            self.retire_hold(hold);
+            self.release(token, json!({ "error": "TIMEOUT" }));
+            self.native_slot().changed("");
         }
     }
 
@@ -221,6 +314,20 @@ impl<D: DataSource> Runner<D> {
                     .unwrap_or_else(|| json!({ "error": "NotSupportedError" })),
             );
         }
+        // A send that answers another source's value, raising it when it
+        // matches `raise.when` (D10): held under the raise's ticket.
+        if let Some(answers) = sub["answers"].as_str().and_then(|a| self.sibling(row, a)) {
+            let Decision::Now(value) = self.decide(&answers, false) else {
+                return Decision::Now(json!({ "error": "NotSupportedError" }));
+            };
+            let when = sub["raise"]["when"].as_object();
+            let matches = when.is_some_and(|w| w.iter().all(|(k, v)| value.get(k) == Some(v)));
+            return if matches {
+                Decision::Hold(Waits::Raise)
+            } else {
+                Decision::Now(value)
+            };
+        }
         let from = sub["from"].as_str().and_then(|f| self.sibling(row, f));
         if let Some(value) = from.as_ref().and_then(|f| self.preferred(f)) {
             return Decision::Now(value);
@@ -266,18 +373,31 @@ impl<D: DataSource> Runner<D> {
 
     /// Hold a module request for the agent under a fresh device ticket: work
     /// under a continuation token of the runner's.
-    fn hold_module(&mut self, target: Target, source: &str, waits: Waits) -> Request {
+    fn hold_module(
+        &mut self,
+        target: Target,
+        source: &str,
+        waits: Waits,
+        timeout: Option<f64>,
+    ) -> Request {
         let row = self.module_row(source);
         let token = TOKENS.start + self.extensions.next;
         self.extensions.next += 1;
-        let hold = self.device_hold(&row, target, waits);
+        let name = self.target_name(target);
+        let hold = self.device_hold(&row, name, waits);
+        let deadline = timeout
+            .filter(|_| waits == Waits::Value)
+            .map(|t| self.now_ms + t);
         self.extensions.held.push(Held {
             token,
+            reply: None,
             hold,
             source: source.to_owned(),
             send: row.send,
             waits,
             dispatched: false,
+            timeout,
+            deadline,
         });
         let verb = if row.send { "send" } else { "source" };
         let body =
@@ -288,7 +408,7 @@ impl<D: DataSource> Runner<D> {
         request
     }
 
-    fn device_hold(&mut self, row: &ModulesRow, target: Target, waits: Waits) -> u64 {
+    fn device_hold(&mut self, row: &ModulesRow, name: String, waits: Waits) -> u64 {
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let (capability, args, choices, value) = match waits {
@@ -304,9 +424,17 @@ impl<D: DataSource> Runner<D> {
                 &[][..],
                 true,
             ),
+            Waits::Raise => (
+                sub["raise"]["ticket"]
+                    .as_str()
+                    .unwrap_or("raise")
+                    .to_owned(),
+                json!({ "request": declared }),
+                &["allow", "deny"][..],
+                false,
+            ),
         };
         let ticket = self.hold(&capability, None, &args.to_string(), choices, value);
-        let name = self.target_name(target);
         if let Some(h) = self.device_holds.iter_mut().find(|h| h.ticket == ticket) {
             h.name = name;
         }
@@ -349,16 +477,113 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn release(&mut self, token: u64, answer: Json) {
-        let dispatched = match self.extensions.held.iter().position(|h| h.token == token) {
-            Some(at) => self.extensions.held.remove(at).dispatched,
-            None => return,
+        let Some(at) = self.extensions.held.iter().position(|h| h.token == token) else {
+            return;
         };
-        let outcome = Outcome::Response(Response {
-            status: 200,
-            headers: Vec::new(),
-            body: answer.to_string().into_bytes(),
-        });
-        self.extensions.released.push((token, outcome, dispatched));
+        let held = self.extensions.held.remove(at);
+        match held.reply {
+            Some(slot) => {
+                let row = self.module_row(&held.source);
+                Pending::complete(&slot, response(&self.completed(&row, answer)));
+            }
+            None => self
+                .extensions
+                .released
+                .push((token, response(&answer), held.dispatched)),
+        }
+    }
+
+    /// A call from data code (LLP 1133.002 D14): a native request whose body
+    /// names a module's source or send, `{"extension": …, "source": …,
+    /// "args": {…}}`, admitted here as a Contract read or send is, before any
+    /// module. `None` for any other body.
+    pub(super) fn module_call(&mut self, body: &[u8]) -> Option<Dispatch> {
+        let v: Json = serde_json::from_slice(body).ok()?;
+        let extension = v.get("extension")?.as_str()?;
+        let (declared, send) = match (v["source"].as_str(), v["send"].as_str()) {
+            (Some(name), None) => (name, false),
+            (None, Some(name)) => (name, true),
+            _ => return None,
+        };
+        let key = format!("{extension}.{declared}");
+        let now = |answer: Json| Dispatch::Run(Work::Now(Box::new(move || response(&answer))));
+        let Some(row) = self
+            .plan
+            .modules
+            .iter()
+            .find(|m| self.key(m) == key)
+            .cloned()
+        else {
+            self.log(format!("{key}: not a module this app's plan names"));
+            return Some(now(json!({ "error": "NotSupportedError" })));
+        };
+        if row.send != send {
+            return Some(now(json!({ "error": "NotSupportedError" })));
+        }
+        let timeout = self.timeout(&row, &v["args"]);
+        match self.decide_timed(&row, send, timeout) {
+            Decision::Now(answer) => {
+                self.log(format!("native {key} (substituted)"));
+                Some(now(self.completed(&row, answer)))
+            }
+            Decision::Hold(waits) => {
+                let token = TOKENS.start + self.extensions.next;
+                self.extensions.next += 1;
+                let hold = self.device_hold(&row, key, waits);
+                let slot = Arc::new(Mutex::new(Pending::default()));
+                let deadline = timeout
+                    .filter(|_| waits == Waits::Value)
+                    .map(|t| self.now_ms + t);
+                self.extensions.held.push(Held {
+                    token,
+                    reply: Some(slot.clone()),
+                    hold,
+                    source: self
+                        .plan
+                        .str(self.plan.sources[row.source.0 as usize].name)
+                        .to_owned(),
+                    send,
+                    waits,
+                    dispatched: true,
+                    timeout,
+                    deadline,
+                });
+                Some(Dispatch::Run(Work::Later(Box::new(move |reply| {
+                    let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
+                    match s.outcome.take() {
+                        Some(outcome) => reply.send(outcome),
+                        None => s.reply = Some(reply),
+                    }
+                }))))
+            }
+        }
+    }
+
+    /// The topic a data-code read of a module's source watches, its key.
+    pub(super) fn module_topic(&self, body: &[u8]) -> Option<String> {
+        let v: Json = serde_json::from_slice(body).ok()?;
+        let key = format!(
+            "{}.{}",
+            v.get("extension")?.as_str()?,
+            v.get("source")?.as_str()?
+        );
+        self.plan
+            .modules
+            .iter()
+            .any(|m| !m.send && self.key(m) == key)
+            .then_some(key)
+    }
+
+    /// `answer` as data code reads a value of `row`'s shape: what it leaves
+    /// out of an option field is `null`, as an omitted word is.
+    fn completed(&self, row: &ModulesRow, mut answer: Json) -> Json {
+        if error_code(&answer).is_none() {
+            let ty = self.plan.sources[row.source.0 as usize].ty;
+            if let Ok(shape) = exact_js_value::Shape::from_plan(&self.plan, ty) {
+                absent_is_none(&mut answer, &shape);
+            }
+        }
+        answer
     }
 
     /// A typed answer to `ticket`, checked before the hold is spent, so it
@@ -366,9 +591,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn module_check(&self, ticket: u64, text: &str) -> Option<Result<(), String>> {
         let h = self.extensions.held.iter().find(|h| h.hold == ticket)?;
         if h.waits != Waits::Value {
-            return Some(Err(format!(
-                "@{ticket} (permission): answered by tap, not type"
-            )));
+            return Some(Err(format!("@{ticket}: answered by tap, not type")));
         }
         let row = self.module_row(&h.source);
         let from = self.sibling(&row, self.substitute(&row)["from"].as_str()?)?;
@@ -462,7 +685,34 @@ impl<D: DataSource> Runner<D> {
                     self.announce(&key);
                 }
             }
-            (Waits::Permission, HoldAnswer::Value(_)) => {}
+            (Waits::Raise, HoldAnswer::Choice(c)) => {
+                let Some(answers) = sub["answers"].as_str().and_then(|a| self.sibling(&row, a))
+                else {
+                    return;
+                };
+                let key = self.key(&answers);
+                if c == "allow" {
+                    let mut value = self
+                        .extensions
+                        .preferred
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(json!({}));
+                    for (field, v) in sub["raise"]["allow"].as_object().into_iter().flatten() {
+                        value[field] = v.clone();
+                    }
+                    self.extensions.preferred.insert(key.clone(), value);
+                    self.log(format!("{key}: raised by the agent"));
+                }
+                // Declined or dismissed is no failure: the call answers the value as it is.
+                let answer = match self.decide(&answers, false) {
+                    Decision::Now(value) => value,
+                    Decision::Hold(_) => json!({ "error": "NotSupportedError" }),
+                };
+                self.release(token, answer);
+                self.announce(&key);
+            }
+            (Waits::Permission | Waits::Raise, HoldAnswer::Value(_)) => {}
         }
     }
 
@@ -481,10 +731,19 @@ impl<D: DataSource> Runner<D> {
         if state == "granted" {
             self.allow(&rows);
         }
-        let held: Vec<(u64, u64, String, bool, Waits)> = (self.extensions.held.iter())
-            .map(|h| (h.token, h.hold, h.source.clone(), h.send, h.waits))
+        let held: Vec<(u64, u64, String, bool, Waits, Option<f64>)> = (self.extensions.held.iter())
+            .map(|h| {
+                (
+                    h.token,
+                    h.hold,
+                    h.source.clone(),
+                    h.send,
+                    h.waits,
+                    h.timeout,
+                )
+            })
             .collect();
-        for (token, hold, source, send, waits) in held {
+        for (token, hold, source, send, waits, timeout) in held {
             let row = self.module_row(&source);
             if !rows.iter().any(|r| r.source == row.source) {
                 continue;
@@ -492,19 +751,30 @@ impl<D: DataSource> Runner<D> {
             match (state, waits) {
                 ("granted", Waits::Permission) => {
                     self.retire_hold(hold);
-                    match self.decide(&row, send) {
+                    match self.decide_timed(&row, send, timeout) {
                         Decision::Now(answer) => self.release(token, answer),
                         Decision::Hold(waits) => {
                             let target = (self.pending.iter())
                                 .find(|p| p.continuation == Some(token))
                                 .map(|p| p.target);
-                            if let Some(target) = target {
-                                let hold = self.device_hold(&row, target, waits);
+                            let reply = (self.extensions.held.iter())
+                                .any(|h| h.token == token && h.reply.is_some());
+                            let name = match (target, reply) {
+                                (Some(target), _) => Some(self.target_name(target)),
+                                (None, true) => Some(self.key(&row)),
+                                (None, false) => None,
+                            };
+                            if let Some(name) = name {
+                                let hold = self.device_hold(&row, name, waits);
+                                let deadline = timeout
+                                    .filter(|_| waits == Waits::Value)
+                                    .map(|t| self.now_ms + t);
                                 if let Some(h) =
                                     self.extensions.held.iter_mut().find(|h| h.token == token)
                                 {
                                     h.hold = hold;
                                     h.waits = waits;
+                                    h.deadline = deadline;
                                 }
                             }
                         }
@@ -587,6 +857,7 @@ impl<D: DataSource> Runner<D> {
     /// released, a refused commit): retired with their tickets (§6).
     pub(super) fn retire_modules(&mut self) {
         let gone: Vec<u64> = (self.extensions.held.iter())
+            .filter(|h| h.reply.is_none())
             .filter(|h| !self.pending.iter().any(|p| p.continuation == Some(h.token)))
             .map(|h| h.hold)
             .collect();
@@ -630,6 +901,51 @@ impl<D: DataSource> Runner<D> {
             return Err(shaped(crate::conform::mismatch(&self.plan, &value, ty)));
         }
         Ok(value)
+    }
+
+    /// `state.extensions` (LLP 1133.002 §6, Disclosure): each module the plan
+    /// names, by its extension: whether a host's implementation answers it,
+    /// its permission's state, the preferred values, each source's readers
+    /// (a resource that reads it, or whose data code did), and the tickets
+    /// held. `None` for a plan that names none.
+    pub fn extensions_json(&self) -> Option<String> {
+        if self.plan.modules.is_empty() {
+            return None;
+        }
+        let mut out = Map::new();
+        for row in &self.plan.modules {
+            let extension = self.plan.str(row.extension).to_owned();
+            let declared = self.plan.str(row.declared).to_owned();
+            let key = self.key(row);
+            let entry = out.entry(extension.clone()).or_insert_with(
+                || json!({ "bound": false, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            if let Some(name) = self.substitute(row)["permission"]["name"].as_str() {
+                entry["permission"] = json!(self.permission_state(name));
+            }
+            if let Some(v) = self.extensions.preferred.get(&key) {
+                entry["preferred"][&declared] = v.clone();
+            }
+            if !row.send {
+                let readers: Vec<&str> = (0..self.plan.resources.len())
+                    .filter(|&i| {
+                        self.plan.resources[i].source
+                            == self.plan.sources[row.source.0 as usize].name
+                            || self.watching[i].contains(&key)
+                    })
+                    .map(|i| self.plan.str(self.plan.resources[i].name))
+                    .collect();
+                entry["readers"][&declared] = json!(readers);
+            }
+            for h in self.extensions.held.iter().filter(|h| {
+                h.source == self.plan.str(self.plan.sources[row.source.0 as usize].name)
+            }) {
+                if let Some(held) = entry["held"].as_array_mut() {
+                    held.push(json!({ "ticket": h.hold, "name": declared, "waits": match h.waits { Waits::Permission => "permission", Waits::Value => "value", Waits::Raise => "raise" } }));
+                }
+            }
+        }
+        Some(Json::Object(out).to_string())
     }
 
     /// The agent's `prefer extension` and `prefer permission` (LLP 1124 D7,

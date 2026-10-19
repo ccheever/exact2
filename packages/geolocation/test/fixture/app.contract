@@ -1,0 +1,45 @@
+// The conformance fixture (LLP 1133.001 D7): every name of @exact/geolocation,
+// read and sent as an app would, each answer shown by testId for the suite.
+use getCurrentPosition, watchPosition, geolocationStatus, requestPreciseLocation, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
+
+shape Spot
+  text: string
+
+component Fixture
+  state watching = false
+  resource status = geolocationStatus() as shape GeolocationStatus else empty()
+  // Data code's read of `watchPosition` (app.ts), while `watching`.
+  resource spot = spot(watching) as shape Spot
+  mutation once as shape GeolocationPosition
+  mutation precise as shape GeolocationStatus
+  action locate
+    send once = getCurrentPosition(maximumAge=0, enableHighAccuracy=false)
+  action toggle
+    watching = not watching
+  action raise
+    send precise = requestPreciseLocation(purposeKey="purpose.geolocation")
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state} ${status.accuracy}` testId="status"
+      match once
+        case some(p)
+          text `${p.coords.latitude},${p.coords.longitude},${p.coords.accuracy} ${match p.coords.altitude { case some(a) => `${a}`, case none => "none" }}` testId="once"
+        case none
+          text "none" testId="once"
+      match failure(once)
+        case some(f)
+          text f.code testId="once-error"
+        case none
+          text "" testId="once-error"
+      text spot.text testId="spot"
+      match failure(precise)
+        case some(f)
+          text f.code testId="precise-error"
+        case none
+          text "" testId="precise-error"
+      button press=locate testId="locate"
+        text "Locate"
+      button press=toggle testId="watch"
+        text (watching ? "Stop" : "Watch")
+      button press=raise testId="raise"
+        text "Precise"

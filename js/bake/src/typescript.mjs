@@ -854,6 +854,7 @@ export function configure(stage, incremental=false, parse) {
     if (base) paths[key].push(local(resolve(base,key)));
   }
   if (base && !paths['*']) paths['*']=[local(resolve(base,'*'))];
+  for (const [name,file] of moduleBindings(stage,app)) paths[name] ??= [file];
   const config={compilerOptions:{...compilerOptions,paths,
     ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts'],
     // The app's own declarations, as an editor's project has them (an
@@ -867,6 +868,118 @@ export function configure(stage, incremental=false, parse) {
     if(before!==after) writeFileSync(declaration,after);
   }
   stagePackages(stage);
+}
+
+// A native module's names in data code (LLP 1133.002 D13): an `import … from
+// "@exact/geolocation"` reaches a binding generated here from the package's
+// `exact.json`, never committed, so a published package and a `file:` one
+// read alike. Each interface installed above the app, the nearest first, is
+// written into the stage as `__exact_modules/<name>.ts` and mapped by
+// `paths`, which the checker and Rolldown share. A call goes through the
+// runner's admission: the web runtime's `__exact_module`, else a native
+// request (`exact-native:`), whose answer the runner gives as the module's
+// declaration says, an error as `{code, message}` (D1).
+function moduleBindings(stage, app) {
+  const out=new Map();
+  for (const {name,declaration,implementations} of moduleInterfaces(app)) {
+    const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
+    mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
+    const text=moduleBinding(name,declaration,implementations.map(i=>i.json)), at=resolve(stage,file);
+    if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
+    out.set(name,'./'+file);
+  }
+  return out;
+}
+
+/** Each module interface installed above `app`, the nearest first: its
+ * package's name and directory, its declaration, and the implementations
+ * its package carries (`exports` subpaths whose target is an
+ * implementation's `exact.json`). */
+export function moduleInterfaces(app) {
+  const out=new Map(), read=(path)=>{ try { return JSON.parse(readFileSync(path,'utf8')); } catch { return null; } };
+  const entry=(exports, key)=>{
+    const t=exports && typeof exports==='object' ? (Object.keys(exports).some(k=>k.startsWith('.')) ? exports[key] : key==='.' ? exports : null) : key==='.' ? exports : null;
+    return typeof t==='string' ? t : t && typeof t==='object' ? (t.contract ?? t.default ?? null) : null;
+  };
+  for (let dir=app; ; dir=dirname(dir)) {
+    const modules=join(dir,'node_modules');
+    if (existsSync(modules)) {
+      const names=readdirSync(modules).flatMap(n=>n.startsWith('@') ? (statSync(join(modules,n)).isDirectory() ? readdirSync(join(modules,n)).map(m=>n+'/'+m) : []) : [n]);
+      for (const name of names) {
+        if (out.has(name)) continue;
+        const root=join(modules,name), pkg=read(join(root,'package.json')), main=entry(pkg?.exports,'.');
+        if (!pkg || !main || !/(^|\/)exact\.json$/.test(main)) continue;
+        const declaration=read(resolve(root,main));
+        if (declaration?.kind!=='interface') continue;
+        const implementations=Object.keys(pkg.exports).filter(k=>k!=='.').map(k=>entry(pkg.exports,k))
+          .filter(t=>t && /\/exact\.json$/.test(t)).map(t=>({dir:dirname(resolve(root,t)),json:read(resolve(root,t))})).filter(d=>d.json?.kind==='implementation');
+        out.set(name,{name,root,declaration,implementations});
+      }
+    }
+    if (dirname(dir)===dir) break;
+  }
+  return [...out.values()];
+}
+
+/** Each extension's web implementation the app's packages carry (LLP 1133.001
+ * D4: the one the interface carries; an app's choice of another is later):
+ * extension name to the implementation's JavaScript entry. */
+export function webImplementations(app) {
+  const out=new Map();
+  for (const {name,implementations} of moduleInterfaces(app)) {
+    const web=implementations.find(i=>i.json.platform==='web'), file=web?.json.sources?.javascript?.[0];
+    if (file) out.set(name.split('/').at(-1),resolve(web.dir,file));
+  }
+  return out;
+}
+
+/** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`) as TypeScript's. */
+function moduleType(t, inList=false) {
+  t=String(t).trim();
+  if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
+  let m, union;
+  if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
+  else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
+  else return {number:'number',string:'string',bool:'boolean','strings-key':'string'}[t] ?? t;
+  return inList ? '('+union+')' : union;
+}
+
+/** The binding of one interface: its shapes, each name's options (a
+ * platform's words under its key), and each name as a function. */
+export function moduleBinding(name, declaration, implementations) {
+  const extension=name.split('/').at(-1), lines=[`// Generated by the bake from ${name}'s exact.json (LLP 1133.002 D13). Never edited.`];
+  const shapes={...declaration.shapes};
+  for (const i of implementations) Object.assign(shapes,i.shapes ?? {});
+  for (const [shape,fields] of Object.entries(shapes)) {
+    lines.push(`export interface ${shape} {`, ...Object.entries(fields).map(([f,t])=>`  ${f}: ${moduleType(t)};`), '}');
+  }
+  const optional=(t)=>{ const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
+  for (const entry of declaration.names ?? []) {
+    const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
+    const fields=Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${q}: ${ts};`; });
+    for (const i of implementations) {
+      const words=i.options?.[fn];
+      if (words && Object.keys(words).length) fields.push(`  ${i.platform}?: { ${Object.entries(words).map(([w,t])=>`${w}?: ${moduleType(t)}`).join('; ')} };`);
+    }
+    lines.push(`export interface ${type} {`, ...fields, '}');
+    const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(t).trim()));
+    const verb=entry.source ? 'source' : 'send';
+    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(entry.answers)}> {`,
+      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options });`, '}');
+  }
+  lines.push(
+    'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
+    '  const via = (globalThis as any).__exact_module;',
+    '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
+    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw new Error(t || "the module did not answer"); }));',
+    '  return answer.then((v: any) => {',
+    '    if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 1 && typeof v.error === "string") {',
+    '      throw Object.assign(new Error(`${body.extension}.${body.source ?? body.send}: ${v.error}`), { code: v.error });',
+    '    }',
+    '    return v;',
+    '  });',
+    '}', '');
+  return lines.join('\n');
 }
 
 /** A name that is not a source (`Result<'posted'>`, a mutation's slot) fails

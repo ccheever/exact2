@@ -112,7 +112,22 @@
       "options": {
         "purposeKey": "strings-key"
       },
-      "answers": "GeolocationStatus"
+      "answers": "GeolocationStatus",
+      "substitute": {
+        "answers": "geolocationStatus",
+        "raise": {
+          "when": {
+            "accuracy": "approximate"
+          },
+          "ticket": "precision",
+          "allow": {
+            "accuracy": "precise"
+          }
+        },
+        "unsupported": [
+          "web"
+        ]
+      }
     }
   ]
 }

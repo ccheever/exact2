@@ -366,6 +366,8 @@ export function parseFlags(argv) {
     else if (argv[i] === '--port') flags.port = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
+    // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
+    else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
     else rest.push(argv[i]);
   }
   if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);

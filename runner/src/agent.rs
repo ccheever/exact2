@@ -858,6 +858,10 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     s.push_str("],");
     streams::state(runner, &mut s);
+    // Native modules, as the runner answers them (LLP 1133.002 §6).
+    if let Some(extensions) = runner.extensions_json() {
+        let _ = write!(s, ",\"extensions\":{extensions}");
+    }
     // The documents the answers watch (LLP 1069.010.000 D1), whether or not
     // the host can listen for them.
     s.push_str(",\"watches\":[");

@@ -2,12 +2,18 @@
   "kind": "implementation",
   "implements": "@exact/geolocation@^1.0",
   "platform": "web",
-  "targets": ["web"],
+  "targets": [
+    "web"
+  ],
   "shapes": {},
   "options": {},
   "names": [],
   "views": [],
   "hatches": [],
-  "sources": { "javascript": ["."] },
+  "sources": {
+    "javascript": [
+      "index.js"
+    ]
+  },
   "artifacts": []
 }
