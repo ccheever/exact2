@@ -1181,7 +1181,7 @@ component App
     after(1, redirectNewTask)
   action prepareNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared)
-      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized)
+      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized, false)
   action redirectNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)
       nav = open(nav, newTaskFlow.nextLocation)
@@ -1232,7 +1232,7 @@ component App
   action taskAction(kind: string, id: string, value: string)
     if not pending(taskChanged) and not pending(taskPrepared)
       newTaskOperation = kind
-      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized)
+      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized, false)
   action didTaskChange
     let result = taskReplyPlan(taskChanged, newTaskOperation)
     if not result.hasReply
