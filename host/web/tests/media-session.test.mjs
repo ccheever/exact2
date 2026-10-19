@@ -3,15 +3,15 @@
 // handlers the test hands it as the hosts do (`exactMedia`), with
 // `navigator.mediaSession`'s calls recorded. The owner rule, what is
 // published and never thrown, a retired owner, the artwork, and the remote
-// play's latch over `playbackVisibilityThreshold`. Firefox and WebKit come from
-// Playwright (`bunx playwright@1.64.1 install firefox webkit`), Chrome from
-// the machine's; an engine that is missing is skipped.
+// play's latch over `playbackVisibilityThreshold`. Every engine comes from
+// Playwright (`bunx playwright@1.64.1 install chromium-headless-shell firefox
+// webkit`); an engine that is missing is skipped.
 import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
@@ -74,12 +74,12 @@ const engineTest = Object.fromEntries(await Promise.all(engines.map(async e => [
 async function launch(name) {
   const playwright = await import('playwright-core');
   if (name === 'chromium') {
-    const { executable, unavailable } = installed();
+    const { unavailable } = installed();
     if (unavailable) return null;
-    return playwright.chromium.launch({ executablePath: executable, headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+    return suiteBrowser('chromium', { args: ['--autoplay-policy=no-user-gesture-required'] });
   }
   if (!existsSync(playwright[name].executablePath())) return null;
-  return playwright[name].launch({ headless: true, ...(name === 'firefox' ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {}) });
+  return suiteBrowser(name, name === 'firefox' ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {});
 }
 
 // One browser per engine for this file, and a context of its own for each

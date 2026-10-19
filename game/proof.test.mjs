@@ -1,4 +1,4 @@
-import {chromium} from '../scripts/agent-launch.mjs';
+import {cdpBrowser} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {spawnSync} from 'node:child_process';
@@ -998,24 +998,16 @@ test('E10 snapshot-only proof records the same world observation as state', asyn
 
 
 test('E10 browser buttons retain UA keyboard focus and hover feedback', async () => {
-  const {spawn}=await import('node:child_process');
-  const {Cdp}=await import('../scripts/agent.mjs');
   const root=resolve(import.meta.dir,'../host/web');
-  const profile=mkdtempSync(resolve(tmpdir(),'e10-button-browser-'));
   const server=Bun.serve({port:0,fetch(request) {
     const path=new URL(request.url).pathname;
     if(path==='/') return new Response(readFileSync(resolve(root,'index.html'),'utf8').replace('<script type="module" src="./glue.js"></script>','').replace('<div id="exact-root"></div>','<div id="exact-root"><div id="canvas" data-gpu-input tabindex="-1"><button id="pause" style="background:#202731;color:white;padding:12px">Pause</button></div></div>'),{headers:{'content-type':'text/html'}});
     if(path.endsWith('.js')) return new Response(Bun.file(resolve(root,path.slice(1))),{headers:{'content-type':'text/javascript'}});
     return new Response('',{status:404});
   }});
-  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe'],windowsHide:true});
-  if (!child.pid) await new Promise((ok,fail)=>{child.once('spawn',ok);child.once('error',fail);});
-  const exited=new Promise(resolve=>child.once('exit',resolve));
-  const cdp=new Cdp(child.stdio[3],child.stdio[4]);
-  const deadline=setTimeout(()=>cdp.fail('button browser timed out'),30000);
+  const suite=await cdpBrowser(),{cdp}=suite;
   try {
-    const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
-    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
+    const {sessionId}=await suite.page();
     const call=(method,params={})=>cdp.send(method,params,sessionId);
     const evaluate=async expression=>(await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true})).result.value;
     await call('Page.navigate',{url:`http://localhost:${server.port}/`});
@@ -1044,14 +1036,7 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:15,button:'left',clickCount:1});
     expect(await evaluate('document.activeElement === outside')).toBe(true);
   } finally {
-    clearTimeout(deadline);
-    await cdp.send('Browser.close',{},undefined,2000).catch(()=>{});
-    await Promise.race([exited,Bun.sleep(2000)]);
-    if (child.exitCode === null && child.signalCode === null) {
-      if (process.platform === 'win32') spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore',windowsHide:true,timeout:2000});
-      else child.kill('SIGKILL');
-    }
-    await exited; server.stop(true); rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+    await suite.close(); server.stop(true);
   }
 },60000);
 

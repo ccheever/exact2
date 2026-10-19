@@ -1,7 +1,6 @@
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
 import { resolve } from 'node:path';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 async function browserTest(run) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(request) {
@@ -15,7 +14,7 @@ async function browserTest(run) {
     }
     return new Response('missing', { status: 404 });
   } });
-  const browser = await chromium.launch({ executablePath: browserPath({ needs: ['pdf'] }).executable, headless: true });
+  const browser = await suiteBrowser('chromium', { needs: ['pdf'] });
   try {
     const page = await browser.newPage();
     await run(page, server);

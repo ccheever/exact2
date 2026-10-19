@@ -3,14 +3,14 @@
 // live host's DOM at the same URL once the runtime is ready. A difference
 // names the view. What the browser owns after layout — a symbol's sized
 // source, a surface's pixel size, focus — is left out of both sides.
-import { afterAll, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
-import { chromium, DESKTOP_INPUT, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
+import { open, assertWebDistApp } from '../../../scripts/agent.mjs';
+import { cdpBrowser, chromium, DESKTOP_INPUT, refuseStale, webChanges, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
 import { withLook } from '../look.mjs';
@@ -22,7 +22,7 @@ const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'));
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
-const { executable: chrome, unavailable: browserUnavailable } = chromium();
+const { unavailable: browserUnavailable } = chromium();
 /** How the Weatherlight test is chosen: `need(kind, why)` or `notApplicable(why)`, or `test`. */
 function weatherlightCheckFor() {
   if (process.env.EXACT_GLUE_FAST === '1') return notApplicable('the async glue step does not build apps; the web-build-test step runs this test');
@@ -166,14 +166,13 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
-  const { cdp, lines } = await browser(needs.length ? chromium({ needs }).executable : chrome);
-  lines.length = 0;
   // A browser context of its own: no cookie, storage, cache or history of another test's
-  const { browserContextId } = await cdp.send('Target.createBrowserContext');
+  const suite = await cdpBrowser({ needs, args: [`--window-size=${width},${height}`, '--hide-scrollbars', DESKTOP_INPUT] });
+  const { cdp, lines } = suite;
+  lines.length = 0;
   try {
     const tab = async (scripts, onNew) => {
-      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId });
-      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+      const { sessionId } = await suite.page();
       const call = (method, params) => cdp.send(method, params, sessionId);
       await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
       await call('Page.enable');
@@ -205,39 +204,11 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     };
     await drive(tab);
   } finally {
-    await cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {});
+    await suite.close();
     server?.close();
   }
 }
 
-/** The file's one Chrome for each executable, launched at its first document and again after it exits (Bun kills it when a
- * test times out): a launch per test cost 0.17 s each. `lines` holds the stderr received since the current test reset it,
- * which can include the end of the previous test's. */
-const launched = new Map();
-function browser(executable) {
-  if (launched.has(executable)) return launched.get(executable);
-  const started = (async () => {
-    const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-    const child = spawn(executable, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
-      DESKTOP_INPUT,
-      `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
-      '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
-    { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
-    const lines = [];
-    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
-    const exited = new Promise((ok) => child.on('exit', ok));
-    exited.then(() => { if (launched.get(executable) === started) launched.delete(executable); });
-    const close = async () => {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-      await Promise.race([exited, Bun.sleep(2000)]);
-      rmSync(profile, { recursive: true, force: true });
-    };
-    return { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines, close };
-  })();
-  launched.set(executable, started);
-  return started;
-}
-afterAll(async () => { for (const started of launched.values()) await (await started).close(); });
 
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 
@@ -929,7 +900,7 @@ async function withFocusDocument(drive, {html, files = {}}) {
   }});
   let browser;
   try {
-    browser = await chromium.launch({executablePath: chrome, headless: true});
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.port}`);
     const session = await page.context().newCDPSession(page);

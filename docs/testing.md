@@ -136,6 +136,13 @@ its time counts too.
   back/forward cache) and `perf` (timings that should match a person's
   browser). A web drive of an app with a GPU module asks for `gpu` itself
   (`webNeeds`).
+- **A Playwright test takes `suiteBrowser()`.** It shares one browser in the
+  process for each engine, build and set of launch options. `newPage` and
+  `newContext` each make a browser context that belongs to the suite; `close`
+  closes those, not the browser. A test that speaks CDP itself takes
+  `cdpBrowser()` on the same terms: `page(url)` opens a target in the suite's
+  context. A test about the browser process (it kills the browser, or needs a
+  kept profile, a headed window or flags of its own) launches its own.
 - **Wait for the event, not for its first sign.** The shell is faster than the
   full build, so a test that reads a state while the browser still changes it
   fails there first. `document.fullscreenElement` is set before the

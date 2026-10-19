@@ -1,8 +1,7 @@
 // LLP 1039 D7: a compiled app reads the browser's display-mode, including
 // transitions, through the same media reporter as the wasm target.
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +24,7 @@ test('display mode agrees with Chrome and media changes reanswer the resource an
       if (path === '/navigation.js') return new Response(Bun.file(resolve(ROOT, 'host/web/navigation.js')));
       return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
     } });
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.addInitScript(() => {
       const real = matchMedia.bind(window), lists = [];

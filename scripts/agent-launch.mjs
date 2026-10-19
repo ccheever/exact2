@@ -5,7 +5,7 @@ import {readStatus, formatStatus} from '../game/status.mjs';
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -364,6 +364,74 @@ export function chromium({ needs = [], environment = process.env, platform = pro
   const [what, browser] = wantsFull ? ['Chromium', 'chromium'] : ['Chromium headless shell', 'chromium-headless-shell'];
   const where = executable ? `at ${executable}` : `for ${platform}-${arch}`;
   return { executable: executable ?? builds.full, unavailable: `${what} is missing ${where}; install it with bunx playwright@${playwrightVersion()} install ${browser}, or set CHROME to a browser` };
+}
+
+const sharedBrowsers = new Map();
+/** A test suite's browser: the process's one Playwright browser of this engine (`chromium`, `firefox`, `webkit`), Chromium
+ * build (`needs`, as `chromium` takes them) and launch options, shared by every suite that asks for the same, so only the
+ * first suite to ask launches it. What a suite opens on it is its own: `newContext` and `newPage` each make a browser context, and `close`
+ * closes those, never the browser, which Playwright closes when the process exits. */
+export async function suiteBrowser(engine = 'chromium', { needs = [], timeout, ...launch } = {}) {
+  const playwright = await import('playwright-core');
+  const options = { headless: true, ...(engine === 'chromium' ? { executablePath: chromium({ needs }).executable } : {}), ...launch };
+  // A launch timeout is not part of the key: it launches the same browser.
+  const key = JSON.stringify([engine, options]);
+  if (!sharedBrowsers.has(key)) {
+    const launching = playwright[engine].launch({ ...options, timeout });
+    sharedBrowsers.set(key, launching);
+    const forget = () => { if (sharedBrowsers.get(key) === launching) sharedBrowsers.delete(key); };
+    launching.then((browser) => browser.on('disconnected', forget), forget);
+  }
+  const browser = await sharedBrowsers.get(key), contexts = new Set();
+  const own = (context) => { contexts.add(context); context.on('close', () => contexts.delete(context)); return context; };
+  return {
+    browser,
+    newContext: async (options) => own(await browser.newContext(options)),
+    newPage: async (options) => (own(await browser.newContext(options))).newPage(),
+    close: async () => { await Promise.all([...contexts].map((context) => context.close().catch(() => {}))); },
+  };
+}
+
+const sharedCdpBrowsers = new Map();
+/** A test suite's Chromium over the DevTools pipe, for a test that speaks CDP itself (`Cdp`): the process's one browser
+ * for this build (`needs`, as `chromium` takes them) and these flags (`args`, after the common ones), shared by every
+ * suite that asks for the same, so only the first suite to ask launches it. The suite has a browser context of its
+ * own: `page(url)` opens a target in it and attaches (flatten), and `close` disposes of the context, never the
+ * browser, which ends with the process (its pipe closes) or when it exits (the next suite launches another).
+ * `lines` holds the browser's stderr, past its diagnostic noise; a suite may empty it. */
+export async function cdpBrowser({ needs = [], args = [] } = {}) {
+  const { executable, unavailable } = chromium({ needs });
+  if (unavailable) throw new Error(unavailable);
+  const key = JSON.stringify([executable, args]);
+  if (!sharedCdpBrowsers.has(key)) {
+    const profile = mkdtempSync(resolve(tmpdir(), 'exact-cdp-'));
+    const child = spawn(executable, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`, '--no-sandbox',
+      '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-background-networking', '--disable-component-update', ...args,
+      'about:blank'],
+    { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    const shared = { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines: [] };
+    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) shared.lines.push(l); });
+    child.on('exit', () => {
+      if (sharedCdpBrowsers.get(key) === shared) sharedCdpBrowsers.delete(key);
+      shared.cdp.fail('Chrome exited');
+      rmSync(profile, { recursive: true, force: true });
+    });
+    // Shared, it must not hold the process open: a pending call's deadline does that while one waits.
+    for (const handle of [child, child.stderr, child.stdio[3], child.stdio[4]]) handle.unref?.();
+    process.once('exit', () => child.kill('SIGKILL'));
+    sharedCdpBrowsers.set(key, shared);
+  }
+  const { cdp, lines } = sharedCdpBrowsers.get(key);
+  const { browserContextId } = await cdp.send('Target.createBrowserContext');
+  return {
+    cdp, lines, browserContextId,
+    page: async (url = 'about:blank') => {
+      const { targetId } = await cdp.send('Target.createTarget', { url, browserContextId });
+      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+      return { targetId, sessionId };
+    },
+    close: () => cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {}),
+  };
 }
 
 export function parseFlags(argv) {
