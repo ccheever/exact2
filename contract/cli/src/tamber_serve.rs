@@ -773,14 +773,14 @@ impl Server {
         let text = exact_tamber::export::dtcg(&folding, &self.vocab)
             .map_err(|all| refused(&self.design, all))?;
         // `keep: false` (below write, stage 10 A1): keeping one can prune another's.
+        let digest = exact_tamber::export::digest(&text); // what a client's `import` names as its baseline (stage 10b)
         if request.get("keep") == Some(&json!(false)) {
-            return Ok(json!({"kind": "dtcg", "text": text, "baseline": null}));
+            return Ok(json!({"kind": "dtcg", "text": text, "baseline": null, "digest": digest}));
         }
         let kept = crate::tamber_export::keep(&self.dir.join(&self.design), &text)
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
         Ok(json!({
-            "kind": "dtcg",
-            "text": text,
+            "kind": "dtcg", "text": text, "digest": digest,
             "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
         }))
     }

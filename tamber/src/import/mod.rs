@@ -9,6 +9,7 @@
 //! unchanged source proposes nothing.
 
 use crate::edit::{Op, WhenLine};
+pub use crate::export_dials::{DialChange, Impact, Pin};
 use crate::{Design, Diagnostic};
 
 pub mod astryx;
@@ -32,6 +33,10 @@ pub struct Import {
     pub unmapped: Vec<Unmapped>,
     /// The count the import was checked against.
     pub counted: Counted,
+    /// A re-import's dial changes: each dial set, and what it moves (D14).
+    pub dials: Vec<DialChange>,
+    /// A re-import's literals over lines that followed others (D14's mark).
+    pub pins: Vec<Pin>,
 }
 
 /// One offered choice: what it means and its operations (none where the

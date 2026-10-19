@@ -1317,9 +1317,11 @@ pub fn reimport(
             None => accepted.push((name.clone(), token_ops)),
         }
     }
+    // A changed value whose line is one dial alone is that dial's change
+    // (D14; stage 10b), first in the transaction.
+    let (mut ops, mut dials) = crate::export_dials::dials(&cur, current, &mut accepted, vocab);
     // Together, as one transaction: a token whose operations the design
     // refuses beside the others' (a dial nothing uses any more) is reported.
-    let mut ops: Vec<Op> = Vec::new();
     let mut mapped = 0;
     for (name, token_ops) in accepted {
         if !token_ops.is_empty() {
@@ -1342,11 +1344,14 @@ pub fn reimport(
         mapped += 1;
     }
     let counted = counted(names.len() + extra.len(), mapped, unmapped.len())?;
+    let pins = crate::export_dials::marks(&cur, current, &ops, &mut dials, vocab);
     Ok(Import {
         ops,
         offers: Vec::new(),
         unmapped,
         counted,
+        dials,
+        pins,
     })
 }
 

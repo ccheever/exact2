@@ -90,7 +90,8 @@ on macOS and Linux.
   Scopes, under Authentication): `hello` says the client's `scope` and whether its token is the
   local one (`local`), and a request above its client's scope is 403 naming both (`scope`,
   `needs`). Stage 10's later wire changes add under the same version: A2's pairing, clients and
-  revoke; `pair-code`'s `remote`, the remote doors open (B).
+  revoke; `pair-code`'s `remote`, the remote doors open (B); stage 10b's `import` `baseline`, a
+  re-import's `dials` and `pins`, and `export`'s `digest`.
 
 ## Where it runs
 
@@ -814,7 +815,7 @@ list is unchanged: it keeps its own.
 
 ### `import` (*1.1*, LLP 1122 T1a)
 
-`{kind, source, name?, prefix?, client}`, or `{kind, sources: [{name, text}], prefix?, client}`.
+`{kind, source, name?, prefix?, baseline?, client}`, or `{kind, sources: [{name, text}], prefix?, baseline?, client}`.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
   `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
   `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
@@ -841,12 +842,27 @@ list is unchanged: it keeps its own.
   [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
+- **A re-import's dials and pins** (*1.13*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
+  changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
+  in every context, proposes `set-dial` for that dial instead of a literal over the line. The review
+  lists it in `dials`, `[{dial, value, from, impact}]`: `from` the tokens the file changed, `impact`
+  every token value the change moves, `[{token, tuple, before, after}]`, so accepting it is seen to
+  reach past the one variable. A changed value whose line followed dials or tokens by an expression
+  is a literal over it, listed in `pins`, `[{token, when, follows}]`, with what it no longer follows
+  (D14's mark). Inverting an expression is not attempted. Each list is absent when empty.
+- **`baseline`** (*1.13*, stage 10b): the export text a client pulled, for a client below `write`,
+  whose `export` keeps none. It is taken when its header's digest is an export this server run gave
+  out, a kept one, or the design's own; else the import is refused, 409 with `stale: true` ("pull
+  first"). It decides only which of the file's values are the client's edits: the operations are
+  planned against the design as it is, so a baseline can at most make a client propose values it
+  did not change, never revert another's edit unseen.
 
 ### `export` (*1.4*, LLP 1121 D14)
 
 `{kind: "dtcg"}`, read-only for the design: the app's design as DTCG Format 2025.10 with the Resolver
 Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the same serializer.
-- **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
+- **The reply** is `{kind, text, baseline, digest}`: `text` is the file, `digest` its header's design
+  digest (*1.13*, the baseline an `import` may name), `baseline` where it is kept, by
   path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
   every commit. A link in a baseline's place is replaced, never written through. Below `write`

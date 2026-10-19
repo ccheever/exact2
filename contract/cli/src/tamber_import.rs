@@ -179,6 +179,37 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
             files.len()
         )));
     }
+    // A baseline the client carries (stage 10b, `import`'s `baseline`): an
+    // export this server gave out (`recognised`, by digest), a kept one, or
+    // the design's own; else refused, so a client pulls first. It decides
+    // only which of the file's values are the client's edits: the operations
+    // are planned against the design as it is.
+    let mut kept: Vec<String> = kept.to_vec();
+    match &request["baseline"] {
+        Value::Null => {}
+        Value::String(baseline) => {
+            let digest = exact_tamber::export::digest(baseline)
+                .ok_or_else(|| bad("`baseline` is a Tamber export, as `export` gave it"))?;
+            let fresh = exact_tamber::check(current, &contract_lower::tamber_vocab())
+                .ok()
+                .and_then(|f| exact_tamber::export::dtcg(&f, &contract_lower::tamber_vocab()).ok())
+                .and_then(|t| exact_tamber::export::digest(&t));
+            let known = request["recognised"]
+                .as_array()
+                .is_some_and(|all| all.iter().any(|d| d.as_str() == Some(&digest)))
+                || kept
+                    .iter()
+                    .any(|k| exact_tamber::export::digest(k).as_deref() == Some(&digest))
+                || fresh.as_deref() == Some(&digest);
+            if !known {
+                return Err(
+                    json!({"message": "pull first: the baseline is no export of this design this server gave out, kept or has now", "stale": true}),
+                );
+            }
+            kept.insert(0, baseline.clone());
+        }
+        _ => return Err(bad("`baseline` is the export text the client pulled")),
+    }
     let design = exact_tamber::parse(current).map_err(|all| {
         json!({"message": "the design does not parse", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()})
     })?;
@@ -188,7 +219,7 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
         field("prefix")?.as_deref(),
         &design,
         current,
-        kept,
+        &kept,
     ) {
         None => Err(bad(&format!(
             "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
@@ -267,6 +298,18 @@ fn import_json(kind: &str, import: &Import) -> Value {
             "mapped": import.counted.mapped,
             "reported": import.counted.reported,
         },
+        // A re-import's dial changes and marked pins (LLP 1121 D14, stage 10b).
+        "dials": import.dials.iter().map(|d| json!({
+            "dial": d.dial,
+            "value": d.value,
+            "from": d.from,
+            "impact": d.impact.iter().map(|i| json!({"token": i.token, "tuple": i.tuple, "before": i.before, "after": i.after})).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+        "pins": import.pins.iter().map(|p| json!({
+            "token": p.token,
+            "when": p.when.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(),
+            "follows": p.follows,
+        })).collect::<Vec<_>>(),
     })
 }
 

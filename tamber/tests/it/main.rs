@@ -6,6 +6,7 @@ mod edit;
 mod edit_params;
 mod expected;
 mod export;
+mod export_dials;
 mod fmt;
 mod import;
 mod import_kinds;

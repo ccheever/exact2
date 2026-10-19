@@ -1461,5 +1461,7 @@ pub fn import_with(
         offers: Vec::new(),
         unmapped,
         counted,
+        dials: Vec::new(),
+        pins: Vec::new(),
     })
 }

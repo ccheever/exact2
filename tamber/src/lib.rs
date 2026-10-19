@@ -15,6 +15,7 @@ mod component;
 mod css;
 mod edit;
 pub mod export;
+mod export_dials;
 mod export_kinds;
 mod fmt;
 mod fold;

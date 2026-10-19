@@ -159,6 +159,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
+  // The digests of the exports this run gave out, newest last (at most 64): a
+  // client's `import` may name one as the baseline it pulled (stage 10b).
+  const exported = [];
   // Each file's digest as last announced: what a later change is told from.
   const known = new Map();
   let next = 0, seq = 0, out = '', stderr = '', down = null, writing = 0, again = false, timer = null, first = true, proposalCount = 0;
@@ -722,7 +725,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return { ok: { dropped: request.proposal } };
     }
     // Below write an export keeps no baseline: keeping one prunes the oldest, another client's import's.
-    if (request.method === 'export') return ask({ ...request, keep: allows(scope, 'write') && request.keep !== false });
+    if (request.method === 'export') return ask({ ...request, keep: allows(scope, 'write') && request.keep !== false }).then(r => {
+      const d = r.ok?.digest;
+      if (typeof d === 'string' && !exported.includes(d)) { exported.push(d); if (exported.length > 64) exported.shift(); }
+      return r;
+    });
     if (request.method === 'propose' && scrub?.inline) return proposeHere(request);
     return ask(request);
   }
@@ -1103,10 +1110,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * text, held with its review. */
   async function importHeld(request, scope = 'write') {
     if (typeof request.kind !== 'string') return { status: 400, error: { message: '`kind` is a string' } };
-    for (const k of ['source', 'name', 'prefix']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
-    // One file (`source`, `name`), or several (`sources`): the server reads either.
-    const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix });
-    if (!planned.ok) return planned;
+    for (const k of ['source', 'name', 'prefix', 'baseline']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
+    // One file (`source`, `name`), or several (`sources`): the server reads
+    // either. A `baseline` (the export the client pulled) is taken when this
+    // run gave it out, is kept, or is the design's own (stage 10b).
+    const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) });
+    if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
     const { ops, review } = importReview(planned.ok);
     if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
     return hold(request.client, ops, undefined, undefined, review, undefined, scope);
@@ -1452,7 +1461,9 @@ function importReview(imported) {
     ops.push(...o.ops);
     return { role: o.role, token: o.token, items, note: o.note };
   });
-  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length } };
+  // A re-import's dial changes and marked pins (stage 10b), when it has any.
+  const marks = { ...(imported.dials?.length ? { dials: imported.dials } : {}), ...(imported.pins?.length ? { pins: imported.pins } : {}) };
+  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...marks } };
 }
 
 /** `bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>]

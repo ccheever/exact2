@@ -1,0 +1,111 @@
+// Stage 10b on the wire (LLP 1121 D14; §5 10b's gate): a client at propose
+// scope pulls an export, edits it as a tool would (a Figma plugin), and
+// imports it with the baseline it pulled. A changed accent is proposed as the
+// dial's change, every token it moves listed; a changed folded value as a
+// pinned override, marked; a baseline this server never gave out is refused.
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { developmentGate } from './install-page.mjs';
+import { tamberServer } from './tamber-server.mjs';
+
+const DESIGN = `tamber t
+
+axes
+  dark-style = black | dim  under scheme=dark
+
+dials
+  accent: color = #1083fe
+  lift: number = 0.1  in 0..0.5
+
+theme
+  surface.page = light-dark(#ffffff, #000000)
+  accent.fill = accent
+  accent.soft = oklch(from accent calc(l + lift) c h)
+  surface.raised = oklch(from #3366cc calc(l + lift) c h)
+`;
+
+let dir, server, tamber, origin, local, flags = null, peers = 0;
+beforeAll(async () => {
+  dir = mkdtempSync(join(tmpdir(), 'exact-tamber-reimport-'));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "a" color="accent.fill"\n');
+  writeFileSync(join(dir, 'app.tamber'), DESIGN);
+  server = createServer();
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  const port = server.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  tamber = tamberServer({ appDir: dir, log: () => {}, settle: 100 });
+  server.on('request', async (req, res) => {
+    if (!(await tamber.handle(req, res, new URL(req.url, 'http://x'), flags ?? gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  origin = `http://127.0.0.1:${port}`;
+  local = (await (await fetch(`${origin}/__tamber/token`)).json()).token;
+  await tamber.ready;
+}, 600_000); // a cold checkout builds the compiler first
+afterAll(async () => {
+  await tamber?.close();
+  server?.close();
+  if (dir) rmSync(dir, { recursive: true, force: true });
+});
+
+const post = async (request, token = local, path = '/__tamber') => {
+  const res = await fetch(`${origin}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { 'x-exact-tamber-token': token } : {}) }, body: JSON.stringify(request) });
+  const text = await res.text();
+  let body = {};
+  try { body = JSON.parse(text); } catch {}
+  return { status: res.status, ...body };
+};
+/** A paired client at `scope`, as a remote tool pairs. */
+const paired = async scope => {
+  const { code } = (await post({ method: 'pair-code', scope, name: 'figma' })).ok;
+  flags = { local: false, peer: `203.0.113.${++peers}` };
+  try { return (await post({ code }, null, '/__tamber/pair')).ok.token; } finally { flags = null; }
+};
+/** The export's tree for each context, edited by `f`, as text. */
+const edited = (text, f) => {
+  const doc = JSON.parse(text);
+  for (const [name, c] of Object.entries(doc.modifiers.mode.contexts)) f(name, c[0]);
+  return JSON.stringify(doc);
+};
+const RED = { colorSpace: 'srgb', components: [1, 0, 0], hex: '#ff0000' };
+
+test('a propose client\'s changed accent is the dial\'s change, every token it moves listed; a changed folded value is a marked pin', async () => {
+  const token = await paired('propose');
+  const pulled = await post({ method: 'export', kind: 'dtcg' }, token);
+  expect(pulled.status).toBe(200);
+  expect(typeof pulled.ok.digest).toBe('string');
+  expect(pulled.ok.baseline).toBe(null); // below write, none is kept
+  // Someone else writes meanwhile: the client's baseline is still the one it pulled.
+  const files = (await post({ method: 'hello', client: 'person' })).ok.files;
+  const wrote = await post({ method: 'transaction', client: 'person', files, ops: [{ op: 'set-token', name: 'surface.page', value: 'light-dark(#fafafa, #000000)' }] });
+  expect(wrote.status).toBe(200);
+  const accent = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(pulled.ok.text, (_, t) => { t.accent.fill.$value = RED; }), baseline: pulled.ok.text }, token);
+  expect(accent.status).toBe(200);
+  const review = accent.ok.review;
+  expect(review.dials.map(d => [d.dial, d.value, d.from])).toEqual([['accent', '#ff0000', ['accent.fill']]]);
+  expect(new Set(review.dials[0].impact.map(i => i.token))).toEqual(new Set(['accent.fill', 'accent.soft']));
+  expect(review.pins).toBeUndefined();
+  const held = (await post({ after: 0, wait: false }, local, '/__tamber/events')).proposals.find(p => p.proposal === accent.ok.proposal);
+  // Planned against the design as it is: the other client's edit is not reverted.
+  expect(held.ops.map(o => o.op)).toEqual([{ op: 'set-dial', name: 'accent', value: '#ff0000' }]);
+  // A changed folded value: a literal over the expression, marked with what it followed.
+  const soft = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(pulled.ok.text, (_, t) => { t.accent.soft.$value = RED; }), baseline: pulled.ok.text }, token);
+  expect(soft.status).toBe(200);
+  expect(soft.ok.review.dials).toBeUndefined();
+  expect(soft.ok.review.pins).toEqual([{ token: 'accent.soft', when: [], follows: ['accent', 'lift'] }]);
+}, 120_000);
+
+test('a baseline this server never gave out, nor keeps, nor is the design\'s own, is refused: pull first', async () => {
+  const token = await paired('propose');
+  const pulled = (await post({ method: 'export', kind: 'dtcg' }, token)).ok.text;
+  const forged = JSON.parse(pulled);
+  const stamp = JSON.stringify(forged).match(/"digest":"([0-9a-f]+)"/)[1];
+  const text = JSON.stringify(forged).replace(stamp, 'f'.repeat(stamp.length));
+  const refused = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(text, (_, t) => { t.accent.fill.$value = RED; }), baseline: text }, token);
+  expect(refused.status).toBe(409);
+  expect(refused.error.message).toMatch(/^pull first/);
+  const typed = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: pulled, baseline: 7 }, token);
+  expect(typed.status).toBe(400);
+}, 120_000);
