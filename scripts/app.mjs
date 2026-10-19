@@ -787,20 +787,24 @@ export function readBake(app, platform, target, directory = bakeOutput(app)) {
   return receipt;
 }
 
-/** Refuse packaging bytes that differ from the binary's complete bake receipt. */
+/** Refuse packaging bytes that differ from the binary's complete bake receipt.
+ * The usual cause is an edit while the build ran: the bake read one version of a
+ * file and packaging copied another. The error's `rebuild` is true, so a build
+ * can name its own command (host/apple/build.mjs). */
 export function verifyBakeFiles(receipt, plan, assets) {
   const embedded = receipt.embedded;
   const ordered = (cards) => [...cards].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const refuse = (what) => Object.assign(new Error(`the packaged ${what} differ${what === 'plan' ? 's' : ''} from the binary bake receipt: a source changed after the bake read it (an edit while the build ran); build again`), { rebuild: true });
   if (!embedded || !Array.isArray(embedded.assets)
       || embedded.plan?.sha256 !== createHash('sha256').update(plan).digest('hex')
       || embedded.plan?.bytes !== plan.length) {
-    throw new Error('the packaged plan differs from the binary bake receipt');
+    throw refuse('plan');
   }
   const copied = ordered(assets), baked = ordered(embedded.assets);
-  if (copied.length !== baked.length
-      || copied.some((asset, i) => ['name', 'sha256', 'bytes'].some((key) => asset[key] !== baked[i][key]))) {
-    throw new Error('the packaged static files differ from the binary bake receipt');
-  }
+  const same = (a, b) => a && b && ['name', 'sha256', 'bytes'].every((key) => a[key] === b[key]);
+  const differ = [...new Set([...copied, ...baked].map((a) => a.name))]
+    .filter((name) => !same(copied.find((a) => a.name === name), baked.find((a) => a.name === name)));
+  if (differ.length) throw refuse(`static files (${differ.slice(0, 3).join(', ')}${differ.length > 3 ? `, ${differ.length - 3} more` : ''})`);
 }
 
 // The compiler owns both the loaded files and the bundle requirements. This
