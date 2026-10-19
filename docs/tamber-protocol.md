@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.13`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.14`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.13"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.14"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -90,8 +90,10 @@ on macOS and Linux.
   Scopes, under Authentication): `hello` says the client's `scope` and whether its token is the
   local one (`local`), and a request above its client's scope is 403 naming both (`scope`,
   `needs`). Stage 10's later wire changes add under the same version: A2's pairing, clients and
-  revoke; `pair-code`'s `remote`, the remote doors open (B); stage 10b's `import` `baseline`, a
-  re-import's `dials` and `pins`, and `export`'s `digest`.
+  revoke; `pair-code`'s `remote`, the remote doors open (B).
+- `tamber/1.14` (LLP 1121 stage 10b, after stage 10 closed) adds `import`'s `baseline`, a
+  re-import's `dials` and `pins`, `export`'s `digest`, and an import read in a process of its own
+  (413/503 past its cost). Stage 11's wire changes add under the same version.
 
 ## Where it runs
 
@@ -843,14 +845,14 @@ list is unchanged: it keeps its own.
   [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
-- **An import is read in a process of its own** (*1.13*, stage 10b), one at a time, never in the
+- **An import is read in a process of its own** (*1.14*, stage 10b), one at a time, never in the
   design's server: a source that takes more than about 1 GiB or 10 s to read, or whose review is
   over 2 MiB, answers 413 or 503, "the source is too costly to read". With four imports already
   waiting, two of this client's outstanding, or after 30 s waiting, an import answers 503 ("imports
   are busy"). A proposal (its diff and review) over 4 MiB is not held: 413. With no design file, an
   import answers 409. Within that, the DTCG importer's and re-import's work is bounded too
   (references, groups and aliases that multiply are refused).
-- **A re-import's dials and pins** (*1.13*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
+- **A re-import's dials and pins** (*1.14*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
   changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
   in every context where that dial line wins, proposes `set-dial` for that dial instead of a literal
   over the line. The review lists it in `dials`, `[{dial, value, from, impact}]`: `from` the tokens
@@ -865,7 +867,7 @@ list is unchanged: it keeps its own.
   one dial to different values, or a dial the design refuses, are proposed as literals instead, each
   a pin marked with the dial. Colour values agree when they are the same colour (`#F00`, `red` and
   `color(srgb 1 0 0)`). A role's row is followed by its bare name too (`background`).
-- **`baseline`** (*1.13*, stage 10b): the export text a client pulled, for a client below `write`,
+- **`baseline`** (*1.14*, stage 10b): the export text a client pulled, for a client below `write`,
   whose `export` keeps none. It is taken when its header's digest is an export this server run gave
   out, a kept one, or the design's own, and its contexts (each one's name, modes and scheme) and axes
   are the design's now; else the import is refused, 409 with `stale: true` ("pull first"). It
@@ -878,7 +880,7 @@ list is unchanged: it keeps its own.
 `{kind: "dtcg"}`, read-only for the design: the app's design as DTCG Format 2025.10 with the Resolver
 Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the same serializer.
 - **The reply** is `{kind, text, baseline, digest}`: `text` is the file, `digest` its header's design
-  digest (*1.13*, the baseline an `import` may name), `baseline` where it is kept, by
+  digest (*1.14*, the baseline an `import` may name), `baseline` where it is kept, by
   path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
   every commit. A link in a baseline's place is replaced, never written through. Below `write`
