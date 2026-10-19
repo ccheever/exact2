@@ -1,92 +1,3 @@
-// App-owned names emitted by composer-rich-projection.ts.
-decoration cmp-bold font-weight=700
-decoration cmp-italic font-style="italic"
-decoration cmp-strike text-decoration="line-through"
-decoration cmp-code-inline font-family="monospace" font-size="0.92em" background-color="light-dark(#71717a1f, #8181811f)"
-decoration cmp-h1 font-size="1.25rem" font-weight=600 line-height=1.3 margin="1.25rem 0 0.5rem"
-decoration cmp-h2 font-size="1.125rem" font-weight=600 line-height=1.3 margin="1.25rem 0 0.5rem"
-decoration cmp-h3 font-size="1rem" font-weight=600 line-height=1.3 margin="1.25rem 0 0.5rem"
-decoration cmp-h4 font-size="0.875rem" font-weight=600 line-height=1.3 margin="1.25rem 0 0.5rem"
-decoration cmp-h5 font-size="0.875rem" font-weight=600 line-height=1.3 margin="1.25rem 0 0.5rem"
-decoration cmp-h6 font-size="0.875rem" font-weight=600 line-height=1.3 margin="1.25rem 0 0.5rem" color="light-dark(#71717a, #818181)"
-decoration cmp-quote border-left="2px solid light-dark(#e4e4e7, #ffffff0f)" padding-left="0.8rem"
-decoration cmp-rule margin="0.65rem 0"
-decoration cmp-code-block font-family="monospace" background-color="light-dark(#f4f4f580, #ffffff08)" border-radius="0.75rem"
-decoration cmp-list-depth0 padding-left="1.25rem"
-decoration cmp-list-depth1 padding-left="2.5rem"
-decoration cmp-list-depth2 padding-left="3.75rem"
-decoration cmp-list-depth3 padding-left="5rem"
-decoration cmp-list-depth4 padding-left="6.25rem"
-decoration cmp-list-depth5 padding-left="7.5rem"
-decoration cmp-list-depth6 padding-left="8.75rem"
-decoration cmp-list-depth7 padding-left="10rem"
-decoration cmp-list-depth8 padding-left="11.25rem"
-decoration cmp-chip-neutral color="light-dark(#27272a, #f5f5f5)" background-color="#f4f4f566" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-invalid color="light-dark(#fb2c36, #fb414a)" background-color="#fb2c3614" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-pull-request color="light-dark(#35394f, #d5daf4)" background-color="#7079e41c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-pr-draft color="light-dark(#393a3f, #dadcdf)" background-color="#7f87931c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-thread color="light-dark(#2a3f40, #c9e2df)" background-color="#009c961c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-mention color="light-dark(#2c3e45, #cbe0e6)" background-color="#0096af1c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-file color="light-dark(#2b3d4b, #cadfed)" background-color="#0090cd1c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-skill color="light-dark(#433448, #e7d4ea)" background-color="#b261be1c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-review-comment color="light-dark(#3a374e, #dcd8f2)" background-color="#8a70dd1c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-citation color="light-dark(#2f3b4f, #ceddf4)" background-color="#4684e51c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-terminal color="light-dark(#2c3f39, #cbe2d6)" background-color="#009f6e1c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-preview-annotation color="light-dark(#44382c, #e9d9c7)" background-color="#b875011c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-image color="light-dark(#4b3337, #f2d3d4)" background-color="#d556651c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-chip-video color="light-dark(#4a352e, #f0d6c8)" background-color="#d062171c" font-size="0.86em" border-radius="0.5em"
-decoration cmp-syn-kw color="light-dark(#d32a61, #ff678d)"
-decoration cmp-syn-kw-i color="light-dark(#d32a61, #ff678d)" font-style="italic"
-decoration cmp-syn-decl color="light-dark(#a631be, #d568ea)"
-decoration cmp-syn-decl-i color="light-dark(#a631be, #d568ea)" font-style="italic"
-decoration cmp-syn-type color="light-dark(#a631be, #d568ea)"
-decoration cmp-syn-type-i color="light-dark(#a631be, #d568ea)" font-style="italic"
-decoration cmp-syn-fn color="light-dark(#693acf, #9d6afb)"
-decoration cmp-syn-fn-i color="light-dark(#693acf, #9d6afb)" font-style="italic"
-decoration cmp-syn-var color="light-dark(#d47628, #ffa359)"
-decoration cmp-syn-var-i color="light-dark(#d47628, #ffa359)" font-style="italic"
-decoration cmp-syn-const color="light-dark(#d5901c, #ffab16)"
-decoration cmp-syn-const-i color="light-dark(#d5901c, #ffab16)" font-style="italic"
-decoration cmp-syn-param color="light-dark(#636363, #a3a3a3)"
-decoration cmp-syn-param-i color="light-dark(#636363, #a3a3a3)" font-style="italic"
-decoration cmp-syn-pyparam color="light-dark(#d5a910, #ffd452)"
-decoration cmp-syn-pyparam-i color="light-dark(#d5a910, #ffd452)" font-style="italic"
-decoration cmp-syn-flag color="light-dark(#d5a910, #ffd452)"
-decoration cmp-syn-flag-i color="light-dark(#d5a910, #ffd452)" font-style="italic"
-decoration cmp-syn-interp color="light-dark(#d5a910, #ffd452)"
-decoration cmp-syn-interp-i color="light-dark(#d5a910, #ffd452)" font-style="italic"
-decoration cmp-syn-bold color="light-dark(#d5a910, #ffd452)"
-decoration cmp-syn-bold-i color="light-dark(#d5a910, #ffd452)" font-style="italic"
-decoration cmp-syn-str color="light-dark(#199f43, #5ecc71)"
-decoration cmp-syn-str-i color="light-dark(#199f43, #5ecc71)" font-style="italic"
-decoration cmp-syn-esc color="light-dark(#16a994, #61d5c0)"
-decoration cmp-syn-esc-i color="light-dark(#16a994, #61d5c0)" font-style="italic"
-decoration cmp-syn-num color="light-dark(#1ca1c7, #68cdf2)"
-decoration cmp-syn-num-i color="light-dark(#1ca1c7, #68cdf2)" font-style="italic"
-decoration cmp-syn-nul color="#08c0ef"
-decoration cmp-syn-nul-i color="#08c0ef" font-style="italic"
-decoration cmp-syn-op color="#08c0ef"
-decoration cmp-syn-op-i color="#08c0ef" font-style="italic"
-decoration cmp-syn-builtin color="#08c0ef"
-decoration cmp-syn-builtin-i color="#08c0ef" font-style="italic"
-decoration cmp-syn-punct color="#636363"
-decoration cmp-syn-punct-i color="#636363" font-style="italic"
-decoration cmp-syn-com color="#737373"
-decoration cmp-syn-com-i color="#737373" font-style="italic"
-decoration cmp-syn-key color="light-dark(#d5512f, #ff855e)"
-decoration cmp-syn-key-i color="light-dark(#d5512f, #ff855e)" font-style="italic"
-decoration cmp-syn-tag color="light-dark(#d5512f, #ff855e)"
-decoration cmp-syn-tag-i color="light-dark(#d5512f, #ff855e)" font-style="italic"
-decoration cmp-syn-heading color="light-dark(#d5512f, #ff855e)"
-decoration cmp-syn-heading-i color="light-dark(#d5512f, #ff855e)" font-style="italic"
-decoration cmp-syn-attr color="light-dark(#18a46c, #60d199)"
-decoration cmp-syn-attr-i color="light-dark(#18a46c, #60d199)" font-style="italic"
-decoration cmp-syn-regex color="light-dark(#17a5af, #64d1db)"
-decoration cmp-syn-regex-i color="light-dark(#17a5af, #64d1db)" font-style="italic"
-decoration cmp-syn-deco color="light-dark(#1a85d4, #69b1ff)"
-decoration cmp-syn-deco-i color="light-dark(#1a85d4, #69b1ff)" font-style="italic"
-decoration cmp-syn-italic font-style="italic"
-
 shape ComposerCodeHeader
   start: number
   end: number
@@ -123,7 +34,6 @@ shape ComposerChipFace
   icon: string
   fileToken: string
   imageId: string
-  atomLabel: string
   available: bool
   interactive: bool
   comment: bool
@@ -170,7 +80,6 @@ shape ComposerRichView
   owner: string
   value: string
   mode: string
-  decorations: TextDecorations
   headers: ComposerCodeHeader[]
   blocks: ComposerSourceBlock[]
   chips: ComposerSourceChip[]

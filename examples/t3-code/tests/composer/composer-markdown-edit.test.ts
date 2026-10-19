@@ -60,20 +60,10 @@ describe('composer source edit rules', () => {
     expect(key('ordinary', 8, 'Tab')).toEqual({ kind: 'default' });
     expect(key('😀', 99, 'Enter')).toEqual({ kind: 'default' });
   });
-  test('Bold and Italic toggle source markers while retaining the UTF-16 selection', () => {
-    const source = '😀 selected text';
-    const bold = result(source, key(source, 3, 'Bold', false, 11, true));
-    expect(bold).toEqual({ source: '😀 **selected** text', start: 5, end: 13 });
-    expect(result(bold.source, key(bold.source, bold.start, 'Bold', false, bold.end, true)))
-      .toEqual({ source, start: 3, end: 11 });
-    expect(result('**word**', key('**word**', 2, 'Italic', false, 6, true)))
-      .toEqual({ source: '***word***', start: 3, end: 7 });
-    expect(result('***word***', key('***word***', 3, 'Italic', false, 7, true)))
-      .toEqual({ source: '**word**', start: 2, end: 6 });
-    expect(result('', key('', 0, 'Italic', false, 0, true))).toEqual({ source: '**', start: 1, end: 1 });
-    const code = '```\ncode\n```';
-    expect(key(code, 4, 'Bold', false, 8, true)).toEqual({ kind: 'default' });
-    expect(key(code, 0, 'Italic', false, code.length, true)).toEqual({ kind: 'default' });
+  test('Bold and Italic belong to the Markdown field, not the source rules', () => {
+    // format("composer", "bold"|"italic") edits at the field's selection (LLP 1045 D6).
+    expect(key('😀 selected text', 3, 'Bold', false, 11, true)).toEqual({ kind: 'default' });
+    expect(key('word', 0, 'Italic', false, 4, true)).toEqual({ kind: 'default' });
   });
 });
 

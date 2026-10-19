@@ -2,13 +2,13 @@
 import { codeAt, composerLines, composerMarkdown, parseOpeningFence, type ComposerBlockOrigin } from './composer-markdown';
 import { composerBlockInputRule } from './composer-input-rules';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerEdit, type ComposerKey, type ComposerKeyResult } from './composer-markdown-edit';
-import type { ComposerRange } from './composer-markdown-inline';
-import { composerChips, pastedPathQueryLength, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
+import type { ComposerRange } from './composer-markdown';
+import { composerChips, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
 
 type FenceOrigins = Map<number, string>;
-type SourceOrigins = { literal: readonly ComposerRange[]; chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
+type SourceOrigins = { chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
 type SourceChange = ComposerRange & { text: string };
-type Pending = { value: string; origins: FenceOrigins; literal: ComposerRange[]; blocks: ComposerBlockOrigin[] };
+type Pending = { value: string; origins: FenceOrigins; blocks: ComposerBlockOrigin[] };
 export type ComposerMode = 'rich' | 'plain' | 'literal';
 export type ComposerSessionResult = ComposerKeyResult | { kind: 'stale' };
 
@@ -19,16 +19,14 @@ export class ComposerSourceSession {
   private value = '';
   private origins: FenceOrigins = new Map();
   private pending: Pending | null = null;
-  private literal: ComposerRange[] = [];
   private currentBlocks: ComposerBlockOrigin[] = [];
   private currentChips: ComposerChip[] = [];
-  // Exact source signatures retain decoration origins for native history, not edit commands.
+  // Exact source signatures retain block and reference origins for native history, not edit commands.
   private historyOrigins = new Map<string, SourceOrigins>();
 
   matches(owner: string, value: string): boolean { return owner === this.owner && value === this.value; }
   get chips(): readonly ComposerChip[] { return this.currentChips; }
   get mode(): ComposerMode { return this.currentMode; }
-  get literalRanges(): readonly ComposerRange[] { return this.literal; }
   get blockOrigins(): readonly ComposerBlockOrigin[] { return this.currentBlocks; }
 
   observe(owner: string, value: string, inputType = '', mode: ComposerMode = 'rich'): void {
@@ -39,7 +37,6 @@ export class ComposerSourceSession {
       this.owner = owner;
       this.value = value;
       this.origins = new Map();
-      this.literal = [];
       this.currentBlocks = [];
       this.historyOrigins.clear();
       this.currentChips = mode === 'literal' ? [] : composerChips(value);
@@ -51,10 +48,9 @@ export class ComposerSourceSession {
       else if (enteredRichText) this.currentChips = composerChips(value);
       return;
     }
-    this.rememberOrigins(this.value, this.literal, this.currentChips, this.currentBlocks, this.origins);
+    this.rememberOrigins(this.value, this.currentChips, this.currentBlocks, this.origins);
     if (this.pending?.value === value) {
       this.origins = this.pending.origins;
-      this.literal = this.pending.literal;
       this.currentBlocks = this.pending.blocks;
     } else {
       const old = this.value;
@@ -63,7 +59,6 @@ export class ComposerSourceSession {
       while (suffix < old.length - prefix && suffix < value.length - prefix && old[old.length - suffix - 1] === value[value.length - suffix - 1]) suffix++;
       const oldEnd = old.length - suffix, delta = value.length - old.length;
       const change = { start: prefix, end: oldEnd, text: value.slice(prefix, value.length - suffix) };
-      this.literal = this.literalAfter(change, value);
       const live = mode === 'rich' && inputType === 'insertText' && change.text.length > 0
         && !change.text.includes('\n') && !old.slice(prefix, oldEnd).includes('\n');
       const blocksAfter = this.blocksAfter(change, value, live || inputType.startsWith('delete'));
@@ -85,12 +80,9 @@ export class ComposerSourceSession {
       const remembered = this.historyOrigins.get(value);
       this.currentBlocks = mode === 'rich' ? remembered?.blocks.map(block => ({ ...block })) ?? [] : [];
       this.origins = mode === 'rich' ? new Map(remembered?.fences) : new Map();
-      if (remembered) {
-        this.literal = remembered.literal.map(range => ({ ...range }));
-        if (mode !== 'literal') this.currentChips = remembered.chips.map(chip => ({ ...chip }));
-      }
+      if (remembered && mode !== 'literal') this.currentChips = remembered.chips.map(chip => ({ ...chip }));
     }
-    this.rememberOrigins(value, this.literal, this.currentChips, this.currentBlocks, this.origins);
+    this.rememberOrigins(value, this.currentChips, this.currentBlocks, this.origins);
     this.value = value;
     this.pending = null;
   }
@@ -102,10 +94,8 @@ export class ComposerSourceSession {
     if (outcome.kind === 'edit') {
       const origins = this.after(outcome.edit);
       if (code) origins.set(code.start, this.origins.get(code.start) ?? code.fence);
-      const next = applyComposerEdit(value, outcome.edit), literal = this.literalAfter(outcome.edit, next);
-      const prefix = paste ? pastedPathQueryLength(value.slice(0, selection.start), text, selection.start === selection.end, this.currentBlocks) : 0;
-      if (prefix) literal.push({ start: selection.start, end: selection.start + prefix });
-      this.pending = { value: next, origins, literal, blocks: this.blocksAfter(outcome.edit, next, !paste) };
+      const next = applyComposerEdit(value, outcome.edit);
+      this.pending = { value: next, origins, blocks: this.blocksAfter(outcome.edit, next, !paste) };
     }
     return outcome;
   }
@@ -130,7 +120,7 @@ export class ComposerSourceSession {
       if (key.name === 'Enter' && parseOpeningFence(value.slice(outcome.edit.start, outcome.edit.end))) {
         blocks = blocks.filter(origin => origin.start !== outcome.edit.start);
       }
-      this.pending = { value: next, origins, literal: this.literalAfter(outcome.edit, next), blocks };
+      this.pending = { value: next, origins, blocks };
     }
     return outcome;
   }
@@ -200,33 +190,16 @@ export class ComposerSourceSession {
     return next.slice(-1024);
   }
 
-  private rememberOrigins(value: string, literal: readonly ComposerRange[], chips: readonly ComposerChip[], blocks: readonly ComposerBlockOrigin[], fences: ReadonlyMap<number, string>): void {
+  private rememberOrigins(value: string, chips: readonly ComposerChip[], blocks: readonly ComposerBlockOrigin[], fences: ReadonlyMap<number, string>): void {
     this.historyOrigins.delete(value);
-    if (!literal.length && !chips.length && !blocks.length && !fences.size || value.length > 262_144 || literal.length + chips.length + blocks.length + fences.size > 1024) return;
-    this.historyOrigins.set(value, { literal: literal.map(range => ({ ...range })), chips: chips.map(chip => ({ ...chip })), blocks: blocks.map(block => ({ ...block })), fences: new Map(fences) });
+    if (!chips.length && !blocks.length && !fences.size || value.length > 262_144 || chips.length + blocks.length + fences.size > 1024) return;
+    this.historyOrigins.set(value, { chips: chips.map(chip => ({ ...chip })), blocks: blocks.map(block => ({ ...block })), fences: new Map(fences) });
     let characters = 0, count = 0;
-    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.literal.length + retained.chips.length + retained.blocks.length + retained.fences.size; }
+    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.chips.length + retained.blocks.length + retained.fences.size; }
     for (const [source, retained] of this.historyOrigins) {
       if (this.historyOrigins.size <= 32 && characters <= 262_144 && count <= 1024) break;
       this.historyOrigins.delete(source);
-      characters -= source.length; count -= retained.literal.length + retained.chips.length + retained.blocks.length + retained.fences.size;
+      characters -= source.length; count -= retained.chips.length + retained.blocks.length + retained.fences.size;
     }
-  }
-
-  private literalAfter(edit: ComposerRange & { text: string }, value: string): ComposerRange[] {
-    const delta = edit.text.length - (edit.end - edit.start), ranges: ComposerRange[] = [];
-    for (const old of this.literal) {
-      let start = old.start, end = old.end;
-      if (edit.end <= start) { start += delta; end += delta; }
-      else if (edit.start < end) {
-        if (edit.start <= start && edit.end >= end) continue;
-        start = edit.start < start ? edit.start + edit.text.length : start;
-        end = edit.end >= end ? edit.start : end + delta;
-      }
-      const whitespace = value.slice(start, end).search(/\s/);
-      if (whitespace >= 0) end = start + whitespace;
-      if (end > start) ranges.push({ start, end });
-    }
-    return ranges;
   }
 }

@@ -5,7 +5,7 @@ import { composerFieldReplacement } from './composer-field-edit';
 import { composerSourceSession } from './composer-rich-state';
 import { composerChipCompleted, composerChipStore } from './composer-chip-store';
 import { composerMarkdown } from './composer-markdown';
-import { chipDecorations, composerChips } from './composer-source-chips';
+import { composerChips, composerChipsInBlocks } from './composer-source-chips';
 import { composerHistoryComplete, composerHistoryReset } from './composer-prompt-history';
 import { finishAttachmentEffect, resetAttachmentEffects } from './composer-attachment-receipts';
 
@@ -147,9 +147,9 @@ export async function composerFieldAcknowledged(host: ComposerFieldHost, args: r
   const session = composerSourceSession(host);
   const chips = effect?.kind === 'open' && session.mode !== 'literal'
     ? session.matches(current.owner, current.value) ? session.chips : composerChips(current.value) : [];
-  const atoms = effect?.kind === 'open' ? composerMarkdown(current.value, { styling: session.mode === 'rich', atoms: chipDecorations(chips),
-    blockOrigins: session.matches(current.owner, current.value) ? session.blockOrigins : undefined }).decorations.atoms : [];
-  const send = composerChipCompleted(host, effect, current, chips.filter(chip => atoms.some(atom => atom.start === chip.start && atom.end === chip.end)));
+  const blocks = effect?.kind === 'open' ? composerMarkdown(current.value, { styling: session.mode === 'rich',
+    blockOrigins: session.matches(current.owner, current.value) ? session.blockOrigins : undefined }).blocks : [];
+  const send = composerChipCompleted(host, effect, current, composerChipsInBlocks(current.value, blocks, chips));
   let cleanupSucceeded = true;
   if (completions.some(item => item.command.seq === seq)) {
     try { await completeFieldRequest(receipt, completed, currentNative); }

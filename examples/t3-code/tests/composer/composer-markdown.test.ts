@@ -1,79 +1,46 @@
 import { describe, expect, test } from 'bun:test';
-import { codeAt, composerMarkdown, type ComposerAtom } from '../../src/composer/composer-markdown';
+import { codeAt, composerMarkdown } from '../../src/composer/composer-markdown';
 import { codeLanguageLabel, CODE_BLOCK_LANGUAGES, withInfoStringLanguage } from '../../src/composer/composer-code-languages';
 
-const parsed = (value: string) => composerMarkdown(value).decorations;
+// The Markdown field paints the source (LLP 1045); these blocks drive key
+// handling and the controls outside the field.
 describe('source-backed composer Markdown', () => {
   test('headings require whitespace and leave PR tokens literal', () => {
     const source = '# Heading\n## two\n###### six\n#1234\n####### seven';
-    const { decorations, blocks } = composerMarkdown(source);
-    expect(decorations.value).toBe(source);
+    const { blocks } = composerMarkdown(source);
     expect(blocks.map(block => block.kind)).toEqual(['heading', 'heading', 'heading', 'paragraph', 'paragraph']);
-    expect(decorations.blocks.map(block => [block.name, source.slice(block.start, block.end)])).toEqual([
-      ['cmp-h1', '# Heading'], ['cmp-h2', '## two'], ['cmp-h6', '###### six'],
-    ]);
-    expect(decorations.hidden.map(range => source.slice(range.start, range.end))).toEqual(['# ', '## ', '###### ']);
+    expect(blocks.map(block => 'contentStart' in block ? source.slice(block.start, block.contentStart) : '')).toEqual(['# ', '## ', '###### ', '', '']);
   });
   test('nested lists preserve source numbers, whitespace and task state without nesting other blocks', () => {
     const source = '* first\n  003) second\n\t- [X] task\n- # literal heading\n> - literal list';
-    const { decorations, blocks } = composerMarkdown(source);
+    const { blocks } = composerMarkdown(source);
     expect(blocks.map(block => block.kind)).toEqual(['list', 'list', 'list', 'list', 'quote']);
-    expect(decorations.blocks.map(block => [block.name, block.marker])).toEqual([
-      ['cmp-list-depth0', 'bullet'], ['cmp-list-depth1', 'source'], ['cmp-list-depth1', 'checkbox:on'], ['cmp-list-depth0', 'bullet'], ['cmp-quote', ''],
+    expect(blocks.map(block => block.kind === 'list' ? [block.list, block.marker, block.checked] : [])).toEqual([
+      ['bullet', '*', false], ['ordered', '003)', false], ['task', '-', true], ['bullet', '-', false], [],
     ]);
-    expect(decorations.hidden.map(range => source.slice(range.start, range.end))).toEqual(['* ', '  003) ', '\t- [X] ', '- ', '> ']);
-    expect(decorations.spans).toEqual([]);
+    expect(blocks.map(block => 'contentStart' in block ? source.slice(block.start, block.contentStart) : '')).toEqual(['* ', '  003) ', '\t- [X] ', '- ', '> ']);
   });
   test('rules win over a bullet and a task needs whitespace before its content', () => {
-    const { blocks, decorations } = composerMarkdown('---\n* * *\n___\n- [ ] task\n- [x]word');
+    const { blocks } = composerMarkdown('---\n* * *\n___\n- [ ] task\n- [x]word');
     expect(blocks.map(block => block.kind)).toEqual(['rule', 'rule', 'rule', 'list', 'list']);
-    expect(decorations.blocks.map(block => block.marker)).toEqual(['rule', 'rule', 'rule', 'checkbox:off', 'bullet']);
-    expect(decorations.hidden.at(-1)).toMatchObject({ start: 25, end: 27 });
+    expect(blocks.map(block => block.kind === 'list' ? block.list : '')).toEqual(['', '', '', 'task', 'bullet']);
   });
-  test('inline nesting retains original delimiters and reveals the complete matching pair', () => {
-    const source = '**bold *italic* `code`** ~~gone~~';
-    const decorations = parsed(source);
-    expect(decorations.spans.map(span => [span.name, source.slice(span.start, span.end)])).toEqual([
-      ['cmp-bold', 'bold *italic* `code`'], ['cmp-italic', 'italic'], ['cmp-code-inline', 'code'], ['cmp-strike', 'gone'],
-    ]);
-    expect(decorations.hidden.filter(range => range.reveal?.start === 0).map(range => [range.start, range.end, range.reveal?.end])).toEqual([[0, 2, 24], [22, 24, 24]]);
-    expect(decorations.value).toBe(source);
-  });
-  test('unclosed outer syntax stays literal while a closed inner span survives', () => {
-    const source = '**open *inner*';
-    expect(parsed(source).spans.map(span => [span.name, source.slice(span.start, span.end)])).toEqual([['cmp-italic', 'inner']]);
-    expect(parsed('before\\*literal* and `open').spans).toEqual([]);
-    expect(parsed('identifier__init__value').spans).toEqual([]);
-  });
-  test('literal path-query paste and chip source are excluded before inline parsing', () => {
-    const source = 'src/**name**.ts **bold**';
-    const literal = [{ start: 0, end: 15 }];
-    expect(composerMarkdown(source, { literal }).decorations.spans.map(span => source.slice(span.start, span.end))).toEqual(['bold']);
-    const value = '[src__x__.ts](src__x__.ts) **yes**';
-    const atoms: ComposerAtom[] = [{ name: 'cmp-mention', start: 0, end: 24, label: 'src__x__.ts' }];
-    expect(composerMarkdown(value, { atoms }).decorations.atoms).toEqual(atoms);
-    expect(composerMarkdown(value, { atoms }).decorations.spans.map(span => value.slice(span.start, span.end))).toEqual(['yes']);
-  });
-  test('UTF-16 offsets preserve emoji, CRLF and raw source outside styled ranges', () => {
+  test('UTF-16 offsets preserve emoji and CRLF', () => {
     const source = '😀 **bold**\r\n# Heading\r\nplain';
-    const { decorations } = composerMarkdown(source);
-    expect(decorations.spans).toEqual([{ name: 'cmp-bold', start: 5, end: 9 }]);
-    expect(decorations.blocks[0]).toMatchObject({ start: 13, end: 23 });
-    expect(decorations.value).toBe(source);
+    expect(composerMarkdown(source).blocks.map(block => [block.kind, block.start, block.end])).toEqual([
+      ['paragraph', 0, 12], ['heading', 13, 23], ['paragraph', 24, 29],
+    ]);
   });
-  test('fences preserve exact info/closing source and code suppresses inline marks and chips', () => {
+  test('fences preserve exact info/closing source', () => {
     const source = '```ts title=x\n**literal** @alice\n````  \nafter';
-    const atom: ComposerAtom = { name: 'cmp-mention', start: 25, end: 31, label: 'Alice' };
-    const { decorations, blocks } = composerMarkdown(source, { atoms: [atom] });
+    const { blocks } = composerMarkdown(source);
     const code = blocks[0];
     expect(code?.kind).toBe('code');
     if (code?.kind !== 'code') throw new Error('expected parsed code');
     expect(code.info).toBe('ts title=x');
     expect(source.slice(code.body.start, code.body.end)).toBe('**literal** @alice');
     expect(source.slice(code.close?.start, code.close?.end)).toBe('````  ');
-    expect(decorations.spans).toEqual([]);
-    expect(decorations.atoms).toEqual([]);
-    expect(decorations.hidden.map(range => source.slice(range.start, range.end))).toEqual(['```ts title=x', '````  ']);
+    expect(blocks.map(block => block.kind)).toEqual(['code', 'paragraph']);
   });
   test('empty and unclosed code bodies have valid ranges; two identical fences remain separate occurrences', () => {
     const empty = composerMarkdown('```ts\n```');
@@ -87,8 +54,7 @@ describe('source-backed composer Markdown', () => {
   });
   test('disabled rich text leaves the full draft ordinary', () => {
     const value = '# heading\n**bold**\n```ts\ncode\n```';
-    const { decorations, blocks } = composerMarkdown(value, { styling: false });
-    expect(decorations).toEqual({ value, spans: [], blocks: [], hidden: [], atoms: [] });
+    const { blocks } = composerMarkdown(value, { styling: false });
     expect(blocks.every(block => block.kind === 'paragraph')).toBe(true);
   });
 });

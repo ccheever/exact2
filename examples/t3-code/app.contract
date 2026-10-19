@@ -271,7 +271,6 @@ component T3Code
     composerMoved
     composerBeforeInput
     composerIntentNotice
-    composerTaskToggle
     composerLanguage
     composerKeyEvent
     composerKeyReleased
@@ -1215,7 +1214,7 @@ component T3Code
       composerFieldAdmitted = true
       if item.focus
         focus("composer")
-      setRangeText("composer", item.text, item.start, item.end, "preserve", "undo")
+      setRangeText("composer", item.text, item.start, item.end, "preserve")
       setSelectionRange("composer", item.selectionStart, item.selectionEnd)
   task composerFieldConfirm when composerFieldAfter > composerFieldAcked key=composerFieldAfter
     after(1, composerFieldConfirmRun)
@@ -1315,7 +1314,7 @@ component T3Code
               composerIntentPreserves = result.preserveSelection
               composerIntentCaretSeen = false
               composerIntentPhase = "input"
-              setRangeText("composer", result.text, result.start, result.end, "preserve", "undo")
+              setRangeText("composer", result.text, result.start, result.end, "preserve")
               if not result.preserveSelection
                 setSelectionRange("composer", result.selectionStart, result.selectionEnd)
             else if result.kind == "handled"
@@ -1377,15 +1376,12 @@ component T3Code
       else
         match e.data
           case some(text)
-            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and e.selectionStart >= b.bodyStart and e.selectionEnd <= b.bodyEnd).length > 0)
+            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and b.bodyStart == b.bodyEnd and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyEnd).length > 0)
               preventDefault()
               composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
     composerSelectionObserved(e, e.isComposing)
     composerComposing = e.isComposing
-  action composerTaskToggle(e: ToggleEvent)
-    if composerRichCurrent and richComposer.mode == "rich" and not composerComposing and richComposer.blocks.filter((block) => block.kind == "list" and block.start == e.start and block.end == e.end).length > 0
-      composerIntentRequest("toggle", e.newState == "checked" ? "checked" : "unchecked", "", false, false, e.start, e.end, composerComposing)
   action composerLanguage(start: number, end: number, language: string, owner: string, value: string)
     if composerRichCurrent and richComposer.mode == "rich" and owner == richComposerOwner and value == composerText and not composerComposing
       focus("composer")
@@ -1398,11 +1394,12 @@ component T3Code
     composerCommand = heldCommand
     if composerComposing and not composing and composerRichCurrent and composerSelectionCurrent
       send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=composerSelectionStart, end=composerSelectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
-    if composerRichCurrent and composerSelectionCurrent and not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
+    if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
       preventDefault()
       stopPropagation()
+      // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6).
       if not e.repeat
-        composerIntentRequest("key", "", k == "b" or k == "B" or e.code == "KeyB" ? "Bold" : "Italic", false, true, composerSelectionStart, composerSelectionEnd, composing)
+        format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
     else
       composerGrammarKey(k, e, composing)
     composerComposing = composing

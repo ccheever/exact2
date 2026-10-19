@@ -455,6 +455,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "getrandom 0.3.4",
+ "libc",
  "p256",
  "same-file",
  "serde_json",
@@ -611,6 +612,7 @@ version = "0.1.0"
 dependencies = [
  "exact-canvas",
  "exact-grants",
+ "exact-js-value",
  "exact-kernel",
  "exact-motion",
  "exact-num",
