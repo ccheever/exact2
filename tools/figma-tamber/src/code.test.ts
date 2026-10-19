@@ -18,6 +18,7 @@ const data = (into: any) => {
 
 /** Figma, as much as the plugin uses, with `limit` modes a collection. */
 function fakeFigma(limit: number) {
+  const raise = (n: number) => { limit = n; };
   let ids = 0;
   const collections: any[] = [], variables: any[] = [], said: any[] = [], storage: Record<string, any> = {}, library: any[] = [], libraryCollections: any[] = [];
   let undo: (() => void) | null = null;
@@ -47,9 +48,9 @@ function fakeFigma(limit: number) {
       createVariableCollection(name: string) {
         const col: any = data({ id: `c${++ids}`, name, modes: [{ modeId: `m${++ids}`, name: 'Mode 1' }],
           get defaultModeId() { return col.modes[0].modeId; },
-          renameMode(id: string, n: string) { col.modes.find((m: any) => m.modeId === id).name = n; },
+          renameMode(id: string, n: string) { if (col.modes.some((m: any) => m.name === n && m.modeId !== id)) throw new Error(`a mode named ${n} already`); col.modes.find((m: any) => m.modeId === id).name = n; },
           removeMode(id: string) { if (col.modes.length < 2 || id === col.modes[0].modeId) throw new Error('cannot remove the default mode'); const i = col.modes.findIndex((m: any) => m.modeId === id); if (i < 0) throw new Error('no such mode'); col.modes.splice(i, 1); },
-          addMode(n: string) { if (col.modes.length >= limit) throw new Error('in addMode: Limited to ' + limit + ' modes only'); const m = { modeId: `m${++ids}`, name: n }; col.modes.push(m); return m.modeId; } });
+          addMode(n: string) { if (col.modes.some((m: any) => m.name === n)) throw new Error(`a mode named ${n} already`); if (col.modes.length >= limit) throw new Error('in addMode: Limited to ' + limit + ' modes only'); const m = { modeId: `m${++ids}`, name: n }; col.modes.push(m); return m.modeId; } });
         col.remove = () => { collections.splice(collections.indexOf(col), 1); for (const v of variables.filter(v => v.variableCollectionId === col.id)) v.remove(); };
         collections.push(col);
         return col;
@@ -62,7 +63,7 @@ function fakeFigma(limit: number) {
       },
     },
   };
-  return { figma, collections, variables, said, storage, library, libraryCollections };
+  return { figma, collections, variables, said, storage, library, libraryCollections, raise };
 }
 
 let f: ReturnType<typeof fakeFigma>;
@@ -316,4 +317,54 @@ test('round 3: a refused pull with nothing changed undoes nothing; a deleted col
   const got = await send({ type: 'collect' }, 'collected');
   expect(got.unread.map((u: any) => u.why)).toEqual(['the collection is gone from this file']);
   expect(JSON.parse(got.source)).toEqual(JSON.parse(TEXT)); // nothing of the stranger's sent
+});
+
+test('round 4: a collection renamed to a new tuple\'s name stays its own tuple\'s; one collection each', async () => {
+  await load(2);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const black = f.collections.find(c => c.name === 'Tamber · dark-style=black');
+  black.name = 'Tamber · dark-style=grey';
+  const grey = variant(doc => {
+    const contexts = doc.modifiers.mode.contexts;
+    for (const scheme of ['light', 'dark']) contexts[`dark-style=grey, ${scheme}`] = structuredClone(contexts[`dark-style=dim, ${scheme}`]);
+  });
+  await send({ type: 'apply', text: grey }, 'applied');
+  expect(f.collections.map(c => c.name).sort()).toEqual(['Tamber · dark-style=black', 'Tamber · dark-style=dim', 'Tamber · dark-style=grey']);
+  const ids = JSON.parse(f.figma.root.kept['plan#0']).collections.map((c: any) => c.id);
+  expect(new Set(ids).size).toBe(3);
+  expect(black.name).toBe('Tamber · dark-style=black');
+});
+
+test('round 4: a parked default mode comes back only to its own context', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], first = col.modes[0].modeId;
+  const plan = () => JSON.parse(f.figma.root.kept['plan#0']).collections[0];
+  const dim = variant(doc => {
+    for (const s of ['light', 'dark']) delete doc.modifiers.mode.contexts[`dark-style=black, ${s}`];
+    doc.modifiers.mode.default = 'dark-style=dim, light';
+  });
+  await send({ type: 'apply', text: dim }, 'applied');
+  await send({ type: 'apply', text: dim }, 'applied');
+  expect(col.modes.find((m: any) => m.modeId === first).name).toBe('unused: dark-style=black, light');
+  expect(plan().parked).toEqual({ 'dark-style=black, light': first });
+  const back = variant(doc => { doc.modifiers.mode.default = 'dark-style=dim, light'; });
+  await send({ type: 'apply', text: back }, 'applied');
+  expect(plan().contextIds['dark-style=black, light']).toBe(first);
+  expect(plan().contextIds['dark-style=black, dark']).not.toBe(first);
+});
+
+test('round 4: a deleted variable is reported before a pull and on push; a raised mode limit keeps one collection a tuple', async () => {
+  await load(2);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const fill = f.variables.find(v => v.name === 'accent/fill');
+  fill.remove();
+  const checked = await send({ type: 'check', text: TEXT }, 'checked');
+  expect(checked.unread.map((u: any) => u.why)).toContain('the variable is gone from this file');
+  expect((await send({ type: 'collect' }, 'collected')).unread.length).toBeGreaterThan(0);
+  f.raise(10);
+  const names = f.collections.map(c => c.name);
+  const applied = await send({ type: 'apply', text: TEXT }, 'applied');
+  expect(applied.collections).toEqual(names);
+  expect(f.collections.map(c => c.name)).toEqual(names);
 });

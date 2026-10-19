@@ -41,6 +41,9 @@ export interface Collection {
    * name, cut to 40 characters, is only what Figma shows). */
   id?: string;
   contextIds?: Record<string, string>;
+  /** A default mode whose context the design dropped: by that context, kept
+   * for it (Figma can't remove a default mode). */
+  parked?: Record<string, string>;
 }
 
 export interface Plan {

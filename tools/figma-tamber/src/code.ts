@@ -77,7 +77,7 @@ async function holding(plan: Plan): Promise<{ now: Held; unread: { variable: str
     now[c.name] = {};
     for (const v of c.variables) {
       const fv = variableOf(variables, col, v);
-      if (!fv) continue;
+      if (!fv) { unread.push({ variable: `${c.name}: ${v.name}`, mode: '', why: 'the variable is gone from this file' }); continue; }
       now[c.name][v.name] = {};
       for (const mode of c.modes) {
         const m = modeIn(col, c, mode);
@@ -100,11 +100,15 @@ async function write(plan: Plan, before: Plan | null) {
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
   const variables = await figma.variables.getLocalVariablesAsync();
   // Each collection first, refused before anything is touched: the one the
-  // last pull wrote (by id), else one of the plan's name this plugin made.
+  // last pull wrote (by id), else one of the plan's name this plugin made
+  // that no other of the last pull's collections is; one each.
+  const reserved = new Set((before?.collections ?? []).map(c => collectionIn(collections, c)?.id).filter(Boolean));
+  const taken = new Set<string>();
   const cols = plan.collections.map(c => {
     const was = before?.collections.find(x => x.name === c.name);
-    const col = (was && collectionIn(collections, was)) || collections.find((x: any) => x.name === c.name) || null;
+    const col = (was && collectionIn(collections, was)) || collections.find((x: any) => x.name === c.name && !reserved.has(x.id) && !taken.has(x.id)) || null;
     if (col && !col.getSharedPluginData?.(KEY, 'owned')) throw new Error(`this file has a collection \`${col.name}\` that Tamber did not make: rename it, then pull`);
+    if (col) taken.add(col.id);
     return { c, was, col };
   });
   dirty = true;
@@ -114,29 +118,35 @@ async function write(plan: Plan, before: Plan | null) {
     if (col.name !== c.name) col.name = c.name;
     // Each context's mode by the id the last pull wrote it with (renamed in
     // Figma, it is still that context; a mode's shown name is only that).
+    const prior: Record<string, string> = { ...was?.parked, ...was?.contextIds };
     const ids: Record<string, string> = {}, used = new Set<string>();
     for (const mode of c.modes) {
-      const m = col.modes.find((x: any) => x.modeId === was?.contextIds?.[c.contexts[mode]]);
+      const m = col.modes.find((x: any) => x.modeId === prior[c.contexts[mode]]);
       if (m && !used.has(m.modeId)) { ids[mode] = m.modeId; used.add(m.modeId); }
     }
-    // A default mode can't be removed: one no context keeps takes the first
-    // new context, else stays, parked under a name of its own, so no
-    // surviving context loses its mode. The others no context keeps go
-    // before any is added, so a full collection takes the new ones.
-    let parked: string | null = null;
+    // A default mode can't be removed. One that was a context's stays that
+    // context's, parked (`unused: <context>`) until the context comes back;
+    // a new collection's own first mode takes the first context. The others
+    // no context keeps go before any is added, so a full collection takes
+    // the new ones.
+    let parked: [string, string] | null = null;
     if (!used.has(col.defaultModeId)) {
-      const take = c.modes.find(mode => !ids[mode]);
-      if (take) { ids[take] = col.defaultModeId; used.add(col.defaultModeId); } else parked = col.defaultModeId;
+      const own = Object.keys(prior).find(ctx => prior[ctx] === col.defaultModeId);
+      const take = own === undefined ? c.modes.find(mode => !ids[mode]) : undefined;
+      if (take) { ids[take] = col.defaultModeId; used.add(col.defaultModeId); } else parked = [own ?? '', col.defaultModeId];
     }
-    for (const m of [...col.modes]) if (!used.has(m.modeId) && m.modeId !== parked) col.removeMode(m.modeId);
-    // Names in two steps, each to a name of its own first, so two modes
-    // trading names never ask for one another still has.
-    const temp = (i: number) => `~tamber ${i}`;
-    c.modes.forEach((mode, i) => { if (!ids[mode]) ids[mode] = col.addMode(temp(i)); });
-    const touched = c.modes.filter(mode => col.modes.find((x: any) => x.modeId === ids[mode])?.name !== mode);
-    touched.forEach((mode, i) => col.renameMode(ids[mode], temp(i)));
-    touched.forEach(mode => col.renameMode(ids[mode], mode));
-    if (parked) col.renameMode(parked, `unused: ${col.modes.find((x: any) => x.modeId === parked)?.name ?? ''}`.slice(0, 40));
+    for (const m of [...col.modes]) if (!used.has(m.modeId) && m.modeId !== parked?.[1]) col.removeMode(m.modeId);
+    // Names in two steps, each first to a name no mode has or will have, so
+    // two modes trading names never ask for one another still has.
+    const final: [string, string][] = [...c.modes.map(mode => [mode, mode] as [string, string]), ...(parked ? [[`unused: ${parked[0]}`.slice(0, 40), ''] as [string, string]] : [])];
+    const names = new Set([...col.modes.map((x: any) => x.name), ...final.map(([n]) => n)]);
+    let n = 0;
+    const temp = () => { while (names.has(`~tamber ${n}`)) n++; names.add(`~tamber ${n}`); return `~tamber ${n}`; };
+    for (const mode of c.modes) if (!ids[mode]) ids[mode] = col.addMode(temp());
+    const idOf = (mode: string, slot: string) => (slot === '' && parked ? parked[1] : ids[mode]);
+    const touched = final.filter(([name, slot]) => col.modes.find((x: any) => x.modeId === idOf(name, slot))?.name !== name);
+    for (const [name, slot] of touched) col.renameMode(idOf(name, slot), temp());
+    for (const [name, slot] of touched) col.renameMode(idOf(name, slot), name);
     const tokens = new Set(c.variables.map(v => v.token));
     for (const x of variables) if (x.variableCollectionId === col.id && x.getSharedPluginData?.(KEY, 'token') && !tokens.has(x.getSharedPluginData(KEY, 'token'))) x.remove();
     for (const v of c.variables) {
@@ -148,6 +158,7 @@ async function write(plan: Plan, before: Plan | null) {
     }
     c.id = col.id;
     c.contextIds = Object.fromEntries(c.modes.map(mode => [c.contexts[mode], ids[mode]]));
+    if (parked?.[0]) c.parked = { [parked[0]]: parked[1] };
   }
 }
 /** Whether the document changed since the last undo step was committed. */
@@ -187,7 +198,9 @@ figma.ui.onmessage = async (msg: any) => {
         figma.commitUndo();
         dirty = false;
         try {
-          let plan = pull(doc, Infinity);
+          // The last pull's layout while the contexts are the same: one collection a tuple stays so, a plan's limit raised or not.
+          const moved = before && contextsMoved(before, doc), split = !!before?.collections.some(c => c.name !== 'Tamber');
+          let plan = pull(doc, split && !moved?.added.length && !moved?.removed.length ? 2 : Infinity);
           try { await write(plan, before); } catch (e) {
             if (!tooManyModes(e)) throw e;
             undo();
