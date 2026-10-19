@@ -78,7 +78,7 @@ test('T6: a tool on another machine pairs through the trusted-tunnel door with a
     const wire = seen.filter(s => s.path === '/__tamber');
     expect(seen.filter(s => s.path === '/__tamber/pair')).toHaveLength(1);
     expect(wire.map(s => s.method)).toContain('propose');
-    for (const s of wire) expect([s.method, ['hello', 'describe', 'resolve', 'explain', 'uses', 'history', 'export', 'propose', 'import', 'revert'].includes(s.method) || (s.method === 'inspect' && s.refresh)]).toEqual([s.method, true]);
+    for (const s of wire) expect([s.method, ['hello', 'describe', 'resolve', 'explain', 'uses', 'history', 'export', 'canvas', 'propose', 'import', 'revert'].includes(s.method) || (s.method === 'inspect' && s.refresh)]).toEqual([s.method, true]);
     const after = seen.filter(s => s.revoked && !s.revoke && s.path.startsWith('/__tamber') && !s.path.startsWith('/__tamber/tool'));
     for (const s of after) expect([s.path, s.status]).toEqual([s.path, 401]);
     // (The requests in flight when the revoke lands, a poll and a read, and none after: three 3 s retries passed.)

@@ -1792,6 +1792,8 @@ test "remote mode: the tool pairs with another machine's server by its address a
   clock data
   expect text "write-note" == "Held for review as held-1: someone with write accepts it."
   expect disabled "undo"
+  // Its canvas comes through the server's gateway (stage 10 C), entered with a grant.
+  expect tree has "canvas-frame"
   // Revoked on the other machine: the next request is refused, and the tool says so and sends no more.
   request POST "/__stub/revoke" {"client": "remote:Ada#1"} as ada
   clock +1
@@ -1799,5 +1801,6 @@ test "remote mode: the tool pairs with another machine's server by its address a
   clock +3000
   clock data
   expect text "no-server-title" == "Revoked"
+  expect tree missing "canvas-frame"
   expect text "no-server-message" == "This client was revoked, or its pairing expired: nothing more is sent to the design server. Pair again with a new code."
   request POST "/__stub/restart" {} as ada

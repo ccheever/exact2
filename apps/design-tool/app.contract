@@ -47,6 +47,13 @@ shape PairCode
   until: string
   doors: Door[]
 
+// A paired tool's canvas through the server's gateway (stage 10 C): the
+// frame's URL, its single-use grant in the fragment; "" with none.
+shape Canvas
+  ok: bool
+  error: string
+  frame: string
+
 shape Client
   client: string
   name: string
@@ -661,6 +668,8 @@ component DesignTool
   state remoteAt = ""
   state remoteCode = ""
   mutation pairedWith as shape Pinned refreshes hello
+  // Its canvas, read once a server run.
+  resource canvasAt = loadCanvas(hello.local, hello.client, changes.epoch) as shape Canvas else empty(ok=true)
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
@@ -1369,7 +1378,12 @@ component DesignTool
                 if hello.page != ""
                   link href=hello.page target="_blank" testId="canvas-open"
                     text "Open in a tab"
-              if hello.page != ""
+              if not hello.local
+                if canvasAt.frame != ""
+                  iframe src=canvasAt.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                else
+                  text (canvasAt.error != "" ? canvasAt.error : "The canvas comes through the design server's gateway.") color="-exact-secondary-label" testId="canvas-remote-none"
+              else if hello.page != ""
                 iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"

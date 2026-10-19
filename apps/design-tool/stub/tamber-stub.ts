@@ -187,6 +187,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
       if (request.method === 'pair-code') return mint(request);
+      // The gateway's grant (stage 10 C), for a paired client; its URL this stub's own, which has no gateway page.
+      if (request.method === 'canvas') return asker.client ? send({ ok: { url: `${API}/canvas/${encodeURIComponent(asker.client)}/`, grant: crypto.randomUUID(), expires: Date.now() + 30_000 } }) : send({ error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } }, 400);
       if (request.method === 'clients') return send({ ok: { clients: [{ client: 'local', local: true, scope: 'write' }, ...paired.map(({ token: _, ...c }) => c)] } });
       if (request.method === 'revoke') return revoke(request.client) ? send({ ok: { revoked: request.client } }) : send({ error: { message: `no paired client \`${request.client}\`` } }, 404);
       // Scrubs, as the server takes them: a dev loop and a present client.

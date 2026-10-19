@@ -7,6 +7,7 @@
 // A code is shown or typed, never logged, put in a URL or kept: it is good
 // once, for two minutes.
 import type { Sources } from './app.contract.d.ts';
+import { doorOf } from './wire';
 
 type Call = (path: string, body: unknown, timeout?: number, bound?: string) => Promise<{ error: string; reply: { ok?: any }; used: string }>;
 
@@ -22,8 +23,21 @@ type PairWith = (address: string, code: string, name: string) => Promise<{ ok: b
 let listedBy = '';
 
 /** The pairing sources, over the tool's one `tamber/1` client. */
-export function pairingSources(call: Call, pairWith: PairWith): Pick<Sources, 'mintCode' | 'loadClients' | 'revokeClient' | 'pairRemote'> {
+export function pairingSources(call: Call, pairWith: PairWith): Pick<Sources, 'mintCode' | 'loadClients' | 'revokeClient' | 'pairRemote' | 'loadCanvas'> {
   return {
+    // A paired tool's canvas (stage 10 C): the app through the server's
+    // gateway, on its own origin, entered with a single-use grant in the
+    // frame URL's fragment, which no server or log sees and the entry page
+    // strips before any request (theme2's 09:09Z ruling); read again only
+    // with another server run. Never a loopback page on this machine.
+    loadCanvas: async ([local]) => {
+      if (local) return { ok: true, error: '', frame: '' };
+      const { error, reply } = await call('/__tamber', { method: 'canvas' });
+      if (error) return { ok: false, error: `No canvas: ${error}`, frame: '' };
+      const url = String(reply.ok?.url ?? ''), grant = String(reply.ok?.grant ?? ''), door = doorOf(url);
+      if (door.error || !grant || !/^\/canvas\/[^/]+\/$/.test(new URL(url).pathname)) return { ok: false, error: 'No canvas: the design server named no gateway this tool can frame.', frame: '' };
+      return { ok: true, error: '', frame: `${url}#g=${encodeURIComponent(grant)}` };
+    },
     // This tool paired with another machine's server (remote mode): the
     // address it typed and the code that machine showed, its name the
     // person's; the code is sent once, to that door, and kept nowhere.
