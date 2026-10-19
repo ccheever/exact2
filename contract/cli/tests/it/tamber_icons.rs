@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+/// The SVG every host but the web draws (`contract_lower`'s `icons::TEMPLATE`).
+const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, with no stroke, transform, opacity or other element";
+
 const REPLY: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M760-200v-160H200Z"/></svg>"#;
 const TWO: &str =
     r#"<svg viewBox="0 0 24 24"><path fill="red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#;
@@ -55,9 +58,23 @@ fn a_shipped_target_without_a_source_is_refused() {
     );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    // It names both forms that build: an SVG, or (the euxy port, Apple-only with none) a bare SF Symbol.
+    assert_eq!(
+        e.message,
+        format!("icon.share has no source for web, which draws an icon only from an `svg` source: add `svg \"icons/share.svg\"`, with `assets/icons/share.svg` drawn as {TEMPLATE} (a Material Symbols SVG is). With no SVG for it, declare no icon and write `symbol:sf/square.and.arrow.up.circle` where it is used: Apple draws it, and the web draws it blank, which the build says in one warning"),
+    );
+    let path = app(
+        "missing-linux",
+        "\"ios\": {}, \"linux\": {}, \"web\": {}",
+        "  icon.share = icon(sf \"square.and.arrow.up.circle\")\n",
+        &view("symbol:icon.share"),
+    );
+    let Err(all) = contract::compile_path_all(&path, false) else {
+        panic!("compiled")
+    };
     assert!(
-        e.message.contains("icon.share has no source for web"),
-        "{e:?}"
+        all.iter().any(|e| e.message.contains("linux and the web draw it blank, with a warning at each use. Not shipping linux? `bun exact.mjs update --without linux` removes it")),
+        "{all:?}"
     );
     // Several colours: the web alone draws it as the file.
     let design = "  icon.two = icon(svg \"icons/two.svg\")\n";

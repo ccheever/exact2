@@ -50,7 +50,8 @@ component App
 - **`AccentColor`** is the app's tint: filled buttons, a plain button's text, the focus ring.
   Unsaid, it is the platform's blue.
 - **Icons** are an `icons` block: `sf` is what Apple draws; add `svg "icons/play.svg"`, a
-  one-colour file under `assets/`, for the other hosts. A row draws `image "symbol:icon.play"`,
+  one-colour file under `assets/`, for the other hosts. The web host every app has needs it
+  (`tamber-icon-missing`); with no SVG, write `symbol:sf/play.fill` instead, blank on the web. A row draws `image "symbol:icon.play"`,
   coloured by `color` and sized by its font ([symbols](symbols.md)).
 - **The scheme:** `setScheme("light" | "dark" | "system")` sets the app's; `color-scheme` holds
   a subtree in one. Modes the person picks (Dim, Black) are axes ([tamber](tamber.md)).
