@@ -340,7 +340,9 @@ function drive(host, plan, png, steps = [], app = null) {
 export function terminalVerb(step) {
   const text = step.trim(), words = text.split(/\s+/);
   const tail = { type: 2, paste: 1, until: 1 }[words[0]];
-  if (tail === undefined || words.length <= tail) return words;
+  if (tail === undefined) return words;
+  // (A verb short of its words would take the next verb, `layout`, as one.)
+  if (words.length <= tail) throw new Error(`the step \`${text}\` is short of its words for the terminal`);
   let rest = text;
   for (let k = 0; k < tail; k++) rest = rest.replace(/^\S+\s+/, '');
   return [...words.slice(0, tail), rest];

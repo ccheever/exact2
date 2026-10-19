@@ -242,4 +242,5 @@ test('a terminal step keeps its text whole', async () => {
   expect(terminalVerb('type field hello  world')).toEqual(['type', 'field', 'hello  world']);
   expect(terminalVerb('paste a b')).toEqual(['paste', 'a b']);
   expect(terminalVerb('wheel list 3')).toEqual(['wheel', 'list', '3']);
+  expect(() => terminalVerb('type field')).toThrow('short of its words');
 });
