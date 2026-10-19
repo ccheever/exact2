@@ -397,7 +397,7 @@ pub(crate) fn reimport_ops(
     incoming: &dyn Fn(&str) -> Option<Incoming>,
     baseline: &dyn Fn(&str) -> (Json, Json),
     branch: &dyn Fn(&Modes) -> Option<usize>,
-    current: &str,
+    taken: Option<(&crate::Folding, bool, &crate::Folding, usize)>,
     vocab: &Vocab,
 ) -> Result<Vec<crate::Op>, (String, String)> {
     let kind = |s: &str| {
@@ -492,37 +492,26 @@ pub(crate) fn reimport_ops(
     // has it (by its text, so `0.2s` is `200ms`); one the file left alone
     // keeps what the design has now. Already the design's: nothing to do.
     let refused = |m: String| (String::new(), m);
-    // (Applied and folded with one check of the text.)
-    let (edited, folding) = crate::edit::applied(current, &ops, vocab).map_err(|all| {
-        refused(format!(
-            "the design would refuse it ({})",
-            all.first()
-                .map_or(String::new(), |d| format!("{}: {}", d.id, d.message))
-        ))
-    })?;
+    // Planned only, or read from the whole proposal's folding (the batch's,
+    // which a refusal never reaches: `export_batch` reports it), whether its
+    // lines came out as they were, the design as it is, and the token's place
+    // in both (an edit adds and removes no token).
+    let Some((folding, unchanged, before, index)) = taken else {
+        return Ok(ops);
+    };
     let checked = folding
         .tokens
-        .iter()
-        .zip(&folding.design.tokens)
-        .find(|(_, t)| t.name.value == written)
-        .map(|(c, _)| c)
+        .get(index)
         .ok_or_else(|| refused("the token is not in the design any more".into()))?;
-    if edited == current {
+    if unchanged {
         return Ok(Vec::new());
     }
     // A tuple the file left alone keeps the design's value: a line the
     // edit needs that reaches it too (an axis under scheme=dark, which a
     // `when` of this kind cannot name) is no edit this design takes.
-    let before = crate::check(current, vocab).ok();
     let was = |pins: &[(&str, &str)]| {
-        let f = before.as_ref()?;
-        let t = f
-            .tokens
-            .iter()
-            .zip(&f.design.tokens)
-            .find(|(_, t)| t.name.value == written)?
-            .0;
-        t.values.get(f.tuple(pins)?).map(Value::css)
+        let t = before.tokens.get(index)?;
+        t.values.get(before.tuple(pins)?).map(Value::css)
     };
     for (i, (modes, sides)) in tuples.iter().enumerate() {
         let pins: Vec<(&str, &str)> = modes

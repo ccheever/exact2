@@ -4772,3 +4772,47 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
     (`codec.rs`, `calc_length`). Checked by hand on a mutated cell:
     - refused: `calc(1deg)`, `calc(garbage)`, `calc(2 * 3)`, `calc(100%-16px)` and `calc(100% - 16)`;
     - accepted: `calc((100% - 16px) / 2 + 1em * 2)`.
+### Stage 10b, E2+E3 follow-up: re-import judged whole (theme2's option B, 2026-10-19)
+
+E23's round 5 found super-linear paths in the importers. They are fixed in two steps.
+
+- **First, the exact part.** Outputs are byte-identical:
+  - the DTCG importer walks each path's alias chain once per tuple;
+  - re-import's transaction is tried on the text it has accepted, instead of the whole prefix again;
+  - context and design lookups go by name;
+  - one check replaces apply-then-check.
+- **Then option B.** A proposal is applied as the whole edit it is, so it is judged whole:
+  - **Each token is planned.** Its lines are planned without a check.
+  - **Then at most four rounds.** Every pending token's lines are applied together (`edit::stepped_all`: many
+    `set-token` and `set-dial` operations with one parse, which gives the same text and the same refusal as
+    stepping them one at a time) and checked once. Each token's values are read from that folding, and the pins
+    it needs are added for the next round.
+  - **The transaction.** The dials' changes come first, then the tokens, judged the same way.
+- **A refused set** is resolved deterministically, in source order (`export_batch::judged`):
+  - each diagnostic on a member's token or dial line refuses that member, with its own diagnostic as its reason;
+  - a diagnostic on an unchanged token blames the one member among the tokens it reads;
+  - otherwise the set is halved, the first half before the second, each half on what was taken before it.
+- **Where the report differs from per-token checking.** These are the two interaction cases (tests:
+  `export_batch::tests`):
+  - **A token refused alone but taken with the others now lands with them.** For example, `a` naming `b` as a
+    colour while `b` changes from a length to a colour. It used to be reported.
+  - **A token taken alone but refused with the others is now found and reported.** For example, `a` naming `b`
+    while `b` becomes a length. It used to be taken, then refused in the transaction as "with the tokens before
+    it". The theme-fixture and Bluesky designs, with values flipped at four densities, report identically before
+    and after.
+- **Measured** (release, every value changed):
+
+  | Design | Before | Now |
+  |---|---|---|
+  | 400 colour tokens, each with a `when` | 51.6 s | 0.08 s |
+  | 3,000 colour tokens, each with a `when` | about 90 s (extrapolated) | 0.95 s |
+  | 2,000 tokens over 64 contexts | not measured | 2.1 s |
+  | 3,000 refused tokens (refusal-heavy) | not measured | 0.7 s |
+
+  - The DTCG export (which re-import runs on the design) found groups by scanning every name for every token in
+    every context. It now reads each name's dotted prefixes once: 0.7 s for 3,000 tokens over 64 contexts, which
+    took 4.5 s for 2,000 before.
+  - `judged` alone: 3,000 members all refused take 30 ms; 100 refused on other tokens' lines take 30 ms; 100
+    whose refusals are shared, so found by halving, take 0.3 s.
+- **Left to rt1's entry:** a 3,000-token, 64-context re-import exceeds the import budget's `LIMIT` (QUEUE: "the
+  budget's `LIMIT` against a 3,000-token × 64-context design"). It is refused in 1.4 s, not run.

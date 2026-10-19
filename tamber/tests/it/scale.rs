@@ -88,7 +88,7 @@ fn moved(v: &mut Value) {
 
 #[test]
 fn re_importing_every_value_of_a_large_design_takes_each_once() {
-    const N: usize = 300;
+    const N: usize = 2000;
     let src = design(N);
     let text = dtcg(&check(&src, &vocab()).unwrap(), &vocab()).unwrap();
     let mut doc: Value = serde_json::from_str(&text).unwrap();
@@ -111,8 +111,8 @@ fn re_importing_every_value_of_a_large_design_takes_each_once() {
 }
 
 // Bounds with room for a loaded machine's debug build: each walk taken once
-// is well under them (2026-10-19, an M-series debug build: 0.25 s and 1.2 s),
-// and the quadratic `type_of` and cubic re-import were far over (3.8 s and
-// 4.2 s at half these sizes).
+// and the proposal judged whole are well under them (2026-10-19, an M-series
+// debug build: 0.22 s and 0.51 s), and the quadratic `type_of` and the cubic
+// re-import were far over (3.8 s for 4,000 aliases, 4.2 s for 150 tokens).
 const BOUND_CHAIN: u64 = 5;
 const BOUND_REIMPORT: u64 = 10;
