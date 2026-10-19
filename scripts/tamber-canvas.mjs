@@ -148,23 +148,37 @@ const ADDRESSES = new RegExp(
 export function rewriter(loop, origin) {
   const from = new URL(loop), to = new URL(origin);
   const port = from.port || (from.protocol === 'https:' ? '443' : '80');
-  const text = t => t.replace(ADDRESSES, (m, ...args) => {
-    const g = args.at(-1);
-    if (g.auth !== undefined) {
-      const scheme = (g.scheme ?? '').toLowerCase();
-      // The whole authority as WHATWG reads it; only one that doesn't parse
-      // at all (a list's `;` or `,`, a sentence's `)` after it) is read again
-      // without that trailing punctuation, which stays in the text.
-      let auth = g.auth, tail = '';
-      if (!parses(auth, scheme || 'http:')) [, auth, tail] = /^(.*?)([;,)}]*)$/.exec(auth);
-      const p = loopbackPort(auth, scheme || 'http:');
-      if (p == null) return m;
-      if (p !== port) return `${scheme}//${PLACEHOLDER}${tail}`;
-      return `${!scheme ? '' : scheme.startsWith('ws') ? 'wss:' : to.protocol}//${to.host}${tail}`;
+  // One pass, left to right, so nothing written is read again; a match cut
+  // short (below) resumes the scan where the cut was.
+  const text = t => {
+    let out = '', at = 0;
+    const re = new RegExp(ADDRESSES.source, ADDRESSES.flags);
+    for (let m; (m = re.exec(t));) {
+      const g = m.groups;
+      let swap = m[0], end = m.index + m[0].length;
+      if (g.auth !== undefined) {
+        const scheme = (g.scheme ?? '').toLowerCase();
+        // The whole authority as WHATWG reads it; only one that doesn't
+        // parse at all (a CSP directive's `;img-src` after it, a list's
+        // `,`, a sentence's `)`) is read up to its first such mark, and the
+        // scan goes on from there. A userinfo `;@` parses whole: never cut.
+        let auth = g.auth;
+        if (!parses(auth, scheme || 'http:')) {
+          auth = /^[^;,)}]*/.exec(auth)[0];
+          end = m.index + m[0].length - (g.auth.length - auth.length);
+          swap = m[0].slice(0, end - m.index);
+        }
+        const p = loopbackPort(auth, scheme || 'http:');
+        if (p != null) swap = p !== port ? `${scheme}//${PLACEHOLDER}` : `${!scheme ? '' : scheme.startsWith('ws') ? 'wss:' : to.protocol}//${to.host}`;
+      } else {
+        const p = loopbackPort(`${g.bare}:${g.port}`);
+        if (p != null) swap = p === port ? to.host : PLACEHOLDER;
+      }
+      out += t.slice(at, m.index) + swap;
+      at = end; re.lastIndex = Math.max(end, m.index + 1);
     }
-    const p = loopbackPort(`${g.bare}:${g.port}`);
-    return p == null ? m : p === port ? to.host : PLACEHOLDER;
-  });
+    return out + t.slice(at);
+  };
   const json = body => {
     let value;
     try { value = JSON.parse(body); } catch { return text(body); }

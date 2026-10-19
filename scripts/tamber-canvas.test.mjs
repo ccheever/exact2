@@ -802,3 +802,11 @@ test("an https loop on its default port is the loop's own origin, not another lo
   expect(r.text('see https://127.0.0.1/x and https://127.0.0.1:443/y')).toBe('see https://canvas.test:9443/x and https://canvas.test:9443/y');
   expect(r.text('http://127.0.0.1/z')).toBe('http://loopback.invalid/z');
 });
+
+test('a compact CSP directive after a loopback source keeps its boundary (round 3 re-check, Astra)', () => {
+  const r = rewriter('http://127.0.0.1:9000', 'https://canvas.test:9443');
+  expect(r.text("default-src http://127.0.0.1:9000;img-src 'self'")).toBe("default-src https://canvas.test:9443;img-src 'self'");
+  expect(r.text("default-src http://127.0.0.1:7005;img-src 'self'")).toBe("default-src http://loopback.invalid;img-src 'self'");
+  expect(r.text('a http://localhost:9000,http://127.0.0.1:7005 b')).toBe('a https://canvas.test:9443,http://loopback.invalid b');
+  expect(r.text('http://127.0.0.1;@evil.test/a')).toBe('http://127.0.0.1;@evil.test/a');
+});

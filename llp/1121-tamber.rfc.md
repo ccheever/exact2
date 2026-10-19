@@ -4395,4 +4395,5 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
     in a header, HTML, JS, CSS, JSON and SSE; a CSP's and a list's separator and a sentence's bracket after a
     loopback authority.
 
-  - Grok's nits: an https loop on its default port (no port written) is the loop's own origin, not another loopback (the port defaults from the scheme); addPort's same-origin check on the canvas port is C2's (its `origins`).
+  - Grok's nits: an https loop on its default port (no port written) is the loop's own origin, not another loopback (the port defaults from the scheme); addPort's same-origin check on the canvas port is C2's (its `origins`)
+  - After the re-check (Astra): an authority that doesn't parse is read up to its FIRST `;`, `,`, `)` or `}` and the scan goes on from there, so a compact CSP (`default-src http://127.0.0.1:9000;img-src 'self'`) and a list of sources (`a,b`) are each rewritten; a userinfo `;@` still parses whole and is never cut..
