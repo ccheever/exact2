@@ -35,7 +35,7 @@ export interface ThreadMedia { id: string; name: string; kind: string; url: stri
 export interface ThreadHtmlPresentation { context: string; width: number; theme: HtmlRenderTheme; iconColor: string }
 const emptyHtmlRender: HtmlRenderSnapshot = { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false };
 export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: ThreadBlock[]; user: boolean;
-  timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; intent: string; intentDescription: string; intentTone: string; copyConfiguration: string;
+  timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; senderThreadId: string; intent: string; intentDescription: string; intentTone: string; copyConfiguration: string;
   expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
   htmlRender: HtmlRenderSnapshot; media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }
 export interface ThreadApprovalOption { id: string; label: string; tone: string; warning: string }
@@ -47,6 +47,8 @@ export interface ThreadSnapshot { queuedCanSelect: boolean; queuedFailed: boolea
   emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyLoading: boolean; historyError: string;
   readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; pendingInput: PendingInputView; }
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
+const legacyAutomationMessageId = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
 export function mobileMessageTime(value: unknown): string { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? timeFormatter.format(stamp) : ''; }
 
 /** Keep rich prose on the portable Markdown reader; fenced blocks use the pinned mobile Shiki theme. */
@@ -85,6 +87,9 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
     if (message.kind === 'checkpoint') continue;
     const item = raw.get(message.id), user = message.kind === 'user', fork = item?.type === 'fork' ? projected.get(message.id) : undefined;
     const intent = user && item?.type === 'user_message' ? userIntentBadge(item.inputIntent) : null;
+    const automation = user && item?.type === 'user_message' && (item.scheduledTaskId !== undefined
+      || legacyAutomationPrefix.test(str(item.text)) && (legacyAutomationMessageId.test(str(item.messageId)) || item.createdBy === 'agent'));
+    const agent = user && item?.type === 'user_message' && !automation && item.createdBy === 'agent';
     // Shared desktop renders '(empty response)'; mobile deliberately skips blank assistant rows.
     const body = fork ? '' : message.kind === 'assistant' && item ? str(item.text) : message.body;
     const media = arr(item?.attachments).filter(attachment => str(attachment.id)).map(attachment => ({ id: str(attachment.id), name: str(attachment.name),
@@ -97,7 +102,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
     const title = fork ? '' : message.kind === 'working' && message.startedMs ? `${message.title} ${elapsed(now - message.startedMs)}` : message.title;
     rows.push({ id: message.id, kind: message.kind, title, body, blocks: mobileThreadBlocks(body, dark), user,
       timestamp: mobileMessageTime(user ? item?.startedAt ?? message.createdAt : item?.updatedAt ?? message.createdAt), showMeta,
-      streaming: message.streaming === true, attribution: message.attribution === 'automation' ? 'Sent by automation' : message.attribution === 'agent' ? 'Sent by agent' : '',
+      streaming: message.streaming === true, attribution: automation ? 'Sent by automation' : agent ? 'Sent by another agent' : '', senderThreadId: agent ? message.targetId ?? '' : '',
       intent: intent?.label ?? '', intentDescription: intent?.description ?? '', intentTone: intent?.tone ?? '', copyConfiguration: item && ['user', 'assistant', 'plan'].includes(message.kind) ? JSON.stringify({ id: message.id,
         owner: { origin: client.origin, environment: client.environmentId, generation: client.generation, project: client.projectId,
           thread: client.threadId, epoch: client.threadEpoch, route: routeKey,
@@ -116,7 +121,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
     const record=pending.record;
     rows.push({id:`outbox:${record.messageId}`,kind:'pending',title:pending.reason,body:record.text,
       blocks:mobileThreadBlocks(record.text,dark),user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
-      showMeta:true,streaming:false,attribution:'',intent:threadOutboxStatus(pending.status),intentDescription:'',intentTone:'',copyConfiguration:'',expanded:false,
+      showMeta:true,streaming:false,attribution:'',senderThreadId:'',intent:threadOutboxStatus(pending.status),intentDescription:'',intentTone:'',copyConfiguration:'',expanded:false,
       toggleOp:pending.canRetry?'outbox:retry':'',toggleId:pending.owner,failed:pending.status==='recovery-required',live:false,activities:[],
       canFork:false,forkKey:'',forkBusy:false,htmlRender:emptyHtmlRender,media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',
         url:threadOutboxPreview(client,record,file,now)})),first:false,last:false});

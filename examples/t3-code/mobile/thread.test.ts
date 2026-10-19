@@ -1,7 +1,7 @@
 import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
-import { arr, type Obj } from './shared/domain';
+import { arr, obj, type Obj } from './shared/domain';
 import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import { timelineEntries } from './shared/timeline-rows';
 import type { Native } from './shared/protocol';
@@ -36,6 +36,52 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
     visibleTurnItems: items.map((value, position) => ({ position, visibility: 'local', sourceThreadId: 't1', sourceItemId: value.id, item: value })) } };
   return client;
 }
+
+test('New agent attribution preserves two senders and exact automation precedence without rewriting messages', () => {
+  const entry = (id: string, extra: Obj = {}) => item(id, 'user_message', { text: id, messageId: id, attachments: [], createdBy: 'agent', ...extra });
+  const prefix = '[Triggered by schedule task: Nightly]\n\n';
+  const items = [entry('first', { senderThreadId: 'sender-a' }), entry('second', { senderThreadId: 'sender-b' }), entry('no-sender'),
+    entry('metadata', { senderThreadId: 'not-a-link', scheduledTaskId: 'schedule' }),
+    entry('empty-metadata', { senderThreadId: 'not-a-link', scheduledTaskId: '' }),
+    entry('legacy-agent', { text: prefix + 'agent scheduled body', senderThreadId: 'not-a-link' }),
+    entry('legacy-id', { text: prefix + 'old scheduled body', createdBy: 'user', messageId: 'scheduled-task-message:nightly:42:manual', senderThreadId: 'not-a-link' }),
+    entry('literal-user', { text: prefix + 'literal user body', createdBy: 'user', senderThreadId: 'not-a-link' }),
+    entry('normal', { createdBy: 'user', senderThreadId: 'not-a-link' }),
+    entry('unanchored', { text: 'literal ' + prefix + 'agent body', senderThreadId: 'sender-a' })];
+  const client = fixture(items), before = JSON.stringify(client.thread!.projection), shared = transcriptRows(client, true);
+  expect(shared.filter(row => row.kind === 'user')).toHaveLength(items.length);
+  expect(shared.slice(0, 2).map(row => row.targetId)).toEqual(['sender-a', 'sender-b']);
+  const rows = mobileThreadRows(client, now, false, 'attribution-visit');
+  expect(rows.map(row => row.body)).toEqual(items.map(value => value.text));
+  expect(rows.map(row => JSON.parse(row.copyConfiguration).text)).toEqual(items.map(value => value.text));
+  expect(JSON.stringify(client.thread!.projection)).toBe(before);
+  expect(rows.map(row => [row.attribution, obj(row).senderThreadId ?? null])).toEqual([
+    ['Sent by another agent', 'sender-a'], ['Sent by another agent', 'sender-b'], ['Sent by another agent', ''],
+    ['Sent by automation', ''], ['Sent by automation', ''], ['Sent by automation', ''], ['Sent by automation', ''],
+    ['', ''], ['', ''], ['Sent by another agent', 'sender-a']]);
+});
+
+test('New agent attribution keeps inherited message sender in the current feed environment', () => {
+  const message = item('inherited-agent', 'user_message', { text: 'Inherited task', attachments: [], createdBy: 'agent', senderThreadId: 'ancestor-sender' });
+  const client = fixture([message]), inherited = client.thread!.projection.visibleTurnItems[0]!;
+  inherited.visibility = 'inherited'; inherited.sourceThreadId = 'ancestor'; inherited.sourceItemId = 'ancestor-item';
+  const data = mobileThread(now, false, client, 'inherited-visit'), row = data.rows[0]!;
+  expect(data.loaded).toBe(true); expect(row.user).toBe(true);
+  expect(transcriptRows(client, true)[0]!.targetId).toBe('ancestor-sender');
+  expect({ environment: data.environmentId, sourceThread: data.threadId, attribution: row.attribution, sender: obj(row).senderThreadId ?? null })
+    .toEqual({ environment: 'env', sourceThread: 't1', attribution: 'Sent by another agent', sender: 'ancestor-sender' });
+});
+
+test('New agent attribution keeps equal sender IDs separate in two environment snapshots', () => {
+  const results = ['environment-a', 'environment-b'].map(environment => {
+    const client = fixture([item('agent', 'user_message', { text: 'Agent task', attachments: [], createdBy: 'agent', senderThreadId: 'same-sender' })]);
+    client.environmentId = environment;
+    const data = mobileThread(now, false, client, environment + '-visit');
+    expect(data.loaded).toBe(true); expect(data.rows).toHaveLength(1);
+    return [data.environmentId, data.threadId, obj(data.rows[0]).senderThreadId ?? null];
+  });
+  expect(results).toEqual([['environment-a', 't1', 'same-sender'], ['environment-b', 't1', 'same-sender']]);
+});
 
 test('confirmed user intent badge preserves queued origin after promotion', () => {
   const message = user('Promoted follow-up'), client = fixture([message]);
