@@ -58,6 +58,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { allows as pairingAllows, limiter as pairingLimiter } from './tamber-pairing.mjs';
 import { openRemote } from './tamber-remote.mjs';
+import { viaDoor } from './tamber-request.mjs';
 
 export const CANVAS_COOKIE = '__Host-exact-canvas';
 export const GRANT_MS = 30_000;
@@ -446,7 +447,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
    * `access` says which door it came through (B's `addPort` gives `remote`). */
   async function handle(req, res, url, access) {
     // Only through the canvas's TLS door (B's `addPort`: `remote`), or from this machine: never plain HTTP from a LAN peer.
-    const door = access?.remote === true || access?.local === true;
+    const door = viaDoor(access);
     const target = closed || !served || !door ? null : canonical(req.url ?? (url && url.pathname + url.search));
     if (!target) { notFound(res); return true; }
     const entry = ENTRY.exec(target.path);

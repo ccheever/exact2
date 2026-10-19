@@ -99,7 +99,7 @@ import { canvasGateway } from './tamber-canvas.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { readBody, parseRequest as parse, tooDeep } from './tamber-request.mjs';
+import { readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
@@ -500,7 +500,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Plain HTTP from off this machine (a --lan bind's peer) reaches nothing
     // of the wire, pairing and paired tokens included: remote use is B's TLS
     // door or a tunnel the developer trusts, never plaintext (LLP 1122 D12).
-    if ((wire || url.pathname === '/__tamber/pair') && !access?.local && !access?.remote && !access?.tunnel) { notFound(res); return true; }
+    if ((wire || url.pathname === '/__tamber/pair') && !viaDoor(access)) { notFound(res); return true; }
     // The one path that needs no token (stage 10 A2): a pairing code for a
     // token, once.
     if (url.pathname === '/__tamber/pair') { await pairEndpoint(req, res, access); return true; }
@@ -601,7 +601,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     let reply;
     // A request the server can't take (one too deeply nested to send on,
     // say) is refused, never an uncaught failure.
-    try { reply = await dispatch(request, scope, who.local, who.token, !(access?.local || access?.remote || access?.tunnel)); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
+    try { reply = await dispatch(request, scope, who.local, who.token); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
     json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
     return true;
@@ -653,7 +653,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
-  async function dispatch(request, scope, local = false, paired = null, plain = false) {
+  async function dispatch(request, scope, local = false, paired = null) {
     // Every method's scope, in one place, before any handler: none is no
     // method this wire serves (fail closed; scripts/tamber-pairing.mjs).
     const need = needs(request, id => proposals.get(id)?.client ?? null);
@@ -662,8 +662,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Presence is also checked as requests come, not only every 5 s.
     absent();
     // A paired client's canvas grant (stage 10 C), for the token it came with.
-    // Never to plain HTTP from off this machine (a --lan bind's peer): a canvas is entered over B's TLS doors only.
-    if (request.method === 'canvas') return !gateway || plain ? { status: 404, error: { message: 'this server has no canvas gateway' } } : paired ? gateway.mint(paired) : { status: 400, error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } };
+    // (Plain HTTP from off this machine never reaches here: `viaDoor`, above.)
+    if (request.method === 'canvas') return !gateway ? { status: 404, error: { message: 'this server has no canvas gateway' } } : paired ? gateway.mint(paired) : { status: 400, error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } };
     if (request.method === 'pair-code') {
       // Beside the code, where a remote client reaches this server and the certificate it checks (1.13).
       const minted = pairs.mint({ scope: request.scope, name: request.name }), doors = minted.ok ? remote() : [];
