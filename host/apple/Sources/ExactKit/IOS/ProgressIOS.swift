@@ -78,13 +78,21 @@ extension ControlHost {
         return !accent.namesTint
     }
     /// The nearest view above `view` that authors an accent, if one does, by
-    /// the authored tree (a presented route, a dialog's sheet and a lifted
-    /// popover to their authored parent: `listenerParent`).
+    /// the authored tree: a dialog's sheet, a lifted popover, a route (any,
+    /// presented or pushed) and a grouped list's carried row to their authored
+    /// parent, else the superview.
     func authoredAbove(_ view: NodeView) -> NodeView? {
-        var at = presenter.listenerParent(of: view)
+        func parent(_ v: UIView) -> UIView? {
+            if let node = v as? NodeView {
+                if let p = presenter.menus.sheets.authoredParent(of: node) { return p }
+                if presenter.navigation.controllers[node.id]?.node === node, let p = presenter.navigation.logicalParent(of: node) ?? presenter.navigation.container { return p }
+            }
+            return presenter.menus.logicalParent(of: v) ?? presenter.groupedLists?.logicalParent(of: v) ?? v.superview
+        }
+        var at = parent(view)
         while let current = at {
             if let node = current as? NodeView, Self.authorsAccent(node) { return node }
-            at = presenter.listenerParent(of: current)
+            at = parent(current)
         }
         return nil
     }
