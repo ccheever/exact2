@@ -1,8 +1,144 @@
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, writeFileSync, existsSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {buildingServer, devPort} from './dev.mjs';
 import {readStatus, startStatus, waitReady} from './status.mjs';
+
+// Loaded only in subprocesses: keep the real launchers and substitute the two
+// expensive startup commands with a build whose descendant ignores cancellation.
+async function shutdownFixture(root, dir, stage, mode) {
+  const {mock} = await import('bun:test');
+  const {appendFileSync} = await import('node:fs');
+  const cp = await import('node:child_process'), spawn = cp.spawn;
+  const apps = await import(root + '/scripts/app.mjs');
+  mock.module(root + '/scripts/app.mjs', () => ({...apps, resolveApp:() => ({
+    dir, target:dir, workspace:dir, name:'shutdown', manifest:mode === 'game' ? {game:{}} : {}, crate:kind => 'shutdown-' + kind,
+  })}));
+  const record = (role, pid) => appendFileSync(dir + '/pids', role + ' ' + pid + '\n');
+  const leaf = `const fs=require('node:fs');
+    process.on('SIGTERM',()=>{}); process.on('SIGHUP',()=>{});
+    fs.appendFileSync(${JSON.stringify(dir + '/pids')},'leaf '+process.pid+'\\n');
+    fs.writeFileSync(${JSON.stringify(dir + '/ready')},'ready'); setInterval(()=>{},1000);`;
+  const slow = `const fs=require('node:fs');
+    for(const signal of ['SIGTERM','SIGHUP']) process.on(signal,()=>{fs.writeFileSync(${JSON.stringify(dir + '/cancelled')},signal); ${stage === 'shells-exit' ? 'process.exit(0);' : ''}});
+    require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(leaf)}],{stdio:'inherit'});
+    setInterval(()=>{},1000);`;
+  mock.module('node:child_process', () => ({...cp, spawn(command, args, options) {
+    let role;
+    if (args[0] === root + '/host/web/dev.mjs') {
+      role = 'resident'; args = ['--preload', dir + '/fixture.mjs', ...args];
+    } else if (args[0] === root + '/game/app/shells.mjs' || args[0] === root + '/host/web/build.mjs') {
+      role = args[0].endsWith('/shells.mjs') ? 'shells' : 'build';
+      args = ['-e', role === stage || stage === 'shells-exit' && role === 'shells' ? slow : 'process.exit(0)'];
+    } else throw new Error('unexpected startup command: ' + command + ' ' + args.join(' '));
+    const child = spawn(command, args, options); record(role, child.pid); return child;
+  }}));
+}
+
+function running(pid) {
+  try { process.kill(pid, 0); } catch { return false; }
+  // An orphan's zombie can await init in a container, but cannot keep building.
+  const state = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], {encoding:'utf8'}).stdout.trim();
+  return state !== '' && !state.startsWith('Z');
+}
+
+async function shutdownUntil(predicate, description, timeout = 5000) {
+  const deadline = Date.now() + timeout;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(description);
+    await Bun.sleep(50);
+  }
+}
+
+const shutdownCases = [
+  ...['shells', 'build'].flatMap(stage => ['SIGTERM', 'SIGHUP', 'repeated'].map(signal => ({stage, signal, mode:'game'}))),
+  ...['wasm', 'producer'].map(mode => ({stage:'build', signal:'SIGTERM', mode})),
+  {stage:'shells-exit', signal:'SIGTERM', mode:'game'},
+];
+for (const {stage, signal, mode} of shutdownCases) {
+  test(`${mode} shutdown during ${stage} reaps the build tree after ${signal}`, async () => {
+    const root = resolve(import.meta.dir, '..');
+    mkdirSync(resolve(root, 'target'), {recursive:true});
+    const dir = mkdtempSync(resolve(root, 'target/dev-shutdown-'));
+    writeFileSync(resolve(dir, 'app.contract'), '');
+    writeFileSync(resolve(dir, 'fixture.mjs'), `await (${shutdownFixture.toString()})(${JSON.stringify(root)},${JSON.stringify(dir)},${JSON.stringify(stage)},${JSON.stringify(mode)});`);
+    const {port} = await devPort([], {start:29601});
+    const entry = mode === 'game' ? [resolve(root, 'game/dev.mjs'), dir] : [resolve(root, 'host/web/dev.mjs'), ...(mode === 'wasm' ? ['--wasm'] : ['--serve-as', String(port + 1)])];
+    const child = Bun.spawn([process.execPath, '--preload', resolve(dir, 'fixture.mjs'), ...entry, '--port', String(port)], {
+      env:{...process.env, EXACT_WEB_DIST:resolve(dir, 'dist')}, stdout:'pipe', stderr:'pipe',
+    });
+    let exited = false;
+    const exit = child.exited.then(code => { exited = true; return code; });
+    let log = '';
+    const drain = async stream => { for await (const bytes of stream) log += new TextDecoder().decode(bytes); };
+    const readers = [drain(child.stdout), drain(child.stderr)];
+    const pids = () => existsSync(resolve(dir, 'pids')) ? readFileSync(resolve(dir, 'pids'), 'utf8').trim().split('\n').map(line => Number(line.split(' ')[1])) : [];
+    try {
+      await shutdownUntil(() => existsSync(resolve(dir, 'ready')) || exited, 'build did not become ready');
+      expect(exited, log).toBe(false);
+      child.kill(signal === 'repeated' ? 'SIGTERM' : signal);
+      if (signal === 'repeated') {
+        await shutdownUntil(() => existsSync(resolve(dir, 'cancelled')) || exited, 'build did not receive cancellation');
+        expect(exited, log).toBe(false);
+        child.kill('SIGHUP');
+        child.kill('SIGTERM');
+      }
+      await shutdownUntil(() => exited, 'dev launcher did not exit');
+      await shutdownUntil(() => pids().every(pid => !running(pid)), 'startup descendants survived shutdown');
+      expect(await exit, log).toBe(0);
+      const roles = readFileSync(resolve(dir, 'pids'), 'utf8').trim().split('\n').map(line => line.split(' ')[0]).sort();
+      expect(roles).toEqual(mode !== 'game' ? ['build', 'leaf'] : stage.startsWith('shells') ? ['leaf', 'resident', 'shells'] : ['build', 'leaf', 'resident', 'shells']);
+    } finally {
+      for (const pid of [child.pid, ...pids()]) if (running(pid)) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+      await shutdownUntil(() => exited && pids().every(pid => !running(pid)), 'fixture cleanup timed out');
+      await Promise.all(readers);
+      rmSync(dir, {recursive:true, force:true});
+    }
+  }, 15000);
+}
+
+test('port retries keep one cancellation handler and never retry after cancellation', async () => {
+  const root = resolve(import.meta.dir, '..'), dir = mkdtempSync(resolve(root, 'target/dev-retry-'));
+  writeFileSync(resolve(dir, 'app.contract'), '');
+  const fixture = async (root, dir) => {
+    const {mock} = await import('bun:test');
+    const {appendFileSync} = await import('node:fs');
+    const cp = await import('node:child_process'), spawn = cp.spawn;
+    let attempt = 0;
+    mock.module('node:child_process', () => ({...cp, spawn(command, args, options) {
+      if (args[0] !== root + '/host/web/dev.mjs') throw new Error('unexpected spawn');
+      const code = ++attempt < 3 ? 'process.exit(1)' : `
+        const fs=require('node:fs'); let signals=0;
+        process.on('SIGTERM',()=>{fs.writeFileSync(${JSON.stringify(dir + '/cancelled')},'yes'); if(++signals===2)process.exit(1);});
+        fs.writeFileSync(${JSON.stringify(dir + '/ready')},'yes'); setInterval(()=>{},1000);`;
+      const child = spawn(command, ['-e', `console.error('cannot listen on 127.0.0.1:8765: EADDRINUSE'); ${code}`], options);
+      appendFileSync(dir + '/pids', child.pid + '\n'); return child;
+    }}));
+  };
+  writeFileSync(resolve(dir, 'fixture.mjs'), `await (${fixture.toString()})(${JSON.stringify(root)},${JSON.stringify(dir)});`);
+  const child = Bun.spawn([process.execPath, '--preload', resolve(dir, 'fixture.mjs'), resolve(root, 'game/dev.mjs'), dir], {stdout:'pipe', stderr:'pipe'});
+  let exited = false;
+  const exit = child.exited.then(code => { exited = true; return code; });
+  const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  const pids = () => existsSync(resolve(dir, 'pids')) ? readFileSync(resolve(dir, 'pids'), 'utf8').trim().split('\n').map(Number) : [];
+  try {
+    await shutdownUntil(() => existsSync(resolve(dir, 'ready')) || exited, 'third port attempt did not start');
+    expect(exited).toBe(false);
+    child.kill('SIGTERM');
+    await shutdownUntil(() => existsSync(resolve(dir, 'cancelled')) || exited, 'first signal was not forwarded');
+    expect(exited).toBe(false);
+    child.kill('SIGTERM');
+    await shutdownUntil(() => exited && pids().every(pid => !running(pid)), 'port retry did not stop');
+    expect(await exit, (await output).join('')).toBe(1);
+    expect(pids()).toHaveLength(3);
+  } finally {
+    for (const pid of [child.pid, ...pids()]) if (running(pid)) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    await shutdownUntil(() => exited && pids().every(pid => !running(pid)), 'port retry cleanup timed out');
+    await output;
+    rmSync(dir, {recursive:true, force:true});
+  }
+}, 15000);
 
 test('HTTP answers during a wedged build; readiness belongs to the current invocation and generation', async () => {
   mkdirSync(resolve(import.meta.dir, '../target'), {recursive:true});
