@@ -24,13 +24,34 @@ design server: it reads, and it proposes. It never writes the design.
     and Dark modes.
   - Colours become COLOR. Lengths, numbers and durations become FLOAT, in px and ms. Families become STRING.
   - Types, shadows and easings have no Figma variable type. They're skipped, and the plugin says so.
-  - The export is kept in the file as the pull's baseline.
-  - If a value changed in both Figma and the design since the last pull, the plugin asks which one to keep.
+  - The export's default context is each new collection's default mode.
+  - Families with a comma in a name are quoted, as CSS quotes them (`"ACME, Sans", serif`).
+  - The export is kept in the file as the pull's baseline, in parts of under 100 KB.
+  - If a value changed in both Figma and the design since the last pull, by token and context, the plugin asks
+    which one to keep. A Figma edit whose token or context the design dropped counts too.
+  - If the design's contexts changed, the plugin asks before rewriting. A re-pull removes the modes and the
+    variables of tokens the design no longer has, and a collection the new layout doesn't use. Anything in the file
+    bound to them loses it.
+  - The plugin marks each variable with its token, so a variable renamed in Figma is still that token.
 - **Push** writes Figma's values back into that export and sends it as `import`, with the pulled export as its
   `baseline`. The server holds the result as a proposal, planned against the design as it is now. Accept it in the
   design tool.
   - A changed value whose line is one dial alone is proposed as that dial's change, listing every token it moves.
   - Any other changed value is a literal, marked with what it no longer follows.
+  - The plugin lists every value the design couldn't take, and why. For example, a length changed in Light only:
+    both schemes take one value.
+
+## Paper and Pencil (no plugin)
+
+Paper and Pencil each run a local MCP server while the app is open. An agent that holds the local token bridges
+them; it's a client like any other, so every check holds:
+
+- **Into the tool:** `bun exact.mjs tamber op <url> '{"method":"export","kind":"dtcg"}'` (or `resolve`), then set
+  the tool's variables through its MCP server (Paper: CSS variables; Pencil: its variables and themes).
+- **Back:** read the tool's variables, write them into that export, and send `import` with the export as
+  `baseline`. A person accepts the proposal in the design tool.
+
+A `pen` importer that reads Pencil's `.pen` files directly is in `QUEUE.md`.
 
 ## Tests
 

@@ -6,66 +6,82 @@
 // to accept; the plugin never writes the design).
 
 const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
-const post = (msg: object) => parent.postMessage({ pluginMessage: msg }, '*');
-let server = '', token: string | null = null;
+// The server and its token, together: a token goes only to the server it was
+// paired with, and both change only when a pairing succeeds.
+let paired: { server: string; token: string | null } = { server: '', token: null };
 
 const show = (text: string) => { $('status').textContent = text; };
-const call = async (path: string, body: object, withToken = true) => {
-  const res = await fetch(`${server}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(withToken && token ? { 'x-exact-tamber-token': token } : {}) }, body: JSON.stringify(body) });
+const call = async (at: { server: string; token: string | null }, path: string, body: object) => {
+  const res = await fetch(`${at.server}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(at.token ? { 'x-exact-tamber-token': at.token } : {}) }, body: JSON.stringify(body) });
   const reply = await res.json().catch(() => ({}));
-  if (res.status === 401) { token = null; post({ type: 'save', server, token }); }
+  if (res.status === 401 && at.token && at === paired) { paired = { ...paired, token: null }; await ask({ type: 'save', ...paired }, 'saved'); }
   if (!res.ok) throw new Error(reply.error?.message ?? reply.message ?? `${res.status}`);
   return reply.ok ?? reply;
 };
 
-/** Messages from the main thread. */
-const waiting = new Map<string, (msg: any) => void>();
-const next = (type: string) => new Promise<any>(ok => waiting.set(type, ok));
+/** A request to the main thread and its reply, matched by `id`; an error
+ * there rejects it. */
+let ids = 0;
+const waiting = new Map<number, { type: string; ok: (msg: any) => void; no: (e: Error) => void }>();
+const ask = (msg: object, reply: string) => new Promise<any>((ok, no) => {
+  const id = ++ids;
+  waiting.set(id, { type: reply, ok, no });
+  parent.postMessage({ pluginMessage: { ...msg, id } }, '*');
+});
 onmessage = (e: MessageEvent) => {
-  const msg = e.data.pluginMessage;
-  if (msg.type === 'error') { show(msg.message); return; }
-  waiting.get(msg.type)?.(msg);
-  waiting.delete(msg.type);
+  const msg = e.data.pluginMessage, w = waiting.get(msg?.id);
+  if (!w) return;
+  waiting.delete(msg.id);
+  if (msg.type === 'error') w.no(new Error(msg.message));
+  else if (msg.type === w.type) w.ok(msg);
+  else w.no(new Error(`unexpected reply ${msg.type}`));
 };
 
 async function pair() {
-  server = $('server').value.replace(/\/+$/, '');
-  const got = await call('/__tamber/pair', { code: $('code').value.trim(), name: 'figma' }, false);
-  token = got.token;
-  post({ type: 'save', server, token });
-  await next('saved');
+  // Against the server typed, with no token: the paired one stays as it was
+  // unless this succeeds.
+  const server = $('server').value.trim().replace(/\/+$/, '');
+  const got = await call({ server, token: null }, '/__tamber/pair', { code: $('code').value.trim(), name: 'figma' });
+  paired = { server, token: got.token };
+  await ask({ type: 'save', ...paired }, 'saved');
   show(`paired as ${got.client}, ${got.scope}, until ${got.expires}`);
 }
 
 async function pullDesign() {
-  const { text } = await call('/__tamber', { method: 'export', kind: 'dtcg', client: 'figma' });
-  post({ type: 'check', text });
-  const { conflicts } = await next('checked');
-  if (conflicts.length && !confirm(`${conflicts.length} value(s) changed in Figma and in the design since the last pull:\n${conflicts.map((c: any) => `${c.variable} (${c.mode})`).join('\n')}\n\nOK takes the design's; Cancel keeps Figma's (push them first).`)) { show('kept Figma\'s: push them, then pull'); return; }
-  post({ type: 'apply', text });
-  const done = await next('applied');
+  const { text } = await call(paired, '/__tamber', { method: 'export', kind: 'dtcg', client: 'figma' });
+  const { conflicts, contexts } = await ask({ type: 'check', text }, 'checked');
+  const lines = conflicts.map((c: any) => `${c.collection}: ${c.variable} (${c.mode})${c.gone ? ', which the design no longer has' : ''}`);
+  const moved = [...contexts.added.map((c: string) => `+ ${c}`), ...contexts.removed.map((c: string) => `- ${c}`)];
+  if (conflicts.length && !confirm(`${conflicts.length} value(s) changed in Figma and in the design since the last pull:\n${lines.join('\n')}\n\nOK takes the design's; Cancel keeps Figma's (push them first).`)) { show('kept Figma\'s: push them, then pull'); return; }
+  if (moved.length && !confirm(`The design's contexts changed since the last pull:\n${moved.join('\n')}\n\nOK rewrites the Tamber collections: a mode or collection the design no longer has goes, and what is bound to it in this file loses it.`)) { show('not pulled: the contexts changed'); return; }
+  const done = await ask({ type: 'apply', text }, 'applied');
   show(`pulled into ${done.collections.join(', ')}${done.skipped.length ? `; no variable for ${done.skipped.length} token(s): ${done.skipped.map((s: any) => s.token).join(', ')}` : ''}`);
 }
 
 async function pushDesign() {
-  post({ type: 'collect' });
-  const { source, baseline } = await next('collected');
-  const got = await call('/__tamber', { method: 'import', kind: 'dtcg', client: 'figma', source, baseline });
-  if (!got.proposal) { show(got.message ?? 'nothing to propose'); return; }
+  const { source, baseline } = await ask({ type: 'collect' }, 'collected');
+  const got = await call(paired, '/__tamber', { method: 'import', kind: 'dtcg', client: 'figma', source, baseline });
   const r = got.review ?? {};
+  // What the design could not take, and why (a length changed in Light only, say: both schemes take one value).
+  const unmapped = (r.unmapped ?? []).map((u: any) => `not proposed: ${u.name}${u.block ? ` (${u.block})` : ''}: ${u.why}`);
+  if (!got.proposal) { show([got.message ?? 'nothing to propose', ...unmapped].join('\n')); return; }
   const dials = (r.dials ?? []).map((d: any) => `dial ${d.dial} → ${d.value} (moves ${new Set((d.impact ?? []).map((i: any) => i.token)).size} token(s))`);
-  const pins = (r.pins ?? []).map((p: any) => `${p.token} no longer follows ${p.follows.join(', ')}`);
-  show([`proposed ${got.proposal}: accept it in the design tool`, ...dials, ...pins].join('\n'));
+  const pins = (r.pins ?? []).map((p: any) => `${p.token} no longer follows ${(p.follows ?? []).join(', ')}`);
+  show([`proposed ${got.proposal}: accept it in the design tool`, ...dials, ...pins, ...unmapped].join('\n'));
 }
 
-const guard = (f: () => Promise<void>) => () => f().catch(e => show(String(e?.message ?? e)));
+// One at a time: a pull or push in flight holds the others off.
+let busy = false;
+const guard = (f: () => Promise<void>) => async () => {
+  if (busy) return show('busy: one request at a time');
+  busy = true;
+  try { await f(); } catch (e: any) { show(String(e?.message ?? e)); } finally { busy = false; }
+};
 $('pair').onclick = guard(pair);
 $('pull').onclick = guard(pullDesign);
 $('push').onclick = guard(pushDesign);
-post({ type: 'load' });
-next('loaded').then(msg => {
-  server = msg.server ?? '';
-  token = msg.token ?? null;
-  $('server').value = server;
-  show(token ? `paired with ${server}${msg.digest ? `; last pull ${msg.digest.slice(0, 8)}` : ''}` : 'not paired: enter the server and a code from `bun exact.mjs tamber pair`');
+ask({ type: 'load' }, 'loaded').then(msg => {
+  paired = { server: msg.server ?? '', token: msg.token ?? null };
+  $('server').value = paired.server;
+  show(paired.token ? `paired with ${paired.server}${msg.digest ? `; last pull ${msg.digest.slice(0, 8)}` : ''}` : 'not paired: enter the server and a code from `bun exact.mjs tamber pair`');
 });

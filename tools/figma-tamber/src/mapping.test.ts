@@ -2,7 +2,7 @@
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { conflicts, pull, push, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, families, familiesOf, pull, push, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 const TEXT = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
 const DOC = JSON.parse(TEXT);
@@ -11,9 +11,9 @@ const DOC = JSON.parse(TEXT);
 const held = (plan: Plan, f: (c: string, v: string, m: string, value: FigmaValue) => FigmaValue = (_c, _v, _m, x) => x) =>
   Object.fromEntries(plan.collections.map(c => [c.name, Object.fromEntries(c.variables.map(v => [v.name, Object.fromEntries(c.modes.map(m => [m, f(c.name, v.name, m, v.values[m])]))]))]));
 
-test('one collection, a mode per context, when the file allows as many', () => {
+test('one collection, a mode per context, the export\'s default first, when the file allows as many', () => {
   const plan = pull(DOC, 10);
-  expect(plan.collections.map(c => [c.name, c.modes])).toEqual([['Tamber', ['dark-style=black, dark', 'dark-style=black, light', 'dark-style=dim, dark', 'dark-style=dim, light']]]);
+  expect(plan.collections.map(c => [c.name, c.modes])).toEqual([['Tamber', ['dark-style=black, light', 'dark-style=black, dark', 'dark-style=dim, dark', 'dark-style=dim, light']]]);
   const fill = plan.collections[0].variables.find(v => v.token === 'accent.fill')!;
   expect([fill.name, fill.type]).toEqual(['accent/fill', 'COLOR']);
   expect(fill.values['dark-style=black, light']).toEqual({ r: 0x1d / 255, g: 0x9b / 255, b: 0xf0 / 255, a: 1 });
@@ -21,7 +21,7 @@ test('one collection, a mode per context, when the file allows as many', () => {
 
 test('one collection per app tuple with Light and Dark when it allows fewer (theme2 Q8); two modes at least', () => {
   const plan = pull(DOC, 2);
-  expect(plan.collections.map(c => [c.name, c.modes])).toEqual([['Tamber · dark-style=black', ['Dark', 'Light']], ['Tamber · dark-style=dim', ['Dark', 'Light']]]);
+  expect(plan.collections.map(c => [c.name, c.modes])).toEqual([['Tamber · dark-style=black', ['Light', 'Dark']], ['Tamber · dark-style=dim', ['Light', 'Dark']]]);
   expect(() => pull(DOC, 1)).toThrow(/at least Light and Dark/);
 });
 
@@ -53,10 +53,36 @@ test('a value both Figma and the design moved since the pull is a conflict; one 
   const plan = pull(DOC, 10);
   const moved = JSON.parse(TEXT);
   tokensOf(moved)['dark-style=black, light']['accent.fill'].$value = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' };
-  const fresh = pull(moved, 10);
   const red = { r: 1, g: 0, b: 0, a: 1 };
   const figma = held(plan, (_c, v, m, x) => (v === 'accent/fill' && (m === 'dark-style=black, light' || m === 'dark-style=dim, light') ? red : x));
-  expect(conflicts(plan, fresh, figma)).toEqual([{ collection: 'Tamber', variable: 'accent/fill', mode: 'dark-style=black, light' }]);
+  expect(conflicts(plan, moved, figma)).toEqual([{ token: 'accent.fill', context: 'dark-style=black, light', collection: 'Tamber', variable: 'accent/fill', mode: 'dark-style=black, light', gone: false }]);
+});
+
+test('conflicts are by token and context, whatever the layout; a Figma edit the design dropped is one', () => {
+  const plan = pull(DOC, 2); // split, as a small plan has it
+  const moved = JSON.parse(TEXT);
+  tokensOf(moved)['dark-style=dim, light']['accent.fill'].$value = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' };
+  delete moved.modifiers.mode.contexts['dark-style=black, dark'];
+  const red = { r: 1, g: 0, b: 0, a: 1 };
+  const figma = held(plan, (_c, v, _m, x) => (v === 'accent/fill' ? red : x));
+  expect(conflicts(plan, moved, figma).map(c => [c.collection, c.mode, c.context, c.gone])).toEqual([
+    ['Tamber · dark-style=black', 'Dark', 'dark-style=black, dark', true],
+    ['Tamber · dark-style=dim', 'Light', 'dark-style=dim, light', false],
+  ]);
+  expect(contextsMoved(plan, moved)).toEqual({ added: [], removed: ['dark-style=black, dark'] });
+});
+
+test('a changed colour is written to the byte, its alpha only when not opaque', () => {
+  const plan = pull(DOC, 10);
+  const text = push(TEXT, plan, held(plan, (_c, v, m, x) => (v === 'accent/fill' && m === 'dark-style=dim, dark' ? { r: 0.3, g: 0.6, b: 0.9, a: 0.5 } : x)));
+  expect(tokensOf(JSON.parse(text))['dark-style=dim, dark']['accent.fill'].$value).toEqual({ colorSpace: 'srgb', components: [77 / 255, 153 / 255, 230 / 255], alpha: 128 / 255, hex: '#4d99e6' });
+});
+
+test('families: a name with a comma or a quote survives the round trip', () => {
+  const all = ['ACME, Sans', 'Say "hi"', 'serif'];
+  expect(families(all)).toBe('"ACME, Sans", "Say \\"hi\\"", serif');
+  expect(familiesOf(families(all))).toEqual(all);
+  expect(familiesOf('Inter, system-ui ,  sans-serif')).toEqual(['Inter', 'system-ui', 'sans-serif']);
 });
 
 test('contexts split into tuple and scheme', () => {

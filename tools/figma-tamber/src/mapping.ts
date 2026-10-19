@@ -96,9 +96,33 @@ export function toFigma(token: Json): { type: FigmaType; value: FigmaValue } | {
     case 'dimension': return typeof v?.value === 'number' ? { type: 'FLOAT', value: v.unit === 'rem' ? v.value * 16 : v.value } : { why: 'a dimension with no number' };
     case 'number': return typeof v === 'number' ? { type: 'FLOAT', value: v } : { why: 'not a number' };
     case 'duration': return typeof v?.value === 'number' ? { type: 'FLOAT', value: v.unit === 's' ? v.value * 1000 : v.value } : { why: 'a duration with no number' };
-    case 'fontFamily': return { type: 'STRING', value: Array.isArray(v) ? v.join(', ') : String(v) };
+    case 'fontFamily': return { type: 'STRING', value: families(Array.isArray(v) ? v : [String(v)]) };
     default: return { why: `Figma has no variable of a ${token.$type}` };
   }
+}
+
+/** A family list as one string, CSS's way: a name with a comma, a quote or
+ * a backslash quoted (`"ACME, Sans", serif`). */
+export function families(all: string[]): string {
+  return all.map(f => (/[,"\\]/.test(f) ? `"${f.replace(/["\\]/g, c => `\\${c}`)}"` : f)).join(', ');
+}
+
+/** `families`' string back as the list, each quoted name whole. */
+export function familiesOf(text: string): string[] {
+  const out: string[] = [];
+  let cur = '', quoted = false, was = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '\\' && i + 1 < text.length) cur += text[++i];
+      else if (c === '"') quoted = false;
+      else cur += c;
+    } else if (c === '"') { quoted = was = true; cur = ''; }
+    else if (c === ',') { if (was || cur.trim()) out.push(was ? cur : cur.trim()); cur = ''; was = false; }
+    else if (!was) cur += c;
+  }
+  if (was || cur.trim()) out.push(was ? cur : cur.trim());
+  return out;
 }
 
 /** Whether two Figma values are the same (colours to the 8-bit byte). */
@@ -111,7 +135,9 @@ export function same(a: FigmaValue, b: FigmaValue): boolean {
 /** The collections the export becomes, under a file's mode limit. */
 export function pull(doc: Json, modeLimit: number): Plan {
   const byContext = tokensOf(doc);
-  const contexts = Object.keys(byContext);
+  // The export's default context first: a new collection's default mode.
+  const first = doc?.modifiers?.mode?.default;
+  const contexts = Object.keys(byContext).sort((a, b) => Number(b === first) - Number(a === first));
   if (!contexts.length) throw new Error('the export has no contexts');
   const tuples = [...new Set(contexts.map(c => split(c).tuple))];
   let groups: { name: string; contexts: Record<string, string> }[];
@@ -120,7 +146,8 @@ export function pull(doc: Json, modeLimit: number): Plan {
   } else if (modeLimit >= 2) {
     groups = tuples.map(t => ({
       name: t ? `Tamber · ${t}` : 'Tamber',
-      contexts: Object.fromEntries(contexts.filter(c => split(c).tuple === t).map(c => [split(c).dark ? 'Dark' : 'Light', c])),
+      // (the default's scheme first, as the contexts are ordered)
+      contexts: Object.fromEntries(contexts.filter(c => split(c).tuple === t).sort((a, b) => Number(split(b).dark === split(first ?? '').dark) - Number(split(a).dark === split(first ?? '').dark)).map(c => [split(c).dark ? 'Dark' : 'Light', c])),
     }));
   } else {
     throw new Error(`this file allows ${modeLimit} mode${modeLimit === 1 ? '' : 's'} a collection; Tamber needs at least Light and Dark`);
@@ -151,14 +178,15 @@ export function pull(doc: Json, modeLimit: number): Plan {
 function fromFigma(old: Json, value: FigmaValue): Json {
   switch (old.$type) {
     case 'color': {
-      const c = value as Rgba;
-      const hex = hexFrom({ ...c, a: 1 });
-      return { colorSpace: 'srgb', components: [c.r, c.g, c.b], ...(c.a < 1 ? { alpha: c.a } : {}), hex };
+      // To the byte, as the export's sRGB fallback is, so re-import reads `#rrggbb[aa]`.
+      const byte = (x: number) => Math.round(Math.max(0, Math.min(1, x)) * 255);
+      const c = value as Rgba, a = byte(c.a ?? 1);
+      return { colorSpace: 'srgb', components: [c.r, c.g, c.b].map(x => byte(x) / 255), ...(a < 255 ? { alpha: a / 255 } : {}), hex: hexFrom({ ...c, a: 1 }) };
     }
     case 'dimension': return { unit: 'px', value };
     case 'number': return value;
     case 'duration': return { unit: 'ms', value };
-    case 'fontFamily': return String(value).split(',').map(s => s.trim()).filter(Boolean);
+    case 'fontFamily': return familiesOf(String(value));
     default: return old.$value;
   }
 }
@@ -185,21 +213,41 @@ export function push(baseline: string, plan: Plan, now: Record<string, Record<st
   return JSON.stringify(doc);
 }
 
-/** Variables both Figma (`now`) and the design (`fresh`, a new export's plan)
- * changed since the pull (`plan`), each mode where both moved: the person
- * keeps Figma's (pushed as a proposal) or takes Tamber's. */
-export function conflicts(plan: Plan, fresh: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>): { collection: string; variable: string; mode: string }[] {
-  const out: { collection: string; variable: string; mode: string }[] = [];
+export interface Conflict {
+  token: string;
+  context: string;
+  collection: string;
+  variable: string;
+  mode: string;
+  /** The design has no such value now (the token or the context went). */
+  gone: boolean;
+}
+
+/** Values both Figma (`now`) and the design (`fresh`, a new export) changed
+ * since the pull (`plan`), by token and context, whatever either's layout
+ * of collections: the person keeps Figma's (pushed as a proposal) or takes
+ * Tamber's. A Figma edit whose token or context the design no longer has is
+ * one too. */
+export function conflicts(plan: Plan, fresh: Json, now: Record<string, Record<string, Record<string, FigmaValue>>>): Conflict[] {
+  const design = tokensOf(fresh);
+  const out: Conflict[] = [];
   for (const c of plan.collections) {
-    const f = fresh.collections.find(x => x.name === c.name);
     for (const v of c.variables) {
-      const fv = f?.variables.find(x => x.name === v.name);
       for (const mode of c.modes) {
-        const was = v.values[mode], figma = now[c.name]?.[v.name]?.[mode], design = fv?.values[mode];
-        if (figma === undefined || design === undefined) continue;
-        if (!same(was, figma) && !same(was, design) && !same(figma, design)) out.push({ collection: c.name, variable: v.name, mode });
+        const context = c.contexts[mode], was = v.values[mode], figma = now[c.name]?.[v.name]?.[mode];
+        if (figma === undefined || same(was, figma)) continue;
+        const t = design[context]?.[v.token], f = t && toFigma(t);
+        const value = f && !('why' in f) ? f.value : undefined;
+        if (value === undefined) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: true });
+        else if (!same(was, value) && !same(figma, value)) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: false });
       }
     }
   }
   return out;
+}
+
+/** The contexts a new export adds and drops beside the pull's plan. */
+export function contextsMoved(plan: Plan, fresh: Json): { added: string[]; removed: string[] } {
+  const had = new Set(plan.collections.flatMap(c => Object.values(c.contexts))), now = new Set(Object.keys(tokensOf(fresh)));
+  return { added: [...now].filter(c => !had.has(c)), removed: [...had].filter(c => !now.has(c)) };
 }
