@@ -850,12 +850,14 @@ component App
 #[test]
 fn box_transforms_report_independent_attribute_refusals() {
     let errors = |source: &str| {
-        contract::compile_path_source_all(
+        let Err(errors) = contract::compile_path_source_all(
             std::path::Path::new("box-transform-diagnostics.contract"),
             source,
             false,
-        )
-        .unwrap_err()
+        ) else {
+            panic!("compiled an invalid transform fixture: {source}");
+        };
+        errors
     };
     let mut failures = Vec::new();
     let width = "transition=\"width 260ms ease\"";
