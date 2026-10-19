@@ -4783,12 +4783,14 @@ E23's round 5 found super-linear paths in the importers. They are fixed in two s
   - one check replaces apply-then-check.
 - **Then option B.** A proposal is applied as the whole edit it is, so it is judged whole:
   - **Each token is planned.** Its lines are planned without a check.
-  - **Then at most four rounds.** Every pending token's lines are applied together (`edit::stepped_all`: many
+  - **Then rounds.** Every pending token's lines are applied together (`edit::stepped_all`: many
     `set-token` and `set-dial` operations with one parse). That gives the same text and the same refusal as stepping
     them one at a time: each operation's lines are parsed alone, and anything else falls back to stepping. The
     result is checked once, and each token's values are read from that folding.
   - **Re-asking.** The pins a token needs are added for the next round. A round that adds a pin or drops a token
-    asks every token again, so a token is settled only on a round that changes nothing.
+    asks every token again, so a token is settled only on a round that changes nothing. There is no count of
+    rounds: each change is a pin (three a token; a fourth refuses it), a refusal, or lines that leave, so the rounds
+    end. A token settled beside a change that is later dropped is asked again without it (`export_dials` test).
   - **Dial candidates are judged alone.** A token that may be a dial's change (D14) is judged on its own. Its
     literal lines are only a fallback, and `export_dials::dials` decides which applies afterwards.
   - **The transaction.** The dials' changes come first, then the tokens, judged the same way. A refusal reads "the

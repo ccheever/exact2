@@ -474,3 +474,34 @@ fn a_dials_change_and_another_tokens_literal_land_together() {
         import.ops
     );
 }
+
+/// Judged whole, a token settled in one round is asked again when a later
+/// round drops another's lines: `a`'s change cannot be made (its dark side
+/// follows `b`), and `c`, which mixes `a` and `b`, was settled on a folding
+/// with `a`'s change in it. Asked again without it, `c` cannot show the file's
+/// colours (its pins keep its light side's expression), so it is reported, not
+/// imported on a folding that will not ship.
+#[test]
+fn a_token_settled_beside_a_dropped_change_is_asked_again() {
+    let design = "tamber t\n\ntheme\n  a = light-dark(#000000, b)\n  b = #ffffff\n  c = light-dark(color-mix(in srgb, a 50%, b), #000000)\n";
+    let hex = |h: &str, c: f64| json!({"colorSpace": "srgb", "components": [c, c, c], "hex": h});
+    let (_, _, import) = edited_in(design, |context, t| {
+        if context.contains("light") {
+            t["a"]["$value"] = hex("#ffffff", 1.0);
+        }
+        t["b"]["$value"] = hex("#000000", 0.0);
+        if context.contains("dark") {
+            t["c"]["$value"] = hex("#111111", 17.0 / 255.0);
+        }
+    });
+    let reported: Vec<&str> = import.unmapped.iter().map(|u| u.name.as_str()).collect();
+    assert_eq!(reported, ["a", "c"], "{:?}", import.unmapped);
+    assert!(
+        import
+            .ops
+            .iter()
+            .all(|o| matches!(o, Op::SetToken { name, .. } if name == "b")),
+        "{:?}",
+        import.ops
+    );
+}

@@ -34,7 +34,11 @@ pub(crate) fn judged(
     members: &[&[Op]],
     vocab: &Vocab,
 ) -> Result<Judged, Vec<Diagnostic>> {
-    let folding = crate::check(base, vocab)?;
+    Ok(judged_on(base, crate::check(base, vocab)?, members, vocab))
+}
+
+/// [`judged`] on a base whose folding is known.
+fn judged_on(base: &str, folding: Folding, members: &[&[Op]], vocab: &Vocab) -> Judged {
     let mut at = Judged {
         text: base.to_string(),
         folding,
@@ -43,7 +47,7 @@ pub(crate) fn judged(
     let all: Vec<(usize, &[Op])> = members.iter().copied().enumerate().collect();
     take(&mut at, &all, vocab);
     at.refused.sort_by_key(|(k, _)| *k);
-    Ok(at)
+    at
 }
 
 /// `members` (each its place in the whole list, and its operations) on what
@@ -236,7 +240,11 @@ fn settle(
 ) {
     let mut pinned = vec![0u32; set.len()];
     let mut refused = vec![false; set.len()];
-    for _ in 0..4 {
+    // Until a round changes nothing: each change is a pin (three a token, a
+    // fourth asked is its refusal), a refusal, or lines that leave (cleared,
+    // or a token of another kind that has its values already), so the rounds
+    // end; settled only on a round that moves nothing, never by a count.
+    loop {
         // Every member's lines are the proposal's, and every member is asked
         // what this round's folding makes of them: one settled in a round
         // before is asked again, as a pin added or a token dropped since may
@@ -259,9 +267,7 @@ fn settle(
                 _ => &[],
             })
             .collect();
-        let Ok(at) = judged(current, &ops, vocab) else {
-            return;
-        };
+        let at = judged_on(current, cur.clone(), &ops, vocab);
         // Whether this round changed the proposal (then the next one asks
         // again; one that changes nothing settles every member).
         let mut moved = false;
