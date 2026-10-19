@@ -354,7 +354,7 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         available_space,
         inputs.sizing_mode,
     );
-    let known_dimensions = constants.node_outer_size;
+    let mut known_dimensions = constants.node_outer_size;
 
     // 9. Flex Layout Algorithm
 
@@ -422,6 +422,32 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         determine_container_main_size(tree, available_space, &mut flex_lines, &mut constants);
         constants.node_inner_size.set_main(constants.dir, Some(constants.inner_container_size.main(constants.dir)));
         constants.node_outer_size.set_main(constants.dir, Some(constants.container_size.main(constants.dir)));
+
+        // EXACT PATCH 61: intrinsic row sizing supplies the width after the
+        // initial ratio transfer. Refresh height before sizing and aligning
+        // lines, keeping the intrinsic main-axis constraints and definiteness.
+        // https://www.w3.org/TR/css-sizing-4/#aspect-ratio-automatic
+        if constants.is_row && known_dimensions.height.is_none()
+            && tree.get_flexbox_container_style(node).aspect_ratio().is_some()
+        {
+            let resolved = compute_constants(
+                tree,
+                tree.get_flexbox_container_style(node),
+                constants.node_outer_size,
+                inputs.known_dimensions_are_definite,
+                parent_size,
+                available_space,
+                inputs.sizing_mode,
+            );
+            known_dimensions.height = resolved.node_outer_size.height;
+            constants.node_outer_size.height = resolved.node_outer_size.height;
+            constants.node_inner_size.height = resolved.node_inner_size.height;
+            constants.min_size.height = resolved.min_size.height;
+            constants.max_size.height = resolved.max_size.height;
+            constants.gap.height = resolved.gap.height;
+            constants.has_definite_cross_size = resolved.has_definite_cross_size;
+            constants.cross_axis_available_space_is_definite = resolved.cross_axis_available_space_is_definite;
+        }
 
         debug_log!("constants.node_outer_size", dbg:constants.node_outer_size);
         debug_log!("constants.node_inner_size", dbg:constants.node_inner_size);
