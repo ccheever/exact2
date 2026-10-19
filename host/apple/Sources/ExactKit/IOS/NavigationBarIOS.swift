@@ -374,6 +374,9 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     var paintsPlaceholder = false
     /// The field's text is drawn in its own colour or the design's FieldText.
     var paintsInk = false
+    /// The scope bar's tabs, and the segment last chosen or set (LLP 1134 D3).
+    var scopeTabs: [UInt32] = [], scopeIDs: [String?] = [], scopeSettled: Int?
+    weak var scopeList: NodeView?
     /// UIKit's field's text: the node's own colour, else the design's
     /// FieldText where it overrides it, else UIKit's (LLP 1115 D4, LLP 1121
     /// D9); and its fill, the design's Field where it overrides it. Set
@@ -433,7 +436,12 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
         #endif
     }
-    func didDismissSearchController(_ search: UISearchController) { applyHiding() }
+    func didDismissSearchController(_ search: UISearchController) {
+        applyHiding()
+        #if os(iOS)
+        showScopes()
+        #endif
+    }
     func updateSearchResults(for search: UISearchController) {
         let text = search.searchBar.text ?? ""
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
@@ -730,6 +738,9 @@ extension NavigationHost {
                 c.projectedSource = source
                 project(shape, into: c, canGoBack: canGoBack, shows: shows, presented: presented)
             }
+            #if os(iOS)
+            scope(c, shape: shows ? shape : nil)
+            #endif
             collapse(c, shape: shape, shows: shows, scroller: scroller)
             showReadouts(shows ? shape : nil, in: c)
             reachBottom(c)
@@ -765,7 +776,7 @@ extension NavigationHost {
     private func coverLifted(_ routes: [RouteController]) {
         var lifted = false
         for c in routes {
-            for node in c.lifted.map({ [$0] }) ?? c.barNodes where covers[node.id] != .whole {
+            for node in (c.lifted.map({ [$0] }) ?? c.barNodes) + [c.scoped].compactMap({ $0 }) where covers[node.id] != .whole {
                 covers[node.id] = .whole
                 lifted = true
             }
@@ -903,6 +914,7 @@ extension NavigationHost {
             c.definesPresentationContext = true
         }
         search.field = field
+        search.scope(c.scoped)
         let bar = search.controller.searchBar
         let placeholder = field.props["placeholder"] ?? ""
         // Unsaid, the placeholder is the search field's own, which UIKit
@@ -1135,7 +1147,7 @@ extension NavigationHost {
     /// header, or a node the bar placed, that its author did not hide.
     func hiddenForBar(_ view: UIView) -> Bool {
         guard let node = view as? NodeView, node.style["display"]?.string != "none" else { return false }
-        return controllers.values.contains { $0.lifted === node || $0.barNodes.contains { $0 === node } }
+        return controllers.values.contains { $0.lifted === node || $0.scoped === node || $0.barNodes.contains { $0 === node } }
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
@@ -1290,7 +1302,7 @@ extension NavigationHost {
         var wanted: [UInt32: HostCover] = [:]
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
-            for node in c.lifted.map({ [$0] }) ?? c.barNodes { wanted[node.id] = .whole }
+            for node in (c.lifted.map({ [$0] }) ?? c.barNodes) + [c.scoped].compactMap({ $0 }) { wanted[node.id] = .whole }
             guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
             // A presented route's controller takes its sheet's whole view, and
             // the document's insets (`env()`) are not the sheet's: its route is

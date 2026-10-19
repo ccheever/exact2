@@ -20,6 +20,8 @@ final class RouteController: UIViewController {
     var pushed = false
     weak var lifted: NodeView?
     var barNodes: [NodeView] = []
+    /// The filter tablist the search bar shows as its scope bar (LLP 1134).
+    weak var scoped: NodeView?
     #if EXACT_INSPECT
     /// The header the bar shows the title of, and the node each bar item
     /// stands for (inspect mode selects them, InspectIOS.swift).
@@ -85,6 +87,9 @@ final class RouteController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         host?.presenter.owners.publish()
+        #if os(iOS)
+        search?.labelScopes()
+        #endif
     }
 
     override func loadView() {
@@ -605,6 +610,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// route hatch hears `routeEnded` (LLP 1075.003 §3.2).
     private func end(_ c: RouteController) {
         if let header = c.lifted { header.isHidden = false; c.lifted = nil }
+        c.scoped?.isHidden = false
+        c.scoped = nil
         for node in c.barNodes { node.isHidden = false }
         c.barNodes = []
         guard c.hatched else { return }
