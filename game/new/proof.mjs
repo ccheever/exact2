@@ -63,9 +63,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
 
   // starter: replace these with your game's checks
   const movement = await open();
-  await movement.type('play',{key:'Enter'});
-  await movement.world('world').hold('KeyW',1500);
-  const walked = await movement.world('world').local_position('player');
+  const walking = await play(movement);
+  await walking.hold('KeyW',1500);
+  const walked = await walking.local_position('player');
   check('W for 1.5 s matches the closed-form acceleration series', Math.abs(walked[2]+distance(180,120)) < 0.001, walked);
   await movement.close();
   const s = await open();
