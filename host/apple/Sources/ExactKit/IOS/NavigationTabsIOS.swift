@@ -89,6 +89,10 @@ extension NavigationHost {
             container.tabBar.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
                 self?.resyncTabItems()
             }
+            // A width becoming regular on an iPad makes the bar the floating one, which the stack's wish then hides.
+            container.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBarController, _: UITraitCollection) in
+                self?.refollowFloatingBar()
+            }
             return container
         }()
         mount(holder, in: parent, at: p.root)
@@ -227,7 +231,10 @@ extension NavigationHost {
         fill(navs[p.at], base(p.wanted[p.at]))
         if routerTab != p.at { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
         // @ref LLP 1038 D6 — a tab change swaps immediately.
-        if let container = tabController, container.selectedIndex != p.at { container.selectedIndex = p.at }
+        if let container = tabController, container.selectedIndex != p.at {
+            container.selectedIndex = p.at
+            refollowFloatingBar() // (no push or pop: the stack it shows keeps its wish on an iPad)
+        }
         if routerTab != p.at {
             routerTab = p.at
             if tabController == nil { presenter.session?.natives.tabsHatch(nil, event: 2, index: p.at) }

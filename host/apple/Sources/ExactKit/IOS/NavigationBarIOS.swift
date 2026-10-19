@@ -351,6 +351,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
             nav.view.layoutIfNeeded()
             if touches, !bar.isUserInteractionEnabled { bar.isUserInteractionEnabled = true }
         }
+        host?.followFloatingBar(nav, for: controller, animated: false) // (where it settled: a cancelled pop's source included)
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }

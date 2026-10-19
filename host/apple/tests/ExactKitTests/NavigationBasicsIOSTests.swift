@@ -350,6 +350,11 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // (On an iPad the floating bar, which does not take
         // `hidesBottomBarWhenPushed`, is hidden by `setTabBarHidden`.)
         until("the tab bar left") { !barShows(tabs) && (!insets || chat.view.safeAreaInsets.bottom < shown - 20) }
+        // Another tab, its root showing the tablist, and back to Chat (selected by the app, as a link would).
+        tapTab(tabs, 1)
+        until("Second shows the bar") { tabs.selectedIndex == 1 && barShows(tabs) }
+        tapTab(tabs, 0)
+        until("back on Chat, the bar hidden again") { tabs.selectedIndex == 0 && nav.topViewController === chat && !barShows(tabs) }
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         until("the tab bar came back") { barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }

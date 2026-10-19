@@ -482,9 +482,11 @@ extension NavigationHost {
             // pop with a guessed flag, or the tablist changing under it): the
             // bar follows now (iOS 18).
             guard c === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs else { continue }
-            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != hidden {
-                tabs.setTabBarHidden(hidden, animated: nav.view.window != nil)
-                tablistHidBar = hidden
+            // (An iPad's floating bar: the whole stack's wish, as on a push.)
+            let wish = floatingStackHides(nav) ?? hidden
+            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != wish {
+                tabs.setTabBarHidden(wish, animated: nav.view.window != nil)
+                tablistHidBar = wish
             }
         }
         // A bar Exact hid with `setTabBarHidden` (a root's hidden tablist, or
@@ -492,7 +494,7 @@ extension NavigationHost {
         // state: a push of a route whose tablist shows does not clear it,
         // only `hidesBottomBarWhenPushed` would. The selected route wanting
         // it shown brings it back now, pushed or not yet.
-        if !hidden, tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
+        if !hidden, floatingStackHides(nav) != true, tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
             if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: nav.view.window != nil) }
             tablistHidBar = false
         }
@@ -542,10 +544,10 @@ extension NavigationHost {
     /// its source again, and so its wish.
     func followFloatingBar(_ nav: UINavigationController, for c: UIViewController, animated: Bool) {
         #if os(iOS)
-        guard #available(iOS 18.0, *), !ExactEnv.authoredChrome, tabBarShows, let tabs = tabController, nav.tabBarController === tabs,
-              tabs.traitCollection.userInterfaceIdiom == .pad, tabs.traitCollection.horizontalSizeClass == .regular,
-              let at = nav.viewControllers.firstIndex(where: { $0 === c }), at > 0 else { return }
-        let hidden = nav.viewControllers[1...at].contains { $0.hidesBottomBarWhenPushed }
+        guard #available(iOS 18.0, *), let tabs = tabController else { return }
+        // A cancelled pop's source comes back before it is in the stack again.
+        let stack = nav.viewControllers.contains { $0 === c } ? nav.viewControllers : nav.viewControllers + [c]
+        guard let at = stack.firstIndex(where: { $0 === c }), at > 0, let hidden = floatingStackHides(nav, through: Array(stack[...at])) else { return }
         if hidden, !tabs.isTabBarHidden {
             tabs.setTabBarHidden(true, animated: animated)
             tablistHidBar = true
@@ -554,6 +556,29 @@ extension NavigationHost {
             tablistHidBar = false
         }
         #endif
+    }
+
+    /// Whether a stack whose routes are `stack` (its root first) hides the
+    /// floating tab bar: a route above the root asks it, as UIKit reads
+    /// `hidesBottomBarWhenPushed` on a phone. Nil where the bar is not
+    /// iPadOS 18's floating one (a phone, a compact width, iOS 17, an
+    /// authored or hatched tab bar), where UIKit's own flag does it.
+    func floatingStackHides(_ nav: UINavigationController, through stack: [UIViewController]? = nil) -> Bool? {
+        #if os(iOS)
+        guard #available(iOS 18.0, *), !ExactEnv.authoredChrome, tabBarShows, let tabs = tabController, nav.tabBarController === tabs,
+              tabs.traitCollection.userInterfaceIdiom == .pad, tabs.traitCollection.horizontalSizeClass == .regular else { return nil }
+        return (stack ?? nav.viewControllers).dropFirst().contains { $0.hidesBottomBarWhenPushed }
+        #else
+        return nil
+        #endif
+    }
+
+    /// The selected stack's top takes its wish again where nothing pushed or
+    /// popped: a tab selected, the width becoming regular.
+    func refollowFloatingBar() {
+        guard let nav = tabController?.selectedViewController as? UINavigationController, let top = nav.topViewController,
+              nav.transitionCoordinator == nil else { return }
+        followFloatingBar(nav, for: top, animated: false)
     }
 
     /// A transition settled (`didShow`): the root, if it is on top now,
