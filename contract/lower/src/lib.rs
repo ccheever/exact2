@@ -674,6 +674,7 @@ fn lower_with_sites(
     l.bake_texts()?;
     // A refusal said after the elements' (none yet): never a plan beside it.
     if !l.errors.is_empty() {
+        l.errors.truncate(MAX_REFUSALS);
         return Err(l.errors);
     }
     // @ref LLP 1121 D10 — the icons a computed source may name.

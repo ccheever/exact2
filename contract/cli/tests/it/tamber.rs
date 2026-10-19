@@ -798,7 +798,7 @@ fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
         panic!("a refused token builds");
     };
     let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
-    assert!(ids.iter().any(|id| id == "tamber-under-light"), "{ids:?}");
+    assert_eq!(ids[0], "tamber-under-light", "{ids:?}");
     assert!(!ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
     // An axis declared twice: its refusal is said, beside a `setMode` that
     // names a value of the second only.
@@ -808,8 +808,9 @@ fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
         panic!("an axis declared twice builds");
     };
     let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
-    assert!(ids.iter().any(|id| id == "tamber-duplicate"), "{ids:?}");
+    assert_eq!(ids[0], "tamber-duplicate", "the design's first: {ids:?}");
     assert!(ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-duplicate");
     std::fs::write(&path, contract).unwrap();
     // The `when` line's own dark side edited: it builds, setMode and its pin
     // intact.
