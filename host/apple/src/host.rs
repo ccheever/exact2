@@ -167,8 +167,7 @@ pub struct Host<D: DataSource> {
     /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
     head_edited: bool,
     language: Option<String>,
-    /// Boxed: a mirror is about 200 bytes, and the table holds a slot for
-    /// each of up to twice as many views as there are.
+    /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
     mirror: IdMap<ViewId, Box<Mirror>>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
