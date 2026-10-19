@@ -110,6 +110,41 @@ final class WidgetGalleryTests: XCTestCase {
         XCTAssertEqual(wide.leading.width, wide.trailing.width); XCTAssertLessThanOrEqual(wide.leading.maxX, wide.center.minX + 0.5); XCTAssertLessThanOrEqual(wide.center.maxX, wide.trailing.minX + 0.5)
     }
 
+    func testExpandedAllocationRemeasuresWrappedContentAndAlignsTheTrailingEdge() throws {
+        let render = try ActivityRender(plan: Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_EDGES_PLAN"]))),
+                                        kind: "edges", state: nil, facts: SessionFacts(displayScale: 1, preferences: [], rootFontSize: 17), assets: AssetResolver(root: FileManager.default.temporaryDirectory))
+        let placements: [ActivityPlacement] = [.expandedLeading, .expandedTrailing, .expandedCenter, .expandedBottom]
+        let frames = ExpandedArrangement.measure(inner: 250, geometry: .iPhone17Pro) { render.size(placements[$0], proposal: $1) }
+        let ideal = render.size(.expandedLeading, proposal: .unspecified)
+        let narrowed = render.size(.expandedLeading, proposal: ProposedViewSize(width: frames.leading.width, height: nil))
+        XCTAssertGreaterThan(narrowed.height, ideal.height)
+        XCTAssertEqual(frames.leading.height, narrowed.height)
+        XCTAssertGreaterThanOrEqual(frames.bottom.minY, narrowed.height)
+        let renderer = ImageRenderer(content: ExpandedIslandLayout(geometry: .iPhone17Pro) {
+            Color.blue.frame(width: 20, height: 10)
+            Color.red.frame(width: 10, height: 10)
+            Color.clear.frame(width: 30, height: 10)
+            Color.clear.frame(height: 10)
+        }.frame(width: 250).background(Color.white))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.cgImage)
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        // CG's bitmap origin is at the bottom; find red along the last two columns.
+        var rightRed = 0, leftRed = 0
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let at = (y * image.width + x) * 4
+                if pixels[at] > 200 && pixels[at + 1] < 100 {
+                    if x >= image.width - 12 { rightRed += 1 } else { leftRed += 1 }
+                }
+            }
+        }
+        XCTAssertGreaterThan(rightRed, 40); XCTAssertEqual(leftRed, 0)
+    }
+
     func testGivenPropsSkipARefusingRefresh() throws {
         let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_REFUSING_PLAN"]))
         let assets = AssetResolver(root: plan.deletingLastPathComponent(), names: ["plans/refusing.plan"], generation: "refusing") { _ in try? Data(contentsOf: plan) }

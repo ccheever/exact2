@@ -1404,7 +1404,7 @@ export async function main(argv, injected = {}) {
     : await launch();
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
-  const step = async (line) => { if (flags.widget) return widgetStep(s, flags.widget, line);
+  const step = async (line) => { if (flags.widget || flags.activity) return widgetStep(s, flags.widget ?? flags.activity, line, flags.activity ? 'activity' : 'widget');
       if (heldRead(s, line, () => step(line))) return null; // inside a played contact, answered at its tap up (agent-drag.mjs)
       const trimmed = line.trim();
       // `type` keeps the text tail, including newlines and \n, which a

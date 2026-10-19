@@ -12,10 +12,19 @@ struct SnapshotNodeView: View {
     let tree: HeadlessSession.Snapshot
     let environment: SnapshotEnvironment
     var isRoot = false
+    var inheritedPrivacy = true
     @Environment(\.colorScheme) private var scheme
 
     private var style: SnapshotStyle { SnapshotStyle(node) }
     private var paint: SnapshotPaint { SnapshotPaint(style: style, dark: scheme == .dark) }
+    private var privateContent: Bool {
+        switch SnapshotData.words(node)["privacy"] {
+        case "public": return false
+        case "private": return true
+        default: return inheritedPrivacy
+        }
+    }
+    private var leaf: Bool { ["text", "time", "image"].contains(node.kind) || node.props["type"] == "progress" }
     private var bounds: CGRect { CGRect(origin: .zero, size: node.frame.size) }
 
     var body: some View {
@@ -39,7 +48,7 @@ struct SnapshotNodeView: View {
             .overlay { paint.border(in: bounds) }
             .modifier(PathClip(path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
-            .modifier(Privacy(word: environment.placeholder ? nil : SnapshotData.words(node)["privacy"]))
+            .modifier(Privacy(word: environment.placeholder || !leaf ? nil : privateContent ? "private" : "public"))
             .modifier(Semantics(node: node))
             .modifier(Linked(url: link))
     }
@@ -55,7 +64,7 @@ struct SnapshotNodeView: View {
             } else {
                 let children = node.children.compactMap { tree.nodes[$0] }
                 FrameLayout(frames: children.map(\.frame), size: node.frame.size) {
-                    ForEach(children, id: \.id) { SnapshotNodeView(node: $0, tree: tree, environment: environment) }
+                    ForEach(children, id: \.id) { SnapshotNodeView(node: $0, tree: tree, environment: environment, inheritedPrivacy: privateContent) }
                 }
             }
         }
@@ -89,7 +98,9 @@ private struct PathClip: ViewModifier {
 /// `data-privacy` (the node's `dataset`), in a widget and in a Live Activity
 /// alike (D8): `public` is not account content, so it stays while the Lock
 /// Screen redacts the rest; `private` is redacted inside a public container.
-/// Neither applies to the placeholder, where any value would undo its redaction.
+/// Apply it at leaves: an ancestor marked public must not remove the privacy
+/// redaction reason before a private descendant receives it. The placeholder
+/// carries no modifier, since any value would undo its redaction.
 private struct Privacy: ViewModifier {
     let word: String?
     func body(content: Content) -> some View {

@@ -1093,7 +1093,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// A placement root's resolved margins and whether its width is the author's
-    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored]`;
+    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored, minimum]`;
     /// an error names the view.
     pub fn placement_box(&mut self, view: ViewId) -> String {
         let kernel = self.runner.kernel();

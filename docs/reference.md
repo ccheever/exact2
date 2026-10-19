@@ -472,6 +472,14 @@ are not a shared surface layout. Rendering remains read-only, with the same
 clock, request, input and handler refusals as widgets. `time` and `progress`
 remain platform live views.
 
+A development build with `--widget-gallery` also answers activity addresses:
+`bun scripts/agent.mjs ios activity departure --placement expanded --state '<json>' tree "screenshot activity.png" state`.
+The same command works on `macos`. Placements are `lockScreen`, `compactLeading`,
+`compactTrailing`, `minimal` and `expanded` (all four expanded regions together).
+Omit `--state` to use the entry's preview; `--scheme light|dark` selects its scheme.
+`clock` advances the app's agent clock and the next read renders at that time.
+These are gallery renders; the async simulator test checks the system's archive.
+
 The extension renders every activity through one `ActivityConfiguration` for
 the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10), a
 thin adapter over `ExactSnapshot`'s `ActivityResolver`: the attributes' `kind`

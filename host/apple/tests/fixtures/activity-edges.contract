@@ -1,0 +1,36 @@
+shape EdgeState
+  title: string
+shape EdgeViewport
+  width: number
+  height: number
+component App
+  view
+    text "App"
+component Edges
+  props
+    title: string
+  inject
+    snapshot_viewport: EdgeViewport
+  view
+    view slot="lockScreen" data-privacy="public"
+      text "Public label"
+      view data-privacy="private"
+        text title
+    view slot="compactLeading" min-width=20
+      text "MMMMMMMMMMMMMMMMMMMM" color="#ff0000"
+    view slot="compactTrailing" width="100%"
+      text "A paragraph whose lines wrap inside the original percentage containing block."
+    view slot="minimal" width=40 height=24
+      if snapshot_viewport.width > 100
+        text "Wide" color="#ff0000"
+      else
+        text "Thin" color="#0000ff"
+    view slot="expanded"
+      view slot="leading"
+        text "Leading region wraps over several lines at its allocated width."
+      view slot="trailing"
+        text "Right"
+      view slot="center"
+        text "Center"
+      view slot="bottom"
+        text "Bottom"

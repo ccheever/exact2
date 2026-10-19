@@ -96,6 +96,8 @@ component Caltrain
   // end it names nothing, so a later tap sends no id it no longer owns.
   state following = false
   mutation activitySend as shape ActivityHandle
+  mutation alertSend as shape ActivityHandle
+  state alertStarted = false
   resource activities = exactActivities() as shape Activities
   derive tracked = first(activities.activities.filter(a => a.kind == "departure" and (a.activityState == "active" or a.activityState == "stale")))
   derive trackedId = match tracked { case some(a) => a.id, case none => following ? match activitySend { case some(a) => a.id, case none => "" } : "" }
@@ -110,6 +112,16 @@ component Caltrain
     send activitySend = endActivity(trackedId, DepartureState(departureState, status="Arrived"), "immediate")
     trainDelay = 0
     following = false
+
+  derive trackedAlert = first(activities.activities.filter(a => a.kind == "service-alert" and (a.activityState == "active" or a.activityState == "stale")))
+  derive alertId = match trackedAlert { case some(a) => a.id, case none => alertStarted ? match alertSend { case some(a) => a.id, case none => "" } : "" }
+  derive alertFollowing = alertId != ""
+  action startAlert
+    send alertSend = startActivity("service-alert", ServiceAlertState(title="Delay", message="Northbound trains delayed by 10 minutes.", updatedAt=seededEpoch))
+    alertStarted = true
+  action endAlert
+    send alertSend = endActivity(alertId, ServiceAlertState(title="Service restored", message="Trains are running normally.", updatedAt=seededEpoch), "immediate")
+    alertStarted = false
 
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
@@ -206,7 +218,7 @@ component Caltrain
         // The sky or the plain page around the same content, written once:
         // `Sky` declares a slot and the content is what is indented under it.
         Sky(on=skyOn, material=material, selectedId=selectedId, dim=tv)
-          Content(activities=activities, startTracking=startTracking, delayTrain=delayTrain, endTracking=endTracking, tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=chooseScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate, reloadApp=reloadApp)
+          Content(activities=activities, startTracking=startTracking, delayTrain=delayTrain, endTracking=endTracking, startAlert=startAlert, endAlert=endAlert, alertFollowing=alertFollowing, tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=chooseScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate, reloadApp=reloadApp)
       // @ref LLP 1048.003 D1 — a link preview's summary; the title stays the app's.
       head description="The next Caltrain departures, north and south, from the station nearest you."
 
@@ -240,6 +252,9 @@ component Content
     startTracking: action
     delayTrain: action
     endTracking: action
+    startAlert: action
+    endAlert: action
+    alertFollowing: bool
     tv: bool
     station: Station
     selectedId: string
@@ -316,6 +331,12 @@ component Content
                     text "Delay train"
                   button press=endTracking testId="end-activity"
                     text "End activity"
+                  if alertFollowing
+                    button press=endAlert testId="end-alert"
+                      text "End alert"
+                  else
+                    button press=startAlert testId="start-alert"
+                      text "Follow service alert"
               // The small buttons get room for a focus ring (a TV remote, Tab, VoiceOver);
               // a TV draws its ring outside the button, so its rows are wider apart.
               row gap=(tv ? 12 : 6)

@@ -582,3 +582,20 @@ test('backend diagnostics name the selected source and warn when a saved selecti
     await expect(resetBackends([literal],null,1000,{dir})).rejects.toThrow('(source: app.ts origin literal)');
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
+
+
+test('activity addresses use the gallery reads and keep state separate from the app', async () => {
+  const { widgetStep } = await import('./agent-widget.mjs');
+  const state = '{"train":233}';
+  const parsed = parseFlags(['--app', 'caltrain', 'ios', 'activity', 'departure', '--placement', 'expanded', '--state', state, '--sim', 'lane', 'tree', 'screenshot activity.png', 'state']);
+  expect(parsed.flags.activity).toEqual({entry:'departure', placement:'expanded', state});
+  expect(parsed.rest).toEqual(['ios', 'tree', 'screenshot activity.png', 'state']);
+  expect(parseFlags(['macos', 'activity', 'service-alert', 'state']).flags.activity.placement).toBe('lockScreen');
+  for (const json of ['[]', 'null', '3', '{']) expect(() => parseFlags(['ios', 'activity', 'departure', '--state', json, 'state'])).toThrow('JSON object');
+  expect(() => parseFlags(['ios', 'activity', 'departure', '--placement', 'wrong', 'tree'])).toThrow('activity --placement');
+  expect(() => parseFlags(['ios', 'activity', 'departure', 'tap follow'])).toThrow('activity: tree, state');
+  const calls = [], session = {op: async req => { calls.push(req); return req; }, clock: async value => value};
+  await widgetStep(session, parsed.flags.activity, 'tree', 'activity');
+  await widgetStep(session, parsed.flags.activity, 'clock +60000', 'activity');
+  expect(calls).toEqual([{op:'tree', activity:parsed.flags.activity}, {op:'state', activity:parsed.flags.activity, availability:true}]);
+});

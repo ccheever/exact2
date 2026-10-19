@@ -170,18 +170,23 @@ final class ActivityPreview {
     let render: ActivityRender
     let state: [String: Any]
     let scheme: String
+    let clock: Double
+    let epochAtZero: Double
+    let suppliedState: [String: Any]?
     let environment: (ActivityPlacement) -> SnapshotEnvironment
     init(_ entry: ActivityEntry, appSession: ExactSession, scheme: String = "light", state supplied: [String: Any]? = nil) throws {
         self.entry = entry; self.scheme = scheme
+        clock = appSession.now(); epochAtZero = appSession.dateNow().epoch; suppliedState = supplied
         guard let plan = entry.assets.bytes("plans/\(entry.kind).plan") else {
             throw HeadlessSession.Failure(description: "missing activity plan: \(entry.kind); rebuild the app")
         }
-        let place = appSession.launchPlace, clock = appSession.now()
-        let date = Date(timeIntervalSince1970: (appSession.dateNow().epoch + clock) / 1000)
+        let place = appSession.launchPlace
+        let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
         let facts = SessionFacts(displayScale: 1, preferences: scheme == "dark" ? [.dark] : [], rootFontSize: Double(SnapshotDriver.bodySize(for: .large)),
             date: date, clock: clock, timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
         state = supplied ?? entry.preview
         render = try ActivityRender(plan: plan, kind: entry.kind, state: try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]), facts: facts, assets: entry.assets)
+        _ = try render.session.advance(to: clock)
         let linkBase = URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), roots = [entry.assets.root]
         let frozen: Date? = appSession.clock == nil ? nil : date
         environment = { placement in
@@ -235,6 +240,15 @@ enum ExpandedArrangement {
         let bottomFrame = CGRect(x: 0, y: below, width: inner, height: bottom.height)
         return Frames(leading: leadingFrame, trailing: trailingFrame, center: centerFrame, bottom: bottomFrame, height: bottomFrame.maxY)
     }
+    static func measure(inner: CGFloat, geometry: IslandGeometry, size: (Int, ProposedViewSize) -> CGSize) -> Frames {
+        let ideal = (0..<4).map { size($0, .unspecified) }
+        var frames = allocate(inner: inner, geometry: geometry, leading: ideal[0], trailing: ideal[1], center: ideal[2], bottom: ideal[3])
+        let heights = frames.all.enumerated().map { size($0.offset, ProposedViewSize(width: $0.element.width, height: nil)).height }
+        frames.leading.size.height = heights[0]; frames.trailing.size.height = heights[1]; frames.center.size.height = heights[2]
+        frames.bottom.origin.y = max(frames.leading.maxY, frames.trailing.maxY, frames.center.maxY)
+        frames.bottom.size.height = heights[3]; frames.height = frames.bottom.maxY
+        return frames
+    }
 }
 
 /// The expanded regions placed by `ExpandedArrangement`: four subviews,
@@ -243,8 +257,7 @@ struct ExpandedIslandLayout: Layout {
     let geometry: IslandGeometry
     private func frames(_ proposal: ProposedViewSize, _ subviews: Subviews) -> ExpandedArrangement.Frames? {
         guard subviews.count == 4, let width = proposal.width, width.isFinite else { return nil }
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        return ExpandedArrangement.allocate(inner: width, geometry: geometry, leading: sizes[0], trailing: sizes[1], center: sizes[2], bottom: sizes[3])
+        return ExpandedArrangement.measure(inner: width, geometry: geometry) { subviews[$0].sizeThatFits($1) }
     }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let frames = frames(proposal, subviews) else { return .zero }
@@ -252,8 +265,10 @@ struct ExpandedIslandLayout: Layout {
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let frames = frames(ProposedViewSize(bounds.size), subviews) else { return }
-        for (subview, frame) in zip(subviews, frames.all) {
-            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), anchor: .topLeading, proposal: ProposedViewSize(frame.size))
+        for (index, frame) in frames.all.enumerated() {
+            let trailing = index == 1
+            subviews[index].place(at: CGPoint(x: bounds.minX + (trailing ? frame.maxX : frame.minX), y: bounds.minY + frame.minY),
+                                  anchor: trailing ? .topTrailing : .topLeading, proposal: ProposedViewSize(width: frame.width, height: nil))
         }
     }
 }
@@ -276,9 +291,8 @@ struct ActivityGalleryView: View {
     /// The frames the expanded regions take at this width, from the
     /// driver's ideal sizes: what the stand-in places, for a test to read.
     func expandedFrames() -> ExpandedArrangement.Frames {
-        let ideal = { (placement: ActivityPlacement) in self.preview.render.size(placement, proposal: .unspecified) }
-        return ExpandedArrangement.allocate(inner: expandedInner, geometry: geometry, leading: ideal(.expandedLeading), trailing: ideal(.expandedTrailing),
-                                            center: ideal(.expandedCenter), bottom: preview.render.size(.expandedBottom, proposal: ProposedViewSize(width: expandedInner, height: nil)))
+        let placements: [ActivityPlacement] = [.expandedLeading, .expandedTrailing, .expandedCenter, .expandedBottom]
+        return ExpandedArrangement.measure(inner: expandedInner, geometry: geometry) { preview.render.size(placements[$0], proposal: $1) }
     }
 
     var body: some View {
@@ -296,7 +310,7 @@ struct ActivityGalleryView: View {
     /// The card: the root's colour as the tint stands in for the system's
     /// `activityBackgroundTint` (iOS only), its gradients the view paints,
     /// and, unsaid, the scheme's material.
-    private var lockScreen: some View {
+    var lockScreen: some View {
         let laid = try? preview.render.layout(.lockScreen, width: width - 2 * ActivityPlacementView.platformMargins.leading, height: nil)
         let tint = laid.flatMap { SnapshotActivity.background(of: $0, dark: dark).tint }
         return preview.view(.lockScreen)
@@ -306,7 +320,7 @@ struct ActivityGalleryView: View {
             .environment(\.colorScheme, dark ? .dark : .light)
     }
 
-    private var expanded: some View {
+    var expanded: some View {
         ExpandedIslandLayout(geometry: geometry) {
             preview.view(.expandedLeading)
             preview.view(.expandedTrailing)

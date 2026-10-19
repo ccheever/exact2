@@ -681,7 +681,7 @@ uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* A placement root's resolved margins and its width's authorship (LLP 1126.001 WP10): exact_out
- * holds JSON [margin left, top, right, bottom, authored width 0|1] with no batch around it, or
+ * holds JSON [margin left, top, right, bottom, authored width 0|1, minimum border-box width] with no batch around it, or
  * {"error": …}; returns its length. */
 uint32_t exact_placement_box(ExactRuntime rt, uint32_t view);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */

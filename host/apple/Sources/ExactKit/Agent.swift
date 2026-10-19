@@ -26,6 +26,7 @@ public final class Agent {
     #endif
     #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
     var widgetPreview: WidgetPreview?
+    var activityPreview: ActivityPreview?
     #endif
     let session: ExactSession
     init(session: ExactSession) {
@@ -176,10 +177,10 @@ public final class Agent {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
             return
         }
-        if req["widget"] != nil {
+        if req["widget"] != nil || req["activity"] != nil {
             #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
             if op != "clock" {
-                Agent.reply(WidgetGallery.answer(op, request: req, agent: self))
+                Agent.reply(req["activity"] != nil ? ActivityAgent.answer(op, request: req, agent: self) : WidgetGallery.answer(op, request: req, agent: self))
                 return
             }
             #else
