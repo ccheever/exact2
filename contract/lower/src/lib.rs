@@ -361,7 +361,8 @@ fn lower_with_sites(
 }
 
 /// [`lower_with_sites`]'s declarations, bodies and view into `l`, for its
-/// plan: a refusal of its own as `Err`, those collected left in `l.errors`.
+/// plan: a refusal of its own as `Err`, those collected left in `l.errors`
+/// (an empty `Err` when only those stop it).
 fn lower_body(
     l: &mut Lowerer<'_>,
     checked: &Checked<'_>,
