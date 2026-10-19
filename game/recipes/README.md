@@ -22,6 +22,7 @@ They are compiled directly from these pages by `engine/src/recipes.rs`.
 | Flash what was hit | [Hit flash](hit-flash.md) | Engine presentation tests |
 | Catch a tap inside one tick | [Same-tick press](same-tick-press.md) | Engine input tests |
 | Export models from Blender | [Blender export](blender-export.md) | Asset fixture |
+| Light a tank or a sea from inside | [Underwater](underwater.md) | Underwater GPU test |
 
 Use the [engine reference](../engine/README.md) for borrowing and registration.
 Names, units and defaults are available through `bun scripts/exact.mjs game vocab <name>`.

@@ -16,6 +16,7 @@ mod diff;
 mod migrate;
 mod tamber;
 mod tamber_contract;
+mod tamber_explain;
 mod tamber_export;
 mod tamber_gen;
 mod tamber_history;

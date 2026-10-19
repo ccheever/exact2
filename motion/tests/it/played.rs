@@ -174,3 +174,24 @@ fn a_new_path_takes_its_curve_back() {
         assert!(!e.is_played(NODE, Property::D));
     }
 }
+
+/// A host that can no longer play its transition gives it back: the
+/// engine samples it again from where its curve is, and drives the clock.
+#[test]
+fn a_reclaimed_transition_is_sampled_from_where_its_curve_is() {
+    let mut e = fading();
+    e.advance(0.25).unwrap();
+    assert!(e.played_transitions().any(|k| k == (NODE, P)));
+    assert!(e.reclaim_transition(NODE, P));
+    assert!(!e.is_played(NODE, P));
+    assert!(!e.quiescent(), "the display drives it again");
+    let shown = e.frame();
+    assert_eq!(shown.len(), 1);
+    assert!((shown[0].value.x - 0.75).abs() < 1e-9, "{shown:?}");
+    e.advance(0.5).unwrap();
+    assert!(
+        (e.value(NODE, P).unwrap().x - 0.5).abs() < 1e-9,
+        "sampled at 0.5 s"
+    );
+    assert!(!e.reclaim_transition(NODE, P), "it is no longer the host's");
+}

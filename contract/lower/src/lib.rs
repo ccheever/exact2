@@ -39,7 +39,7 @@ mod grouped;
 mod handlers;
 mod headings;
 mod icon_svg;
-mod icons;
+pub mod icons;
 mod identity;
 mod intersect;
 mod keyframes;

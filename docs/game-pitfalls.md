@@ -54,6 +54,25 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
 
 ## Tests, the proof and setup
 
+- **A continued proof uses its saved source copy.** Keep the SDK unchanged until
+  it finishes. Edit the original game freely during a new run; `--continue` refuses
+  if its authored inputs differ from the snapshot, naming the file. Start a new
+  proof to verify the edit. `tools/` probes and `.exact/status.json` are not game inputs.
+  A fresh snapshot has no generated `.shells/surfaces.json`. Cache that declaration
+  with the GPU receipt and restore it before checking the host receipt. Restore
+  Git-ignored baked assets too: a Cargo cache hit does not rerun `bake_art`.
+  Shared Cargo targets are compilation caches; copy validated native products
+  into the run before driving them, so another proof cannot replace them.
+  Declare proof-only JSON or other files with `export const proofData = ["relative/path"];`
+  so the snapshot copies them and continuation checks them. Resolve SDK files from
+  the shared runner’s `proofSDK`, not by walking up from a relocated proof.
+- **Stopping `game/dev.mjs` during a build can leave its build child running.**
+  A terminated server does not prove its Cargo/build descendants exited. Record
+  the process tree before stopping it, then check those PIDs; terminate only
+  processes belonging to that invocation before starting another build.
+- **`exact.mjs linux` builds the host, not the game's GPU module.** For the
+  `gpu-dev` host/module pair, use `bun proof.mjs linux --build-only` from the
+  game directory. See [game build profiles](../game/README.md#exact2-integration).
 - **`cargo test --test <name>` says `no test target named` for a new
   `logic/tests/<name>.rs`.** Cause: a game without `logic/Cargo.toml` tests through
   the generated `.shells/logic` member, which lists each test file; it is written by a

@@ -294,8 +294,10 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
 
 fn local_image(e: &Expr) -> bool {
     fn path(s: &str) -> bool {
-        if let Some(symbol) = s.strip_prefix("symbol:") {
-            return !symbol.is_empty();
+        // Every `symbol:` source is the host's, an empty one too, which
+        // draws nothing (stage 9 H).
+        if s.starts_with("symbol:") {
+            return true;
         }
         let s = s.strip_prefix("app:/").unwrap_or(s);
         !s.is_empty()

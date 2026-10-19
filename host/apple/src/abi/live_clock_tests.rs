@@ -46,20 +46,40 @@ fn ticks(bridge: &Bridge<NoData>) -> f64 {
 
 #[test]
 fn the_presenters_clock_reaches_every_boot_until_the_agents_takes_time() {
-    WALL.store(3500f64.to_bits(), Ordering::SeqCst);
+    WALL.store(500f64.to_bits(), Ordering::SeqCst);
     let mut bridge = Bridge::<NoData>::new();
     // Told before the boot, as `primeTime` does.
     bridge.set_live_clock(Some(wall));
     booted(&mut bridge);
+    WALL.store(3500f64.to_bits(), Ordering::SeqCst);
     bridge.advance(3500.0, 0);
     assert_eq!(ticks(&bridge), 1.0, "three missed beats, one fire");
     // The agent takes the clock: every beat fires again.
     bridge.set_live_clock(None);
     bridge.advance(6500.0, 0);
     assert_eq!(ticks(&bridge), 4.0);
-    // Back on the presenter's clock, a reboot keeps it.
+    // Back on the presenter's clock, a reboot keeps it, and starts where it
+    // reads: its first beat is a beat after the boot, not one missed since 0.
     bridge.set_live_clock(Some(wall));
     booted(&mut bridge);
+    assert_eq!(
+        bridge.host.as_ref().unwrap().runner().timer_due_ms(),
+        Some(4500.0)
+    );
     bridge.advance(3500.0, 0);
-    assert_eq!(ticks(&bridge), 1.0);
+    assert_eq!(ticks(&bridge), 0.0);
+    WALL.store(7500f64.to_bits(), Ordering::SeqCst);
+    bridge.advance(7500.0, 0);
+    assert_eq!(ticks(&bridge), 1.0, "four missed beats, one fire");
+}
+
+#[test]
+fn the_agents_clock_boots_at_zero() {
+    let mut bridge = Bridge::<NoData>::new();
+    bridge.set_live_clock(None);
+    booted(&mut bridge);
+    assert_eq!(
+        bridge.host.as_ref().unwrap().runner().timer_due_ms(),
+        Some(1000.0)
+    );
 }

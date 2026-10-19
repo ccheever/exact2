@@ -210,7 +210,10 @@ pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
             continue;
         };
         // An icon the design declares and the build refused said why already.
-        if !role.starts_with("sf/")
+        // An empty name is no symbol, as an empty `sf/` one is: a computed
+        // source whose caller passes "" under its own `if` (stage 9 H).
+        if !role.is_empty()
+            && !role.starts_with("sf/")
             && !role.starts_with("icon|")
             && symbol_role(role).is_none()
             && !crate::icons::is_refused(role)
@@ -222,7 +225,7 @@ pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
                 "lower-attr-value",
                 format!(
                     "symbol `{role}` is not a role; {near}`contract vocab symbol` lists the roles; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role or an icon token (`icons` in app.tamber)",
-                    if role.is_empty() { "star.fill" } else { role }
+                    role
                 ),
                 span,
             );

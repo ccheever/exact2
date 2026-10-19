@@ -133,7 +133,8 @@ impl Trace {
         if self.generation != w.presentation_generation()
             || crate::world::trace_snap(w, self.entity, self.parents != w.revision::<Parent>())
         {
-            self.prev = p;
+            self.prev = crate::world::scene::interpolation_origin(w, self.entity)
+                .map_or(p, |pose| pose.position.to_array());
             self.primed = true;
         }
         self.tick = w.tick();

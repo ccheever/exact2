@@ -55,3 +55,6 @@ pub mod same_tick_press {}
 /// Export models from Blender for the bake.
 #[doc = include_str!("../../recipes/blender-export.md")]
 pub mod blender_export {}
+/// Light and frame a scene under water.
+#[doc = include_str!("../../recipes/underwater.md")]
+pub mod underwater {}

@@ -558,6 +558,21 @@ screen, 2026-10-16.)
   a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
   `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
   capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A glow on a tiny LED is barely there.** Cause: a blur spreads a small source thin, so
+  `box-shadow="0 0 7px …"` on a 5-pt dot is at most an eighth of its colour beside the
+  dot, in Chrome and on every host alike; the original's halo was a larger disc blurred
+  under the dot. A radial gradient instead draws a halo that is too big. Fix: Skia's
+  `<Circle r={R} opacity={a}><BlurMask blur={σ} /></Circle>` under a dot of radius `r` is
+  `box-shadow="0 0 <2σ>px <R − r>px <colour at a>"` on the dot: the spread grows the dot
+  to the halo's disc. euxy's `R=4.5, σ=4, a=0.55` under a 5-pt LED is
+  `box-shadow="0 0 8px 2px eu.glow"`, which matched the original's halo to within a
+  few levels.
+- **A bar's shadow casts a band over the strip below it.** Cause: the original cast the
+  shadow from a dock that ran to the screen's bottom edge, under the tab bar, so its
+  downward spill fell off screen; a route's content ends above the tab bar, so the same
+  `box-shadow` spills onto the strip there. Fix: keep the shadow and clip its spill with
+  `clip-path` past the box's top only (`clip-path="path('M 0 -40 L 2000 -40 L 2000 77 L 0
+  77 Z')"` on a 77-pt bar).
 - **A sheet sits a few points low, or ends short of the screen with its bottom corners
   showing.** Cause: a computed `navigationDetent` (`(screen height − 100) × 0.45`)
   guesses UIKit's maximum; and the original's `sheetCornerRadius` set the sheet's corner
@@ -657,6 +672,17 @@ screen, 2026-10-16.)
   value. Fix: compute the value in a derive (from the `exactTime` source's
   `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
   the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
+
+- **A marker that moves by `if` costs a view each move.** Symptom: an animation
+  that moves a dot, a playhead or a selection ring from cell to cell several
+  times a second keeps a phone busier than a hand-built UIKit screen. Cause:
+  `if head == 0` around the marker destroys a node in one cell and creates one in
+  the next at every move: a view made and dropped, its style applied, and a
+  layout. Fix: keep the marker in every cell and move it by `opacity=(head == 0 ?
+  1 : 0)` (with `transition="none"` where it must not fade), as a hand-built app
+  toggles `alpha` or `isHidden`. Measured on euxy playing (sixty-eight step
+  cells, eight moves a second, iPhone 17 simulator): 7.1 → 5.5 % CPU, median of
+  four. (euxy CPU work, 2026-10-18.)
 
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
@@ -924,6 +950,31 @@ screen, 2026-10-16.)
 
 ## Driving and testing
 
+- **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
+  string form sets the whole textarea: AppKit selects all, then inserts the supplied
+  value. Even one character per call is replacement, so `" suffix"` does not append
+  to the existing prompt. Keep strings for whole-value setup. For incremental ASCII,
+  first verify the actual native selection is collapsed at the intended insertion
+  point, then send keys, including `Space` for a space:
+
+  ```js
+  await s.type('composer', 'seed'); // Replace the whole field.
+  // Verify the native caret is at source offset 4 before appending.
+  for (const character of ' a') {
+    const reply = await s.type('composer', {
+      key: character === ' ' ? 'Space' : character,
+    });
+    assert.equal(reply.delivery, 'platform');
+  }
+  ```
+
+  Wait for the app's accepted source after each key: `"seed "`, then `"seed a"`.
+  Assert one accepted-input serial increment per character and an unchanged owner;
+  the final value or a delivery receipt alone does not prove incremental input.
+  This ASCII example does not exercise IME composition. (T3 composer acceptance,
+  2026-10-19; [AgentMac.swift](../host/apple/Sources/ExactKit/Mac/AgentMac.swift),
+  textarea branch of `type`; [public driver](../scripts/agent.mjs), `type`.)
+
 - **A compiler fixture silently tests its helper instead of `App`.** The first
   component is the root; the name `App` has no special meaning. Put the root
   before its helpers. (SVG `use` warning's component-expansion test, 2026-10-17;
@@ -935,6 +986,28 @@ screen, 2026-10-16.)
   tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
   after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
   (Shelf recipe, 2026-10-10.)
+- **After a long press made with `axe touch --down --up --delay`, the iOS simulator
+  ignores taps.** An action sheet or alert the long press opened stays up whatever
+  is tapped, and relaunching the app does not help: Apple's Settings app on that
+  simulator ignores taps too, until the simulator reboots. In an Exact app the
+  symptom can be partial: the tab bar and an alert's buttons, which are UIKit's,
+  ignore taps while the app's own buttons still answer them. UIKit's controls do
+  that while another touch is down: with `axe touch --down` holding one finger,
+  Apple's Photos ignores a tap on its tab bar exactly as an Exact app's does, and
+  a sequencer's play button still plays. Cause: AXe 1.8.0's touch command, not
+  the app. Fix: make real touches with the agent, which taps
+  an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
+  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
+  prompt, and its tab bar after a relaunch, 2026-10-18.)
+- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
+  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+  one run); otherwise the app opens the link at once. A drive that then taps where
+  the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
+  taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
+  the link presented, and UIKit dismisses that sheet and pops the route, as it would
+  for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
+  `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
+  "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
@@ -1201,7 +1274,9 @@ screen, 2026-10-16.)
   session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
-  the app's files are there.** Cause: without `--storage <name>` the data
+  the app's files are there.** Cause: a web drive without `--storage <name>`
+  (a native one uses the store `default`, kept between drives), or an authored
+  test, whose store starts empty: the data
   module reads an empty store (`readFile`, `readdir`, `stat` and `realpath` reject
   with code `ENOENT`, as for a missing file) and every write throws "storage is
   unavailable in agent mode…", so a module that catches a missing file falls back
@@ -1422,6 +1497,7 @@ screen, 2026-10-16.)
 
 A game's pitfalls (the world and its saves, game input, its tests, proof and setup)
 are in [game-pitfalls.md](game-pitfalls.md).
+
 
 ## Access hatches
 

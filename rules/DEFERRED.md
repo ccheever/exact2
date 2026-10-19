@@ -199,7 +199,7 @@ Specific `accept` types remain bounded as above. `capture` stays refused
 (the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
-**Expanded (approved 2026-10-18; LLP 1114.007):** app-computed decorations on a
+**Expanded (2026-10-18; LLP 1114.007; not approved, under rework (Charlie, 2026-10-18), to be narrowed to r2's paint-only highlights):** app-computed decorations on a
 plain-string `textarea`: inline and block styling, hidden source markers and atomic
 chips, action-time `rangeFrame`, and one undo step for an explicitly undoable
 `setRangeText` edit. T3 Code's Markdown composer is the consumer. Hidden markers

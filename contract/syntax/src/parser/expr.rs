@@ -468,16 +468,9 @@ impl Parser {
                 ..Span::point(span.line, col + inner.len() as u32)
             };
             let mut sub = Parser {
-                tokens,
-                pos: 0,
-                names: NameSpans::default(),
                 depth: self.depth,
                 view_depth: self.view_depth,
-                last: 0,
-                free: Vec::new(),
-                methods: Vec::new(),
-                retired: Vec::new(),
-                edits: Vec::new(),
+                ..Parser::new(tokens)
             };
             let e = sub.expr()?;
             self.free.append(&mut sub.free);

@@ -11,11 +11,10 @@ mod android {
     mod baked {
         include!(concat!(env!("OUT_DIR"), "/module.rs"));
     }
-    const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
     type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
     fn embedded_data() -> ExactEmbeddedData {
-        exact_js::Module::new(BYTECODE.to_vec(), baked::APP, baked::GRANTS)
+        exact_js::Module::new(baked::APP_BYTECODE, baked::APP, baked::GRANTS)
             .placed(baked::TYPESCRIPT_PLACEMENT)
     }
     include!(concat!(env!("OUT_DIR"), "/logic.rs"));

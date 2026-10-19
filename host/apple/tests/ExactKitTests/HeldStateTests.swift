@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 #if os(iOS)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 #else
 import AppKit
 #endif
@@ -728,12 +729,79 @@ final class HeldStateTests: XCTestCase {
     }
     #endif
     #else
-    @MainActor func testIOSHoldsNoHover() throws {
+    #if os(iOS)
+    /// A hover recognizer's state as a test says it (its callback reads only that).
+    private final class SaidHover: UIHoverGestureRecognizer {
+        var said: UIGestureRecognizer.State = .possible
+        override var state: UIGestureRecognizer.State { get { said } set { said = newValue } }
+    }
+    @MainActor private func hover(_ v: NodeView, _ state: UIGestureRecognizer.State) {
+        let g = SaidHover(target: nil, action: nil)
+        g.said = state
+        v.lookHovering(g)
+    }
+
+    // A pointer's hover on iOS (stage 9 G3): a node with a `:hover` look has
+    // its look recognizer; the look shows while it has the pointer, and a
+    // hover holds, let go by the pointer coming over the node or leaving it,
+    // not by a cancel (inspect mode turns every recognizer off and on).
+    @MainActor func testIOSHoverLookAndHold() throws {
         let (p, card, _) = try fixture()
         defer { withExtendedLifetime(p) {} }
-        XCTAssertTrue(card.hold("hover", dropped: nil).unsupported)
-        XCTAssertNil(HeldState.view)
+        let plain = try XCTUnwrap(p.views[9])
+        XCTAssertNotNil(card.lookHoverRecognizer, "a node with a hover look listens for the pointer")
+        XCTAssertNil(plain.lookHoverRecognizer, "one with none does not")
+        hover(card, .began)
+        XCTAssertEqual(card.style["background_color"], ink(green), "the pointer over it: its look, at once")
+        hover(card, .ended)
+        XCTAssertEqual(card.style["background_color"], ink(blue))
+
+        var reasons: [String] = []
+        XCTAssertEqual(card.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        XCTAssertEqual(card.style["background_color"], ink(green), "held")
+        hover(card, .cancelled)
+        XCTAssertTrue(card.holds("hover"), "a cancel is no crossing")
+        hover(card, .began)
+        XCTAssertNil(HeldState.view, "the pointer coming over it lets it go")
+        XCTAssertEqual(reasons, ["input"])
+        XCTAssertEqual(card.style["background_color"], ink(green), "and the real hover shows")
+        // Held with the pointer over it: moving within keeps it, a cancel keeps it and what shows, the next begin
+        // (still over) keeps it, and leaving lets it go.
+        reasons = []
+        XCTAssertEqual(card.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        hover(card, .changed)
+        XCTAssertTrue(card.holds("hover"))
+        hover(card, .cancelled)
+        XCTAssertTrue(card.holds("hover"))
+        XCTAssertFalse(card.pressPaint.hovered, "the real hover goes with a cancel")
+        XCTAssertEqual(card.style["background_color"], ink(green), "the held look still shows")
+        hover(card, .began)
+        XCTAssertTrue(card.holds("hover"), "still over")
+        hover(card, .ended)
+        XCTAssertEqual(reasons, ["input"])
+        XCTAssertEqual(card.style["background_color"], ink(blue))
+
+        // A node with no look: the hold puts a recognizer on, and takes it off after.
+        reasons = []
+        XCTAssertEqual(plain.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        XCTAssertNotNil(plain.lookHoverRecognizer)
+        hover(plain, .began)
+        XCTAssertEqual(reasons, ["input"], "the pointer coming over it")
+        XCTAssertNil(plain.lookHoverRecognizer, "off again")
+        XCTAssertFalse(plain.pressPaint.hovered)
+
+        // Its look gone while held: the hold keeps its recognizer; the pointer
+        // coming over lets it go, which takes the recognizer off, showing nothing.
+        reasons = []
+        XCTAssertEqual(card.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": blue, "press_background_color": navy]]]))
+        XCTAssertNotNil(card.lookHoverRecognizer, "kept for the hold")
+        hover(card, .began)
+        XCTAssertEqual(reasons, ["input"])
+        XCTAssertNil(card.lookHoverRecognizer)
+        XCTAssertFalse(card.pressPaint.hovered)
     }
+    #endif
     #endif
 }
 #endif

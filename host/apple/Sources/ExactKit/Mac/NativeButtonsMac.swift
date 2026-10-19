@@ -309,7 +309,7 @@ extension ControlHost {
             standIns["accent-color"] = "AppKit applies its disabled bezel tint despite the authored accent"
         }
         return ["view": "NSButton", "style": face.style as Any, "drawn": button.drawn, "title": face.title as Any,
-                "symbol": face.symbol as Any, "enabled": button.isEnabled,
+                "symbol": FaceSymbol.observed(face.symbol, icon: face.symbolIcon) as Any, "enabled": button.isEnabled,
                 "rows": rows, "standIns": standIns, "imagePosition": button.imagePosition.rawValue,
                 "pointerEvents": button.written?.interactive == false ? "none" : "auto",
                 "size": [Agent.r2(button.frame.width), Agent.r2(button.frame.height)]]

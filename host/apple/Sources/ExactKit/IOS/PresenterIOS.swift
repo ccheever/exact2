@@ -11,6 +11,7 @@ package final class Presenter {
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    weak var autofocusedThisTurn: NodeView? // taken out of the window this turn, it has not had its autofocus (NodeViewIOS)
     var pressHandoff: PressHandoff? // the press whose work may hand its control's focus on (PressHandoffIOS)
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false

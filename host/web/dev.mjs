@@ -1,35 +1,6 @@
 #!/usr/bin/env bun
-// The resident dev loop: edit app.contract → the page shows it, no cargo
-// build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--lan] [--wasm]
-//   [--allow-host <name>]…
-// An app the JS target takes (LLP 1071) runs on it instead, rebuilt and
-// reloaded per edit (host/web-js/dev.mjs); --wasm keeps it on this loop.
-//
-// Binds 127.0.0.1. --lan binds every interface, so a phone on the network can
-// boot the plan from a printed LAN URL — and so can any peer read the plan,
-// the compile errors on /__dev and the dev generations (LLP 1023 D8, amended
-// 2026-09-23). Either way the server answers only to the names it printed, and
-// the local iOS installer's token reaches only a page loaded over loopback.
-// `--allow-host <name>` (repeatable) adds a name it answers to — a tunnel's
-// public name (`tuft host`, cloudflared, ngrok) forwarding to loopback — for
-// every request, the /__dev event streams included; never the token.
-// The agent carrier is not here and never binds the LAN.
-//
-// One Rust process (the app's `dev` bin, exact_web::dev) watches the source
-// and writes each baked plan to dist/app.plan; this script serves dist/
-// (index.html with dev.js added), pushes each ready plan to the page over
-// server-sent events, and prints edit → present against the budget row
-// "Dev restart, request to present: 100ms p50" (rules/RULES.md).
-//
-// The Rust side too (2026-08-30): an edit under the crates the wasm is
-// built from — kernel, plan, motion, runner, host/web, gpu, the app's data,
-// web, and gpu crates, the vendored Taffy — runs the same warm build
-// (host/web/build.mjs), restarts the resident compiler (its plans must
-// match the new format), and pushes a reload: a new wasm is a new program,
-// so the page reloads rather than restarts in place. A build that fails
-// shows its errors in the page's overlay, as a contract that fails does,
-// and the page keeps the last good wasm. TypeScript apps use a checked
-// resident producer below the data seam; file watching remains Node's own.
+// Resident development loop; games answer HTTP while their first build runs.
+import { buildingServer } from '../../game/dev.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -127,9 +98,12 @@ async function currentWebBuild() {
       && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }
+const early = app.manifest.game && servedAs == null ? await buildingServer({app:app.dir, host, port, gate, origins}) : null;
 if (!await currentWebBuild()) {
-  const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
-  if (b.status !== 0) process.exit(b.status ?? 1);
+  early?.phase('host', 'build');
+  const b = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
+  const code = await new Promise((ok, reject) => { b.once('error', reject); b.once('exit', code => ok(code ?? 1)); });
+  if (code !== 0) process.exit(code);
 }
 // The last complete cdylib links name their transitive source files, including
 // path dependencies outside this workspace. Unknown/shared inputs take the full build.
@@ -543,7 +517,12 @@ function captureGeneration(reuseCurrentAssets = false) {
 // The resident compiler — started, and started again after a Rust rebuild.
 let dev = null;
 let announced = false;
+let contractStamp, contractTreeStamp, compiledContract; const readinessContracts = new Set([source]);
+const contractBytes = () => { try { return createHash('sha256').update(readFileSync(source)).digest('hex'); } catch { return null; } };
+const contractInputsStamp = () => createHash('sha256').update([...readinessContracts].sort().map(path => { try { return path + ':' + readFileSync(path); } catch { return path + ':missing'; } }).join('\0')).digest('hex');
+function contractReady(compiled = compiledContract) { contractStamp = compiled; contractTreeStamp = contractInputsStamp(); early?.phase('contract', compiled === contractBytes() ? 'ready' : 'build'); }
 function startCompiler() {
+  early?.phase('contract','build');
   if (portableRust) startRustCompiler();
   if (typescript) { startModuleCompiler(); return; }
   if (portableRust) return;
@@ -566,12 +545,13 @@ function startCompiler() {
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
-      if (kind === 'source') designSource = rest[0] === '-' ? null : rest[0]; // the design bytes the build compiled (LLP 1122 D5; the patch gate)
+      if (kind === 'source') { designSource = rest[0] === '-' ? null : rest[0]; compiledContract = rest[1]; } // the design bytes the build compiled (LLP 1122 D5; the patch gate)
       else if (kind === 'scrubbed') {
         let reply;
         try { reply = JSON.parse(rest.slice(1).join(' ')); } catch { reply = { error: 'an unreadable scrub reply' }; }
         scrubAsks.get(rest[0])?.(reply);
       } else if (kind === 'design') {
+        contractReady();
         const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
         let live;
         try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
@@ -583,13 +563,14 @@ function startCompiler() {
         const [bytes, saved, compile, bake, ready] = rest.map(Number);
         seq += 1;
         if (!first) pending.set(seq, { saved, ready });
-        try { captureGeneration(); } catch (error) { push({ error: `generation refused: ${error.message}` }); continue; }
+        try { captureGeneration(); contractReady(); } catch (error) { early?.phase('contract','failed'); push({ error: `generation refused: ${error.message}` }); continue; }
         // The first ready plan completes discovery. Every subscriber reconciles
         // its full generation; only later saves contribute edit timings.
         if (first) { first = false; for (const res of clients) res.write(`data: ${hello()}\n\n`); if (!announced) { announced = true; console.log(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
         console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → candidate plan ready`);
         push({ ...announcement(), bytes });
       } else if (kind === 'error') {
+        contractStamp = contractBytes(); contractTreeStamp = contractInputsStamp(); early?.phase('contract','failed');
         // Every refusal of the save, as one JSON string (dev.rs keeps its lines).
         let error = rest.join(' ');
         try { error = JSON.parse(error); } catch { /* a plain message */ }
@@ -734,7 +715,8 @@ function startModuleCompiler() {
     if (dev !== child || active || moduleWatch?.error) return;
     const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
     moduleStage = stage;
-    active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation'), design: designBytes() }; // its bytes if still so after
+    early?.phase('typescript','build');
+    active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation'), design: designBytes(), contract:contractBytes() }; // its bytes if still so after
     // The served plan and receipt seed what the producer cannot compute: a
     // resource only Rust owns keeps its last Cargo-baked first-frame value.
     child.stdin.write(JSON.stringify({ id: active.id, out: active.output, previous: resolve(dist, 'app.plan'), receipt: resolve(dist, 'app.module.json') }) + '\n');
@@ -750,9 +732,9 @@ function startModuleCompiler() {
     }
     const lines = buffered.split('\n'); buffered = lines.pop();
     for (const line of lines) {
-      let early = null;
-      try { early = JSON.parse(line); } catch { /* answered below */ }
-      if (typeof early?.id === 'string' && scrubAsks.has(early.id)) { scrubAsks.get(early.id)(early); continue; }
+      let response = null;
+      try { response = JSON.parse(line); } catch { /* answered below */ }
+      if (typeof response?.id === 'string' && scrubAsks.has(response.id)) { scrubAsks.get(response.id)(response); continue; }
       const request = active, produced = Date.now();
       try {
         const reply = JSON.parse(line);
@@ -760,6 +742,7 @@ function startModuleCompiler() {
         // An edit arriving during compilation supersedes its entire candidate.
         if (request.id !== moduleRun) continue;
         if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
+        early?.phase('typescript','ready'); contractReady(request.contract);
         const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
         for (const [name, body] of captureAssets(request.output)) candidate.set(name, body);
         // A value-only design edit (LLP 1121 stage 4): the same structure and
@@ -803,7 +786,7 @@ function startModuleCompiler() {
         if (previous) pending.set(seq, { saved: request.saved, ready: Date.now() });
         console.log(`module generation ready in ${Date.now() - request.started} ms (producer ${produced-request.started} ms, publish ${Date.now()-produced} ms); restart with carry, no native rebuild`);
         push(announcement());
-      } catch (error) { console.error(error.message); push({ error: error.message }); }
+      } catch (error) { early?.phase('typescript','failed'); console.error(error.message); push({ error: error.message }); }
       finally {
         // A failed generation still names the packages to watch for its fix.
         watchPackages();
@@ -929,16 +912,17 @@ function produceRustNow() {
           const reply=JSON.parse(line);
           if(reply.id!==rustRun||!rustActive||typeof reply.ok!=='boolean')throw new Error('invalid Rust producer reply');
           rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
-          if(!reply.ok){console.error(reply.error);push({error:reply.error});}
+          if(!reply.ok){early?.phase('rust','failed');console.error(reply.error);push({error:reply.error});}
           // The reply follows the pointer's rename; the directory watch would
           // see it a filesystem event later and then finds it current.
-          else try{readRustGeneration();}catch(error){console.error(error.message);push({error:error.message});}
+          else try{readRustGeneration();early?.phase('rust','ready');contractReady();}catch(error){console.error(error.message);push({error:error.message});}
           if(rustDirty && rebuildOn.rust==='save') rustPending = true;
           drainBuilds();
         } catch(error){failed(error);return;}
       }
     });
   }
+  early?.phase('rust','build');
   rustDirty=false;rustActive=true;rustRun++;
   const started=Date.now();
   console.log(`Rust build ${rustRun} started; the current generation stays active`);
@@ -984,6 +968,12 @@ const killCompiler = () => {
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();
+if (early) {
+  const watcher = watchModuleSources(app.dir, name => skipped.test(name) || (!name.endsWith('.contract') && /\.[^/]+$/.test(name)), () => {
+    if (contractStamp !== contractBytes() || contractTreeStamp !== contractInputsStamp()) early.phase('contract','build');
+  });
+  process.once('exit', () => watcher.close());
+}
 const stop = async () => {
   const children = [dev, rustChild, gpuBuildChild, installer.child, hostBuildChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
@@ -1159,7 +1149,7 @@ function watchCompilerInputs() {
   // coalescing. Only open-ended source discovery needs a directory watch.
   // A Contract package's files are inputs wherever they are installed,
   // node_modules included (LLP 1091 D10).
-  const contract=contractGraph();
+  const contract=contractGraph(); for (const path of contract.sources) readinessContracts.add(path);
   const outside=p=>skipped.test(p)&&!contract.files.has(p);
   const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs,...failedInputs,...contract.files].filter(p=>!outside(p)&&!p.includes('/.cargo/')));
   for(const receipt of builtReceipts)for(const missing of receipt.binary.missing)files.add(missing);
@@ -1232,18 +1222,18 @@ console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}
 let hostBuildChild = null;
 function rebuild() { buildPending = true; drainBuilds(); }
 function rebuildNow(files) {
-  building = true;
+  building = true; early?.phase('host', 'build');
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the ${producersOnly ? "bake" : "wasm"}`);
   const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
-  b.stderr.on('data', (d) => { out += d; });
+  b.stderr.on('data', (d) => { out += d; process.stderr.write(d); });
   b.on('exit', (code) => {
     building = false; hostBuildChild = null;
     const ms = Date.now() - t;
     if (code === 0) {
-      builds += 1;
+      builds += 1; early?.phase('host', 'ready', {lastDurationMs:ms});
       // The compiler's plans must match the wasm's format: it is built again
       // too (cargo, warm), and its first plan reaches the reloaded page.
       killCompiler();
@@ -1263,6 +1253,7 @@ function rebuildNow(files) {
       push({ rebuilt: builds });
     } else {
       const errors = out.split('\n').filter((l) => /^(error|warning: unused|\s+-->)/.test(l)).join('\n') || out.trim().split('\n').slice(-12).join('\n');
+      early?.phase('host', 'failed');
       console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s; the next save, or r + Enter, builds again\n${errors}`);
       push({ error: `the ${producersOnly ? "bake" : "wasm"} did not build:\n${errors}` });
       lastFailed = new Set(files);
@@ -1284,9 +1275,11 @@ function rebuildNow(files) {
 
 // Only the artifacts whose inputs an edit touched are rebuilt and swapped.
 async function produceGpu(files) {
-  building = true;
+  building = true; early?.phase('gpu', 'build');
   try {
-    for (const artifact of gpuArtifacts().filter(({ stem }) => files.some(path => gpuArtifactInputs.get(stem)?.has(path)))) await produceGpuArtifact(files, artifact);
+    const results = [];
+    for (const artifact of gpuArtifacts().filter(({ stem }) => files.some(path => gpuArtifactInputs.get(stem)?.has(path)))) results.push(await produceGpuArtifact(files, artifact));
+    early?.phase('gpu', results.every(Boolean) ? 'ready' : 'failed');
   } finally {
     building = false;
     drainBuilds();
@@ -1302,7 +1295,7 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     const child = gpuBuildChild = spawn(command, args, { cwd: app.workspace, env: {...buildEnv, CARGO_TARGET_DIR:app.target}, stdio:['ignore','pipe','pipe'], detached:true });
     let output = '';
     child.stdout.on('data', data => { output += data; });
-    child.stderr.on('data', data => { output += data; });
+    child.stderr.on('data', data => { output += data; process.stderr.write(data); });
     child.on('error', fail);
     child.on('exit', code => { gpuBuildChild = null; code === 0 ? ok() : fail(new Error(output.trim())); });
   });
@@ -1321,15 +1314,16 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     const ms = Date.now() - start;
     gpuTimings.set(gpuVersion, { ms, start });
     console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
-    push({gpu:gpuVersion, ...(module ? {module} : {})});
+    push({gpu:gpuVersion, ...(module ? {module} : {})}); return true;
   } catch (error) {
     rmSync(stage, {recursive:true,force:true});
+    early?.phase('gpu', 'failed');
     console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
-    push({error:`GPU module did not build:\n${error.message}`,source:'gpu'});
+    push({error:`GPU module did not build:\n${error.message}`,source:'gpu'}); return false;
   }
 }
 
-const server = createServer(async (req, res) => {
+const serve = async (req, res) => {
   // Every HTML answer is framed by the design tool only (LLP 1122 T2).
   frameOnlyByTool(res);
   const access = gate.check(req);
@@ -1477,12 +1471,14 @@ const server = createServer(async (req, res) => {
     body = installer.page(found.route, body, access);
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
-});
+};
+const server = early?.server ?? createServer(serve);
 server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); killCompiler(); process.exit(1); });
 await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
 // (and on [::1], for a localhost URL: the design tool's canvas)
 if (servedAs == null) await alsoOnIPv6Loopback(server, port).catch((e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); killCompiler(); process.exit(1); });
-server.listen(port, host, () => {
+early?.phase('host', 'ready'); early?.serve(serve);
+const banner = () => {
   // Every usable IPv4 with --lan, none silently picked (D8): a utun/VPN
   // address printed alone is a silent failure on the phone.
   const urls = origins.map(o => `${o.origin}/`);
@@ -1491,7 +1487,8 @@ server.listen(port, host, () => {
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
-});
+};
+if (early) banner(); else server.listen(port, host, banner);
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
 process.on('SIGHUP', stop);

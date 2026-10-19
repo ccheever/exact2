@@ -548,3 +548,56 @@ test.skipIf(!process.env.EXACT_WIDGET_GALLERY_TEST)('a snapshot driver edit make
     assert.match(refused.stderr, /SnapshotDriver.swift/);
   } finally { writeFileSync(source, before); }
 });
+
+test('game web, release and unwired gpu-dev bakes never open registry generations', () => {
+  const dir=mkdtempSync(resolve('/tmp','exact-unwired-cache-'));
+  try {
+    // The child isolates module mocks. Only process execution and receipt
+    // collection are stubbed; every selected GPU and host build must finish.
+    const script=resolve(dir,'check.mjs');
+    writeFileSync(script, `import {mock} from 'bun:test';
+      import assert from 'node:assert/strict';
+      import {readFileSync} from 'node:fs';
+      let calls=0, lints=0, receipts=0;
+      const builds=[];
+      mock.module(${JSON.stringify(resolve(import.meta.dir,'../game/app/crates.mjs'))},()=>({keptGameCrates(){calls++;return {take(){calls++;},keep(){calls++;}};}}));
+      mock.module(${JSON.stringify(resolve(import.meta.dir,'../game/app/shells.mjs'))},()=>({gameDefaults(){},prepareGame(){},lintGame(){lints++;}}));
+      const appPath=${JSON.stringify(resolve(import.meta.dir,'app.mjs'))};
+      globalThis.stubBuild=(command,args)=>{
+        assert.equal(command,'cargo');
+        const pkg=args[args.indexOf('-p')+1]; builds.push(pkg);
+        return {stdout:JSON.stringify({reason:'compiler-artifact',package_id:pkg,filenames:[dir+'/'+pkg+'.so']})};
+      };
+      globalThis.stubReceipt=(app,platform,target,graph,messages,roots)=>{
+        assert.deepEqual(roots.map(r=>r.package),[graph.surface.id,graph.root.id]);
+        assert.equal(messages.length,2); receipts++;
+        return {products:messages.flatMap(m=>m.filenames)};
+      };
+      Bun.plugin({name:'stub-bake-execution',setup(builder){
+        builder.onLoad({filter:/[\\/]scripts[\\/]app\\.mjs$/},({path})=>{
+          assert.equal(path,appPath);
+          const source=readFileSync(path,'utf8')
+            .replace(/(function buildCommand\\([^\\n]+\\{)/,'$1 return globalThis.stubBuild(...arguments);')
+            .replace(/(function completeBuild\\([^\\n]+\\{)/,'$1 return globalThis.stubReceipt(...arguments);');
+          return {contents:source,loader:'js'};
+        });
+      }});
+      const {buildBake}=await import(appPath);
+      const dir=${JSON.stringify(dir)};
+      for(const [platform,profile,target] of [['web','web','wasm32-unknown-unknown'],['linux','release',${JSON.stringify(bakeTarget('linux'))}],['linux','gpu-dev',${JSON.stringify(bakeTarget('linux'))}]]) {
+        const name='fixture-'+platform;
+        const host={id:name,name,targets:[{kind:[platform==='web'?'cdylib':'bin'],name:'fixture'}]};
+        const gpu={id:'fixture-gpu',name:'fixture-gpu',targets:[{kind:['cdylib'],name:'surface'}]};
+        const metadata={workspace_root:dir,packages:[host,gpu],resolve:{nodes:[{id:host.id,deps:[]},{id:gpu.id,deps:[]}]}};
+        const app={dir,workspace:dir,target:dir+'/target',hasGpu:true,manifest:{app:{id:'fixture'},rust:false,game:{}},crate:kind=>'fixture-'+kind,prepare:()=>metadata};
+        const before=builds.length;
+        const receipt=buildBake(app,platform,target,{kind:platform,profile,output:dir+'/bakes',env:{EXACT_UPDATE_TRUST:'development'}});
+        assert.deepEqual(builds.slice(before),[gpu.name,host.name]);
+        assert.equal(receipt.products.length,2); assert.equal(calls,0);
+      }
+      assert.equal(receipts,3); assert.equal(lints,2); assert.equal(calls,0);
+    `);
+    const result=spawnSync(process.execPath,[script],{cwd:dir,encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});

@@ -523,7 +523,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 plan,
@@ -835,7 +835,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 PlanBytes::input(&plan, entry),
