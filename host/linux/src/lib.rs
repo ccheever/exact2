@@ -73,6 +73,7 @@ pub mod picker;
 mod placement;
 pub mod presenter;
 pub mod raster;
+mod scroll_anchor;
 mod surfaces;
 mod tamber;
 pub mod teardown;

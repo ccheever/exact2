@@ -120,6 +120,37 @@ final class ListRowsIOSTests: XCTestCase {
         XCTAssertFalse(p.onlyListRows(wireBatch([["op": "destroy", "id": 44], ["op": "children", "id": 4, "ids": [40, 43]]])))
     }
 
+    /// A scroll view's content is rows too (a sequencer's step strips redraw
+    /// eight times a second), unless the projection reads it or into it.
+    func testAScrollViewsContentIsRows() {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "scroll"], ["op": "create", "id": 20, "kind": "view"], ["op": "create", "id": 21, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view", "props": ["semanticTag": "header"]],
+            ["op": "create", "id": 4, "kind": "scroll"], ["op": "create", "id": 40, "kind": "view"],
+            ["op": "create", "id": 5, "kind": "scroll"], ["op": "create", "id": 50, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "children", "id": 20, "ids": [21]], ["op": "children", "id": 2, "ids": [20]],
+            ["op": "children", "id": 4, "ids": [40]], ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 5, "ids": [50]],
+            ["op": "children", "id": 1, "ids": [3, 2, 5]], ["op": "roots", "ids": [1]],
+        ]))
+        XCTAssertTrue(p.onlyListRows(wireBatch([
+            ["op": "create", "id": 22, "kind": "view"], ["op": "children", "id": 20, "ids": [21, 22]],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 0.0, "w": 6.0, "h": 6.0],
+            ["op": "style", "id": 21, "style": ["opacity": 0.4]],
+            ["op": "animations", "id": 21, "specs": []],
+            ["op": "destroy", "id": 22],
+        ])))
+        for ops: [[String: Any]] in [
+            [["op": "style", "id": 40, "style": ["opacity": 0.5]]],   // a scroll in a header
+            [["op": "style", "id": 50, "style": ["opacity": 0.5]]],   // a scroll holding a tablist
+            [["op": "animations", "id": 1, "specs": []]],            // outside every scroll
+        ] {
+            XCTAssertFalse(p.onlyListRows(wireBatch(ops)), "\(ops)")
+        }
+    }
+
     /// The gate itself: a rows batch asks no sync, anything else does.
     func testOnlyARowsBatchSkipsTheProjection() {
         let p = presenter()

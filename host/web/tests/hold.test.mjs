@@ -36,6 +36,7 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
+  addEventListener('exact-hold', () => { window.announced = [...(window.announced ?? []), typeof globalThis.exact?.hold]; });
   createInputHandlers({ root: document.getElementById('exact-root'), views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   window.dropped = []; window.ready = true;
 </script>`;
@@ -74,6 +75,8 @@ check('a held state is the real one, until real input, its disabling or its goin
     const face = async () => { await settle(); return evaluate(`getComputedStyle(document.getElementById('card')).backgroundColor`); };
     const hold = (id, state) => evaluate(`(r => ({ held: r.held ?? null, reason: r.reason ?? null, el: r.el?.id ?? null }))(exact.hold(document.getElementById('${id}'), ${JSON.stringify(state)}, reason => dropped.push(reason)))`);
     const dropped = () => evaluate('dropped.splice(0)');
+    // The glue says it has loaded, once, its hold there to call (a hold sent while it loads waits for this).
+    expect(await evaluate('window.announced')).toEqual(['function']);
 
     // `active`, named on the label inside: the press of the node it resolves to, its paint shown.
     expect(await hold('label', 'active')).toEqual({ held: 'active', reason: null, el: 'card' });

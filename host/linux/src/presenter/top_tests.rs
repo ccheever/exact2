@@ -105,6 +105,11 @@ component App
           text "Archive"
         button commandfor="light" command="close" testId="light-cancel"
           text "Cancel"
+      dialog id="notice" role="alertdialog"
+        text "Couldn't save."
+        text "The disk is full."
+        button commandfor="notice" command="close"
+          text "OK"
       dialog id="chooser" role="alertdialog"
         button press=keep commandfor="chooser" command="close"
           text "One"
@@ -315,6 +320,24 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
     );
     let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
     assert_eq!(titles, ["Cancel", "Save", "Not now"]);
+    // Text and its one closing button: the one-button alert, which tells.
+    let Some(Plan::Alert {
+        title,
+        message,
+        rows,
+        cancellable,
+        outside,
+    }) = plan("notice")
+    else {
+        panic!("notice is an alert");
+    };
+    assert_eq!(
+        (title.as_deref(), message.as_deref()),
+        (Some("Couldn't save."), Some("The disk is full."))
+    );
+    let titles: Vec<_> = rows.iter().map(|r| (r.title.as_str(), r.cancel)).collect();
+    assert_eq!(titles, [("OK", true)]);
+    assert!(cancellable && !outside);
     assert_eq!(
         plan("chooser"),
         None,

@@ -42,10 +42,17 @@ final class StoreRefreshTests: XCTestCase {
         let readers = (0..<2).map { app.makeSession(label: "store-reader-\($0)") }
         let writer = app.makeSession(label: "store-writer")
         defer { (readers + [writer]).forEach { $0.destroy() } }
+        let booting = ExactEnv.wall()
         for session in readers + [writer] {
             XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 300, height: 400)).error)
             session.apply(session.runtime.dataReady())
         }
+        let booted = ExactEnv.wall()
+        // Due 10 s after its window booted, however long the process ran
+        // before: a boot starts on the live clock, not at its zero. Read
+        // here, before the waits below, which under load can outlast it.
+        let due = try XCTUnwrap(readers[0].timerDue, "the short task's timer is armed")
+        XCTAssertTrue((booting + 10000...booted + 10000).contains(due), "due \(due), booted between \(booting) and \(booted)")
         app.sharedStore.firstPixel()
         func text(_ session: ExactSession, _ value: String) -> Bool {
             #if os(macOS)
@@ -112,23 +119,26 @@ final class StoreRefreshTests: XCTestCase {
         XCTAssertTrue((readers + [writer]).allSatisfy { text($0, "Not a favourite") && text($0, "Marked") })
 
         setenv("EXACT_WIDGET_WRITER", "", 1)
-        XCTAssertEqual(readers[0].timerDue, 10000)
         try tap(writer, "wait")
         try Data(String(peerCounter + 2).utf8).write(to: counter, options: .atomic)
         var timerBatch: Batch?
+        let refreshing = ExactEnv.wall()
+        // The long task's timer is armed by the refresh: 20 s after it, not the short one's.
+        let rearmed = { (at: Double?) in at.map { $0 != due && $0 >= refreshing + 20000 } ?? false }
         readers[0].runtime.observeBatch = { _, batch in
-            if timerBatch == nil, (batch.timerDueMs ?? 0) >= 20000 { timerBatch = batch }
+            if timerBatch == nil, rearmed(batch.timerDueMs) { timerBatch = batch }
         }
         defer { readers[0].runtime.observeBatch = nil }
         expected = expectation(description: "a timer-only store commit reaches apply")
         NotificationCenter.default.post(name: foreground, object: nil)
         wait(for: [try XCTUnwrap(expected)], timeout: 5)
         expected = nil
+        let refreshed = ExactEnv.wall()
         let landed = try XCTUnwrap(timerBatch)
         XCTAssertTrue(landed.ops.isEmpty, "this commit changes only the timer")
-        XCTAssertGreaterThan(try XCTUnwrap(landed.timerDueMs), 20000)
+        XCTAssertTrue((refreshing + 20000...refreshed + 20000).contains(try XCTUnwrap(landed.timerDueMs)))
         XCTAssertEqual(readers[0].timerDue, landed.timerDueMs)
-        XCTAssertGreaterThan(try XCTUnwrap(readers[1].timerDue), 20000)
+        XCTAssertTrue(rearmed(readers[1].timerDue), "the sibling's long task is armed too")
 
     }
 

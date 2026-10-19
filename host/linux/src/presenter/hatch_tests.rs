@@ -543,7 +543,7 @@ fn field_hidden_on_down_keeps_pointerup_and_hatch_up_until_release() {
                 assert_eq!(notes(), ["outer Up handled=true inside=true"]);
                 let slots = state(&mut p)["slots"].clone();
                 assert_eq!(slots["ups"], 1);
-                assert_eq!(slots["presses"], u32::from(!feedback.is_empty()));
+                assert_eq!(slots["presses"], 0);
             }
         }
     }

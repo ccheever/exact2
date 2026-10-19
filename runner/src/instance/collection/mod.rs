@@ -1368,7 +1368,10 @@ impl Collection {
         let extent = self.index.total_height();
         let anchor = Some(match self.restoring(&feedback) {
             Some(anchor) => anchor,
-            None => self.report_anchor(feedback.offset, anchor_height, padding)?,
+            None => {
+                let resized = anchor_height != feedback.port_main && fill.velocity == 0.0;
+                self.report_anchor(feedback.offset, anchor_height, padding, resized)?
+            }
         });
         self.set_padding(padding);
         self.set_geometry(CollectionFeedback {

@@ -358,7 +358,7 @@ pub(super) fn align_and_position_item(
         Size { width, height }
     };
 
-    let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, node, grid_area_size.map(Some));
+    let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, node, grid_area_size.map(Some), None);
     let size = size.map_width(|width| width.maybe_max(ratio_min));
     let layout_output = tree.perform_child_layout(
         node,

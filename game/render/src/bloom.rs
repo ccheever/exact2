@@ -9,9 +9,16 @@ pub(crate) struct BloomTargets {
     pub binds: Vec<wgpu::BindGroup>,
     source: wgpu::BindGroup,
     sampling: wgpu::Buffer,
+    /// The bright taps on odd and on even corners, one texel past the half
+    /// size each side (`Pipelines::bright_split`), and the join's bindings.
+    split: [wgpu::TextureView; 2],
+    join: wgpu::BindGroup,
 }
 
 impl BloomTargets {
+    /// Textures `new` makes: six octaves and the two grids of bright taps.
+    pub const TEXTURES: u64 = 8;
+
     pub fn new(
         device: &wgpu::Device,
         size: (u32, u32),
@@ -62,6 +69,55 @@ impl BloomTargets {
             })
         };
         let source = bind(hdr);
+        let split = ["odd", "even"].map(|_| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("game bloom bright taps"),
+                    size: wgpu::Extent3d {
+                        width: (size.0 / 2).max(1) + 2,
+                        height: (size.1 / 2).max(1) + 2,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        });
+        let join = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game bloom bright join"),
+            layout: &pipelines.bloom_join_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &sampling,
+                        offset: 0,
+                        size: std::num::NonZeroU64::new(16),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&split[0]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&split[1]),
+                },
+            ],
+        });
         let mut levels = Vec::with_capacity(6);
         let mut binds = Vec::with_capacity(6);
         let (mut width, mut height) = ((size.0 / 2).max(1), (size.1 / 2).max(1));
@@ -96,6 +152,8 @@ impl BloomTargets {
             binds,
             source,
             sampling,
+            split,
+            join,
         }
     }
 
@@ -126,17 +184,7 @@ impl BloomTargets {
             data[(6 + i) * 64 + 1] = sizes[i + 1].1 as f32;
         }
         queue.write_buffer(&self.sampling, 0, crate::buffers::bytes(&data));
-        self.pass(
-            encoder,
-            &pipelines.bright,
-            0,
-            &self.source,
-            false,
-            timestamps,
-            4,
-            sizes[0],
-            0,
-        );
+        let split = self.bright(encoder, pipelines, timestamps, size, &self.levels[0]);
         for (i, &size) in sizes.iter().enumerate().take(count).skip(1) {
             let bind = &self.binds[i - 1];
             self.pass(
@@ -164,7 +212,80 @@ impl BloomTargets {
                 (6 + i as u32) * 256,
             );
         }
-        (count * 2 - 1) as u32
+        (count * 2 - 1) as u32 + u32::from(split)
+    }
+
+    /// The bright level of a scene of logical `size` into `target`: in two
+    /// passes at an even size (`Pipelines::bright_split`), else the
+    /// reference's single pass. Whether it took two.
+    pub(crate) fn bright(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        pipelines: &Pipelines,
+        timestamps: Option<&wgpu::QuerySet>,
+        size: (u32, u32),
+        target: &wgpu::TextureView,
+    ) -> bool {
+        let half = ((size.0 / 2).max(1), (size.1 / 2).max(1));
+        let draw = |encoder: &mut wgpu::CommandEncoder,
+                    targets: &[Option<wgpu::RenderPassColorAttachment<'_>>],
+                    pipeline: &wgpu::RenderPipeline,
+                    bind: &wgpu::BindGroup,
+                    size: (u32, u32),
+                    stamps: (bool, bool)| {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("game bloom bright"),
+                color_attachments: targets,
+                depth_stencil_attachment: None,
+                timestamp_writes: timing::span(timestamps, 4, stamps.0, stamps.1),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            crate::renderer::viewport(&mut pass, size);
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, bind, &[0]);
+            pass.draw(0..3, 0..1);
+        };
+        let attach = |view| {
+            Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })
+        };
+        let split = size.0.is_multiple_of(2) && size.1.is_multiple_of(2);
+        if split {
+            draw(
+                encoder,
+                &[attach(&self.split[0]), attach(&self.split[1])],
+                &pipelines.bright_split,
+                &self.source,
+                (half.0 + 2, half.1 + 2),
+                (true, false),
+            );
+            draw(
+                encoder,
+                &[attach(target)],
+                &pipelines.bright_join,
+                &self.join,
+                half,
+                (false, true),
+            );
+        } else {
+            draw(
+                encoder,
+                &[attach(target)],
+                &pipelines.bright,
+                &self.source,
+                half,
+                (true, true),
+            );
+        }
+        split
     }
 
     #[allow(clippy::too_many_arguments)]

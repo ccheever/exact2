@@ -13,7 +13,7 @@ use exact_kernel::id::NodeKey;
 use exact_kernel::motion::MotionSync;
 use exact_kernel::{Kernel, NodeType};
 use exact_motion::animation::Keyframe;
-use exact_motion::{AnimationPlay, Easing, Engine, Property, Value};
+use exact_motion::{AnimationPlay, Easing, Engine, PlayedCurve, Property, Value};
 use std::fmt::Write as _;
 
 /// One CA keyframe track: key times, values and a cubic per segment.
@@ -233,6 +233,39 @@ fn spec(
             a.iterations / 2.0,
         ),
     };
+    let (times, values, curves) = track_json(&track, p, scale, axis, size);
+    let _ = write!(
+        s,
+        "{{\"id\":\"{}#{index}#{key}\",\"k\":\"{key}\",\"s\":{},\"dl\":{},\"d\":{},\"n\":{},\"t\":[{}],\"v\":[{}],\"c\":[{}],\"fill\":{},\"h\":",
+        a.name.replace(['"', '\\'], ""),
+        play.start,
+        a.delay,
+        period,
+        if repeat.is_infinite() { -1.0 } else { repeat },
+        times,
+        values,
+        curves,
+        a.fill as u8,
+    );
+    // A play waiting for the first presented frame is held where it waits
+    // (LLP 1003.001 D4): Core Animation never runs ahead of the engine.
+    match play.hold.or(play.pending.map(|begin| begin - play.start)) {
+        Some(h) => {
+            let _ = write!(s, "{h}");
+        }
+        None => s.push_str("null"),
+    }
+    s.push('}');
+}
+
+/// A track's key times, values and curves as a spec's `t`, `v` and `c`.
+fn track_json(
+    track: &Track,
+    p: Property,
+    scale: f64,
+    axis: usize,
+    size: Option<(f64, f64)>,
+) -> (String, String, String) {
     let list = |v: &[f64]| {
         v.iter()
             .map(|n| num(*n as f32))
@@ -273,28 +306,7 @@ fn spec(
             .map(|c| format!("[{}]", list(c)))
             .collect()
     };
-    let _ = write!(
-        s,
-        "{{\"id\":\"{}#{index}#{key}\",\"k\":\"{key}\",\"s\":{},\"dl\":{},\"d\":{},\"n\":{},\"t\":[{}],\"v\":[{}],\"c\":[{}],\"fill\":{},\"h\":",
-        a.name.replace(['"', '\\'], ""),
-        play.start,
-        a.delay,
-        period,
-        if repeat.is_infinite() { -1.0 } else { repeat },
-        list(&track.times),
-        values.join(","),
-        curves.join(","),
-        a.fill as u8,
-    );
-    // A play waiting for the first presented frame is held where it waits
-    // (LLP 1003.001 D4): Core Animation never runs ahead of the engine.
-    match play.hold.or(play.pending.map(|begin| begin - play.start)) {
-        Some(h) => {
-            let _ = write!(s, "{h}");
-        }
-        None => s.push_str("null"),
-    }
-    s.push('}');
+    (list(&track.times), values.join(","), curves.join(","))
 }
 
 /// Per node, whether Core Animation can play its lowered animations as
@@ -492,6 +504,236 @@ pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) 
     }
 }
 
+/// The properties whose transitions Core Animation plays for a box
+/// ([`hand_over_transitions`]).
+const BOX_PLAYED: [Property; 2] = [Property::Opacity, Property::BackgroundColor];
+
+/// LLP 1055.001 §3 — on iOS each running opacity transition of a box, and
+/// each background-colour one its layer paints, goes to Core Animation
+/// ([`Engine::play_transition`]) as LLP 1055.001 lowers a box's keyframes:
+/// the engine presents the target, the box's specs carry the transition
+/// ([`transition_specs`]), and nothing samples it, so a fade keeps no
+/// display link awake. One waiting for its first frame goes at that frame
+/// (LLP 1003.001 D4), and none goes unless `new` (the display drives the
+/// clock). Every batch, a played transition that no longer qualifies
+/// ([`playable`]: an ancestor gained a filter, the box a border), or any once
+/// `new` is off (the agent took the clock), comes back to the engine at the
+/// value its curve has reached, and its spec goes in the same batch. Returns
+/// the views either way.
+pub(crate) fn hand_over_transitions(
+    kernel: &Kernel,
+    engine: &mut Engine,
+    skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+    new: bool,
+) -> Vec<exact_kernel::ViewId> {
+    let played: Vec<(u64, Property)> = engine
+        .played_transitions()
+        .filter(|(_, p)| BOX_PLAYED.contains(p))
+        .collect();
+    let moving: Vec<(u64, Property)> = engine
+        .running_transitions()
+        .filter(|(_, p)| BOX_PLAYED.contains(p))
+        .collect();
+    let mut views = Vec::new();
+    let node = |key: u64| kernel.node_by_key(exact_kernel::motion::node_key(key));
+    for (key, p) in played {
+        if (!new || !playable(kernel, engine, key, p, skip)) && engine.reclaim_transition(key, p) {
+            views.extend(node(key).map(|n| n.id));
+        }
+    }
+    for (key, p) in moving.into_iter().filter(|_| new) {
+        let waits = engine.transition_ends(key, p).is_none_or(|t| t.waits);
+        if !waits
+            && playable(kernel, engine, key, p, skip)
+            && engine.play_transition(key, p).is_some()
+        {
+            views.extend(node(key).map(|n| n.id));
+        }
+    }
+    views
+}
+
+/// Whether Core Animation can play the transition on `p` of box `key` as
+/// CSS does: not what a press or a look paints over, not a property an
+/// animation also plays (it composes over the transition), no box under a
+/// CSS filter (its picture is drawn from the model), no opacity in a glass
+/// group, a background colour only where the layer paints it with one alpha
+/// at both ends (Core Animation interpolates unpremultiplied), and no view
+/// `skip` names.
+fn playable(
+    kernel: &Kernel,
+    engine: &Engine,
+    key: u64,
+    p: Property,
+    skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+) -> bool {
+    let Some(n) = kernel.node_by_key(exact_kernel::motion::node_key(key)) else {
+        return false;
+    };
+    if n.node_type.is_svg_element()
+        || n.node_type == NodeType::Svg
+        || skip(n.id)
+        || crate::looks::paints_over(&n, p)
+        || under_box_filter(kernel, &n)
+        || engine
+            .animation_plays(key)
+            .iter()
+            .any(|play| play.animation.keyframes.properties().contains(&p))
+    {
+        return false;
+    }
+    match p {
+        Property::Opacity => !in_glass_group(kernel, &n),
+        _ => {
+            layer_paints_background(&n)
+                && background_on_layer(kernel, &n)
+                && engine
+                    .transition_ends(key, p)
+                    .is_some_and(|t| t.from.w == t.to.w)
+        }
+    }
+}
+
+/// Whether the background colour a box's layer would paint is the box's
+/// fill as UIKit shows it (`BoxLayerIOS.applyBoxLayer`'s `bg`): a fixed or
+/// light-dark colour (a platform or role colour may draw as vibrancy, a wide
+/// one in its own space), over the border box, with one circular radius, a
+/// round or continuous corner, no material, no layout transition that moves
+/// it to a surface, and shown. Anything UIKit rasterizes stays sampled.
+fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+    use exact_kernel::{ColorValue, Dimension};
+    let s = n.style;
+    let radii: Vec<Option<f32>> = [
+        s.border_radius_top_left,
+        s.border_radius_top_right,
+        s.border_radius_bottom_right,
+        s.border_radius_bottom_left,
+    ]
+    .iter()
+    .map(|d| match d {
+        Dimension::Points(r) => Some(*r),
+        Dimension::Percent(r) if *r == 0.0 => Some(0.0),
+        _ => None,
+    })
+    .collect();
+    let set: Vec<f32> = radii
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|r| *r > 0.0)
+        .collect();
+    let one_radius = radii.iter().all(Option::is_some)
+        && set.windows(2).all(|w| (w[0] - w[1]).abs() < 0.01)
+        && set
+            .first()
+            .is_none_or(|r| *r <= n.frame.width.min(n.frame.height) / 2.0 + 0.01);
+    let shown = {
+        let mut at = Some(n.id);
+        loop {
+            let Some(node) = at.and_then(|id| kernel.node(id)) else {
+                break true;
+            };
+            if node.style.mask.has(exact_kernel::StyleId::Visibility) {
+                break node.style.visibility == exact_kernel::Visibility::Visible;
+            }
+            at = node.parent;
+        }
+    };
+    matches!(
+        s.background_color,
+        Some(ColorValue::Fixed(_) | ColorValue::LightDark(..))
+    ) && s.cold.background_clip == exact_kernel::BackgroundClip::BorderBox
+        && (s.rare.corner_shape.is_round() || s.rare.corner_shape.is_apple_continuous())
+        && s.rare.layout_transition.0.is_empty()
+        && n.props
+            .str(exact_kernel::PropId::BackgroundMaterial)
+            .is_none()
+        && one_radius
+        && shown
+}
+
+/// A box's played transitions ([`hand_over_transitions`]) as specs, one
+/// iteration of each transition's curve from when it starts moving, holding
+/// its start through a delay (a backwards fill); after it ends, the target
+/// the engine presents shows. A spec is made once per transition and kept in
+/// `made` until the transition changes: a spring's track samples its whole
+/// curve.
+pub(crate) fn transition_specs(
+    engine: &Engine,
+    key: u64,
+    made: &mut std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for p in BOX_PLAYED {
+        let slot = (key, p as usize);
+        let ends = engine
+            .transition_ends(key, p)
+            .filter(|_| engine.is_played(key, p));
+        let Some(ends) = ends else {
+            made.remove(&slot);
+            continue;
+        };
+        if let Some((_, spec)) = made.get(&slot).filter(|(kept, _)| *kept == ends) {
+            out.push(spec.clone());
+            continue;
+        }
+        let Some((t, _)) = engine.transition(key, p) else {
+            continue;
+        };
+        let (duration, track) = match &t.curve {
+            PlayedCurve::Easing { easing, duration } => {
+                let end = |offset: f64, v: Value| Keyframe {
+                    offset,
+                    easing: None,
+                    values: vec![(p, v)],
+                    dark: Vec::new(),
+                };
+                let ends = [end(0.0, t.from), end(1.0, t.to)];
+                (*duration, forward(&ends, easing, p, t.from))
+            }
+            PlayedCurve::Frames { duration, values } => {
+                let last = values.len().saturating_sub(1).max(1) as f64;
+                let track = Track {
+                    times: (0..values.len()).map(|i| i as f64 / last).collect(),
+                    values: values.clone(),
+                    curves: vec![LINEAR; values.len().saturating_sub(1)],
+                };
+                (*duration, track)
+            }
+        };
+        let path = if p == Property::Opacity {
+            "opacity"
+        } else {
+            "backgroundColor"
+        };
+        let (times, values, curves) = track_json(&track, p, 1.0, 0, None);
+        let spec = format!(
+            "{{\"id\":\"transition#{path}\",\"k\":\"{path}\",\"s\":{},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{times}],\"v\":[{values}],\"c\":[{curves}],\"fill\":2,\"h\":null}}",
+            t.start,
+        );
+        made.insert(slot, (ends, spec.clone()));
+        out.push(spec);
+    }
+    out
+}
+
+/// Whether a box's layer paints its background colour: no side has a
+/// border that paints and there is no `background-image` (else the view
+/// draws its box in `draw(_:)`).
+fn layer_paints_background(n: &exact_kernel::NodeRef<'_>) -> bool {
+    let s = n.style;
+    // A side paints only with a style: `border-width`'s initial is 3.
+    let bordered = [
+        (s.border_width_top, s.border_style_top),
+        (s.border_width_right, s.border_style_right),
+        (s.border_width_bottom, s.border_style_bottom),
+        (s.border_width_left, s.border_style_left),
+    ]
+    .iter()
+    .any(|(w, style)| *w > 0.0 && *style != exact_kernel::BorderStyle::None);
+    !bordered && s.background_image.gradient().is_none()
+}
+
 /// Whether markers draw on this shape: its own or an inherited
 /// `marker-start`, `marker-mid` or `marker-end`.
 fn marked(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
@@ -674,16 +916,7 @@ fn box_eligible(
         return false;
     }
     if props.contains(&Property::BackgroundColor) {
-        // A side paints only with a style: `border-width`'s initial is 3.
-        let bordered = [
-            (s.border_width_top, s.border_style_top),
-            (s.border_width_right, s.border_style_right),
-            (s.border_width_bottom, s.border_style_bottom),
-            (s.border_width_left, s.border_style_left),
-        ]
-        .iter()
-        .any(|(w, style)| *w > 0.0 && *style != exact_kernel::BorderStyle::None);
-        if bordered || s.background_image.gradient().is_some() {
+        if !layer_paints_background(n) || !background_on_layer(kernel, n) {
             return false;
         }
         // The row's own colour is interpolated only where a keyframe at 0% or

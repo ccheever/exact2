@@ -1358,7 +1358,7 @@ fn perform_final_layout_on_in_flow_children(
 
             //
 
-            let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, item.node_id, parent_size);
+            let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, item.node_id, parent_size, None);
             let known_dimensions = known_dimensions.map_width(|width| width.maybe_max(ratio_min));
             let inputs = LayoutInput {
                 run_mode,

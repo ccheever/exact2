@@ -738,7 +738,7 @@ impl<D: DataSource> Presenter<D> {
     ) {
         let mut focus = Some(hit);
         while let Some(id) = focus {
-            if self.focusable(id) {
+            if self.focusable(id) && self.focus_refusal(id).is_none() {
                 break;
             }
             focus = self.host.kernel().node(id).and_then(|n| n.parent);

@@ -663,7 +663,8 @@ dialog's button are refused by the words they always were, and `showModal` is an
 tree, so it is written twice; it belongs in shared Rust.
 
 - *An alert*: an `alertdialog` (a `dialog`, or a popover) whose rows are text, actions (a `button` with a `press`
-  that closes it) and one cancel (a closing `button` with no `press`), at most three buttons. Opened by
+  that closes it) and one cancel (a closing `button` with no `press`), at most three buttons; text and the cancel
+  alone are the one-button alert. Opened by
   `showModal(id)` or a button's `commandfor` with `command="show-modal"`. Material's basic dialog: `surfaceContainerHigh`,
   28 dp corners, 24 dp padding, 280 to 560 dp wide and 24 dp from the window's sides; the `aria-label` (else the first
   line) as its headline, the rest as supporting text; text buttons at the trailing edge, the cancel first and then

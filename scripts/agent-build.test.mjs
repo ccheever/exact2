@@ -311,14 +311,16 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.deepEqual([said, builds, bakes, kept()], [[], [], [], null]);
 
     // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it. The
-    // compiler's warnings the bake said follow it, one line each (LLP 1116.004 D7).
+    // compiler's warnings the bake said follow it, one line each the first time, then a count naming their file.
     write('app.contract', 'component App\n  view\n    text "hello again" color="#336699"\n');
     stamp('app.contract', 20);
     const warning = 'app.contract:3:31 warning [lower-colour-one-scheme] `#336699` on `color` stays the same in dark mode';
     bakeSays = `${warning}\n{"version":1}\n`;
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
     assert.equal(await drive(), 0);
-    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.deepEqual([said.slice(0, 2), builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.equal(said.length, 3);
+    assert.match(said[2], /^compiler: 1 warning; \S+\/\.exact\/warnings-ios\.txt lists them all$/);
     bakeSays = '';
     assert.deepEqual(kept(), { plan: resolve(overrideDir('ios', app), 'app.plan'), dir: overrideDir('ios', app) });
     assert.equal(readFileSync(kept().plan, 'utf8'), 'plan two');
@@ -348,13 +350,19 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.equal(kept(), null, 'kept for another build: never run as fresh');
 
     // Anything else edited is built, and what was kept goes with it; the warnings Cargo said for the bake's
-    // build script follow, in the compiler's own form.
+    // build script follow, in the compiler's own form: in full, since the bake before said none.
     reset();
     stamp('app.json', 60);
     buildSays = `   Compiling plan-log-apple v0.1.0\nwarning: plan-log-apple@0.1.0: ${warning}\nhost/apple: built\n`;
     assert.equal(await drive(), 0);
+    assert.deepEqual([bakes.length, builds.length, said[1], said.length], [0, 1, warning, 3]);
+    // Built again over the same warning: its count alone.
+    reset();
+    stamp('app.json', 70);
+    assert.equal(await drive(), 0);
     buildSays = '';
-    assert.deepEqual([bakes.length, builds.length, said.slice(1)], [0, 1, [warning]]);
+    assert.equal(said.length, 2);
+    assert.match(said[1], /^compiler: 1 warning, as before \(\S+\/warnings-ios\.txt lists them; /);
     assert.match(said[0], /^building for iOS: the build is older than its sources \((app\.contract, app\.json|app\.json, app\.contract) changed\); its log: /);
     assert.ok(!existsSync(overrideDir('ios', app)));
 

@@ -252,6 +252,7 @@ pub struct World {
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
     fresh: Vec<Entity>,
+    pub(crate) interpolation_origins: BTreeMap<Entity, crate::Transform>,
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
@@ -310,44 +311,12 @@ impl World {
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
             fresh: vec![],
+            interpolation_origins: BTreeMap::new(),
             entities_revision: 0,
             presentation_generation: 0,
         };
-        world.register_scene();
+        crate::scene::register(&mut world);
         world
-    }
-    // The engine's own scene components restore in any process, however late a
-    // game first spawns one. Registration is not state; executor-linked
-    // components (animation, sockets, audio) still register where they install.
-    fn register_scene(&mut self) {
-        use crate::scene::*;
-        crate::input::register_resources(self.register_resource::<crate::Shadows>());
-        self.register::<Transform>()
-            .register::<Parent>()
-            .register::<Mesh>()
-            .register::<crate::Material>()
-            .register::<Camera>()
-            .register::<DirectionalLight>()
-            .register::<PointLight>()
-            .register::<SpotLight>()
-            .register::<LightShadows>()
-            .register::<ViewModel>()
-            .register::<Opacity>()
-            .register::<NodeMaterials>()
-            .register::<MaterialOverrides>()
-            .register::<ModelLod>()
-            .register::<crate::ParticleLook>()
-            .register::<crate::NodeOffsets>()
-            .register::<crate::Offset>()
-            .register::<crate::Opacity>()
-            .register::<crate::Tint>()
-            .register::<MouseLook>()
-            .register::<Visible>()
-            .register::<Ambient>()
-            .register::<Follow>()
-            .register::<Glow>()
-            .register::<Lit>()
-            .register::<crate::emitter::WorldSpace>();
     }
     /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {
