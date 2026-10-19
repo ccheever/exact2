@@ -131,8 +131,8 @@ function fakeGame(name, summary) {
     if (row) writeFileSync(out + '/summary.json', JSON.stringify({name:${JSON.stringify(name)}, inputs:'c'.repeat(64),
       sourceInputs:'d'.repeat(64), host, mode, pins:${JSON.stringify(pins)}, facilities:[], seconds:0,
       worlds:[{session:1, tick:1, hash:'same'}], saves:[{name:'a', sha256:'same'}], ...row}));
-    // As proof.mjs exits: a failure, a look that failed, or an unverified run that was not collecting.
-    process.exit(!row || row.failures.length || row.look?.status === 'FAIL' || (row.status !== 'PASS' && !collecting) ? 1 : 0);
+    // As proof.mjs exits: 1 for a failure or a look that failed, 3 for an unverified run (collecting too).
+    process.exit(!row || row.failures.length || row.look?.status === 'FAIL' ? 1 : row.status !== 'PASS' || collecting ? 3 : 0);
     }
   `);
   return app;
@@ -143,6 +143,7 @@ const prove = async (name, args) => {
   return {code, text:out + err};
 };
 
+// Three prove runs, each copying its game's sources and recording its legs: longer than the default timeout.
 test('a collecting repin run whose look fails records its pins; a missing host leaves the look unverified', async () => {
   const name = `look-repin-${process.pid}`;
   const app = fakeGame(name, `(host, mode, profile, collecting) => mode === '0'
@@ -162,7 +163,7 @@ test('a collecting repin run whose look fails records its pins; a missing host l
     expect(run.text).toContain('look: unverified, web run 1: no look result');
     expect(run.text).toMatch(/simulation: FAIL · look: UNVERIFIED/);
   } finally { rmSync(app2, {recursive:true, force:true}); }
-});
+}, 60000);
 
 // The browser negative control (LLP 1127.000 D6): a starter whose sparks burn 2 m under the ground fails its web
 // proof on particles-uncovered, and the same starter with the sparks above the ground passes. Long: it builds a game.
