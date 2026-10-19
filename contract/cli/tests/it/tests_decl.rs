@@ -759,3 +759,13 @@ fn the_forms_guide_key_syntax_parses_as_a_key_step() {
         matches!(&file.tests[0].steps[0], contract_syntax::Step::Key { target, key, .. } if target == "draft" && key == "Enter")
     );
 }
+
+#[test]
+fn expected_refusal_keeps_the_mutation_and_source_line() {
+    let tests = contract::tests("test \"refused send\"\n  expect refusal \"saved\"\n").unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&tests)).unwrap();
+    assert_eq!(
+        json[0]["steps"][0],
+        serde_json::json!({"op":"expect-refusal", "target":"saved", "line":2})
+    );
+}

@@ -111,6 +111,33 @@ pub(crate) fn misplaced(t: &Token) -> bool {
     t.kind.as_deref() == Some("icon") || t.value.value.trim_start().starts_with("icon(")
 }
 
+/// Each icon whose value names another icon takes that one's sources, to a
+/// fixed point: the icons block folds only literals. One naming no icon, an
+/// icon whose sources don't read (its own error says why), or in a cycle,
+/// keeps its name, which [`check`] refuses.
+pub(crate) fn aliased(icons: &mut [Token]) {
+    for _ in 0..icons.len() {
+        let mut changed = false;
+        for i in 0..icons.len() {
+            let name = icons[i].value.value.trim().to_string();
+            if name.contains('(') {
+                continue;
+            }
+            if let Some(src) = icons
+                .iter()
+                .find(|t| t.name.value == name && sources(&t.value.value).is_ok())
+            {
+                let value = src.value.value.clone();
+                icons[i].value.value = value;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
 /// Check the `icons` block: each an `icon(…)` with one value, its name
 /// unique among the design's tokens and icons.
 pub(crate) fn check(icons: &[Token], tokens: &[Token]) -> (Vec<Icon>, Vec<Diagnostic>) {
@@ -195,5 +222,37 @@ mod tests {
         assert!(sources(r#"icon(svg "icons/a,b.svg")"#).is_ok());
         assert!(sources(r#"icon(svg "..\\x.svg")"#).is_err());
         assert!(sources(r#"icon(svg "C:/x.svg")"#).is_err());
+    }
+
+    /// An icon naming another, through a third too and declared before
+    /// either, is that one's sources wherever a design is checked; one
+    /// naming no icon, a theme token or an icon whose sources don't read,
+    /// or a cycle, is refused.
+    #[test]
+    fn an_icon_naming_another_checks_as_that_one() {
+        let vocab = crate::Vocab::default();
+        let icons = "tamber t\n\nicons\n  nav.home = icon.home\n  icon.home = icon.house\n  icon.house = icon(sf \"house\")\n";
+        let folding = crate::check(icons, &vocab).unwrap_or_else(|e| panic!("{e:?}"));
+        let nav = folding.icons.iter().find(|i| i.name == "nav.home").unwrap();
+        assert_eq!(nav.sf.as_deref(), Some("house"));
+        for refused in [
+            "  icon.home = icon.nowhere\n",
+            "  icon.a = icon.b\n  icon.b = icon.a\n",
+            "  icon.home = ink\n",
+        ] {
+            let text = format!("tamber t\n\ntheme\n  ink = #000000\n\nicons\n{refused}");
+            let e = crate::check(&text, &vocab).unwrap_err();
+            assert!(e.iter().all(|d| d.id == "tamber-kind"), "{e:?}");
+        }
+        // One naming an icon its sources refuse says what its line says;
+        // that icon's line says why.
+        let text = "tamber t\n\nicons\n  icon.bad = icon(png \"x\")\n  icon.home = icon.bad\n";
+        let e = crate::check(text, &vocab).unwrap_err();
+        let said: Vec<(u32, &str)> = e.iter().map(|d| (d.line, d.message.as_str())).collect();
+        assert!(said[0].0 == 4 && said[0].1.contains("`png`"), "{said:?}");
+        assert!(
+            said[1].0 == 5 && said[1].1.starts_with("an icon is"),
+            "{said:?}"
+        );
     }
 }

@@ -1,7 +1,20 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { renderTrace, stateOp } from './agent-inspect.mjs';
+import { render, renderTrace, stateOp } from './agent-inspect.mjs';
+
+test('log rendering skips canvas error rows and preserves journal order', () => {
+  const error = { canvas: 7, error: 'journal unavailable' };
+  const row = lines => ({ canvas: 7, lines });
+  expect(render('logs', { lines: ['host entry'], world: [error, row(['first']), error, row(['second']), { canvas: 8, lines: null }] }))
+    .toBe('host entry\nworld first\nworld second');
+  expect(render('logs', { lines: [], world: [error] })).toBe('(nothing new)');
+});
+
+test('a screenshot says what it shows that the app does not on lines of their own', () => {
+  const text = render('screenshot', { screenshot: 'a.png', w: 402, h: 874, painted: [{ id: 9, testId: 'menu' }], paintedNote: 'the agent painted it' });
+  expect(text).toBe('screenshot a.png · 402×874 · painted=[{"id":9,"testId":"menu"}]\n  NOTE: the agent painted it');
+});
 
 const record = { slots: { liked: true, draft: '' }, derives: { left: 2 }, resources: { groceries: [{ title: 'Eggs', done: false }, { title: 'Milk', done: true }], weather: { temp: 21 } }, mediaSession: { owner: null }, transport: { state: 'stopped' }, clock: 0 };
 // A session whose views are `like` and `transport` (testIds); asking `state` of anything else is refused as a missing view, as
@@ -54,4 +67,13 @@ test('a release build\'s first trace says its frames were not measured yet, and 
   const text = renderTrace({ identity: { host: 'ios', app: 'euxy' }, frames, journal: { lines: [] }, perf: { seq: 1, clock: 0, incarnation: 1, sites: [] } });
   expect(text).toContain(`frames not measured: ${frames.unmeasured}`);
   expect(text).not.toContain('presented 0');
+});
+
+test('state world events uses the world seam and an optional type filter', async () => {
+  const calls = [], s = {state: async (...args) => { calls.push(args); return {events:[]}; }};
+  await stateOp(s, ['world','events','Hit']);
+  expect(calls[0][0]).toBe('world');
+  expect(calls[0][4]).toEqual({world:true, events:true, event_type:'Hit'});
+  await stateOp(s, ['world','events']);
+  expect(calls[1][4]).toEqual({world:true, events:true});
 });

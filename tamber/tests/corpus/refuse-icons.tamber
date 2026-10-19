@@ -19,7 +19,7 @@ icons
   icon.material = icon(material "star")
   icon.parent = icon(svg "../star.svg")
   icon.key = icon(png "star.png")
-  icon.bare = star
+  icon.bare = sparkle
   star = icon(sf "star")
   icon.empty = icon()
   icon.windows = icon(svg "..\outside.svg")

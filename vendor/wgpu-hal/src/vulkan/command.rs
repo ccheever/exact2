@@ -797,9 +797,10 @@ impl crate::CommandEncoder for super::CommandEncoder {
             attachment_identities: ArrayVec::default(),
             extent: desc.extent,
         };
-        // EXACT (EXACT-PATCHES.md, 6): whether every attachment is a
-        // swapchain image's view, so the device's framebuffer serves.
-        let mut surface = true;
+        // EXACT (EXACT-PATCHES.md, 6 and 13): whether every attachment is a
+        // view that outlives this encoder (not a temporary slice view), so the
+        // device's framebuffer serves.
+        let mut lasting = true;
 
         for cat in desc.color_attachments {
             if let Some(cat) = cat.as_ref() {
@@ -811,10 +812,9 @@ impl crate::CommandEncoder for super::CommandEncoder {
                         mip_level: cat.target.view.base_mip_level,
                         depth_slice: cat.depth_slice.unwrap(),
                     };
-                    surface = false;
+                    lasting = false;
                     self.make_temp_texture_view(key)?
                 } else {
-                    surface &= cat.target.view.cached;
                     cat.target.view.identified_raw_view()
                 };
 
@@ -834,7 +834,6 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 fb_key.push_view(color_view);
                 if let Some(ref at) = cat.resolve_target {
                     vk_clear_values.push(unsafe { mem::zeroed() });
-                    surface &= at.view.cached;
                     fb_key.push_view(at.view.identified_raw_view());
                 }
             } else {
@@ -852,7 +851,6 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 base: ds.target.make_attachment_key(ds.depth_ops),
                 stencil_ops: ds.stencil_ops,
             });
-            surface &= ds.target.view.cached;
             fb_key.push_view(ds.target.view.identified_raw_view());
         }
 
@@ -874,8 +872,8 @@ impl crate::CommandEncoder for super::CommandEncoder {
 
         let raw_pass = self.device.make_render_pass(rp_key).unwrap();
         fb_key.raw_pass = raw_pass;
-        let raw_framebuffer = if surface && !fb_key.attachment_views.is_empty() {
-            self.device.make_surface_framebuffer(fb_key)?
+        let raw_framebuffer = if lasting && !fb_key.attachment_views.is_empty() {
+            self.device.make_lasting_framebuffer(fb_key)?
         } else {
             self.make_framebuffer(fb_key).unwrap()
         };

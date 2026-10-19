@@ -11,6 +11,63 @@ final class WebDocumentsTests: XCTestCase {
     // scripts/fixtures/web-documents.contract: an iframe of an app file and its load and error actions.
     private func plan() throws -> Data { try fixturePlan("WEB_DOCUMENTS") }
 
+    #if os(macOS)
+    func testExplicitIframeFocusReachesTheWebViewAndRespectsInertAncestors() throws {
+        _ = NSApplication.shared
+        let presenter = Presenter()
+        presenter.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "iframe", "props": ["id": "guest"]],
+            ["op": "create", "id": 3, "kind": "input", "props": ["id": "outside", "value": "outside"]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 240],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 160],
+            ["op": "frame", "id": 3, "x": 0, "y": 180, "w": 200, "h": 30],
+        ]))
+        let guest = try XCTUnwrap(presenter.views[2])
+        let outside = try XCTUnwrap(presenter.views[3]?.field)
+        let web = WKWebView(frame: guest.bounds)
+        guest.addSubview(web)
+        guest.web = web
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 240), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close() }
+        final class Loaded: NSObject, WKNavigationDelegate {
+            let ready: XCTestExpectation
+            init(_ ready: XCTestExpectation) { self.ready = ready }
+            func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready.fulfill() }
+        }
+        let ready = expectation(description: "embedded document loaded")
+        let loaded = Loaded(ready)
+        web.navigationDelegate = loaded
+        web.loadHTMLString("<input id='draft' value='retained'>", baseURL: nil)
+        wait(for: [ready], timeout: 30)
+        defer { web.navigationDelegate = nil }
+        func webHasFocus() -> Bool {
+            window.firstResponder === web || (window.firstResponder as? NSView)?.isDescendant(of: web) == true
+        }
+        XCTAssertTrue(window.makeFirstResponder(web), "the platform web view can receive focus")
+        XCTAssertTrue(webHasFocus())
+        presenter.focusElement(["outside"])
+        XCTAssertTrue(window.firstResponder === outside.currentEditor())
+        presenter.focusElement(["guest"])
+        XCTAssertTrue(webHasFocus(), "focus(iframeId) must reach its embedded web view")
+        presenter.focusElement(["outside"])
+        presenter.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "true"]]]))
+        let before = window.firstResponder
+        presenter.focusElement(["guest"])
+        XCTAssertTrue(window.firstResponder === before, "an inert ancestor refuses iframe focus")
+        presenter.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "false"]]]))
+        presenter.focusElement(["outside"])
+        let editor = window.firstResponder
+        presenter.focusElement(["guest"], selectText: true)
+        XCTAssertTrue(window.firstResponder === editor, "selectText remains limited to text controls")
+        presenter.focusElement(["guest"])
+        XCTAssertTrue(webHasFocus())
+    }
+    #endif
+
     func testAppTextFilePreservesMIMEAndLiteralMarkup() throws {
         guard let path = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
             throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")

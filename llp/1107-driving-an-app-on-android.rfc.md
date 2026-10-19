@@ -52,6 +52,9 @@ The trade-off: this proves the app's logic, layout and paint on Android's ABI, l
 > `--reader` carrier landed that day (`9b1e20122`): `bun scripts/agent.mjs android --reader --app
 > <app> …` drives that APK on a phone by this same protocol (`host/android/README.md`, "Driving
 > the reader").
+> The reader runs on its live clock until its first agent request hands time to the driver. The
+> driver seeds relative clock operations from that frozen runner instant; headless Android's
+> corresponding instant remains zero. A relative seek therefore never rewinds reader startup.
 
 ### D2 — The CPU painter by default
 

@@ -141,7 +141,7 @@ impl Game for Hidden {
         w.insert_resource(Environment {
             fog: None,
             bloom: None,
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ..Default::default()
         });
         w.spawn((Transform::at(0., 0., 5.), Camera::default()));
@@ -221,7 +221,7 @@ impl Game for Tinted {
         w.insert_resource(Environment {
             fog: None,
             bloom: None,
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ..Default::default()
         });
         w.spawn((Transform::at(0., 0., 4.), Camera::default()));
@@ -234,7 +234,7 @@ impl Game for Tinted {
             p.insert(
                 e,
                 Tint {
-                    color: [1., 0.1, 0.1, 1.],
+                    color: [1., 0.1, 0.1, 1.].into(),
                     emissive: [0., 0., 0.5],
                 },
             );

@@ -33,5 +33,23 @@
       "ios": "0",
       "linux": "0"
     }
-  }
+  },
+  "widgets": [
+    {
+      "kind": "library",
+      "title": "Your Shelf",
+      "description": "Your book count and latest addition.",
+      "families": [
+        "systemSmall",
+        "accessoryRectangular"
+      ],
+      "component": "ShelfWidget",
+      "props": "ShelfWidgetProps",
+      "refresh": "widgetLibrary",
+      "preview": {
+        "count": 7,
+        "latest": "The Dispossessed"
+      }
+    }
+  ]
 }

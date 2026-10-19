@@ -5,6 +5,7 @@
     "": {
       "name": "exact2",
       "dependencies": {
+        "@exact/geolocation": "workspace:*",
         "@exact/reading": "workspace:*",
       },
       "devDependencies": {
@@ -15,12 +16,18 @@
         "typescript": "7.0.2",
       },
     },
+    "packages/geolocation": {
+      "name": "@exact/geolocation",
+      "version": "1.0.0",
+    },
     "packages/reading": {
       "name": "@exact/reading",
       "version": "0.1.0",
     },
   },
   "packages": {
+    "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
+
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],

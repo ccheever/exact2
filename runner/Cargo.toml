@@ -17,6 +17,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-grants = { path = "../grants" }
+exact-js-value = { path = "../js/value" }
 exact-canvas = { path = "../canvas" }
 exact-kernel = { path = "../kernel" }
 exact-motion = { path = "../motion" }

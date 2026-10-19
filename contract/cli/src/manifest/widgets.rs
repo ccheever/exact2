@@ -14,8 +14,10 @@ pub struct Widget {
     pub title: Option<String>,
     /// Gallery description; defaults to the humanised kind.
     pub description: Option<String>,
-    /// WidgetKit family names.
+    /// iOS and macOS WidgetKit family names.
     pub families: Vec<String>,
+    /// watchOS families, defaulting to the accessory families above.
+    pub watch_families: Vec<String>,
     /// Component declared or imported by `app.contract`.
     pub component: String,
     /// Contract shape whose fields are the component's props.
@@ -29,11 +31,8 @@ pub struct Widget {
 use exact_plan::entry_identifier;
 
 impl Manifest {
-    /// Read entries, refusing malformed declarations and stage 2's reserved key.
+    /// Read widget entries, refusing malformed declarations.
     pub fn widgets(&self) -> Result<Vec<Widget>, String> {
-        if self.json.get("live_activities").is_some() {
-            return Err("live_activities is reserved for stage 2; remove it for this bake".into());
-        }
         let Some(value) = self.json.get("widgets") else {
             return Ok(Vec::new());
         };
@@ -52,6 +51,7 @@ impl Manifest {
                         "title",
                         "description",
                         "families",
+                        "watchFamilies",
                         "component",
                         "props",
                         "refresh",
@@ -110,6 +110,7 @@ impl Manifest {
                                         | "accessoryCircular"
                                         | "accessoryRectangular"
                                         | "accessoryInline"
+                                        | "accessoryCorner"
                                 )
                             })
                             .ok_or_else(|| format!("{at}.families: use a WidgetKit family name"))?;
@@ -121,6 +122,22 @@ impl Manifest {
                         Ok(family.to_string())
                     })
                     .collect::<Result<Vec<_>, String>>()?;
+                let mut watch_families = Vec::new();
+                if let Some(watch) = object.get("watchFamilies") {
+                    let watch = watch.as_array().filter(|a| !a.is_empty())
+                        .ok_or_else(|| format!("{at}.watchFamilies must be a nonempty array"))?;
+                    let mut seen = HashSet::new();
+                    for value in watch {
+                        let family = value.as_str().filter(|f| matches!(*f,
+                            "accessoryCircular" | "accessoryRectangular" | "accessoryInline" | "accessoryCorner"))
+                            .ok_or_else(|| format!("{at}.watchFamilies: use an accessory family name"))?;
+                        if !seen.insert(family) { return Err(format!("{at}.watchFamilies repeats {family}; remove the duplicate")); }
+                        watch_families.push(family.into());
+                    }
+                }
+                else {
+                    watch_families.extend(families.iter().filter(|f| f.starts_with("accessory")).cloned());
+                }
                 let preview = object
                     .get("preview")
                     .filter(|v| v.is_object())
@@ -131,6 +148,7 @@ impl Manifest {
                     title: label("title")?,
                     description: label("description")?,
                     families,
+                    watch_families,
                     component: name("component")?,
                     props: name("props")?,
                     refresh: name("refresh")?,

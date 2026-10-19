@@ -20,8 +20,12 @@
 // none of this.
 #if os(macOS)
 import AppKit
+import ExactCore
 
 final class DevMenuTarget: NSObject {
+    #if EXACT_WIDGET_GALLERY
+    @objc func widgets(_ sender: Any?) { WidgetGallery.show() }
+    #endif
     @objc func reload(_ sender: Any?) { DevMenu.reload() }
     @objc func info(_ sender: Any?) { DevMenu.showInfo() }
     @objc func saveTrace(_ sender: Any?) { DevMenu.saveTrace() }
@@ -76,9 +80,11 @@ final class RecentMenu: NSObject, NSMenuDelegate {
             item.image = icon
         }
         if !urls.isEmpty { menu.addItem(.separator()) }
-        let clear = menu.addItem(withTitle: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
-        clear.target = NSDocumentController.shared
+        // Clearing ends what each app keeps too (LLP 1069.010.000 D6).
+        menu.addItem(withTitle: "Clear Menu", action: #selector(clear(_:)), keyEquivalent: "").target = self
     }
+
+    @objc func clear(_ sender: Any?) { KeptDocuments.clear() }
 
     @objc func open(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
@@ -114,7 +120,14 @@ public enum DevMenu {
     /// plan file (`EXACT_DEV_PLAN`) or `EXACT_PLAN`, else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
+    nonisolated(unsafe) private static var widgetGenerationObserver: NSObjectProtocol?
     public static func install(session: ExactSession, planPath: String?) {
+        if widgetGenerationObserver == nil {
+            widgetGenerationObserver = NotificationCenter.default.addObserver(forName: Notification.Name("ExactWidgetGeneration"), object: nil, queue: .main) { _ in
+                guard let session = DevMenu.session else { return }
+                NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
+            }
+        }
         DevMenu.session = session
         DevMenu.planPath = planPath
         NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
@@ -232,6 +245,9 @@ public enum DevMenu {
             project.target = target
             if documents { project.keyEquivalentModifierMask = [.command, .shift] }
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
+            #if EXACT_WIDGET_GALLERY
+            if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
+            #endif
             // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
             let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
             trace.keyEquivalentModifierMask = [.command, .option]
@@ -387,6 +403,7 @@ public enum DevMenu {
             lines.append("plan: baked")
         }
         lines.append("app dir: \(ExactApp.shared.assetRoot.path)")
+        if let failure = WidgetContainer.publicationFailure { lines.append("widget generation: \(failure)") }
         if let session {
             let size = session.presenter.viewportSize
             lines.append("session: \(session.label) · viewport: \(Int(size.width))×\(Int(size.height)) · \(session.viewCount) views")

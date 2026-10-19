@@ -132,6 +132,10 @@ pub(super) fn env(term: EnvTerm, out: &mut String) {
             out.push_str(region.prefix());
             out.push_str(edge.name());
         }
+        EnvTerm::TitleBar(var) => {
+            out.push_str(super::super::env::TitleBarVar::PREFIX);
+            out.push_str(var.name());
+        }
     }
     out.push(')');
 }

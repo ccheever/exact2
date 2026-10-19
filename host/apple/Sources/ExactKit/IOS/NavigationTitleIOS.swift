@@ -75,7 +75,7 @@ struct HeaderTitle: Equatable {
                     // A symbol source counts toward the shape even while its
                     // name is blank, so the line keeps its texts and label.
                     symbols = true
-                    if let name = child.props["symbolName"], !name.isEmpty { out.append(Glyph(symbol: name, text: "")) }
+                    if let name = child.faceSymbol { out.append(Glyph(symbol: name, text: "")) }
                 } else if child.isParagraph {
                     if !child.accessibleText.isEmpty { out.append(Glyph(symbol: nil, text: child.accessibleText)) }
                 } else { return nil }
@@ -187,6 +187,9 @@ extension HeaderShape {
         var at: UIView? = node
         while let view = at, view !== header.superview {
             if (view as? NodeView)?.style["display"]?.string == "none" { return true }
+            // A menu or dialog written in the header is the top layer's, as
+            // the shared rule reads it (`fact::LAYER`): shown when opened.
+            if let box = view as? NodeView, box.props["popover"] != nil || box.props["semanticTag"] == "dialog" { return true }
             at = view.superview
         }
         return placed.contains { node === $0 || node.isDescendant(of: $0) || $0.isDescendant(of: node) }
@@ -274,8 +277,14 @@ final class HeaderTitleView: UIControl {
             if let name = glyph.symbol {
                 // A template symbol in the run's font: TextKit tints it with
                 // the run's (dynamic) colour, so it follows the appearance.
-                guard let image = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { continue }
-                let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+                guard let image = FaceSymbol.image(name, points: font.pointSize, configuration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { continue }
+                let attachment = NSTextAttachment(image: image)
+                // An svg-only icon's path (stage 9 A2) is no symbol TextKit
+                // seats on the line: its em square centred on the cap height.
+                if FaceSymbol.isPath(name) {
+                    attachment.bounds = CGRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
+                }
+                let symbol = NSMutableAttributedString(attachment: attachment)
                 symbol.addAttributes(attributes, range: NSRange(location: 0, length: symbol.length))
                 out.append(symbol)
                 out.append(NSAttributedString(string: "\u{2009}", attributes: attributes))
@@ -473,9 +482,13 @@ extension NavigationHost {
             // pop with a guessed flag, or the tablist changing under it): the
             // bar follows now (iOS 18).
             guard c === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs else { continue }
-            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != hidden {
-                tabs.setTabBarHidden(hidden, animated: nav.view.window != nil)
-                tablistHidBar = hidden
+            // (An iPad's floating bar: the whole stack's wish, as on a push. A
+            // bar a route under this one hides, by UIKit's flag, is not shown.)
+            let wish = floatingStackHides(nav) ?? hidden
+            if !wish, Self.underHides(nav, c) { continue }
+            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != wish {
+                tabs.setTabBarHidden(wish, animated: nav.view.window != nil)
+                tablistHidBar = wish
             }
         }
         // A bar Exact hid with `setTabBarHidden` (a root's hidden tablist, or
@@ -483,7 +496,9 @@ extension NavigationHost {
         // state: a push of a route whose tablist shows does not clear it,
         // only `hidesBottomBarWhenPushed` would. The selected route wanting
         // it shown brings it back now, pushed or not yet.
-        if !hidden, tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
+        // (Not while a route above the root still hides it, on a phone by UIKit's flag, on an iPad by Exact's.)
+        if !hidden, !nav.viewControllers.dropFirst().contains(where: { $0.hidesBottomBarWhenPushed }),
+           tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
             if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: nav.view.window != nil) }
             tablistHidBar = false
         }
@@ -520,6 +535,77 @@ extension NavigationHost {
             if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }
             tablistHidBar = false
         }
+    }
+
+    /// iPadOS 18's floating tab bar (a regular width) does not take
+    /// `hidesBottomBarWhenPushed`, so a pushed route whose tablist is hidden
+    /// would keep it: as the transition to a pushed route starts, the bar
+    /// takes that route's wish with `setTabBarHidden`, hidden if it or a
+    /// route below it (the root aside) hides it, as UIKit reads the flag on
+    /// a phone, and shown again only if Exact hid it (`tablistHidBar`). The
+    /// root on top is `followTablistAtRoot`'s, after the transition (the
+    /// lead's ruling, 2026-10-19). An interactive pop that is cancelled shows
+    /// its source again, and so its wish.
+    func followFloatingBar(_ nav: UINavigationController, for c: UIViewController, animated: Bool) {
+        #if os(iOS)
+        // The selected tab's stack only: another's late transition is not what shows.
+        guard #available(iOS 18.0, *), let tabs = tabController, tabs.selectedViewController === nav else { return }
+        // A cancelled pop's source comes back before it is in the stack again.
+        let stack = nav.viewControllers.contains { $0 === c } ? nav.viewControllers : nav.viewControllers + [c]
+        // However the transition ends (a custom interactive pop's cancel tells
+        // the delegate nothing), the stack it leaves takes its wish then.
+        if let coordinator = nav.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { [weak self, weak nav] _ in
+                guard let self, let nav, nav.transitionCoordinator == nil, let top = nav.topViewController else { return }
+                self.followFloatingBar(nav, for: top, animated: false)
+            }
+        }
+        guard let at = stack.firstIndex(where: { $0 === c }), at > 0, let hidden = floatingStackHides(nav, through: Array(stack[...at])) else { return }
+        if hidden, !tabs.isTabBarHidden {
+            tabs.setTabBarHidden(true, animated: animated)
+            tablistHidBar = true
+        } else if !hidden, tablistHidBar {
+            if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }
+            tablistHidBar = false
+        }
+        #endif
+    }
+
+    /// Whether a stack whose routes are `stack` (its root first) hides the
+    /// floating tab bar: a route above the root asks it, as UIKit reads
+    /// `hidesBottomBarWhenPushed` on a phone. Nil where the bar is not
+    /// iPadOS 18's floating one (a phone, a compact width, iOS 17, an
+    /// authored or hatched tab bar), where UIKit's own flag does it.
+    func floatingStackHides(_ nav: UINavigationController, through stack: [UIViewController]? = nil) -> Bool? {
+        #if os(iOS)
+        guard #available(iOS 18.0, *), !ExactEnv.authoredChrome, tabBarShows, let tabs = tabController, nav.tabBarController === tabs,
+              tabs.traitCollection.userInterfaceIdiom == .pad, tabs.traitCollection.horizontalSizeClass == .regular else { return nil }
+        return (stack ?? nav.viewControllers).dropFirst().contains { $0.hidesBottomBarWhenPushed }
+        #else
+        return nil
+        #endif
+    }
+
+    /// Whether a route between the root and `c` (not `c`) hides the bar by
+    /// UIKit's flag, which keeps it hidden over `c` on a phone too.
+    static func underHides(_ nav: UINavigationController, _ c: UIViewController) -> Bool {
+        guard let at = nav.viewControllers.firstIndex(where: { $0 === c }), at > 1 else { return false }
+        return nav.viewControllers[1..<at].contains { $0.hidesBottomBarWhenPushed }
+    }
+
+    /// The selected stack's top takes its wish again where nothing pushed or
+    /// popped: a tab selected, the width becoming regular (once a resize's
+    /// own transition is over; a push or pop has its own didShow).
+    func refollowFloatingBar() {
+        guard let tabs = tabController, let nav = tabs.selectedViewController as? UINavigationController, nav.topViewController != nil else { return }
+        if let resizing = tabs.transitionCoordinator ?? nav.transitionCoordinator {
+            let taken = resizing.animate(alongsideTransition: nil) { [weak self, weak nav] _ in
+                guard let self, let nav, nav.transitionCoordinator == nil, let top = nav.topViewController else { return }
+                self.followFloatingBar(nav, for: top, animated: false)
+            }
+            if taken { return }
+        }
+        followFloatingBar(nav, for: nav.topViewController!, animated: false)
     }
 
     /// A transition settled (`didShow`): the root, if it is on top now,

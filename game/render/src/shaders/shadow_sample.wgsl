@@ -5,25 +5,32 @@ override SINGLE_CASCADE: bool = false;
 @group(1) @binding(1) var shadow_sampler: sampler_comparison;
 // Local light shadows (local_shadows.rs): a spot's layer, or a point light's six.
 @group(1) @binding(2) var local_shadow_map: texture_depth_2d_array;
+// Nearest and clamped to the edge, for `plane_sample`'s gathers.
+@group(1) @binding(3) var shadow_gather: sampler;
 // At steep slopes a single comparison depth cannot represent a bilinear
 // footprint without erasing nearby casters. Compare each texel to its own
 // receiver-plane depth, then interpolate the four visibility values.
+// The four texels come from one gather at their shared corner (one fetch, where
+// four loads made the filter the forward pass's largest cost on Adreno 630);
+// its components are (0, 1), (1, 1), (1, 0), (0, 0) from `base`, clamped to
+// the edge as the references' coordinates are.
 fn plane_sample(uv: vec2<f32>, depth: f32, slope: vec2<f32>, index: u32) -> f32 {
-    let pixel = uv * f32(textureDimensions(shadow_map).x) - 0.5;
+    let size = vec2<f32>(textureDimensions(shadow_map));
+    let pixel = uv * size.x - 0.5;
     let base = floor(pixel);
     let weight = fract(pixel);
-    var sum = 0.0;
-    for (var y = 0; y <= 1; y++) {
-        for (var x = 0; x <= 1; x++) {
-            let corner = vec2(f32(x), f32(y));
-            let coord = clamp(vec2<i32>(base + corner), vec2(0), vec2<i32>(textureDimensions(shadow_map)) - vec2(1));
-            let reference = depth + dot(slope, vec2<f32>(coord) - pixel) - 0.000001;
-            let stored = textureLoad(shadow_map, coord, i32(index), 0);
-            let w = mix(vec2(1.0) - weight, weight, corner);
-            sum += select(0.0, 1.0, reference <= stored) * w.x * w.y;
-        }
-    }
-    return sum;
+    let stored = textureGather(shadow_map, shadow_gather, (base + 1.0) / size, i32(index));
+    let lo = clamp(base, vec2(0.0), size - 1.0);
+    let hi = clamp(base + 1.0, vec2(0.0), size - 1.0);
+    let reference = vec4(
+        depth + dot(slope, vec2(lo.x, hi.y) - pixel) - 0.000001,
+        depth + dot(slope, hi - pixel) - 0.000001,
+        depth + dot(slope, vec2(hi.x, lo.y) - pixel) - 0.000001,
+        depth + dot(slope, lo - pixel) - 0.000001);
+    let lit = select(vec4(0.0), vec4(1.0), reference <= stored);
+    let w = vec4((1.0 - weight.x) * weight.y, weight.x * weight.y,
+        weight.x * (1.0 - weight.y), (1.0 - weight.x) * (1.0 - weight.y));
+    return dot(lit, w);
 }
 // The four pairs of a separable PCF-soft kernel have weights
 // (1-f, 1, 1, f)/3 per axis. Bilinear comparisons combine each adjacent pair.

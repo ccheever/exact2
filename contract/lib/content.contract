@@ -28,7 +28,9 @@
 // column too, and the number stays on its line, drawn smaller where it would
 // not fit, as UIKit's readouts are (`adjustsFontSizeToFitWidth`): at the
 // largest text size a card that took its content's width ran off both edges
-// of the phone (trivia-quiz, LLP 1116.020 D4).
+// of the phone (trivia-quiz, LLP 1116.020 D4). The symbol is the label's text
+// style, so it grows with Dynamic Type as an SF Symbol configured with that
+// style does; a 20-point box kept it small beside a label that grew.
 // Call: SummaryCard(label="Streak", value="12", detail="days in a row", progress=some(0.4), symbol=some("symbol:star"))
 component SummaryCard
   props
@@ -42,8 +44,7 @@ component SummaryCard
       row align-items="center" gap=6 min-width=0
         match symbol
           case some(s)
-            image s width=20 height=20 object-fit="contain" flex-shrink=0 aria-hidden=true
-              -exact-tint-color="AccentColor"
+            image s font="-exact-headline" flex-shrink=0 aria-hidden=true -exact-tint-color="AccentColor"
           case none
         text label font="-exact-headline" flex=1 min-width=0 aria-hidden=true
       row flex-wrap="wrap" align-items="baseline" column-gap=10 min-width=0
@@ -153,7 +154,11 @@ component EmptyState
         children
 
 // A row's content: a title, a secondary line under it (`""` for none) and an
-// optional trailing value in tabular figures. Straight in a grouped list's
+// optional trailing value in tabular figures. Where the title and the value
+// do not fit on one line the value goes under them, and each wraps, as
+// UIKit's value cell stacks its text and secondary text at the
+// accessibility sizes: a long value at the largest size squeezed the title
+// to nothing beside it and ran past the row. Straight in a grouped list's
 // `section` it is the row; in a `row`, or anywhere a list of records is
 // drawn, it takes the width. Its space above and below is the lines'
 // margin, not the row's padding: a grouped row's minimum height is its
@@ -165,15 +170,16 @@ component RowText
     detail: string
     value: option<string>
   view
-    row flex=1 min-width=0 align-items="center" gap=12
-      column flex=1 min-width=0 gap=2 margin-top=10 margin-bottom=10
-        text title white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-        if detail != ""
-          text detail font="-exact-subheadline" color="-exact-secondary-label"
-      match value
-        case some(v)
-          text v color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
-        case none
+    row flex=1 min-width=0
+      row flex=1 min-width=0 flex-wrap="wrap" align-items="center" column-gap=12 row-gap=2 margin-top=10 margin-bottom=10
+        column flex-grow=1 min-width=0 gap=2
+          text title
+          if detail != ""
+            text detail font="-exact-subheadline" color="-exact-secondary-label"
+        match value
+          case some(v)
+            text v color="-exact-secondary-label" font-variant-numeric="tabular-nums" min-width=0
+          case none
 
 // A status in a word, as "Full", "Cancelled" or "Locked": the label in a
 // capsule, in the caption style (semibold), so a state reads as text, never
@@ -257,14 +263,19 @@ component RoundButton
           text label white-space="nowrap" font-size=17
 
 // One answer of a quiz or a poll: a tile as wide as its column, the label at
-// its start in the headline style. `status` is one of five: "idle" (a
-// neutral fill), "selected" (the accent's outline and check: chosen, not yet
-// told), "correct" (the system green and a check), "wrong" (the system red
-// and a cross) or "dimmed" (the rest, once told). The green takes dark ink
-// and the red white, in either scheme, and a mark beside the label says
-// what the colour says; the mark grows with the text (`rem`), as a symbol
-// beside a UIKit button's title does. Told and dimmed tiles are disabled. A
-// reader hears the label and its status ("Paris, correct").
+// its start in the headline style. `status` is one of six: "idle" (a
+// neutral fill), "selected" (the accent's outline and a checkmark: chosen,
+// not yet told), "correct" (the system green and a check), "wrong" (the
+// system red and a cross), "dimmed" (the rest, once told) or "chosen" (the
+// person's own pick once told or closed, a closed poll's vote: the selected
+// look, disabled, so it stays marked while the rest dim). The green takes
+// dark ink and the red white, in either scheme, and a mark beside the label
+// says what the colour says; the mark grows with the text (`rem`), as a
+// symbol beside a UIKit button's title does. Told, dimmed and chosen tiles
+// are disabled. A reader hears the label and its status ("Paris, correct").
+// As a row of a grouped list (a poll's options in a `section`) the tile is
+// the list's own cell: the selected and chosen tiles' checkmark is the
+// cell's checkmark accessory, as a hand-built UIKit list marks its choice.
 // Call: AnswerTile(label="Paris", status="idle", press=pick("Paris"), testId="answer-paris")
 component AnswerTile
   props
@@ -282,12 +293,12 @@ component AnswerTile
         image (status == "correct" ? "symbol:checkmark" : "symbol:close") width="1.375rem" height="1.375rem"
           object-fit="contain" flex-shrink=0 aria-hidden=true -exact-tint-color="-exact-label"
     else
-      button appearance="none" press=press disabled=(status == "dimmed") testId=testId
-        aria-label=(status == "selected" ? `${label}, selected` : label)
+      button appearance="none" press=press disabled=(status == "dimmed" or status == "chosen") testId=testId
+        aria-label=(status == "selected" or status == "chosen" ? `${label}, selected` : label)
         display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
-        border=(status == "selected" ? "2px solid AccentColor" : "2px solid transparent")
+        border=(status == "selected" or status == "chosen" ? "2px solid AccentColor" : "2px solid transparent")
         background-color="-exact-tertiary-fill" color=(status == "dimmed" ? "-exact-secondary-label" : "-exact-label")
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
-        if status == "selected"
-          image "symbol:select-fill" width="1.375rem" height="1.375rem" object-fit="contain" flex-shrink=0
+        if status == "selected" or status == "chosen"
+          image "symbol:checkmark" width="1.375rem" height="1.375rem" object-fit="contain" flex-shrink=0
             aria-hidden=true -exact-tint-color="AccentColor"

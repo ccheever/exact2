@@ -49,6 +49,12 @@ package struct Run: Hashable {
     package var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     package var background: [Double]? = nil
+    /// The inline box that `background` is (its node's id, 0 for none) and
+    /// that box's `border-radius` (top-left, top-right, bottom-right,
+    /// bottom-left; empty for square): paint, never metrics. A box's runs
+    /// share one background, rounded only at the box's own ends.
+    package var backgroundBox: UInt32 = 0
+    package var backgroundRadii: [InlineRadius] = []
     /// CSS visibility hides ink without changing shaping or descendant visibility.
     package var hidden = false
     /// Its colour is one its author fixed: a literal or a `light-dark()`
@@ -71,7 +77,8 @@ package struct Run: Hashable {
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
+              lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.backgroundBox == rhs.backgroundBox,
+              lhs.backgroundRadii == rhs.backgroundRadii, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
               lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
@@ -97,6 +104,8 @@ package struct Run: Hashable {
         hasher.combine(decoration)
         hasher.combine(href)
         hasher.combine(background)
+        hasher.combine(backgroundBox)
+        hasher.combine(backgroundRadii)
         hasher.combine(hidden)
         hasher.combine(fixedInk)
         hasher.combine(shadow)
@@ -802,6 +811,7 @@ package final class TextEngine {
             offset += length
         }
         TextEngine.setBaseDirection(s, direction: spec.direction)
+        presentation?.finish(s)
         if spec.preserves, s.string.contains("\t"), let first = spec.strut ?? spec.runs.first {
             setTabStops(s, run: first)
         }
@@ -1049,7 +1059,12 @@ package final class TextEngine {
                 line = oldLine
             } else { line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: shape.attributed, range: range) }
             var clamps = false
-            if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
+            // A word too long for its line keeps its width in layout, as CSS
+            // measures it; only what is drawn ends in "…".
+            var natural: CGFloat?
+            if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp
+                && Self.clampsLast(line, start: start, count: count, length: length, width: limit) {
+                if start + count == length { natural = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) }
                 line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
                 clampedRange = range
                 clamps = true
@@ -1058,7 +1073,8 @@ package final class TextEngine {
             // The natural width, the first line's indent in it: justification
             // fills the box, never sizes it.
             let indent = insets.at(start).width
-            let w = max(0, CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading)) + indent)
+            let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            let w = max(0, (natural ?? drawn) + indent)
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit - Double(indent))
             }
@@ -1148,10 +1164,27 @@ package final class TextEngine {
     /// An over-wide line truncated at `width` with the ellipsis in the style
     /// of the character it replaces; the browser keeps the first character
     /// when not even the token fits.
+    /// The ellipsis's attributes: the text's it replaces, marked as the
+    /// token, which stands for what was cut (an inline box's end is not in it).
+    private static func truncation(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var marked = attributes
+        marked[.exactTruncation] = true
+        return marked
+    }
     package static func ellipsis(_ line: CTLine, range: NSRange, width: Double, source: NSAttributedString) -> CTLine? {
         let at = max(range.location, min(NSMaxRange(range), source.length) - 1)
-        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: source.attributes(at: at, effectiveRange: nil)))
+        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: truncation(source.attributes(at: at, effectiveRange: nil))))
         return CTLineCreateTruncatedLine(line, width, .end, token)
+    }
+
+    /// Whether a `line-clamp`'s last line, `line` broken from `start` with
+    /// `count` of `length` characters, ends in "…": when text follows it, as
+    /// CSS clamps; and when it is wider than `width` though nothing follows (a
+    /// word longer than the line), which CSS leaves to overflow but UILabel's
+    /// `.byTruncatingTail` truncates, as an author asking for an ellipsis means.
+    package static func clampsLast(_ line: CTLine, start: Int, count: Int, length: Int, width: Double) -> Bool {
+        start + count < length || (width < Double.greatestFiniteMagnitude
+            && CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line) > width + 0.5)
     }
 
     package func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double, source: NSAttributedString? = nil) -> CTLine? {
@@ -1168,7 +1201,7 @@ package final class TextEngine {
         // CoreText to make room for it, removing the line's trailing break/space.
         while end > range.location && [9, 10, 13, 32, 0x2028, 0x2029].contains(Int(string.character(at: end - 1))) { end -= 1 }
         let candidate = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
-        candidate.append(NSAttributedString(string: "…", attributes: source.attributes(at: max(range.location, end - 1), effectiveRange: nil)))
+        candidate.append(NSAttributedString(string: "…", attributes: truncation(source.attributes(at: max(range.location, end - 1), effectiveRange: nil))))
         let typesetter = CTTypesetterCreateWithAttributedString(candidate)
         let line = CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: end - range.location + 1))
         // Keep paragraph-global indices, including the token, for AppKit hits.

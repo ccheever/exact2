@@ -3,10 +3,14 @@
 //! warning fires only on what is certain, so every form this does not model
 //! makes the answer unknown rather than a guess: a regex literal, a Rust raw
 //! string, an unterminated literal or comment, and a grant line joined to
-//! more text (`+`, a template's `${…}`) or ending without its key.
+//! more text (`+`, a literal beside it on the same statement, a template's
+//! `${…}`, a Rust `concat!` argument or a `format!` string with a
+//! placeholder) or ending without its key.
 
 /// A string literal as written (escapes kept), and whether more text is
-/// joined to its end: `+ …` after it, or a template's `${…}`.
+/// joined to its end: `+ …` or another literal after it (past a comment; in
+/// TypeScript a literal after a line break is the next statement), a
+/// template's `${…}`, or a Rust macro that builds a string of it.
 #[derive(Debug, PartialEq)]
 pub(super) struct Lit {
     pub text: String,
@@ -19,6 +23,99 @@ const BEFORE_REGEX: &[&str] = &[
     "yield", "await",
 ];
 
+/// Words whose parenthesised condition a statement follows: a `/` after its
+/// `)` begins a regex (`if (x) /re/.test(s)`), where one after any other `)`
+/// divides.
+const CONTROL: &[&str] = &["if", "while", "for", "with"];
+
+/// How a Rust macro joins the literals among its arguments.
+#[derive(Clone, Copy, PartialEq)]
+enum Join {
+    No,
+    /// `concat!`: every literal is a piece of one string.
+    All,
+    /// `format!`: its format string, still to come, is extended by a
+    /// placeholder; a plain literal argument is as written.
+    Format,
+}
+
+/// What a `(` opened.
+struct Paren {
+    /// A control word's condition.
+    control: bool,
+    joins: Join,
+}
+
+/// ECMAScript's line terminators (ECMA-262 §12.3), each a statement boundary
+/// for automatic semicolon insertion and the end of a line comment.
+fn line_terminator(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+}
+
+/// Past the block comment opening at `i` (Rust's nest, TypeScript's do
+/// not), or `None` when it never closes.
+fn block_comment_end(s: &[char], mut i: usize, typescript: bool) -> Option<usize> {
+    let mut depth = 0;
+    loop {
+        if i + 1 >= s.len() {
+            return None;
+        }
+        if s[i] == '/' && s[i + 1] == '*' && (depth == 0 || !typescript) {
+            depth += 1;
+            i += 2;
+        } else if s[i] == '*' && s[i + 1] == '/' {
+            depth -= 1;
+            i += 2;
+            if depth == 0 {
+                return Some(i);
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Whether the literal `text` that ends at index `j` is joined to more text:
+/// by the macro around it, or by what follows past white space and
+/// comments: `+`, or another literal on the same statement (TypeScript ends
+/// a statement at a line terminator before one, a comment's included).
+fn joined(s: &[char], j: usize, typescript: bool, parens: &mut [Paren], text: &str) -> bool {
+    if let Some(p) = parens.last_mut() {
+        if p.joins == Join::Format {
+            p.joins = Join::No;
+            return text.contains('{');
+        }
+    }
+    if parens.iter().any(|p| p.joins == Join::All) {
+        return true;
+    }
+    let (mut j, mut broke_line) = (j, false);
+    loop {
+        while j < s.len() && s[j].is_whitespace() {
+            broke_line |= line_terminator(s[j]);
+            j += 1;
+        }
+        match (s.get(j), s.get(j + 1)) {
+            (Some('/'), Some('/')) => {
+                while j < s.len() && !line_terminator(s[j]) {
+                    j += 1;
+                }
+            }
+            (Some('/'), Some('*')) => match block_comment_end(s, j, typescript) {
+                Some(end) => {
+                    broke_line |= s[j..end].iter().copied().any(line_terminator);
+                    j = end;
+                }
+                None => return true,
+            },
+            (Some('+'), _) => return true,
+            (Some('"'), _) => return !(typescript && broke_line),
+            (Some('\'' | '`'), _) => return typescript && !broke_line,
+            _ => return false,
+        }
+    }
+}
+
 /// The string literals of `text`, TypeScript when `typescript` and Rust
 /// otherwise, with comments left out; `None` when it holds a form this does
 /// not model.
@@ -29,11 +126,14 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
     let mut lits = Vec::new();
     // Each template `${` open: the depth of braces inside it.
     let mut holes: Vec<usize> = Vec::new();
-    // The last significant character of code, and the word it ends.
-    let (mut last, mut word) = (None::<char>, String::new());
+    // Each `(` open, and whether the last significant character closed a
+    // control word's condition.
+    let mut parens: Vec<Paren> = Vec::new();
+    let mut after_control = false;
+    // The last significant character of code, the word it ends, and the
+    // word before the last punctuation (`concat` at `concat!(`).
+    let (mut last, mut word, mut before) = (None::<char>, String::new(), String::new());
     let mut i = 0;
-    // `+` after index `j` (past white space) joins the literal before it.
-    let joined_at = |j: usize| s[j..].iter().find(|c| !c.is_whitespace()) == Some(&'+');
     // A quoted literal from `i` (its quote) to past its close.
     let quoted = |i: &mut usize| -> Option<String> {
         let q = s[*i];
@@ -54,7 +154,7 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
         Some(s[start..*i - 1].iter().collect())
     };
     // A template's text from `i` to its close or its next `${`; whether it closed.
-    let template = |i: &mut usize, lits: &mut Vec<Lit>| -> Option<bool> {
+    let template = |i: &mut usize, lits: &mut Vec<Lit>, parens: &mut [Paren]| -> Option<bool> {
         let start = *i;
         while *i < n && s[*i] != '`' && !(s[*i] == '$' && s.get(*i + 1) == Some(&'{')) {
             *i += if s[*i] == '\\' { 2 } else { 1 };
@@ -65,10 +165,8 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
         let text: String = s[start..*i].iter().collect();
         if s[*i] == '`' {
             *i += 1;
-            lits.push(Lit {
-                text,
-                joined: joined_at(*i),
-            });
+            let joined = joined(&s, *i, typescript, parens, &text);
+            lits.push(Lit { text, joined });
             Some(true)
         } else {
             *i += 2;
@@ -80,68 +178,61 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
         let c = s[i];
         let next = s.get(i + 1).copied();
         if c == '/' && next == Some('/') {
-            while i < n && s[i] != '\n' {
+            while i < n && !(line_terminator(s[i]) && (typescript || s[i] == '\n')) {
                 i += 1;
             }
             continue;
         }
         if c == '/' && next == Some('*') {
-            // Rust's block comments nest; TypeScript's do not.
-            let mut depth = 0;
-            loop {
-                if i + 1 >= n {
-                    return None;
-                }
-                if s[i] == '/' && s[i + 1] == '*' && (depth == 0 || !typescript) {
-                    depth += 1;
-                    i += 2;
-                } else if s[i] == '*' && s[i + 1] == '/' {
-                    depth -= 1;
-                    i += 2;
-                    if depth == 0 {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
+            i = block_comment_end(&s, i, typescript)?;
             continue;
         }
         let regex = typescript
             && c == '/'
             && (last.is_none_or(|l| "(,=:[!&|?{};+-*%<>~^}".contains(l))
+                || after_control
                 || BEFORE_REGEX.contains(&word.as_str()));
         if regex {
             return None;
         }
-        // A raw string (`r"…"`, `r#"…"#`, `br"…"`), or a raw identifier.
+        if !c.is_whitespace() {
+            after_control = false;
+        }
+        // A raw string (`r"…"`, `r#"…"#`, `br"…"`, `cr"…"`), or a raw identifier.
         let raw_at = |j: usize| matches!(s.get(j), Some('"' | '#'));
         let after_ident = i > 0 && ident(s[i - 1]);
         if !typescript
             && !after_ident
-            && ((c == 'r' && raw_at(i + 1)) || (c == 'b' && next == Some('r') && raw_at(i + 2)))
+            && ((c == 'r' && raw_at(i + 1))
+                || (matches!(c, 'b' | 'c') && next == Some('r') && raw_at(i + 2)))
         {
             return None;
         }
         match c {
             '"' => {
                 let text = quoted(&mut i)?;
-                lits.push(Lit {
-                    text,
-                    joined: joined_at(i),
-                });
+                let joined = joined(&s, i, typescript, &mut parens, &text);
+                lits.push(Lit { text, joined });
                 (last, word) = (Some('"'), String::new());
                 continue;
             }
             '\'' if typescript => {
                 let text = quoted(&mut i)?;
-                lits.push(Lit {
-                    text,
-                    joined: joined_at(i),
-                });
+                let joined = joined(&s, i, typescript, &mut parens, &text);
+                lits.push(Lit { text, joined });
                 (last, word) = (Some('"'), String::new());
                 continue;
             }
+            '(' => parens.push(Paren {
+                control: CONTROL.contains(&word.as_str()),
+                joins: match before.as_str() {
+                    _ if typescript || last != Some('!') => Join::No,
+                    "concat" => Join::All,
+                    "format" => Join::Format,
+                    _ => Join::No,
+                },
+            }),
+            ')' => after_control = parens.pop().is_some_and(|p| p.control),
             // A Rust character (`'"'`, `'\''`), else a lifetime.
             '\'' => {
                 if next == Some('\\') {
@@ -158,7 +249,7 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
             }
             '`' if typescript => {
                 i += 1;
-                if !template(&mut i, &mut lits)? {
+                if !template(&mut i, &mut lits, &mut parens)? {
                     holes.push(0);
                 }
                 (last, word) = (Some('"'), String::new());
@@ -172,7 +263,7 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
             '}' if holes.last() == Some(&0) => {
                 holes.pop();
                 i += 1;
-                if !template(&mut i, &mut lits)? {
+                if !template(&mut i, &mut lits, &mut parens)? {
                     holes.push(0);
                 }
                 (last, word) = (Some('"'), String::new());
@@ -191,8 +282,8 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
                     word.clear();
                 }
                 word.push(c);
-            } else {
-                word.clear();
+            } else if !word.is_empty() {
+                before = std::mem::take(&mut word);
             }
             last = Some(c);
         }
@@ -201,11 +292,14 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
     holes.is_empty().then_some(lits)
 }
 
-/// The key each `device.<name> <key>` in `lits` names, or `None` when one is
-/// built otherwise (joined to more text, its key missing or cut short).
+/// The key each `device.<name> <key>` in `lits` names. A line built
+/// otherwise (joined to more text, its key missing or cut short) is left
+/// out; `None` when no certain key remains and such a line was seen, since
+/// the grant may be in it.
 pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
     let key_char = |c: char| c.is_alphanumeric() || matches!(c, '.' | '-' | '_');
     let mut keys = Vec::new();
+    let mut uncertain = false;
     for lit in lits {
         let t = &lit.text;
         for (at, _) in t.match_indices("device.") {
@@ -222,25 +316,35 @@ pub(super) fn keys(lits: &[Lit], name: &str) -> Option<Vec<String>> {
             let device: String = rest.chars().take_while(|c| key_char(*c)).collect();
             let after = &rest[device.len()..];
             if after.is_empty() && lit.joined {
-                return None;
+                uncertain = true;
+                continue;
             }
             if device != name {
                 continue;
             }
-            let spelled = after
-                .strip_prefix([' ', '\t'])?
-                .trim_start_matches([' ', '\t']);
+            let Some(spelled) = after.strip_prefix([' ', '\t']) else {
+                uncertain = true;
+                continue;
+            };
+            let spelled = spelled.trim_start_matches([' ', '\t']);
             let key: String = spelled.chars().take_while(|c| key_char(*c)).collect();
             let end = &spelled[key.len()..];
-            if key.is_empty() || key.ends_with('.') || (end.is_empty() && lit.joined) {
-                return None;
+            let certain = !key.is_empty()
+                && !key.ends_with('.')
+                && !(end.is_empty() && lit.joined)
+                && end
+                    .chars()
+                    .next()
+                    .is_none_or(|c| c.is_whitespace() || c == '\\');
+            if !certain {
+                uncertain = true;
+                continue;
             }
-            match end.chars().next() {
-                None => keys.push(key),
-                Some(c) if c.is_whitespace() || c == '\\' => keys.push(key),
-                Some(_) => return None,
-            }
+            keys.push(key);
         }
+    }
+    if keys.is_empty() && uncertain {
+        return None;
     }
     Some(keys)
 }
@@ -304,16 +408,133 @@ mod tests {
         ] {
             assert_eq!(read(built, true), None, "{built}");
         }
+        // A Rust macro's arguments are one built string, however the grant
+        // line is cut; a literal beside another and a `+` behind a comment
+        // join too (review rounds 1 to 3).
+        for built in [
+            "const G: &str = concat!(\"device.midi purpose.\", \"midi\");",
+            "const G: &str = concat!(\"device.midi purpose.midi\", \"-v2\");",
+            "const G: &str = concat!(\"device.midi purpose.midi\");",
+            "let g = format!(\"device.midi {}\", key);",
+            "let g = format!(\"device.midi purpose.midi{}\", suffix(1));",
+            "m!(\"device.midi purpose.midi\" \"-v2\")",
+            "const G: &str = \"device.midi purpose.midi\" /* v2 */ + \"x\";",
+        ] {
+            assert_eq!(read(built, false), None, "{built}");
+        }
+        for built in [
+            "export const grants = 'device.midi purpose.midi' // v2\n  + '-v2';",
+            "export const grants = 'device.midi purpose.midi' /* v2 */ + '-v2';",
+            "f('device.midi purpose.midi' '-v2')",
+            "f('device.midi purpose.midi' `-v2`)",
+        ] {
+            assert_eq!(read(built, true), None, "{built}");
+        }
+        // Only a `format!` string with a placeholder is extended; a plain
+        // literal argument, or a format string without one, is as written.
         assert_eq!(
             read(
-                "const G: &str = concat!(\"device.midi purpose.\", \"midi\");",
+                "let g = format!(\"{}\", \"device.midi purpose.midi\");",
+                false
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read("let g = format!(\"device.midi purpose.midi\");", false),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "let g = format!(\"device.midi purpose.{}\", \"midi\");",
                 false
             ),
             None
         );
+        // In TypeScript a literal after a line break is the next statement.
         assert_eq!(
-            read("let g = format!(\"device.midi {}\", key);", false),
+            read(
+                "export const grants = 'device.midi purpose.midi'\n'unrelated';",
+                true
+            ),
+            key("purpose.midi")
+        );
+        // Rust's block comments nest on the way to a `+` too; TypeScript's
+        // end at the first `*/`.
+        assert_eq!(
+            read(
+                "fn grants() -> &'static str { \"device.midi purpose.midi\" /* a /* b */ + x */ }",
+                false
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "const g = 'device.midi purpose.midi' /* a /* b */ + '-v2';",
+                true
+            ),
             None
+        );
+        // A line terminator inside a comment, or any ECMAScript line
+        // terminator, ends the statement too.
+        assert_eq!(
+            read(
+                "export const grants = 'device.midi purpose.midi' /*\n*/ 'x';",
+                true
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "export const grants = 'device.midi purpose.midi'\u{2028}'x';",
+                true
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "export const grants = 'device.midi purpose.midi' /* a */ 'x';",
+                true
+            ),
+            None
+        );
+        // A built line beside a written one, in another literal or the same,
+        // leaves the written one's key.
+        assert_eq!(
+            read(
+                "const g = 'device.midi purpose.midi\\ndevice.midi ' + name;",
+                true
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "const shown = 'device.midi ' + state;\nexport const grants = 'device.midi purpose.midi';",
+                true
+            ),
+            key("purpose.midi")
+        );
+        // The `+` is read past a comment, so one in a comment alone is no join.
+        assert_eq!(
+            read(
+                "export const grants = 'device.midi purpose.midi'; // + more\nconst n = 1;",
+                true
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "const g = ['device.midi purpose.midi', 'secret.keep k'];",
+                true
+            ),
+            key("purpose.midi")
+        );
+        // A macro that builds no string leaves its argument as written.
+        assert_eq!(
+            read(
+                "fn grants() -> &'static str { trim!(\"device.midi purpose.midi\") }",
+                false
+            ),
+            key("purpose.midi")
         );
     }
 
@@ -336,11 +557,39 @@ mod tests {
                 "const R: &str = r\"/*\"; const G: &str = \"device.midi purpose.midi\";",
                 false,
             ),
+            (
+                "const R: &CStr = cr#\"a /* b\"#; const G: &str = \"device.midi purpose.midi\";",
+                false,
+            ),
+            // A regex straight after a control word's condition, where a `/`
+            // after any other `)` divides.
+            (
+                "if (x) /[/*]/.test(s); export const grants = 'device.midi purpose.midi'; // */",
+                true,
+            ),
+            (
+                "while (ok(x)) /\\/*/.exec(s); export const grants = 'device.midi purpose.midi'; // */",
+                true,
+            ),
             ("const s = 'unterminated", true),
             ("/* never closed", true),
         ] {
             assert_eq!(read(source, typescript), None, "{source}");
         }
+        assert_eq!(
+            read(
+                "const h = (a + b) / 2; export const grants = 'device.midi purpose.midi';",
+                true
+            ),
+            key("purpose.midi")
+        );
+        assert_eq!(
+            read(
+                "if (x) { y = (a) / 2 } export const grants = 'device.midi purpose.midi';",
+                true
+            ),
+            key("purpose.midi")
+        );
     }
 
     #[test]

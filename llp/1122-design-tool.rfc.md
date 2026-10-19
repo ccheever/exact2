@@ -1248,3 +1248,188 @@ T2c went before T2b's JS half (the lead's order, 2026-10-17).
 | A motion edit rebuilds | **Met**: "Rebuilds" before the gesture, no scrub, Apply only. |
 | Icons read only | **Met**: the clone's 64 icons, listed with their sources. |
 | theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool.test.mjs). |
+
+### T3, components (step 1 `4600797f5`, `fcfca3753`, `80544178c`, `5684f39d3`, `a8cfb59f7`, `18bf8d9d8`; steps 2-3 `a8c3a089a`, `31290cd65`, `ed742c171`, `5dc1d9dc4`; step 4 `212c41b73`, `8e20080a6`, `b372bf692`, `f45cc65ed`, `8209bcef9`; optional *1.11* rung `param`)
+
+- **The param rung** (D6, step 1, the server's join): a row the node itself sets to one component
+  param joins as `{rung: "param", param, short, token?, modes}`. `token` is the token the param
+  aliases directly (its value as the app has it, the line's or the default, when that names one
+  token, a role override by any spelling of its role; none for a param with `when` lines). The
+  server reads the app's components by `describe` when its files change, for a new plan, and
+  after a failed read. A row's names and text, in `selection`, `selected` and a held state's rows,
+  name a param in full, never by the IR token a plan names it by (`param.f<hash>.…`), also inside a
+  synthetic token's expression or the custom property a JS page writes for it, and in a plan
+  reply's `changed` (a held proposal, a `changed` event).
+- **The component panel** (D7, step 2; `components.ts`): every component with params, a native
+  view's declared in the design (`app.tamber#Name`) too, by group and priority (3 behind "more"),
+  each param with its declared control. `control=token` (the default), and every kind the dials
+  have no control for, is a field for a token or a literal; a duration's slider or stepper writes
+  ms; an icon param shows its sources. An edit is `set-param`, proposed with its chip, scrubbed
+  when live; a duration or easing param rebuilds. A set param says so, with Reset (`unset-param`,
+  one undo), and a literal that no longer follows the tokens its default reads is marked pinned.
+  The panel is the app design's: it shows while that is open.
+- **The param as the default rung** (step 3): a selected row that reads a param opens the param in
+  the branch editor on the branch that won for the copy, its edit `set-param`, its typed fields and
+  Only this mode as a token's (a param's first `when` line writes its own line first, in the one
+  reviewed transaction, which has no scrub). The token it aliases is offered beside it, never the
+  default. A param whose value is an expression offers its inputs there (Follows / Pin).
+- **Re-scope** (step 4; `rescope.ts`): the last edit of a param whose value there aliases one token
+  offers "Apply to the token … instead"; the last edit of a token one param aliases there offers
+  "Apply to … instead". One transaction: the edit's inverse, then the same value at the other rung,
+  on the same `when`; the other rung's value is the one the moved line's copies show (its most
+  specific `when` the edit's holds). It is worked out from the revision the edit was reviewed on,
+  and it `requires` every file it read, so another write, a hand edit or a component's source
+  changed since refuses it, and a refusal withdraws the offer. It is a write of its own: one undo
+  takes back the move, a second the edit. A redo offers none.
+- **The workbench** (D7) in T3 is the component panel and the canvas with the component's
+  instances outlined (theme2's 10:36 ruling). A preview screen of one component alone needs a host
+  route that renders it, which stage 12's component library brings: it moves there.
+- **Known limits:**
+  - a param's first `when` line (two operations) offers no re-scope;
+  - a `when` of the other rung that only partly overlaps the edited line's (it covers some of its
+    copies, not all) does not count: the move takes the most specific `when` that covers the
+    edited line, else the unconditional value, and two equally specific ones offer no move;
+  - a loop through another token (`radius.alias = radius.md`, then the param set to `radius.alias`
+    and moved to `radius.md`) is refused by the server rather than foreseen;
+  - promote a row to a param and detach a param to a template wait for T5's `set-row`;
+  - the clone declares no native component, so a native's params in the panel are shown by the
+    stub's `MapCard` only.
+
+### T3's gate: met (2026-10-18; the run is `~/x2theme/t3-gate-run.txt`)
+
+On a fresh copy of the clone (`dt3-gate`, its main `f473895` with a `PostButton.fade` duration param
+added).
+
+| Gate line | Result |
+|---|---|
+| `PostButton`'s params appear as declared | **Met**: Fill (a select of `primary_500`, `contrast_900`, `positive_500`), Height (a slider, 24px – 48px · step 1px) and Fade (a field), in their groups, with Controls and Drawer listed beside it. |
+| A param edit re-scoped to the token it aliases is one transaction and one undo | **Met** on the JS loop, the wasm loop and with the iOS simulator's and the Mac's builds attached: `PostButton.fill = contrast_900`, moved, wrote `primary_500 = contrast_900` and dropped the param's line in one write. One undo gave the param edit's bytes back; a second gave the original. |
+| A duration param's chip says "rebuilds" | **Met**: `PostButton.fade` to 300ms says Rebuilds, with Scrub disabled. |
+| (review2) Reset restores the file byte for byte in one undo | **Met**: `Controls.hit`'s line, after a Keep, went with Reset; one undo put it back byte for byte. |
+| (review2) A native-declared component's params | The clone declares none: the stub's `MapCard` (`app.tamber#MapCard`) shows them (contract tests). |
+| A live param scrubbed on the web and the natives | **Met**: `Controls.hit` (the post action buttons' padding) 5 → 10px, the frame's padding following and every build's design digest the served one: the JS loop, the wasm loop, the iOS simulator, the Mac. Keep wrote one line. |
+| The param rung from the canvas | **Met** on the JS and wasm loops and with the iOS simulator attached: a post's reply button inspected offers "Edit Controls.hit" on its padding rows and "Edit Controls.radius" on its radius rows. |
+
+
+
+### T4, states (step 1 and step 2 `6fbc0264fa` with README `9d488627c5` and fixes `e7ccae826d`; the hold replay `2ca697fc0b`, `86bcbefcbc`, `28ce115532`, `7df268ad8c`; the pages' glue wait `49af400183`, `a747b9e2ee`, `fbbba0cf0d` and the JS page's glue load `82c4602f66`, `479a5fa29e`, `236b0186ed`, `902c31665a`; optional *1.12* rung `state`)
+
+- **Held states** (D8, step 1; `holds.ts`): Pressed, Hovered or Focused holds that state on the
+  selected copy (`hold`), one a build, a new one replacing the last; Let go ends it. The status
+  says Holding until the build's `held` report on that hold frame, then Held (the server forgets a
+  report at each hold frame, so a listing's `held` is its hold's); where it is (here, the press's
+  node the build names, `held.site`, or another node of the build, which a hold here replaces);
+  why the last one went (real input, disabled, no single view there, another hold, its client
+  gone, no single site in a new plan) and a state a build cannot hold. While it is held here the
+  selection's page is asked again for the held look's rows (an inspect refresh, once a hold; a
+  selection's held report counts only as the answer to the hold it was asked under), each row at
+  its part's place; a host that reports none, or not their tokens, says provenance incomplete.
+- **The state rung** (D6, step 2, the server's join): a style's `:active` part row (the map's
+  `state` and `at`, origin `class:<Name>`) joins as `{rung: "state", style, state, row, file,
+  text?, token?}`, the default: the style by the name its file declares it with (the compiler may
+  rename a second `style Card`), the row as its author wrote it, the style's file relative to the
+  app, the value as written (only a whole one literal), and the token its whole value is, offered
+  beside it. A held row carries it where the build names the held node; a style outside the app's
+  own Contract sources (a package's, vendored or linked) is read-only; an inline `:active` row on a
+  node points at `set-row` (T5). The editor starts from the value as written, its draft bound to
+  the copy and the files' digests it was opened on (a write since, or a stale or read-only copy,
+  refuses Apply until the copy is selected and the row opened again); `set-state` rebuilds.
+- **The hold replay** (stage 8 E, fixed here by the lead's 18:30): after a new plan, a held site
+  corresponds by its place and call-site chain: the same calls take the same chain; as many copies
+  whose calls moved go by rank where each file's calls moved as one edit moves them; else the
+  unmoved kept and the rest so among themselves; copies added or removed keep the unmoved chain;
+  else, or on a throw, cleared with the diagnostic.
+- **The workbench's state parts** (moved here from stage 8's gate): a selected component's
+  `:active` part rows, each with its state rung, are the workbench's state parts; T3's component
+  panel lists params, not state parts.
+- **Known limits:**
+  - only `:active` parts carry their place in the map: a `:hover`, `:focus-visible`, `:disabled` or
+    `:checked` part's rows are offered no state rung, so a held hover or focus look is read-only (a
+    gap against D8: QUEUE, the compiler to record `at` for every state part);
+  - the replay goes by places alone (the map has no other identity of a call or an element): a
+    reorder that keeps its spacing, a call or element moved onto another's old place, or a copy
+    added or removed while one keeps its line can carry the hold to the other copy (the host lets
+    it go, `gone`, where the copies' instance paths differ); a slot filled at two outlets is one
+    copy, its outlets told apart by their order;
+  - a hold sent while a page's input glue loads (a page reloading after a rebuild) waits for the
+    glue to say it has (`exact-hold`) up to 60 s, then says it is not loaded. The gate found two
+    causes, both fixed above: the pages' fixed 2 s wait, and the JS page loading its glue only after
+    an animation frame, which a canvas scrolled out of view in the tool never gets (it now loads a
+    second on as well). The wasm shell's own activation still waits on frames (QUEUE), and the
+    agents' own `holdState` waits are still 2 s;
+  - a page that answers a refresh with no selection leaves "asked" said until the next selection
+    (data sources have no timers); a hold ended because its client went says nothing (the server
+    sends no reason);
+  - before the server's first file read the join has no own-sources list and uses the path rule
+    (the write refuses a vendored file regardless).
+
+### T4's gate (2026-10-18; the run is `~/x2theme/t4-gate-run.txt`)
+
+On a copy of the clone (`dt4-gate`, its main `95d7d41` with two Post buttons in the home header,
+the second disabled).
+
+| Gate line | Result |
+|---|---|
+| Hold pressed on the Post button shows its `:active` look with no touch | **Met** on the JS loop and the wasm loop (#0059d6, "Held pressed."), the iOS simulator (#0059d6 against #006aff at rest) and the Mac (held `active` on the wire; its screen capture was covered on the shared desktop, the look met in stage 8's gate). |
+| Real input on it lets the hold go | **Met** on the JS and wasm loops ("real input on the node let it go"). |
+| The disabled Post button refuses a hold | **Met** on the JS and wasm loops, the iOS simulator and the Mac (`disabled`). |
+| Hovered: held where a pointer is, unsupported where none | **Met**: held on the Mac; the iOS simulator answers `unsupported` ("this host holds no hover"), to the owning client only. |
+| Inspect on the held node shows the state part's rows | **Met** on the JS loop with stage 9 E: the held row ":active background-color" at its part (`screens.contract:582`) with its token, no provenance incomplete, "Edit PostButton :active background-color" on it. |
+| The workbench's state parts, editable through `set-state` | **Met**: the selection's `:active` row offers the state rung (the default) and "Edit the token primary_600 instead"; the field starts at `primary_600`; Rebuilds; Apply wrote one line (`screens.contract:582`, `primary_600` → `positive_500`). |
+| After the rebuild the hold is held again | **Met** on the JS loop (00:49Z, at main with the glue fixes): the server re-sent it at the corresponding copy ("Holding pressed.", where before the replay fix every PostButton cleared), the reloaded page held it 2 s later ("Held pressed.") with the canvas out of view, and in view its ground was the new `:active` value, `positive_500`, with no touch. **Met** on the wasm loop too (01:17Z, in a quiet window): Held again after its restart, `positive_500` in view. |
+
+### T5, template and style rungs (step 1 `1c6434a090`, `ee2d85d546`; step 2 `f0f1917a25`; step 3 `95332bb9de`; the map's `layout` `7553483dd7`; fixes `c74d313a22`, `7eec1a9a90`, `fb943c06df`, `47d74f03b7`, `e1d7526acc`, `7311d0f039`; optional *1.12* fields)
+
+- **The template and style rungs** (D6, step 1, the server's join): a row its author wrote, where
+  the map places it (D1's `at` and `attr`), answers the template rung `{file, at, sha256, row,
+  state?, instances, text, component?, token?}` on the node or the style rung `{style, row, file,
+  text, token?}` in its class's `style` by the name its file declares, the default unless the row
+  reads a param (whose rung then carries its `template` address, for a detach); the token its
+  whole value is offered beside. `row` is the attribute as written (a shorthand's whole for a
+  longhand). Only a plain value is offered, read at the map's UTF-8 byte column as Contract writes
+  one (`plainAt`: a string, its escapes decoded as the lexer does, a bare `#…` colour, a number,
+  in any parentheses, then a comment, another attribute or a positional argument); an expression
+  or a name in scope, a file outside the app's own sources, a conditional class and a layout row
+  (the map's `layout`, D14, set-row's own test: `paint_row`, now the library's) are refused with a
+  reason, a whole token still offered. A state row written under the node takes the template rung
+  with `state`, held ones too where the build names the held node; `instances` counts call-site
+  chains (a `button "…"`'s label is no copy).
+- **The tool's editor** (step 2): "Edit this template · N instances" / "Edit style X" as the
+  bordered default, a field from the value as written, proposed as `set-row` (Rebuilds, no scrub),
+  its draft bound to the copy (with the build's facts) and the files' digests, and refused at
+  propose when the files moved since the copy was selected; the server's refusals (a moved file, a
+  compile failure with its diagnostics, D14) shown, nothing written.
+- **Moves** (step 3, D6's enumerated set; `moves.ts`): a template row to a new param (`add-param`
+  in the template's file, its kind the row's, its default the value as written) or, an
+  unconditional value, a new token (`add-token`), the row reading it; a param row detached to its
+  template (the param's value written there; `remove-param` for it unless the server says another
+  row still reads it, and for each param it alone left read, as the compile names them; refused
+  where the design sets it or its default is an expression over another param). Each one
+  transaction, one undo; checked against the params read the ops were made from.
+- **Known limits:**
+  - a promotion's kind is read from the row's name (a colour row's, opacity's number, shadows,
+    `font-family`, durations, easings, else a length); a row whose value the server types
+    otherwise is refused by the server, not guessed again;
+  - a detach copies a token default as the token's name (the row then reads the token, D6's
+    "expressions are kept"), and refuses a default that is an expression over another param;
+  - before the server's first file read the join has no own-sources list and uses the path rule
+    (the server's write refuses a vendored file regardless);
+  - a positional argument written against the value with no space (`opacity=0.5("hi")`) reads as
+    an expression;
+  - a param colour on the JS page reads as a dynamic value (a CSS variable the page resolves), so
+    its row offers neither the param rung nor a detach there.
+
+### T5's gate (2026-10-19; the run is `~/x2theme/t5-gate-run.txt`)
+
+On a copy of the clone (`dt5-gate`, its main `95d7d41` with the header's right slot given a literal
+ground and the Post button a one-reader `corner` param).
+
+| Gate line | Result |
+|---|---|
+| A template colour edit writes one line and hot-reloads | **Met** on the JS loop: `#f1f3f5` → `#ffb3b3` at `home.contract:331` only, Rebuilds, the page rebuilt to that colour; one undo restored it. |
+| A stale source digest is refused | **Met**: the file edited after the copy was selected; the server refused (`tamber-contract-edit`: the file changed since line 331 was selected), nothing written. |
+| A candidate that fails to compile writes nothing | **Met**: `not-a-colour` refused with its diagnostic (`tamber-unknown-token`), the files unchanged. |
+| Promote to param and to token are each one transaction | **Met**: `drawerGround` (the param's line and the row reading it, one write, one undo); `gate.drawer` (`app.tamber`'s new token and the row naming it, two files, one write, one undo). |
+| A `class:` row edits the style in its own file | **Met**: the Post button's `color` row wrote `style PostButton`'s line in `screens.contract`; undone. |
+| (review2) Detach is one transaction, its closure listed | **Met**: `PostButton.corner` detached: its line removed and the row written `999px`, one write, one undo. |
+| (review2) A layout row is refused with D14's reason | **Met**: width, height, margins, paddings, alignment and font-weight rows each say D14's reason. |

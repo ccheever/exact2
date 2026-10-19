@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import {checkSteadyResidency} from '../../render/tests/residency.mjs';
-import { proof } from '../../proof.mjs';
+import { proof, proofSDK } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 import {residencyProbe, checkResidency, checkTextureFamily, bakedTexture} from '../../render/tests/residency.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -31,6 +31,7 @@ export function foxScreenshotPixels(image, screen, reply) {
   return foxPixels(image, screen, [reply.w, reply.h]);
 }
 
+export const proofData = ["logic/tests/tick60.json"];
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, host}) => {
   const probe = residencyProbe('fox.model',() => bakedTexture(import.meta.dir),'new.model');
   const server = host === 'web' ? Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request) {
@@ -39,7 +40,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
     const file = Bun.file(resolve(process.env.EXACT_WEB_DIST ?? resolve(import.meta.dir,'dist'),path==='/'?'index.html':path.slice(1)));
     const textureReply = await probe.textureResponse(path,file); if(textureReply) return textureReply;
     // The probe names gpu-glue's own functions; the web build minifies them (af5dfdf4).
-    if(path==='/gpu-glue.js') return new Response(await Bun.file(resolve(import.meta.dir,'../../../host/web/gpu-glue.js')).text()+probe.source,{headers:{'Content-Type':'text/javascript'}});
+    if(path==='/gpu-glue.js') return new Response(await Bun.file(resolve(proofSDK,'host/web/gpu-glue.js')).text()+probe.source,{headers:{'Content-Type':'text/javascript'}});
     return new Response(file);
   }}) : null;
   try {
@@ -115,7 +116,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
   check('skipped animation tick holds the composed charm', equal((await attached.layout('world:charm')).entity.world.position,last));
   await attached.screenshot(resolve(out,`fox-mirrored-skipped-${host}.png`));
   await attached.close();
-  const cli = spawn('bun',[resolve(import.meta.dir,'../../../scripts/agent.mjs'),host,'--json','tap play','state world:fox pose'],{env:process.env,stdio:['ignore','pipe','pipe']});
+  const cli = spawn('bun',[resolve(proofSDK,'scripts/agent.mjs'),host,'--json','tap play','state world:fox pose'],{env:process.env,stdio:['ignore','pipe','pipe']});
   let stdout='',stderr=''; cli.stdout.on('data',b=>stdout+=b); cli.stderr.on('data',b=>stderr+=b);
   const code=await new Promise((ok,reject)=>{cli.on('exit',ok);cli.on('error',reject);});
   const replies=stdout.trim().split('\n').filter(Boolean).map(line=>{try{return JSON.parse(line);}catch{return null;}});

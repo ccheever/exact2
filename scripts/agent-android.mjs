@@ -29,7 +29,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, buildBake, copyShaders, injectedProfiles, linuxBuild, resolveApp } from './app.mjs';
+import { HOST_DEV, buildBake, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 
@@ -135,12 +135,16 @@ const readerApk = (app) => resolve(READER, 'app/build', app.name, 'outputs/apk/r
 /** The reader carrier (LLP 1107 D1): install the APK and return what `androidDeploy` returns, with a process that
  * launches the app under a driver and relays the agent protocol's lines between its stdio and the app (`relay`).
  * The package is the app's id with the suffix the APK was built with (ORG_GRADLE_PROJECT_idSuffix, as the build
- * reads it). The app boots its own baked plan with its own assets, at the phone's size, in the phone's fonts: a
- * drive's `--plan`, `--world`, `--size` and launch URL do not reach it, and all but the size are refused. A dev
- * loop's `--url` does: the reader polls it (LLP 1122 D4), through `adb reverse` when it is this Mac's loopback. */
+ * reads it). The app boots its own baked plan with its own assets, at the phone's size, in the phone's fonts, or a
+ * drive's local `--plan`, pushed to the device and named by the launch extra `x_plan` (EXACT_PLAN, which the reader
+ * reads as the Linux host does). A drive's `--world`, `--size` and launch URL do not reach it, and all but the size
+ * are refused. A dev loop's `--url` does: the reader polls it (LLP 1122 D4), through `adb reverse` when it is this
+ * Mac's loopback. */
 function readerDeploy(app, apk, env) {
-  for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
+  for (const [name, flag] of [['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
     if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
+  if (env.EXACT_PLAN && (!existsSync(env.EXACT_PLAN) || URL.parse(env.EXACT_PLAN)?.protocol?.startsWith('http')))
+    throw new Error('android --reader: --plan is a local plan file, which the drive pushes to the phone');
   // A dev loop's URL (`--url`, LLP 1122 D4): the reader polls it, as the Linux display does, through
   // `adb reverse` when it is this Mac's loopback; a file path is no URL a phone reads.
   const devUrl = env.EXACT_DEV_PLAN ? URL.parse(env.EXACT_DEV_PLAN) : null;
@@ -154,13 +158,20 @@ function readerDeploy(app, apk, env) {
   };
   run(['install', '-r', apk], `install ${apk}`);
   run(['shell', `mkdir -p ${quote(dir)}`], 'prepare');
+  // The app reads the plan from the shell's directory, which it may enter but not list.
+  if (env.EXACT_PLAN) {
+    const plan = `${dir}/plan-${process.pid}.plan`;
+    run(['push', env.EXACT_PLAN, plan], 'push the plan');
+    run(['shell', `chmod 644 ${quote(plan)}`], 'chmod the plan');
+    env = { ...env, EXACT_PLAN: plan };
+  }
   if (devUrl && ['127.0.0.1', 'localhost', '[::1]'].includes(devUrl.hostname)) {
     const port = devUrl.port || (devUrl.protocol === 'https:' ? '443' : '80');
     run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
   }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN'));
+  // seed, the fetch faults), a pushed plan and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN' || k === 'EXACT_PLAN'));
   return {
     serial, dir, shot,
     spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
@@ -276,7 +287,7 @@ function buildApk(app, env, profile) {
     uses = bakedUses(resolve(app.target, ANDROID_TARGET, profile, 'build'), crate);
   } else {
     // JSON on stdout, for the crate's build-script output directory; the compiler's own messages still on stderr.
-    const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', profile, '-p', crate, '--target', ANDROID_TARGET, '--message-format=json-render-diagnostics'], { cwd: app.workspace ?? app.dir, env, stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 28 });
+    const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), ...wholeProgram('android', profile), '--profile', profile, '-p', crate, '--target', ANDROID_TARGET, '--message-format=json-render-diagnostics'], { cwd: app.workspace ?? app.dir, env, stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 28 });
     if (cargo.status !== 0) return null;
     uses = planUses(cargo.stdout.toString(), crate);
   }

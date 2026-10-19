@@ -15,4 +15,3 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 exact-markdown = { path = ".." }
-exact-kernel = { path = "../../kernel" }

@@ -392,6 +392,12 @@ pub(crate) fn projection_size(
             .and_then(|s| s.strip_prefix("symbol:"))
         {
             bytes = add_wire(bytes, exact_kernel::apple_symbol_name(role).len(), 6)?;
+            if let Some((d, view_box)) = crate::icon_path::commands(role) {
+                bytes = add_wire(bytes, d.len() + view_box.len() + 26, 6)?;
+            }
+            if node.symbol_color_said() {
+                bytes = add_wire(bytes, "symbolColorWritten".len() + 1, 6)?;
+            }
         }
         for id in node.style.mask.union(StyleMask::INHERITED).iter() {
             bytes = add_wire(bytes, id.name().len(), 6)?

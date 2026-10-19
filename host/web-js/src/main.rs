@@ -390,7 +390,7 @@ fn main() -> ExitCode {
             }
             Err(errors) => {
                 for e in errors {
-                    eprintln!("{e}");
+                    eprintln!("{e}{}", contract::excerpt(&e));
                 }
                 return ExitCode::from(1);
             }
@@ -448,8 +448,17 @@ fn main() -> ExitCode {
                 (None, true) => None,
             };
             let exports = contract_path.and_then(|p| contract::design_exports(&p));
-            if let Err(e) =
-                contract::typescript_exporting(&plan, exports.as_deref()).and_then(|d| {
+            // With the widget entries' refresh sources (LLP 1126 D2): the web
+            // draws no widget, but app.ts is one module for every host, and
+            // its `Sources` names each refresh.
+            let declared = match &app {
+                Some(app) => contract::snapshot::entries(std::path::Path::new(app))
+                    .and_then(|entries| contract::snapshot::source_plan(&entries, &plan)),
+                None => Ok(plan.clone()),
+            };
+            if let Err(e) = declared
+                .and_then(|declared| contract::typescript_exporting(&declared, exports.as_deref()))
+                .and_then(|d| {
                     std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
                 })
             {
@@ -504,6 +513,16 @@ fn main() -> ExitCode {
                         serde_json::json!(table).to_string(),
                     );
                 }
+            }
+            // A native module's names and extensions (modules.js): the build
+            // writes each extension's web implementation beside the app.
+            let _ = std::fs::remove_file(dir.join("modules.flag"));
+            if !plan.modules.is_empty() {
+                let sources: Vec<&str> = (plan.modules.iter())
+                    .map(|m| plan.str(plan.sources[m.source.0 as usize].name))
+                    .collect();
+                let flag = serde_json::json!({ "extensions": facts::extensions(&plan), "sources": sources });
+                let _ = std::fs::write(dir.join("modules.flag"), flag.to_string());
             }
             // `wakelock` (wakelock.js, LLP 1125 D11).
             let _ = std::fs::remove_file(dir.join("wakelock.flag"));

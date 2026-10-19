@@ -236,10 +236,34 @@ fn read(text: &Option<String>, which: &str) -> Result<Read, String> {
             return Err(format!("{which} declares `style {}` twice", style.name));
         }
         let mut last = style.span.line as usize;
+        let mut order = Vec::new();
         for a in &style.attrs {
-            let Some((state, row)) = contract_syntax::state::state_of(&a.name) else {
-                continue;
-            };
+            // A state part's row by its state; a style's own row (stage 9
+            // D2's `set-row` on a style) by no state: a paint row alone on
+            // its line, its value on that line, as `set-row` writes it. A
+            // layout row, a part's, or one sharing its line is code.
+            let (state, row) =
+                contract_syntax::state::state_of(&a.name).unwrap_or(("", a.name.as_str()));
+            if state.is_empty() {
+                // Every own row's place in the order, read as a row or not.
+                order.push(row.to_string());
+                // Alone on its line: nothing before its name, nothing but a
+                // comment after its value (a neighbour's continuation is
+                // the neighbour's).
+                let line = lines
+                    .get(a.span.line as usize - 1)
+                    .cloned()
+                    .unwrap_or_default();
+                let alone =
+                    crate::tamber_rows::value_range(&lines, a, "").is_ok_and(|(_, close)| {
+                        let before = line.get(..a.span.col as usize - 1).unwrap_or("x");
+                        let after = line[close..].trim();
+                        before.trim().is_empty() && (after.is_empty() || after.starts_with("//"))
+                    });
+                if !(crate::tamber_rows::paint_row(a) && alone) {
+                    continue;
+                }
+            }
             let at = a.span.line as usize - 1;
             let line = lines.get(at).cloned().unwrap_or_default();
             rows.push((
@@ -267,6 +291,11 @@ fn read(text: &Option<String>, which: &str) -> Result<Read, String> {
                 *l = comment(l);
             }
             last = last.max(end + 1);
+        }
+        // Its own rows' order stays the code's: which of two overlapping
+        // rows wins is no row's edit (`border-radius` and a corner's).
+        if !order.is_empty() {
+            lines.push(format!("\u{0}order {} {}", style.name, order.join(" ")));
         }
         // Its state parts' headers, inside the style only.
         for l in &mut lines[style.span.line as usize..last.min(text.split('\n').count())] {
@@ -301,7 +330,15 @@ struct StateEdit {
 impl StateEdit {
     fn json(&self) -> Value {
         let text = |l: &Option<Lit>| l.as_ref().map_or(Value::Null, |l| json!(l.text()));
-        json!({"what": "state", "name": self.key.0, "state": self.key.1, "row": self.key.2, "when": [], "before": text(&self.before), "after": text(&self.after)})
+        match self.key.1.is_empty() {
+            // A style's own row (stage 9 D2).
+            true => {
+                json!({"what": "row", "name": self.key.0, "row": self.key.2, "when": [], "before": text(&self.before), "after": text(&self.after)})
+            }
+            false => {
+                json!({"what": "state", "name": self.key.0, "state": self.key.1, "row": self.key.2, "when": [], "before": text(&self.before), "after": text(&self.after)})
+            }
+        }
     }
 }
 
@@ -338,7 +375,8 @@ fn state_edits(a: &[(Key, Lit)], b: &[(Key, Lit)]) -> Vec<StateEdit> {
     };
     let mut blocks: Vec<(&str, &str)> = Vec::new();
     for ((s, st, r), _) in a {
-        if border(r) && !blocks.contains(&(s.as_str(), st.as_str())) {
+        // A state part's block; a style's own rows' order is code (read).
+        if !st.is_empty() && border(r) && !blocks.contains(&(s.as_str(), st.as_str())) {
             blocks.push((s, st));
         }
     }
@@ -455,13 +493,14 @@ fn revert_contract(
             |why: &str, now: Value| json!({"file": file, "edit": e, "now": now, "why": why});
         if edit.order {
             conflicts.push(refuse(
-                "an order of border rows is not what set-state writes: put them back by hand",
+                "an order of border rows is not what set-state or set-row writes: put them back by hand",
                 Value::Null,
             ));
             continue;
         }
         let shown = now.as_ref().map_or(Value::Null, |l| json!(l.text()));
         let spread = today.spread.contains(k);
+        let own = k.1.is_empty();
         if now == edit.before {
             already.push(json!({"file": file, "edit": e}));
         } else if !styles.contains(&k.0) {
@@ -476,10 +515,20 @@ fn revert_contract(
                 "the row is written over more than one line: edit it by hand",
                 shown,
             ));
+        } else if own && (edit.before.is_none() || now.is_none()) {
+            // `set-row` edits a row a style writes: it adds none and
+            // takes none away.
+            conflicts.push(refuse(
+                match edit.before {
+                    None => "the commit added the style's row; set-row takes none away: remove it by hand",
+                    Some(_) => "the commit removed the style's row; set-row adds none: put it back by hand",
+                },
+                shown,
+            ));
         } else if let Some(was) = &edit.before {
             let Some(value) = was.value() else {
                 conflicts.push(refuse(
-                    "its value before is no string or number, which set-state writes",
+                    "its value before is no string or number, which set-state and set-row write",
                     shown,
                 ));
                 continue;
@@ -506,7 +555,10 @@ fn revert_contract(
                 conflicts.push(refuse("put back last, it would paint over the block's other border rows: restore it by hand", shown));
                 continue;
             }
-            ops.push(json!({"op": "set-state", "style": k.0, "state": k.1, "row": k.2, "value": value, "file": file}));
+            ops.push(match own {
+                true => json!({"op": "set-row", "style": k.0, "row": k.2, "value": value, "file": file}),
+                false => json!({"op": "set-state", "style": k.0, "state": k.1, "row": k.2, "value": value, "file": file}),
+            });
         } else {
             unsets.push((k.clone(), e, shown));
         }

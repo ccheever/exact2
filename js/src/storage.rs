@@ -74,18 +74,25 @@ impl Session {
 
     /// Activate app directories after the native module has received their
     /// paths, but before storage is materialized in JavaScript.
-    pub fn configure(&self, paths: &Directories) -> Result<(), String> {
+    pub fn configure(&self, paths: &Directories, read_only: bool) -> Result<(), String> {
         for path in [&paths.data, &paths.cache, &paths.temporary] {
             if !path.is_absolute() {
                 return Err("app storage roots must be absolute".into());
             }
-            std::fs::create_dir_all(path).map_err(|e| format!("app storage: {e}"))?;
+            if !read_only {
+                std::fs::create_dir_all(path).map_err(|e| format!("app storage: {e}"))?;
+            }
         }
+        #[cfg(unix)]
+        let directories = if read_only {
+            AppDirectories::snapshot(&paths.data, &paths.cache, &paths.temporary)
+        } else {
+            AppDirectories::new(&paths.data, &paths.cache, &paths.temporary)
+        };
+        #[cfg(not(unix))]
+        let directories = AppDirectories::new(&paths.data, &paths.cache, &paths.temporary);
         self.context
-            .set_app_directories(
-                AppDirectories::new(&paths.data, &paths.cache, &paths.temporary)
-                    .map_err(|e| e.to_string())?,
-            )
+            .set_app_directories(directories.map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())
     }
 
@@ -195,6 +202,24 @@ pub(crate) fn refusal(live: bool, reaches: bool, agent: bool) -> Result<Option<S
     Ok((!reaches).then(|| if agent { "agent" } else { "unsupported" }.into()))
 }
 
+/// `storage.fs.recentDocuments()` (`ask` empty) and `forgetDocument(path)`
+/// (`ask` is `forget <path>`), for the session `owner` names when the grants
+/// keep documents (LLP 1069.010.000 D5): the list as JSON, or nothing.
+pub(crate) fn kept(owner: Option<u64>, ask: &str) -> Result<Option<String>, String> {
+    use exact_data::documents::kept;
+    let owner =
+        owner.ok_or("storage: recentDocuments and forgetDocument need the doc.keep grant")?;
+    match ask.strip_prefix("forget ") {
+        Some(path) => kept::forget(owner, path)
+            .map(|()| None)
+            .map_err(|_| format!("document ENOENT: {path} is not a document this app keeps")),
+        // A session that keeps nothing (no store) has kept nothing.
+        None => Ok(Some(
+            kept::list(owner).map_or_else(|| "[]".into(), |list| list.to_string()),
+        )),
+    }
+}
+
 /// The documents a host minted ([`exact_data::documents`]), as ibex2's
 /// table: the one a Rust source's storage requests resolve through.
 fn documents(path: &str, owner: u64) -> Result<DocumentLease, DocumentError> {
@@ -206,12 +231,12 @@ fn documents(path: &str, owner: u64) -> Result<DocumentLease, DocumentError> {
         Resolved::Real {
             directory,
             path,
-            selected_file: true,
-        } => DocumentLease::selected_file(directory, path, guard),
+            selected_file: Some(name),
+        } => DocumentLease::selected_file_named(directory, path, name, guard),
         Resolved::Real {
             directory,
             path,
-            selected_file: false,
+            selected_file: None,
         } => DocumentLease::directory(directory, path, guard),
     }
 }

@@ -3,9 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
+import { capturedLockDrift, gameDefaults, gameShells, prepareGame } from './app/shells.mjs';
 import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
-import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
+import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scripts/app.mjs';
+import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
  * (what `use exact_game::*` brings in) and the template's own. */
@@ -16,6 +17,29 @@ export function takenTypes(directory = import.meta.dir) {
   const items = text => [...text.matchAll(/^\s*pub (?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
   const template = [...read(resolve(directory, 'new/logic/src/lib.rs')).matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
   return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame')]);
+}
+/** The `--assets` starter: a model under `art/`, shown by the scene, and hostless
+ * tests that bake it in memory (`sim_with_art!`), one of them saving and restoring
+ * the world with the model in it. */
+function withModel(destination, directory) {
+  cpSync(resolve(directory, 'new-assets'), destination, {recursive:true});
+  const edit = (file, pairs) => {
+    const path = resolve(destination, file);
+    let text = readFileSync(path, 'utf8');
+    for (const [anchor, replacement] of pairs) {
+      if (!text.includes(anchor)) throw new Error(`${file}: the template no longer holds ${JSON.stringify(anchor)}`);
+      text = text.replace(anchor, replacement);
+    }
+    writeFileSync(path, text);
+  };
+  edit('logic/src/lib.rs', [
+    ['    const HZ: u32 = 120;\n', '    const HZ: u32 = 120;\n    const ASSETS: &\'static [&\'static str] = &["crate.model"];\n'],
+    ['        w.publish("total", ', '        w.spawn_named(\n            "crate",\n            (Transform::at(-4.0, 0.5, -3.0), Mesh::asset("crate.model")),\n        );\n        w.publish("total", '],
+  ]);
+  edit('logic/tests/sim.rs', [
+    ['/// The world every test here starts from.\nfn start(options: Options) -> Sim<SmallGame> {\n    Sim::new(options).unwrap()\n}',
+      '/// The world every test here starts from, with art/ baked in memory (tests/model.rs).\nfn start(options: Options) -> Sim<SmallGame> {\n    exact_game::sim_with_art!(options).unwrap()\n}'],
+  ]);
 }
 export function createGame(destination, directory = import.meta.dir, options = {}) {
   const local = destination === '.' || /[\\/]/.test(destination ?? '');
@@ -30,6 +54,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   destination = local ? resolve(destination) : resolve(directory, 'games', name);
   if (existsSync(destination) && readdirSync(destination).length) throw new Error(`Game already exists: ${destination}`);
   cpSync(resolve(directory, 'new'), destination, {recursive:true});
+  if (options.assets === true) withModel(destination, directory);
   destination = realpathSync(destination);
   directory = realpathSync(directory);
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
@@ -46,7 +71,8 @@ export function createGame(destination, directory = import.meta.dir, options = {
       .replaceAll('bun /path/to/exact2/game/prove.mjs', `bun ${script('prove.mjs', destination)}`)
       .replaceAll('bun /path/to/exact2/game/app/shells.mjs', `bun ${script('app/shells.mjs', destination)}`));
   }
-  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.shells/\n/app.contract.d.ts\n');
+  // assets/ and its manifest are the bake's outputs from art/, written by test-rust and every build.
+  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.exact/\n/.shells/\n/app.contract.d.ts\n/assets/\n/.baked-assets.json\n');
   const proofPath = resolve(destination,'proof.mjs');
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
   // Identity derives from the directory and Game::ID; app.json holds authored keys only.
@@ -72,6 +98,10 @@ export function createGame(destination, directory = import.meta.dir, options = {
   }
   if (Object.keys(manifest.game).length) writeFileSync(resolve(destination, 'app.json'), JSON.stringify(manifest, null, 2) + "\n");
 
+  // Resolve against this SDK now, before the first locked test or proof.
+  // No captured lock is needed unless the author adds dependencies.
+  prepareGame(destination, gameDefaults(destination).game, directory);
+
   const argument = local ? quote(destination === process.cwd() ? '.' : destination) : name;
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
   // A game outside this checkout gets what an app does (LLP 1086; the
@@ -81,7 +111,6 @@ export function createGame(destination, directory = import.meta.dir, options = {
     writeFileSync(resolve(destination, 'AGENTS.md'), agentNotes(destination, name, {game:true}));
     linkClaude(destination);
     editorTasks(destination, {game:true});
-    writeFileSync(resolve(destination, '.gitignore'), `${readFileSync(resolve(destination, '.gitignore'), 'utf8')}/.exact/\n`);
     return `Created ${destination}
   cd ${quote(destination)}
   bun exact.mjs test-rust     the hostless Rust tests (logic/tests) and determinism lints
@@ -90,7 +119,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
   bun exact.mjs windows --run build and launch on Windows
-  bun exact.mjs prove         the proof's first baseline (pins.json)`;
+  bun exact.mjs prove         the proof's first baseline (pins.json), once the game plays`;
   }
   return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
   bun ${proof} web --screenshot-only`;
@@ -140,18 +169,28 @@ export function createApp(destination, options = {}) {
   }
   // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
   const wired = wireSnapback(dir, { build: options.snapback.build ?? true, port, online: options.snapback.online ?? false });
-  const roster = seedRoster(dir);
-  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
+  try {
+    const roster = seedRoster(dir);
+    return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
-const rosterRule = /^[ \t]+insert[ \t]*<-[ \t]*deny[ \t]*(?:--[^\n]*)?$/m;
+const rosterRule = body => {
+  const insert = /^[ \t]+insert[ \t]*<-[ \t]*([^\n]*)/m.exec(body);
+  return !insert || insert[1].replace(/--.*$/, '').trim() === 'deny';
+};
+const rosterTables = schema => [...schema.replace(/\r\n?/g, '\n').replace(/^[ \t]*--[^\n]*$/gm, '').concat('\n')
+  .matchAll(/^table[ \t]+(\w+):[ \t]*(?:--[^\n]*)?\n((?:[ \t]+[^\n]*\n|\n)*)/gm)]
+  .filter(m => rosterRule(m[2]));
 
 /** Development fixtures are examples: schema types cannot determine an app's intended privileges. */
 export function rosterSeeds(schema) {
   schema = schema.replace(/\r\n?/g, '\n').replace(/^[ \t]*--[^\n]*$/gm, '') + '\n';
   const persona = /^use personas\s+([\w-]+)/m.exec(schema)?.[1];
-  const tables = [...schema.matchAll(/^table[ \t]+(\w+):[ \t]*(?:--[^\n]*)?\n((?:[ \t]+[^\n]*\n|\n)*)/gm)]
-    .filter(m => rosterRule.test(m[2]));
+  const tables = rosterTables(schema);
   return tables.map(([, table, body]) => {
     let bits = BigInt(`0x${createHash('sha256').update(table).digest('hex').slice(0,32)}`), id = '';
     const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -176,7 +215,7 @@ export function rosterSeeds(schema) {
 
 function seedRoster(dir) {
   const schema = readFileSync(resolve(dir, '../snapback/schema.q'), 'utf8');
-  if (!rosterRule.test(schema.replace(/\r\n?/g, '\n'))) return false;
+  if (!rosterTables(schema).length) return false;
   const fixture = resolve(dir, '../seed.json');
   const rows = existsSync(fixture) ? JSON.parse(readFileSync(fixture, 'utf8')) : rosterSeeds(schema);
   if (!Array.isArray(rows) || rows.some(r => typeof r?.table !== 'string' || !r.row || Array.isArray(r.row) || typeof r.row !== 'object')) throw new Error('backend seed.json must be a list of {table,row}');
@@ -601,11 +640,10 @@ exact-js-bake = ${dep('js/bake')}
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
         .placed(TYPESCRIPT_PLACEMENT)
 }
@@ -830,34 +868,20 @@ exact-js = ${dep('apple', 'js')}
 [build-dependencies]
 exact-js-bake = ${dep('apple', 'js/bake')}
 `,
-    'apple/build.rs': `fn main() {
-    let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("ios") => "ios",
-        _ => "macos",
-    };
-    exact_js_bake::build(std::path::Path::new(".."), platform).unwrap_or_else(|error| {
-        // What the bake found (tsc's and the compiler's diagnostics), as it is: no panic around it.
-        eprintln!("{error}");
-        std::process::exit(1);
-    });
-}
-`,
+    'apple/build.rs': APPLE_BUILD_SCRIPT,
     'apple/src/lib.rs': `//! ${title} on Apple: the Contract UI and the TypeScript data module.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
-const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
         .placed(TYPESCRIPT_PLACEMENT)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
 include!(concat!(env!("OUT_DIR"), "/linked.rs"));
-// The host app.json's deploy.store names: with an update store, signed updates.
+// The host app.json's deploy.store names (with an update store, signed updates), and the plan it boots.
 include!(concat!(env!("OUT_DIR"), "/host.rs"));
 `,
     ...linuxCrate(dir, name, title),
@@ -982,10 +1006,11 @@ checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
 pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
-the only required reading (LLP 1115 D7). When a name is in question, \`bun exact.mjs contract
-vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
-\`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
+the only required reading (LLP 1115 D7). \`bun exact.mjs contract vocab <name>\` answers a
+name (none: the card, ${doc('card.md')}); \`bun exact.mjs docs <heading words>\` a guide's
+section. Run \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+\`bun exact.mjs update\` refreshes files; \`bun exact.mjs lock\` repairs Cargo lock drift.
 \`bun exact.mjs update --without linux\` stops shipping Linux.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
@@ -1015,13 +1040,15 @@ the hosts under \`.shells/\` (ignored; never edit it), and so does \`bun exact.m
 run that once before \`cargo\` in \`render/\` or a render example, whose workspace it is. The game uses the exact2 checkout
 at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
-Read before writing code:
+Look things up in this order before reading engine source:
 
-- ${sdk('game/README.md')}: the game target — the programming model, input, saves, determinism, the proof.
-- ${sdk('game/engine/README.md')}: the engine's API.
-- ${doc('contract-for-agents.md')}: Contract, for the menus and HUD.
-- ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
-- ${doc('contract-grammar.md')}: exact forms, built-in functions, events (keys at a game's canvas too).
+- \`bun exact.mjs game vocab <name>\`: a component's fields and evaluated defaults, a \`World\` verb or a method, with its recipe (no name lists them all).
+- ${sdk('game/recipes/README.md')}: runnable recipes by task (cameras, pickups, emitters, sounds, saves, art export).
+- ${sdk('game/names.md')}: names from three.js, Unity and Godot, and what they are here.
+- ${sdk('game/README.md')}, by section: "The programming model", "Proof pins", "The agent's interface", "Determinism — the contract", "Assets, animation and placed UI".
+- ${sdk('game/engine/README.md')}: the engine's reference (borrowing, registration, saves and assets).
+- ${doc('contract-for-agents.md')}: Contract, for the menus and HUD; ${doc('contract-grammar.md')} for exact forms and events (keys at a game's canvas too).
+- ${doc('game-pitfalls.md')}: verified footguns in games, symptom → cause → fix (search it; ${doc('agent-pitfalls.md')} holds Contract's).
 
 Commands, from this directory (\`exact.mjs\` runs from any other too, and finds a file
 you name where you are, else here):
@@ -1037,16 +1064,20 @@ you name where you are, else here):
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
 | \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
-| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
+| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it. The baseline is a release step for a game that already plays, not part of the loop: it builds Linux and web in release, three simulation modes each, and takes many minutes cold; nothing before it waits on it |
 | \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block, and says when \`Cargo.lock\` needs \`lock\` |
 | \`bun exact.mjs lock\` | when a build says exact2 moved since the game's \`Cargo.lock\` was captured, or after adding a dependency: fetches (the network), resolves again and prints what changed; builds never change the lock |
 | \`bun exact.mjs shells\` | write \`.shells/\`, the generated workspace a crate here names, without a build (\`cargo run --example\` in \`render/\` needs it) |
 | app.json \`"commands": {"replay": ["bun", "tools/replay.mjs"]}\` | the game's own verbs: \`bun exact.mjs replay web\` runs \`bun tools/replay.mjs web\` here |
 
-The loop: \`test-rust\` while tuning gameplay, \`contract build --json\` until it prints
-\`[]\`, \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
-\`proof.mjs\` asserts the starter's gameplay (its beacons, KeyE): rewrite it when you
-change \`Options\` or the scene, before the first \`prove\`.
+The loop: \`test-rust\` while tuning gameplay (it makes a new \`logic/tests/*.rs\` a target),
+\`contract build --json\` until it prints \`[]\`, \`test web\`, look at it with
+\`agent web … screenshot\`, then the native hosts. A hostless test of a world with models
+builds it with \`exact_game::sim_with_art!(Options::default())\`, which bakes \`art/\` in memory.
+\`proof.mjs\` checks engine facts, then one block headed \`// starter: replace these with
+your game's checks\`: replace that block. A proof script under \`tools/\` proves this game
+too. Run \`prove\` once, last, when the game plays and \`proof.mjs\` describes it; it is the
+release baseline, and the loop above never waits on it.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names anything this machine is missing.
 
 Generated, so don't edit: \`exact.mjs\` and this block.
@@ -1337,6 +1368,16 @@ function updateApp(dir, name, { without = null } = {}) {
   if (!existsSync(test)) writeFileSync(test, `// The app boots and its data lands; add this app's own assertions.
 test "the app opens"
 `);
+  // The Apple entry's plan and compatibility document come with its host.rs (`exact_plan()`, `exact_compat()`): an
+  // Apple build links them (`exact_apple::baked`), and the constants an older entry declares read a file it no longer writes.
+  // And the build script `exact new` wrote before, which mapped iOS alone, is the one it writes now.
+  for (const crate of ['apple', 'ios', 'macos']) {
+    const entry = resolve(dir, crate, 'src/lib.rs'), source = existsSync(entry) ? readFileSync(entry, 'utf8') : '';
+    const entryNow = source.replace(/^const (?:PLAN|COMPAT): [^\n]*"\/(?:app\.plan|compat\.json)"\)\);\n/gm, '');
+    if (entryNow !== source && source.includes('/host.rs"')) { writeFileSync(entry, entryNow); notes.push(`${crate}/src/lib.rs`); }
+    const script = resolve(dir, crate, 'build.rs');
+    if (existsSync(script) && readFileSync(script, 'utf8') === EARLIER_APPLE_BUILD_SCRIPT) { writeFileSync(script, APPLE_BUILD_SCRIPT); notes.push(`${crate}/build.rs`); }
+  }
   // Each exact2 crate is found by name, so a checkout that moved is followed.
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 });
   if (metadata.status !== 0) throw new Error(`cargo metadata in ${ROOT}:\n${metadata.stderr}`);
@@ -1348,8 +1389,9 @@ test "the app opens"
       crates.has(crate) ? `${crate}${head}${JSON.stringify(pathFrom(dirname(path), crates.get(crate)))}` : line);
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
-  resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${dropped ? `, ${dropped}, Cargo.lock` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  const checked = lockedMetadata(dir);
+  const drift = checked.status !== 0 ? `\n${dir}/Cargo.lock: ${/cannot update the lock file|needs to be updated/.test(checked.stderr ?? '') ? 'does not match the app manifests; run `bun exact.mjs lock`' : `could not check lock: ${checked.stderr || checked.error?.message}`}` : '';
+  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${dropped ? `, ${dropped}, Cargo.lock` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}${drift}`;
 }
 
 if (import.meta.main) {

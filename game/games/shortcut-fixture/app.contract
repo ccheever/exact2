@@ -1,0 +1,21 @@
+shape Hud
+  buys: number
+
+component ShortcutFixture
+  resource hud = exactSurface("world") as shape Hud
+  state locked = false
+  state noted = 0
+  action lock
+    locked = true
+  action note
+    noted = noted + 1
+  view
+    main width="100%" height="100%" background-color="#101725" color="#ffffff"
+      canvas surface=world() testId="world" tabindex=0 width="100%" height="100%"
+        text `Bought ${hud.buys}` testId="bought" aria-live="polite" position="absolute" top=24 left=24 padding=12 background-color="#202731"
+        button action="buy" aria-keyshortcuts="1" disabled=locked aria-label="Buy" testId="buy" position="absolute" top=24 right=24 padding=12 background-color="#e8ad61"
+          text "1 · Buy" color="#202731"
+        button action="buy" press=note aria-keyshortcuts="2" aria-label="Buy and note" testId="buy-note" position="absolute" top=136 right=24 padding=12 background-color="#e8ad61"
+          text `2 · Noted ${noted}` testId="noted"
+        button press=lock aria-label="Lock the shop" testId="lock" position="absolute" top=80 right=24 padding=12 background-color="#354751"
+          text "Lock"

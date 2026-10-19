@@ -38,8 +38,9 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub(crate) mod dates;
 pub mod gradient;
+mod grouped;
 pub use gradient::GradientPaint;
-mod field;
+pub(crate) mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
@@ -48,8 +49,10 @@ pub(crate) mod inline;
 mod layer;
 mod lift;
 pub(crate) mod look;
+pub use look::page_color;
 pub(crate) mod material;
 pub(crate) use alert::Picture as AlertPicture;
+pub use material::{FieldText, FieldTexts};
 mod native;
 pub(crate) mod neutral;
 pub(crate) mod numerals;
@@ -60,7 +63,7 @@ mod presented;
 mod region;
 pub mod rows;
 mod shadow;
-mod space;
+pub(crate) mod space;
 mod svg;
 pub(crate) use svg::{fitted, view_box};
 mod text_clip;
@@ -256,14 +259,8 @@ impl BoxPaint {
         let pad = self.padding;
         BoxGeometry {
             inset: (pad[3] + widths[3], pad[0] + widths[0]),
-            outer: Shape::elliptical(
-                rect,
-                self.radii.map(|d| {
-                    let resolve = |basis| d.at_basis(&self.env, basis);
-                    (resolve(w).max(0.0), resolve(h).max(0.0))
-                }),
-            )
-            .with_corners(self.corners),
+            outer: Shape::elliptical(rect, border::resolve_radii(self.radii, &self.env, w, h))
+                .with_corners(self.corners),
             content: (
                 x + widths[3] + pad[3],
                 y + widths[0] + pad[0],
@@ -470,6 +467,8 @@ pub struct Scene<'a> {
     pub focus: Option<ViewId>,
     /// The focused text field's selection (x2apps codeedit #2).
     pub selection: Option<exact_runner::FieldSelection>,
+    /// At a wrap, a click or visual-line End can choose the preceding line.
+    pub caret_upstream: bool,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
     /// Values chosen in a date, range or select, or typed into a field, since
@@ -525,9 +524,9 @@ pub struct Painter {
     cpu_ms: Option<f64>,
     /// What a reorder lifts: a row in its list, or a ghost over everything.
     pub(crate) lift: Lift,
-    // One lease per actually accepted owner, not one global width per string.
-    // Retained while a subsequent backend frame fails.
+    // Accepted owners retain their paragraph leases while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    pub(crate) field_text: HashMap<ViewId, Rc<field::PaintedField>>,
     region_picture: Option<Rc<region::Picture>>,
     region_frame: Option<region::Published>,
     damage: damage::Retained,
@@ -543,6 +542,8 @@ pub struct Painter {
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The control a held `active` presses (`presenter/held.rs`), beside a contact's.
+    pub(crate) held_press: Option<ViewId>,
     /// The background the last box painted shows, its states' over its own,
     /// which its `background-clip: text` fills with (`text_clip`).
     clipped: Option<(ViewId, [u8; 4])>,
@@ -566,6 +567,7 @@ pub struct Painter {
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) struct Presentation {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    fields: HashMap<ViewId, Rc<field::PaintedField>>,
     picture: Option<Rc<region::Picture>>,
     frame: Option<region::Published>,
 }
@@ -574,6 +576,7 @@ struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    fields: HashMap<ViewId, Rc<field::PaintedField>>,
     skip: Option<exact_kernel::NodeKey>,
     replay: Option<&'b region::Replay<'b>>,
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
@@ -611,6 +614,7 @@ impl Painter {
     pub(crate) fn presentation(&self) -> Presentation {
         Presentation {
             text: self.accepted_text.clone(),
+            fields: self.field_text.clone(),
             picture: self.region_picture.clone(),
             frame: self.region_frame.as_ref().map(|f| region::Published {
                 incarnation: f.incarnation.clone(),
@@ -621,6 +625,7 @@ impl Painter {
     #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
         std::mem::swap(&mut self.accepted_text, &mut state.text);
+        std::mem::swap(&mut self.field_text, &mut state.fields);
         std::mem::swap(&mut self.region_picture, &mut state.picture);
         std::mem::swap(&mut self.region_frame, &mut state.frame);
         state
@@ -657,8 +662,10 @@ impl Painter {
             flatten: None,
             ringless: None,
             feedback: (None, None),
+            held_press: None,
             clipped: None,
             field_content: HashMap::new(),
+            field_text: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
@@ -862,6 +869,7 @@ impl Painter {
             scene,
             boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
+            fields: HashMap::new(),
             skip,
             replay,
             ranks: self.ranks.clone(),
@@ -892,6 +900,7 @@ impl Painter {
         self.labels.painted();
         if finished.is_ok() {
             self.accepted_text = walk.text;
+            self.field_text = walk.fields;
         } else {
             drop(walk.text);
         }
@@ -1080,7 +1089,10 @@ impl Painter {
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
-            let (dark, feedback) = (self.dark, self.feedback);
+            let (dark, feedback) = (
+                self.dark,
+                (self.feedback.0, self.presses(node.id).then_some(node.id)),
+            );
             let kernel = walk.scene.kernel;
             neutral::row(
                 self.backend.as_mut(),
@@ -1194,6 +1206,7 @@ impl Painter {
                 self.dark,
                 walk.scene.controls.get(&node.id).copied(),
                 self.feedback.0 == Some(node.id),
+                self.scale,
             ),
             _ => {}
         }
@@ -1381,18 +1394,6 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
-}
-
-/// The page's own colour under a scheme: the `-exact-background` role (LLP
-/// 1115.000 D3.6), the platform's surface where a host reported one and the
-/// role's pair elsewhere. What an unset background shows (LLP 1115 D2),
-/// never white under a dark scheme.
-pub fn page_color(dark: bool) -> [u8; 4] {
-    static PAGE: std::sync::LazyLock<Option<u8>> =
-        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("-exact-background"));
-    PAGE.map_or([255; 4], |id| {
-        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
-    })
 }
 
 /// The painting scope for `node` (`roles::authored_accent`): the roles drawn

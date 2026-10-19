@@ -759,3 +759,74 @@ test('contract build regenerates app.contract.d.ts when a signature changed, and
   assert.deepEqual({ ...error, message: undefined }, { id: 'typescript-TS2322', severity: 'error', message: undefined, file: 'app.ts', line: 1, col: 14, end_col: 14, related: [] });
   assert.match(error.message, /not assignable to type 'number'/);
 }), 600_000); // The first call may compile the compiler.
+
+// `exact.mjs docs <words>`: the section that holds the words as whole words, most densely, first; printed from its
+// heading when the heading is on the words, else from the paragraph that mentions them. A word may start with `-`.
+test('docs prints the section on its words first, matching whole words', () => {
+  const root = resolve(import.meta.dir, '..');
+  const first = (...words) => {
+    const r = spawnSync(process.execPath, [resolve(root, 'scripts/exact.mjs'), 'docs', ...words], { cwd: root, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const [where, ...text] = r.stdout.split('\n');
+    return { where, text: text.slice(0, 40).join('\n') };
+  };
+  for (const [words, file, shows] of [
+    [['exit', 'animation'], 'docs/recipes/motion.md', /-exact-exit-animation/],
+    [['-exact-exit-animation'], 'docs/recipes/motion.md', /-exact-exit-animation/],
+    [['call'], 'docs/recipes/native-module.md', /func call/],
+    [['later'], 'docs/recipes/native-module.md', /func later/],
+    [['screenshot'], 'docs/recipes/ios-driving.md', /screenshot\s+\.exact\/x\.png compare/],
+    [['scheme', 'fixed'], 'docs/recipes/theme.md', /scheme=fixed/],
+    [['tabular', 'numbers'], 'docs/contract-for-agents.md', /^### Tabular numbers/],
+    [['grant'], 'docs/recipes/files-and-grants.md', /^# Recipe: files, SQLite and grants/],
+    [['sheet'], 'docs/recipes/navigation-stack.md', /Cancel\/Save sheet/],
+    [['sheets'], 'docs/recipes/navigation-stack.md', /Cancel\/Save sheet/],
+    // A whole word: `logs` is the driver's op, not "catalogs".
+    [['logs'], 'docs/contract-for-agents.md', /^The driver has ten operations[^]*`logs`/],
+    [['colours'], 'docs/recipes/theme.md', /^# Recipe: theme: colours/],
+    // A heading that alone holds the word prints from the heading.
+    [['accessibility'], 'docs/contract-for-agents.md', /^### Native views: accessibility\n+\S/],
+    [['optimistic'], 'docs/contract-for-agents.md', /^### Optimistic writes: the overlay\n+\S/],
+    // What an agent porting an iOS app types. A piece of a longer hyphenated name is not the word (`fonts` is not
+    // `font-variant-numeric`), a plural never stems onto a type keyword (`strings` is app.json's key, not `: string`),
+    // and a query's own section (TOPICS) comes first however it says the words ("dark mode": light and dark).
+    [['fonts'], 'docs/recipes/app-json.md', /a `font` block's/],
+    [['strings'], 'docs/recipes/app-json.md', /`strings` \(string\n\s+tables\)/],
+    [['push'], 'docs/recipes/navigation-stack.md', /^routes nav$/m],
+    [['deploy'], 'docs/recipes/porting-and-release.md', /^# Recipe: porting an app, a release build/],
+    [['haptics'], 'docs/start-here.md', /haptic\("selection"\)/],
+    [['glass'], 'docs/contract-for-agents.md', /glass/],
+    [['detent'], 'docs/contract-for-agents.md', /detent/],
+    [['tab', 'bar'], 'docs/recipes/tabs.md', /tab bar/],
+    [['back', 'button'], 'docs/recipes/navigation-stack.md', /system Back/],
+    [['search'], 'docs/recipes/list-rows.md', /search/],
+    [['menu'], 'docs/recipes/list-rows.md', /menu/],
+    [['swipe'], 'docs/recipes/list-rows.md', /swipe/],
+    [['list'], 'docs/recipes/list-rows.md', /^# Recipe: list rows/],
+    [['safe', 'area'], 'docs/contract-grammar.md', /safe area/],
+    [['keyboard'], 'docs/recipes/keyboard-and-focus.md', /^# Recipe: the keyboard and focus/],
+    [['dark', 'mode'], 'docs/recipes/theme.md', /follows light, dark/],
+    [['image'], 'docs/recipes/app-json.md', /image "assets\/logo.png"/],
+    [['svg'], 'docs/recipes/symbols.md', /SVG/i],
+    [['animation'], 'docs/recipes/motion.md', /animation/],
+    [['transition'], 'docs/recipes/motion.md', /transition/],
+    [['timer'], 'docs/recipes/timers.md', /^# Recipe: timers/],
+    [['storage'], 'docs/recipes/files-and-grants.md', /storage/],
+    [['share'], 'docs/contract-grammar.md', /`share`/],
+    [['MIDI'], 'docs/contract-grammar.md', /exactMIDI/],
+    // A CSS name's words together are the phrase, though its pieces alone are not the words.
+    [['text', 'overflow'], 'docs/agent-pitfalls.md', /text-overflow/],
+    [['background', 'color'], 'docs/recipes/theme.md', /background-color/],
+  ]) {
+    const { where, text } = first(...words);
+    assert.ok(where.startsWith(`${file}:`), `docs ${words.join(' ')}: ${where}`);
+    assert.match(text, shows, `docs ${words.join(' ')} prints from the lines that hold them:\n${text}`);
+  }
+});
+
+test('setup refuses the removed game warmup flag before provisioning', () => {
+  const result=spawnSync(process.execPath,[resolve(import.meta.dir,'exact.mjs'),'setup','--game'],{encoding:'utf8'});
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Usage: exact setup \[--check\]/);
+  assert.doesNotMatch(result.stdout,/warming|cargo fetch|rustup toolchain install/);
+});

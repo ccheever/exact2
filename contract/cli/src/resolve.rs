@@ -165,7 +165,7 @@ fn relative(
         };
         return Err(("contract-use-path", format!("`{spec}` leaves {what}")));
     }
-    contract_file(spec, &key)?;
+    contract_file(spec, &key, matches!(from, Origin::Package { .. }))?;
     Ok(Resolved {
         key,
         builtin: None,
@@ -192,8 +192,11 @@ fn lexical(path: &Path) -> PathBuf {
     out
 }
 
-fn contract_file(spec: &str, key: &Path) -> Result<(), Refusal> {
-    if key.extension().and_then(|extension| extension.to_str()) == Some("contract") {
+/// A `.contract` file, or a package's module declaration, its `exact.json`
+/// (LLP 1133.001 D1): an app's own files are Contract only.
+fn contract_file(spec: &str, key: &Path, in_package: bool) -> Result<(), Refusal> {
+    let declaration = in_package && key.file_name().is_some_and(|f| f == "exact.json");
+    if declaration || key.extension().and_then(|extension| extension.to_str()) == Some("contract") {
         Ok(())
     } else {
         Err((
@@ -349,7 +352,7 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
             format!("`{spec}` leaves the package `{name}`"),
         ));
     }
-    contract_file(spec, &key)?;
+    contract_file(spec, &key, true)?;
     Ok(Resolved {
         key,
         builtin: None,

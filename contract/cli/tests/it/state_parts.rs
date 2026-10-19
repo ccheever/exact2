@@ -299,19 +299,35 @@ fn a_state_its_node_never_meets_is_linted() {
     assert_eq!(dead[0].span.line, 13, "at its row: {dead:?}");
 }
 
-/// A node's own `:active` where it has no `press` (nor `href`) never holds:
-/// the host's press needs one (theme2's 07:06 question); a lint.
+/// A node's own `:active` where it has no `press` never holds: the host's
+/// press needs one (theme2's 07:06 question); a lint. A link with no `press`
+/// is linted as unreliable: only Apple presses it (theme2's 11:48).
 #[test]
 fn an_active_part_without_a_press_is_linted() {
-    let src = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"dead\"\n        :active\n          opacity = 0.5\n        text \"d\"\n      column press=go testId=\"live\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      text \"link\" href=\"https://example.com\"\n        :active\n          opacity = 0.5\n";
+    let src = "component App\n  state n = 0\n  state url = \"https://example.com\"\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"dead\"\n        :active\n          opacity = 0.5\n        text \"d\"\n      column press=go testId=\"live\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      text \"link\" href=\"https://example.com\"\n        :active\n          opacity = 0.5\n      link href=\"https://example.com\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      link href=url\n        :active\n          opacity = 0.5\n        text \"b\"\n";
     let (plan, warnings) = contract::compile_warned(src);
     assert!(plan.is_ok(), "{plan:?}");
     let dead: Vec<_> = warnings
         .iter()
         .filter(|w| w.id == "lower-state-dead")
         .collect();
-    assert_eq!(dead.len(), 1, "{warnings:?}");
-    assert_eq!(dead[0].span.line, 9, "at its row: {dead:?}");
+    // The column and the `text` link never hold; the pressable links are unreliable.
+    assert_eq!(dead.len(), 4, "{warnings:?}");
+    let at = |line| {
+        dead.iter()
+            .find(|w| w.span.line == line)
+            .unwrap_or_else(|| panic!("{dead:?}"))
+    };
+    assert!(at(10).message.contains("never holds"), "{dead:?}");
+    assert!(
+        at(18).message.contains("never holds"),
+        "a text link: {dead:?}"
+    );
+    assert!(at(21).message.contains("only on Apple"), "{dead:?}");
+    assert!(
+        at(25).message.contains("only on Apple"),
+        "a bound href: {dead:?}"
+    );
 }
 
 /// Review round 1: a state that leaves a row unwritten in some arm keeps

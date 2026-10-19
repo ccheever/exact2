@@ -106,7 +106,7 @@ impl Presented {
     /// individual transforms about `origin`, then outermost the layout
     /// transition's offset (LLP 1063); its size is the surface's alone
     /// ([`Presented::surface`]).
-    pub(super) fn transform(
+    pub(crate) fn transform(
         &self,
         (x, y, w, h): (f32, f32, f32, f32),
         (ox, oy): (f32, f32),

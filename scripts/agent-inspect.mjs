@@ -1,10 +1,10 @@
 import { MalformedOperation, inputJSON } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
-import { decodePng, shrink } from './png.mjs';
+import { decodePng, encodePng, shrink } from './png.mjs';
 
 /** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
 export const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
@@ -241,16 +241,19 @@ export function render(op, r, how = {}) {
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
       // The status bar's style Exact asks for (LLP 1105 D7, iOS), when it is not the default.
       const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      // The title-bar area beside the window's controls, where the host defines it.
+      const titlebar = e && e['titlebar-area-width'] != null ? ` · titlebar-area ${e['titlebar-area-x']},${e['titlebar-area-y']} ${e['titlebar-area-width']}×${e['titlebar-area-height']}` : '';
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${titlebar}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       lines.splice(1, 0, ...scaledLines(r));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => [...(w.dropped > 0 ? [`world ${w.canvas ?? w.id ?? ''} (${w.dropped} earlier lines dropped by the journal ring)`] : []), ...(w.lines ?? []).map((line) => 'world ' + line)]), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
     case 'state': {
       if (!r || typeof r !== 'object') return q(r);
       if (Array.isArray(r)) return stateCap(q(r), r, how);
+      if (r.draws || r.visible || r.look) return renderLook(r);
       // One line a section: pretty-printing cost an app's state more than half again its JSON (Caltrain, 2026-10-09).
       const { epoch, incarnation, clock, ...rest } = r, app = 'slots' in r;
       const head = [epoch != null && `epoch ${epoch}`, incarnation != null && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`].filter(Boolean).join(' · ');
@@ -297,8 +300,13 @@ function renderLine(op, r) {
     if (rest.w != null && rest.h != null) lead.push(`${rest.w}×${rest.h}`);
     delete rest.screenshot; delete rest.w; delete rest.h;
   }
+  // What a picture shows that the app does not (a menu the agent painted, the authored bars), each on a line of its
+  // own: in the run of key=values it read as one more field, and a painted menu as an app bug (euxy port).
+  const notes = op === 'screenshot' ? ['paintedNote', 'chromeNote', 'unshownNote', 'note'].filter((k) => typeof rest[k] === 'string').map((k) => {
+    const said = rest[k]; delete rest[k]; return `\n  NOTE: ${said}`;
+  }) : [];
   return [...lead, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, op !== 'clock' && clock != null && `clock ${clock} ms`,
-    ...Object.entries(rest).map(([k, v]) => `${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' · ');
+    ...Object.entries(rest).map(([k, v]) => `${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' · ') + notes.join('');
 }
 
 /** The most of a `state` reply its transcript prints whole (`state … --full` prints it all, `--json` every reply):
@@ -446,6 +454,11 @@ export async function perfOp(s, args, line, step) {
   if (!ops.length) throw new MalformedOperation('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
   const before = await s.perf(target);
   for (const op of ops) await step(op);
+  if (target?.startsWith('world:')) {
+    const after = await s.perf(target, {spanSince: before.spanTicks});
+    if (after.tick < before.tick || after.restarted !== before.restarted) throw Error('perf world: world restarted between reads');
+    return {...after, from:{tick:before.tick}};
+  }
   return perfDelta(before, await s.perf(target));
 }
 
@@ -502,6 +515,8 @@ export function hatchDelta(a, b) {
 }
 
 function renderPerf(r) {
+  if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
+    ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
   if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
@@ -593,6 +608,11 @@ export function renderTrace(t) {
       for (const l of near) out.push(`    ${l}`);
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));
+  if (Array.isArray(t.traceEvents)) {
+    const cpu = t.traceEvents.filter(e => e.cat === 'world.cpu'), gpu = t.traceEvents.filter(e => e.cat === 'world.gpu');
+    const frames = new Set(cpu.filter(e => e.name === 'frame').map(e => `${e.pid}:${e.args?.frame}`));
+    out.push(`world trace: ${cpu.filter(e=>e.name==='tick').length} ticks, ${cpu.length} CPU intervals under ${frames.size} submitted frames, ${gpu.length} GPU passes (independent GPU clock; joined by frame)`);
+  }
   if (t.perf) out.push('', renderPerf(t.perf));
   if (t.hatches?.perf?.calls) out.push('', renderHatchPerf(t.hatches.perf));
   return out.join('\n');
@@ -661,7 +681,9 @@ function renderAgreement(a) {
  * view answers with the whole record, so a name the record holds reads that even when a view carries it as its testId
  * or text (a sequencer's `transport` bar and the record's `transport`). */
 export async function stateOp(s, args) {
-  const page = { ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
+  // `state <canvas> draws`, `state <canvas>:<entity> visible` and `state <canvas> look` are a world's look frame (LLP 1127.000 D1, D4).
+  const look = ['draws', 'visible', 'look'].includes(args[1]) ? { [args[1]]: true, world: true } : {};
+  const page = { ...look, ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
   const has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
@@ -717,10 +739,10 @@ export function worldView(session, name) {
       const {tick, hash} = first, entities = [...first.entities];
       for (let r = first; all && r.truncated;) {
         r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
-        if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        if (r.tick !== tick || r.hash !== hash || r.tableEdits !== first.tableEdits) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
         entities.push(...r.entities);
       }
-      return {tick, hash, entities, truncated: all ? false : first.truncated};
+      return {tick, hash, entities, truncated: all ? false : first.truncated, ...Object.fromEntries(["tableEdits", "developmentEdits", "sessionDevelopmentEdits", "queuedSets"].filter(k => first[k] !== undefined).map(k => [k, first[k]]))};
     },
     /** Every resource's value, as `state world:* resources` reads them. */
     async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
@@ -763,4 +785,87 @@ export function withRegions(env) {
   if (!env || typeof env !== 'object') return env;
   for (const region of REGIONS) for (const edge of ['top', 'right', 'bottom', 'left']) env[`-exact-${region}-inset-${edge}`] ??= env[`safe-area-inset-${edge}`] ?? 0;
   return env;
+}
+
+/** A world's look frame as text (LLP 1127.000): its tells, its draws, or why an entity is or is not drawn. */
+export function renderLook(r) {
+  const q = JSON.stringify, head = `tick ${r.tick} · hash ${r.hash}`;
+  if (r.visible) return `${head}\n${r.entity?.name ?? '#' + r.entity?.id}: ${r.visible} (${r.reason})`;
+  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, 'fragments' in d && `fragments ${d.fragments ?? 'not measured'}`, 'covered' in d && (d.covered == null ? 'coverage not measured' : d.covered ? 'covered' : 'COVERED NOTHING'), d.draws != null && `${d.draws} draws`, d.summary && 'one entry for all its draws', `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
+  return [head, ...lookLines(r.look)].join('\n');
+}
+function lookLines(look) {
+  if (!look) return [];
+  const measured = (m, taken) => m == null ? '' : m.unmeasured != null ? `not measured (${m.unmeasured})` : taken(m);
+  const particles = look.particles ? ` · particles ${measured(look.particles, (draws) => draws.map((d) => `${d.batch}: ${d.live} live, ${d.covered} px`).join('; '))}` : '';
+  const casters = look.sunTexels != null ? ` · sun shadow texels ${measured(look.sunTexels, (n) => n)}${look.sunCasters != null ? ` (casters ${look.sunCasters})` : ''}` : '';
+  return [`mean luminance ${look.mean} · clipped ${(look.clipped * 100).toFixed(1)}%${particles}${casters} · readback ${look.readbackBytes} B${look.reduced ? ' · reduced, not judged' : ''}`, ...look.tells.map((t) => t.line), ...(look.gaps ?? []).map((g) => `look: ${g}`)];
+}
+
+/** `screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]`
+ * (LLP 1127.000 D3): the world's look frame, the tick the agent's clock has reached drawn offscreen from that view and
+ * written as a PNG, with its tells; `over … every` films it on the clock. A form of `screenshot`, never a new operation:
+ * presentation only, the hash does not move. A device-less host draws it where the machine has a GPU. */
+export async function worldLook(s, args) {
+  const [path, target, , ...from] = args;
+  const usage = 'screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]';
+  const [view, rest] = from[0] === 'camera' ? [{}, from.slice(1)] : from[0] === 'top' ? [{ top: Number(from[1]) }, from.slice(2)]
+    : [{ yaw: Number(from[0]), pitch: Number(from[1]), distance: Number(from[2]) }, from.slice(3)];
+  if (Object.values(view).some((v) => !Number.isFinite(v))) throw new MalformedOperation(usage);
+  const shoot = (file) => lookPicture(s, file, target, view);
+  if (rest.length === 4 && rest[0] === 'over' && rest[2] === 'every') return s.film(path, { over: Number(rest[1]), every: Number(rest[3]), window: shoot });
+  if (rest.length) throw new MalformedOperation(usage);
+  return s.tagged(await shoot(resolve(path)));
+}
+
+/** After `clock settle` (`r` its reply) and every pixel `screenshot`, each shown world's tells where its canvas draws (LLP
+ * 1127.000 D1): a look frame of the tick the clock reached, whose `look: …` lines reach the world's `logs`. The reply
+ * carries them as `look`, the canvases looked at as `lookSeen`, what a frame could not measure, or a drawing canvas's "no
+ * picture", as `lookGaps`, and a look frame that failed as `lookFailed`. The worlds are the ones shown now (a settle's
+ * reply lists them; otherwise `state` does). A canvas that draws no frames (the GPU-less host) answers at once and adds
+ * none. */
+export async function worldTells(s, r) {
+  if (r == null || r.error != null) return r;
+  const lines = [], gaps = [], failed = [], seen = [];
+  const shown = Array.isArray(r.world) ? r.world : await s.op({ op: 'state' }).then((st) => st.world ?? [], (error) => (failed.push(`worlds: ${error.message}`), []));
+  for (const id of shown.map((w) => w.canvas).filter((c) => c != null)) {
+    const reply = await s.op({ op: 'state', id, world: true, look: true, drawing: true }).catch((error) => ({ error: error.message }));
+    if (reply.unavailable) { if (reply.drawing !== false) gaps.push(`canvas ${id}: ${reply.unavailable}`); continue; }
+    if (reply.error != null || !reply.look) { failed.push(`canvas ${id}: ${reply.error ?? 'no look in the reply'}`); continue; }
+    seen.push(id);
+    lines.push(...reply.look.tells.map((t) => t.line));
+    gaps.push(...(reply.look.gaps ?? []).map((g) => `canvas ${id}: ${g}`));
+  }
+  const tags = [['look', lines], ['lookSeen', seen], ['lookGaps', gaps], ['lookFailed', failed]];
+  return { ...r, ...Object.fromEntries(tags.filter(([, v]) => v.length)) };
+}
+
+/** A film's frames together (`s.film`): each judged frame's tells as one entry of `lookFrames` (a live frame's lines, or
+ * a look frame from the game's camera at full resolution; a reduced or other view's frame is a picture), all of them as
+ * `look`, and every frame's gaps, failures and canvases looked at. */
+export function lookAcross(replies) {
+  const frames = [], gaps = [], failed = [], seen = [];
+  for (const r of replies) {
+    const own = r?.look && !Array.isArray(r.look) && !r.look.reduced && !r.view ? r.look : null;
+    const judged = Array.isArray(r?.look) ? r.look : own ? (own.tells ?? []).map((t) => t.line) : null;
+    if (judged) frames.push(judged);
+    gaps.push(...(r?.lookGaps ?? []), ...(own?.gaps ?? []));
+    failed.push(...(r?.lookFailed ?? []));
+    seen.push(...(r?.lookSeen ?? []));
+  }
+  const tags = [['look', frames.flat()], ['lookFrames', frames.some((f) => f.length) ? frames : []], ['lookGaps', gaps], ['lookFailed', failed], ['lookSeen', [...new Set(seen)]]];
+  return Object.fromEntries(tags.filter(([, v]) => v.length));
+}
+
+/** One look frame of `target` from `view` ({} the game's camera, {top}, or {yaw, pitch, distance}) written to `path`. */
+export async function lookPicture(s, path, target, view = {}) {
+  mkdirSync(dirname(resolve(path)), { recursive: true });
+  const at = await s.target(target);
+  const reply = await s.op({ op: 'screenshot', ...at, world: true, form: 'look', ...view });
+  if (reply.unavailable) throw Object.assign(new Error(`look ${target}: ${reply.unavailable}`), { reply, unavailable: reply.unavailable });
+  if (reply.error || typeof reply.data !== 'string') throw Object.assign(new Error(`look ${target}: ${reply.error ?? 'no pixels in the reply'}`), { reply });
+  writeFileSync(resolve(path), encodePng({ width: reply.width, height: reply.height, data: Buffer.from(reply.data, 'base64') }));
+  const { tick, hash, w, h, look, bounds } = reply, from = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'resolution'));
+  // `bounds`: the scene's centre and radius an orbit or plan view was drawn within.
+  return { screenshot: resolve(path), w, h, tick, hash, canvas: at.id, look, ...(bounds ? { bounds } : {}), ...(Object.keys(from).length ? { view: from } : {}) };
 }

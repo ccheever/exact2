@@ -2972,7 +2972,7 @@ impl super::Adapter {
             texture_view_identity_factory: super::ResourceIdentityFactory::new(),
             // EXACT (EXACT-PATCHES.md, 6).
             surface_views: Mutex::new(Default::default()),
-            surface_framebuffers: Mutex::new(Default::default()),
+            framebuffers: Mutex::new(Default::default()),
             empty_descriptor_set_layout,
         });
 
