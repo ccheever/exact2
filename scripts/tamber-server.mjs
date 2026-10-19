@@ -1117,13 +1117,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     for (const k of ['source', 'name', 'prefix', 'baseline']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
     // One file (`source`, `name`), or several (`sources`). A `baseline` (the export the client pulled) is taken when this run gave it
     // out, is kept, or is the design's own (stage 10b). Held on the design text it was planned and marked on, else planned again.
-    for (let tries = 0; ; tries++) {
+    for (let tries = 0, target = designPath(appDir) ?? resolve(appDir, design); ; tries++) {
       // (planned in a process of its own, watched: scripts/tamber-isolate.mjs)
-      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, designPath(appDir) ?? resolve(appDir, design), importLimits, appDir);
+      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, target, importLimits, appDir);
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
       const { ops, review } = importReview(planned.ok);
       if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
-      const held = await hold(request.client, ops, planned.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: planned.ok.digest } : undefined, undefined, review, undefined, scope);
+      const held = await hold(request.client, ops, planned.ok.digest ? { [relative(appDir, target)]: planned.ok.digest } : undefined, undefined, review, undefined, scope);
       if (held.ok) proposals.get(held.ok.proposal).reimport = true; else if (held.error?.conflict && tries < 2) continue; return held;
     }
   }

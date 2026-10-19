@@ -641,8 +641,7 @@ impl Server {
             }
             Some("import-plan") if request["marks"].is_array() => vec![reply(self.texts().and_then(|now| {
                 let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
-                let kept = crate::tamber_export::kept(&self.dir.join(&self.design));
-                crate::tamber_import::plan(&request, design.map(String::as_str), &kept)
+                crate::tamber_import::plan(&request, design.map(String::as_str), &[])
             }))],
             Some("export") => vec![reply(self.export(&request))],
             other => vec![reply(Err(

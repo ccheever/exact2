@@ -54,6 +54,7 @@ test('one at a time; a full queue is refused; an answer split inside a character
     const timed = (name, s) => () => { order.push(`start ${name}`); const c = sh(`sleep ${s}; echo '{"ok":{}}'`)(); c.on('close', () => order.push(`end ${name}`)); return c; };
     await Promise.all([planAlone({}, design, { spawnPlan: timed('a', 0.3) }, app), planAlone({}, design, { spawnPlan: timed('b', 0.01) }, app)]);
     expect(order).toEqual(['start a', 'end a', 'start b', 'end b']);
+    await new Promise(ok => setTimeout(ok, 200)); // (b's planner reaped: its permit back)
     const all = Array.from({ length: 4 }, () => planAlone({}, design, { waiting: 2, spawnPlan: sh('sleep 0.2; echo \'{"ok":{}}\'') }, app));
     const replies = await Promise.all(all);
     expect(replies.map(r => r.status ?? 200)).toEqual([200, 200, 200, 503]);
@@ -74,5 +75,20 @@ test('the design must be a regular file of the app', async () => {
       const gone = await planAlone({}, join(app, 'none.tamber'), { spawnPlan: sh('echo \'{"ok":{"none":true}}\'') }, app);
       expect(gone.ok.none).toBe(true); // no design yet: planned against none
     } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
+}, 60_000);
+
+test('a waiting import expires on its own clock; a FIFO in the design\'s place is refused, never waited on', async () => {
+  await withApp(async (design, app) => {
+    const first = planAlone({}, design, { spawnPlan: sh('sleep 0.5; echo \'{"ok":{}}\'') }, app);
+    const second = await planAlone({}, design, { waitMs: 100, spawnPlan: sh('echo \'{"ok":{}}\'') }, app);
+    expect(second.status).toBe(503);
+    expect((await first).ok).toEqual({});
+    // A FIFO in the design's place: refused at once, never waited on.
+    const { execFileSync } = await import('node:child_process');
+    rmSync(design);
+    execFileSync('mkfifo', [design]);
+    const fifo = await planAlone({}, design, { spawnPlan: sh('echo \'{"ok":{}}\'') }, app);
+    expect([fifo.status, fifo.error.message]).toEqual([400, 'the design is not a regular file']);
   });
 }, 60_000);
