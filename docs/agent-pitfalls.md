@@ -1508,6 +1508,17 @@ screen, 2026-10-16.)
   so the snapshot copies them and continuation checks them. Resolve SDK files from
   the shared runner’s `proofSDK`, not by walking up from a relocated proof.
 
+- **A first native proof can require a rerun after generated directories appear.**
+  If it says `app or asset directories changed during build`, rerun the same
+  command after generation finishes. The first receipt is refused deliberately;
+  the fresh/stable/cached proof test covers this path.
+- **Stopping `game/dev.mjs` during a build can leave its build child running.**
+  A terminated server does not prove its Cargo/build descendants exited. Record
+  the process tree before stopping it, then check those PIDs; terminate only
+  processes belonging to that invocation before starting another build.
+- **`exact.mjs linux` builds the host, not the game's GPU module.** For the
+  `gpu-dev` host/module pair, use `bun proof.mjs linux --build-only` from the
+  game directory. See [game build profiles](../game/README.md#exact2-integration).
 - **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
   is the fallback when the socket cannot resolve; rotating that fallback does not
   rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local

@@ -793,3 +793,10 @@ test('docs prints the section on its words first, matching whole words', () => {
     assert.match(text, shows, `docs ${words.join(' ')} prints from the lines that hold them:\n${text}`);
   }
 });
+
+test('setup refuses the removed game warmup flag before provisioning', () => {
+  const result=spawnSync(process.execPath,[resolve(import.meta.dir,'exact.mjs'),'setup','--game'],{encoding:'utf8'});
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/Usage: exact setup \[--check\]/);
+  assert.doesNotMatch(result.stdout,/warming|cargo fetch|rustup toolchain install/);
+});
