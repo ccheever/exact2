@@ -835,6 +835,8 @@ export function webChanges(dist, app) {
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
+  // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
+  for (const path of Object.keys(built.inputs ?? {})) if (path !== 'EXACT_BACKEND_ORIGIN' && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

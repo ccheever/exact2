@@ -87,7 +87,7 @@ import { existsSync, readFileSync, realpathSync, statSync, watch } from 'node:fs
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
-import { builtFrom, stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
+import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
@@ -1230,11 +1230,9 @@ async function buildTool() {
   // This app's whole JS-target build (every file its marker lists), with
   // no input changed since, as verify accepts one.
   const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
-  if ((!staged || builtFrom(TOOL_DIST) === staged.signature) && await builtAppMatches(TOOL_DIST, app) && jsTargetBuild(TOOL_DIST) && !webChanges(TOOL_DIST, app).all.length) return 0;
+  if (await builtAppMatches(TOOL_DIST, app) && jsTargetBuild(TOOL_DIST) && !webChanges(TOOL_DIST, app).all.length) return 0;
   console.log(`tamber tool: building the design tool into ${relative(process.cwd(), TOOL_DIST)}`);
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'design-tool'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_WEB_DIST: TOOL_DIST } });
-  // (The stage it was made from, as staged before it started: one staged since, by anyone, differs.)
-  if (r.status === 0 && staged) builtFrom(TOOL_DIST, staged.signature);
   return r.status ?? 1;
 }
 

@@ -517,6 +517,9 @@ test('web freshness tracks backend selection creation, edits and deletion',async
     writeFileSync(selection,'http://127.0.0.1:4413');expect(webChanges(dist,app).app).toEqual([selection]);
     bake();rmSync(selection);expect(webChanges(dist,app).app).toEqual([selection]);
     bake();expect(webChanges(dist,app).all).toEqual([]);
+    // A source the build read, deleted since: a change, though nothing is newer than the build.
+    const source=join(dir,'dials.ts');writeFileSync(source,'export {};\n');bake();expect(webChanges(dist,app).all).toEqual([]);
+    rmSync(source);expect(webChanges(dist,app).app).toEqual([source]);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

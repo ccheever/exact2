@@ -2,7 +2,6 @@
 // its grants name, or another port for tests and gate runs (`EXACT_TOOL_PORT`),
 // for which the tool is built with that origin.
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { dirname, relative, resolve } from 'node:path';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -31,13 +30,11 @@ export const TOOL_ORIGIN = `http://127.0.0.1:${TOOL_PORT}`;
  * stub stays behind and the staged app names no server of its own, so a
  * drive of it starts none on 7740; for its contract tests the stub and the
  * test files come too, every 7740 in the tests that port (refused when they
- * name that port already, for a page of their own), so the stub binds it.
- * `dist` is where that stage builds, and `signature` the staged sources'
- * (names and contents): a build records the one it was made from
- * (`builtFrom`), and is current only while staging gives the same, so a
- * source gone or changed rebuilds whoever staged first, a build in flight
- * meanwhile included. Its marker goes too when the sources change. What the
- * build writes there (app.contract.d.ts) stays. */
+ * name that port already, for a page of their own), so the stub binds it,
+ * built into `dist`. A file staging writes is newer than the last build,
+ * and one gone from the stage was an input of it: either makes the build's
+ * own check (agent-launch.mjs `webChanges`) build again, whoever staged.
+ * What the build writes there (app.contract.d.ts) stays. */
 export function stageTool({ tests = false } = {}) {
   const from = resolve(ROOT, 'apps/design-tool'), to = resolve(ROOT, `target/design-tool-${tests ? 'test' : 'src'}-${TOOL_PORT}`);
   const dist = tests ? resolve(ROOT, `target/design-tool-test-web-${TOOL_PORT}`) : TOOL_DIST;
@@ -45,9 +42,8 @@ export function stageTool({ tests = false } = {}) {
   const source = f => f === 'stub' || /\.(ts|contract|json)$/.test(f) && !f.endsWith('.d.ts');
   const take = f => source(f) && (tests || f !== 'stub' && !f.endsWith('.test.contract'));
   const prune = (dir, keep, only = source) => { for (const f of readdirSync(resolve(to, dir))) if (only(f) && !keep(f)) rmSync(resolve(to, dir, f), { recursive: true, force: true }); };
-  const sum = createHash('sha256');
   prune('.', f => take(f) && existsSync(resolve(from, f)));
-  const put = (rel, staged) => { sum.update(`${rel}\0${staged}\0`); if (!existsSync(resolve(to, rel)) || readFileSync(resolve(to, rel), 'utf8') !== staged) { mkdirSync(dirname(resolve(to, rel)), { recursive: true }); writeFileSync(resolve(to, rel), staged); } };
+  const put = (rel, staged) => { if (!existsSync(resolve(to, rel)) || readFileSync(resolve(to, rel), 'utf8') !== staged) { mkdirSync(dirname(resolve(to, rel)), { recursive: true }); writeFileSync(resolve(to, rel), staged); } };
   for (const f of readdirSync(from).filter(take).sort()) {
     if (f === 'stub') {
       for (const g of readdirSync(resolve(from, f)).sort()) put(`stub/${g}`, readFileSync(resolve(from, f, g), 'utf8'));
@@ -67,30 +63,22 @@ export function stageTool({ tests = false } = {}) {
     if (f === 'app.json' && !tests) { const manifest = JSON.parse(staged); delete manifest.commands; staged = `${JSON.stringify(manifest, null, 2)}\n`; }
     put(f, staged);
   }
-  const mark = resolve(to, '.exact-stage'), signature = sum.digest('hex');
-  if (!existsSync(mark) || readFileSync(mark, 'utf8') !== signature) { rmSync(resolve(dist, '.exact-build.json'), { force: true }); writeFileSync(mark, signature); }
-  return { dir: to, dist, signature };
-}
-
-/** The staged sources' signature `dist`'s build was made from ("" for none), or, given one, records it. */
-export function builtFrom(dist, signature) {
-  const at = resolve(dist, '.exact-stage');
-  if (signature === undefined) return existsSync(at) ? readFileSync(at, 'utf8') : '';
-  mkdirSync(dist, { recursive: true });
-  writeFileSync(at, signature);
+  return { dir: to, dist };
 }
 
 /** A run of the design tool's tests in `dir` (an app-cli verb), if it is
  * this checkout's tool: on the checkout's own port (`checkoutPort`, unless
  * EXACT_TOOL_PORT names one), from a stage with its stub and tests, built
- * into its own dist; the stage's dir, and `args` with every path into the
- * tool's sources (a file there, or a glob) turned into the stage's; null
- * to run as it is (another app, or EXACT_TOOL_PORT=7740). */
+ * into its own dist; the stage's dir, and `args` with each test file or glob
+ * in the tool's sources (by its real path) the stage's; null to run as it is
+ * (another app, or EXACT_TOOL_PORT=7740). */
 export function stageToolTests(dir, args) {
   const from = resolve(ROOT, 'apps/design-tool');
   if (!existsSync(from) || realpathSync(dir) !== realpathSync(from) || TOOL_PORT === 7740) return null;
   const staged = stageTool({ tests: true }), real = realpathSync(from);
   process.env.EXACT_WEB_DIST = staged.dist;
-  const into = a => { const at = resolve(a); if (!existsSync(at) && !/[*?[]/.test(a)) return a; for (const root of [from, real]) if (at === root || at.startsWith(`${root}/`)) return resolve(staged.dir, relative(root, at) || '.'); return a; };
+  // (A glob's real path is its directory's, up to its first wildcard.)
+  const realOf = a => { const at = resolve(a), glob = at.search(/[*?[]/); if (glob < 0) return existsSync(at) ? realpathSync(at) : at; const head = dirname(at.slice(0, glob + 1)); return existsSync(head) ? realpathSync(head) + at.slice(head.length) : at; };
+  const into = a => { if (!/\.test\.contract$/.test(a) && !/[*?[]/.test(a)) return a; const at = realOf(a); return at === real || at.startsWith(`${real}/`) ? resolve(staged.dir, relative(real, at)) : a; };
   return { dir: staged.dir, args: args.map(a => (a.startsWith('-') ? a : into(a))) };
 }
