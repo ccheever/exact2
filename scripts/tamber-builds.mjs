@@ -59,10 +59,12 @@ const REPORT_BYTES = 64 * 1024, REPORT_MS = 10_000;
 const KINDS = new Set(['register', 'status', 'unsupported', 'selected', 'held']);
 // A location on the build's own origin (LLP 1122 T7, `navigate`; a status's
 // `location`): a path with its query and fragment, never a scheme, a host or
-// a path a browser reads as one (`//`, `/\`), at most 2 KiB, no spaces or
-// controls.
-const LOCATION = /^\/(?![/\\])[^\s\\\x00-\x1f\x7f]*$/;
-const located = v => typeof v === 'string' && v.length <= 2048 && LOCATION.test(v);
+// a path a browser reads as one (`//`, `/\`), at most 2 KiB, in printable
+// ASCII (percent-encoded, as a page's own location is), no backslash.
+const LOCATION = /^\/(?![/\\])[\x21-\x5b\x5d-\x7e]*$/;
+// (Resolved, it stays a path: no dot segment makes it `//…`, which the
+// history API reads as another host.)
+const located = v => typeof v === 'string' && v.length <= 2048 && LOCATION.test(v) && !new URL(v, 'http://h.invalid').pathname.startsWith('//');
 // The states a hold names (LLP 1122 D8), and why a build lets one go.
 const HELD = ['active', 'hover', 'focus-visible'], DROPS = ['input', 'disabled', 'gone', 'replaced'];
 
@@ -118,7 +120,7 @@ function reportRefused(r) {
     if (!maybe(r.scheme, v => text(v, 32)) || !maybe(r.contrast, v => text(v, 32))) return '`scheme` and `contrast` are strings, or null';
     if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
     if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
-    if (!maybe(r.location, located)) return '`location` is a path on the build\'s own origin (with its query and fragment, at most 2 KiB), or null';
+    if (!maybe(r.location, located)) return '`location` is a path on the build\'s own origin (with its query and fragment, printable ASCII, at most 2 KiB), or null';
   }
   if (r.kind === 'selected' && !maybe(r.inspect, v => Number.isSafeInteger(v) && v >= 0)) return '`inspect` is a whole number';
   if (r.kind === 'selected' && !maybe(r.click, v => typeof v === 'string' && v.length > 0 && v.length <= 64)) return '`click` is a string of 1 to 64 characters';
@@ -435,6 +437,16 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         log(`build ${b.id}: ${r.state ? `holds ${r.state}` : `let go${r.reason ? ` (${r.reason})` : ''}`}`);
         send({ event: 'held', build: b.id, state: r.state ?? null, reason: r.reason ?? null });
       } else if (r.kind === 'unsupported') {
+        // A navigation refused is its sender's alone, and only the last one
+        // sent (its `revision`, the frame's seq): it holds nothing to clear.
+        if (r.what === 'navigate') {
+          const n = navigated.get(b.id);
+          if (!n || r.revision !== n.seq) return { status: 204, body: null };
+          navigated.delete(b.id);
+          log(`build ${b.id}: unsupported navigate`);
+          send({ event: 'unsupported', build: b.id, what: 'navigate', detail: r.detail ?? null, only: n.client });
+          return { status: 204, body: null };
+        }
         log(`build ${b.id}: unsupported ${r.what ?? '?'}`);
         // A hold refused is its hold frame's, an answer to its owner alone
         // (theme2's 07:48 (c)); a pin's is kept with the status.
@@ -446,15 +458,6 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
           b.held = null;
           send({ event: 'unsupported', build: b.id, what: 'hold', detail: r.detail ?? null, only: h.client });
           announce();
-          return { status: 204, body: null };
-        }
-        // A navigation refused is its sender's alone, and only the last one
-        // sent (its `revision`, the frame's seq): it holds nothing to clear.
-        if (r.what === 'navigate') {
-          const n = navigated.get(b.id);
-          if (!n || r.revision !== n.seq) return { status: 204, body: null };
-          navigated.delete(b.id);
-          send({ event: 'unsupported', build: b.id, what: 'navigate', detail: r.detail ?? null, only: n.client });
           return { status: 204, body: null };
         }
         // One for a frame its status has already moved past is old news.
@@ -592,7 +595,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
      * T7). One-shot: nothing is held, replayed or cleared. The refusal, the
      * build's lack of it, or the seq sent. */
     navigate(client, id, location) {
-      if (!located(location)) return { error: '`location` is a path on the build\'s own origin (with its query and fragment, at most 2 KiB): no scheme or host' };
+      if (!located(location)) return { error: '`location` is a path on the build\'s own origin (with its query and fragment, printable ASCII, at most 2 KiB): no scheme or host' };
       sweep();
       const b = listed().find(b => b.id === id);
       if (!b) return { error: `no registered build \`${id}\`` };

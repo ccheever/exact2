@@ -455,7 +455,7 @@ if (es) {
   // Where the page is (*1.14*), said when it moves: the router writes the
   // history, the browser traverses it, and a fragment moves alone. (A
   // location over the server's bound says none.)
-  function here() { const at = location.pathname + location.search + location.hash; return at.length <= 2048 && /^\/(?![/\\])[^\s\\\x00-\x1f\x7f]*$/.test(at) ? at : null; }
+  function here() { const at = location.pathname + location.search + location.hash; return at.length <= 2048 && /^\/(?![/\\])[\x21-\x5b\x5d-\x7e]*$/.test(at) ? at : null; }
   const pages = globalThis.history;
   if (pages) for (const name of ["pushState", "replaceState"]) { const write = pages[name]; pages[name] = function (...args) { const out = write.apply(this, args); committed(); return out; }; }
   globalThis.addEventListener?.("popstate", committed);
@@ -468,19 +468,32 @@ if (es) {
   const navigate = async (frame) => {
     const x = globalThis.exact;
     await x.ready;
-    const refuse = (detail) => report({ kind: "unsupported", what: "navigate", detail, revision: frame.seq });
-    const url = new URL(frame.location, location.origin);
-    if (url.origin !== location.origin) return refuse("the location is not on this page's origin");
-    const to = url.pathname + url.search;
-    if (to !== location.pathname + location.search && to !== history.state?.url) {
-      if (typeof x.wasm?.exact_route_match !== "function" || x.wasm.exact_route_match(x.writeIn(to)) !== 1) return refuse(`${JSON.stringify(to)} is no route of this app`);
-      const nav = document.getElementById("exact-root")?.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
-      const batch = heard ? x.navigate(to) : x.go?.(to);
-      if (!batch?.ops?.some((op) => op.op === "router")) return refuse(batch?.error ?? `the app's router took no step to ${JSON.stringify(to)}`);
-    }
-    // (The router writes the history after its commit: the fragment once the path is there, on the entry it wrote.)
-    for (let i = 0; i < 100 && location.pathname + location.search !== to; i++) await new Promise((ok) => setTimeout(ok, 10));
-    if (url.hash !== location.hash) history.replaceState(history.state, "", to + url.hash);
+    // A frame of a stream since replaced (a reconnect, another server) is old
+    // news: nothing done and nothing said, so its refusal never answers the
+    // new stream's navigation of the same seq.
+    const mine = () => frame.stream === channel.nonce;
+    if (!mine()) return;
+    const refuse = (detail) => { if (mine()) report({ kind: "unsupported", what: "navigate", detail: String(detail).slice(0, 1024), revision: frame.seq }); };
+    const said = (at) => JSON.stringify(at.length > 200 ? `${at.slice(0, 200)}…` : at);
+    try {
+      const url = new URL(frame.location, location.origin);
+      // (A path that resolves to `//…` is scheme-relative to the history API: no location of this page.)
+      if (url.origin !== location.origin || url.pathname.startsWith("//")) return refuse("the location is no path on this page's origin");
+      // There once the router's entry is the route (an agent's launch keys
+      // ride on its address, history.state.url has none) or the address is it.
+      const to = url.pathname + url.search, there = () => pages?.state?.url === to || location.pathname + location.search === to;
+      if (!there()) {
+        if (typeof x.wasm?.exact_route_match !== "function" || x.wasm.exact_route_match(x.writeIn(to)) !== 1) return refuse(`${said(to)} is no route of this app`);
+        const nav = document.getElementById("exact-root")?.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
+        const batch = heard ? x.navigate(to) : x.go?.(to);
+        if (!batch?.ops?.some((op) => op.op === "router")) return refuse(batch?.error ?? `the app's router took no step to ${said(to)}`);
+      }
+      // (The router writes the history after its commit: the fragment once
+      // it is there, on the entry it wrote, its address otherwise kept. One
+      // the app's handler sent elsewhere keeps the app's place, no fragment.)
+      for (let i = 0; i < 100 && !there(); i++) await new Promise((ok) => setTimeout(ok, 10));
+      if (mine() && there() && url.hash !== location.hash) pages?.replaceState(pages.state, "", location.origin + location.pathname + location.search + url.hash);
+    } catch (error) { return refuse(String(error)); }
     committed();
   };
   const pin = async (frame) => {
@@ -904,6 +917,7 @@ if (es) {
       channel.holdLatest = message;
       bindHold(message);
     }
+    if (message.kind === "navigate") message.stream = channel.nonce;
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold" || message.kind === "navigate") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;

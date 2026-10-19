@@ -4,9 +4,11 @@
 // keeps its own build id across reloads, though same-origin frames share
 // one sessionStorage, and posts it to its parent on registering, so the
 // parent finds which frame is which build by the message's source. Each
-// copy's status says where it is (`location`). `navigate` routes one copy in
-// place, its state kept, while the others stay; a location that is no
-// route is that client's `unsupported`.
+// copy's status says where it is (`location`), as the app moves it too (a
+// link, Back, a fragment). `navigate` routes one copy in place through the
+// app's `navigate` handler, its state kept, while the others stay; a
+// handler's redirect keeps the app's place; a location that is no route is
+// that client's `unsupported`.
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -27,13 +29,17 @@ component App
     nav = back(nav)
   action tap
     taps = taps + 1
+  action follow(url: string)
+    nav = go(nav, url == "/post/0" ? "/post/9" : url)
   view
-    main navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%" position="relative"
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%" position="relative"
       for t in nav.tabs key = t.name
         for e in t.stack key = e.id
           column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page"
             if e.name == "home"
               text "Home" role="heading" aria-level=1 testId="home"
+              link href="/post/3" testId="link"
+                text "Post 3"
             if e.name == "post"
               text \`Post \${params(nav, "id").join("")}\` role="heading" aria-level=1 testId="post"
             button press=tap testId="tap"
@@ -74,7 +80,10 @@ async function copies(wasm) {
     const token = (await fetch(`${base}/__tamber/token`).then(r => r.json())).token;
     const call = body => fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, ...(await r.json()) }));
     const events = () => fetch(`${base}/__tamber/events`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify({ after: 0, wait: false, client: 'copies' }) }).then(r => r.json()).then(r => r.events ?? []);
-    await events(); // present
+    // Present throughout: a subscription held open (a poll's presence lapses in 35 s).
+    const presence = new AbortController();
+    fetch(`${base}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify({ client: 'copies' }), signal: presence.signal }).then(r => r.body?.pipeTo(new WritableStream())).catch(() => {});
+    await events();
     let logs = [];
     const until = async (read, pass, what, ms = 120_000) => { for (const end = Date.now() + ms; ;) { const v = await read(); if (pass(v)) return v; if (Date.now() > end) throw new Error(`${what}: ${JSON.stringify(v)?.slice(0, 2000)}\nthe pages said: ${logs.slice(-20).join('\n')}\nevents: ${JSON.stringify((await events()).filter(e => e.event === 'unsupported'))}`); await Bun.sleep(250); } };
     const page = await browser.newPage();
@@ -119,11 +128,31 @@ async function copies(wasm) {
     // Back where it was, the fragment gone too.
     await call({ method: 'navigate', client: 'copies', build: first['exact-copy-2'], location: '/' });
     await until(listed, bs => bs.find(b => b.id === first['exact-copy-2'])?.status?.location === '/', 'copy 2 back at /');
+    const at = id => async () => (await listed()).find(b => b.id === id)?.status?.location;
+    // The app moving a copy itself is said too: a fragment where no router
+    // owns the history (the theme fixture; the JS fixture's router takes a
+    // hand-made entry back), a link and Back where one does.
+    const one = page.frame({ name: 'exact-copy-1' });
+    if (wasm) {
+      await one.evaluate(() => { location.hash = '#z'; });
+      await until(at(first['exact-copy-1']), l => l === '/#z', 'copy 1 says its fragment');
+    } else {
+      await one.click('[data-testid="link"]');
+      await until(at(first['exact-copy-1']), l => l === '/post/3', 'copy 1 says the link it followed');
+      await one.evaluate(() => history.back());
+      await until(at(first['exact-copy-1']), l => l === '/', 'copy 1 says it went back');
+      // The app's handler sends /post/0 to /post/9: the app's place kept, the fragment not added to it.
+      await call({ method: 'navigate', client: 'copies', build: first['exact-copy-3'], location: '/post/0#x' });
+      await until(at(first['exact-copy-3']), l => l === '/post/9', 'copy 3 where the app sent it');
+      expect(await page.frame({ name: 'exact-copy-3' }).textContent('[data-testid="post"]')).toBe('Post 9');
+    }
     // No route: said to this client, the copy where it was.
+    const before = page.frame({ name: 'exact-copy-3' }).url();
     await call({ method: 'navigate', client: 'copies', build: first['exact-copy-3'], location: '/nowhere' });
     const refused = await until(events, es => es.find(e => e.event === 'unsupported' && e.what === 'navigate'), 'a refusal');
     expect(refused.find(e => e.event === 'unsupported' && e.what === 'navigate')).toMatchObject({ build: first['exact-copy-3'], detail: expect.stringContaining('no route') });
-    expect(page.frame({ name: 'exact-copy-3' }).url()).toBe(`${base}/`);
+    expect(page.frame({ name: 'exact-copy-3' }).url()).toBe(before);
+    presence.abort();
   } finally {
     await browser.close();
     parent.close();

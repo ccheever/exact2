@@ -196,11 +196,11 @@ export function router(slot, history) {
 /** `location` (a path and query) routed in place as a link to it is: the navigation root's `navigate` handler, else the
  * router's own `go` (the development page's `navigate` command, LLP 1122 T7). Why not, or "". */
 export function goTo(location) {
-  const m = matchRoute(canonical(location));
-  if (m === null || Routes[m[0]].notfound) return `${JSON.stringify(location)} is no route of this app`;
+  const m = matchRoute(canonical(location)), said = JSON.stringify(location.length > 200 ? `${location.slice(0, 200)}…` : location);
+  if (m === null || Routes[m[0]].notfound) return `${said} is no route of this app`;
   const before = RouterSlot?.n?.v;
   if (Navigate) Navigate(location); else hostGo(location);
-  return RouterSlot?.n?.v === before ? `the app's router took no step to ${JSON.stringify(location)}` : "";
+  return RouterSlot?.n?.v === before ? `the app's router took no step to ${said}` : "";
 }
 export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;

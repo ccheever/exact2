@@ -1245,8 +1245,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 - **Navigation at the server** (*1.14*). `{method: "navigate", client, build, location}` needs
   write scope and a present client, and names a registered build (else 400) that can navigate
   (else 409 with `unsupported: "navigate"`; the design tool then reloads that copy's frame at
-  the location instead). `location` must start with one `/` (not `//` or `/\`) and hold no
-  space or control character, at most 2 KiB; any other is 400. Each is journaled with its client
+  the location instead). `location` must start with one `/` (not `//` or `/\`) and be
+  printable ASCII with no backslash (percent-encoded, as a page's own location is), at most
+  2 KiB; any other is 400. Each is journaled with its client
   and answered `{navigated: true, build, seq}`. A navigation holds nothing on the build: there is
   nothing to replay when it registers again or to clear when its client goes. Only the latest
   waits in a polled stream's queue. A build's `unsupported` for it is its sender's event alone

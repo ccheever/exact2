@@ -299,6 +299,17 @@ test('the wasm page sends its build-channel reports one at a time, in order, and
   await new Promise(r=>setTimeout(r,250));
   assert.deepEqual(sent('n2'),[],'nothing made on the replaced stream is sent');
   assert.deepEqual(sent('n3'),['status@2'],'the new stream sends its own status, and no report made before it');
+  // (c) A navigation is its stream's (LLP 1122 T7): refused on it (this page
+  // routes nothing), and one a reconnect replaced before it ran neither runs
+  // nor answers the new stream, whose navigation of the same seq is another.
+  send({kind:'navigate',seq:5,location:'/nowhere'});
+  await until(()=>sent('n3').includes('unsupported navigate@5'));
+  send({kind:'navigate',seq:6,location:'/nowhere'});
+  send({hello:1,nonce:'n4',ready:false});
+  await until(()=>held.has('n4'));held.get('n4')();
+  await until(()=>sent('n4').length>=1);
+  await new Promise(r=>setTimeout(r,250));
+  assert.deepEqual([...sent('n3'),...sent('n4')].filter(s=>s.includes('@6')),[],'a navigation of a replaced stream answers nothing');
 });
 
 test('dev startup rebuilds changed Rust even when the app identity still matches', async () => {
