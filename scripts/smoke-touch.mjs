@@ -171,9 +171,12 @@ async function archiveActivities(s, udid) {
     return tree;
   }
   async function resume(context) {
-    await spring('app');
     let timer;
     try {
+      const {state} = await spring('foreground');
+      if (state === 'notRunning') throw Error('the app exited while SpringBoard was showing');
+      // Activate the existing process without XCTest's wait for app quiescence.
+      simctl('launch', udid, resolveApp('caltrain').id);
       await Promise.race([s.state(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('the app did not answer state within 5 s')), 5000); })]);
     } catch (error) { throw Error(`${context}: the agent session did not resume after Home/lock: ${error.message}`); }
     finally { clearTimeout(timer); }

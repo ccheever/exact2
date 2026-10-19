@@ -29,7 +29,7 @@
 // the public `XCUICoordinate` call makes it; one the synthesizer has not
 // finished in time fails, never played again.
 // SpringBoard archive operations (LLP 1126.001 WP14) use the same session.
-// `app` reactivates only the running app the driver launched.
+// The driver reactivates its existing app after the archive reads.
 import XCTest
 import UIKit
 import Foundation
@@ -145,9 +145,7 @@ final class ExactTouches: XCTestCase {
             let selector = NSSelectorFromString("pressLockButton")
             guard XCUIDevice.shared.responds(to: selector) else { throw refuse("this XCTest has no pressLockButton for the locked archive read") }
             _ = XCUIDevice.shared.perform(selector)
-        case "app":
-            guard app.state != .notRunning else { throw refuse("the app exited while SpringBoard was showing; its agent session cannot resume") }
-            app.activate()
+        case "foreground": return ["state": name(app.state)]
         case "tap": try point("point").tap()
         case "hold":
             guard let seconds = request["seconds"] as? Double, seconds.isFinite, seconds > 0, seconds <= 5 else { throw refuse("SpringBoard hold needs seconds in 0...5") }
