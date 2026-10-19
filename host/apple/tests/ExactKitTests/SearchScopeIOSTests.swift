@@ -107,6 +107,42 @@ final class SearchScopeIOSTests: XCTestCase {
         XCTAssertEqual(state(session, "filter") as? String, "all")
     }
 
+    /// LLP 1135: with no search, the filter under a large title is the
+    /// item's subtitle views, under the large title and under the inline one.
+    func testAFilterUnderALargeTitleIsItsSubtitleViews() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the iPhone's (LLP 1135 D4)") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("the subtitle views are iOS 26's") }
+        let (session, route) = try fixture()
+        let p = session.presenter, filter = try node(session, "filter"), list = try node(session, "list")
+        p.press(try node(session, "pick-plain").id)
+        until("the filter is the subtitle views") { route.navigationItem.largeSubtitleView is UISegmentedControl && route.navigationItem.subtitleView is UISegmentedControl }
+        let large = try XCTUnwrap(route.navigationItem.largeSubtitleView as? UISegmentedControl)
+        let inline = try XCTUnwrap(route.navigationItem.subtitleView as? UISegmentedControl)
+        for control in [large, inline] {
+            XCTAssertEqual((0..<control.numberOfSegments).map { control.titleForSegment(at: $0) }, ["All", "Mine", "Done"])
+            XCTAssertEqual(control.selectedSegmentIndex, 0)
+        }
+        XCTAssertNil(route.search?.controller.searchBar.scopeButtonTitles, "no scope bar: there is no search")
+        XCTAssertTrue(filter.isHidden && p.navigation.hiddenForBar(filter), "the tablist is the bar's")
+        XCTAssertFalse(p.segments.projects(filter.id))
+        until("the list is the collapse scroller") { route.collapseScroll === list }
+        // A choice under the inline title presses its tab once and sets the other.
+        let before = state(session, "presses") as? Int ?? 0
+        inline.selectedSegmentIndex = 2
+        inline.sendActions(for: .valueChanged)
+        until("Done is chosen") { state(session, "filter") as? String == "done" }
+        XCTAssertEqual(state(session, "presses") as? Int, before + 1)
+        XCTAssertEqual(large.selectedSegmentIndex, 2, "the other follows")
+        // The Contract's selection moves both.
+        p.press(try node(session, "filter-mine").id)
+        until("both follow the Contract") { large.selectedSegmentIndex == 1 && inline.selectedSegmentIndex == 1 }
+        // A search back: the scope bar, and the subtitle views go.
+        p.press(try node(session, "pick-scope").id)
+        until("the subtitle views go") { route.navigationItem.largeSubtitleView == nil && route.navigationItem.subtitleView == nil }
+        until("the scope bar is back") { route.search?.controller.searchBar.scopeButtonTitles?.count == 3 }
+    }
+
     func testAFilterThatIsNotAScopeKeepsItsSegmentedControl() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
         guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the scope bar is the iPhone's (D5)") }
