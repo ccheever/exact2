@@ -464,7 +464,7 @@ test('round 6 (Grok): new collections only when every context the old served is 
   await send({ type: 'apply', text: ctx(['dark-style=black, light', 'dark-style=black, dark'], 'dark-style=black, light') }, 'applied');
   await send({ type: 'apply', text: ctx(['dark-style=black, dark'], 'dark-style=black, dark') }, 'applied');
   const col = f.collections[0], dark = col.modes.find((m: any) => m.name === 'dark-style=black, dark').modeId;
-  await expect(send({ type: 'apply', text: ctx(['dark-style=black, dark', 'dark-style=dim, light'], 'dark-style=black, dark') }, 'applied')).rejects.toThrow(/can't remove/);
+  await expect(send({ type: 'apply', text: ctx(['dark-style=black, dark', 'dark-style=dim, light'], 'dark-style=black, dark') }, 'applied')).rejects.toThrow(/kept unused by Tamber/);
   expect(f.collections).toEqual([col]);
   expect(col.modes.some((m: any) => m.modeId === dark)).toBe(true);
 });
@@ -762,6 +762,7 @@ test('leftovers: a pull that drops or remakes variables names each one that goes
   await send({ type: 'apply', text: TEXT }, 'applied');
   const [black, dim] = f.collections;
   f.variables.find(v => v.variableCollectionId === dim.id && v.name === 'accent/fill').name = 'brand/primary';
+  dim.name = 'Mine'; // (a collection renamed in Figma: named as it is now)
   const changed = variant(doc => { for (const c of Object.values<any>(doc.modifiers.mode.contexts)) { delete c[0].accent.fill; c[0].accent.soft = { $type: 'number', $value: 1 }; } });
   const { drops } = await send({ type: 'check', text: changed }, 'checked');
   expect(drops.map((d: any) => [d.collection, d.variable, d.why])).toEqual([
@@ -787,7 +788,7 @@ test('leftovers: a pull short of room is refused naming the collection and its d
   col.name = 'Brand';
   col.modes[0].name = 'Dimmer';
   const n = counted();
-  await expect(send({ type: 'apply', text: ctx(['dark-style=black, dark', 'dark-style=dim, light'], 'dark-style=black, dark') }, 'applied')).rejects.toThrow("`Brand`'s default mode `Dimmer`, which Tamber keeps unused and Figma can't remove, holds one");
+  await expect(send({ type: 'apply', text: ctx(['dark-style=black, dark', 'dark-style=dim, light'], 'dark-style=black, dark') }, 'applied')).rejects.toThrow("this file allows 2 modes a collection, and `Brand` needs 1 more place: remove `Dimmer` (kept unused by Tamber), and the values on it go (`Dimmer` is the default mode, which Figma won't remove: drag another mode above it first); then pull");
   // (each try's renaming undone: the one-collection try, then the two-mode one)
   expect([n.undos, col.name, col.modes[0].name]).toEqual([2, 'Brand', 'Dimmer']);
 });
@@ -805,7 +806,7 @@ test('leftovers: a mode of the person\'s in the way that is the default says to 
   col.addMode('Local review');
   col.modes.unshift(col.modes.pop()); // (dragged to the top: the default)
   const n = counted();
-  await expect(send({ type: 'apply', text: only(['dark-style=black, light', 'dark-style=black, dark']) }, 'applied')).rejects.toThrow("(Local review) in the places its contexts need: remove one, and the values on it go (`Local review` is the default mode, which Figma won't remove: drag another mode above it first); then pull");
+  await expect(send({ type: 'apply', text: only(['dark-style=black, light', 'dark-style=black, dark']) }, 'applied')).rejects.toThrow("`Tamber` needs 1 more place: remove `Local review` (yours), and the values on it go (`Local review` is the default mode, which Figma won't remove: drag another mode above it first); then pull");
   expect([n.undos, col.modes.map((m: any) => m.name)]).toEqual([0, ['Local review', 'dark-style=black, light']]);
   // A layout change that would replace a collection holding a mode of the person's: delete it, its values go.
   await load(10);
@@ -819,4 +820,36 @@ test('leftovers: a mode of the person\'s in the way that is the default says to 
   const m = counted();
   await expect(send({ type: 'apply', text: six }, 'applied')).rejects.toThrow('has modes Tamber did not make (Local review): delete them, and the values on them go; then pull');
   expect([m.undos, f.collections.length]).toEqual([1, 1]); // (the one-collection try changed nothing; the split collections it made, undone)
+  // The same, that mode dragged to the top: the default, which Figma won't remove.
+  const top = f.collections.find(c => c.modes.some((x: any) => x.name === 'Local review'));
+  top.modes.unshift(top.modes.splice(top.modes.findIndex((x: any) => x.name === 'Local review'), 1)[0]);
+  await expect(send({ type: 'apply', text: six }, 'applied')).rejects.toThrow("(`Local review` is the default mode, which Figma won't remove: drag another mode above it first); then pull");
+  top.modes.push(top.modes.shift()); // (back below)
+});
+
+test('leftovers (round 1): a parked mode dragged off the default is named, never the live default; every mode in the way counted', async () => {
+  await load(2);
+  const ctx = (names: string[], def: string) => variant(d => {
+    const contexts = d.modifiers.mode.contexts, all = { ...contexts };
+    for (const c of Object.keys(contexts)) delete contexts[c];
+    for (const n of names) contexts[n] = all[n];
+    d.modifiers.mode.default = def;
+  });
+  await send({ type: 'apply', text: ctx(['dark-style=black, light', 'dark-style=black, dark'], 'dark-style=black, light') }, 'applied');
+  await send({ type: 'apply', text: ctx(['dark-style=black, dark'], 'dark-style=black, dark') }, 'applied');
+  const col = f.collections[0];
+  col.modes[0].name = 'Dimmer';
+  col.modes.push(col.modes.shift()); // (the parked mode dragged below the live one)
+  await expect(send({ type: 'apply', text: ctx(['dark-style=black, dark', 'dark-style=dim, light'], 'dark-style=black, dark') }, 'applied')).rejects.toThrow('`Tamber` needs 1 more place: remove `Dimmer` (kept unused by Tamber), and the values on it go; then pull');
+  // Two of the person's modes where both contexts want a place: both named, both to go.
+  await load(4);
+  const two = ctx(['dark-style=black, light', 'dark-style=black, dark'], 'dark-style=black, light');
+  await send({ type: 'apply', text: two }, 'applied');
+  const mine = f.collections[0];
+  mine.addMode('Personal A');
+  mine.addMode('Personal B');
+  mine.modes.unshift(...mine.modes.splice(2, 2)); // (theirs dragged to the top)
+  for (const m of mine.modes.slice(2)) mine.removeMode(m.modeId); // (Tamber's two deleted by hand)
+  f.raise(2);
+  await expect(send({ type: 'apply', text: two }, 'applied')).rejects.toThrow("`Tamber` needs 2 more places: remove `Personal A` (yours) and `Personal B` (yours), and the values on them go (`Personal A` is the default mode, which Figma won't remove: drag another mode above it first); then pull");
 });
