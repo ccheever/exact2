@@ -38,6 +38,7 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub(crate) mod dates;
 pub mod gradient;
+mod grouped;
 pub use gradient::GradientPaint;
 pub(crate) mod field;
 mod fragments;

@@ -259,13 +259,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`prefer visibility-state hidden` then `visible` with no clock step between).
   (Web and iOS simulator, 2026-10-06.)
 
-- **A custom row in a grouped list overflows its card on the right.** Cause:
-  the sheet already gives each row the cell's margin at both ends (on iOS
-  UIKit's: 16 pt on an iPhone, 20 on the iPhone Duo; 40 more after an icon).
-  A custom row with `width="100%"` adds the margin on top and runs past the
-  card. Fix: leave custom row content at its natural width (`flex-grow=1` on
-  the part that should stretch), not `width="100%"`. (Signal Clone, build 15.)
-
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
   the resource failed (`Rust module rejected the call`). Cause: the JS target's

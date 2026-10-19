@@ -1640,7 +1640,8 @@ anchorAt) * bpm / 60000`. A playhead or beat light follows it as an animation, n
 frame task: a loop whose opacity is a computed `linear()` curve on a clock timeline,
 re-read by a task keyed on the anchor ("Following the transport", below), so no app
 code runs while it plays. A frame task is for text that changes
-with the beat, gated on it being shown. The gate turning
+with the beat, gated on it being shown, whose action writes the beat, not the time, so a
+frame that moves no beat commits nothing. The gate turning
 false stops it; `stopSounds()` silences what sounds and the next steps still play.
 For one or two scheduled hits, `playSounds(hits)` with `at=` is enough (a list of a
 shape whose fields are, in order, `src`, `at`, `gain` and `group`, then optionally
@@ -1695,7 +1696,8 @@ component Beats
   state synced = ""
   resource transport = exactTransport() as shape Transport
   derive anchor = `${transport.anchorAt} ${transport.anchorBeat} ${transport.bpm}`
-  derive beat = 60000 / transport.bpm
+  // `transport.bpm` is 0 before anything has played; a derive may not be Infinity.
+  derive beat = 60000 / max(1, transport.bpm)
   sequence click when playing
     play([Track(beats=1, loops=0, offset=0, output="", steps=[])], bpm=120)
   // Where the transport is, read once per play, seek or tempo change.
@@ -1719,9 +1721,12 @@ component Beats
                   animation=lit(beat, 4 * beat, i * beat, pos) animation-timeline=Transport
 ```
 
-- **What stays a frame task:** text that changes with the beat ("Count-in 3"), and only while
-  it shows. Read the position in an action (a pause's) as `anchorBeat + (performanceNow() -
-  anchorAt) * bpm / 60000` beats.
+- **What stays a frame task:** text that changes with the beat ("Count-in 3"), gated on the
+  transport states that show it. Its action writes the beat, `floor(anchorBeat +
+  (performanceNow() - anchorAt) * bpm / 60000)`, never the time: the runner compares state
+  after an action, so a frame on which the beat has not changed commits nothing and draws
+  nothing (`apps/metronome/app.contract`'s `readout`). Read the position in an action (a
+  pause's) as `anchorBeat + (performanceNow() - anchorAt) * bpm / 60000` beats.
 - **A light that is not just on or off** puts every stop in the curve. Over a four-step cycle,
   a trail ember lit the step after the head and fading from 0.4 to 0.18 through it is
   `linear(0 0% 25%, 0.4 25%, 0.18 50%, 0 50% 100%)`; a fade after the beat is a few stops

@@ -79,7 +79,8 @@ pub use error::{
 };
 pub use generated::*;
 pub use grouped::{
-    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, TextFont, TextLook,
+    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, GroupedSeparator, TextFont,
+    TextLook,
 };
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};

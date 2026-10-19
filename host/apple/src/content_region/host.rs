@@ -427,7 +427,7 @@ impl<D: DataSource> Host<D> {
                 },
                 mirror: Mirror {
                     props,
-                    style,
+                    style: self.style_texts.share(style),
                     children,
                     ..Default::default()
                 },

@@ -343,6 +343,8 @@ fn min_content_rows_remeasure_content_dependent_bases() {
 /// case. The eight basic row cases also agree inside float:left wrappers.
 /// `Chrome 151 intrinsic wrap floor` also checks the min-content floor,
 /// including reversed rows, item and container padding, margins and a cap.
+/// `Chrome 151 intrinsic ratio floor` (2026-10-19) checks the ratio height
+/// after intrinsic width sizing, including line alignment and content overflow.
 /// A max-content root offer must publish wrapped frames without a parent's
 /// definite-width pass.
 #[test]

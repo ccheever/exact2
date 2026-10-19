@@ -78,8 +78,9 @@ fn a_button_holding_the_title_is_the_title_and_the_later_text_its_value() {
         row.x + row.width - (qty.x + qty.width) <= 17.0 && qty.width < row.width / 4.0,
         "the value trails: {qty:?} in {row:?}"
     );
+    let inset = k.resolved_padding(node("item").key).unwrap().0;
     assert!(
-        button.x - row.x < 30.0 && button.x + button.width >= qty.x - 9.0,
+        button.x - (row.x + inset) < 30.0 && button.x + button.width >= qty.x - 9.0,
         "the title grows to the value: {button:?}, {qty:?}"
     );
     assert!(

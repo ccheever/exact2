@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57 and 58 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60 and 61 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1915,6 +1915,45 @@ from 100×60 to 100×80; its automatic-height sibling changes from 100×60 to
 percentage bounds, short content, nested flex/grid contents, ratios 2 and 0.5,
 and reversed columns. Non-binding and binding 70px width maxima retain
 40×70 and 70×70 items respectively.
+
+## Patch 60: a cache's measure slots are allocated as they are used
+
+`Cache::measure_entries` held `CACHE_SIZE` (nine) `Option<CacheEntry<Size<f32>>>`
+inline, 360 of a boxed cache's 448 bytes, for a box that is measured under one
+or two inputs before its final layout. It is now a `Vec` of the slots used so
+far, grown three at a time (`reserve_exact`), the entries at the same indices:
+slots fill in cursor order, the cursor skips only a slot whose recently-used
+bit is set (a filled one) and wraps only past the ninth, so slot `i` exists for
+every `i < len()`, and the store either replaces slot `i` or pushes it. Hits,
+eviction and `clear` (which keeps the allocation) answer as before. Euxy's
+first screen: 312 caches of 448 bytes become 312 of 120 and their slots.
+
+**Held by** `tree::cache::tests` (`lazy_storage_preserves_cache_answers_and_clear_state`
+compares every answer with an eagerly stored cache through 240 mixed stores,
+hits and clears) and the kernel's layout tests.
+
+## Patch 61: transfer an intrinsic flex row's resolved width through its ratio
+
+After intrinsic main sizing resolves a flex row's width, refresh its height
+constraints, percentage basis and cross-axis definiteness through the same
+ratio resolution used for incoming dimensions. This happens before cross
+sizing and alignment, so the ratio floor sizes and places the lines as well
+as the container. The intrinsic main-axis constraints and definiteness stay
+intact. Content can exceed the automatic height floor; authored height bounds,
+explicit minima and scroll containers keep their existing ratio rules.
+See [CSS Sizing 4 §4.2](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-automatic),
+[§4.3](https://www.w3.org/TR/css-sizing-4/#auto-min-size) and
+[§4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers).
+
+**Held by** `browser_position::max_content_roots_wrap_at_their_resolved_width`:
+17 literal `Chrome 151 intrinsic ratio floor` cases, measured with Chrome
+151.0.7922.34 on 2026-10-19 inside `width:max-content` wrappers and compared
+with direct `Offer::MAX_CONTENT` kernel layouts. Before the patch, 17 frames
+in 11 cases differed. The reported root changes from 100×60 to 100×100;
+without `max-height` it changes from 120×30 to 120×120. Controls cover definite
+width and height, columns, grid, content exceeding the floor, centered and
+stretched lines, reverse wrapping, nowrap, ratio 2, padding and borders under
+both box-sizing modes, a zero minimum and hidden overflow.
 
 ## Cargo workspace boundary
 

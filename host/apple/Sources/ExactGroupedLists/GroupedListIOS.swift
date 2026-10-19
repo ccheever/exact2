@@ -115,6 +115,11 @@ struct GroupedListModel: Equatable {
         var action = false
         var destructive = false
         var disabled = false
+        /// Its author wrote the edge under it, or the next row's author
+        /// that row's top edge, which replaces UIKit's separator there
+        /// when that row is carried and draws it (LLP 1084 D7).
+        var authoredEdge = false
+        var nextAuthoredTop = false
         var titleLook = Look()
         var secondaryLook = Look()
     }
@@ -153,6 +158,8 @@ struct GroupedListModel: Equatable {
                            target: id(r["target"]), checked: r["checked"] as? Bool ?? false, pressable: r["pressable"] as? Bool ?? false,
                            action: r["action"] as? Bool ?? false,
                            destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false,
+                           authoredEdge: r["authoredEdge"] as? Bool ?? false,
+                           nextAuthoredTop: r["nextAuthoredTop"] as? Bool ?? false,
                            titleLook: Look(json: r["titleLook"]), secondaryLook: Look(json: r["secondaryLook"]))
             }
             return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String,
@@ -533,6 +540,22 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.footerMode = s?.footer == nil ? .none : .supplementary
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
+            // Where a row's author wrote the edge under it, a carried row
+            // shows that edge instead of UIKit's line (LLP 1084 D7), as a
+            // hand-built cell hides its separator. A standard cell draws no
+            // authored box, so UIKit's line stays beside one.
+            c.itemSeparatorHandler = { [weak self] path, separator in
+                var separator = separator
+                let rows = self?.section(at: path.section)?.rows ?? []
+                func owned(_ i: Int) -> Bool {
+                    guard i >= 0, i < rows.count else { return false }
+                    return rows[i].authoredEdge && rows[i].custom
+                        || rows[i].nextAuthoredTop && i + 1 < rows.count && rows[i + 1].custom
+                }
+                if owned(path.item) { separator.bottomSeparatorVisibility = .hidden }
+                if owned(path.item - 1) { separator.topSeparatorVisibility = .hidden }
+                return separator
+            }
             #endif
             #if os(iOS)
             // A row that names swipe actions swipes as a hand-built list's
@@ -1067,7 +1090,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     }
 
     /// A custom row's own views in its cell, at the row's place in its
-    /// group, as tall as the row less the separator the cell draws instead.
+    /// group, as tall as the row: its separator is decoration, which the
+    /// cell draws instead, and a bottom border its author wrote is its own.
     private func carry(_ id: UInt32, into cell: GroupedCell) {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
         for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
@@ -1083,7 +1107,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // twice a batch.
         let drawn = row.grid.map { CGRect(x: PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale), y: 0, width: $0.drawn.width, height: $0.drawn.height) }
             ?? CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
-        let height = cellHeight(id, row: drawn.height)
+        let height = drawn.height
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
@@ -1100,15 +1124,6 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         row.frame = drawn
     }
 
-    /// A custom row's cell height for a row box `height` tall: less the
-    /// separator the cell draws instead of the row's own border. A card-less
-    /// section has no UIKit separator to stand in for it, so the row keeps
-    /// its full height (§6.2).
-    private func cellHeight(_ id: UInt32, row height: CGFloat) -> CGFloat {
-        let separator = card(of: id) ? CGFloat(host.presenter.views[id]?.style["border_width_bottom"]?.number ?? 0) : 0
-        return max(0, height - separator)
-    }
-
     /// A row whose cell was sized to nothing and that has a box now (the
     /// sheet over it closed and gave back its geometry) comes into the list
     /// again: UIKit configures and measures its cell anew, which carries the
@@ -1116,7 +1131,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func remeasure() {
         unsized = unsized.filter { rows[$0]?.custom == true }
         let grown = unsized.filter { id in
-            host.presenter.views[id].map { cellHeight(id, row: carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
+            host.presenter.views[id].map { (carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
         }
         guard !grown.isEmpty else { return }
         unsized.subtract(grown)
