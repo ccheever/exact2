@@ -262,6 +262,37 @@ impl Em<'_> {
             let _ = write!(self.out, "{p}({e},\"data-x-pin\",{f});");
             return Ok(());
         }
+        // @ref LLP 1084 D7 — what the page's sheet reads to give a grouped
+        // row's separator way (index.html): a bound edge or background image
+        // its author wrote, while it holds a value, and a row's bound
+        // `display`, while it hides the row. A literal one is said by the
+        // element's own marks (`data-exact-said`, `data-exact-hidden`).
+        let mark = match id {
+            StyleId::BorderWidthTop if b.written => Some("data-exact-top-width"),
+            StyleId::BorderStyleTop if b.written => Some("data-exact-top-style"),
+            StyleId::BorderWidthBottom if b.written => Some("data-exact-bottom-width"),
+            StyleId::BorderStyleBottom if b.written => Some("data-exact-bottom-style"),
+            StyleId::BackgroundImage if b.written => Some("data-exact-background-image"),
+            StyleId::Display
+                if parts.props.contains_key("data-groupedrowseparator")
+                    || parts.props.contains_key("data-native") =>
+            {
+                Some("data-exact-hidden")
+            }
+            _ => None,
+        };
+        if let Some(name) = mark {
+            let p = self.uses.rt("P");
+            let when = if id == StyleId::Display {
+                "v===\"none\"?\"\":null"
+            } else {
+                "v==null||v===\"\"?null:\"\""
+            };
+            let _ = write!(
+                self.out,
+                "{p}({e},\"{name}\",()=>{{const v=({f})();return {when}}});"
+            );
+        }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // @ref LLP 1077 D13 — a bound colour may name a system colour, which
         // the literal path resolved in the kernel. And a CSS-text row that
@@ -542,6 +573,20 @@ impl Em<'_> {
         } else {
             writes
         };
+        // @ref LLP 1084 D7 — a grouped row's separator stands below its
+        // bottom padding (the page's sheet, as `element::host_css_of` says).
+        let mut writes = writes;
+        if id == StyleId::PaddingBottom && parts.props.contains_key("data-groupedrowseparator") {
+            if let Some((_, unit, map)) = writes.first().cloned() {
+                // A length; a percentage, which a background cannot reach,
+                // is none (`element::host_css_of`).
+                let inner = map.unwrap_or_else(|| "v=>v".into());
+                let px = format!(
+                    "v=>{{const t=({inner})(v);return t!=null&&/%/.test(String(t))?\"0px\":t}}"
+                );
+                writes.push(("--exact-padding-bottom".into(), unit, Some(px)));
+            }
+        }
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).
@@ -1147,17 +1192,19 @@ mod tests {
                 .unwrap_or_else(|| panic!("no bound {row} names a metric"));
             crate::style::metric_map(&plan, plan.code(binding.expr)).unwrap()
         };
-        // The row starts at its text, after a symbol where one is shown.
+        // The row's content starts at its text, after a symbol where one is
+        // shown: its padding, the row spanning its card (LLP 1084 D7).
         assert_eq!(
             run(
-                &named("margin_left"),
+                &named("padding_left"),
                 &[
                     "-exact-grouped-row-inset",
                     "-exact-grouped-row-inset-symbol",
+                    "-exact-grouped-button-padding-start",
                     "12px"
                 ]
             ),
-            serde_json::json!([16, 56, "12px"])
+            serde_json::json!([16, 56, 16, "12px"])
         );
         // Red when destructive, by its role; the label's colour is no metric.
         assert_eq!(
@@ -1167,11 +1214,11 @@ mod tests {
             ),
             serde_json::json!(["-exact-system-red", "-exact-label"])
         );
-        // The Mac's push button's padding is no row on the web.
+        // The Mac's push button's margin is no row on the web.
         assert_eq!(
             run(
-                &named("padding_left"),
-                &["-exact-grouped-button-padding-start", "unset"]
+                &named("margin_left"),
+                &["-exact-grouped-button-margin-inline", "unset"]
             ),
             serde_json::json!([null, "unset"])
         );

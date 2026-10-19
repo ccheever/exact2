@@ -74,6 +74,8 @@ mod paragraph;
 use paragraph::props_for;
 #[path = "presence.rs"]
 mod presence;
+#[path = "separator.rs"]
+mod separator;
 #[path = "tamber.rs"]
 mod tamber;
 #[cfg(test)]

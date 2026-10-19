@@ -211,6 +211,15 @@ pub(super) fn touch_scoped(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 }
 
 /// [`host_css`], from a node's facts.
+/// `grouped-separator` in this page's column, as a colour row reads it.
+fn grouped_separator_color() -> Option<exact_kernel::ColorValue> {
+    let name = exact_kernel::StyleValue::Text("-exact-grouped-separator".into());
+    let value = exact_kernel::style::metrics::of(StyleId::BorderColorBottom, &name)??;
+    let mut style = exact_kernel::StyleProps::default();
+    style.set_dynamic(StyleId::BorderColorBottom, &value).ok()?;
+    style.border_color_bottom
+}
+
 pub fn host_css_of(
     node: &NodeFacts<'_>,
     parent: Option<&NodeFacts<'_>>,
@@ -225,6 +234,27 @@ pub fn host_css_of(
         css.push_str("display:block;");
     }
     css = button_css::face(node, css);
+    // @ref LLP 1084 D7 — a grouped row's separator, which the page's sheet
+    // draws (index.html) in the platform's colour at the foot of its
+    // padding box, below its bottom padding.
+    if node.props.bool(PropId::GroupedRowSeparator) == Some(true) {
+        if let Some(line) = grouped_separator_color() {
+            css.push_str("--exact-grouped-separator:");
+            exact_kernel::gradient::color_css(&mut css, line);
+            css.push(';');
+        }
+        // Always said, so a grouped list inside the row inherits none. A
+        // percentage is of the containing block's width, which a background
+        // cannot reach: the line then stands at the content box's foot.
+        let mut bottom = String::new();
+        crate::css::dimension(&mut bottom, node.style.padding_bottom);
+        if bottom.contains('%') || bottom == "auto" {
+            bottom = "0px".into();
+        }
+        css.push_str("--exact-padding-bottom:");
+        css.push_str(&bottom);
+        css.push(';');
+    }
     if node.node_type == NodeType::Canvas {
         if !(css.starts_with("position:") || css.contains(";position:")) {
             css.push_str("position:relative;");
@@ -1241,7 +1271,18 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                 StyleId::BorderStyleBottom,
                 "border-bottom",
             ),
+            // A grouped row's own background image is where the sheet draws
+            // its separator (LLP 1084 D7).
+            (
+                StyleId::BackgroundImage,
+                StyleId::BackgroundImage,
+                "background-image",
+            ),
         ] {
+            let channel = width == StyleId::BackgroundImage;
+            if channel && node.props.bool(PropId::GroupedRowSeparator) != Some(true) {
+                continue;
+            }
             if node.style.written.has(width) || node.style.written.has(line) {
                 let words = match out.get("data-exact-said") {
                     Some(said) if !said.is_empty() => format!("{said} {word}"),

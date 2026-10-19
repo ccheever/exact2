@@ -375,6 +375,7 @@ impl<D: DataSource> Host<D> {
             batch.style(id, &style);
             m.style = self.style_texts.share(style);
         }
+        self.emit_separators_beside(id, batch);
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
@@ -530,6 +531,9 @@ impl<D: DataSource> Host<D> {
     /// there and Swift lists the word as unhandled.
     pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
         let mut props = props_for(node);
+        if let Some(line) = super::separator::json(self.runner.kernel(), node.id) {
+            props.insert(super::separator::PROP.into(), line);
+        }
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {
                 if self.hatches.off.contains(word) {

@@ -13,13 +13,13 @@
 //! `-delete` after it.
 //!
 //! In a grouped list the row is styled as one (`grouped::row`) and the
-//! scroll takes only the row's box in its card: its separator and the
-//! margins around it. The inset is inside the row, so the cell UIKit swipes
-//! and its long-press preview hold it, as a hand-built list's cell does, and
-//! the row slides from the card's edge; the Mac's form, whose rows stand in
-//! from both edges, keeps it on the scroll (`grouped-swipe-margin`). So the
-//! web's separator under such a row starts at the card's edge, where UIKit
-//! draws its own at the inset.
+//! scroll takes only the row's box in its card: its separator. The inset is
+//! inside the row, so the cell UIKit swipes and its long-press preview hold
+//! it, as a hand-built list's cell does, and the row slides from the card's
+//! edge; the Mac's form, whose rows stand in from both edges, keeps its
+//! leading inset on the scroll (`grouped-swipe-margin`). So the separator
+//! the sheet's hosts draw under such a row starts at the scroll's edge (the
+//! card's), where UIKit draws its own at the inset.
 
 use crate::metrics::grouped as metric;
 use crate::LowerError;
@@ -32,14 +32,8 @@ const CONTENT: &str = "exact-swipe-row";
 const ACTION: &str = "exact-swipe-delete";
 
 /// The sheet rows of a grouped row that are its box in the card, which
-/// the scroll takes: its separator and the margins around it.
-const BOX: &[&str] = &[
-    "margin-right",
-    "margin-bottom",
-    "border-bottom-width",
-    "border-bottom-style",
-    "border-bottom-color",
-];
+/// the scroll takes: its separator.
+const BOX: &[&str] = &["grouped-row-separator"];
 
 fn last(attrs: &[Attr], name: &str) -> Option<Attr> {
     attrs.iter().rev().find(|a| a.name == name).cloned()
@@ -222,10 +216,12 @@ pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
         unreachable!("row keeps an element")
     };
     let boxed = |a: &Attr| BOX.iter().any(|b| a.name == mark(b));
-    let inset = mark("margin-left");
+    // The row's own leading inset gives way to the swipe's: on the scroll
+    // where the Mac's rows stand in, in the content elsewhere.
+    let inset = mark("padding-left");
     let mut outer: Vec<Attr> = attrs.iter().filter(|a| boxed(a)).cloned().collect();
-    outer.push(s(&inset, &metric("swipe-margin"), span));
-    let mut inner = vec![s(&mark("padding-left"), &metric("swipe-padding"), span)];
+    outer.push(s(&mark("margin-left"), &metric("swipe-margin"), span));
+    let mut inner = vec![s(&inset, &metric("swipe-padding"), span)];
     inner.extend(attrs.into_iter().filter(|a| !boxed(a) && a.name != inset));
     // A leading symbol stands at the row's inset as in any row, with no
     // margin to pull it back into.

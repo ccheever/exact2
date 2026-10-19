@@ -316,6 +316,12 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
+            self.emit_separators(id, batch);
+            let kernel = self.runner.kernel();
+            let Some(node) = kernel.node(id) else {
+                continue;
+            };
+            let m = self.mirror.entry(id).or_default();
             let field_content = published_content_box(&node, kernel);
             let field_cell = node.is_cell_field();
             if self.layout_withheld

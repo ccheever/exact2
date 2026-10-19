@@ -82,7 +82,7 @@ async function inChrome(test) {
 // Each field's line, corners, box and background, its row's box, and the card's background behind it.
 const FACTS = `(() => Object.fromEntries(['unsaid', 'beside', 'bare', 'area'].map(id => {
   const e = document.querySelector('[data-testid=' + id + ']'), s = getComputedStyle(e), r = e.getBoundingClientRect();
-  let row = e.parentElement; while (row && getComputedStyle(row).borderBottomStyle !== 'solid') row = row.parentElement;
+  const row = e.closest('[data-groupedrowseparator]');
   const rr = row.getBoundingClientRect();
   return [id, { line: s.borderTopWidth + ' ' + s.borderTopStyle, color: s.borderTopColor, radius: s.borderTopLeftRadius,
     height: r.height, width: r.width, inRow: r.left >= rr.left && r.right <= rr.right && r.top >= rr.top && r.bottom <= rr.bottom,
