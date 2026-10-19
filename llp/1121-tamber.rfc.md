@@ -4635,9 +4635,9 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
     leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
   - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
     with radius.full left out.
-- **SCHEMA_DIGEST** moves once, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x1360_51a6_5170_bf6a`
+- **SCHEMA_DIGEST** moves once, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x45a9_8459_9339_c7bf`
   (`kernel/src/wire/codec.rs`; the `scale` table, the metrics' terminal column and theme2's unit flag, `style length`.
-  Rounds 1 and 2 pinned `0x374f_477d_d305_5b7e` before the flag). Nothing else pins it.
+  Rounds 1 and 2 pinned `0x374f_477d_d305_5b7e` before the flag, round 3 `0x1360_51a6_5170_bf6a` before the `calc()` guard, as `codec.rs` is hashed). Nothing else pins it.
 - **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
 - **Tests:**
   - `kernel/src/style/scale.rs`:
@@ -4725,7 +4725,7 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
     - `grouped-header-weight` marked;
     - a marked row with a keyword cell;
     - `=grouped-header-weight` in a scale cell.
-  - **The digest moves within B1** (above): `0x374f_477d_d305_5b7e` → `0x1360_51a6_5170_bf6a`.
+  - **The digest moves within B1** (above): `0x374f_477d_d305_5b7e` → `0x45a9_8459_9339_c7bf`.
 - **After review round 3 (Astra RIGHT, Grok RIGHT WITH CHANGES):**
   - **A binding reads the terminal's cells** (Grok, should-fix). Under `Column::Terminal` the scale's spacings are
     cells (`1ch`, `2ch`), which `Tamber::length`'s points read as no length. It now reads a cell as its px
@@ -4734,6 +4734,12 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
   - **A host's length read is read aside** (Grok, nit). `Tamber::length` wraps its `theme::measure` in
     `theme::recorded`, as `color` does, so its read joins no style parse's names.
   - **Every misdeclared base name is said at once** (Grok, nit). Beside an icon's refusal, `check_design` appends
-    `misnamed` too. Where the checker refused, so no kind was inferred, it appends each base name the design wrote a
-    kind other than `length` on (`misdeclared`). Test: `tamber_base_scale.rs`
+    `misnamed` too. Where the checker refused another token, it still has every token's kind, written or inferred
+    (`check::check`'s refusal carries them), so `space.lg = #ffffff` is said beside it too (the re-check's nit). Test: `tamber_base_scale.rs`
     `every_misdeclared_base_name_is_said_beside_other_refusals`.
+  - **A marked row's `calc()` is a length** (the re-check, Astra). The marker's guard parsed any `calc(…)`. It now
+    reads CSS's typed grammar: numbers and lengths (`px`, `em`, `rem`, `vw`, `vh`, a percentage), `+` and `-` between
+    two of one type and spaced, `*` by a number, `/` by a number, and parentheses; the result must be a length
+    (`codec.rs`, `calc_length`). Checked by hand on a mutated cell:
+    - refused: `calc(1deg)`, `calc(garbage)`, `calc(2 * 3)`, `calc(100%-16px)` and `calc(100% - 16)`;
+    - accepted: `calc((100% - 16px) / 2 + 1em * 2)`.

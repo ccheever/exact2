@@ -88,7 +88,7 @@ struct Checker<'a> {
 pub(crate) fn check(
     design: &Design,
     vocab: &Vocab,
-) -> Result<(Vec<Checked>, usize, Vec<DialValue>), Vec<Diagnostic>> {
+) -> Result<(Vec<Checked>, usize, Vec<DialValue>), (Vec<Diagnostic>, Vec<Kind>)> {
     // A base name the design leaves unset, bare, is a named length too:
     // kept as written, each host's (stage 11 B). One the design sets is its
     // token, folded as any is, so its value wins everywhere and its edits
@@ -137,7 +137,8 @@ pub(crate) fn check(
     c.declare();
     c.kinds();
     let Some(tuples) = tuples else {
-        return Err(c.finish());
+        let kinds = c.kinds.clone();
+        return Err((c.finish(), kinds));
     };
     let mut out = Vec::new();
     for (i, t) in design.tokens.iter().enumerate() {
@@ -208,10 +209,13 @@ pub(crate) fn check(
         .iter()
         .map(|d| c.dials.get(d.name.value.as_str()).map(|(_, v)| v.clone()))
         .collect::<Option<Vec<_>>>();
+    // A refusal carries each token's kind, written or inferred, so the
+    // caller can say what else is wrong (`tamber-base-kind`).
+    let kinds = c.kinds.clone();
     let errors = c.finish();
     match dials {
         Some(dials) if errors.is_empty() => Ok((out, tuples, dials)),
-        _ => Err(errors),
+        _ => Err((errors, kinds)),
     }
 }
 

@@ -773,7 +773,7 @@ fn style_length_marker(name: &str, kind: &str, cells: &[MetricCell]) {
                 assert!(
                     text == "unset"
                         || text == "auto"
-                        || text.starts_with("calc(") && text.ends_with(')')
+                        || calc_length(text)
                         || unit.is_some_and(|n| n.parse::<f64>().is_ok_and(f64::is_finite)),
                     "schema: metric {name}: `style length` holds no length in a cell: {text}"
                 );
@@ -781,6 +781,113 @@ fn style_length_marker(name: &str, kind: &str, cells: &[MetricCell]) {
         }
         _ => {}
     }
+}
+/// Whether `text` is a `calc()` whose value is a length (round 3's re-check,
+/// Astra): CSS's typed grammar over numbers and lengths (`px`, `em`,
+/// `rem`, `vw`, `vh`, a percentage of one), `+` and `-` between two of one
+/// type (spaced, as CSS requires), `*` with a number on one side, `/` by a
+/// number, and parentheses. `calc(1deg)`, `calc(garbage)` and `calc(2 * 3)`
+/// are none.
+fn calc_length(text: &str) -> bool {
+    #[derive(Clone, Copy, PartialEq)]
+    enum T {
+        Number,
+        Length,
+    }
+    struct P<'a> {
+        s: &'a [u8],
+        i: usize,
+    }
+    impl P<'_> {
+        fn space(&mut self) -> bool {
+            let start = self.i;
+            while self.s.get(self.i) == Some(&b' ') {
+                self.i += 1;
+            }
+            self.i > start
+        }
+        fn sum(&mut self) -> Option<T> {
+            let t = self.product()?;
+            loop {
+                let at = self.i;
+                let spaced = self.space();
+                match self.s.get(self.i) {
+                    Some(b'+' | b'-') if spaced => {
+                        self.i += 1;
+                        if !self.space() {
+                            return None;
+                        }
+                        (self.product()? == t).then_some(())?;
+                    }
+                    _ => {
+                        self.i = at;
+                        return Some(t);
+                    }
+                }
+            }
+        }
+        fn product(&mut self) -> Option<T> {
+            let mut t = self.value()?;
+            loop {
+                let at = self.i;
+                self.space();
+                match self.s.get(self.i) {
+                    Some(&op @ (b'*' | b'/')) => {
+                        self.i += 1;
+                        self.space();
+                        let r = self.value()?;
+                        t = match (op, t, r) {
+                            (b'*', T::Number, r) => r,
+                            (b'*', l, T::Number) => l,
+                            (b'/', l, T::Number) => l,
+                            _ => return None,
+                        };
+                    }
+                    _ => {
+                        self.i = at;
+                        return Some(t);
+                    }
+                }
+            }
+        }
+        fn value(&mut self) -> Option<T> {
+            if self.s.get(self.i) == Some(&b'(') {
+                self.i += 1;
+                self.space();
+                let t = self.sum()?;
+                self.space();
+                (self.s.get(self.i) == Some(&b')')).then_some(())?;
+                self.i += 1;
+                return Some(t);
+            }
+            let start = self.i;
+            if matches!(self.s.get(self.i), Some(b'+' | b'-')) {
+                self.i += 1;
+            }
+            while self.s.get(self.i).is_some_and(|c| c.is_ascii_digit() || *c == b'.') {
+                self.i += 1;
+            }
+            let number = std::str::from_utf8(&self.s[start..self.i]).ok()?;
+            number.parse::<f64>().ok().filter(|n| n.is_finite())?;
+            let unit_start = self.i;
+            while self.s.get(self.i).is_some_and(|c| c.is_ascii_alphabetic() || *c == b'%') {
+                self.i += 1;
+            }
+            match &self.s[unit_start..self.i] {
+                b"" => Some(T::Number),
+                b"px" | b"em" | b"rem" | b"vw" | b"vh" | b"%" => Some(T::Length),
+                _ => None,
+            }
+        }
+    }
+    let Some(inner) = text.strip_prefix("calc(").and_then(|t| t.strip_suffix(')')) else {
+        return false;
+    };
+    let mut p = P { s: inner.as_bytes(), i: 0 };
+    p.space();
+    let t = p.sum();
+    p.space();
+    t == Some(T::Length) && p.i == p.s.len()
 }
 /// Every name the schema has that is written `-exact-<name>` and is no
 /// metric: a named length, a text style, a colour role.
