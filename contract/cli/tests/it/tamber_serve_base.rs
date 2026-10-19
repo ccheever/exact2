@@ -20,6 +20,11 @@ theme
   radius.lg = 20px
     when density=tight: 14px
   space.xl = space.lg
+  gap.wide = space.md
+    when density=roomy: 12px
+    when density=tight: 8px
+  card.inner = card.pad
+  body.text: type = space.lg
   body.face: family = \"space.md\", serif
 ";
 
@@ -116,7 +121,19 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
     let (pad, _) = s.ask(json!({"method": "explain", "token": "card.pad"}));
     assert_eq!(pad["ok"]["bases"], json!(["space.md", "space.sm"]), "{pad}");
     let (face, _) = s.ask(json!({"method": "explain", "token": "body.face"}));
+    assert_eq!(face["ok"]["token"], "body.face", "{face}");
     assert!(face["ok"]["bases"].is_null(), "{face}");
+    // A default no tuple selects, a type's size, and a chain through another token count too.
+    let (wide, _) = s.ask(json!({"method": "explain", "token": "gap.wide"}));
+    assert_eq!(wide["ok"]["bases"], json!(["space.md"]), "{wide}");
+    let (text, _) = s.ask(json!({"method": "explain", "token": "body.text"}));
+    assert_eq!(text["ok"]["bases"], json!(["space.lg"]), "{text}");
+    let (inner, _) = s.ask(json!({"method": "explain", "token": "card.inner"}));
+    assert_eq!(
+        inner["ok"]["bases"],
+        json!(["space.md", "space.sm"]),
+        "{inner}"
+    );
     // An overridden base that names another base says so too.
     let (xl, _) = s.ask(json!({"method": "explain", "token": "space.xl"}));
     assert_eq!(xl["ok"]["kind"], "base");
