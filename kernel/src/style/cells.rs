@@ -141,6 +141,7 @@ mod tests {
             (StyleId::ColumnGap, "12px"),
             (StyleId::MarginTop, "-24px"),
             (StyleId::PaddingBottom, "calc(10% + 8px)"),
+            (StyleId::MarginLeft, "calc(0% + 14px)"),
         ] {
             s.set_dynamic(id, &StyleValue::Text(v.into())).unwrap();
         }
@@ -154,6 +155,8 @@ mod tests {
         assert_eq!(celled.padding.right, Lp::percent(0.1));
         assert_eq!(celled.margin.bottom, Lpa::length(16.0));
         assert_eq!(celled.margin.right, Lpa::length(8.0));
+        // A calc() of no percentage is points: 14 px across is two columns.
+        assert_eq!(celled.margin.left, Lpa::length(16.0));
         assert_eq!(celled.gap.height, Lp::length(0.0));
         assert_eq!(celled.gap.width, Lp::length(8.0));
         assert_eq!(plain.gap.width, Lp::length(12.0));

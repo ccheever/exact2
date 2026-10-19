@@ -5131,7 +5131,8 @@ Built to theme2's 15:32 approval, on B1 and B2.
 - **The terminal's spaces in whole cells** (theme2's 19:09 ruling, option (2), superseding the painter half of 18:35):
   the column stays in `ch`, and the kernel lays a terminal's spaces out in whole cells. Under the terminal's space rule
   (`Env::cell_spaces`, set only by the terminal host beside `cell_borders`; LLP 1101 §4's row), a padding, margin or
-  gap that resolves to points (a `calc()` that resolves to points included) is rounded before layout to whole cells
+  gap that resolves to points (a `calc()` that resolves to points, or has no percentage, included; a multi-column
+  box's `column-gap` too) is rounded before layout to whole cells
   on its axis, rows down and columns across, to the nearest with a tie toward zero (`cells::space`). A percentage,
   or a `calc()` with one, is not rounded: the rule's limit.
   - The numbers: down, space.xs, sm and md (0, 8 and 8 px) are 0 rows and space.lg and xl (16 px) 1 row; the clone's

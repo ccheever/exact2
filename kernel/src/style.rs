@@ -206,7 +206,9 @@ impl Dimension {
     /// ([`cells::space`]); a percentage or a `calc()` with one is as it is.
     pub(crate) fn spaced(self, env: &Env, cell: f32) -> Dimension {
         match (env.cell_spaces, self.resolve(env)) {
+            // (A calc() whose percentage is 0 is points on every basis.)
             (true, Dimension::Points(v)) => Dimension::Points(cells::space(v, cell)),
+            (true, Dimension::Calc(p, v)) if p == 0.0 => Dimension::Points(cells::space(v, cell)),
             _ => self,
         }
     }

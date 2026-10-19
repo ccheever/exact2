@@ -222,7 +222,7 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
   expect(rows[0].margins).toEqual({ top: 1, bottom: 0, left: 1, right: 1 });
   expect(rows[0].box.cells).toEqual({ x: 0, y: 0, w: 22, h: 3 });
   expect(rows[0].why).toContain('expected 0 rows and 1 columns');
-  expect(rows[1].why).toContain('not the same on opposite edges');
+  expect(rows[1].why).toContain('not equal rows above and below');
   expect(rows[3].why).toContain('radii 8, 8, 8, 8, expected 0');
   // As the kernel lays a terminal's spaces out, in whole cells (stage 11
   // (c)): half a row of padding is none, the box its child's two rows.

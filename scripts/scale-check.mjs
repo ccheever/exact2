@@ -259,7 +259,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
         else if (box.cells && child.cells) {
           const [b, c] = [box.cells, child.cells];
           row.margins = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
-          if (want.even && (row.margins.top !== row.margins.bottom || row.margins.left !== row.margins.right)) fail(`its padding paints ${row.margins.top}/${row.margins.right}/${row.margins.bottom}/${row.margins.left} cells (top/right/bottom/left): not the same on opposite edges`);
+          if (want.even && (row.margins.top !== row.margins.bottom || row.margins.left !== row.margins.right)) fail(`its padding paints ${row.margins.top}/${row.margins.right}/${row.margins.bottom}/${row.margins.left} cells (top/right/bottom/left): not equal rows above and below and columns left and right`);
           // Each edge a length in whole cells on its axis (stage 11 (c)):
           // the leading edges always, the far ones for a box `even`.
           if (layout.cell) {

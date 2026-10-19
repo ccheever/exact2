@@ -680,3 +680,56 @@ fn the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns() {
     assert_eq!(frame(&kernel, 2), (12.0, 8.0, 308.0, 40.0));
     assert_eq!(kernel.resolved_padding(root).map(|p| p.3), Some(12.0));
 }
+
+/// LLP 1121 stage 11 (c): a multi-column box's gap is a space across too,
+/// whole columns under the terminal's rule (12 px is one, 8).
+#[test]
+fn a_multicol_gap_is_whole_columns_under_the_terminal_space_rule() {
+    let gap_of = |cells: bool| {
+        let mut kernel = Kernel::with_monospace();
+        kernel.set_cell_spaces(cells);
+        let mut root = StyleProps::default();
+        for (id, v) in [
+            (StyleId::Width, StyleValue::Number(320.0)),
+            (StyleId::ColumnCount, StyleValue::Number(2.0)),
+            (StyleId::ColumnGap, StyleValue::Number(12.0)),
+        ] {
+            root.set_dynamic(id, &v).unwrap();
+        }
+        let mut child = StyleProps::default();
+        child
+            .set_dynamic(StyleId::Height, &StyleValue::Number(40.0))
+            .unwrap();
+        let ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(root),
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        kernel.apply(0, 1, &ops).unwrap();
+        kernel
+            .compute_layout(1, Offer::definite(320.0, 480.0))
+            .unwrap();
+        let key = kernel.node(1).unwrap().key;
+        kernel.columns(key).map(|c| c.gap)
+    };
+    assert_eq!(gap_of(false), Some(12.0));
+    assert_eq!(gap_of(true), Some(8.0));
+}
