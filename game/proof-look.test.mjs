@@ -181,10 +181,10 @@ test('in the browser, buried sparks fail the look and sparks above the ground pa
         env:{...process.env, EXACT_PROOF_OUT:dir, CARGO_TARGET_DIR:resolve(import.meta.dir, '../target/look-sparks')},
         stdout:'pipe', stderr:'pipe'});
       const text = await new Response(p.stdout).text() + await new Response(p.stderr).text();
-      await p.exited;
+      const code = await p.exited;
       // A fresh game's first proof stops at the directory guard; the rerun is the proof.
       if (attempt === 0 && text.includes('changed during build; rerun the proof')) continue;
-      return {text, summary:JSON.parse(readFileSync(resolve(dir, 'summary.json'), 'utf8'))};
+      return {text, code, summary:JSON.parse(readFileSync(resolve(dir, 'summary.json'), 'utf8'))};
     }
     throw new Error(`${label}: the proof never ran past its build`);
   };
@@ -194,9 +194,11 @@ test('in the browser, buried sparks fail the look and sparks above the ground pa
     expect(buried.summary.look.status, buried.text.slice(-3000)).toBe('FAIL');
     expect(buried.summary.look.tells.map(t => t.name)).toContain('particles-uncovered');
     expect(buried.summary.failures).toEqual([]);
+    expect(buried.code, buried.text.slice(-3000)).toBe(1);
     writeFileSync(lib, sparks('1.0'));
     const above = await proof('above');
     expect(above.summary.look.status, above.text.slice(-3000)).toBe('PASS');
+    expect(above.code, above.text.slice(-3000)).toBe(0);
   } finally {
     rmSync(app, {recursive:true, force:true});
     rmSync(out, {recursive:true, force:true});
