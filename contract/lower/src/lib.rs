@@ -350,7 +350,10 @@ fn lower_with_sites(
         Err(fatal) => {
             let mut all = std::mem::take(&mut l.errors);
             for e in fatal {
-                if !all.iter().any(|o| o.id == e.id && o.span == e.span && o.message == e.message) {
+                if !all
+                    .iter()
+                    .any(|o| o.id == e.id && o.span == e.span && o.message == e.message)
+                {
                     all.push(e);
                 }
             }
