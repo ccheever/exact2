@@ -1762,7 +1762,7 @@ component DesignTool
                       row gap=8
                         button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written) or not canWrite) buttonStyle="filled" testId="scrub-keep"
                           text "Keep"
-                        button press=cancelScrub aria-keyshortcuts="Escape" testId="scrub-cancel"
+                        button press=cancelScrub aria-keyshortcuts="Escape" disabled=(not canWrite) testId="scrub-cancel"
                           text "Cancel scrub"
                   else
                     row gap=8

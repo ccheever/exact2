@@ -1005,7 +1005,7 @@ const sources: Sources = {
     // Events missed: an end among them would be lost, so a scrub open is
     // ended here (cancelled, if the server still has it).
     // Missed, inspect mode's state is not known either: Inspect sends it again.
-    if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); }
+    if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
     if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
       const s = scrubbing;
       endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
@@ -1331,10 +1331,12 @@ const sources: Sources = {
     // Below write (paired, T6), once a server run, its builds and the design read: the selection each build
     // last reported, as the server keeps it (a read-only refresh); its events before the poll began are not
     // sent, and Inspect is not this client's.
-    if (scopeNow() !== 'write' && place.epoch && seeded !== place.epoch && designAxes.length && !selectionNow) {
-      seeded = place.epoch;
+    // It is shown as reported, not as current (the server keeps no cursor of when): it offers no edit.
+    // Asked again after a failure, or once the poll missed events, until one answers.
+    if (scopeNow() !== 'write' && place.epoch && seeded !== place.epoch && snapshots.size && (!selectionNow || selectionNow.stale)) {
       const sel = await call('/__tamber', { method: 'inspect', client: polled, refresh: true }), e = (sel.reply.ok?.selections ?? []).at(-1);
-      if (!sel.error && e && !selectionNow) { const b = buildsNow.get(String(e.build)); selectionNow = { e: { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: digestKey(lastFiles) }; }
+      if (!sel.error) seeded = place.epoch;
+      if (!sel.error && e && (!selectionNow || selectionNow.stale)) { const b = buildsNow.get(String(e.build)); selectionNow = { e: { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: 'the build reported it before this client joined', files: digestKey(lastFiles) }; }
     }
     latch();
     const b = selectionNow ? buildsNow.get(String(selectionNow.e.build)) : undefined;

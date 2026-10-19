@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { DRIVEN, drive, lines, proxied, ROOT, stop, STUB_APP, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, drive, lines, ROOT, stop, STUB_APP, TOOL_ORIGIN, toolTurns } from './design-tool-harness.mjs';
 import { spawnOwned } from './test-children.mjs';
 
 toolTurns();
@@ -20,7 +20,10 @@ test('T6: a tool on another machine pairs through the trusted-tunnel door with a
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   // The tool built for this port (as `tamber tool` builds it), then nothing at its origin: this browser is
   // the other machine's, which has no server of its own.
-  await (await proxied(app)).close();
+  // (Its own server, not --via, whose 2 s probe of a dev loop can time out under load.)
+  const build = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  await lines(build).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+  await stop(build);
   // The server's trusted-tunnel door (stage 10 B2: routed as a remote one, its Origin check, its paths), on a
   // free loopback port.
   const free = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') }), tunnel = free.port;
@@ -78,9 +81,11 @@ test('T6: a tool on another machine pairs through the trusted-tunnel door with a
     for (const s of wire) expect([s.method, ['hello', 'describe', 'resolve', 'explain', 'uses', 'history', 'export', 'propose', 'import', 'revert'].includes(s.method) || (s.method === 'inspect' && s.refresh)]).toEqual([s.method, true]);
     const after = seen.filter(s => s.revoked && !s.revoke && s.path.startsWith('/__tamber') && !s.path.startsWith('/__tamber/tool'));
     for (const s of after) expect([s.path, s.status]).toEqual([s.path, 401]);
-    expect(after.length).toBeLessThanOrEqual(3);
-    // Never the code or the token in a URL, a drive reply (the tool's logs and state), the server's output, or
-    // any file of the browser's profile on disk (its local and session storage, IndexedDB, caches) once it quit.
+    // (The requests in flight when the revoke lands, a poll and a read, and none after: three 3 s retries passed.)
+    expect(after.length).toBeLessThanOrEqual(2);
+    // Never the code (once sent) or the token in a URL, a drive reply (the tool's logs and state), the server's
+    // output, or any file of the browser's profile on disk (its local and session storage, IndexedDB, caches)
+    // once it quit.
     expect(token.length).toBeGreaterThan(20);
     for (const secret of [token, code, code.replace('-', '')]) {
       for (const s of seen) expect(s.path ?? '').not.toContain(secret);
