@@ -73,7 +73,8 @@ export function liveTime(e, read, reserve = true) {
   // The formatted text is a node before the children, which stay as the
   // fallback (hidden by index.html's `time[data-time-shown]`): the runner's
   // tree keeps them, and they show again when the instant cannot format.
-  let values, previous = null, reserved = '', identity = '', model = '', fields = 0, shown = null;
+  // A server-rendered time already has its formatted text first: that node is the one updated.
+  let values, previous = null, reserved = '', identity = '', model = '', fields = 0, shown = e.firstChild?.nodeType === Node.TEXT_NODE ? e.firstChild : null;
   const timer = { due: Infinity, hatch: true, action: () => { update(); return true; } };
   clock.timers.push(timer);
   function update() {

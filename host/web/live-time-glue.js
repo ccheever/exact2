@@ -5,8 +5,8 @@
 // before its children, which stay as the fallback (index.html hides them
 // while it formats). Loaded after first paint, the first time a page has one.
 
-const fontKeys = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'lineHeight', 'fontSizeAdjust', 'fontVariantCaps', 'fontVariantLigatures',
-  'fontVariantPosition', 'fontVariantNumeric', 'fontVariantEastAsian', 'fontFeatureSettings', 'fontVariationSettings', 'fontKerning', 'letterSpacing', 'wordSpacing', 'textTransform', 'writingMode'];
+// As host/web-js/live-time.js copies them onto its measure.
+const fontKeys = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'lineHeight', 'fontSizeAdjust', 'fontVariantCaps', 'fontVariantLigatures', 'fontVariantPosition', 'fontVariantNumeric', 'fontVariantEastAsian', 'fontVariantAlternates', 'fontVariantEmoji', 'fontFeatureSettings', 'fontVariationSettings', 'letterSpacing', 'wordSpacing', 'fontKerning', 'fontOpticalSizing', 'textTransform', 'writingMode', 'textOrientation'];
 
 /** The widest of `strings` at `el`'s font, along its inline axis. */
 function widest(el, strings, font) {
@@ -26,7 +26,9 @@ function install(el) {
   const inline = () => el.parentElement?.hasAttribute('data-exact-text');
   function sync() {
     const values = el.getAttribute('data-time-reservation');
-    if (values == null || inline() || !el.isConnected) {
+    // An authored width or maximum is the box (as the JS target compiles no reservation under one).
+    const sized = el.style.width || el.style.maxWidth || el.style.inlineSize || el.style.maxInlineSize;
+    if (values == null || inline() || sized || !el.isConnected) {
       if (width && el.style.minInlineSize === width) el.style.minInlineSize = '';
       reserved = width = ''; return;
     }

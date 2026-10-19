@@ -430,7 +430,7 @@ function applyProps(el, set, clear) {
     else if (name === "scrollTop" || name === "scrollLeft") {
       const pending = pendingScrolls.get(el); if (pending) delete pending[name];
     }
-    else if (name === "text") { if (el.localName === "time" && el.childElementCount) { el.exactTimeText = null; el.exactLiveTime?.text(null); } else el.textContent = ""; }
+    else if (name === "text") { if (el.localName === "time") el.exactTimeText = null; if (el.localName === "time" && el.childElementCount) el.exactLiveTime?.text(null); else el.textContent = ""; }
     else if (name === "value") { el.exactValue = undefined; writeValue(el, ""); }
     else if (name === "checked") { el.exactChecked = undefined; el.checked = false; }
     else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
@@ -445,7 +445,7 @@ function applyProps(el, set, clear) {
     else if (name === "scrollTop" || name === "scrollLeft") {
       const offset = Number(value);
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
-    } else if (name === "text") { if (el.localName === "time" && el.childElementCount) { el.exactTimeText = value; el.exactLiveTime?.text(value); } else if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
+    } else if (name === "text") { if (el.localName === "time") el.exactTimeText = value; if (el.localName === "time" && el.childElementCount) el.exactLiveTime?.text(value); else if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
     } else if (name === "markupPieces") { renderMarkup(el, value);
     } else if (name === "contextpopover") { el.setAttribute(name, value); if (!el.exactContext) { el.exactContext = true; el.addEventListener("contextmenu", e => { if (e.$cp || !el.getAttribute(name) || editMenu(e.target) || el.matches(":disabled") || inertAncestor(el)) return; e.$cp = 1; e.preventDefault(); e.stopPropagation(); contextAt(e, () => { if (!el.isConnected || el.matches(":disabled") || inertAncestor(el)) return; const p = document.getElementById(el.getAttribute(name) ?? ""); if (p && !p.matches(":popover-open")) return [p, el]; }); }); } // LLP 1021 §5.1: after the node's own `contextmenu`, the popover it names then opens anchored to it (rt.js `cp`)
     } else if (name === "data-action") { el.setAttribute(name, value); el.style.touchAction = "none";
