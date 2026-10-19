@@ -1,0 +1,8 @@
+// The design of the base-scale conformance plan (LLP 1121 stage 11): its own
+// space.md, which wins over the scale's app-wide (ruling 4), and space.header,
+// a name the scale does not reserve, which keeps the app's meaning (ruling 5).
+tamber scale
+
+theme
+  space.md = 12px
+  space.header = 44px

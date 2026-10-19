@@ -113,3 +113,29 @@ test('a small radius on a fractional edge, a covered left edge, an unnamed child
   for (let x = 10; x < 22; x++) { const i = (50 * 160 + x) * 4; covered.data[i] = covered.data[i + 1] = covered.data[i + 2] = 255; }
   expect(edges(covered, box, red, white)).toBeNull();
 });
+
+test('a base name expected is the kernel table\'s in the host\'s column, or the design\'s own', async () => {
+  const { baseLength, overridesOf, RADIUS_FULL } = await import('./scale-check.mjs');
+  const schema = JSON.parse(await Bun.file(new URL('../kernel/tables/schema.json', import.meta.url)).text());
+  const none = {};
+  // A metric's reference, read in the host's column (the Mac's grouped row inset is 10).
+  expect([baseLength(schema, none, 'space.md', 'macos'), baseLength(schema, none, 'space.md', 'linux')]).toEqual([10, 16]);
+  // A neutral-only metric row (the neutral look's control radius), every web build and Linux.
+  expect([baseLength(schema, none, 'radius.md', 'web'), baseLength(schema, none, 'radius.md', 'linux')]).toEqual([8, 8]);
+  // A measured cell, a guideline's, radius.full's one length.
+  expect(baseLength(schema, none, 'space.xs', 'ios')).toBe(5);
+  expect(baseLength(schema, none, 'space.lg', 'android')).toBe(24);
+  expect(baseLength(schema, none, 'radius.full', 'ios')).toBe(RADIUS_FULL);
+  // The terminal's spacings are cells; a name that is no base name; a host with no column.
+  expect(baseLength(schema, none, 'space.sm', 'host')).toBeUndefined();
+  expect(baseLength(schema, none, 'space.header', 'web')).toBeUndefined();
+  expect(baseLength(schema, none, 'space.md', 'windows')).toBeUndefined();
+  // The design's own wins, on every host; one with a `when` line is refused.
+  const names = schema.scale.map(r => r[0]);
+  // (space.header is the app's, with a `when` line of its own: not a base name, not read.)
+  const own = overridesOf('tamber t\n\ntheme\n  space.md = 12px\n  space.header = 44px\n    when density=compact: 40px\n', names);
+  expect(own).toEqual({ 'space.md': 12 });
+  expect(baseLength(schema, own, 'space.md', 'macos')).toBe(12);
+  expect(() => overridesOf('tamber t\n\ntheme\n  space.md = 12px\n    when density=compact: 8px\n', names)).toThrow('one length in px');
+  expect(() => overridesOf('tamber t\n\ntheme\n  radius.lg = gap\n', names)).toThrow('one length in px');
+});

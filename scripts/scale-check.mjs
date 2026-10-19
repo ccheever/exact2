@@ -14,12 +14,14 @@
 // usage: bun scripts/scale-check.mjs <plan.contract> <expect.json> [--host <h> …] [--out <dir>] [--json]
 //   <expect.json>: {"background": "#ffffff", "boxes": [{"testId": "pill", "radius": 9999, "fill": "#0000ff"},
 //                   {"testId": "padded", "child": "inner", "padding": 16}]} — a value per box, or per host:
-//                   {"padding": {"ios": 16, "macos": 10, "default": 16}}.
+//                   {"padding": {"ios": 16, "macos": 10, "default": 16}}; a value may name a base name
+//                   (`"radius": "radius.full"`), read from kernel/tables/schema.json's scale in the host's column
+//                   and from the plan's own app.tamber, which may set one.
 //   --host: web, linux, macos, ios (as scripts/agent.mjs names them); default linux.
 //   Each drive starts from a fresh scratch store (`--storage scale-check --reset-storage`).
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
@@ -99,12 +101,62 @@ export function fitRadius(starts, limit) {
 /** A box's expected radius once CSS reduces it to the box. */
 export const reduced = (radius, w, h) => Math.min(radius, w / 2, h / 2);
 
+/** A host's column in the base scale's table (LLP 1121 stage 11 B): every
+ * web build and the Linux desktop draw the neutral look; the terminal carrier
+ * is `host`. */
+const COLUMN = { web: 'neutral', linux: 'neutral', ios: 'ios', macos: 'mac', android: 'material', host: 'terminal' };
+/** A column's cell in a scale row, and in a metrics row (the Material and
+ * terminal cells, where a row has none, are the web's first look's). */
+const SCALE_CELL = { ios: 1, mac: 2, neutral: 3, material: 4, terminal: 5 };
+const METRIC_CELL = { ios: 2, mac: 3, neutral: 5, material: 6, terminal: 7 };
+/** radius.full's one oversized length (`style::scale::RADIUS_FULL`). */
+export const RADIUS_FULL = 9999;
+
+/** Base name `name`'s length on `host`, in points: the design's own
+ * (`overrides`), else the kernel's table in the host's column (a metric's
+ * reference read in that column; radius.full [`RADIUS_FULL`]); undefined for
+ * a name that is no base name, a host with no column, or a cell in cells (the
+ * terminal's). */
+export function baseLength(schema, overrides, name, host) {
+  if (Object.hasOwn(overrides, name)) return overrides[name];
+  const row = schema.scale.find(r => r[0] === name), column = COLUMN[host];
+  if (!row || !column) return undefined;
+  let cell = row[SCALE_CELL[column]];
+  if (typeof cell === 'string' && cell.startsWith('=')) {
+    const metric = schema.metrics.find(r => r[0] === cell.slice(1));
+    if (!metric) return undefined;
+    // A row of three cells is the neutral look's own value.
+    cell = metric.length === 3 ? metric[2] : metric[METRIC_CELL[column]] ?? metric[4];
+  }
+  if (cell === 'full') return RADIUS_FULL;
+  if (typeof cell === 'number') return cell;
+  return typeof cell?.px === 'number' ? cell.px : undefined;
+}
+
+/** The design's own lengths for the base names `names` (the table's), its
+ * `theme`'s `<name> = <n>px` lines; a base name it gives a `when` line, or
+ * any other value, is refused (one length is what a box is held to). */
+export function overridesOf(tamber, names) {
+  const out = {};
+  const lines = tamber.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s+((?:space|radius)\.[a-z]+)\s*=\s*(\S+)\s*$/.exec(lines[i]);
+    if (!m || !names.includes(m[1])) continue;
+    const px = /^(-?\d+(?:\.\d+)?)px$/.exec(m[2]);
+    if (!px || /^\s+when /.test(lines[i + 1] ?? '')) throw new Error(`app.tamber: ${m[1]} is one length in px here, ${JSON.stringify(m[2])}`);
+    out[m[1]] = Number(px[1]);
+  }
+  return out;
+}
+
 /** What `want` says for `host`: its own, else `default`; `missing` when it
  * names hosts and not this one. */
 const pick = (v, host) => (v && typeof v === 'object' ? (host in v ? v[host] : 'default' in v ? v.default : 'missing') : v);
 
-/** Each box's padding and radius on `host`, against what `expect` says. */
-export function check(host, layout, image, expect) {
+/** Each box's padding and radius on `host`, against what `expect` says: a
+ * number, or a base name (`space.md`), which `base(name, host)` gives. */
+export function check(host, layout, image, expect, base = () => undefined) {
+  const named = v => (typeof v === 'string' ? (base(v, host) ?? v) : v);
   const scale = image.width / layout.viewport.w;
   const ground = rgb(expect.background ?? '#ffffff');
   const nodes = layout.nodes;
@@ -113,7 +165,7 @@ export function check(host, layout, image, expect) {
     if (!box) return { host, testId: want.testId, ok: false, why: 'not in the layout' };
     const row = { host, testId: want.testId, ok: true, why: [] };
     const fail = why => { row.ok = false; row.why.push(why); };
-    const padding = pick(want.padding, host);
+    const padding = named(pick(want.padding, host));
     if (padding === 'missing') fail(`no padding expected for ${host}`);
     else if (padding !== undefined && !Number.isFinite(padding)) fail(`padding ${JSON.stringify(padding)} is no number`);
     else if (padding !== undefined) {
@@ -125,7 +177,7 @@ export function check(host, layout, image, expect) {
         if (row.padding.some(p => Math.abs(p - padding) > 0.5)) fail(`padding ${row.padding.join(', ')}, expected ${padding}`);
       }
     }
-    const radius = pick(want.radius, host);
+    const radius = named(pick(want.radius, host));
     if (radius === 'missing') fail(`no radius expected for ${host}`);
     else if (radius !== undefined && !Number.isFinite(radius)) fail(`radius ${JSON.stringify(radius)} is no number`);
     else if (radius !== undefined) {
@@ -182,10 +234,17 @@ if (import.meta.main) {
   const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', opts.source, '-o', plan, '--errors-only'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
   if (built.error || built.status !== 0) { console.error(`${built.error?.message ?? ''}${built.stdout}${built.stderr}`); process.exit(1); }
   const expect = JSON.parse(readFileSync(opts.expect, 'utf8'));
+  // A base name expected is read from the kernel's table, and the plan's own
+  // design beside it, never a copy.
+  const schema = JSON.parse(readFileSync(join(ROOT, 'kernel/tables/schema.json'), 'utf8'));
+  const design = join(dirname(opts.source), 'app.tamber');
+  let overrides;
+  try { overrides = existsSync(design) ? overridesOf(readFileSync(design, 'utf8'), schema.scale.map(r => r[0])) : {}; } catch (e) { console.error(e.message); process.exit(1); }
+  const base = (name, host) => baseLength(schema, overrides, name, host);
   const rows = [];
   for (const host of opts.hosts) {
     const png = join(opts.out, `${host}.png`);
-    try { rows.push(...check(host, drive(host, plan, png), decodePng(readFileSync(png)), expect)); }
+    try { rows.push(...check(host, drive(host, plan, png), decodePng(readFileSync(png)), expect, base)); }
     catch (e) { rows.push({ host, testId: '*', ok: false, why: e.message }); }
   }
   if (opts.json) console.log(JSON.stringify(rows));

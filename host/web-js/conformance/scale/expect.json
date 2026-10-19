@@ -1,0 +1,17 @@
+{
+  "background": "#ffffff",
+  "boxes": [
+    {"testId": "xs", "child": "xs-inner", "padding": "space.xs"},
+    {"testId": "sm", "child": "sm-inner", "padding": "space.sm"},
+    {"testId": "md", "child": "md-inner", "padding": "space.md"},
+    {"testId": "lg", "child": "lg-inner", "padding": "space.lg"},
+    {"testId": "xl", "child": "xl-inner", "padding": "space.xl"},
+    {"testId": "r-lg", "child": "r-lg-inner", "padding": "space.lg"},
+    {"testId": "r-sm", "radius": "radius.sm", "fill": "#0000ff"},
+    {"testId": "r-md", "radius": "radius.md", "fill": "#0000ff"},
+    {"testId": "r-lg", "radius": "radius.lg", "fill": "#0000ff"},
+    {"testId": "pill-wide", "radius": "radius.full", "fill": "#0000ff"},
+    {"testId": "pill-tall", "radius": "radius.full", "fill": "#0000ff"},
+    {"testId": "bound", "radius": "radius.md", "fill": "#0000ff"}
+  ]
+}

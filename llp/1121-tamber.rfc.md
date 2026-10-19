@@ -5064,3 +5064,37 @@ draws nothing new: stage 11 C draws and conforms on top.
       `space.md` computes to 16px, and one naming the alias `card.pad` (space.lg) to 24px. It fails without the fix,
       checked by hand.
     - Release output against the commit before B2: all 14 apps byte-identical.
+
+### Stage 11, commit C2: the scale conformed and held to each host's column (draft for theme2)
+
+Built to theme2's 15:32 approval, on B1 and B2.
+
+- **The conform target `host/web-js/conformance/scale/`** (`// linux: layout`):
+  - padding and gap by `space.xs` to `space.xl`;
+  - corners by `radius.sm` to `radius.full`, inline and through a `style`;
+  - `radius.full` on a 120×32 box and a 40×96 box: the cross-host pill check, which holds every host's
+    corner-overlap clamp of the one oversized length;
+  - the design's own `space.md = 12px` (ruling 4) and `space.header = 44px`, a name the scale does not reserve
+    (ruling 5);
+  - a bound corner that moves between `radius.md` and `radius.full` (`scale.steps`).
+
+  The wasm page, the JS page and the Linux host draw the neutral column, and they agree: 5 of 5 steps, Linux 5 of 5.
+- **Each host against its own column:** `scripts/scale-check.mjs` takes base names as expectations
+  (`scale/expect.json`).
+  - It reads each name's length from `kernel/tables/schema.json`'s `scale` in the host's column (a metric's reference
+    read in that column), and from the plan's own `app.tamber`. Nothing is copied.
+  - Columns: web and Linux neutral, iOS, the Mac, the Android reader's Material, the terminal's cells.
+  - On 2026-10-19 every padding and corner matched its column, within 0.2 pt:
+
+    | Host | Paddings xs/sm/md/lg/xl | Corners sm/md/lg | Pills |
+    |---|---|---|---|
+    | web (wasm) | 4/8/12/24/32 | 4/8/12 | 16 and 20 |
+    | Linux | 4/8/12/24/32 | 4.1/8.1/12.2 | 16.1 and 20 |
+    | macOS 27 | 6/8/12/20/30 | 5.1/6.1/10.2 | 16 and 20.1 |
+    | iOS 27 simulator | 5/8/12/20/35 | 5.6/17/26 | 16 and 20 |
+
+    md is the design's 12 on every host.
+- **Still to come, before E's gate:**
+  - the Android reader, from a small scale fixture app with an android crate (theme2's ruling), for the Material
+    column;
+  - the terminal (cells, square corners).
