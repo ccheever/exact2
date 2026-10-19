@@ -868,8 +868,10 @@ export async function proof(meta, script) {
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
-    // Generate .shells/ and bake art/ before the first input inventory: the build then
-    // rewrites the same files and creates no entry, so a fresh game's first proof completes.
+    // Make what the build would create in the game's directory before the first input
+    // inventory (its Cargo target, .shells/, the baked assets/): the build then rewrites
+    // the same files and creates no entry, so a fresh game's first proof completes.
+    mkdirSync(appInfo.target, {recursive:true});
     if (prepareProofTree(app, {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')})) say(`BAKE ${name} art/ into assets/`);
     let inputs;
     const scanInputs = proofInputReader(root, app, resolve(buildOut, 'input-digests.json'));
