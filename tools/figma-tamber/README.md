@@ -1,0 +1,38 @@
+# Tamber for Figma (private plugin; LLP 1121 §5 stage 10b)
+
+This plugin keeps a Figma file's variables in step with an app's design (`app.tamber`). It is a client of the
+design server: it reads, and it proposes. It never writes the design.
+
+## Run it
+
+1. **Start the server for the plugin.** Run the app's dev loop, or `bun exact.mjs tamber serve <app>`, with
+   `--allow-plugin-origin`. A plugin's UI is a sandboxed page (`Origin: null`), and that flag lets it call the wire
+   with a paired token. Figma on another machine reaches the server through a tunnel that has a certificate of its
+   own: `--trust-tunnel <port>` with `--allow-host <its public name>`. Figma can't pin the TLS door's self-signed
+   certificate.
+2. **Build the plugin.** Run `bun tools/figma-tamber/build.mjs`. Then in Figma, choose Plugins › Development ›
+   Import plugin from manifest… and pick `tools/figma-tamber/manifest.json`.
+3. **Pair.** On the server's machine, run `bun exact.mjs tamber pair <server url> --scope propose`. In the plugin,
+   enter the server URL and the code. The token lives in the plugin's client storage (this user, this machine), never
+   in the file.
+
+## Pull and push
+
+- **Pull** reads `export dtcg` and writes the variables:
+  - The **Tamber** collection gets one mode per full tuple of the design (its app axes, light and dark).
+  - If the file's plan allows fewer modes than that, you get one collection per app tuple instead, each with Light
+    and Dark modes.
+  - Colours become COLOR. Lengths, numbers and durations become FLOAT, in px and ms. Families become STRING.
+  - Types, shadows and easings have no Figma variable type. They're skipped, and the plugin says so.
+  - The export is kept in the file as the pull's baseline.
+  - If a value changed in both Figma and the design since the last pull, the plugin asks which one to keep.
+- **Push** writes Figma's values back into that export and sends it as `import`, with the pulled export as its
+  `baseline`. The server holds the result as a proposal, planned against the design as it is now. Accept it in the
+  design tool.
+  - A changed value whose line is one dial alone is proposed as that dial's change, listing every token it moves.
+  - Any other changed value is a literal, marked with what it no longer follows.
+
+## Tests
+
+`bun test tools/figma-tamber/src/` covers the mapping, and covers the main thread against an in-memory stand-in for
+the Figma Variables API. The real-Figma run is the stage 10b gate's evidence.
