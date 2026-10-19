@@ -165,6 +165,9 @@ pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Va
     };
     // A held re-import recomputed: its operations' marks on the design as it is.
     if !request["marks"].is_null() {
+        if design.is_none() {
+            return Err(bad("the design file is not there: nothing to mark"));
+        }
         let ops: Vec<Op> = crate::tamber_ops::parse_ops(&request["marks"], "")?
             .into_iter()
             .map(|(_, op)| op)

@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod budget;
 mod check;
 mod color_fn;
 mod component;

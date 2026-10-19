@@ -1011,6 +1011,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // Its guards stay its guards: a part, or one planned again on files
       // moved since, checks what the whole was planned on.
       const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
+      if (!p.reimport && review) { delete review.dials; delete review.pins; } // a client's own marks are not carried past its operations
       try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
@@ -1120,8 +1121,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const { ops, review } = importReview(planned.ok);
       if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
       const held = await hold(request.client, ops, planned.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: planned.ok.digest } : undefined, undefined, review, undefined, scope);
-      if (held.error?.conflict && tries < 2) continue;
-      if (held.ok) proposals.get(held.ok.proposal).reimport = true; return held;
+      if (held.ok) proposals.get(held.ok.proposal).reimport = true; else if (held.error?.conflict && tries < 2) continue; return held;
     }
   }
 

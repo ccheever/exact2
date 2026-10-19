@@ -412,3 +412,35 @@ fn round_3_a_bare_role_name_is_followed_and_a_default_edit_keeps_its_branches() 
     assert!(!import.ops.is_empty(), "{:?}", import.unmapped);
     assert!(import.pins.is_empty(), "{:?} {:?}", import.ops, import.pins);
 }
+
+#[test]
+fn round_4_a_baseline_whose_references_copy_a_large_tree_is_refused_before_copying() {
+    use exact_tamber::export::reimport_against;
+    let text = dtcg(&check(DESIGN, &vocab()).unwrap(), &vocab()).unwrap();
+    let mut forged: Value = serde_json::from_str(&text).unwrap();
+    // Five levels of eight references to one token carrying 256 KiB: 8 GiB copied, unbudgeted.
+    for level in 0..5 {
+        let next = if level == 4 {
+            json!([{"x": {"$type": "number", "$value": 1, "$description": "d".repeat(256 << 10)}}])
+        } else {
+            json!(vec![json!({"$ref": format!("#/sets/l{}", level + 1)}); 8])
+        };
+        forged["sets"][format!("l{level}")] = json!({ "sources": next });
+    }
+    let first = forged["modifiers"]["mode"]["contexts"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    forged["modifiers"]["mode"]["contexts"][&first] = json!([{"$ref": "#/sets/l0"}]);
+    let started = std::time::Instant::now();
+    let refused =
+        reimport_against(&text, Some(&forged.to_string()), &[], DESIGN, &vocab()).unwrap_err();
+    assert!(started.elapsed().as_secs() < 10);
+    assert!(
+        refused.iter().any(|d| d.message.contains("expands past")),
+        "{refused:?}"
+    );
+}

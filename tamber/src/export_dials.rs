@@ -290,7 +290,13 @@ pub(crate) fn marks(
             .tokens
             .iter()
             .zip(&cur.design.tokens)
-            .find(|(_, t)| t.name.value.eq_ignore_ascii_case(name))
+            .find(|(_, t)| t.name.value == *name)
+            .or_else(|| {
+                cur.tokens
+                    .iter()
+                    .zip(&cur.design.tokens)
+                    .find(|(_, t)| t.name.value.eq_ignore_ascii_case(name))
+            })
         else {
             continue;
         };
