@@ -62,10 +62,15 @@ func frontAgain() {
     if #available(macOS 14.0, *) { NSApp.yieldActivation(to: front) }
     front.activate()
 }
+nonisolated(unsafe) var interrupted: DispatchSourceSignal?
 if agentActivates {
     atexit { frontAgain() }
-    // An interrupt (a terminal's ctrl-c reaches the whole group) quits through exit too.
-    signal(SIGINT) { _ in exit(130) }
+    // An interrupt (a terminal's ctrl-c reaches the whole group) quits through exit too, on the main queue (not in
+    // the signal handler, where AppKit's restore is not safe).
+    signal(SIGINT, SIG_IGN)
+    interrupted = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    interrupted?.setEventHandler { exit(130) }
+    interrupted?.resume()
 }
 let appReadyMs = ExactEnv.wall()
 

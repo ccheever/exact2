@@ -179,13 +179,12 @@ function capture(plan, png, dir) {
     if (!points || !Number.isFinite(top)) throw new Error(`${host}: the screenshot's scale or the status bar's height is unknown`);
     return { frames, image, again, points, top };
   }
-  const capture = { frames, image, again, points: shot.w, top: 0 };
-  // The Mac's capture was a key window only if its switch, on, shows the system's accent: an inactive window draws
-  // it grey, which would read every accent cell as none.
-  if (host === 'macos' && frames.switch && !pixels(capture, frames.switch).some(([, [r, g, b]]) => Math.max(r, g, b) - Math.min(r, g, b) > 60)) {
-    throw new Error('macos: the capture is not a key window (the switch, on, is grey): the run was not activated (EXACT_AGENT_ACTIVATE)');
+  // The Mac's pictures count only if each was taken active, in a key window (the activated run says so on each): an
+  // inactive window draws every control grey, which would read every accent cell as none.
+  if (host === 'macos' && replies.filter(x => x.screenshot).some(x => x.active !== true)) {
+    throw new Error('macos: a picture was taken with the app not active or its window not key (EXACT_AGENT_ACTIVATE): measure again');
   }
-  return capture;
+  return { frames, image, again, points: shot.w, top: 0 };
 }
 
 /** The pixels of a frame: [lab, rgb, x, y] for each. */
