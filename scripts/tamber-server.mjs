@@ -149,7 +149,7 @@ function spawnContract(appDir) {
  * pairing's time (tests), `remote()` the run's open remote doors (stage 10
  * B's `list()`), shown with each pairing code. The returned `pairing` is the
  * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`). */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [] }) {
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = null }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -582,6 +582,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (!res.writableEnded && !res.destroyed) answer();
       return true;
     }
+    // Stage 10 C (scripts/tamber-canvas.mjs); TODO(A): `canvas: 'read'` in METHOD_SCOPE, then in dispatch.
+    if (request?.method === 'canvas' && canvas) { const r = canvas.mint(String(req.headers['x-exact-tamber-token'])); json(res, r.ok ? 200 : r.status, r.ok ? { ok: r.ok } : { error: r.error }); return true; }
     if (!request || !METHODS.has(request.method)) {
       json(res, 400, { error: { message: `a request is an object whose method is one of ${[...METHODS].join(', ')}` } });
       return true;

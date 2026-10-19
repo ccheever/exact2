@@ -4202,3 +4202,113 @@ stay, marked `revoked`; (c) 8 live codes, and 5 attempts a minute per peer.
 - **Known limit (accepted, theme2):** five unauthenticated misses burn every live code, by the burn rule:
   a LAN peer can deny pairing, never gain it (rate-limited per peer; pairing is LAN-only, ruling 1).
 
+
+### Stage 10, commit C1: the canvas gateway (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions after approval) as a module on its own,
+`scripts/tamber-canvas.mjs`, with A's interface and B's listener injected; under `tamber/1.13`.
+
+- **The origin (theme2's ruling on C (a), the lead agreeing).** The canvas has its own origin: a second TLS port on
+  B's remote listener, the same per-run certificate. It is the same site as the tool's port and a different origin,
+  as the local tool (`127.0.0.1:7740`) and the framed page (`localhost:<port>`) are today, so `pageOf`'s guard
+  holds: the framed page can't lift its sandbox or reach the tool's DOM, storage or token. D12's "same-origin" reads
+  "served by the Tamber server under the paired token, never the app's dev URL handed out" (recorded in D12 by
+  theme2). `/canvas/<client>/` is only the entry; the page is then served at its own root, so no path in the dev
+  glue is rewritten and history URLs stay on the canvas.
+- **The `canvas` method** (`read`; A's METHOD_SCOPE takes `canvas: 'read'`): `{url, grant, expires}`.
+  - The grant: 256 bits from the CSPRNG, single use, valid 30 s, bound to the client. It is rate-limited per client
+    by one A `limiter({rate: 6, per: 60 s})` the gateway makes, `take('canvas:<client>')` (a burst of 6, refilled at
+    6 a minute).
+  - The url: `<canvas origin>/canvas/<client>/`, never a loopback URL.
+- **The entry**, `POST /canvas/<client>/`, with `grant` in a form or JSON body:
+  - A query string, a GET, an Origin other than the canvas's or the tool's, a wrong, used or expired grant, or
+    another client's: not-found.
+  - The grant is compared timing-safe (by its SHA-256) and burned on any try.
+  - A session id (256 bits) is bound server-side to the client, its token and that grant.
+  - The answer is a 303 to `/`.
+- **The cookie rules:**
+  - `__Host-exact-canvas=<session>; Secure; HttpOnly; SameSite=Strict; Path=/`, with no Domain.
+  - A session is valid only by the gateway's map: a value it didn't mint is an unknown session.
+  - A token is never read from a cookie, and no tool or design-server path reads `Cookie` (A's rule).
+  - Cookies aren't port-scoped, and the canvas's page code is untrusted. Page code can set a cookie of that name on
+    the host (the `__Host-` prefix only makes it Secure, host-only and `Path=/`), and it grants nothing on either
+    port (a test sends one). At worst it overwrites or deletes the real cookie, which forces a fresh grant from the
+    tool. A page-set value sent beside the real one doesn't hide it: each value is tried.
+- **Every other request:**
+  - It needs the session, then its client's token through A's `lookup` (a revoked or expired token fails at once,
+    as does one whose `expires` has passed), then the route's scope through A's `allows(scope, needs, false)`: a
+    canvas request is never local.
+  - An unknown, missing, revoked or expired session: not-found, the same answer for each. A scope refused: 403
+    `{message, scope, needs}`.
+  - An allowed POST also needs `Origin` to be the canvas's, on top of SameSite=Strict.
+  - No CORS header is ever sent.
+- **The scope table** (everything else is not-found):
+
+  | scope | routes |
+  |---|---|
+  | `read` | GET/HEAD of the page and its assets (any path outside `/__…`, `/.exact/` and the entry); `/__dev` and `/__dev/page` (SSE), `/__dev/hello`, `/__dev/commands` (its query kept), `/__dev/generation/*`, `/__dev/map/*`, `/__dev/inspect.js`, `/dev-inspect.json`, `/exact.json`, `/modules/*`; GET `/__dev/design`; the page's beacons POST `/__dev/reloaded`, `/__dev/painted`, `/__dev/gpu` (the wasm page's), `/__dev/report` |
+  | `write` (theme2's ruling) | POST `/__dev/design`, `/__dev/checkpoint`, `/__dev/open`; GET `/__dev/open` (the opening page) |
+  | never | `/__tamber` and `/__tamber/*` (through the proxy the loop would see a local request and hand out its write token), `/__dev/install/ios`, `/__exact/*`, `/.exact/*` |
+
+  `/__dev/report` carries hold and held reports. Holding is a `write` command sent down the build channel, so a
+  `read` or `propose` client's page reports only holds the server asked for (A's table, ruling 5).
+- **Upstream:**
+  - The request goes over loopback to the loop as the gateway itself, with `redirect: 'manual'` and the query kept.
+  - Host is the loop's, and an allowed POST's Origin is the loop's origin.
+  - Cookie, `x-exact-tamber-token`, Referer, the client's `forwarded` and `x-forwarded-*`, and hop-by-hop headers
+    (and any the Connection header names) are dropped.
+  - The gateway adds one marker of its own, fixed and naming no peer: `forwarded: for="_exact-canvas"`. Why: the
+    gateway reaches the loop from loopback with a loopback Host, which the dev gate (`access.local`) would call
+    local, and a local request is given the install token (the install pages) and the tamber token
+    (`/__tamber/token`). With the marker the gate, unchanged, admits the request but never calls it local, so no
+    route the allow list passes, now or later, can hand either token to a remote client. The gate never sees a
+    paired credential.
+  - The body limit is `forward()`'s (1 MiB less 64 bytes), but for `/__dev/checkpoint` (`write` only), which takes
+    the loop's own cap (16 MiB, the JS loop's `CHECKPOINT_BYTES`, mirrored and checked by a test). Over it is a 413,
+    then the connection closed.
+- **Downstream:**
+  - Set-Cookie, CORS, HSTS and hop-by-hop headers are dropped, with `cache-control: no-store`.
+  - Every loopback form of the loop's origin (127.0.0.1, localhost or [::1] with its port, as a URL, URL-encoded, or
+    a bare host) becomes the canvas origin: in every header (Location, Link, CSP), and in HTML and JSON bodies
+    (`page`, `url`, `/__dev/open`'s links) and SSE streams (a line at a time).
+  - `frame-ancestors` names the canvas (`'self'`) and the tool's remote origin, with no loopback source.
+  - Bodies are streamed with backpressure, as `forward()` streams them.
+- **Revoke and expiry (A's `onEnd`):**
+  - Each client's live proxied responses (SSE, long polls, in-flight requests) are kept, each with the
+    AbortController of its upstream fetch.
+  - On `onEnd(client, reason)` (`'revoked'` or `'expired'`, which end the same way; the reason goes to the log
+    with the client's name, never a secret) all of them are aborted, so the client's streams close and the loop's long poll ends. The
+    client's sessions and grants are deleted, and its next request is not-found.
+  - `close()` unsubscribes.
+- **The server:** `tamberServer({canvas})` answers `canvas` with the gateway's `mint` for the request's token, behind
+  a marked seam until A's dispatcher and METHOD_SCOPE land.
+- **Tests** (`tamber-canvas.test.mjs`, a fake pairing and a fake loop on loopback, plain HTTP):
+  - the route table;
+  - mint, entry, the cookie's exact attributes, 303, the page proxied;
+  - the upstream sees no Cookie, token or client forwarding headers, and the loop's Host;
+  - the client sees no upstream Set-Cookie or CORS header, and no loopback origin of the loop's in any header or
+    passed body;
+  - the query kept on `/__dev/commands`;
+  - a grant reused, expired (an injected clock), wrong, another client's or in a query string is refused;
+  - another client's, an unknown, a page-set or no cookie is refused, and a real one beside a tossed one still works;
+  - `/__tamber`, `/__tamber/token` and the install routes are not-found and never reach the loop;
+  - a cross-origin POST is refused;
+  - `read` and `propose` are refused the `write` routes, and `write` passes;
+  - revoke, then expiry: an open SSE stream and a held long poll close at once, the fake loop sees both upstream
+    requests end, the next request is refused, and another client's stream is untouched;
+  - the mint rate limit, and `close()` unsubscribing;
+  - a `write` client's checkpoint between 1 MiB and the cap passes and one over it is 413, as is any other body over
+    1 MiB, none reaching the loop;
+  - the server's `canvas` seam.
+- **What waits on A and B:**
+  - **A (reload1):** built to A's shapes on x2/s10a: `pairing` is `tamberServer(...).pairing` (`lookup`, `onEnd`,
+    which calls back at once for a client already ended), and `limiter` and `allows` are injected, defaulting to
+    `scripts/tamber-pairing.mjs`'s exports once A lands. `canvas: 'read'` joins METHOD_SCOPE, and the two-line seam
+    moves into A's dispatcher. Whether the local token may mint
+    is A's `lookup`'s answer.
+  - **B (rt1):** the canvas's second TLS port gives `handle` its requests and the gateway its `origin`; the tool's
+    remote origin is `toolOrigin`. The real-Chrome checks wait on B: the SameSite=Strict cookie reaching the framed
+    canvas (the two origins differ only by port), the framed canvas unable to read the tool's origin, revoke closing
+    both ports, and a page-set cookie granting nothing on either port.
+  - **Then:** the test through the real dev loops (`devLoop`), a JS-target and a wasm page loading through the
+    gateway and a live edit reaching each.
