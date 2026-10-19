@@ -5101,10 +5101,14 @@ Built to theme2's 15:32 approval, on B1 and B2.
     md is the design's 12 on every host, and the header is 44.
   - The neutral and Material columns have the same px for every name. The Material column is held by the Android
     reader's run (theme2's ruling: the scale's own boxes, not E's fixture):
-    - scale-check gives the reader the compiled plan, pushed in place of the one an app's APK bakes
-      (`--app unsaid`, an app that asks nothing of its data), so the reader runs exactly what the other hosts run;
+    - the reader is tested by a plan push, not by an app build: scale-check gives the reader the compiled plan,
+      pushed in place of the one an app's APK bakes (`--app unsaid`, an app that asks nothing of its data), so the
+      reader runs exactly what the other hosts run (theme2's 16:55 ruling);
+    - before measuring, every host must name the compiled plan in its `perf` (the SHA-256 of the plan's bytes), so a
+      stale or wrong plan, such as the reader's own bake if the push were not read, fails loudly;
     - the reader's screenshot is the whole screen, so the page's top is found in it, to the fraction of a pixel,
       from the topmost box's fill;
-    - a page offset across the screen (side bars, a cutout) is refused rather than misread.
+    - a page offset or narrowed across the screen (side bars, a cutout, on either side) is refused rather than
+      misread: the topmost box's left and right edges are held to where the page's pixels per point put them.
 - **Still to come, before E's gate:** the terminal (cells, square corners), which has a column but no agent host
   yet.

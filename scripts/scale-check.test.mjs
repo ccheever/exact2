@@ -185,9 +185,12 @@ test('a screenshot taller than the page (the reader\'s, with its bars) is read f
   // A page whose top falls inside a pixel: read to the fraction.
   const frac = drawn(200, 260, { x: 20, y: 70.4, w: 120, h: 48 }, 0, red);
   expect(Math.abs(pageTop(frac, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2) - 30.4)).toBeLessThan(0.05);
-  // A page offset across (a side bar): refused.
+  // A page offset across (a side bar on the left), or narrowed (one on the
+  // right, which makes the width's pixels a point wrong): refused.
   const side = drawn(200, 260, { x: 26, y: 70, w: 120, h: 48 }, 0, red);
-  expect(() => pageTop(side, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2)).toThrow('offset across');
+  expect(() => pageTop(side, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2)).toThrow("not the screenshot's width");
+  const narrow = drawn(200, 260, { x: 18, y: 70, w: 108, h: 43.2 }, 0, red);
+  expect(() => pageTop(narrow, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2)).toThrow("not the screenshot's width");
   // A screenshot that is the page: no offset.
   expect(pageTop(drawn(200, 200, { x: 0, y: 0, w: 1, h: 1 }, 0, red), layout, { boxes }, 2)).toBe(0);
 });

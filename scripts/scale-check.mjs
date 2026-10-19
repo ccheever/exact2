@@ -24,6 +24,7 @@
 //   (unsaid), built with `bun scripts/agent-android.mjs build <app> --apk`.
 //   Each drive starts from a fresh scratch store (`--storage scale-check --reset-storage`).
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
@@ -196,8 +197,21 @@ export function pageTop(image, layout, expect, scale, boxes = expect.boxes) {
   const top = edge(image.height, y => ink(x, y), Math.floor(box.h * scale * 0.9));
   if (top === null) return 0;
   const y = Math.round(top + (box.h / 2) * scale);
-  const left = edge(image.width, k => ink(k, y), Math.floor(box.w * scale * 0.9));
-  if (left !== null && Math.abs(left - box.x * scale) > 1) throw new Error(`the page is offset across the screenshot (${(left - box.x * scale).toFixed(1)} px: side bars, a cutout): not read`);
+  // Across the box's middle row, its left and right edges where the page's
+  // pixels a point say: a page offset or narrowed across the screen (side
+  // bars, a cutout, on either side) puts one elsewhere.
+  const row = k => ink(k, y);
+  const left = edge(image.width, row, Math.floor(box.w * scale * 0.9));
+  // Where that run ends: the first pixel less than half inked after it, less
+  // the fraction the pixel before is not, plus the fraction its own is.
+  let right = null;
+  if (left !== null) {
+    let k = Math.ceil(left);
+    while (k < image.width && row(k) >= 0.5) k++;
+    right = k - (1 - row(k - 1)) + row(k);
+  }
+  const across = left === null ? Infinity : Math.max(Math.abs(left - box.x * scale), Math.abs(right - (box.x + box.w) * scale));
+  if (!(across <= 1)) throw new Error(`the page is not the screenshot's width (a box's edges ${across === Infinity ? 'not found' : `${across.toFixed(1)} px off`}: side bars, a cutout): not read`);
   return top - box.y * scale;
 }
 
@@ -272,12 +286,17 @@ export function check(host, layout, image, expect, base = () => undefined) {
   });
 }
 
-/** One drive of `plan` on `host`: `steps`, then its layout and screenshot. The
- * Android reader runs an app's APK (`app`), which the drive gives the plan to
- * (pushed, in place of the one it bakes). */
+/** One drive of `plan` on `host`: `steps`, then its layout and screenshot,
+ * once the host says it runs `plan` (its `perf` names the plan by its bytes'
+ * SHA-256): a host that runs another, as the Android reader would on its own
+ * bake were the push not read, fails loudly. The reader runs an app's APK
+ * (`app`), which the drive gives the plan to (pushed, in place of its bake). */
 function drive(host, plan, png, steps = [], app = null) {
   const launch = host === 'android' ? ['--reader', '--app', app, '--plan', plan] : ['--plan', plan];
-  const run = spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
+  const run = spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', 'perf', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
+  const ran = (run.stdout ?? '').split('\n').map(l => /"plan":"([0-9a-f]{64})"/.exec(l)?.[1]).find(Boolean);
+  const want = createHash('sha256').update(readFileSync(plan)).digest('hex');
+  if (run.status === 0 && ran !== want) throw new Error(`${host} runs ${ran ? `another plan (${ran.slice(0, 12)}…)` : 'a plan it does not name'}, not ${want.slice(0, 12)}…: not measured`);
   // The last layout: the one after the steps.
   const line = (run.stdout ?? '').split('\n').findLast(l => l.startsWith('{') && l.includes('"nodes"'));
   if (run.error || run.status !== 0 || !line) throw new Error(`the drive failed${run.error ? ` (${run.error.message})` : run.signal ? ` (${run.signal})` : ''}\n${run.stdout ?? ''}${run.stderr ?? ''}`);
