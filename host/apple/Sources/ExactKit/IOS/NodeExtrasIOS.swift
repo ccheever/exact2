@@ -25,14 +25,10 @@ final class TextSpecs {
     var cached: Spec?
 }
 
-final class NodeExtras {
-    var pressContact: PressContact?
-    var inlinePressed: UInt32?
-    /// A Markdown link pressed in this text: its target, followed on release over it.
-    var linkPressed: String?
-    var svgPressed: UInt32?
-    var clipPath: CGPath?
-    var clipRule: CGPathFillRule = .winding
+/// A box's gradient and shadows, apart from `NodeExtras`: most nodes that
+/// have one need none of its other fields, and an extras object is 1.5 KB
+/// (euxy's launch: 43 of its 47 extras held only these).
+final class NodePaintExtras {
     /// A `background-image` gradient Core Animation paints (LLP 1066).
     var boxGradient: CAGradientLayer?
     /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
@@ -41,6 +37,16 @@ final class NodeExtras {
     var shadowCaster: ShadowCaster?
     /// Inset `box-shadow`s (LLP 1077 D4).
     var insetCaster: InsetShadowCaster?
+}
+
+final class NodeExtras {
+    var pressContact: PressContact?
+    var inlinePressed: UInt32?
+    /// A Markdown link pressed in this text: its target, followed on release over it.
+    var linkPressed: String?
+    var svgPressed: UInt32?
+    var clipPath: CGPath?
+    var clipRule: CGPathFillRule = .winding
     var clipBox: PlainView?
     /// The box layout moved it from (LLP 1063).
     var layoutOffset: CGPoint = .zero
@@ -164,10 +170,15 @@ extension NodeView {
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
     var fieldInCell: Bool { get { extras?.fieldInCell ?? false } set { if newValue || extras != nil { more.fieldInCell = newValue } } }
-    var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
-    var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
-    var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
-    var insetCaster: InsetShadowCaster? { get { extras?.insetCaster } set { if newValue != nil || extras != nil { more.insetCaster = newValue } } }
+    var paintMore: NodePaintExtras {
+        if let paintExtras { return paintExtras }
+        let made = NodePaintExtras(); paintExtras = made
+        return made
+    }
+    var boxGradient: CAGradientLayer? { get { paintExtras?.boxGradient } set { if newValue != nil || paintExtras != nil { paintMore.boxGradient = newValue } } }
+    var aimedGradient: AimedGradient? { get { paintExtras?.aimedGradient } set { if newValue != nil || paintExtras != nil { paintMore.aimedGradient = newValue } } }
+    var shadowCaster: ShadowCaster? { get { paintExtras?.shadowCaster } set { if newValue != nil || paintExtras != nil { paintMore.shadowCaster = newValue } } }
+    var insetCaster: InsetShadowCaster? { get { paintExtras?.insetCaster } set { if newValue != nil || paintExtras != nil { paintMore.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
