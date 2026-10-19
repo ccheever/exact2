@@ -11,6 +11,7 @@
 //! outside its views (a data or a native module) every token, or its
 //! design's `exports`.
 
+pub(crate) mod packages;
 mod scan;
 
 use crate::{LowerError, Lowerer};
@@ -397,6 +398,9 @@ impl Lowerer<'_> {
                 }
             }
         };
+        if self.package_references(&folding, file) {
+            return exact_kernel::style::theme::declarations([]);
+        }
         for e in crate::params::folded(&kinded, &folding, &overridden, None) {
             self.push(e);
         }
@@ -573,9 +577,9 @@ impl Lowerer<'_> {
         ))
     }
 
-    /// The app's design as the crate reads it: `app.tamber` parsed, or the
-    /// inline `theme` built, one token an entry. Both is refused.
-    fn design(&mut self, file: &File) -> Option<(tamber::Design, Origin)> {
+    /// The app's own design: `app.tamber` parsed, or the inline `theme`
+    /// (its packages' join it in `packages`).
+    fn app_design(&mut self, file: &File) -> Option<(tamber::Design, Origin)> {
         if let (Some(_), Some(theme)) = (&file.design, &file.theme) {
             self.errors.push(LowerError {
                 id: "tamber-two-sources",
@@ -713,6 +717,10 @@ impl Lowerer<'_> {
     /// Where a design's token line is: its entry's span, or its place in
     /// the design file.
     fn token_span(&self, origin: &Origin, line: u32, col: u32) -> Span {
+        // A package's token: its line in its package's design (D11).
+        if let Some(span) = packages::span(line, col) {
+            return span;
+        }
         // A param's token: its default, where its component declares it.
         if (crate::params::LINE..SYNTHETIC).contains(&line) {
             let at = (line - crate::params::LINE) as usize;
@@ -753,7 +761,10 @@ impl Lowerer<'_> {
             let s = &said.synthetic[(d.line - SYNTHETIC) as usize];
             (s.span, format!("`{}`: {}", s.expr, d.message))
         } else {
-            (self.token_span(origin, d.line, d.col), d.message.clone())
+            (
+                self.token_span(origin, d.line, d.col),
+                packages::unband(&d.message),
+            )
         };
         self.push(LowerError {
             id: d.id,
@@ -981,6 +992,12 @@ pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope 
         (None, Some(source)) => tamber::parse(&source.text).ok(),
         _ => (!params.is_empty()).then(tamber::Design::default),
     };
+    // Its packages' tokens too, which their views name (D11); what the
+    // build refuses of them is the build's to say.
+    let design = match (design, file.design.is_some() && file.theme.is_none()) {
+        (None, true) => None,
+        (design, _) => packages::merge(design, &file.package_designs).0,
+    };
     let folding = design.and_then(|mut d| {
         crate::params::add_to(&mut d, &params, &crate::params::identities(file));
         stand_in_profiles(&mut d);
@@ -1121,13 +1138,19 @@ pub(crate) fn stand_in_profiles(design: &mut tamber::Design) {
 /// one-colour token is two colours and an expression is its result. A
 /// profile's colour (`color(--…)`) is the plan's, not judged here.
 pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
-    let mut design = match (&file.design, &file.theme) {
+    let design = match (&file.design, &file.theme) {
         (None, Some(theme)) => inline_design(theme),
         (Some(source), _) => match tamber::parse(&source.text) {
             Ok(d) => d,
             Err(_) => return Vec::new(),
         },
         (None, None) => return Vec::new(),
+    };
+    // Folded with its packages' tokens, which an app token may name (D11);
+    // only the app's own are judged.
+    let app = design.tokens.len();
+    let Some(mut design) = packages::merge(Some(design), &file.package_designs).0 else {
+        return Vec::new();
     };
     // As the build stands one in (`profiles`): nothing to judge.
     stand_in_profiles(&mut design);
@@ -1138,6 +1161,11 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
     // `label`), by every name it answers to.
     let pairs: Vec<_> = folding.tokens.iter().zip(&folding.design.tokens).collect();
     let mut fixed: Vec<String> = Vec::new();
+    let judged = |name: &str| {
+        folding.design.tokens[..app.min(folding.design.tokens.len())]
+            .iter()
+            .any(|t| t.name.value == name)
+    };
     loop {
         let before = fixed.len();
         for (t, declared) in &pairs {
@@ -1155,7 +1183,7 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
     }
     pairs
         .into_iter()
-        .filter(|(_, declared)| !fixed.contains(&declared.name.value))
+        .filter(|(_, declared)| !fixed.contains(&declared.name.value) && judged(&declared.name.value))
         .filter_map(|(t, declared)| {
             // Opaque only: a translucent one is an overlay, which reads over
             // either scheme's ground, and a transparent one paints nothing.

@@ -51,6 +51,9 @@ pub struct File {
     pub theme: Option<ThemeDecl>,
     /// The app's design, `app.tamber` (LLP 1121 D2), set by the driver.
     pub design: Option<DesignSource>,
+    /// The designs of the packages the app's sources link (LLP 1121 D11),
+    /// each `<name>.tamber` beside its package's entry, set by the driver.
+    pub package_designs: Vec<DesignSource>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// Native modules' sources and sends, read from packages (LLP 1133.001).

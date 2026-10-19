@@ -507,6 +507,14 @@ pub fn rerun_if_changed(path: &Path) {
     // A nearer `node_modules` an install could create or fill: installing
     // edits the `package.json` and lockfile beside it, which exist.
     for consulted in graph.consulted.iter().filter(|path| !path.exists()) {
+        // A package's design not there yet (LLP 1121 D11): its directory,
+        // which making it changes.
+        if consulted.extension().is_some_and(|e| e == "tamber") {
+            if let Some(dir) = consulted.parent().filter(|d| d.is_dir()) {
+                println!("cargo:rerun-if-changed={}", dir.display());
+            }
+            continue;
+        }
         let Some(modules) = consulted
             .ancestors()
             .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
