@@ -84,9 +84,9 @@ extension NavigationHost {
             tablistAppearanceNone = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
             if ExactEnv.authoredChrome || tablistAppearanceNone { hideTabBar(container) }
             tabController = container
-            // A path's glyph is sized by the size class: the items again as it changes (and once the bar
-            // is in its window, whose traits it then has).
-            container.tabBar.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
+            // A path's glyph is sized by the idiom and the size class: the items again as either changes (and
+            // once the bar is in its window, whose traits it then has).
+            container.tabBar.registerForTraitChanges([UITraitUserInterfaceIdiom.self, UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
                 self?.resyncTabItems()
             }
             // A width becoming regular on an iPad makes the bar the floating one, which the stack's wish then hides.
@@ -257,12 +257,12 @@ extension NavigationHost {
         // A tab's test id is its item's identifier, which XCUITest and
         // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
         let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base.flatMap { FaceSymbol.isPath($0) ? nil : $0 } ?? face.title }
-        // The size class sizes a path's glyph (`FaceSymbol.tabBarPoints`).
+        // The idiom and the size class size a path's glyph (`FaceSymbol.tabBarPoints`).
         // The bar's traits once it is in its window; before, the page's.
         let traits = tabController.flatMap { $0.tabBar.window == nil ? nil : $0.tabBar.traitCollection }
             ?? presenter.session?.view?.traitCollection ?? UITraitCollection.current
-        let width = traits.horizontalSizeClass.rawValue
-        let signature = zip(faces, ids).map { face, id in "\(width)|\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
+        let points = FaceSymbol.tabBarPoints(traits)
+        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
             // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states.
