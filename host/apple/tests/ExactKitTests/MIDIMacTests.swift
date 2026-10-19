@@ -151,6 +151,7 @@ final class MIDIMacTests: XCTestCase {
             XCTAssertLessThan(late, 2, "on time")
         }
         output.shutdown()
+        print("MIDIMacTests: send timed \(timed) (user-interactive lag up to \(worst) s)")
         if !timed { throw XCTSkip("a user-interactive thread lagged past 20 ms in every attempt (\(worst) s): too loaded to time a send") }
     }
 
@@ -232,6 +233,9 @@ final class MIDIMacTests: XCTestCase {
         output.apply(["ops": [["op": "send", "id": 1, "output": out, "data": [0x90, 61, 100], "at": now + 2000],
                               ["op": "send", "id": 2, "output": out, "data": [0x80, 60, 0], "at": now + 2000]]])
         output.apply(["boot": true, "ops": []])
+        // Until the note-off came (a loaded machine delays it), then long
+        // enough that a note-on let go would have.
+        wait(2) { self.lock.withLock { !self.arrived.isEmpty } }
         wait(0.3)
         XCTAssertEqual(lock.withLock { arrived }.map(\.status), [0x80], "the note-off at once, the note-on never")
         output.shutdown()
@@ -251,7 +255,8 @@ final class MIDIMacTests: XCTestCase {
                               ["op": "send", "id": 2, "output": out, "data": [0x80, 62, 0], "at": now + 2000]]])
         wait(0.01)
         output.apply(["boot": true, "ops": []])
-        wait(0.3)
+        wait(2) { self.lock.withLock { self.arrived.count >= 2 } }
+        wait(0.1)
         let got = lock.withLock { arrived }
         XCTAssertEqual(got.map(\.status), [0x90, 0x80], "the note-on, then its note-off")
         if got.count == 2 { XCTAssertGreaterThanOrEqual(got[1].at, got[0].at) }
@@ -273,7 +278,10 @@ final class MIDIMacTests: XCTestCase {
                               ["op": "send", "id": 4, "output": out, "data": [0x80, 63, 0], "at": now + 2000]]])
         wait(0.01)
         output.apply(["boot": true, "ops": []])
-        wait(0.3)
+        // Until all four came: a loaded machine delays them (two of four by
+        // 300 ms at load 80); their order and stamps are what is checked.
+        wait(2) { self.lock.withLock { self.arrived.count >= 4 } }
+        wait(0.1)
         let got = lock.withLock { arrived }
         XCTAssertEqual(got.map(\.status), [0x90, 0x90, 0x80, 0x80])
         if got.count == 4 { XCTAssertGreaterThanOrEqual(got[2].at, got[1].at, "both offs after the later note-on") }
@@ -421,6 +429,7 @@ final class MIDIMacTests: XCTestCase {
         wait(0.3)
         XCTAssertEqual(messages(deliveries).flatMap(\.list).map(\.status), [0x90])
         output.shutdown()
+        print("MIDIMacTests: \(timedBatches) of \(ticks.count) batches timed (main lagged up to \(worst) s)")
         if timedBatches < 3 { throw XCTSkip("\(timedBatches) batches came on a quiet enough machine (main lagged up to \(worst) s): too loaded to time them (their order, count and spacing were checked)") }
     }
 
