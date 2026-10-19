@@ -94,12 +94,24 @@ for (const timing of ['agent', 'platform']) {
       // Settle the launch first: a real tap during it can land on a switch that does not act yet
       await s.clock('settle');
       const facts = async () => byTestId(await s.tree(), 'facts')?.props.text;
-      for (const [target, want] of [['toggle', 'true 0 0'], ['toggle', 'false 0 0'], ['info', 'false 1 0'], ['open', 'false 1 1']]) {
+      const tap = async (target) => {
         const r = await s.tap(target);
         check(r.delivery === 'platform' && r.touch?.type === 'direct', `grouped: tap ${target} was not a real touch: ${JSON.stringify(r)}`);
+        return r;
+      };
+      let was = 'false 0 0';
+      for (const [target, want] of [['toggle', 'true 0 0'], ['toggle', 'false 0 0'], ['info', 'false 1 0'], ['open', 'false 1 1']]) {
+        let r = await tap(target);
+        // Tap the detail button again, once, when it left the window under the finger and nothing changed: UIKit rebuilds
+        // it while it loads its accessibility (QUEUE). Any other control's lost lift fails below.
+        if (target === 'info' && r.viewGone) {
+          await s.clock('settle');
+          if ((await facts()) === was) { console.log('grouped: the detail button left the window under the finger; tapped again'); r = await tap(target); }
+        }
+        was = want;
         await s.clock('settle');
         const seen = await facts();
-        check(seen === want, `grouped: after a real tap on ${target} the facts read ${seen}, not ${want} (landed ${JSON.stringify(r.landed)})`);
+        check(seen === want, `grouped: after a real tap on ${target} the facts read ${seen}, not ${want} (landed ${JSON.stringify(r.landed)}${r.viewGone ? ', its view gone before the lift' : ''})`);
       }
       console.log('grouped: a real switch, detail button and row tap each landed on UIKit\'s cell');
     } catch (error) {

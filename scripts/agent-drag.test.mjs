@@ -267,6 +267,18 @@ function stillTouch({ reachedAt, liftAfter }) {
   return { t, run: (drag) => realTap({ ask, touches, id: 7, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: 400, ...drag } }) };
 }
 
+// A tap whose view left the window before the lift (the log's `viewGone`) says so in its reply, and the driver refuses
+// nothing for it: the touch smoke taps a grouped row's detail button again when the state is unchanged.
+test('a real tap whose view left the window before the lift says so', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  const tap = (lift) => realTap({ id: 7,
+    ask: async (req) => (req.aim ? { aim } : { log: [began, { ...began, seq: 6, phase: 'ended', t: 2, ...lift }], truncated: false }),
+    touches: { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } } });
+  expect(await tap({ viewGone: true })).toEqual(expect.objectContaining({ delivery: 'platform', viewGone: true }));
+  expect((await tap({})).viewGone).toBeUndefined();
+});
+
 // The ops during a still real touch wait for the view it landed on to have it (`reached`), which a scroll view delays;
 // a held contact's reads, which need it, fail before they run when it never does.
 test('a still real touch runs its ops once the touch has reached its view, and a held contact\'s fail without it', async () => {
