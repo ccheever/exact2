@@ -135,7 +135,6 @@ export function designPath(appDir) {
   return existsSync(path) ? path : null;
 }
 
-
 /** `contract tamber serve --stdio <app>`, through cargo as the dev loops run
  * the compiler, in a process group of its own so stopping it stops the
  * compiler cargo starts. */
@@ -502,6 +501,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   const wasRevoked = req => revokedTokens.has(createHash('sha256').update(String(req.headers['x-exact-tamber-token'] ?? '')).digest('hex'));
   async function handle(req, res, url, access) {
+    if (Math.max(req.socket?.writableLength || 0, res.writableLength || 0) > 8 << 20) { req.socket?.destroy(); return true; } // (a connection 8 MiB behind on what it was sent is cut: answers queue only while read)
     // Every paired client past its deadline ends before a request is read.
     pairs.expire();
     // Through B's remote listener or a trusted tunnel nothing is local,
