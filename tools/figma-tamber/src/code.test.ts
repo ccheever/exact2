@@ -510,7 +510,7 @@ test('round 8: an unchanged pull changes nothing and undoes nothing; check lists
   expect(JSON.stringify(f.variables.map(v => v.valuesByMode))).toBe(values);
   const dropped = variant(doc => { for (const c of Object.values<any>(doc.modifiers.mode.contexts)) delete c[0].accent.fill; });
   const checked = await send({ type: 'check', text: dropped }, 'checked');
-  expect(checked.drops).toEqual([{ token: 'accent.fill', variable: 'accent/fill', why: 'the design dropped it' }]);
+  expect(checked.drops).toEqual([{ token: 'accent.fill', collection: 'Tamber', variable: 'accent/fill', why: 'the design dropped it' }]);
   // Two modes a collection: one light context Tamber holds, and a mode of the person's own; the dark context can't come.
   await load(2);
   const only = (names: string[]) => variant(d => {
@@ -748,4 +748,75 @@ test('quick re-check: a mode the pull drops with values of the person\'s variabl
   mine.setValueForMode(dimLight, 8);
   await expect(send({ type: 'apply', text: REAL }, 'applied')).rejects.toThrow(/local\/gutter/);
   expect(col.modes.some((m: any) => m.modeId === dimLight)).toBe(true);
+});
+
+/** Figma's undo, counted. */
+const counted = () => {
+  const n = { undos: 0 }, trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { n.undos++; trigger(); };
+  return n;
+};
+
+test('leftovers: a pull that drops or remakes variables names each one that goes, in each collection, by its name in the file now', async () => {
+  await load(2); // (one collection a tuple: accent/fill in each)
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const [black, dim] = f.collections;
+  f.variables.find(v => v.variableCollectionId === dim.id && v.name === 'accent/fill').name = 'brand/primary';
+  const changed = variant(doc => { for (const c of Object.values<any>(doc.modifiers.mode.contexts)) { delete c[0].accent.fill; c[0].accent.soft = { $type: 'number', $value: 1 }; } });
+  const { drops } = await send({ type: 'check', text: changed }, 'checked');
+  expect(drops.map((d: any) => [d.collection, d.variable, d.why])).toEqual([
+    [black.name, 'accent/fill', 'the design dropped it'],
+    [black.name, 'accent/soft', 'its type changed: it is made again'],
+    [dim.name, 'brand/primary', 'the design dropped it'],
+    [dim.name, 'accent/soft', 'its type changed: it is made again'],
+  ]);
+});
+
+test('leftovers: a pull short of room is refused naming the collection and its default mode as the person has them, once undone', async () => {
+  await load(2);
+  const ctx = (names: string[], def: string) => variant(d => {
+    const contexts = d.modifiers.mode.contexts, all = { ...contexts };
+    for (const c of Object.keys(contexts)) delete contexts[c];
+    for (const n of names) contexts[n] = all[n];
+    d.modifiers.mode.default = def;
+  });
+  await send({ type: 'apply', text: ctx(['dark-style=black, light', 'dark-style=black, dark'], 'dark-style=black, light') }, 'applied');
+  await send({ type: 'apply', text: ctx(['dark-style=black, dark'], 'dark-style=black, dark') }, 'applied');
+  // The person renames the collection and the default mode Tamber keeps unused.
+  const col = f.collections[0];
+  col.name = 'Brand';
+  col.modes[0].name = 'Dimmer';
+  const n = counted();
+  await expect(send({ type: 'apply', text: ctx(['dark-style=black, dark', 'dark-style=dim, light'], 'dark-style=black, dark') }, 'applied')).rejects.toThrow("`Brand`'s default mode `Dimmer`, which Tamber keeps unused and Figma can't remove, holds one");
+  // (each try's renaming undone: the one-collection try, then the two-mode one)
+  expect([n.undos, col.name, col.modes[0].name]).toEqual([2, 'Brand', 'Dimmer']);
+});
+
+test('leftovers: a mode of the person\'s in the way that is the default says to drag another above it; one in a replaced collection says delete it', async () => {
+  await load(2);
+  const only = (names: string[]) => variant(d => {
+    const contexts = d.modifiers.mode.contexts, all = { ...contexts };
+    for (const c of Object.keys(contexts)) delete contexts[c];
+    for (const n of names) contexts[n] = all[n];
+    d.modifiers.mode.default = names[0];
+  });
+  await send({ type: 'apply', text: only(['dark-style=black, light']) }, 'applied');
+  const col = f.collections[0];
+  col.addMode('Local review');
+  col.modes.unshift(col.modes.pop()); // (dragged to the top: the default)
+  const n = counted();
+  await expect(send({ type: 'apply', text: only(['dark-style=black, light', 'dark-style=black, dark']) }, 'applied')).rejects.toThrow("(Local review) in the places its contexts need: remove one, and the values on it go (`Local review` is the default mode, which Figma won't remove: drag another mode above it first); then pull");
+  expect([n.undos, col.modes.map((m: any) => m.name)]).toEqual([0, ['Local review', 'dark-style=black, light']]);
+  // A layout change that would replace a collection holding a mode of the person's: delete it, its values go.
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  f.collections[0].addMode('Local review');
+  f.raise(2);
+  const six = variant(doc => {
+    const contexts = doc.modifiers.mode.contexts;
+    for (const scheme of ['light', 'dark']) contexts[`dark-style=grey, ${scheme}`] = structuredClone(contexts[`dark-style=dim, ${scheme}`]);
+  });
+  const m = counted();
+  await expect(send({ type: 'apply', text: six }, 'applied')).rejects.toThrow('has modes Tamber did not make (Local review): delete them, and the values on them go; then pull');
+  expect([m.undos, f.collections.length]).toEqual([1, 1]); // (the one-collection try changed nothing; the split collections it made, undone)
 });

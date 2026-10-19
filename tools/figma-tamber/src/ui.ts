@@ -79,7 +79,7 @@ async function pullDesign() {
   // Values on a mode Tamber kept unused whose context comes back: written over.
   if (revived.length && !confirm(`${revived.length} value(s) on a mode Tamber kept unused are replaced by the design's (their context comes back) or may go (the collection is rewritten):\n${revived.map((r: any) => `${r.collection}: ${r.variable} (${r.mode})`).join('\n')}\n\nOK pulls.`)) { show('not pulled: values on an unused mode would be replaced'); return; }
   // Variables a pull removes or makes again: what is bound to them in this file loses them.
-  if (drops.length && !confirm(`${drops.length} variable(s) go or are made again with this pull, and what is bound to them loses them:\n${drops.map((d: any) => `${d.variable}: ${d.why}`).join('\n')}\n\nOK pulls.`)) { show('not pulled: variables would go'); return; }
+  if (drops.length && !confirm(`${drops.length} variable(s) go or are made again with this pull, and what is bound to them loses them:\n${drops.map((d: any) => `${d.collection}: ${d.variable}: ${d.why}`).join('\n')}\n\nOK pulls.`)) { show('not pulled: variables would go'); return; }
   const done = await ask({ type: 'apply', text }, 'applied');
   show(`pulled into ${done.collections.join(', ')}${done.skipped.length ? `; no variable for ${done.skipped.length} token(s): ${done.skipped.map((s: any) => s.token).join(', ')}` : ''}`);
 }
