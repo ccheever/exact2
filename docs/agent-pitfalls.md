@@ -1007,8 +1007,9 @@ screen, 2026-10-16.)
   taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
   the link presented, and UIKit dismisses that sheet and pops the route, as it would
   for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
-  `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
-  "Added to Library" sheet, Release build, 2026-10-18.)
+  `axe describe-ui` and tap Open by its label only when it is there; in a drive,
+  `"type <root> euxy://p/…"` delivers the link with no confirmation at all. (euxy
+  port's "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)

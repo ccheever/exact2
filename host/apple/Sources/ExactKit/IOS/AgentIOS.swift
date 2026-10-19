@@ -1067,7 +1067,7 @@ extension Agent {
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
-            let location = req["text"] as? String ?? ""
+            let location = session.typedLocation(req["text"] as? String ?? "")
             return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
         }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }

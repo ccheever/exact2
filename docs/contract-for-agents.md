@@ -1978,6 +1978,8 @@ the complete original URL percent-encoded in `u`; read it with
 navigation root with `navigate=`. At cold launch it is the initial location;
 when already running, each link fires one `navigate` event in arrival order.
 An app without `protocol_handlers` keeps ordinary URL-to-location behavior.
+A drive on macOS or iOS delivers a link as the system would, without iOS's
+"Open in …?" alert: `type <root> "web+notes://auth/callback#done"`.
 For a packaged-only scheme, use
 `[{"protocol":"notes","url":"/open?u=%s","distribution_only":true}]`.
 Apple archives and `--distribution` builds register it; local builds omit both
