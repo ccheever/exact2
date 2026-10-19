@@ -15,7 +15,7 @@ const SPACE_XL: Token<Length> = Token::new("space.xl");
 const SPACE_SM: Token<Length> = Token::new("space.sm");
 const SPACE_LG: Token<Length> = Token::new("space.lg");
 const RADIUS_MD: Token<Length> = Token::new("radius.md");
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 struct NoData;
 
@@ -34,7 +34,7 @@ fn app(name: &str, design: &str) -> PathBuf {
     dir.join("app.contract")
 }
 
-fn boot(path: &PathBuf) -> Runner<NoData> {
+fn boot(path: &Path) -> Runner<NoData> {
     let plan = contract::bake(contract::compile_path(path).unwrap(), NoData).unwrap();
     Runner::boot(
         plan,

@@ -84,11 +84,11 @@ struct Checker<'a> {
     selected: Vec<BTreeSet<Option<usize>>>,
 }
 
+/// The checked tokens, the tuple count and the dials' values, or the diagnostics.
+type CheckResult = Result<(Vec<Checked>, usize, Vec<DialValue>), (Vec<Diagnostic>, Vec<Kind>)>;
+
 /// Check `design` against the schema's vocabulary.
-pub(crate) fn check(
-    design: &Design,
-    vocab: &Vocab,
-) -> Result<(Vec<Checked>, usize, Vec<DialValue>), (Vec<Diagnostic>, Vec<Kind>)> {
+pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
     // A base name the design leaves unset, bare, is a named length too:
     // kept as written, each host's (stage 11 B). One the design sets is its
     // token, folded as any is, so its value wins everywhere and its edits
