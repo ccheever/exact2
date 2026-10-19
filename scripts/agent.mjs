@@ -1495,5 +1495,5 @@ export async function main(argv, injected = {}) {
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (refusalMessage(e.reply)) console.error(refusalMessage(e.reply)); else console.error(e.message); if (process.env.EXACT_AGENT_DEBUG || process.argv.includes('--json')) console.error(e.stack); if (e.steps && !refusalMessage(e.reply)) console.error(render('type', {steps:e.steps})); process.exit(e.stale ? 3 : 1); });
+  (await import('./tool-drive.mjs')).toolDrive('agent', process.argv.slice(2)).then(main).then((code) => process.exit(code), (e) => { if (refusalMessage(e.reply)) console.error(refusalMessage(e.reply)); else console.error(e.message); if (process.env.EXACT_AGENT_DEBUG || process.argv.includes('--json')) console.error(e.stack); if (e.steps && !refusalMessage(e.reply)) console.error(render('type', {steps:e.steps})); process.exit(e.stale ? 3 : 1); });
 }

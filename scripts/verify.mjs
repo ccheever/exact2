@@ -1153,4 +1153,5 @@ async function main(argv) {
   return r.exit;
 }
 
-if (import.meta.main) main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e.message); process.exit(1); });
+// The design tool, named here and not through its exact.mjs: on the checkout's own port (tool-drive.mjs).
+if (import.meta.main) (await import('./tool-drive.mjs')).toolDrive('verify', process.argv.slice(2)).then(main).then((code) => process.exit(code), (e) => { console.error(e.message); process.exit(1); });
