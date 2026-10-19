@@ -145,6 +145,34 @@ final class WidgetGalleryTests: XCTestCase {
         XCTAssertGreaterThan(rightRed, 40); XCTAssertEqual(leftRed, 0)
     }
 
+    func testActivityStateCacheDoesNotTreatMissingStateOrBooleansAsNumbers() throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_DEPARTURE_PLAN"]))
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: plan.deletingLastPathComponent().appendingPathComponent("entries/caltrain/app.json"))) as! [String: Any]
+        let directory = plan.deletingLastPathComponent().appendingPathComponent("activity-state-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("plans"), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: plan, to: directory.appendingPathComponent("plans/departure.plan"))
+        try JSONSerialization.data(withJSONObject: XCTUnwrap(manifest["live_activities"])).write(to: directory.appendingPathComponent("plans/activities.json"))
+        let app = ExactApp.shared, previous = app.assetRoot
+        defer { app.assetRoot = previous; try? FileManager.default.removeItem(at: directory) }
+        app.assetRoot = directory
+        let session = ExactSession(app: app, label: "activity-state-cache", launchPlace: LaunchPlace(environment: ["EXACT_AGENT":"1"]))
+        session.clock = 0
+        defer { session.destroy() }
+        let agent = Agent(session: session)
+        func read(_ state: String?) -> [String: Any] {
+            var address = ["entry":"departure", "placement":"minimal"]
+            address["state"] = state
+            return ActivityAgent.answer("state", request: ["activity":address], agent: agent)
+        }
+        XCTAssertNil(read(nil)["error"])
+        XCTAssertNotNil(read("{}")["error"], "an empty supplied state must decode, even after a preview")
+        XCTAssertNil(read("{\"station\":\"Palo Alto\",\"headsign\":\"San Francisco\",\"train\":1,\"at\":1787916000000,\"status\":\"On time\"}")["error"])
+        XCTAssertNotNil(read("{\"station\":\"Palo Alto\",\"headsign\":\"San Francisco\",\"train\":true,\"at\":1787916000000,\"status\":\"On time\"}")["error"], "a Boolean is not the numeric state the cache holds")
+    }
+
     func testGivenPropsSkipARefusingRefresh() throws {
         let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_REFUSING_PLAN"]))
         let assets = AssetResolver(root: plan.deletingLastPathComponent(), names: ["plans/refusing.plan"], generation: "refusing") { _ in try? Data(contentsOf: plan) }

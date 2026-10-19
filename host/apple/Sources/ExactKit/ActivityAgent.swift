@@ -45,9 +45,13 @@ enum ActivityAgent {
                     return value
                 }
                 let old = agent.activityPreview
+                func encoded(_ value: [String: Any]?) throws -> Data? {
+                    try value.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+                }
+                let stateChanged = try encoded(old?.suppliedState) != encoded(given)
                 if old?.entry.kind != kind || old?.entry.assets.publicationID != entry.assets.publicationID || old?.scheme != scheme
                     || old?.clock != agent.session.now() || old?.epochAtZero != agent.session.dateNow().epoch
-                    || !NSDictionary(dictionary: old?.suppliedState ?? [:]).isEqual(to: given ?? [:]) {
+                    || stateChanged {
                     agent.activityPreview = try ActivityPreview(entry, appSession: agent.session, scheme: scheme, state: given)
                 }
                 let preview = agent.activityPreview!
