@@ -289,3 +289,174 @@ fn inline_background_zero_radius_keeps_the_square_path() {
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), 1);
 }
+
+fn exclusion() -> [exact_textflow::FlowShape; 1] {
+    [exact_textflow::FlowShape::RoundRect {
+        x: 64.0,
+        y: 0.0,
+        width: 160.0,
+        height: 100.0,
+        radius: 0.0,
+    }]
+}
+
+#[test]
+fn flowed_background_generated_hyphen_has_source_owner() {
+    let mut e = engine();
+    let p = e.paragraph_flow(&spec(&["é", "ab\u{ad}cdefghij"]), 400.0, &exclusion(), None);
+    assert!(!p.flow_incomplete());
+    assert!(p.fragments()[0].hyphenated, "{:?}", p.fragments());
+    let pieces = fills(&p, &[None, background(1)]);
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(corners(&pieces[0]), LEFT);
+    assert_eq!(corners(&pieces[1]), RIGHT);
+    let line = p.layout_runs().next().unwrap();
+    let hyphen = line.glyphs.last().unwrap();
+    assert_eq!(hyphen.run(), 1);
+    assert!((pieces[0].rect.0 + pieces[0].rect.2 - hyphen.x - hyphen.w).abs() < 0.01);
+}
+
+#[test]
+fn flowed_background_generated_spaces_keep_breaks_open() {
+    let mut e = engine();
+    for text in ["Eab cd ef\ngh ij kl", "Éab cd ef\ngh ij kl"] {
+        let p = e.paragraph_flow(&spec(&[text]), 300.0, &exclusion(), None);
+        assert!(!p.flow_incomplete());
+        assert!(p.fragments().len() > 1);
+        let pieces = fills(&p, &[background(1)]);
+        assert_eq!(corners(&pieces[0]), LEFT, "{text:?}");
+        assert_eq!(corners(pieces.last().unwrap()), RIGHT, "{text:?}");
+        for piece in &pieces[1..pieces.len() - 1] {
+            assert_eq!(corners(piece), [false; 4], "{text:?}");
+        }
+    }
+}
+
+#[test]
+fn flowed_background_counts_consumed_zero_width_endpoint() {
+    let mut e = engine();
+    let p = e.paragraph_flow(&spec(&["\u{200b}hello"]), 400.0, &exclusion(), None);
+    assert!(!p.flow_incomplete());
+    let pieces = fills(&p, &[background(1)]);
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(corners(&pieces[0]), ALL);
+}
+
+#[test]
+fn flowed_background_counts_consumed_space_endpoint() {
+    let mut e = engine();
+    let p = e.paragraph_flow(&spec(&["abc ", "restless"]), 400.0, &exclusion(), None);
+    assert!(!p.flow_incomplete());
+    assert_eq!(p.fragments().len(), 2);
+    let pieces = fills(&p, &[background(1), None]);
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(corners(&pieces[0]), ALL);
+    let visible = e.paragraph(&spec(&["abc"]), None);
+    assert!((pieces[0].rect.2 - visible.layout_runs().next().unwrap().line_w).abs() < 0.01);
+}
+
+#[test]
+fn inline_background_many_runs() {
+    let mut e = engine();
+    for count in [2_500, 6_000] {
+        let p = e.paragraph(&spec(&vec!["abcdefghi "; count]), Some(1000.0));
+        for all in [false, true] {
+            let backgrounds: Vec<_> = (0..count)
+                .map(|i| {
+                    if all || i + 1 == count {
+                        background(i as u32)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let start = std::time::Instant::now();
+            let pieces = fills(&p, &backgrounds);
+            eprintln!(
+                "backgrounds: {count} runs, all={all}: {:?}",
+                start.elapsed()
+            );
+            assert_eq!(pieces.len(), if all { count } else { 1 });
+            assert!(pieces.iter().all(|p| corners(p) == ALL));
+        }
+    }
+}
+
+#[test]
+fn flowed_background_clamp_excludes_consumed_but_truncated_endpoint() {
+    let mut e = engine();
+    let mut s = spec(&["one two ", "three four"]);
+    s.line_clamp = 1;
+    let p = e.paragraph_flow(
+        &s,
+        90.0,
+        &[exact_textflow::FlowShape::Circle {
+            cx: 80.0,
+            cy: 10.0,
+            r: 10.0,
+        }],
+        None,
+    );
+    assert_eq!(p.fragments().len(), 1);
+    assert_eq!(p.fragments()[0].end, s.runs[0].text.len());
+    assert!(
+        p.layout_runs()
+            .flat_map(|l| l.glyphs)
+            .map(|g| g.end as usize)
+            .max()
+            .unwrap()
+            < s.runs[0].text.len()
+    );
+    let pieces = fills(&p, &[background(1), None]);
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(corners(&pieces[0]), LEFT);
+}
+
+#[test]
+fn flowed_background_spaces_and_later_hard_lines_keep_run_ownership() {
+    let mut e = engine();
+    let s = spec(&["Éab", " cd\nef", " gh ij kl"]);
+    let p = e.paragraph_flow(&s, 300.0, &exclusion(), None);
+    assert!(!p.flow_incomplete());
+    let mut ends = Vec::new();
+    let mut end = 0;
+    for run in &s.runs {
+        end += run.text.len();
+        ends.push(end);
+    }
+    for line in p.layout_runs() {
+        for g in line.glyphs {
+            assert!(!line.text[g.range()].is_empty());
+            assert_eq!(
+                g.run(),
+                ends.partition_point(|end| *end <= g.start as usize)
+            );
+        }
+    }
+    let pieces = fills(&p, &[None, background(1), None]);
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(corners(&pieces[0]), LEFT);
+    assert_eq!(corners(&pieces[1]), RIGHT);
+}
+
+#[test]
+fn flowed_background_clamp_keeps_consumed_space_before_cut() {
+    let mut e = engine();
+    let mut s = spec(&["one ", "twothreefour"]);
+    s.line_clamp = 1;
+    let p = e.paragraph_flow(
+        &s,
+        90.0,
+        &[exact_textflow::FlowShape::Circle {
+            cx: 80.0,
+            cy: 10.0,
+            r: 10.0,
+        }],
+        None,
+    );
+    assert_eq!(p.fragments().len(), 1);
+    assert_eq!(p.fragments()[0].end, s.runs[0].text.len());
+    let pieces = fills(&p, &[background(1), None]);
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(corners(&pieces[0]), ALL);
+}

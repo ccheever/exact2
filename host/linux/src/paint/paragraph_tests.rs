@@ -438,4 +438,22 @@ fn nested_visible_inline_backgrounds_keep_both_boxes_square() {
         [Dimension::Points(3.0); 4],
         "a transparent descendant keeps its ancestor's rounding"
     );
+    for inner in [
+        "text background-color=\"#0000ff\"",
+        "text \"\" background-color=\"#0000ff\"",
+    ] {
+        let p = fixture(&format!(
+            "      text testId=\"paragraph\"\n        text background-color=\"#ff0000\" border-radius=6\n          text \"hello\"\n          {inner}\n"
+        ));
+        let kernel = p.host().kernel();
+        let node = kernel
+            .node_by_key(kernel.find_by_test_id("paragraph")[0])
+            .unwrap();
+        let backgrounds = text_backgrounds(kernel, &node, false, None);
+        assert_eq!(
+            backgrounds[0].unwrap().radii,
+            [Dimension::Points(6.0); 4],
+            "{inner}"
+        );
+    }
 }

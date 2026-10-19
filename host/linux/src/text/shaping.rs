@@ -838,7 +838,8 @@ pub(super) fn line_box<'a>(
 pub struct LayoutRun<'a> {
     /// Its hard line's index.
     pub line_i: usize,
-    /// Its hard line's text (glyph ranges index it).
+    /// The source text indexed by its glyph ranges: a hard line for ordinary
+    /// layout, the whole paragraph for flow across collapsed hard breaks.
     pub text: &'a str,
     /// The hard line's base direction.
     pub rtl: bool,
@@ -884,7 +885,11 @@ impl<'a> Iterator for Runs<'a> {
             };
         Some(LayoutRun {
             line_i: line.hard as usize,
-            text: &hard.text,
+            text: p
+                .flow
+                .as_ref()
+                .filter(|f| !f.incomplete)
+                .map_or(&hard.text, |f| &f.text),
             rtl: hard.rtl,
             glyphs: record.glyphs_of(line),
             line_y,

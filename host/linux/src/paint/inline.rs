@@ -67,7 +67,7 @@ fn collect_backgrounds(
     reveal: Option<exact_kernel::ViewId>,
     out: &mut Vec<Option<InlineBackground>>,
     nested: &mut std::collections::HashSet<exact_kernel::ViewId>,
-) {
+) -> bool {
     let own = |n: &NodeRef<'_>| {
         let _accent = super::accent_scope(n);
         n.style
@@ -95,9 +95,11 @@ fn collect_backgrounds(
                 .map(|d| d.resolve(&kernel.env())),
             })
     };
-    if node.props.str(PropId::Text).is_some() {
+    if let Some(text) = node.props.str(PropId::Text) {
         out.push(inherited);
+        !text.is_empty()
     } else {
+        let mut emitted = false;
         for child in node.children() {
             if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
                 // A hidden box contributes no background; a visible ancestor
@@ -105,12 +107,16 @@ fn collect_backgrounds(
                 let own = super::paints(kernel, child.id, reveal)
                     .then(|| own(&child))
                     .flatten();
-                if let (Some(parent), Some(child)) = (inherited, own) {
-                    nested.extend([parent.id, child.id]);
+                if collect_backgrounds(kernel, &child, own.or(inherited), dark, reveal, out, nested)
+                {
+                    emitted = true;
+                    if let (Some(parent), Some(child)) = (inherited, own) {
+                        nested.extend([parent.id, child.id]);
+                    }
                 }
-                collect_backgrounds(kernel, &child, own.or(inherited), dark, reveal, out, nested);
             }
         }
+        emitted
     }
 }
 
