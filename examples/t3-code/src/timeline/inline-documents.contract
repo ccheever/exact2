@@ -90,7 +90,8 @@ component InlineDocumentFrame
             box width=(document.fullscreen ? inlineDocumentViewportWidth * zoom : "100%") height=(document.fullscreen ? (inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 0)) * zoom : document.height)
               if document.src != ""
                 iframe id=`inline-frame-${document.key}` src=document.src sandbox="allow-scripts allow-forms allow-popups allow-downloads" message=reported load=loaded width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 0) : document.height) scale=zoom transform-origin="0 0" border-width=0 opacity=(document.ready ? 1 : 0) aria-label=document.title testId="inline-doc-frame"
-          button press=local("inline-doc-fullscreen", document.key, document.fullscreen ? "close" : "open") position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 aria-label=(document.fullscreen ? "Exit full screen" : "Expand document") title="" testId="inline-doc-expand"
+          // McpAppFrame and HtmlRenderDialog leave full screen on Escape.
+          button press=local("inline-doc-fullscreen", document.key, document.fullscreen ? "close" : "open") aria-keyshortcuts=(document.fullscreen ? "Escape" : "") position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 aria-label=(document.fullscreen ? "Exit full screen" : "Expand document") title="" testId="inline-doc-expand"
             Icon(name=(document.fullscreen ? "minimize" : "maximize"), size=14, color="-exact-label")
 
         if document.fullscreen and document.kind == "html"
