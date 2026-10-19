@@ -9,10 +9,12 @@
 // refused. The main listener and its gate are untouched.
 import { generateKeyPairSync, randomBytes, sign, X509Certificate } from 'node:crypto';
 import { createServer as createPlain } from 'node:http';
-import { createServer as createTLS } from 'node:tls';
+import { createSecureContext, createServer as createTLS, TLSSocket } from 'node:tls';
+import { EventEmitter } from 'node:events';
 import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { allowHostArgs } from './install-page.mjs';
+import { connectRelay, relayArgs } from './tamber-relay.mjs';
 import { serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
 
 const DAY = 86_400_000;
@@ -86,7 +88,7 @@ export function remoteArgs(argv, { exit = false } = {}) {
     const host = m[1].replace(/^\[|\]$/g, '').toLowerCase();
     remote = { host: isIP(host) === 6 ? new URL(`http://[${host}]/`).hostname.slice(1, -1) : host, port: port(m[2], '--remote') };
   }
-  return { remote, tunnel: t === null ? null : port(t, '--trust-tunnel'), plugin: argv.includes('--allow-plugin-origin'), hosts: allowHostArgs(argv) };
+  return { remote, tunnel: t === null ? null : port(t, '--trust-tunnel'), plugin: argv.includes('--allow-plugin-origin'), hosts: allowHostArgs(argv), relay: relayArgs(argv) };
 }
 
 /** The names a remote listener on `host` answers to (its certificate's). */
@@ -170,7 +172,7 @@ function targetOf(req, scheme, host) {
   } catch { return null; }
 }
 
-export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false }) {
+export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false, peerOf = req => (isIP(req.socket?.remoteAddress ?? '') ? req.socket.remoteAddress : null) }) {
   return async (req, res) => {
     // A connection 8 MiB behind on what it was sent asks nothing more, the
     // tool's files included: answers queue only while they are read.
@@ -216,7 +218,7 @@ export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIS
       return serveToolFiles(req, res, url, toolDir, { 'content-security-policy': "frame-ancestors 'none'" });
     }
     if (!WIRE.has(url.pathname)) return refuse(res, 404, 'not found');
-    const access = { allowed: true, local: false, remote: true, tunnel, peer: req.socket?.remoteAddress ?? null };
+    const access = { allowed: true, local: false, remote: true, tunnel, peer: peerOf(req), ...(req.socket?.relayed ? { reported: req.socket.relayed } : {}) };
     if (!(await wire.handle(req, res, url, access)) && !res.headersSent) refuse(res, 404, 'not found');
   };
 }
@@ -283,8 +285,8 @@ const listen = (server, port, host) => new Promise((ok, fail) => { server.once('
  * TLS listener is on. `addPort` opens another TLS listener with the same
  * certificate, its requests given to `handler(req, res, url, access)` as
  * they come (C's canvas: its cookies are its own). */
-export async function openRemote(wire, { remote, tunnel = null, plugin = false, hosts = [] }, { say = console.log, warn = console.error, interfaces, toolDir, timeoutMs = 10_000 } = {}) {
-  if (!remote && tunnel == null) return null;
+export async function openRemote(wire, { remote, tunnel = null, plugin = false, hosts = [], relay = null }, { say = console.log, warn = console.error, interfaces, toolDir, timeoutMs = 10_000, connect } = {}) {
+  if (!remote && tunnel == null && !relay) return null;
   const servers = [];
   const close = () => Promise.all(servers.map(s => s.shut()));
   // A listener that cannot bind closes the ones already up, and says which.
@@ -325,11 +327,62 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     tunnelOrigin = `http://127.0.0.1:${port}`;
     warn(`TRUSTED TUNNEL ON: http://127.0.0.1:${port} takes a tunnel's requests (--trust-tunnel). Only paired tokens work through it, never this machine's local token; point only a tunnel you run at it.`);
   }
+  // The relay (stage 10c): dialled out, its clients' TLS ended here on the
+  // certificate for its names, routed as the TLS door's (the names the relay
+  // serves this session by, or the developer's own). Every relayed request's
+  // peer is the session's (its pairing limit, `relay:<name>`); the address the
+  // relay reports is shown only.
+  let relayed = null, connector = null;
+  if (relay) {
+    const cert = { cert: relay.cert, key: relay.key, fingerprint: new X509Certificate(relay.cert).fingerprint256 };
+    let names = relay.names;
+    // Each relayed stream's TLS ended by a socket of its own (so the address
+    // the relay reports rides on the socket every request reads), under the
+    // same count and deadlines as a listener's (`guard`).
+    const http = createPlain(remoteHandler(wire, { tunnel: false, scheme: 'https', admits: at => !!names && at.name === names.tool && (!at.port || at.port === '443'), toolDir, plugin, peerOf: () => `relay:${names.tool}` }));
+    const context = createSecureContext({ cert: cert.cert, key: cert.key, minVersion: 'TLSv1.2' });
+    const door = guard(Object.assign(new EventEmitter(), { close: done => done() }), timeoutMs, http);
+    servers.push(door);
+    connector = connectRelay(relay, {
+      warn,
+      ...(connect ? { connect } : {}),
+      // The relay's names only when this server's certificate covers them (never an origin the relay alone chose).
+      named: served => { const x = new X509Certificate(cert.cert); if (!x.checkHost(served.tool) || !x.checkHost(served.canvas)) return false; names ??= served; return true; },
+      ended: () => { relayed = null; },
+      client: (sni, address, stream, settled) => {
+        // (the tool's name only, until the canvas comes through the relay too)
+        if (!names || sni !== names.tool) return false;
+        const socket = new TLSSocket(stream, { isServer: true, secureContext: context });
+        socket.relayed = address;
+        socket.on('error', () => socket.destroy());
+        // Settled once its own ClientHello named the tool (the relay's word
+        // for the name checked against the client's), its requests read
+        // only then; failed, if it closes first.
+        socket.once('close', () => settled(false));
+        socket.once('secure', () => {
+          if (socket.servername !== names.tool || socket.destroyed || connector.closed) return socket.destroy();
+          settled(true);
+          http.emit('connection', socket);
+        });
+        door.emit('connection', socket);
+        return true;
+      },
+    });
+    connector.ready.then(() => {
+      if (connector.closed) return;
+      relayed = { origin: `https://${names.tool}`, fingerprint: cert.fingerprint, relay: true };
+      say(`  relay ${relay.host}: ${relayed.origin}, its clients' TLS ending here (certificate SHA-256 ${cert.fingerprint})`);
+      say('  until the relay\'s domain is a public suffix, another account\'s names there are same-site to yours: nothing here trusts that');
+    }, () => {});
+  }
+  const shut = close;
   return {
     info: () => certificate && { origin, fingerprint: certificate.fingerprint },
     // What a local client shows beside a pairing code (pair-code's `remote`):
     // each open door, the TLS one with its fingerprint to check.
-    list: () => [...(certificate ? [{ origin, fingerprint: certificate.fingerprint }] : []), ...(tunnelOrigin ? [{ origin: tunnelOrigin, tunnel: true }] : [])],
+    list: () => [...(certificate ? [{ origin, fingerprint: certificate.fingerprint }] : []), ...(tunnelOrigin ? [{ origin: tunnelOrigin, tunnel: true }] : []), ...(relayed ? [relayed] : [])],
+    /** The relay's session, once it has named it: `{origin, fingerprint, relay: true}`. */
+    relay: () => relayed,
     async addPort({ host, port, handler }) {
       if (!certificate) throw new Error('addPort needs the TLS listener (--remote)');
       const server = secure(certificate, (req, res) => {
@@ -346,6 +399,6 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       }, timeoutMs);
       return bind(server, port, host, 'canvas port');
     },
-    close,
+    close: () => { connector?.close(); return shut(); },
   };
 }
