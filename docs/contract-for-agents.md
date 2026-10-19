@@ -1696,7 +1696,8 @@ component Beats
   state synced = ""
   resource transport = exactTransport() as shape Transport
   derive anchor = `${transport.anchorAt} ${transport.anchorBeat} ${transport.bpm}`
-  derive beat = 60000 / transport.bpm
+  // `transport.bpm` is 0 before anything has played; a derive may not be Infinity.
+  derive beat = 60000 / max(1, transport.bpm)
   sequence click when playing
     play([Track(beats=1, loops=0, offset=0, output="", steps=[])], bpm=120)
   // Where the transport is, read once per play, seek or tempo change.
