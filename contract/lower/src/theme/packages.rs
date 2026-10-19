@@ -44,6 +44,19 @@ thread_local! {
     static SOURCES: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// Package `band`'s `line` as the merged design numbers it.
+pub(crate) fn banded(band: usize, line: u32) -> u32 {
+    LINE + band as u32 * BAND + line
+}
+
+/// A merged design's line in a package's band: the package's index and
+/// the line in its file.
+pub(crate) fn band(line: u32) -> Option<(usize, u32)> {
+    (LINE..crate::params::LINE)
+        .contains(&line)
+        .then(|| (((line - LINE) / BAND) as usize, (line - LINE) % BAND))
+}
+
 /// A merged design's line, where it was written: a package token's line
 /// in its file; none for the app's own lines.
 pub(crate) fn span(line: u32, col: u32) -> Option<Span> {

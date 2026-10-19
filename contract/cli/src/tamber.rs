@@ -103,7 +103,12 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::from(2);
             }
         },
-        None if !params.is_empty() && verb != "fmt" => {
+        // Params or packages' designs (LLP 1121 D11) and no design of its own: theirs alone.
+        None if app.inline && !app.packages.is_empty() && verb != "fmt" => {
+            eprintln!("contract tamber: {input}'s tokens are an inline `theme`, which `contract tamber` doesn't fold with its packages' designs; `contract build` checks them");
+            return ExitCode::from(2);
+        }
+        None if (!params.is_empty() || !app.packages.is_empty()) && verb != "fmt" => {
             let dir = app_contract(Path::new(&input))
                 .parent()
                 .map(Path::to_path_buf)
@@ -118,11 +123,19 @@ pub fn run(args: &[String]) -> ExitCode {
     if verb == "fmt" {
         return fmt(&path, &src, !rest.is_empty());
     }
-    let folded = match params.is_empty() {
-        true => exact_tamber::check(&src, &contract_lower::tamber_vocab()),
-        false => exact_tamber::parse(&src).and_then(|mut d| {
-            contract_lower::params::add_to(&mut d, params, &app.identities);
-            exact_tamber::check_design(d, &contract_lower::tamber_vocab())
+    // Its params and its packages' tokens (LLP 1121 D11) laid in, as the build lays them.
+    let folded = match (params.is_empty(), app.packages.is_empty()) {
+        (true, true) => exact_tamber::check(&src, &contract_lower::tamber_vocab()),
+        // With packages: what the build refuses of them too (`fold_with`).
+        (_, false) => {
+            contract::tamber_params::fold_with(&src, &app, &contract_lower::tamber_vocab())
+                .map(|(folding, _)| folding)
+        }
+        (false, true) => exact_tamber::parse(&src).and_then(|d| {
+            exact_tamber::check_design(
+                contract::tamber_params::laid(&d, &app),
+                &contract_lower::tamber_vocab(),
+            )
         }),
     };
     let folding = match folded {
@@ -151,7 +164,11 @@ pub fn run(args: &[String]) -> ExitCode {
     // An app with params is built itself, as it builds its design; so is
     // one whose Contract did not load (its params are unknown), so the
     // build says why.
-    let refused = match admission(&src, (!params.is_empty() || app.failed).then_some(built)) {
+    // An app with params or package designs (LLP 1121 D11) is admitted by its own build.
+    let refused = match admission(
+        &src,
+        (!params.is_empty() || app.failed || !app.packages.is_empty()).then_some(built),
+    ) {
         Ok(refused) => refused,
         Err(why) => {
             eprintln!("contract tamber: {why}");

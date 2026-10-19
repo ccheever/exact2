@@ -3554,9 +3554,8 @@ same file declares, roles, and the base names `space.xs`…`space.xl` and
 ships (`tamber-unknown-token`). An app can't use two packages whose names end
 alike (`@acme/reading` and `@other/reading`) when both ship a design. A
 refusal points at its line in the package's file. `contract tamber
-check|eval|ir|gen` read the app's design alone, so an app token naming a
-package token fails there; check the whole with `contract build` (and
-`contract types`, which lists the package tokens the build keeps).
+check|eval|ir|gen` and the design server fold the app's design with its
+packages' tokens, as the build does.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
