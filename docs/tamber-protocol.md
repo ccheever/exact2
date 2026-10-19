@@ -242,7 +242,13 @@ statuses:
   address as the relay says it, shown in logs only. Names under a relay's domain aren't secret
   (certificate transparency publishes them), and until that domain is a public suffix another
   account's names there are same-site to yours: nothing here relies on site isolation. The
-  canvas through the relay is R1's follow-up; until then its name is closed unanswered. The
+  canvas comes through the relay on its second name (R1b): a gateway of its own for the
+  session's pair (`https://<canvas name>` framed by `https://<tool name>` only), its requests'
+  `Host` bound to the name the client's TLS asked for; `canvas` through the relay's door mints
+  from it, through the TLS door from that door's, and a grant of one pair never opens the
+  other's; a revoke ends the client's canvas on both. One session a run: a connection the relay
+  greets with other names is not taken. Every remote request's `access.door` (`tls`, `tunnel`,
+  `relay`, `local`) is set where the server accepted the stream, never read from a request. The
   relay's word for a client's name is checked against the client's own ClientHello before any
   request is read; a relay's refusal on any connection, at any time, stops the connector and cuts
   every stream it carries (a revoked account; the relay closes the streams it pipes too). At most

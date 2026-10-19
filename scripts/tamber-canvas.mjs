@@ -602,11 +602,33 @@ export async function openCanvas(doors, tamber, { loop, host, port = 0, say = co
   return origin;
 }
 
+/** The canvas through a hosted relay (stage 10c R1b, theme2's 22:06): a
+ * gateway of its own, this same code, for the relay session's own pair
+ * (`https://<canvas name>` framed by `https://<tool name>`), made once the
+ * relay names the run's one session; `canvas` through the relay's door mints
+ * from it, and the pairing it shares ends a client on both. Closed with the
+ * doors, its grants and sessions with it. */
+export function openRelayCanvas(doors, tamber, { loop, say = console.log }) {
+  if (!doors?.onRelay || !tamber?.relayCanvas || !tamber.pairing) return;
+  let gateway = null;
+  const shut = doors.close;
+  doors.close = () => { gateway?.close(); return shut(); };
+  doors.onRelay(({ tool, canvas }) => {
+    gateway = canvasGateway({ pairing: tamber.pairing });
+    gateway.serve({ loop, origin: `https://${canvas}`, toolOrigin: `https://${tool}` });
+    doors.relayCanvas((req, res, url, access) => gateway.handle(req, res, url, access));
+    tamber.relayCanvas(gateway);
+    say(`  canvas through the relay: https://${canvas}, framed by https://${tool} only`);
+  });
+}
+
 /** A dev loop's remote doors (`openRemote`) and, with the TLS listener, its
- * canvas port, proxying `loop` (the loop's own loopback origin). A canvas
- * port that cannot bind closes the doors, and the error is thrown. */
+ * canvas port, proxying `loop` (the loop's own loopback origin); through a
+ * relay, the relay's canvas too. A canvas port that cannot bind closes the
+ * doors, and the error is thrown. */
 export async function openRemoteCanvas(tamber, asked, loop, options) {
   const doors = await openRemote(tamber, asked, options);
   try { await openCanvas(doors, tamber, { loop, host: asked.remote?.host, ...options }); } catch (e) { await doors?.close(); throw e; }
+  openRelayCanvas(doors, tamber, { loop, ...options });
   return doors;
 }
