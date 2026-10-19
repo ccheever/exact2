@@ -1138,7 +1138,7 @@ function inputRecord(e, value, checked, event) {
 }
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
  * the node's own `--exact-press` (css.rs). */
-export const pressFeedback = () => input();
+export const pressFeedback = () => input(); (globalThis.exact ??= {}).pressFeedback = pressFeedback; // (the dev page's hold asks for it so: a bundled page serves no rt.js)
 /** The web host's input piece (input-glue.js), after first paint: pans. */
 let Input = null, Inputs = null;
 function input() {

@@ -487,7 +487,8 @@ async function holdNow(m) {
   if (!m.hold) { if (!current()) return; globalThis.exact?.hold?.(null); env.report({ kind: "held", state: null, revision: m.revision }); return; }
   // The input glue, which a page with no press may not have loaded yet, loads after paint: waited for (a page
   // reloading after a rebuild, on a loaded machine, takes far longer than a fixed wait), unless a newer frame comes.
-  if (!globalThis.exact?.hold) await import(runtime()).then((rt) => rt.pressFeedback?.()).catch(() => {});
+  // (The runtime's own handle, which a bundled page has; else its module, where one is served beside app.js.)
+  if (!globalThis.exact?.hold) await (globalThis.exact?.pressFeedback ? Promise.resolve(globalThis.exact.pressFeedback()) : import(runtime()).then((rt) => rt.pressFeedback?.())).catch(() => {});
   await glueHold(HOLD_WAIT, () => !current());
   if (!current()) return;
   const holds = globalThis.exact?.hold, h = m.hold, revision = m.revision;
