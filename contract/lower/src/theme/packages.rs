@@ -151,13 +151,14 @@ pub(crate) fn merge(
             )));
         }
         // What only the app may declare, and what packages don't carry yet.
+        // A component's params are a package's (LLP 1121 stage 12 B1): named
+        // `<package>/<file>#Name` by its design's home (`params::design_tokens`).
         let blocks = design
             .axes
             .iter()
             .map(|a| (&a.name, "an axis: axes are the app's alone (D11); the app declares it and the package's `when` lines name it"))
             .chain(design.dials.iter().map(|d| (&d.name, "a dial: dials are the app's alone (D11)")))
-            .chain(design.components.iter().map(|c| (&c.name, "a component's params: a package's components come with stage 12 (QUEUE)")))
-            .chain(design.params.iter().map(|t| (&t.name, "a `params` line: the app's design sets params, not a package's")))
+            .chain(design.params.iter().map(|t| (&t.name, "a `params` line: a param's value is the app's to set, in the app's design; a package declares its components' params and their defaults (`component … params`)")))
             .chain(design.icons.iter().map(|t| (&t.name, "an icon token: a package's icons are not read yet (QUEUE)")))
             .chain(design.exports.iter().flatten().map(|e| (e, "an `exports` line: what a build keeps of a package's tokens is D7's rule, as for the app's")));
         for (name, why) in blocks {

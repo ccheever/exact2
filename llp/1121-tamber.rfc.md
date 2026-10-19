@@ -881,8 +881,9 @@ app's can tell their tokens apart (the one-name rule above is then the app's and
 app's definition wins). A token keeps its name in the one table; its source is
 `<package>/<file>` (`@exact/reading/reading.tamber`), and the design server names it
 `<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
-`theme` block only: axes, dials, components' params, `params` lines, icon tokens and `exports`
-are refused (`tamber-package-block`; components are stage 12's, icons QUEUE). Its tokens join the
+`theme` block and its components' params (stage 12 B1: `component … params`, named
+`<package>/<file>#Name`): axes, dials, `params` lines, icon tokens and `exports` are refused
+(`tamber-package-block`; icons QUEUE). Its tokens join the
 app's design in the one fold; a token the app's design defines is the app's, whole (all its
 `when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
 is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
@@ -5210,3 +5211,41 @@ write op for overrides (`set-token`). **Left to QUEUE:** expressions over base n
 form, incremental retention after a name-moving edit, a Linux InlineGeometry reader.
 
 **Stage 11 is closed.** The `tamber/1.14` window is closed; the next wire change takes `tamber/1.15` (stage 12).
+
+### Stage 12, commit B1: package components' params (draft for theme2)
+
+Stage 12 §B's first commit, under no wire change (the server's existing fields carry it; the three levels in
+`explain`/`resolve` are B2, under tamber/1.15).
+
+- **What was there** (verified first): a package's Contract component's params already worked end to end. Its
+  identity is its file under its package (`sources.rs` `home`: `@acme/reading/index.contract#Card`), `describe`
+  lists them under `components`, `set-param`/`unset-param` by full or short name write the app's design (the server
+  writes only the app's own files), the build keeps a set one, and `uses` lists its sites in the package's file.
+  Only tests were missing.
+- **A package design's components** (D15; QUEUE "A package's `.tamber` components", closed). A package's design
+  may declare `component Name` with `params`, for a component that isn't Contract, as the app's design may. It is
+  no longer `tamber-package-block`. Its identity is its design's home and its name
+  (`@acme/reading/reading.tamber#Map`, `params::design_tokens`), so two packages' components of one name stay
+  apart: their token names differ by file, and a short name naming both is `tamber-param-ambiguous`. The three
+  places that read the app design's components read the packages' designs too: `params::tokens` (what `describe`,
+  the server and the build list), the build's retention roots (D7: such a component's params are kept, with what
+  their defaults name) and the loader's checks (`tamber-param-unknown`, `syntax-param-attribute`,
+  `tamber-param-collision`), which say a package's refusal at its line in the package's design.
+- **A package's `params` line stays refused** (`tamber-package-block`): a param's value is the app's to set, in the
+  app's design. The message says so.
+- **Tests** (`contract/cli/tests/it/tamber_package_params.rs`, through the server):
+  - `describe` lists `@acme/reading/index.contract#Card` (Contract) and `@acme/reading/reading.tamber#Map` (design)
+    with their params, full and short names, and the design param's default naming a package token;
+  - `set-param` by full name (`Card.inset`) and short name (`Map.pin`) writes the app's `params` block alone, the
+    package's files byte for byte unchanged; `resolve` and the build read both values (the plan keeps them);
+  - `uses` lists `Card.inset`'s sites in the package's `index.contract`;
+  - `unset-param` by short and full name removes both lines;
+  - a package design's `params` line is refused, and a package param's `param.nothing` is said at
+    `reading.tamber:9`;
+  - two packages each declaring `component Map`: both listed, the short name ambiguous, the full name set.
+  - `package_designs.rs`: the block test no longer lists components, and a package design with `component …
+    params` builds.
+- **Next (B2, tamber/1.15):** a param's three levels in `explain`/`resolve` (the package or base token its default
+  reaches with stage 11 D's `bases`, the app's override of that token, the param's own app value), with A2 part 2's
+  `package`/`file` fields once they land. Also: `uses` names a package file by its absolute path, where `explain`
+  names it relative to the app.

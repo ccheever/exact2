@@ -216,10 +216,16 @@ impl Loader<'_> {
         let design = design(path, &mut self.sources).map_err(|e| vec![e])?;
         let package_designs =
             packages::designs(&mut self.sources, code_beside(path)).map_err(|e| vec![e])?;
-        // The design's components that aren't Contract, named and checked as
-        // Contract params are (D15).
-        if let Some(d) = &design {
-            let (designed, mut refused) = contract_lower::params::design_tokens(d);
+        // The design's components that aren't Contract, and its packages'
+        // designs' (stage 12 B1), named and checked as Contract params are
+        // (D15).
+        if design.is_some() || !package_designs.is_empty() {
+            let (mut designed, mut refused) = (Vec::new(), Vec::new());
+            for d in design.iter().chain(&package_designs) {
+                let (tokens, errors) = contract_lower::params::design_tokens(d);
+                designed.extend(tokens);
+                refused.extend(errors);
+            }
             let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
             refused.extend(contract_lower::params::collisions(&all));
             if !refused.is_empty() {
