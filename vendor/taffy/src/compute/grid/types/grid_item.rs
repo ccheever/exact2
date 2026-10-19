@@ -633,7 +633,7 @@ impl GridItem {
             .min_size
             .maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis))
             .maybe_add(box_sizing_adjustment);
-        let (size, min_size, _) = resolve_through(
+        let (size, min_size, max_size) = resolve_through(
             Ratio::from_parts(self.aspect_ratio, self.aspect_ratio_content_box, padding_border_size),
             self.size.maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
             authored_min,
@@ -643,7 +643,10 @@ impl GridItem {
             self.ratio_floors_height,
         );
         let ratio_minimum = if authored_min.get(axis).is_none() { min_size.get(axis) } else { None };
+        // EXACT PATCH 58: a preferred size contributes its bounded size,
+        // as in known_dimensions, rather than growing the track past max-size.
         let contribution = size
+            .maybe_clamp(min_size, max_size)
             .get(axis)
             .or_else(|| authored_min.get(axis))
             .or_else(|| self.overflow.get(axis).maybe_into_automatic_min_size())

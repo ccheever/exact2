@@ -104,6 +104,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "break-after" => &[BreakAfter],
             "break-inside" => &[BreakInside],
             "gap" => &[RowGap, ColumnGap],
+            "grid-template-columns" => &[GridTemplateColumns],
             "white-space" => &[WhiteSpace],
             "line-height" => &[LineHeight],
             "font-size" => &[FontSize],

@@ -359,6 +359,9 @@ pub(super) fn align_and_position_item(
     };
 
     let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, node, grid_area_size.map(Some), None);
+    // EXACT PATCH 58: the shared content minimum already respects authored
+    // max-width; keep it above max-height's transfer in the final clamp too.
+    let min_size = min_size.map_width(|width| width.maybe_max(ratio_min));
     let size = size.map_width(|width| width.maybe_max(ratio_min));
     let layout_output = tree.perform_child_layout(
         node,

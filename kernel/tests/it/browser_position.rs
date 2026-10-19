@@ -67,6 +67,10 @@
 //! text leaves and ratio boxes in block, absolute, root and column layout.
 //! The text's monospace advance was normalized to 10px in Chrome to match
 //! the reference measurer: twelve `a`s have a measured width of 120px.
+//! `Chrome 151 grid ratio maximum` was measured on 2026-10-19 with Chrome
+//! 151.0.7922.34. It covers grid item content minima and track contributions
+//! under maximum sizes, implicit and explicit auto columns, alignment,
+//! authored bounds, overflow, box sizing, and the max-width counterpart.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,

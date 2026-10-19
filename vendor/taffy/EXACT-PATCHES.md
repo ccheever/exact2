@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55 and 56 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57 and 58 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1824,6 +1824,26 @@ controls cover an authored width cap, zero minimum, scrolling, another ratio,
 both box-sizing modes, shorter and wrapping text, and growth. Block and
 absolute children, the root and flex-start column items with a 120px child
 keep 120×60 in Chrome and the kernel; main's 60×60 is not a cap to restore.
+
+## Patch 58: preserve grid ratio minima and bound track contributions
+
+Grid alignment keeps `minimum_ratio_width` in its final minimum-width clamp.
+The shared minimum already respects authored `max-width`; a maximum
+transferred from `max-height` must not erase wider content. Grid track sizing
+clamps a preferred size by its resolved minimum and maximum before using it
+as the item's minimum contribution, as `known_dimensions` already does.
+This applies on both axes, including items without a ratio.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+17 literal `Chrome 151 grid ratio maximum` cases, measured with Chrome
+151.0.7922.34 on 2026-10-19. Before the patch, 22 frames differed. The
+reported grid changes from 50×80 to 50×60 and its item from 60×60 to 120×60.
+Controls cover explicit auto columns, start alignment, narrower content,
+no maximum, block parents, authored widths and bounds, zero minima,
+hidden overflow, a minimum height above the maximum, ratio 2, both box-sizing
+modes with padding and borders, no ratio, and a max-width counterpart.
+An automatic height capped by a transferred max-width despite taller content
+remains separate work in `QUEUE.md`.
 
 ## Cargo workspace boundary
 
