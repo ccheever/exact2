@@ -718,6 +718,15 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil { pressEpoch &+= 1 }
+        // Focused by its autofocus and moved out of the window in the same
+        // turn, which resigned it: a sheet's route going into the controller
+        // UIKit presents, a grouped list's row into its cell. Its autofocus
+        // runs again where it lands, as a hand-built form's field made first
+        // responder on present keeps the keyboard.
+        if window == nil, let presenter, presenter.autofocusedThisTurn === self {
+            presenter.autofocusedThisTurn = nil
+            presenter.autofocusProcessed.remove(ObjectIdentifier(self))
+        }
         if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
