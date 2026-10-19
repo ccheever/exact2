@@ -85,7 +85,7 @@ fn reads(plan: &Plan) -> Vec<&'static str> {
         said.extend(
             std::iter::once(row.value)
                 .chain(slices)
-                .map(|v| plan.str(v).trim()),
+                .map(|v| js_trim(plan.str(v))),
         );
     }
     // Each binding's node's arm: the regions whose frames its code reads
@@ -110,7 +110,7 @@ fn reads(plan: &Plan) -> Vec<&'static str> {
             Some(strings) => said.extend(
                 strings
                     .into_iter()
-                    .map(|id| plan.str(exact_plan::StrId(id)).trim()),
+                    .map(|id| js_trim(plan.str(exact_plan::StrId(id)))),
             ),
             None => every = true,
         }
@@ -142,6 +142,28 @@ pub fn reads_length(id: StyleId) -> bool {
         && probe.mask.has(id)
 }
 
+/// `text` trimmed as the page's lookup trims it (JavaScript's
+/// `String.prototype.trim`): its WhiteSpace (tab, vertical tab, form feed,
+/// U+FEFF and every space separator) and LineTerminator (LF, CR, U+2028,
+/// U+2029) code points. Rust's `trim` differs: it keeps U+FEFF and strips
+/// U+0085 (round 2's re-review, Astra).
+fn js_trim(text: &str) -> &str {
+    let js_space = |c: char| {
+        matches!(
+            c,
+            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+                ..='\u{200a}'
+                    | '\u{2028}'
+                    | '\u{2029}'
+                    | '\u{202f}'
+                    | '\u{205f}'
+                    | '\u{3000}'
+                    | '\u{feff}'
+        )
+    };
+    text.trim_matches(js_space)
+}
+
 /// An abstract value of [`returns`]: the string constants it may be, or
 /// any string (`unknown`: read or computed), and its plan type where a read
 /// says it (a record's, for `Field`). No string and not unknown is a value
@@ -155,9 +177,18 @@ struct Value {
     /// A constructed option's or list's element (`Some(x)`, `[12, 16]`),
     /// which a region's frame holds (round 2, Astra 5).
     item: Option<Box<Value>>,
+    /// No value at all: `none`'s payload, which a join takes as the other's.
+    nothing: bool,
 }
 
 impl Value {
+    /// No value at all (`none`'s payload): what any join leaves as the other.
+    fn nothing() -> Value {
+        Value {
+            nothing: true,
+            ..Value::default()
+        }
+    }
     fn unknown() -> Value {
         Value {
             unknown: true,
@@ -180,6 +211,13 @@ impl Value {
         v
     }
     fn join(&mut self, other: &Value) {
+        if other.nothing {
+            return;
+        }
+        if self.nothing {
+            *self = other.clone();
+            return;
+        }
         self.strings.extend(&other.strings);
         self.unknown |= other.unknown;
         if self.ty != other.ty {
@@ -197,14 +235,14 @@ impl Value {
     }
     /// Whether every string it may be holds a part no base name holds, so
     /// no concatenation with it is one (a digit, `px`, `%`).
-    /// Trimmed, as the page's lookup trims (`v.trim()`): a part of only
+    /// Trimmed, as the page's lookup trims ([`js_trim`]): a part of only
     /// whitespace proves nothing (round 2, Astra 2 and Grok 1). No string
     /// and not unknown, in a concatenation, is an earlier one proven
     /// base-free.
     fn no_base(&self, plan: &Plan) -> bool {
         !self.unknown
             && self.strings.iter().all(|id| {
-                let text = plan.str(exact_plan::StrId(*id)).trim();
+                let text = js_trim(plan.str(exact_plan::StrId(*id)));
                 !text.is_empty() && !scale::names().any(|n| n.contains(text))
             })
     }
@@ -293,9 +331,13 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
         let mut to: Vec<usize> = vec![next];
         let pop = |stack: &mut Vec<Value>| stack.pop();
         match ins.op {
-            Opcode::Number | Opcode::Bool | Opcode::None | Opcode::Unit => {
-                stack.push(Value::default())
-            }
+            Opcode::Number | Opcode::Bool | Opcode::Unit => stack.push(Value::default()),
+            // `none`: an option with no payload, which joins with a `Some`'s
+            // to that one's element (round 2's re-review, Astra).
+            Opcode::None => stack.push(Value {
+                item: Some(Box::new(Value::nothing())),
+                ..Value::default()
+            }),
             Opcode::LoadIndex
             | Opcode::PendingResource
             | Opcode::PendingMutation

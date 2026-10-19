@@ -5032,3 +5032,16 @@ draws nothing new: stage 11 C draws and conforms on top.
         24px with no reload;
       - the 40px to 48px test stands.
     - Release output against d7eaafb72a's exact-web-js: all 14 apps byte-identical.
+- **After round 2's re-review (Grok RIGHT; Astra RIGHT WITH CHANGES):**
+  - **Trimmed as JavaScript trims** (Astra, blocking). Rust's `trim` keeps U+FEFF (and strips U+0085), while the
+    page's lookup is JavaScript's `trim`, which strips U+FEFF. So `"\u{feff}" + gap` was classed base-free although the
+    page reads `space.md`. `base_scale::js_trim` trims JavaScript's set (its WhiteSpace: tab, vertical tab, form feed,
+    U+FEFF and the space separators; its LineTerminator: LF, CR, U+2028, U+2029), for an alias's value, a returned
+    constant and a concatenation's part alike. The test's leading and trailing U+FEFF and its U+3000 on both sides
+    declare the nine, and fail under Rust's `trim`, checked by hand.
+  - **`none` has no payload** (Astra, should-fix). The walk's `none` is an option whose payload is nothing, which a
+    join takes as the other side's, so `match (wide ? some(12) : none)` binding `padding=n` declares none, and its
+    string form declares the nine (tests in `the_scale_is_declared_whole_when_the_plan_may_read_a_base_name`).
+  - **QUEUE:** "A Stretch cell form in the base scale table" (theme2's optional item), to land with the next commit
+    that moves the schema digest.
+  - Release output against the commit before B2 (`d7671b5263`'s exact-web-js): all 14 apps byte-identical.

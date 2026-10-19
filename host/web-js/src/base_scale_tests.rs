@@ -313,6 +313,11 @@ fn the_scale_is_declared_whole_when_the_plan_may_read_a_base_name() {
         "      column padding=(\" \" + gap)\n        text \"a\"\n",
         "      column padding=(gap + \" \")\n        text \"a\"\n",
         "      column padding=gap\n        text \"a\"\n",
+        // Trimmed as JavaScript trims (round 2's re-review): U+FEFF, which
+        // Rust's `trim` keeps, and an ideographic space.
+        "      column padding=(\"\u{feff}\" + gap)\n        text \"a\"\n",
+        "      column padding=(gap + \"\u{feff}\")\n        text \"a\"\n",
+        "      column padding=(\"\u{3000}\" + gap + \"\u{3000}\")\n        text \"a\"\n",
     ] {
         let (names, out) = declared(&app(
             "  state size = \"md\"\n  state gap = \"12px\"\n",
@@ -344,8 +349,11 @@ fn the_scale_is_declared_whole_when_the_plan_may_read_a_base_name() {
         ("      match some(w)\n        case some(n)\n          column padding=n\n            text \"a\"\n        case none\n          text \"b\"\n", false),
         ("      match some(gap)\n        case some(n)\n          column padding=n\n            text \"a\"\n        case none\n          text \"b\"\n", true),
         ("      for s in sizes key=s\n        column padding=s\n          text \"a\"\n", false),
+        // `none` has no payload: a conditional option is its `Some`'s.
+        ("      match (wide ? some(12) : none)\n        case some(n)\n          column padding=n\n            text \"a\"\n        case none\n          text \"b\"\n", false),
+        ("      match (wide ? some(gap) : none)\n        case some(n)\n          column padding=n\n            text \"a\"\n        case none\n          text \"b\"\n", true),
     ] {
-        let (names, out) = declared(&app("  state w = 12\n  state gap = \"12px\"\n  state sizes = [12, 16]\n", body));
+        let (names, out) = declared(&app("  state w = 12\n  state wide = false\n  state gap = \"12px\"\n  state sizes = [12, 16]\n", body));
         assert_eq!(names, if nine { all.clone() } else { none.clone() }, "{body}: {}", out.css);
     }
 }
