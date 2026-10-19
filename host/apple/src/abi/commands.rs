@@ -39,11 +39,6 @@ pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
 }
 
 impl<D: DataSource> Bridge<D> {
-    /// Install before boot; each replacement measurer keeps this callback.
-    pub fn set_decorated_measure(&mut self, read: Option<crate::measure::DecoratedMeasureFn>) {
-        self.decorated_measure = read;
-    }
-
     /// The first ask for `perf` (`exact_measure_work`): this runtime counts
     /// its plan sites' work from now, where its bake counts any, and every
     /// runtime booted after counts from boot.

@@ -177,7 +177,7 @@ fn field_ranges_read_the_presented_viewport_only_while_the_field_is_live() {
         ..Default::default()
     };
     assert_eq!(
-        kernel_range_frame(&kernel, &scrolled, 2, 2., 5.),
+        field_range_frame(&kernel, &scrolled, kernel_range_frame, 2, 2., 5.),
         GeometryAnswer::UNAVAILABLE
     );
     assert_eq!(reader.calls.get(), 0);
@@ -185,17 +185,36 @@ fn field_ranges_read_the_presented_viewport_only_while_the_field_is_live() {
         .compute_layout(1, Offer::definite(200., 200.))
         .unwrap();
     scrolled.note(&kernel, None, 0., 100.);
-    assert_eq!(kernel_range_frame(&kernel, &scrolled, 2, 2.8, 5.9), answer);
+    assert_eq!(
+        field_range_frame(&kernel, &scrolled, kernel_range_frame, 2, 2.8, 5.9),
+        answer
+    );
     assert_eq!(reader.calls.get(), 1);
-    for (view, start, end) in [(1, 2., 5.), (99, 2., 5.), (2, f64::NAN, 5.), (2, 5., 2.)] {
+    // Offsets truncate toward zero; a non-finite or negative offset, or a
+    // start past the end, is refused before the host is asked, as is a view
+    // that is no text field.
+    assert_eq!(
+        field_range_frame(&kernel, &scrolled, kernel_range_frame, 2, 2.9, 5.2),
+        answer
+    );
+    assert_eq!(reader.calls.get(), 2);
+    for (view, start, end) in [
+        (1, 2., 5.),
+        (99, 2., 5.),
+        (2, f64::NAN, 5.),
+        (2, 2., f64::INFINITY),
+        (2, -1., 5.),
+        (2, 5., 2.),
+        (2, 5.9, 4.2),
+    ] {
         assert_eq!(
-            kernel_range_frame(&kernel, &scrolled, view, start, end),
+            field_range_frame(&kernel, &scrolled, kernel_range_frame, view, start, end),
             GeometryAnswer::UNAVAILABLE
         );
     }
     assert_eq!(
         reader.calls.get(),
-        1,
+        2,
         "refused reads do not reach the presenter"
     );
     reader.answer.set(GeometryAnswer {
@@ -203,7 +222,7 @@ fn field_ranges_read_the_presented_viewport_only_while_the_field_is_live() {
         ..answer
     });
     assert_eq!(
-        kernel_range_frame(&kernel, &scrolled, 2, 2., 5.),
+        field_range_frame(&kernel, &scrolled, kernel_range_frame, 2, 2., 5.),
         GeometryAnswer::UNAVAILABLE
     );
     kernel
@@ -220,8 +239,8 @@ fn field_ranges_read_the_presented_viewport_only_while_the_field_is_live() {
         )
         .unwrap();
     assert_eq!(
-        kernel_range_frame(&kernel, &scrolled, 2, 2., 5.),
+        field_range_frame(&kernel, &scrolled, kernel_range_frame, 2, 2., 5.),
         GeometryAnswer::UNAVAILABLE
     );
-    assert_eq!(reader.calls.get(), 2);
+    assert_eq!(reader.calls.get(), 3);
 }

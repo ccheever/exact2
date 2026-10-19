@@ -599,7 +599,8 @@ impl Em<'_> {
     }
 
     /// A Markdown text field is the web host's own editor (LLP 1045 D5:
-    /// markup-editor.js over its wasm), which replaces it once loaded.
+    /// markup-editor.js over its wasm), which replaces it once loaded; a
+    /// plain one with `decorations` keeps its textarea and is painted.
     pub(super) fn editor(&mut self, i: u32, element: &str, e: &str) -> Result<(), String> {
         let plan = self.plan;
         let row = &plan.nodes[i as usize];
@@ -615,8 +616,8 @@ impl Em<'_> {
                 .map(|b| plan.binding(b))
                 .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16)
             {
-                self.editor = true;
-                let decorate = self.uses.rt("decoratedEditor");
+                // Paint only (LLP 1114.007): decorations.js, no editor wasm.
+                let decorate = self.uses.rt("decorate");
                 let _ = write!(self.out, "{decorate}({e});");
             }
             match markup.map(|b| style::literal(plan, plan.code(b.expr))) {

@@ -397,27 +397,27 @@ function refreshSymbols() {
   }
 }
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
-const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap();
+const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap(); for (const [type, on] of [["compositionstart", true], ["compositionend", false]]) addEventListener(type, e => { e.target.exactComposing = on; }, true); // which field composes, for a piece loaded later (LLP 1114.007)
 function writeValue(el, value) {
-  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el.exactDecorations) { el.value = String(value); el.exactDecorations.sync(); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
+  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
   const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
   if (typeof el.setRangeText !== "function" || valuedControl(el) || old === "" || document.activeElement !== el) { el.value = value; return; }
   let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
   const end = old.length - z, text = value.slice(a, value.length - z), { selectionStart: s0, selectionEnd: s1 } = el, carry = (p) => p <= a ? p : p >= end ? p + text.length - (end - a) : a + text.length;
   el.setRangeText(text, a, end, "preserve"); if (el.value !== value) el.value = value; else el.setSelectionRange(carry(s0), Math.max(carry(s0), carry(s1))); }
-const editorModules = {}; const markupPending = new WeakSet(); function syncMarkup(el) {
-  const existing = el.exactMarkup ?? el.exactDecorations; if (existing) { existing.sync(); return; }
-  const decorated = el.hasAttribute('data-decorations'), kind = decorated ? 'decoration' : 'markup';   if (!(el instanceof HTMLTextAreaElement) || !decorated && el.getAttribute('markup') !== 'markdown' || markupPending.has(el)) return;
+let markupModule, decorationsModule; const markupPending = new WeakSet(); function syncMarkup(el) {
+  if (el.exactMarkup) { el.exactMarkup.sync(); return; } if (el.exactDecorations) el.exactDecorations.sync(); else if (el instanceof HTMLTextAreaElement && el.hasAttribute('data-decorations')) loadDecorations(el);
+  if (!(el instanceof HTMLTextAreaElement) || el.getAttribute('markup') !== 'markdown' || markupPending.has(el)) return;
   markupPending.add(el);
-  (editorModules[kind] ??= moduleReady.then(() => loadAfterPaint(`./${kind}-editor.js`, decorated ? 'installDecorationEditor' : 'installMarkupEditor'))).then(install => {
+  (markupModule ??= moduleReady.then(() => loadAfterPaint('./markup-editor.js', 'installMarkupEditor'))).then(install => {
     const id = Number(el.dataset.view), live = node => views.get(id) === node && node.isConnected && !retiredViews.has(node);
     if (composing.has(el)) return; // Keep the native marked range until its final input has committed.
-    markupPending.delete(el); if (!live(el)) return;
+    markupPending.delete(el); if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
     install(el, { live, replace(node) { views.set(id, node); attach(node, id, el.exactHandlers); },
-      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); },
-      toggle(node, checked, start, end) { if (live(node) && inputReady && node.exactHandlers.includes('toggle')) send(wasm.exact_dispatch(id, 50, writeIn(`${checked ? 'checked,unchecked' : 'unchecked,checked'},${start},${end}`), now())); } });
-  }).catch(error => console.error(`exact: ${kind} editor:`, error));
+      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); } });
+  }).catch(error => console.error('exact: Markdown editor:', error));
 }
+const loadDecorations = el => (decorationsModule ??= moduleReady.then(() => loadAfterPaint('./decorations.js', 'installDecorations'))).then(install => { if (el.isConnected && !retiredViews.has(el) && el.hasAttribute('data-decorations')) install(el, log); }).catch(error => console.error('exact: decorations:', error)); // a plain textarea's paint-only decorations (LLP 1114.007), after first paint; they follow their attributes and typing themselves
 // LLP 1048.003 D4: `<html data-scrolldocument>` while an element is the page's scroller, which the shell's rule reads (never a `:has()` over the tree).
 const scrollDocs = new Set(), markScrollDocument = (on = false) => { for (const el of scrollDocs) if (!el.isConnected) scrollDocs.delete(el); else on ||= el.getAttribute("data-scrolldocument") === "true"; document.documentElement.toggleAttribute("data-scrolldocument", on); };
 function applyProps(el, set, clear) {
@@ -780,7 +780,7 @@ function apply(batch) {
           else try { el.showPicker(); } catch (e) { log(`picker: refused: ${e.name}`); const p = picker().then(m => m.cancel(Number(el.dataset.view))); inflight.add(p); p.finally(() => inflight.delete(p)); }
         }
         else if (op.name === "fastSeek" || op.name === "load") { const el = [...views.values()].find(el => el.id === op.args?.[0]), queue = () => ((el.exactMedia ??= { props: {}, handlers: [] }).commands ??= []).push([op.name, op.args?.[1]]); if (!(el instanceof HTMLMediaElement)) log(`${op.name} "${op.args?.[0]}" refused: ${el ? "not a video or audio" : "no live node with that id"}`); else if (op.name === "load" && el["exactApp-src"]) appSource(el, "src", el["exactApp-src"], queue); else { queue(); syncMedia(el); } } // a media element's, by HTML's method names (podcast F8, F18): queued for media-glue.js `run`; a `load` of an `app:/` source resolves the file again first
-        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (editorModules.markup) editorModules.markup.then(run); else run(); }
+        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
         else if (op.name === "openURL") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") console.error("exact: openURL requires one string");
           else try { const target = navigableURL(new URL(op.args[0]).href); if (!target) throw Error("unsupported external URL scheme"); window.open(target, "_blank", "noopener,noreferrer"); } catch (error) { console.error("exact: openURL refused", String(error)); }
@@ -1191,7 +1191,7 @@ function agentReply(request) {
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
 // Await flow only when requested; ordinary agent calls retain their return types.
 async function agentSettled(request) {
-  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; await Promise.all(Object.values(editorModules));
+  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (markupModule) await markupModule; if (decorationsModule) await decorationsModule;
   if (flowLoading) await flowLoading;
   if (textflow) await textflow.settle();
   return agent(request);

@@ -127,7 +127,6 @@ pub struct LayoutTree {
     pass: u64,
     fault: Option<String>,
     field_chrome: IdMap<NodeId, crate::FieldChrome>,
-    decorated_measure_revision: Option<u64>,
     field_minima: IdMap<NodeId, f32>,
     button_records: IdMap<NodeId, buttons::ButtonRecord>,
     provisional_chrome: bool,
@@ -389,7 +388,6 @@ impl LayoutTree {
             pass: 0,
             fault: None,
             field_chrome: IdMap::default(),
-            decorated_measure_revision: None,
             field_minima: IdMap::default(),
             button_records: IdMap::default(),
             provisional_chrome: false,
@@ -1218,9 +1216,7 @@ impl LayoutTree {
                         let known = stamp
                             .as_ref()
                             .filter(|_| {
-                                arena.props(slot).str(crate::PropId::Decorations).is_none()
-                                    && (context.flow.is_empty()
-                                        || !matches!(width, AxisOffer::Definite(_)))
+                                context.flow.is_empty() || !matches!(width, AxisOffer::Definite(_))
                             })
                             .and_then(|stamp| measurer.measure_known(stamp, width, height));
                         let mut metrics = if let Some(metrics) = known {

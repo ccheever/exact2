@@ -49,37 +49,6 @@ function put(s) {
   for (let i = 0; i < s.length; i++) m[i] = s.charCodeAt(i);
   return s.length;
 }
-
-/** The generic decorated editor shares the kernel's UTF-16 reconciliation. */
-export function reconcileDecorations(record, current) {
-  const lists = ['spans', 'blocks', 'hidden', 'atoms'];
-  const ranges = [], entries = [];
-  for (const kind of lists) for (const item of record[kind] ?? []) {
-    entries.push({ kind, item });
-    ranges.push(item.start, item.end, +(kind === 'hidden' || kind === 'atoms'));
-    if (kind === 'hidden' && item.reveal) {
-      entries.push({ kind: 'reveal', item: item.reveal, owner: item });
-      ranges.push(item.reveal.start, item.reveal.end, 0);
-    }
-  }
-  put(record.value + current);
-  const at = wasm.mde_decoration_ranges(ranges.length);
-  new Uint32Array(wasm.memory.buffer, at, ranges.length).set(ranges);
-  const count = wasm.mde_reconcile_decorations(record.value.length, current.length);
-  const mapped = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), count).slice();
-  const result = { provisional: record.value !== current, spans: [], blocks: [], hidden: [], atoms: [] };
-  const hidden = new Map();
-  for (let i = 0; i < mapped.length; i += 3) {
-    const { kind, item, owner } = entries[mapped[i]], range = { start: mapped[i + 1], end: mapped[i + 2] };
-    if (kind === 'reveal') { const run = hidden.get(owner); if (run) run.reveal = range; }
-    else {
-      const next = { ...item, ...range };
-      if (kind === 'hidden') { next.reveal = null; hidden.set(item, next); }
-      result[kind].push(next);
-    }
-  }
-  return result;
-}
 const text = n => utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_text(), n));
 
 /** A line's class, attributes and segments, from its `mde_view` record. */
@@ -483,7 +452,51 @@ function installMarkupEditor(textarea, host) {
   Object.defineProperty(el, 'value', { get: () => source, set: setValue });
   el.focus = options => { if (el.hasAttribute('disabled')) return; HTMLElement.prototype.focus.call(el, options); place(false); };
   el.select = () => { if (el.hasAttribute('disabled')) return; wasm.mde_select_all(h); place(false); emit(); };
-  el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy };
+  // `rangeFrame` (LLP 1114.007) over source offsets. Collapsed, the caret's
+  // box at the visible text nearest the offset (an offset in hidden syntax
+  // sits at its edge). Wider, the union of the visible text it covers and of
+  // the caret either side of each line break in it; hidden syntax adds none.
+  const visible = t => t.data.length && !t.parentElement.closest('.md-hide, .md-collapsed');
+  function caret(p) {
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= p) lo = mid; else hi = mid - 1; }
+    const line = lines[lo];
+    // A line not drawn (a collapsed fence's) has no caret.
+    if (!line || !line.getClientRects().length) return null;
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT), r = document.createRange();
+    // The visible text holding `p`, else the nearer of the text either side.
+    let at = null, before = null, after = null;
+    for (let t = walker.nextNode(); t && !at; t = walker.nextNode()) {
+      if (!visible(t)) continue;
+      const s = toSource(t, 0), e = s + t.data.length;
+      if (s <= p && p <= e) at = [t, p - s];
+      else if (e < p) before = [t, t.data.length, e];
+      else after ??= [t, 0, s];
+    }
+    at ??= before && after ? (p - before[2] <= after[2] - p ? before : after) : before ?? after;
+    if (at) { r.setStart(at[0], at[1]); const box = r.getBoundingClientRect(); if (box.height) return box; }
+    // A caret on an empty line has no text to measure: the line's start.
+    const l = line.getBoundingClientRect();
+    return new DOMRect(l.x + parseFloat(getComputedStyle(line).paddingLeft || '0'), l.y, 0, l.height);
+  }
+  function rangeFrame(from, to) {
+    if (destroyed || composing) return null;
+    if (from === to) return caret(from);
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    const add = b => { if (b) { left = Math.min(left, b.left); top = Math.min(top, b.top); right = Math.max(right, b.right); bottom = Math.max(bottom, b.bottom); } };
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      if (!visible(t)) continue;
+      const s = toSource(t, 0);
+      if (s >= to || s + t.data.length <= from) continue;
+      const r = document.createRange();
+      r.setStart(t, Math.max(0, from - s)); r.setEnd(t, Math.min(t.data.length, to - s));
+      for (const b of r.getClientRects()) add(b);
+    }
+    for (const at of starts) if (at > from && at <= to) { add(caret(at - 1)); add(caret(at)); }
+    return left === Infinity ? null : new DOMRect(left, top, right - left, bottom - top);
+  }
+  el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy, rangeFrame };
   configure();
   const initialFocus = document.activeElement === textarea;
   textarea.replaceWith(el);

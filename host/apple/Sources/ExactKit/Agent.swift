@@ -316,8 +316,8 @@ public final class Agent {
             var nativeSections = stateSections()
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
-                guard let editor = node.fieldDecorations else { return nil }
-                return ["id": Int(node.id), "applied": editor.state]
+                guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
+                return ["id": Int(node.id), "applied": decorations.state]
             }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
