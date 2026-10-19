@@ -4507,3 +4507,4 @@ C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
     directory (`buildModule`'s `out`); the harness passes the name. An edit of the fixture's `surface.page` (a
     token with a `when`) made the JS rebuild fail with "this app's design declares no axes"; the gate edits
     `accent.fill` instead. Both are QUEUE candidates, not C2's.
+- **After review round 1 (Astra, Grok):** Grok RIGHT, no findings; Astra's one should-fix (proxied pages keep `'self'` in `frame-ancestors`) answered by the lead: `'self'` stays, since code on the canvas origin already is that origin and can do anything a frame of its own page could, and apps frame their own routes. The gateway's `frame-ancestors` is now exactly `'self'` and the tool's remote origin: any other source a page names (a foreign origin, the local tool's) is dropped, so no other origin frames a canvas page (tested with a page naming `https://evil.test`).

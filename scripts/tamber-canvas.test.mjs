@@ -113,7 +113,7 @@ beforeAll(async () => {
       const me = `http://127.0.0.1:${port}`;
       res.on('close', () => closed.push(url.pathname));
       if (url.pathname === '/') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': ['loop=1; Path=/', 'other=2'], 'content-security-policy': `default-src 'self' ${me}; frame-ancestors 'self' http://127.0.0.1:7740`, 'access-control-allow-origin': '*', link: `<http://localhost:${port}/app.js>; rel=preload` });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': ['loop=1; Path=/', 'other=2'], 'content-security-policy': `default-src 'self' ${me}; frame-ancestors 'self' http://127.0.0.1:7740 https://evil.test`, 'access-control-allow-origin': '*', link: `<http://localhost:${port}/app.js>; rel=preload` });
         res.end(`<!doctype html><a href="${me}/x">x</a><a href="http://[::1]:${port}/y">y</a><p>open ${me}/ here</p>`);
       } else if (url.pathname === '/moved') {
         res.writeHead(302, { location: `http://localhost:${port}/next` }); res.end();
@@ -232,7 +232,9 @@ test('mint, enter, cookie, 204, and the page proxied with nothing of the loop or
     expect(page.headers.get('cache-control')).toBe('no-store');
     const csp = page.headers.get('content-security-policy');
     expect(csp).toContain(`default-src 'self' ${ORIGIN}`);
-    expect(csp).toContain(`frame-ancestors 'self' ${TOOL}`);
+    // 'self' kept (the canvas's own origin, apps frame their own routes), the tool's added, nothing else: no foreign origin frames a canvas page.
+    expect(/frame-ancestors ([^;]*)/.exec(csp)[1].trim()).toBe(`'self' ${TOOL}`);
+    expect(csp).not.toContain('evil.test');
     expect(csp).not.toContain('127.0.0.1');
     expect(page.headers.get('link')).toBe(`<${ORIGIN}/app.js>; rel=preload`);
     expect(html).toContain(`href="${ORIGIN}/x"`);

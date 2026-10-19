@@ -210,8 +210,11 @@ export function rewriter(loop, origin) {
   return { text, json, sse };
 }
 
-/** A CSP's `frame-ancestors`: the loop's origin as the canvas's, any other
- * loopback source (the local tool's) gone, the tool's remote origin added. */
+/** A CSP's `frame-ancestors` through the canvas: `'self'` (the canvas's
+ * own origin, which can already do anything a frame of its own could, and
+ * apps frame their own routes) and the tool's remote origin, nothing else:
+ * the loop's own origin is 'self' here, and any other source (the local
+ * tool's, a foreign one a page names) goes, so no other origin frames it. */
 function frameAncestors(policy, loopPort, origin, toolOrigin) {
   const loopbackSource = s => {
     const bare = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
@@ -222,7 +225,7 @@ function frameAncestors(policy, loopPort, origin, toolOrigin) {
     const words = d.trim().split(/\s+/);
     if (words[0]?.toLowerCase() !== 'frame-ancestors') return d;
     // (Read after the addresses are rewritten: another loopback source is the placeholder by then, and goes too.)
-    const kept = words.slice(1).flatMap(s => { if (s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split(/[:/]/)[0] === PLACEHOLDER) return []; const p = loopbackSource(s); return p == null ? [s] : p === loopPort ? [origin] : []; });
+    const kept = words.slice(1).flatMap(s => s.toLowerCase() === "'self'" ? ["'self'"] : s === origin || loopbackSource(s) === loopPort ? [origin] : []);
     if (toolOrigin && !kept.includes(toolOrigin)) kept.push(toolOrigin);
     return ` frame-ancestors ${kept.length ? kept.join(' ') : "'none'"}`;
   }).join(';')).join(',');
