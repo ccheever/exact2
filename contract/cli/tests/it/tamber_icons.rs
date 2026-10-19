@@ -614,7 +614,11 @@ fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
         manifest.replacen('{', "{\"tamber\": \"design/theme.tamber\", ", 1),
     )
     .unwrap();
-    for input in [dir.to_path_buf(), dir.join("app.contract")] {
+    for input in [
+        dir.to_path_buf(),
+        dir.join("app.contract"),
+        dir.join("design/theme.tamber"),
+    ] {
         let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
             .args(["tamber", "check"])
             .arg(&input)
@@ -630,8 +634,37 @@ fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
     }
     std::fs::rename(dir.join("design/theme.tamber"), dir.join("app.tamber")).unwrap();
     std::fs::write(dir.join("app.json"), manifest).unwrap();
-    // The SVG is the app's still (copied, never moved or linked).
-    assert!(dir.join("assets/icons/reply.svg").is_file());
+    // The SVG is the app's still, its bytes as they were (copied, never
+    // moved or linked).
+    assert_eq!(
+        std::fs::read_to_string(dir.join("assets/icons/reply.svg")).unwrap(),
+        REPLY
+    );
+    // A read-only SVG two icons share is read once into the copy.
+    let svg = dir.join("assets/icons/reply.svg");
+    let mut perms = std::fs::metadata(&svg).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&svg, perms.clone()).unwrap();
+    let design = std::fs::read_to_string(dir.join("app.tamber")).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{design}  icon.again = icon(sf \"star\", svg \"icons/reply.svg\")\n"),
+    )
+    .unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "check"])
+        .arg(dir.join("app.tamber"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&svg, perms).unwrap();
     // An SVG the app lacks is still refused.
     std::fs::remove_file(dir.join("assets/icons/reply.svg")).unwrap();
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))

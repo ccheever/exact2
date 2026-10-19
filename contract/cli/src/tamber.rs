@@ -171,16 +171,31 @@ pub fn run(args: &[String]) -> ExitCode {
     // An app with params or package designs (LLP 1121 D11) is admitted by its own build.
     // The app's `assets/`, where its build reads its icons' SVGs: beside its
     // app.contract, or beside a design checked apart from any app.
-    let assets = match apart {
-        true => path.parent(),
-        false => built.parent(),
-    }
-    .map(|d| d.join("assets"));
-    let svgs: Vec<&str> = folding
+    // A design checked by its own path whose app is a directory above it
+    // (app.json's "tamber" naming it) reads that app's.
+    let home = match apart {
+        false => built.parent().map(Path::to_path_buf),
+        true => {
+            let file = canonical(&path);
+            file.ancestors()
+                .skip(1)
+                .find(|d| {
+                    let at = d.join("app.contract");
+                    at.is_file()
+                        && contract::design_path(&at).map(|p| canonical(&p)).as_ref() == Some(&file)
+                })
+                .map(Path::to_path_buf)
+                .or_else(|| path.parent().map(Path::to_path_buf))
+        }
+    };
+    let assets = home.map(|d| d.join("assets"));
+    let mut svgs: Vec<&str> = folding
         .icons
         .iter()
         .filter_map(|i| i.svg.as_deref())
         .collect();
+    svgs.sort_unstable();
+    svgs.dedup();
     let refused = match admission(
         &src,
         (assets.as_deref(), &svgs),
@@ -300,7 +315,9 @@ fn admission(
                 if let Some(parent) = to.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
-                std::fs::copy(from, to)?;
+                // Its bytes, in a file of the copy's own (a read-only
+                // source's permissions not carried over).
+                std::fs::write(to, std::fs::read(from)?)?;
             }
             Ok(())
         });
