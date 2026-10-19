@@ -561,6 +561,13 @@ names no take; `:focus-within` remains out.
   while its app is suspended. Still refused: push-to-start, remote
   notifications, and everything the click ruling left refused. Take: none
   named; the ruling stands as its own waiver.
+  **Expanded (Charlie, 2026-10-18, "recs work, go for it", on LLP 1133.002
+  §12 question 6):** a readable permission fact for geolocation,
+  `geolocationStatus()` (`granted`, `denied`, `prompt`, and its accuracy),
+  the first module of the standard library (LLP 1133). Consumer: Weatherlight's
+  "Use my location", which shows its button, its position or a way to Settings
+  by that fact. Take: waived. Notifications' own permission fact, and
+  everything else this entry refuses, stay refused until notifications' RFC.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
