@@ -109,7 +109,7 @@ export function check(host, layout, image, expect) {
   const ground = rgb(expect.background ?? '#ffffff');
   const nodes = layout.nodes;
   return expect.boxes.map(want => {
-    const box = nodes.find(n => n.testId === want.testId);
+    const box = typeof want.testId === 'string' && want.testId ? nodes.find(n => n.testId === want.testId) : null;
     if (!box) return { host, testId: want.testId, ok: false, why: 'not in the layout' };
     const row = { host, testId: want.testId, ok: true, why: [] };
     const fail = why => { row.ok = false; row.why.push(why); };
