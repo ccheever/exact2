@@ -2,7 +2,7 @@
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { conflicts, contextsMoved, families, familiesOf, pull, push, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, families, familiesOf, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 const TEXT = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
 const DOC = JSON.parse(TEXT);
@@ -83,9 +83,16 @@ test('families: a name with a comma or a quote survives the round trip', () => {
   expect(families(all)).toBe('"ACME, Sans", "Say \\"hi\\"", serif');
   expect(familiesOf(families(all))).toEqual(all);
   expect(familiesOf('Inter, system-ui ,  sans-serif')).toEqual(['Inter', 'system-ui', 'sans-serif']);
+  expect(familiesOf("'ACME, Sans', serif")).toEqual(['ACME, Sans', 'serif']);
+  expect(() => familiesOf('"ACME, serif')).toThrow(/not closed/);
 });
 
 test('contexts split into tuple and scheme', () => {
   expect(split('dark-style=dim, density=compact, dark')).toEqual({ tuple: 'dark-style=dim, density=compact', dark: true });
   expect(split('light')).toEqual({ tuple: '', dark: false });
+});
+
+test('an alpha that rounds to the opaque byte is opaque', () => {
+  expect(same({ r: 1, g: 0, b: 0, a: 0.9999 }, { r: 1, g: 0, b: 0, a: 1 })).toBe(true);
+  expect(same({ r: 1, g: 0, b: 0, a: 0.99 }, { r: 1, g: 0, b: 0, a: 1 })).toBe(false);
 });

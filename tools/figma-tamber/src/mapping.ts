@@ -36,6 +36,10 @@ export interface Collection {
   /** The export context each mode is. */
   contexts: Record<string, string>;
   variables: Variable[];
+  /** Once written: the collection's id and each mode's, by mode name, so a
+   * collection or mode renamed in Figma is still the plan's. */
+  id?: string;
+  modeIds?: Record<string, string>;
 }
 
 export interface Plan {
@@ -80,7 +84,8 @@ const hexOf = (h: string): Rgba | null => {
 };
 const hexFrom = (c: Rgba): string => {
   const b = (x: number) => Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, '0');
-  return `#${b(c.r)}${b(c.g)}${b(c.b)}${c.a < 1 ? b(c.a) : ''}`;
+  // (an alpha that rounds to the byte 255 is opaque)
+  return `#${b(c.r)}${b(c.g)}${b(c.b)}${b(c.a ?? 1) !== 'ff' ? b(c.a) : ''}`;
 };
 
 /** A token's value as Figma takes it, or why it has none. */
@@ -107,20 +112,23 @@ export function families(all: string[]): string {
   return all.map(f => (/[,"\\]/.test(f) ? `"${f.replace(/["\\]/g, c => `\\${c}`)}"` : f)).join(', ');
 }
 
-/** `families`' string back as the list, each quoted name whole. */
+/** A family list as CSS writes one, back as the list: each name quoted in
+ * `"` or `'` whole (a backslash escaping the next character), the others
+ * trimmed. An unterminated quote is refused. */
 export function familiesOf(text: string): string[] {
   const out: string[] = [];
-  let cur = '', quoted = false, was = false;
+  let cur = '', quote = '', was = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (quoted) {
+    if (quote) {
       if (c === '\\' && i + 1 < text.length) cur += text[++i];
-      else if (c === '"') quoted = false;
+      else if (c === quote) quote = '';
       else cur += c;
-    } else if (c === '"') { quoted = was = true; cur = ''; }
+    } else if (c === '"' || c === "'") { quote = c; was = true; cur = ''; }
     else if (c === ',') { if (was || cur.trim()) out.push(was ? cur : cur.trim()); cur = ''; was = false; }
     else if (!was) cur += c;
   }
+  if (quote) throw new Error(`a family name's quote is not closed: ${text}`);
   if (was || cur.trim()) out.push(was ? cur : cur.trim());
   return out;
 }

@@ -13,8 +13,8 @@ design server: it reads, and it proposes. It never writes the design.
 2. **Build the plugin.** Run `bun tools/figma-tamber/build.mjs`. Then in Figma, choose Plugins › Development ›
    Import plugin from manifest… and pick `tools/figma-tamber/manifest.json`.
 3. **Pair.** On the server's machine, run `bun exact.mjs tamber pair <server url> --scope propose`. In the plugin,
-   enter the server URL and the code. The token lives in the plugin's client storage (this user, this machine), never
-   in the file.
+   enter the server URL and the code. The server and its token live together in the plugin's client storage (this
+   user, this machine), never in the file. The plugin follows no redirect, so the token goes only to that server.
 
 ## Pull and push
 
@@ -32,7 +32,13 @@ design server: it reads, and it proposes. It never writes the design.
   - If the design's contexts changed, the plugin asks before rewriting. A re-pull removes the modes and the
     variables of tokens the design no longer has, and a collection the new layout doesn't use. Anything in the file
     bound to them loses it.
-  - The plugin marks each variable with its token, so a variable renamed in Figma is still that token.
+  - The plugin marks each variable with its token, and keeps each collection's and mode's id, so a variable,
+    mode or collection renamed in Figma is still the plugin's. A collection named `Tamber` that the plugin didn't
+    make is refused, not taken over.
+  - A pull is one undo step. If Figma refuses any part, the plugin undoes all of it: the earlier collections, modes,
+    variables, values and kept export come back as they were.
+  - An alias is followed to its value, into a library's collection too. One that goes nowhere, or round in a cycle,
+    is listed on push and sent as it was pulled.
 - **Push** writes Figma's values back into that export and sends it as `import`, with the pulled export as its
   `baseline`. The server holds the result as a proposal, planned against the design as it is now. Accept it in the
   design tool.

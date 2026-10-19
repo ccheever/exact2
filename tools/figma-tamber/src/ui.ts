@@ -12,7 +12,8 @@ let paired: { server: string; token: string | null } = { server: '', token: null
 
 const show = (text: string) => { $('status').textContent = text; };
 const call = async (at: { server: string; token: string | null }, path: string, body: object) => {
-  const res = await fetch(`${at.server}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(at.token ? { 'x-exact-tamber-token': at.token } : {}) }, body: JSON.stringify(body) });
+  // No redirect followed: the token goes to the server it was paired with, and a pairing is the server's typed.
+  const res = await fetch(`${at.server}${path}`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', ...(at.token ? { 'x-exact-tamber-token': at.token } : {}) }, body: JSON.stringify(body) });
   const reply = await res.json().catch(() => ({}));
   if (res.status === 401 && at.token && at === paired) { paired = { ...paired, token: null }; await ask({ type: 'save', ...paired }, 'saved'); }
   if (!res.ok) throw new Error(reply.error?.message ?? reply.message ?? `${res.status}`);
@@ -59,19 +60,24 @@ async function pullDesign() {
 }
 
 async function pushDesign() {
-  const { source, baseline } = await ask({ type: 'collect' }, 'collected');
+  const { source, baseline, unread } = await ask({ type: 'collect' }, 'collected');
   const got = await call(paired, '/__tamber', { method: 'import', kind: 'dtcg', client: 'figma', source, baseline });
   const r = got.review ?? {};
   // What the design could not take, and why (a length changed in Light only, say: both schemes take one value).
-  const unmapped = (r.unmapped ?? []).map((u: any) => `not proposed: ${u.name}${u.block ? ` (${u.block})` : ''}: ${u.why}`);
+  const unmapped = [
+    ...(r.unmapped ?? []).map((u: any) => `not proposed: ${u.name}${u.block ? ` (${u.block})` : ''}: ${u.why}`),
+    // Values the plugin could not read (an alias to nowhere, a cycle): sent as they were pulled.
+    ...unread.map((u: any) => `not read: ${u.variable} (${u.mode}): ${u.why}`),
+  ];
   if (!got.proposal) { show([got.message ?? 'nothing to propose', ...unmapped].join('\n')); return; }
   const dials = (r.dials ?? []).map((d: any) => `dial ${d.dial} → ${d.value} (moves ${new Set((d.impact ?? []).map((i: any) => i.token)).size} token(s))`);
   const pins = (r.pins ?? []).map((p: any) => `${p.token} no longer follows ${(p.follows ?? []).join(', ')}`);
   show([`proposed ${got.proposal}: accept it in the design tool`, ...dials, ...pins, ...unmapped].join('\n'));
 }
 
-// One at a time: a pull or push in flight holds the others off.
-let busy = false;
+// One at a time: a pull or push in flight holds the others off, and none
+// starts before the stored pairing is loaded.
+let busy = true;
 const guard = (f: () => Promise<void>) => async () => {
   if (busy) return show('busy: one request at a time');
   busy = true;
@@ -84,4 +90,4 @@ ask({ type: 'load' }, 'loaded').then(msg => {
   paired = { server: msg.server ?? '', token: msg.token ?? null };
   $('server').value = paired.server;
   show(paired.token ? `paired with ${paired.server}${msg.digest ? `; last pull ${msg.digest.slice(0, 8)}` : ''}` : 'not paired: enter the server and a code from `bun exact.mjs tamber pair`');
-});
+}, e => show(String(e?.message ?? e))).finally(() => { busy = false; });

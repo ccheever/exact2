@@ -10,30 +10,45 @@ const TEXT = readFileSync(new URL('../test/theme-fixture.export.json', import.me
 
 /** Shared plugin data, as Figma keeps it: an entry at most 100 KB. */
 const data = (into: any) => {
-  const kept: Record<string, string> = {};
-  into.getSharedPluginData = (_k: string, n: string) => kept[n] ?? '';
-  into.setSharedPluginData = (_k: string, n: string, v: string) => { if (Buffer.byteLength(v) > 100_000) throw new Error('shared plugin data over 100 KB'); kept[n] = v; };
+  into.kept = {} as Record<string, string>;
+  into.getSharedPluginData = (_k: string, n: string) => into.kept[n] ?? '';
+  into.setSharedPluginData = (_k: string, n: string, v: string) => { if (Buffer.byteLength(v) > 100_000) throw new Error('shared plugin data over 100 KB'); into.kept[n] = v; };
   return into;
 };
 
 /** Figma, as much as the plugin uses, with `limit` modes a collection. */
 function fakeFigma(limit: number) {
   let ids = 0;
-  const collections: any[] = [], variables: any[] = [], said: any[] = [], storage: Record<string, any> = {};
+  const collections: any[] = [], variables: any[] = [], said: any[] = [], storage: Record<string, any> = {}, library: any[] = [], libraryCollections: any[] = [];
+  let undo: (() => void) | null = null;
+  const snapshot = () => {
+    const cols = collections.map(c => [c, c.name, structuredClone(c.modes), { ...c.kept }] as const);
+    const vars = variables.map(v => [v, v.name, v.resolvedType, { ...v.valuesByMode }, { ...v.kept }] as const);
+    const root = { ...figma.root.kept };
+    return () => {
+      collections.splice(0, collections.length, ...cols.map(([c, name, modes, kept]) => Object.assign(c, { name, modes, kept })));
+      variables.splice(0, variables.length, ...vars.map(([v, name, resolvedType, valuesByMode, kept]) => Object.assign(v, { name, resolvedType, valuesByMode, kept })));
+      figma.root.kept = root;
+    };
+  };
   const figma: any = {
     showUI() {},
     ui: { postMessage: (m: any) => said.push(m), onmessage: null as any },
     root: data({}),
+    // Undo, as a plugin has it: back to the last commit, whatever was made, changed or removed since.
+    commitUndo() { undo = snapshot(); },
+    triggerUndo() { undo?.(); },
     clientStorage: { getAsync: async (k: string) => storage[k], setAsync: async (k: string, v: any) => { storage[k] = v; } },
     variables: {
       getLocalVariableCollectionsAsync: async () => collections,
       getLocalVariablesAsync: async () => variables,
-      getVariableByIdAsync: async (id: string) => variables.find(v => v.id === id) ?? null,
+      getVariableByIdAsync: async (id: string) => variables.find(v => v.id === id) ?? library.find(v => v.id === id) ?? null,
+      getVariableCollectionByIdAsync: async (id: string) => collections.find(c => c.id === id) ?? libraryCollections.find(c => c.id === id) ?? null,
       createVariableCollection(name: string) {
         const col: any = data({ id: `c${++ids}`, name, modes: [{ modeId: `m${++ids}`, name: 'Mode 1' }],
           get defaultModeId() { return col.modes[0].modeId; },
           renameMode(id: string, n: string) { col.modes.find((m: any) => m.modeId === id).name = n; },
-          removeMode(id: string) { if (col.modes.length < 2) throw new Error('the last mode'); col.modes.splice(col.modes.findIndex((m: any) => m.modeId === id), 1); },
+          removeMode(id: string) { if (col.modes.length < 2 || id === col.modes[0].modeId) throw new Error('cannot remove the default mode'); col.modes.splice(col.modes.findIndex((m: any) => m.modeId === id), 1); },
           addMode(n: string) { if (col.modes.length >= limit) throw new Error('in addMode: Limited to ' + limit + ' modes only'); const m = { modeId: `m${++ids}`, name: n }; col.modes.push(m); return m.modeId; } });
         col.remove = () => { collections.splice(collections.indexOf(col), 1); for (const v of variables.filter(v => v.variableCollectionId === col.id)) v.remove(); };
         collections.push(col);
@@ -47,7 +62,7 @@ function fakeFigma(limit: number) {
       },
     },
   };
-  return { figma, collections, variables, said };
+  return { figma, collections, variables, said, storage, library, libraryCollections };
 }
 
 let f: ReturnType<typeof fakeFigma>;
@@ -171,4 +186,63 @@ test('a pull over 100 KB is kept in parts', async () => {
   const big = variant(doc => { doc.$description = 'x'.repeat(250_000); });
   await send({ type: 'apply', text: big }, 'applied');
   expect((await send({ type: 'collect' }, 'collected')).baseline).toBe(big);
+});
+
+test('round 2: a refused re-pull is undone whole: the earlier collection, its modes, variables and kept export as they were', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], modes = structuredClone(col.modes), names = f.variables.map(v => v.name).sort();
+  const before = (await send({ type: 'collect' }, 'collected')).baseline;
+  const renamed = variant(doc => {
+    const contexts = doc.modifiers.mode.contexts, all = Object.keys(contexts);
+    for (const c of all) { contexts[c.replace('dark-style', 'mood')] = contexts[c]; delete contexts[c]; }
+    doc.modifiers.mode.default = doc.modifiers.mode.default.replace('dark-style', 'mood');
+  });
+  const create = f.figma.variables.createVariable;
+  f.figma.variables.createVariable = () => { throw new Error('boom'); };
+  // A type change forces a variable to be made again, and that is refused.
+  const fill = f.variables.find(v => v.name === 'accent/fill');
+  fill.resolvedType = 'FLOAT';
+  await expect(send({ type: 'apply', text: renamed }, 'applied')).rejects.toThrow('boom');
+  f.figma.variables.createVariable = create;
+  fill.resolvedType = 'COLOR';
+  expect([f.collections.length, col.modes, f.variables.map(v => v.name).sort()]).toEqual([1, modes, names]);
+  expect((await send({ type: 'collect' }, 'collected')).baseline).toBe(before);
+});
+
+test('round 2: a collection named Tamber that the plugin did not make is refused, not taken over; a renamed mode is still its context', async () => {
+  await load(10);
+  f.figma.variables.createVariableCollection('Tamber');
+  await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/did not make/);
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], m = col.modes.find((x: any) => x.name === 'dark-style=dim, light');
+  m.name = 'Dim (light)';
+  const fill = f.variables.find(v => v.name === 'accent/fill');
+  fill.valuesByMode[m.modeId] = { r: 1, g: 0, b: 0, a: 1 };
+  expect(tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source))['dark-style=dim, light']['accent.fill'].$value.hex).toBe('#ff0000');
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  expect(col.modes.find((x: any) => x.modeId === m.modeId).name).toBe('dark-style=dim, light');
+});
+
+test('round 2: an alias to a library variable reads it; one that goes nowhere is reported, not sent', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const lib = { id: 'lib1', name: 'Brand', modes: [{ modeId: 'lm1', name: 'dark-style=black, light' }], defaultModeId: 'lm1' };
+  f.libraryCollections.push(lib);
+  f.library.push({ id: 'lv1', name: 'red', variableCollectionId: 'lib1', valuesByMode: { lm1: { r: 1, g: 0, b: 0, a: 1 } } });
+  const col = f.collections[0], fill = f.variables.find(v => v.name === 'accent/fill');
+  const mode = (n: string) => col.modes.find((m: any) => m.name === n).modeId;
+  fill.valuesByMode[mode('dark-style=black, light')] = { type: 'VARIABLE_ALIAS', id: 'lv1' };
+  fill.valuesByMode[mode('dark-style=dim, light')] = { type: 'VARIABLE_ALIAS', id: 'nowhere' };
+  const got = await send({ type: 'collect' }, 'collected');
+  expect(tokensOf(JSON.parse(got.source))['dark-style=black, light']['accent.fill'].$value.hex).toBe('#ff0000');
+  expect(got.unread.map((u: any) => u.mode)).toEqual(['dark-style=dim, light']);
+});
+
+test('round 2: the server and its token are kept as one entry', async () => {
+  await load(10);
+  await send({ type: 'save', server: 'http://127.0.0.1:1', token: 't' }, 'saved');
+  expect(f.storage).toEqual({ paired: { server: 'http://127.0.0.1:1', token: 't' } });
+  expect((await send({ type: 'load' }, 'loaded'))).toMatchObject({ server: 'http://127.0.0.1:1', token: 't' });
 });
