@@ -72,7 +72,10 @@ fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
     );
     assert_eq!(unreachable(&path), Vec::<String>::new());
     // A disabled checkbox under an accent is none on the Mac (AppKit draws it grey): said.
-    let disabled = view.replace("change=check aria-label", "change=check disabled=true aria-label");
+    let disabled = view.replace(
+        "change=check aria-label",
+        "change=check disabled=true aria-label",
+    );
     let path = app(
         "checkbox-disabled",
         "\"macos\": {}",
@@ -80,7 +83,10 @@ fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
         &disabled,
     );
     let said = unreachable(&path);
-    assert!(said.iter().any(|s| s.contains("disabled checkbox")), "{said:?}");
+    assert!(
+        said.iter().any(|s| s.contains("disabled checkbox")),
+        "{said:?}"
+    );
     // A switch with no accent anywhere: nothing set, nothing unreachable.
     let plain = SWITCHES.replace(" accent-color=\"accent.brand\"", "");
     let path = app(
