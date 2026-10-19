@@ -604,6 +604,34 @@ fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
             assert!(!said.contains("tamber-icon-svg"), "{said}");
         }
     }
+    // A design app.json names in another directory: the app's assets, not
+    // the design's directory's.
+    std::fs::create_dir_all(dir.join("design")).unwrap();
+    std::fs::rename(dir.join("app.tamber"), dir.join("design/theme.tamber")).unwrap();
+    let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+    std::fs::write(
+        dir.join("app.json"),
+        manifest.replacen('{', "{\"tamber\": \"design/theme.tamber\", ", 1),
+    )
+    .unwrap();
+    for input in [dir.to_path_buf(), dir.join("app.contract")] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["tamber", "check"])
+            .arg(&input)
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}: {}",
+            input.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    std::fs::rename(dir.join("design/theme.tamber"), dir.join("app.tamber")).unwrap();
+    std::fs::write(dir.join("app.json"), manifest).unwrap();
+    // The SVG is the app's still (copied, never moved or linked).
+    assert!(dir.join("assets/icons/reply.svg").is_file());
     // An SVG the app lacks is still refused.
     std::fs::remove_file(dir.join("assets/icons/reply.svg")).unwrap();
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))

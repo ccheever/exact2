@@ -169,9 +169,21 @@ pub fn run(args: &[String]) -> ExitCode {
     // one whose Contract did not load (its params are unknown), so the
     // build says why.
     // An app with params or package designs (LLP 1121 D11) is admitted by its own build.
+    // The app's `assets/`, where its build reads its icons' SVGs: beside its
+    // app.contract, or beside a design checked apart from any app.
+    let assets = match apart {
+        true => path.parent(),
+        false => built.parent(),
+    }
+    .map(|d| d.join("assets"));
+    let svgs: Vec<&str> = folding
+        .icons
+        .iter()
+        .filter_map(|i| i.svg.as_deref())
+        .collect();
     let refused = match admission(
         &src,
-        path.parent().map(|d| d.join("assets")).as_deref(),
+        (assets.as_deref(), &svgs),
         (!params.is_empty() || app.failed || !app.packages.is_empty()).then_some(built),
     ) {
         Ok(refused) => refused,
@@ -246,7 +258,7 @@ pub fn run(args: &[String]) -> ExitCode {
 #[allow(clippy::type_complexity)]
 fn admission(
     src: &str,
-    assets: Option<&Path>,
+    (assets, svgs): (Option<&Path>, &[&str]),
     app: Option<PathBuf>,
 ) -> Result<Vec<(Option<PathBuf>, u32, u32, String, String)>, String> {
     if let Some(app) = app {
@@ -277,17 +289,23 @@ fn admission(
             )
         })
         // The design's icons read their SVGs under the app's `assets/`, as
-        // its build reads them: the copy sees the app's own.
+        // its build reads them: each one it names copied there (one the app
+        // lacks is not, and is refused as the build refuses it).
         .and_then(|()| {
-            match assets
-                .and_then(|a| a.canonicalize().ok())
-                .filter(|a| a.is_dir())
-            {
-                Some(assets) => link_dir(&assets, &dir.join("assets")),
-                None => Ok(()),
+            for svg in svgs {
+                let Some(from) = assets.map(|a| a.join(svg)).filter(|f| f.is_file()) else {
+                    continue;
+                };
+                let to = dir.join("assets").join(svg);
+                if let Some(parent) = to.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(from, to)?;
             }
+            Ok(())
         });
     if let Err(e) = made {
+        let _ = std::fs::remove_dir_all(&dir);
         return Err(format!("{}: {e}", dir.display()));
     }
     let result = contract::compile_path_all(&dir.join("app.contract"), false);
@@ -424,12 +442,4 @@ fn app_contract(input: &Path) -> std::path::PathBuf {
         .parent()
         .unwrap_or(Path::new("."))
         .join("app.contract")
-}
-
-/// `link` naming the directory `target`.
-fn link_dir(target: &Path, link: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    return std::os::unix::fs::symlink(target, link);
-    #[cfg(windows)]
-    return std::os::windows::fs::symlink_dir(target, link);
 }
