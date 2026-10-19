@@ -20,23 +20,32 @@ export function inventory(sdk, app) {
     let hash = listed.status === 0 && status.status === 0 && !dirty.has(file) ? blobs.get(file) : null;
     if (!hash) { const bytes = readFileSync(path); hash = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'); }
     return [!own.startsWith('../') ? `app/${own}` : `sdk/${file}`, hash];
-  }).sort(([a],[b]) => a.localeCompare(b)));
+  }).sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0));
 }
 export function assertInventory(before, after) {
   for (const key of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort())
     if (before[key] !== after[key]) throw new Error(`continue refused: ${key} changed since the snapshot`);
 }
-// Proof programs are copied too, but remain outside the game's build identity.
-function proofFiles(app, file = 'proof.mjs', files = new Set()) {
-  if (files.has(file)) return [...files].sort();
-  files.add(file);
-  const source = readFileSync(resolve(app,file), 'utf8');
-  for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)['"](\.[^'"\n]+)['"]/g)) {
-    const path = resolve(app, dirname(file), match[1]);
-    if (path.startsWith(app + '/') && existsSync(path)) proofFiles(app, relative(app,path), files);
-  }
-  return [...files].sort();
+// Proof dependencies have their own identity: assertions and test data are not bake inputs.
+function proofFiles(sdk, app) {
+  const files = new Set();
+  const visit = path => {
+    if (files.has(path)) return;
+    files.add(path);
+    if (!/\.(mjs|js|ts)$/.test(path)) return;
+    const source = readFileSync(path, 'utf8');
+    for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)['"](\.[^'"\n]+)['"]/g)) {
+      const target = resolve(dirname(path), match[1]);
+      if (existsSync(target)) visit(target);
+    }
+    // Static declarations avoid executing a proof merely to discover its data.
+    const data = /export const proofData = (\[[^;]*\]);/.exec(source);
+    if (data) for (const file of JSON.parse(data[1])) visit(resolve(dirname(path), file));
+  };
+  visit(resolve(app, 'proof.mjs'));
+  return [...files].sort().map(path => [path, path.startsWith(app + '/') ? 'app/' + relative(app,path) : 'sdk/' + relative(sdk,path)]);
 }
+const proofInventory = (sdk, app) => Object.fromEntries(proofFiles(sdk,app).map(([path,key]) => [key,digest(readFileSync(path))]));
 function copyInput(app, src, file) {
   const from = resolve(app, file), to = resolve(src, file);
   mkdirSync(dirname(to), {recursive:true});
@@ -52,7 +61,8 @@ function copyInput(app, src, file) {
 export function snapshot(sdk, app, root) {
   const src = resolve(root, 'src'), inputs = inventory(sdk, app);
   mkdirSync(src, {recursive:true});
-  const programs = proofFiles(app), files = new Set([...Object.keys(inputs).filter(key => key.startsWith('app/')).map(key => key.slice(4)), ...programs, 'pins.json']);
+  const program = proofInventory(sdk, app), programs = Object.keys(program).filter(key => key.startsWith('app/')).map(key => key.slice(4));
+  const files = new Set([...Object.keys(inputs).filter(key => key.startsWith('app/')).map(key => key.slice(4)), ...programs, 'pins.json']);
   for (const file of ['.gitignore','rust-toolchain.toml']) if (existsSync(resolve(app,file))) files.add(file);
   for (const file of files) copyInput(app, src, file);
   const initialized = spawnSync('git', ['init','-q',src], {encoding:'utf8'});
@@ -60,12 +70,16 @@ export function snapshot(sdk, app, root) {
   const tracked = spawnSync('git', ['add','.'], {cwd:src, encoding:'utf8'});
   if (tracked.status !== 0) throw new Error(`snapshot input tracking failed: ${tracked.stderr}`);
   assertInventory(inputs, inventory(sdk, app));
+  assertInventory(program, proofInventory(sdk,app));
   const copied = Object.fromEntries([...files].sort().map(file => [file, digest(readFileSync(resolve(src,file)))]));
-  return {src, inputs, copied, digest:digest(JSON.stringify(inputs)), program:Object.fromEntries(programs.map(file => [file,digest(readFileSync(resolve(app,file)))]))};
+  return {src, inputs, copied, digest:digest(JSON.stringify({inputs,program})), program};
 }
 export function validateSnapshot(record, sdk, app) {
   assertInventory(record.inputs, inventory(sdk, app));
-  assertInventory(record.program, Object.fromEntries(proofFiles(app).map(file => [file,digest(readFileSync(resolve(app,file)))])));
+  validateProof(record, sdk, app);
+}
+export function validateProof(record, sdk, app) {
+  assertInventory(record.program, proofInventory(sdk,app));
   for (const [file, hash] of Object.entries(record.copied)) {
     const path = resolve(record.src, file);
     if (!existsSync(path) || digest(readFileSync(path)) !== hash) throw new Error(`continue refused: snapshot ${file} changed`);

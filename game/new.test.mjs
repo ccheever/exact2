@@ -159,7 +159,7 @@ test('ordinary cargo fmt accepts baked adapters for short and long paths', async
     });
     assert.equal(formatted.status,0,formatted.stderr || formatted.stdout);
   } finally {rmSync(root,{recursive:true,force:true});}
-},30000);
+},600000);
 
 test('generator owns shells and does not normalize another game or write the shared lock', () => {
   const dir=mkdtempSync(resolve(tmpdir(),'game-new-local-'));

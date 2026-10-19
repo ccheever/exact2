@@ -1,9 +1,10 @@
+export const proofSDK = import.meta.dir + "/..";
 import {refusalMessage} from '../scripts/agent-keys.mjs';
 import {proofInputFiles, proofInputExcluded} from './inputs.mjs';
 export {proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -529,7 +530,7 @@ export function proofInputs(root, app, cachePath) {
     rows.push([file,digest,key]);
   }
   for(const row of rows) {
-    const [file,digest,key]=row, input=[file,digest]; groups.all.push(input);
+    const [file,digest,key]=row, input=[file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file,digest]; groups.all.push(input);
     if (file !== prefix + '.baked-assets.json' && !generated.has(file)) {
       // Source provenance survives moving the app relative to the SDK. Keep
       // execution paths and the in-flight file/directory checks unchanged.
@@ -585,8 +586,21 @@ export function proofInputReader(root, app, cachePath) {
     return inputs;
   };
 }
-export async function ensureLinuxReceipts({directory,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
-  const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact:gpuArtifact,build:()=>build('gpu')});
+export async function ensureLinuxReceipts({directory,surface,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
+  if (surface) mkdirSync(dirname(surface),{recursive:true});
+  const declaration = resolve(directory,'build-linux-surfaces.json');
+  const artifact = () => {
+    const product = gpuArtifact();
+    if (!surface) return product;
+    if (!product || !existsSync(declaration)) return null;
+    return createHash('sha256').update(product).update(readFileSync(declaration)).digest('hex');
+  };
+  const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact,build:async () => {
+    await build('gpu');
+    if (surface) copyFileSync(surface,declaration);
+  }});
+  // A fresh snapshot needs the declaration even when the GPU product is reused.
+  if (surface) copyFileSync(declaration,surface);
   completeGpu();
   // The GPU build may have changed surfaces.json; observe it only afterwards.
   const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs,artifact:hostArtifact,build:()=>build('host')});
@@ -633,7 +647,7 @@ export async function proof(meta, script) {
   }
 }
 async function runProof(meta, script) {
-  const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
+  const app = fileURLToPath(new URL('.', meta.url)), name = process.env.EXACT_PROOF_NAME ?? basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
   const args = process.argv.slice(2), device = args.includes('--device');
   const phone = args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined;
@@ -642,7 +656,7 @@ async function runProof(meta, script) {
   if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) throw new Error('--phone requires --device and a device name or identifier');
   const destination = device ? 'ios-device' : host;
   const out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts', destination));
-  const buildOut = resolve(app, 'artifacts');
+  const buildOut = resolve(process.env.EXACT_PROOF_BUILD_OUT ?? resolve(app, 'artifacts'));
   mkdirSync(buildOut, {recursive:true});
   // Web builds replace dist atomically on every invocation. Keep that churn
   // inside the excluded artifact tree, away from monitored source directories.
@@ -795,8 +809,11 @@ async function runProof(meta, script) {
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     if (host === 'windows') process.env.EXACT_WINDOWS_BIN = artifacts.binary;
     const built = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
-      directory:buildOut, gpuInputs:() => inputHash(readInputs().gpu),
-      completeGpu:() => writeFileSync(artifacts.module + '.proof.json',readFileSync(resolve(buildOut,'build-linux-gpu.sha256'))),
+      directory:buildOut, surface:resolve(appInfo.workspace,'surfaces.json'), gpuInputs:() => inputHash(readInputs().gpu),
+      completeGpu:() => {
+        const receipt = JSON.parse(readFileSync(resolve(buildOut,'build-linux-gpu.sha256')));
+        writeFileSync(artifacts.module + '.proof.json',JSON.stringify({...receipt,artifact:productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json'))}));
+      },
       hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
       gpuArtifact:() => productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json')),
       hostArtifact:() => productDigest(artifacts.binary,resolve(buildOut,'product-linux-host.json')),

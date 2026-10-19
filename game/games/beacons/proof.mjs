@@ -30,8 +30,6 @@ export function compare(rows, {root}) {
   console.log('TAPS first affected tick and world hash agree across hosts');
 }
 
-// Build products stay beside this game, including in callers with a shared target.
-if (import.meta.main) process.env.CARGO_TARGET_DIR = resolve(import.meta.dir, 'target');
 if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, host, pin, pinSave, say}) => {
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const world = s => s.world('world');

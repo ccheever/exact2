@@ -1,4 +1,4 @@
-import {mkdirSync, readFileSync, writeFileSync, renameSync, rmSync} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, statSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 
@@ -12,8 +12,14 @@ function update(app, row) {
   mkdirSync(dir, {recursive:true});
   const deadline = Date.now() + 2000;
   for (;;) {
-    try { mkdirSync(lock); break; } catch (e) {
-      if (e.code !== 'EEXIST' || Date.now() >= deadline) throw e;
+    try { mkdirSync(lock); writeFileSync(resolve(lock,'owner'), String(process.pid)); break; } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try {
+        const age = Date.now() - statSync(lock).mtimeMs;
+        let owner; try { owner = Number(readFileSync(resolve(lock,'owner'),'utf8')); } catch {}
+        if ((owner && !alive(owner)) || age > 2000) { rmSync(lock, {recursive:true, force:true}); continue; }
+      } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      if (Date.now() >= deadline) throw e;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
     }
   }
@@ -40,7 +46,7 @@ export async function waitReady(app, {timeout = 600, invocation} = {}) {
   if (!Number.isFinite(timeout) || timeout <= 0) throw new Error('--timeout needs positive seconds');
   const deadline = Date.now() + timeout * 1000;
   while (Date.now() < deadline) {
-    const row = readStatus(app).filter(r => r.verb === 'web' && (!invocation || r.invocation === invocation)).at(-1);
+    const row = readStatus(app).filter(r => r.verb === 'web' && (invocation ? r.invocation === invocation : r.state === 'running')).at(-1);
     if (row) {
       invocation ??= row.invocation;
       if (row.state !== 'running') throw new Error(`web ${invocation}: ${row.state} (${row.phase}); run web to start a server`);

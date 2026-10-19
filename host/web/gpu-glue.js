@@ -16,8 +16,25 @@ import { inertAncestor } from "./navigation.js";
 const artifact = new URL(import.meta.url).searchParams.get("artifact");
 const stem = artifact ?? "gpu";
 let gpu;
-let trapped;
+let trapped, trapError;
 const refusal = (message, subsystem = "gpu") => ({error:String(message), refused:{host:"web", subsystem, message:String(message)}});
+function retainTrap(error) {
+  if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+  if (!trapped) { console.error(error); trapped = refusal(error); trapError = error; }
+  return trapped;
+}
+// Every exported entry shares the quarantine, including callbacks owned by assets.
+function guardedModule(module) {
+  return new Proxy({}, {get(_target, key) {
+    const value = module[key];
+    if (typeof value !== "function") return value;
+    return (...args) => {
+      if (trapped) throw trapError;
+      try { const result = value(...args); return result?.catch ? result.catch(error => { retainTrap(error); throw error; }) : result; }
+      catch (error) { retainTrap(error); throw error; }
+    };
+  }});
+}
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const HOST_WORK_LIMIT = 16 * 1024 * 1024;
 const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
@@ -97,8 +114,9 @@ const pendingRecovery = () => {
   const entries = [...surfaces.values()].filter(entry => !entry.terminal);
   return entries.length ? entries.map(entry => ({name:`GPU recovery ${entry.name}`,canvas:entry.view})) : [{name:"GPU recovery"}];
 };
-async function settled() {
+async function settleModule() {
   await ready;
+  if (trapped) return [];
   const deadline = performance.now() + 2500;
   while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
   if (recoveringDevice || recoveryTimer) return pendingRecovery();
@@ -123,6 +141,7 @@ async function settled() {
           await new Promise(resolve => setTimeout(resolve, 0));
           continue;
         }
+        if (trapped) return [];
         let drew = false;
         for (const entry of surfaces.values()) if (entry.id && !entry.terminal && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
           render(entry, exact.now()); drew = true;
@@ -140,6 +159,11 @@ async function settled() {
   return pending;
 }
 
+async function settled() {
+  try { return await settleModule(); }
+  catch (error) { retainTrap(error); return []; }
+}
+
 function size(el) {
   const r = el.getBoundingClientRect();
   return { w: Math.max(r.width, 1), h: Math.max(r.height, 1), s: devicePixelRatio || 1 };
@@ -152,6 +176,7 @@ const clockFor = (frameNow) => exact.now?.() ?? frameNow;
 
 let hidden = document.hidden;
 function lifecycle(code) {
+  if (trapped) return;
   if (code === 0 || code === 1) hidden = code === 0;
   const deliver = () => { for (const entry of surfaces.values()) if (entry.id) gpu?.gpu_lifecycle(entry.id, code); };
   if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
@@ -336,6 +361,7 @@ function recoverDevice() {
 // canvas recorded since the last one once (LLP 1009 D7). It runs before the
 // task that rendered ends, which is when the browser presents the canvases.
 function flush(module = gpu) {
+  if (trapped) return;
   if (module && (module !== gpu || !terminalDevice) && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
 }
 
@@ -348,7 +374,7 @@ function headroom(el) {
   return limit === "constrained" ? 2 : 4;
 }
 
-function render(entry, now) {
+function renderModule(entry, now) {
   if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
@@ -378,6 +404,11 @@ function render(entry, now) {
   messages(entry);
 }
 
+function render(entry, now) {
+  if (trapped) return;
+  try { renderModule(entry, now); } catch (error) { retainTrap(error); }
+}
+
 // The live frame clock is the callback's timestamp paced onto the display's
 // lattice (pace.js): a world drawn at the raw timestamp judders by the
 // timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
@@ -387,6 +418,7 @@ let frameAt = null; // the last paced frame time: a render outside the frame loo
 let sentPeriod = 0, frameGeneration = 0, frameRaw = 0;
 function frame(now) {
   raf = null;
+  if (trapped) return;
   if (hidden && !exact.now) return;
   const at = frameAt = pace(now);
   frameRaw = now; frameGeneration++;
@@ -407,7 +439,7 @@ function frame(now) {
   if (more && (!exact.now || liveWindow)) schedule();
 }
 
-function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
+function schedule() { if (!trapped && (!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
 
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
@@ -462,13 +494,14 @@ function ensure(entry) {
     if (!entry.restoreError && !entry.pendingRestore) delete entry.carry;
     restorePending(entry); delete entry.refused;
   } catch (error) {
-    if (entry.id) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
+    if (entry.id && !trapped) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
     entry.id = 0; entry.refused = refusal(error, "canvas");
     throw error;
   }
   attach(entry);
 }
 function restoreReply(reply) {
+  if (trapped) return reply;
   if (exact.worldCarry !== undefined && !terminalRestoreReported) {
     const candidates = [...surfaces.values()];
     if (candidates.length && candidates.every(e => e.id && (e.attemptedCarry === exact.worldCarry || JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")?.world === undefined))
@@ -702,7 +735,7 @@ function agent(view, request) {
   if (trapped) return trapped;
   let reply;
   try { reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, ...(exact.now ? { now: exact.now() } : {}), width: w, height: h, scale: s })); }
-  catch (error) { console.error(error); trapped = refusal(error); return trapped; }
+  catch (error) { return retainTrap(error); }
   messages(entry);
   schedule();
   if (!reply) return null;
@@ -712,7 +745,7 @@ function agent(view, request) {
     if (request.op === "state" && Array.isArray(value.entities)) { editsAdmitted ||= value.developmentEdits === true; value.sessionDevelopmentEdits = editsAdmitted; }
     if (value.world) { editsAdmitted ||= value.world.developmentEdits === true; value.world.sessionDevelopmentEdits = editsAdmitted; }
     if (request.op === "state" && value.world && entry.restoreError) value.world.restoreError = entry.restoreError;
-    return value.error ? {...value, ...refusal(value.error)} : value;
+    return value;
   } catch (error) { console.error(`exact gpu: view ${view}:`, error); return null; }
 }
 function worlds(request) {
@@ -776,6 +809,7 @@ const api = {
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
   handle(request, ask, tagged) {
+    if (trapped) return trapped;
     const entry = live(request.id);
     if (!entry) return surfaces.get(request.id)?.refused ?? refusal(`view ${request.id} has no world`, "canvas");
     if (request.op === "tap" && request.contact !== undefined) {
@@ -815,6 +849,7 @@ const api = {
     return restoreReply(tagged(reply));
   },
   decorate(request, reply) {
+    if (trapped && request.op !== "logs") return trapped;
     if (reply?.then) return reply.then((r) => api.decorate(request, r));
     if (!reply || reply.error) return reply;
     if (request.op !== "logs") { const failed = [...surfaces.values()].find(e => e.refused); if (failed) return failed.refused; }
@@ -971,6 +1006,10 @@ const api = {
 };
 // Standalone, the one module is `exact.gpu`. Routed, the router hands this
 // instance the surfaces queued for its artifact before its script arrived.
+for (const key of ["handle", "decorate", "advance", "clock"]) {
+  const call = api[key]; if (!call) continue;
+  api[key] = (...args) => { try { return call(...args); } catch (error) { return retainTrap(error); } };
+}
 if (artifact === null) exact.gpu = api; else exact.gpu.register(stem, api);
 
 function shaderRows(assets, module = gpu) {
@@ -1012,7 +1051,7 @@ async function swap(version) {
   await ready;
   await recoveringDevice;
   if (loaded && version === api.version) return { ms: 0, errors: [] };
-  const start = performance.now(), next = await loadModule(version), staged = [];
+  const start = performance.now(), next = guardedModule(await loadModule(version)), staged = [];
   const carrier = { worldCarry: exact.worldCarry };
   try {
     await next.gpu_load();
@@ -1066,14 +1105,14 @@ async function swap(version) {
 const t0 = performance.now();
 try {
   const version = (stem === "gpu" ? exact.gpuVersion : exact.gpuVersions?.[stem]) ?? 0;
-  gpu = await loadModule(version);
+  gpu = guardedModule(await loadModule(version));
   await gpu.gpu_load();
   if (exact.now) gpu.gpu_seekable(true);
   replaceShaders(await loadShaders(gpu));
   api.version = version;
   loaded = true;
 } catch (error) {
-  gpu?.gpu_unload(); gpu = undefined;
+  if (!trapped) gpu?.gpu_unload(); gpu = undefined;
   const failure = failureOutcome(error);
   terminalRecovery({...failure, status:"no device"});
   reportRecovery(Object.assign(new Error(failure.error), {code:failure.code}), true);

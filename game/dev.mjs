@@ -30,7 +30,12 @@ export async function devPort(args, {start = 8765, tries = 100} = {}) {
 
 export async function buildingServer({app, host, port, gate, origins}) {
   const status = startStatus(app, 'web', {url:origins[0].origin + '/'});
-  let handler;
+  let handler, listening = false;
+  const producers = new Map();
+  const phase = (producer, state, extra = {}) => {
+    producers.set(producer, state);
+    status.set({...extra, phase:[...producers.values()].includes('failed') ? 'failed' : !listening || [...producers.values()].includes('build') ? 'build' : 'ready'});
+  };
   const server = httpServer((req, res) => {
     if (!gate.check(req).allowed) { res.writeHead(421); res.end(); return; }
     const row = status.get();
@@ -44,7 +49,7 @@ export async function buildingServer({app, host, port, gate, origins}) {
   });
   await new Promise((ok, reject) => { server.once('error', reject); server.listen(port, host, ok); });
   console.log(origins.map(o => o.origin + '/').join('\n'));
-  return {server, status, serve(fn) { handler = fn; status.set({phase:'ready', lastDurationMs:Date.now() - status.get().startedAt}); }};
+  return {server, status, phase, serve(fn) { handler = fn; listening = true; phase('listen', 'ready', {lastDurationMs:Date.now() - status.get().startedAt}); }};
 }
 
 if (import.meta.main) {

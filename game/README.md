@@ -65,7 +65,7 @@ to wait for that invocation's current build. It refuses a failed rebuild even wh
 the server still shows the previous game. A dead process is reported as `unknown`;
 `running` means the process exists, not that the compiler is making progress.
 
-The dev loop It serves on 8765, or on the next free port when
+The dev loop serves on 8765, or on the next free port when
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
@@ -438,8 +438,15 @@ for a refused capture. `prove.mjs` prints its unique
 edits to the original game do not change a running proof. `legs.json` records each
 host/mode/profile result. Resume with `bun game/prove.mjs <game> --continue <run-directory>`;
 completed legs are reused and failed or interrupted legs rerun. Continuation refuses
-changed game/SDK inputs, changed proof helpers, a changed matrix or damaged receipts.
+changed game/SDK inputs, changed proof helpers, a changed matrix (including
+`--compare-saves`) or damaged receipts. Keep the original comparison flags when resuming.
 The SDK stays in its checkout and must remain unchanged throughout the run.
+Proof imports and declared `export const proofData = ["relative/file.json"];` data
+are checked separately from bake inputs; game-local dependencies are copied into
+`src/`. SDK helpers remain live and are checked before and after every leg.
+Snapshots share the original game’s `target/` for products and Cargo intermediates,
+and validated build receipts under
+`artifacts/build/`, so an unchanged second invocation can reuse compilation.
 Direct `proof.mjs` runs use `artifacts/<host>/`.
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an

@@ -170,7 +170,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .node(view)
                     .is_some_and(|n| n.node_type == exact_kernel::NodeType::Canvas))
         {
-            let subsystem = if q["op"] == "screenshot" {
+            let subsystem = if q["op"] == "screenshot" && q["form"] == "save" {
                 "assets"
             } else {
                 "gpu"

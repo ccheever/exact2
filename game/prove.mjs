@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
-import {snapshot, validateSnapshot, reusableLeg, digest, writeJSON, inventory, assertInventory} from './proof-snapshot.mjs';
+import {snapshot, validateSnapshot, validateProof, reusableLeg, digest, writeJSON, inventory, assertInventory} from './proof-snapshot.mjs';
 import {startStatus} from './status.mjs';
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
@@ -25,6 +25,7 @@ const script = resolve(app, 'proof.mjs');
 const continuation = option('--continue');
 const continuedRoot = continuation ? resolve(existsSync(continuation) ? continuation : resolve(app, 'artifacts/prove', continuation)) : null;
 const saved = continuedRoot ? JSON.parse(readFileSync(resolve(continuedRoot, 'legs.json'), 'utf8')) : null;
+if (saved && repin && !saved.repin) throw new Error('continue refused: repin changed');
 if (saved) repin = saved.repin;
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
 const progress = startStatus(app, 'prove');
@@ -48,7 +49,7 @@ if (device && !hosts.includes('ios')) throw new Error('--device requires ios in 
 const artifacts = resolve(app, 'artifacts/prove');
 mkdirSync(artifacts, {recursive:true});
 const root = continuedRoot ?? mkdtempSync(resolve(artifacts, 'run-'));
-const config = {hosts, repeat, repin, device, phone:phone ?? null, env:Object.fromEntries(['RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST'].map(key => [key,process.env[key] ?? null]))};
+const config = {hosts, repeat, repin, compareSaves:args.includes('--compare-saves'), device, phone:phone ?? null, env:Object.fromEntries(['RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST','EXACT_GAME_PARANOID_COMPARE'].map(key => [key,process.env[key] ?? null]))};
 if (saved && JSON.stringify(saved.config) !== JSON.stringify(config)) throw new Error('continue refused: requested host/mode/profile matrix or device changed');
 if (saved) validateSnapshot(saved.snapshot, resolve(import.meta.dir, '..'), sourceApp);
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
@@ -56,10 +57,23 @@ app = record.snapshot.src;
 const checkSDK = () => {
   const sdkOnly = values => Object.fromEntries(Object.entries(values).filter(([name]) => name.startsWith('sdk/')));
   assertInventory(sdkOnly(record.snapshot.inputs), sdkOnly(inventory(resolve(import.meta.dir, '..'), sourceApp)));
+  validateProof(record.snapshot, resolve(import.meta.dir, '..'), sourceApp);
 };
 checkSDK();
 writeJSON(resolve(root, 'legs.json'), record);
 console.log(`ARTIFACTS ${root}`);
+const children = new Set();
+let interrupted;
+const signals = ['SIGINT','SIGTERM'].map(signal => [signal, async () => {
+  if (interrupted) return;
+  interrupted = signal;
+  await Promise.all([...children].map(child => new Promise(ok => { child.once('exit',ok); child.kill(signal); })));
+  for (const [name, listener] of signals) process.off(name,listener);
+  process.kill(process.pid, signal);
+}]);
+for (const [signal, listener] of signals) process.on(signal,listener);
+const buildTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(sourceApp,'target'));
+const buildEnvironment = {CARGO_TARGET_DIR:buildTarget, CARGO_BUILD_BUILD_DIR:resolve(process.env.CARGO_BUILD_BUILD_DIR ?? buildTarget)};
 const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') => {
   progress.set({phase:`${host} ${mode} ${profile} ${build ? 'build' : 'proof'}`});
   checkSDK();
@@ -74,7 +88,7 @@ const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') 
   // Resolve an external entrypoint in its own directory, without Cargo metadata.
   const child = spawn(process.execPath, ['./proof.mjs', host, ...(host === 'ios' && device ? ['--device', ...(phone ? ['--phone', phone] : [])] : []), ...(build ? ['--build-only'] : [])], {
     cwd:app,
-    env:{...process.env, EXACT_APP_DIR:app, EXACT_WEB_DIST:resolve(root,'dist'), EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build || repin ? '0' : '1', EXACT_PROOF_REPIN:repin ? '1' : '0', EXACT_GAME_PARANOID:mode, EXACT_GAME_PROOF_PROFILE:profile},
+    env:{...process.env, EXACT_APP_DIR:app, EXACT_PROOF_NAME:name, ...buildEnvironment, EXACT_PROOF_BUILD_OUT:resolve(sourceApp,'artifacts/build'), EXACT_WEB_DIST:resolve(root,'dist'), EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build || repin ? '0' : '1', EXACT_PROOF_REPIN:repin ? '1' : '0', EXACT_GAME_PARANOID:mode, EXACT_GAME_PROOF_PROFILE:profile},
     stdio:['ignore','pipe','pipe'],
   });
   let log = '';
@@ -83,10 +97,11 @@ const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') 
     // Cold compilation must remain observable to callers' inactivity deadlines.
     if (stream === child.stderr) process.stderr.write(bytes);
   });
-  const pass = signal => child.kill(signal);
-  for (const signal of ['SIGINT','SIGTERM']) process.on(signal, pass);
+  children.add(child);
   const code = await new Promise((ok, reject) => {child.on('exit', (code, signal) => ok(code ?? 128)); child.on('error', reject);});
-  for (const signal of ['SIGINT','SIGTERM']) process.off(signal, pass);
+  children.delete(child);
+  if (interrupted) await new Promise(() => {});
+  checkSDK();
   writeFileSync(resolve(out, 'run.log'), log);
   const summaryPath = resolve(out, 'summary.json');
   const summary = existsSync(summaryPath) ? {...JSON.parse(readFileSync(summaryPath, 'utf8')), repeat:index, profile} : null;
@@ -101,7 +116,7 @@ if (repin) {
   const game = gameDefaults(app)?.game;
   if (game) {
     prepareGame(app, game);
-    lintGame(app, game, {env:{...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')}});
+    lintGame(app, game, {env:{...process.env, ...buildEnvironment}});
   }
   const pinFile = resolve(sourceApp, 'pins.json'), before = JSON.parse(readFileSync(pinFile, 'utf8'));
   const rows = [], errors = [], exercised = [];
@@ -136,6 +151,7 @@ if (repin) {
   if (!exercised.includes('web')) console.log(`WEB not exercised; pins record ${exercised.join(',')} only, no web agreement claimed.`);
   writeJSON(resolve(root, 'legs.json'), record);
   writeJSON(pinFile, after);
+  console.log(`PROOF PASS ${name}: baseline published after host/mode agreement`);
 } else {
 // Each proof checks its own build receipt. Only multiple hosts need a separate
 // serial bake phase before their independent processes can run in parallel.
@@ -162,8 +178,8 @@ console.log('|---|---:|---:|---|---|---|');
 for (const row of rows) {
   const hashOK = row.worlds.length > 0 && equal(hashes(row), hashes(baseline));
   const saveOK = row.saves.length > 0 && equal(row.saves, baseline.saves);
-  failed ||= !hashOK || (args.includes('--compare-saves') && !saveOK);
-  console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
+  failed ||= !hashOK || (config.compareSaves && !saveOK);
+  console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${config.compareSaves ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
 }
 for (const failure of failures) console.error(failure.reason);
 if (hosts.length > 1) {

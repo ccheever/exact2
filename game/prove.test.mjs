@@ -29,6 +29,7 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
   };
   try {
     const first = await run(); expect(first.code, first.text).toBe(0);
+    expect(first.text).toContain('PROOF PASS sample: baseline published');
     const expected = readFileSync(pinFile,'utf8');
     writeFileSync(pinFile, '{"ticks":{},"saves":{}}');
     const interrupted = await run([], {KILL_PROOF_LEG:'1'});
@@ -58,3 +59,60 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
     expect(readFileSync(pinFile,'utf8')).toBe(expected);
   } finally { rmSync(parent,{recursive:true,force:true}); }
 }, 120000);
+
+
+test('a failed save comparison cannot continue under a weaker comparison contract', async () => {
+  const parent = mkdtempSync(resolve(import.meta.dir,'../target/compare-')), app=resolve(parent,'sample'); mkdirSync(app);
+  writeFileSync(resolve(app,'pins.json'),'{"ticks":{"1":"x"},"saves":{"save":"x"}}');
+  writeFileSync(resolve(app,'proof.mjs'),`
+    import {writeFileSync} from 'node:fs';
+    const host=process.argv[2];
+    if (import.meta.main) writeFileSync(process.env.EXACT_PROOF_OUT+'/summary.json',JSON.stringify({host,seconds:0,status:'PASS',worlds:[{session:1,tick:1,hash:'x'}],saves:[host]}));
+  `);
+  const run = async args => {
+    const p=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),app,...args],{stdout:'pipe',stderr:'pipe'});
+    const [code,out,err]=await Promise.all([p.exited,new Response(p.stdout).text(),new Response(p.stderr).text()]);
+    return {code,text:out+err,root:out.match(/^ARTIFACTS (.+)$/m)?.[1]};
+  };
+  try {
+    const failed=await run(['--hosts','linux,web','--compare-saves']);
+    expect(failed.code,failed.text).toBe(1); expect(failed.text).toContain('PROOF FAIL');
+    const continued=await run(['--hosts','linux,web','--continue',failed.root]);
+    expect(continued.code).toBe(1); expect(continued.text).toContain('continue refused');
+  } finally {rmSync(parent,{recursive:true,force:true});}
+},120000);
+
+test('parent SIGINT stops a baseline without starting the next mode', async () => {
+  const parent=mkdtempSync(resolve(import.meta.dir,'../target/interrupt-')), app=resolve(parent,'sample'); mkdirSync(app);
+  writeFileSync(resolve(app,'pins.json'),'{"ticks":{},"saves":{}}');
+  writeFileSync(resolve(app,'proof.mjs'),`console.error('LEG_STARTED');setInterval(()=>{},1000);`);
+  const p=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),app],{stdout:'pipe',stderr:'pipe'});
+  const out=new Response(p.stdout).text(); let err='';
+  try {
+    for await (const chunk of p.stderr) { err+=new TextDecoder().decode(chunk); if(err.includes('LEG_STARTED')) {p.kill('SIGINT');break;} }
+    expect(await p.exited).not.toBe(0);
+    const stdout=await out;
+    const root=stdout.match(/^ARTIFACTS (.+)$/m)[1];
+    expect(Object.keys(JSON.parse(readFileSync(resolve(root,'legs.json'))).legs)).toHaveLength(1);
+    expect(JSON.parse(readFileSync(resolve(app,'pins.json'))).ticks).toEqual({});
+  } finally {p.kill();await p.exited;rmSync(parent,{recursive:true,force:true});}
+},120000);
+
+test('proof legs share both Cargo directories across snapshots', async () => {
+  const parent=mkdtempSync(resolve(import.meta.dir,'../target/proof-cache-')), app=resolve(parent,'sample');mkdirSync(app);
+  writeFileSync(resolve(app,'pins.json'),'{"ticks":{"1":"x"},"saves":{"save":"x"}}');
+  writeFileSync(resolve(app,'proof.mjs'),`
+    import {writeFileSync} from 'node:fs';
+    const expected=${JSON.stringify(resolve(app,'target'))};
+    if (process.env.CARGO_TARGET_DIR !== expected || process.env.CARGO_BUILD_BUILD_DIR !== expected)
+      throw new Error('proof lost the shared Cargo target or intermediate directory');
+    writeFileSync(process.env.EXACT_PROOF_OUT+'/summary.json',JSON.stringify({host:'linux',seconds:0,status:'PASS',worlds:[{session:1,tick:1,hash:'x'}],saves:['x']}));
+  `);
+  try {
+    for(let i=0;i<2;i++) {
+      const child=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),app],{stdout:'pipe',stderr:'pipe'});
+      const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+      expect(code,out+err).toBe(0);
+    }
+  } finally {rmSync(parent,{recursive:true,force:true});}
+},120000);

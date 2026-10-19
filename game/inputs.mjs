@@ -4,8 +4,8 @@ import {spawnSync} from 'node:child_process';
 
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
-  return /^(shots|tools|repros)\//.test(path)
-    || /(^|\/)(pins\.json|status\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
+  return path === '.exact/status.json' || /^(shots|tools|repros)\//.test(path)
+    || /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
     || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
 }
 /// Whether a repository file is outside a game's deterministic build inputs:
