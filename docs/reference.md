@@ -711,10 +711,10 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
-A Mac agent drive never takes the focus: the app is an accessory and its window is ordered front, not made key, so
-AppKit draws its controls as in an inactive window. `EXACT_AGENT_ACTIVATE=1`, which only `scripts/measure-controls.mjs`
-sets (never a default), activates that one run and makes its window key, and the app that was in front is put back
-when it quits (LLP 1121 stage 9 F2).
+A Mac agent drive never takes the focus: the app is an accessory, never activated (a `type` makes its window key
+without activating it), so AppKit draws its controls as in an inactive app. `EXACT_AGENT_ACTIVATE=1`, which only
+`scripts/measure-controls.mjs` sets (never a default), activates that one run, and the app that was in front is put
+back when it exits, however it exits (LLP 1121 stage 9 F2).
 Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`

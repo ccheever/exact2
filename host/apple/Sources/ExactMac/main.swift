@@ -53,6 +53,17 @@ ExactEnv.stamp("setActivationPolicy")
 // is put back when it quits (LLP 1121 stage 9 F2).
 let agentActivates = agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
 let frontBefore = agentActivates ? NSWorkspace.shared.frontmostApplication : nil
+/// The app in front before an activated agent run, in front again: at every
+/// exit (the agent's own `exit` at the end of its input, AppKit's quit, an
+/// interrupt), never launching or reopening one that has gone.
+func frontAgain() {
+    if let front = frontBefore, !front.isTerminated, front.processIdentifier != ProcessInfo.processInfo.processIdentifier { front.activate() }
+}
+if agentActivates {
+    atexit { frontAgain() }
+    // An interrupt (a terminal's ctrl-c reaches the whole group) quits through exit too.
+    signal(SIGINT) { _ in exit(130) }
+}
 let appReadyMs = ExactEnv.wall()
 
 /// The one session and its view; the session's clock is the agent's under a script.
@@ -566,8 +577,6 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// last window's session, closed, is left for this (`windowWillClose`);
     /// `destroy()` runs once in any case. The hold, if any, has ended.
     func applicationWillTerminate(_ notification: Notification) {
-        // An activated agent run puts back the app that was in front.
-        if let front = frontBefore, front.processIdentifier != ProcessInfo.processInfo.processIdentifier { front.activate() }
         for session in exact.sessions { session.destroy() }
         if relaunching {
             do { try ProcessRelaunch.start() }

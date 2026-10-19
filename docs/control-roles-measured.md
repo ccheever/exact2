@@ -38,7 +38,7 @@ the table's `select` is the closed button, as a person first sees it.
 - `inferred: same painter, not measured`: Windows draws with the Linux painter (`host/windows` depends on `exact-linux`); Linux's row, until a Windows box exists.
 - A `none` whose why says the host does not read a role yet is Exact's gap, not the platform's: each has a QUEUE line, and fixing the host flips the cell after a re-measure.
 - `none by construction`: the terminal draws no colour and no control but progress as text.
-- `measured, key window via EXACT_AGENT_ACTIVATE`: the Mac's accent cells. An agent's Mac window is never key by design (an accessory app, ordered front, never activated, so a drive takes no focus), and AppKit draws an inactive window's controls grey; `measure-controls` activates the one run (stage 9 F2, 2026-10-18).
+- `measured, key window via EXACT_AGENT_ACTIVATE`: the Mac's accent cells. An agent's Mac app is never activated by design (an accessory app, ordered front, so a drive takes no focus), and AppKit draws an inactive app's controls grey; `measure-controls` activates the one run (stage 9 F2, 2026-10-18).
 
 | control | parameter | host | fidelity | ΔE00 | pixels | provenance |
 | --- | --- | --- | --- | --- | --- | --- |

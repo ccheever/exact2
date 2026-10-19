@@ -116,14 +116,11 @@ function build(dir, authored) {
  * Linux host under adb), which boots the plan its APK bakes: the fixture
  * goes in as the app of a scratch checkout (`--scratch <worktree>`, whose
  * `apps/tamber-host` it overwrites) and the APK is built there. */
-/** The bundle id of the app in front on this Mac, or null (the Mac's own
- * `lsappinfo`, which needs no permission). */
+/** The app in front on this Mac (its LaunchServices ASN), or null: put back
+ * in front after the Mac's activated run by `lsappinfo setfront`, which
+ * neither launches nor reopens one that has gone. */
 function frontApp() {
-  const asn = spawnSync('lsappinfo', ['front'], { encoding: 'utf8' }).stdout.trim();
-  if (!asn) return null;
-  const info = spawnSync('lsappinfo', ['info', '-only', 'bundleid', asn], { encoding: 'utf8' }).stdout;
-  const m = /(?:bundleID|"CFBundleIdentifier")="([^"]+)"/.exec(info);
-  return m?.[1] ?? null;
+  return spawnSync('lsappinfo', ['front'], { encoding: 'utf8' }).stdout.trim().replace(/:$/, '') || null;
 }
 
 function capture(plan, png, dir) {
@@ -151,7 +148,9 @@ function capture(plan, png, dir) {
   try {
     r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, `screenshot ${png.replace(/\.png$/, '.again.png')}`],
       { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, env: host === 'macos' ? { ...process.env, EXACT_AGENT_ACTIVATE: '1' } : process.env });
-  } finally { if (front) spawnSync('open', ['-b', front], { stdio: 'ignore' }); }
+  } finally {
+    if (front && spawnSync('lsappinfo', ['setfront', front], { encoding: 'utf8' }).status !== 0) console.error(`measure-controls: could not put ${front} back in front`);
+  }
   if (r.status !== 0) throw new Error(`agent ${host}: ${r.stderr || r.stdout}`);
   const replies = r.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
   const frames = {};
@@ -168,7 +167,13 @@ function capture(plan, png, dir) {
     if (!points || !Number.isFinite(top)) throw new Error(`${host}: the screenshot's scale or the status bar's height is unknown`);
     return { frames, image, again, points, top };
   }
-  return { frames, image, again, points: shot.w, top: 0 };
+  const capture = { frames, image, again, points: shot.w, top: 0 };
+  // The Mac's capture was a key window only if its switch, on, shows the system's accent: an inactive window draws
+  // it grey, which would read every accent cell as none.
+  if (host === 'macos' && frames.switch && !pixels(capture, frames.switch).some(([, [r, g, b]]) => Math.max(r, g, b) - Math.min(r, g, b) > 60)) {
+    throw new Error('macos: the capture is not a key window (the switch, on, is grey): the run was not activated (EXACT_AGENT_ACTIVATE)');
+  }
+  return capture;
 }
 
 /** The pixels of a frame: [lab, rgb, x, y] for each. */
