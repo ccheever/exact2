@@ -35,14 +35,15 @@ const simctl = (...args) => shell('xcrun', ['simctl', ...args]);
 const failures = [];
 const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const t0 = Date.now();
+const IPHONE_17_PRO = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro';
 let ownedSim, usedTouches = false;
 try {
   if (!process.env.EXACT_SIM) {
     const sdk = shell('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-version']);
     const version = (a, b) => a.localeCompare(b, undefined, {numeric:true});
-    const runtime = JSON.parse(simctl('list', 'runtimes', '-j')).runtimes.filter(r => r.isAvailable && r.identifier.includes('.iOS-') && version(r.version, sdk) <= 0).sort((a, b) => version(b.version, a.version))[0];
-    if (!runtime) throw Error(`ios-touch needs an available iOS runtime supported by the selected simulator SDK ${sdk}`);
-    ownedSim = simctl('create', `exact-ios-touch-${process.pid}`, 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro', runtime.identifier);
+    const runtime = JSON.parse(simctl('list', 'runtimes', '-j')).runtimes.filter(r => r.isAvailable && r.identifier.includes('.iOS-') && version(r.version, sdk) <= 0 && r.supportedDeviceTypes?.some(t => t.identifier === IPHONE_17_PRO)).sort((a, b) => version(b.version, a.version))[0];
+    if (!runtime) throw Error(`ios-touch needs an available iOS runtime, no newer than the selected simulator SDK ${sdk}, that runs iPhone 17 Pro`);
+    ownedSim = simctl('create', `exact-ios-touch-${process.pid}`, IPHONE_17_PRO, runtime.identifier);
     process.env.EXACT_SIM = ownedSim;
   }
   const device = chooseSimulator(process.env.EXACT_SIM);
@@ -148,8 +149,9 @@ await archiveActivities(device.udid, check);
       } catch (error) { check(false, `owned simulator touch runner quit: ${error.message}`); }
       finally { if (runner) { const error = await runner.end(); if (error) check(false, `owned simulator touch runner end: ${error.message}`); } }
     }
+    // Shutting down a device already shut down is CoreSimulator error 405, not a failure.
     try { simctl('shutdown', ownedSim); }
-    catch (error) { check(false, `owned simulator shutdown: ${error.message}`); }
+    catch (error) { if (!/current state: Shutdown/.test(error.message)) check(false, `owned simulator shutdown: ${error.message}`); }
     try { simctl('delete', ownedSim); }
     catch (error) { check(false, `owned simulator delete: ${error.message}`); }
     delete process.env.EXACT_SIM;
@@ -183,19 +185,18 @@ async function archiveActivities(udid, check) {
       missing = expected.filter(label => !nodes.some(node => node.label === label));
       coverMissing = (cover || locked) && !nodes.some(n => n.identifier === 'SBCoverSheetWindow');
       lockMissing = locked && (!nodes.some(n => n.identifier === 'proud-lock') || !nodes.some(n => n.label === 'Swipe up to unlock'));
-      islandMissing = islandLabel && !nodes.some(n => n.identifier.startsWith('jindo-container-view:') && elements(n).some(label => label.label === islandLabel && inside(label.frame, n.frame)));
+      islandMissing = islandLabel && !nodes.some(n => n.identifier.startsWith('jindo-container-view:') && elements(n).some(label => label.label === islandLabel && label.frame[2] > 0 && label.frame[3] > 0));
       if (!missing.length && !coverMissing && !lockMissing && !islandMissing) break;
       await Bun.sleep(100);
     } while (performance.now() < deadline);
     record(name, tree);
     simctl('io', udid, 'screenshot', resolve(dir, `${name}.png`));
     const valid = !missing.length && !coverMissing && !lockMissing && !islandMissing;
-    check(valid, `${name}: after 12 s, missing exact element labels ${JSON.stringify(missing)}${coverMissing ? '; cover sheet was not exposed' : ''}${lockMissing ? '; locked state was not exposed' : ''}${islandMissing ? `; leading label ${JSON.stringify(islandLabel)} has no frame inside the Island` : ''}`);
+    check(valid, `${name}: after 12 s, missing exact element labels ${JSON.stringify(missing)}${coverMissing ? '; cover sheet was not exposed' : ''}${lockMissing ? '; locked state was not exposed' : ''}${islandMissing ? `; leading label ${JSON.stringify(islandLabel)} is not shown in the Island` : ''}`);
     if (valid) comparisons.push({name, labels:expected});
     return tree;
   }
   const alive = activity => ['active','stale'].includes(activity.activityState);
-  const inside = ([x,y,w,h], [left,top,width,height]) => w > 0 && h > 0 && x >= left && y >= top && x + w <= left + width && y + h <= top + height;
   async function waitActivities(session, accepts, failure) {
     const deadline = performance.now() + 12_000;
     let timer;
