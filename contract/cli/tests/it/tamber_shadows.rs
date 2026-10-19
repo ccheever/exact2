@@ -293,3 +293,38 @@ fn a_refused_mix_leaves_the_design_and_the_other_mixes_bound() {
         "{errors:#?}"
     );
 }
+
+/// The euxy port's LED glow: a colour token written inside a shadow, as a
+/// literal, in a template, through a `fn` and in a list, is the token's
+/// light/dark pair, as it is in `background-color`; a name no token has is
+/// refused, not drawn as nothing.
+#[test]
+fn a_colour_token_inside_a_shadow_is_its_light_dark_pair() {
+    let design = "tamber t\n\ntheme\n  eu.glow = light-dark(#0a0a0c8c, #f6f4f48c)\n";
+    let view = "fn glow(x: number): string = `0px 0px ${x}px eu.glow`\n\ncomponent App\n  state n = 3\n  view\n    column\n      view testId=\"bg\" width=9 height=9 background-color=\"eu.glow\"\n      view testId=\"lit\" width=9 height=9 box-shadow=\"0px 0px 8px eu.glow\"\n      view testId=\"tmpl\" width=9 height=9 box-shadow=`0px 0px ${n}px eu.glow`\n      view testId=\"fn\" width=9 height=9 box-shadow=glow(n)\n      view testId=\"list\" width=9 height=9 box-shadow=\"0px 0px 8px eu.glow, 0px 2px 4px eu.glow\"\n      text \"a\" testId=\"text\" text-shadow=\"0px 0px 8px eu.glow\"\n";
+    let path = app(
+        "colour-in-shadow",
+        &[("app.tamber", design), ("app.contract", view)],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    let pair = "LightDark(Color(168430732), Color(4143248524))";
+    assert!(row(&r, "bg", StyleId::BackgroundColor).contains(pair));
+    for id in ["lit", "tmpl", "fn", "list"] {
+        let shadow = row(&r, id, StyleId::BoxShadow);
+        assert!(shadow.contains(&format!("color: {pair}")), "{id}: {shadow}");
+    }
+    assert_eq!(row(&r, "list", StyleId::BoxShadow).matches(pair).count(), 2);
+    assert!(row(&r, "text", StyleId::TextShadow).contains(pair));
+    let unknown = app(
+        "colour-in-shadow-unknown",
+        &[
+            ("app.tamber", design),
+            (
+                "app.contract",
+                "component App\n  view\n    view width=9 height=9 box-shadow=\"0px 0px 8px eu.nope\"\n",
+            ),
+        ],
+    );
+    let e = contract::compile_path(&unknown).unwrap_err();
+    assert_eq!(e.id, "lower-attr-value", "{e:?}");
+}
