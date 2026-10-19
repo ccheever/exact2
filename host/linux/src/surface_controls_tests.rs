@@ -1374,3 +1374,79 @@ fn mouse_canvas_action_keeps_its_press_handler_and_editor_focus() {
         vec![(true, true, "press ".to_string(), 2, json!("up")); 2]
     );
 }
+
+#[test]
+fn mouse_canvas_action_focus_emits_events_unless_an_editor_keeps_focus() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for initial in ["none", "old", "editor"] {
+        for target in ["button", "label"] {
+            for feedback in ["", "-exact-press-opacity=0.5"] {
+                let source = format!(
+                    r#"component Controls
+  state seen = ""
+  action record(name: string)
+    seen = `${{seen}}${{name}} `
+  action entered(e: FocusEvent)
+    seen = `${{seen}}in `
+  action left(e: FocusEvent)
+    seen = `${{seen}}out `
+  action clear
+    seen = ""
+  view
+    column focusin=entered focusout=left
+      button testId="old" width=100 height=30 blur=record("blur")
+      input testId="editor" width=100 height=30 blur=record("blur")
+      canvas testId="a" width=100 height=100
+        button action="jump" testId="button" width=100 height=100 focus=record("focus") {feedback}
+          box testId="label" width=60 height=60
+"#
+                );
+                let (mut p, path) = boot(&source, &["a"]);
+                let old = (initial != "none").then(|| find(&p, initial));
+                assert!(p.set_focus(old, 0.).is_none());
+                p.brush.ringless = old;
+                p.host.runner_mut().act("clear", vec![]).unwrap();
+                assert!(p.after_commit().is_none());
+                let (x, y, w, h) = p.rect_of(find(&p, target)).unwrap();
+                p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap();
+                let down = (p.focus(), p.host.runner().slot("seen").cloned());
+                p.pointer_up(x + w / 2., y + h / 2., 2.).unwrap();
+                actual.push((
+                    initial,
+                    target,
+                    feedback,
+                    down,
+                    p.focus(),
+                    p.host.runner().slot("seen").cloned(),
+                    p.brush.ringless,
+                ));
+                let (focus, events, ringless) = if initial == "editor" {
+                    (old, "", old)
+                } else {
+                    (
+                        Some(find(&p, "button")),
+                        if old.is_some() {
+                            "blur out focus in "
+                        } else {
+                            "focus in "
+                        },
+                        None,
+                    )
+                };
+                let seen = Some(exact_runner::Value::str(events));
+                expected.push((
+                    initial,
+                    target,
+                    feedback,
+                    (focus, seen.clone()),
+                    focus,
+                    seen,
+                    ringless,
+                ));
+                done(p, path);
+            }
+        }
+    }
+    assert_eq!(actual, expected);
+}

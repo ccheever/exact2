@@ -483,15 +483,6 @@ impl<D: DataSource> Presenter<D> {
 impl<D: DataSource> Presenter<D> {
     /// The nearest node at or above `id` with a handler for `kind`.
     pub(crate) fn handler_target(&self, id: ViewId, kind: EventKind) -> Option<ViewId> {
-        self.handler_target_on_path(id, kind, false)
-    }
-
-    fn handler_target_on_path(
-        &self,
-        id: ViewId,
-        kind: EventKind,
-        captured_click: bool,
-    ) -> Option<ViewId> {
         if kind != EventKind::Scroll && self.brush.region_blocks_action(id) {
             return None;
         }
@@ -505,9 +496,6 @@ impl<D: DataSource> Presenter<D> {
         );
         let mut at = Some(id);
         while let Some(n) = at {
-            if kind != EventKind::Scroll && self.brush.region_blocks_action(n) {
-                return None;
-            }
             let node = kernel.node(n)?;
             let disabled = if key {
                 disabled_control(&node)
@@ -521,13 +509,37 @@ impl<D: DataSource> Presenter<D> {
             } else if self.host.runner().handlers_of(n).contains(&kind) {
                 return Some(n);
             }
-            // Pointerup may hide a captured click's node. That changes
-            // future hits, not the ancestry of the click already selected.
-            at = if captured_click {
-                node.parent
-            } else {
-                self.display.parent(kernel, n)
-            };
+            at = self.display.parent(kernel, n);
+        }
+        None
+    }
+
+    /// A captured mouse click follows kernel ancestry through nodes hidden
+    /// by pointerup. A picture boundary is returned for retained dispatch;
+    /// ordinary live handler lookup must not cross it.
+    fn mouse_press_target(&self, id: ViewId) -> Option<ViewId> {
+        if self.host.route_visibility(id).1 {
+            return None;
+        }
+        let kernel = self.host.kernel();
+        let mut at = Some(id);
+        while let Some(id) = at {
+            if self.brush.region_blocks_action(id) {
+                return Some(id);
+            }
+            let node = kernel.node(id)?;
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return None;
+            }
+            if self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Press)
+            {
+                return Some(id);
+            }
+            at = node.parent;
         }
         None
     }
@@ -624,12 +636,10 @@ impl<D: DataSource> Presenter<D> {
     ) -> Option<ViewId> {
         self.note_press_from(hit, false, focus_before_down.unwrap_or(self.focus));
         let focus = focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit);
-        if mouse_click && self.brush.region_blocks_action(hit) {
-            return self.retained_press(hit, now_ms);
+        let click = mouse_click.then(|| self.mouse_press_target(hit)).flatten();
+        if let Some(picture) = click.filter(|id| self.brush.region_blocks_action(*id)) {
+            return self.retained_press(picture, now_ms);
         }
-        let click = mouse_click
-            .then(|| self.handler_target_on_path(hit, EventKind::Press, true))
-            .flatten();
         // A popover's invoker, or a dialog's button: the top layer's, where
         // a shell presents one (`presenter/top.rs`); else refused.
         if let Some(invoker) = self.top_invoker(hit) {

@@ -465,8 +465,12 @@ impl<D: DataSource> Presenter<D> {
         if let Some(contact) = self.contact.as_mut().filter(|c| c.hit == key) {
             contact.focus_before_down = Some(self.focus);
         }
+        let editing = self
+            .focus
+            .and_then(|id| self.host.kernel().node(id))
+            .is_some_and(|node| node.node_type == NodeType::TextInput);
         if hit.is_some_and(|id| {
-            self.pointerdown_prevents_focus(id) || self.control_target(id).is_some()
+            self.pointerdown_prevents_focus(id) || (editing && self.control_target(id).is_some())
         }) {
             return;
         }

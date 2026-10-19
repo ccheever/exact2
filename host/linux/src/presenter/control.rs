@@ -48,6 +48,36 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(crate) fn click_control(&mut self, id: ViewId, now_ms: f64, press: Option<ViewId>) -> bool {
+        use exact_kernel::ControlKind;
+        let Some(node) = self.host.kernel().node(id) else {
+            return false;
+        };
+        let kind = ControlKind::of(node.node_type, node.props);
+        if matches!(
+            kind,
+            Some(
+                ControlKind::File
+                    | ControlKind::Date
+                    | ControlKind::Time
+                    | ControlKind::DateTimeLocal
+                    | ControlKind::Select
+            )
+        ) {
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return true;
+            }
+            let key = node.key;
+            self.dispatch_control_press(press, now_ms, true);
+            // Picker and menu defaults read the committed control, which its
+            // click may have removed, disabled or replaced.
+            let Some(node) = self.host.kernel().node_by_key(key).filter(|node| {
+                node.props.bool(PropId::Disabled) != Some(true)
+                    && ControlKind::of(node.node_type, node.props) == kind
+            }) else {
+                return true;
+            };
+            return self.toggle_control_with_press(node.id, now_ms, None, false);
+        }
         self.toggle_control_with_press(id, now_ms, press, true)
     }
 
@@ -79,9 +109,6 @@ impl<D: DataSource> Presenter<D> {
                 Some(name) => self.show_picker(&name),
                 None => self.host.log("picker: refused: a file input needs an id"),
             }
-            if mouse_click {
-                self.dispatch_control_press(press, now_ms, true);
-            }
             return true;
         }
         // A date or time control's press opens the platform's picker where a
@@ -97,18 +124,12 @@ impl<D: DataSource> Presenter<D> {
             )
         {
             self.pick(id);
-            if mouse_click {
-                self.dispatch_control_press(press, now_ms, true);
-            }
             return true;
         }
         // A select's press opens its menu (D7).
         if node.props.str(PropId::Type) == Some("select") {
             self.menu = Some(id);
             self.dirty = true;
-            if mouse_click {
-                self.dispatch_control_press(press, now_ms, true);
-            }
             return true;
         }
         // A radio checks, and only checks (x2apps survey #2).
@@ -558,6 +579,95 @@ fn date_samples(
 mod tests {
     use super::fixed_painted_size;
     use exact_kernel::ControlKind;
+
+    #[test]
+    fn mouse_picker_and_menu_defaults_read_the_press_commit() {
+        use super::*;
+        let mut actual = Vec::new();
+        let mut expected = Vec::new();
+        for kind in ["date", "time", "datetime-local", "select"] {
+            for mutation in ["value", "disable", "remove"] {
+                for feedback in ["", "-exact-press-opacity=0.5"] {
+                    let (before, after) = match kind {
+                        "date" => ("2026-10-19", "2026-10-20"),
+                        "time" => ("10:00", "11:00"),
+                        "datetime-local" => ("2026-10-19T10:00", "2026-10-20T11:00"),
+                        _ => ("first", "second"),
+                    };
+                    let (tag, children) = if kind == "select" {
+                        ("select".into(), "\n          option \"First\" value=\"first\"\n          option \"Second\" value=\"second\"")
+                    } else {
+                        (format!("input type=\"{kind}\""), "")
+                    };
+                    let source = format!(
+                        r#"component App
+  state value = "{before}"
+  state disabled = false
+  state showing = true
+  state presses = 0
+  action pressed
+    presses = presses + 1
+    value = "{after}"
+    disabled = {disable}
+    showing = {show}
+  view
+    column width=300 height=200
+      if showing
+        {tag} testId="control" width=160 height=40 value=value disabled=disabled press=pressed {feedback}{children}
+"#,
+                        disable = mutation == "disable",
+                        show = mutation != "remove"
+                    );
+                    let (mut p, error) = Presenter::boot_with(
+                        &crate::test_plan(&source),
+                        (),
+                        (300., 200.),
+                        1.,
+                        PathBuf::new(),
+                        PainterChoice::Cpu,
+                    )
+                    .unwrap();
+                    assert!(error.is_none(), "{error:?}");
+                    p.agent = true;
+                    let k = p.host.kernel();
+                    let control = k.node_by_key(k.find_by_test_id("control")[0]).unwrap().id;
+                    let (x, y, w, h) = p.rect_of(control).unwrap();
+                    p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+                    p.pointer_up(x + w / 2., y + h / 2., 1.).unwrap();
+                    let held = p
+                        .host
+                        .runner()
+                        .device_holds()
+                        .iter()
+                        .find(|h| h.node == Some(control))
+                        .map(|h| {
+                            serde_json::from_str::<serde_json::Value>(&h.args).unwrap()["value"]
+                                .as_str()
+                                .unwrap()
+                                .to_string()
+                        });
+                    actual.push((
+                        kind,
+                        mutation,
+                        feedback,
+                        p.menu,
+                        held,
+                        p.host.runner().slot("presses").cloned(),
+                    ));
+                    let opens = mutation == "value";
+                    expected.push((
+                        kind,
+                        mutation,
+                        feedback,
+                        (opens && kind == "select").then_some(control),
+                        (opens && kind != "select").then(|| after.to_string()),
+                        Some(exact_runner::Value::Number(1.)),
+                    ));
+                }
+            }
+        }
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn mouse_control_defaults_keep_the_nearest_press_and_autofocus() {
