@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
-import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks } from '../host/apple/assets.mjs';
+import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile } from '../host/apple/assets.mjs';
 import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
 
@@ -609,6 +609,13 @@ test('Apple asset catalogs select platform modules and invalidate native receipt
   rmSync(resolve(dir, 'modules/apple/Shared.xcassets'), { recursive: true });
   assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
   assert.equal(appleRunBinary(launchApp), paths.binary);
+  launchApp.manifest.widgets = [{ kind: 'card', families: ['systemSmall'] }];
+  mkdirSync(paths.products, { recursive: true });
+  writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: null }));
+  assert.equal(appleRunBinary(launchApp), paths.binary, 'a widget declaration without an identity still launches the bare app');
+  writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: plistFile({ 'com.apple.security.application-groups': ['TEAM.com.exact.catalog.widgets'] }) }));
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
+  assert.equal(appleRunBinary(launchApp, true), appleArtifacts(launchApp, { host: true }).binary);
   mkdirSync(resolve(dir, 'modules/apple/Linked.xcassets'));
   symlinkSync(resolve(dir, 'outside'), resolve(dir, 'modules/apple/Linked.xcassets/Contents.json'));
   assert.throws(() => appleAssetCatalogInventory(app, 'ios'), /symlinks/);
@@ -793,3 +800,39 @@ test('docs prints the section on its words first, matching whole words', () => {
     assert.match(text, shows, `docs ${words.join(' ')} prints from the lines that hold them:\n${text}`);
   }
 });
+
+
+test.skipIf(!tools)('release keeps Mac widget entitlements, including the provisioned app group (LLP 1126.001 WP16)', async () => {
+  const { macWidgetEntitlements } = await import('../host/apple/widgets.mjs');
+  inDir(dir => {
+    const bundle = resolve(dir, 'Widget.app'), extension = resolve(bundle, 'Contents/PlugIns/ExactWidgets.appex');
+    const app = { id: 'dev.exact.widget', manifest: {} }, team = '0123456789';
+    const run = (command, args, input) => { const r = spawnSync(command, args, { encoding: 'utf8', input }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
+    writeFileSync(resolve(dir, 'main.c'), 'int main(void) { return 0; }');
+    for (const [path, id] of [[bundle, app.id], [extension, app.id + '.widgets']]) {
+      mkdirSync(resolve(path, 'Contents/MacOS'), { recursive: true });
+      run('clang', ['-O', resolve(dir, 'main.c'), '-o', resolve(path, 'Contents/MacOS/Fixture')]);
+      writeFileSync(resolve(path, 'Contents/Info.plist'), plistFile({ CFBundleIdentifier: id, CFBundleExecutable: 'Fixture', CFBundlePackageType: path === bundle ? 'APPL' : 'XPC!' }));
+    }
+    const dump = path => JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', '-'], run('codesign', ['-d', '--entitlements', '-', '--xml', path])));
+    for (const provisioned of [false, true]) {
+      const profiles = provisioned ? { app: { prefix: 'PREFIX' }, keychain: 'PREFIX.' + app.id } : null;
+      writeFileSync(resolve(bundle, 'Contents/Info.plist'), plistFile({ CFBundleIdentifier: app.id, CFBundleExecutable: 'Fixture', CFBundlePackageType: 'APPL',
+        ExactAppGroup: team + '.' + app.id + '.widgets', ...(profiles ? { ExactKeychainAccessGroup: profiles.keychain } : {}) }));
+      if (profiles) writeFileSync(resolve(bundle, 'Contents/embedded.provisionprofile'), 'profile presence: this fixture tests signing, not profile authorization');
+      const ent = resolve(dir, 'widget.plist'); writeFileSync(ent, macWidgetEntitlements({ app, team, profiles, extension: true }));
+      run('codesign', ['--force', '--sign', '-', '--entitlements', ent, extension]);
+      const before = dump(extension);
+      signRelease(bundle, { compat: { reach: { entitlements: ['com.apple.security.device.audio-input'] } }, manifest: {}, identity: '-', id: app.id, scratch: dir, timestamp: ['--timestamp=none'] });
+      assert.deepEqual(dump(extension), before);
+      const own = dump(bundle);
+      assert.deepEqual(own['com.apple.security.application-groups'], [team + '.' + app.id + '.widgets']);
+      assert.equal(own['com.apple.security.device.audio-input'], true);
+      assert.equal(own['com.apple.security.app-sandbox'], undefined);
+      assert.equal(own['com.apple.security.network.client'], undefined);
+      assert.equal(own['com.apple.application-identifier'], profiles?.keychain);
+      assert.deepEqual(own['keychain-access-groups'], profiles ? [profiles.keychain] : undefined);
+      run('codesign', ['--verify', '--deep', '--strict', bundle]);
+    }
+  });
+}, 60000);

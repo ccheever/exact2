@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Inputs, SCHEMA, Store, UNAVAILABLE, changedSince, checkEnv, decide, entry, fingerprint, outcomeOf } from './async-inputs.mjs';
-import { checks, semanticsChecks } from './async.mjs';
+import { checks, glueTests, semanticsChecks } from './async.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'async-inputs-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -124,4 +124,14 @@ test('async help exits before creating or checking out its worktree', () => {
   expect(result.exitCode).toBe(0);
   expect(new TextDecoder().decode(result.stdout)).toContain('Usage:');
   expect(existsSync(worktree)).toBe(false);
+});
+
+
+test('the existing glue step runs Mac widget packaging, signing and migration tests', () => {
+  const glue = glueTests(join(import.meta.dir, '..'));
+  const step = checks('new', 'old', { lane: [], apple: false, glue }).find(([name]) => name === 'glue');
+  for (const file of ['scripts/app-apple.test.mjs', 'scripts/app-keychain.test.mjs', 'scripts/app-manifest.test.mjs', 'scripts/exact.test.mjs', 'host/apple/link.test.mjs']) {
+    expect(glue).toContain('./' + file);
+    expect(step[2].at(-1)).toContain('./' + file);
+  }
 });

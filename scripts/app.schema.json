@@ -316,6 +316,11 @@
               ]
             }
           },
+          "requiresSecrets": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set when this entry's refresh reads account data. Without shared Keychain profiles, the Mac shows its placeholder before reading cached props."
+          },
           "watchFamilies": {
             "type": "array",
             "minItems": 1,

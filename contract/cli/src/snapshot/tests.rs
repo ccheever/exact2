@@ -5,6 +5,7 @@ use serde_json::json;
 
 fn widget() -> Widget {
     Widget {
+        requires_secrets: false,
         kind: "next-trains".into(),
         title: None,
         description: None,
