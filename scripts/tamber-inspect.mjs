@@ -199,13 +199,24 @@ export function stateRung(row, b, app, read = readFileSync, own = null) {
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
   // Its `style` line: the nearest above the part's row, at the line's start.
-  let style = null;
-  for (let i = b.at.line - 1; i >= 0 && !style; i--) style = /^style\s+([A-Za-z_][\w-]*)/.exec(lines[i] ?? '')?.[1] ?? null;
+  const style = styleAbove(lines, b.at.line);
   if (!style) return null;
   // The row's value as written, where it is one plain value (`plainAt`); else none, and an editor starts empty.
   const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, authored(row.name));
   return { rung: 'state', style, state: b.state, row: authored(row.name), file: rel, ...(text != null ? { text } : {}) };
 }
+
+/** The style a row on `line` (1-based) is written in: the nearest `style Name` above it at the
+ * line's start, through indented lines, blank ones and comments; null where another top-level
+ * declaration comes first (the row is no style's). */
+const styleAbove = (lines, line) => {
+  for (let i = line - 2; i >= 0; i--) {
+    const l = lines[i] ?? '', m = /^style\s+([A-Za-z_][\w-]*)/.exec(l);
+    if (m) return m[1];
+    if (/^\S/.test(l) && !/^\/\//.test(l)) return null;
+  }
+  return null;
+};
 
 // A file of the app's own Contract sources, relative to the app (`own`, the
 // server's list, when given), or null for a package's.
@@ -242,8 +253,7 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, attr);
   if (text == null) return { rung: null, reason: `\`${attr}\` is written as an expression or a name in scope, or over more than one line: edit it in the source` };
   if (style) {
-    let declared = null;
-    for (let i = b.at.line - 1; i >= 0 && !declared; i--) declared = /^style\s+([A-Za-z_][\w-]*)/.exec(lines[i] ?? '')?.[1] ?? null;
+    const declared = styleAbove(lines, b.at.line);
     return declared ? { rung: 'style', style: declared, row: attr, file: rel, text } : null;
   }
   const sha256 = (map?.sources ?? []).find(x => x.file === b.at.file)?.sha256;

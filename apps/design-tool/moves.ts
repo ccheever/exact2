@@ -14,11 +14,12 @@ const FULL = /([\w./-]+\.(?:contract|tamber))#([A-Za-z_][\w-]*)\.([A-Za-z_][\w-]
  * null where the design sets it or the default is an expression over another param, said by the
  * proposal. */
 const literalOf = (param: string, params: Map<string, ParamInfo>, depth = 0): string | null => {
-  const p = params.get(param);
+  const p = params.get(param), [, file, component] = FULL.exec(param) ?? [];
   if (!p || p.set !== null || depth > 4) return null;
-  const whole = new RegExp(`^${FULL.source}$`).exec(p.default.trim());
-  if (whole) return literalOf(whole[0], params, depth + 1);
-  return FULL.test(p.default) ? null : p.default;
+  const whole = new RegExp(`^${FULL.source}$`).exec(p.default.trim()), short = /^param\.([A-Za-z_][\w-]*)$/.exec(p.default.trim());
+  if (whole || short) return literalOf(whole ? whole[0] : `${file}#${component}.${short![1]}`, params, depth + 1);
+  // (A default written over another param, by its full name or as `param.x`, is no literal a row can take.)
+  return FULL.test(p.default) || /(^|[^\w.])param\.[A-Za-z_]/.test(p.default) ? null : p.default;
 };
 
 /** A row moved between rungs (LLP 1122 D6's enumerated set, T5), one transaction: promoted to a

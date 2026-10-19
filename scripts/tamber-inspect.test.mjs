@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
-import { correspondingSite, current, editable, join, plainAt, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -388,6 +388,9 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     const params = new Map([['f1', { param: 'card.contract#Card.fill', short: 'Card.fill', token: null }]]);
     const tpl = { rung: 'template', file: 'card.contract', at: { line: 3, col: 9 }, sha256: 'x', row: 'background-color', instances: 1, text: 'Card.fill' };
     expect(editable({ source: 'authored', token: { names: ['card.contract#Card.fill'], text: 'card.contract#Card.fill', modes: '', implied: false } }, 'own', params, false, null, tpl)).toEqual({ rung: 'param', param: 'card.contract#Card.fill', short: 'Card.fill', modes: '', template: tpl });
+    // A style is the nearest `style` above its row through indented lines; another top-level declaration first means none.
+    expect(rowRung({ name: 'text_color' }, { origin: 'class:Panel', at: at(7, 'color'), attr: 'color' }, map, dir, 1, () => ['style Other', '  opacity=1', '', 'style Panel', '  // a note', '', '  color="red"'].join('\n'))).toMatchObject({ style: 'Panel' });
+    expect(rowRung({ name: 'text_color' }, { origin: 'class:Panel', at: at(7, 'color'), attr: 'color' }, map, dir, 1, () => ['style Panel', '  opacity=1', 'component X', '  view', '', '', '  color="red"'].join('\n'))).toBe(null);
     // The map's columns are UTF-8 bytes: an attribute after wide characters is read at its own place.
     const wide = '    text "你好你好你好" color="red" opacity=0.5';
     expect(plainAt(wide, 1 + Buffer.byteLength('    text "你好你好你好" '), 'color')).toBe('red');
