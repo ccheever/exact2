@@ -76,7 +76,8 @@ fn a_role_drawn_in_the_accent_reads_the_nearest_authored_one() {
 /// role's own (the design's, else the platform's).
 #[test]
 fn a_spinner_under_an_authored_accent_keeps_it_through_the_role() {
-    let plan = contract::compile(r##"component App
+    let plan = contract::compile(
+        r##"component App
   view
     column width=400 height=300 background-color="white" align-items="flex-start" gap=4
       column accent-color="#00c800"
@@ -84,7 +85,8 @@ fn a_spinner_under_an_authored_accent_keeps_it_through_the_role() {
           progress width=44 height=44 testId="kept"
       column accent-color="AccentColor"
         progress width=44 height=44 testId="role"
-"##)
+"##,
+    )
     .unwrap();
     let (mut p, err) = Presenter::boot_with(
         &plan.encode(),
@@ -107,6 +109,9 @@ fn a_spinner_under_an_authored_accent_keeps_it_through_the_role() {
             })
         })
     };
-    assert!(green(&p, "kept"), "the authored accent, kept through the role");
+    assert!(
+        green(&p, "kept"),
+        "the authored accent, kept through the role"
+    );
     assert!(!green(&p, "role"), "no accent authored: the role's own");
 }
