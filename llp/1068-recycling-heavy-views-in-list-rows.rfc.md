@@ -1267,6 +1267,38 @@ runner's report (45), the host commit (64) and the batch decode (34), all
 of which scale with nodes, not layers. Closing it is resumable rows (LLP
 1050.000 D3's separate project) or a cheaper node path, not presentation.
 
+## 6.3 Flat boxes holding flat boxes (2026-10-18, euxy memory lane)
+
+A hand-built UIKit screen draws a strip of cells as sublayers of one view
+(euxy's UIKit port: `StepStripView`'s blocks, ticks and LEDs). exact2 gave
+each step cell, its dot, its tick and the row holding them a `NodeView`:
+125 of the 243 euxy kept at launch, and 7 more for its LED chip.
+
+**What is built** (`FlatLeavesIOS.swift`):
+- **A box of flat boxes is flat.** A created box whose children are all
+  flat, and which does not clip them, is one layer; its children are its
+  sublayers, ordered by rank, then tree order (LLP 1083.000), as views of
+  those ranks would be. The root, the layer drawn in a view, keeps §6.2's
+  rule: rank zero and not positioned. One below a flat box may be either.
+- **More paint.** A flat box may be positioned (`relative`, `absolute`) and
+  cast outer `box-shadow`s of fixed or `light-dark()` colours, through the
+  same `ShadowCaster` a view puts under its box. `faceBoxSize`, which only a
+  box holding a text or a symbol is read for, no longer makes a view.
+- **Hits.** The root's layer answers for every box under it, each frame in
+  its host view's coordinates, so a touch on any of them is the host's.
+- **Promotion.** A box that needs a view promotes the flat boxes above it
+  first; its own children stay flat in it where a view can hold them so.
+  A box is not demoted back: a strip that has played keeps its views.
+- **The curve.** A bare layer's default `cornerCurve` is now continuous
+  (iOS 27); a leaf sets circular, as `applyBoxLayer` does for a view. Leaves
+  before this drew continuous corners, which no view does.
+
+**Measured** on euxy (Release, iPhone 17 simulator, iOS 27.0, idle 10 s
+after a cold launch, eight interleaved launches each): `NodeView`s 243 →
+116, physical footprint 25.85 → 25.55 MB (medians), `EUXY_TTI` 1114.5 →
+1115.5 ms. Its screens match the views' pixels but for the corners of the
+leaves that predate this (the lane bars, the LED chip).
+
 ## 7. `rules/DEFERRED.md`
 
 Nothing comes off the list: every kind here is already admitted (video

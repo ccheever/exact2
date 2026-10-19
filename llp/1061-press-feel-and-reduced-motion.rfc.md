@@ -253,6 +253,16 @@ D16) shows the table's own selection on a press, not the row's pressed
 paint: the table tracks the row's click (its selection, first responder,
 double-click), and driving the row's press from that tracking is owed
 (`QUEUE.md`).
+Nested presses (2026-10-18, LLP 1121 stage 9 G4): the colour stops at a
+node showing its own, written or its own press's, for every press; a
+release, or a node between coming to write its own colour, ends only what
+that press lent, and a pressed node keeps its own press (one whose press
+writes no colour takes a nearer press's); a real release colours the node
+again from the nearest press above still showing a colour, that press found
+before a written colour stops the walk (not when a new style reworks the
+colours, nor as a view is recycled). So an ancestor's quick release, waiting
+out its unseen frame, leaves a descendant pressed meanwhile its own press,
+and gives back only the colour it lent.
 **Web**, both targets: custom properties on the element's own style, which
 the input glue shows by D3's rule, released also when the window, the tab
 or the page goes and when a move says the button is up, a key's press too.
@@ -334,6 +344,11 @@ reduced-motion app writes the condition where the motion is.
   nothing; a quick tap on a card in the simulator's scroll view still opens
   it.
 
+- 2026-10-18 (D7, nested presses, LLP 1121 stage 9 G4): `PressPaintTests` on
+  macOS, 21 cases, the quick-release race on the normal clock (a descendant
+  pressed while the ancestor's release waits keeps its press; its own colour
+  on its labels), releases under a held ancestor, the three-level press and
+  release order, a style write keeping a lent colour, written colours.
 - 2026-10-17 (D7): `motion_feel.rs` (the rows from literals and an
   expression, the refusals) and two reject fixtures; `css.rs` (the
   properties), `host/web/tests/press.test.mjs` in headless Chrome (the

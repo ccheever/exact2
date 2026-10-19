@@ -107,14 +107,33 @@ extension NodeView {
             // A container's background covers its descendants' fragments (CSS).
             if inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil }) {
                 let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-                for (i, leaf) in inlineText.filter(\.paints).enumerated() where runs[i].background == nil {
+                // A leaf paints one background, its nearest, and a box's ends
+                // are read from the characters that paint it: a box inside
+                // another visible background, and that outer box, keep square
+                // corners, which would otherwise show the page at their seams.
+                let visible = { (c: [Double]?) in c.map { $0.count < 4 || $0[3] > 0 } ?? false }
+                var square = Set<UInt32>()
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() {
+                    var nested: [UInt32] = visible(runs[i].background) ? [runs[i].backgroundBox] : []
                     var up = byId[leaf.parent]
-                    while let run = up, runs[i].background == nil {
-                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
-                        if !paint.hidden { runs[i].background = paint.background }
+                    while let run = up {
                         up = byId[run.parent]
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        guard !paint.hidden, paint.background != nil else { continue }
+                        if runs[i].background == nil {
+                            runs[i].background = paint.background
+                            (runs[i].backgroundBox, runs[i].backgroundRadii) = (paint.backgroundBox, paint.backgroundRadii)
+                        }
+                        if visible(paint.background), !nested.contains(paint.backgroundBox) { nested.append(paint.backgroundBox) }
                     }
+                    if nested.count > 1 { square.formUnion(nested) }
                 }
+                for i in runs.indices where square.contains(runs[i].backgroundBox) { runs[i].backgroundRadii = [] }
+            }
+            // A box's identity is paint only where a box is rounded: square
+            // backgrounds keep sharing what they share (TextPaint's keys).
+            if !runs.contains(where: { $0.background != nil && $0.backgroundRadii.contains { !$0.isZero } }) {
+                for i in runs.indices { runs[i].backgroundBox = 0; runs[i].backgroundRadii = [] }
             }
         }
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),

@@ -102,6 +102,8 @@ private final class NativeTable {
     static let major: UInt32 = 3
     /// The hatch words the module handles, or nil for one that does not say.
     var hatchWords: Set<String>?
+    /// The modules' extensions the artifact composes (LLP 1133.001 D4).
+    var extensions: [String] = []
     static let size: UInt32 = 104
     typealias CreateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -185,6 +187,7 @@ private final class NativeTable {
         // The hatch words the module was built to handle, under a key no tag
         // can take (LLP 1075.003.000.001 §4.3); an older module names none.
         let hatchWords = (roster.removeValue(forKey: "hatches")?["words"] as? [String]).map(Set.init)
+        let extensions = roster.removeValue(forKey: "extensions")?["names"] as? [String] ?? []
         guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
               let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88),
               let moduleCall = pointer(96) else {
@@ -200,6 +203,7 @@ private final class NativeTable {
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
             moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
         loaded.hatchWords = hatchWords
+        loaded.extensions = extensions
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
         loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
@@ -628,6 +632,13 @@ final class NativeViews {
         activateHatches()
         guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
         _ = module(table)
+        // Its extensions answer their names from now on, outside the agent;
+        // under the agent the runner's substitute does (LLP 1124 D7), unless
+        // the drive binds one (`--bind`).
+        let bound = ExactEnv.agentMode ? table.extensions.filter(ExactEnv.agentBind.contains) : table.extensions
+        if !bound.isEmpty, let session {
+            session.runtime.bindExtensions(bound)
+        }
     }
 
     /// A long call, on the main thread: the artifact loads, the instance is

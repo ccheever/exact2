@@ -148,6 +148,8 @@ package final class Presenter {
     /// when the viewport is the content view below it) and its layout regions (LLP 1123 D10,
     /// `nil` for none). Reported to the agent as `env`.
     var insets = NSEdgeInsetsZero, regions: [CGFloat]?
+    /// The title-bar area the kernel was given (`TitleBarAreaMac`): x, y, width, height, `nil` for none.
+    var titlebarArea: [CGFloat]?
     /// The posture and the viewport segments last told (LLP 1078 D5): flat, unless an agent preferred otherwise.
     var fold = ViewportFold.flat
 
@@ -587,6 +589,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
@@ -649,8 +652,16 @@ package final class Presenter {
         viewport.invalidateDocumentFit()
         var size = viewport.contentSize
         for r in root.subviews {
-            size.width = max(size.width, r.frame.maxX)
-            size.height = max(size.height, r.frame.maxY)
+            // What overflows a root that does not clip is the document's (`content`).
+            let v = r as? NodeView, extent = v.flatMap { $0.scroll == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
+            // Through the root's layer transform, which AppKit's `convert` does not see (`plane`).
+            let reach = extent.map { e -> CGRect in
+                guard let h = v?.plane else { return r.convert(CGRect(origin: .zero, size: e), to: root) }
+                let corners = [CGPoint.zero, CGPoint(x: e.width, y: 0), CGPoint(x: 0, y: e.height), CGPoint(x: e.width, y: e.height)].map { NodeView.map(h, $0) }
+                return CGRect(x: 0, y: 0, width: corners.map(\.x).max() ?? 0, height: corners.map(\.y).max() ?? 0)
+            } ?? .zero
+            size.width = max(size.width, r.frame.maxX, reach.maxX)
+            size.height = max(size.height, r.frame.maxY, reach.maxY)
         }
         if root.frame.size != size { root.frame = NSRect(origin: .zero, size: size) }
         // The document just changed size; whether the page can scroll — and
@@ -712,7 +723,7 @@ package final class Presenter {
             if selectText { fieldSelections.selectAll(target) }
             return
         }
-        let responder = keyView(of: target)
+        let responder = target.web ?? keyView(of: target)
         if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
         if selectText, window.firstResponder === target.textArea || target.field?.currentEditor() != nil { fieldSelections.selectAll(target) }
     }
@@ -1147,6 +1158,7 @@ package final class Presenter {
                 blocks.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)
+                views[id]?.holdGone()
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:

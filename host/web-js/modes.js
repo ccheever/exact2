@@ -237,9 +237,16 @@ function still(apply) {
     sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
     document.head.append(sheet);
   }
-  root.setAttribute("data-x-scrub", "");
-  try { const out = apply(); void root.offsetWidth; return out; } finally { root.removeAttribute("data-x-scrub"); }
+  // Off through the drag (one style change of the whole page as it starts
+  // and one as it rests, not two each frame), its last values styled before
+  // transitions come back.
+  if (!root.hasAttribute("data-x-scrub")) root.setAttribute("data-x-scrub", "");
+  try { return apply(); } finally {
+    clearTimeout(StillUntil);
+    StillUntil = setTimeout(() => { void root.offsetWidth; root.removeAttribute("data-x-scrub"); }, 150);
+  }
 }
+let StillUntil = null;
 /** Set a frame's tokens in every tuple's rule, in one style update. */
 function setTokens(frame) {
   const rules = tupleRules();
@@ -291,7 +298,8 @@ export function modes(axes, classes, texts, vars, accent, names, devDesign, devS
     // tokens `text` names, the tuple the element is in, and whether the
     // boundary wrote the row again. A token folded inline is not one.
     token: (e, prop, text) => {
-      const names = [...new Set([...String(text).matchAll(/var\((--x-[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
+      // (Any property this table names: a token's `--x-…`, and a role's override, `--exact-canvas-text`.)
+      const names = [...new Set([...String(text).matchAll(/var\((--[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
       if (!names.length) return undefined;
       const j = CH.indexOf(prop === "--exact-accent" ? "accent-color" : prop);
       let at = e;

@@ -41,8 +41,10 @@ extension NodeView {
     /// clip's outline.
     func paintBackground(_ ctx: CGContext, border: CGPath, color: Bool) {
         guard let clip = backgroundOutline(border) else { return }
-        if color, let c = cgColor("background_color"), c.alpha > 0 {
+        let authored = cgColor("background_color")
+        if color, let c = authored ?? fieldGround, c.alpha > 0 {
             ctx.saveGState()
+            if authored == nil, let bezel = fieldOutline() { ctx.addPath(bezel); ctx.clip() }
             ctx.addPath(clip)
             ctx.setFillColor(c)
             ctx.fillPath()

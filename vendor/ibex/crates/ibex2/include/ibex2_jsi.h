@@ -58,6 +58,8 @@ void validate_groups(Groups groups);
 // verify that their compiler inputs stay in lockstep with the adapter.
 std::vector<const char*> expected_scripts(Groups groups);
 
+// One binding's bytecode. `bytes` aligned to 16 are read in place for the
+// runtime's life (the bindings' linked statics are); others are copied.
 struct CompiledScript {
   const char* name;
   const uint8_t* bytes;

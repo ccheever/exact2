@@ -46,7 +46,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// The plan as a `LowerCheck.PlanInfo` term.
 fn plan_info(plan: &Plan) -> String {
-    let strings: Vec<String> = plan.strings.iter().map(|s| string(s)).collect();
+    let strings: Vec<String> = plan.strings.iter().map(string).collect();
     let types: Vec<String> = plan
         .types
         .iter()

@@ -141,7 +141,7 @@ pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> P
     else {
         return value;
     };
-    let s = |id| plan.strings.get(id as usize).map_or("", String::as_str);
+    let s = |id| plan.strings.get(id as usize).unwrap_or("");
     let icon = match name.strip_prefix("sf/") {
         Some(sf) => plan
             .icons
@@ -167,6 +167,13 @@ pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> P
 /// A prop value by the prop's declared kind.
 pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeError> {
     let prop = PropId::from_wire(id).ok_or(BridgeError::UnknownProp(id))?;
+    if prop == PropId::Popover {
+        match value {
+            Value::Option(None) => return Err(BridgeError::Unset(prop)),
+            Value::Option(Some(inner)) => return prop_value(id, inner),
+            _ => {}
+        }
+    }
     let mismatch = || BridgeError::PropKind {
         prop,
         value: value.clone(),
@@ -399,7 +406,7 @@ fn plan_at(plan: &exact_plan::Plan) -> PlanAt {
     (
         plan.theme.as_ptr() as usize,
         plan.theme.len(),
-        plan.strings.as_ptr() as usize,
+        plan.strings.identity(),
     )
 }
 
@@ -949,7 +956,7 @@ mod tests {
     fn a_platform_color_is_admitted_only_as_a_plan_literal() {
         let literal = "-exact-platform-color(ios bridgeTestColor, #010203)";
         let mut plan = exact_plan::Plan::default();
-        plan.strings.push(literal.into());
+        plan.strings.push(literal);
         let color = StyleId::TextColor as u16;
         let mut style = StyleProps::default();
         assert!(set_plan_style(&mut style, color, &Value::str(literal), &plan).is_ok());

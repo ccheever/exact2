@@ -138,7 +138,8 @@ impl Vocab {
 /// A checked, folded design.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Folding {
-    /// The design as parsed.
+    /// The design as parsed, but an icon naming another holds that one's
+    /// `icon(…)` (a written alias is the source's to say).
     pub design: Design,
     /// Its tokens, in declaration order.
     pub tokens: Vec<Checked>,
@@ -161,7 +162,10 @@ pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
 
 /// Check and fold a design already parsed, or built by a caller: the
 /// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
-pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    // An icon naming another is read as that one, whoever folds the design
+    // (`params::laid` did this alone, so `check` and an export refused it).
+    icon::aliased(&mut design.icons);
     let (icons, mut refused) = icon::check(&design.icons, &design.tokens);
     // An icon under `theme` is refused by the icons check alone.
     let stripped;

@@ -59,6 +59,10 @@ in the UI, and no app JavaScript runs before the first pixel.
 > repository, `exact2`, is a rebuild of an earlier one ("exact1"). Its design documents
 > are imported under `llp/research/` as research, never as authority.
 
+Upgrade note (2026-10-16): Snapback mutation replies with `ok: false` now throw
+`refused(why)` and expose `failure(slot)`; see the
+[before/after and inherited-app commands](snapback4/README.md#updating-an-inherited-app).
+
 ## Contents
 
 - [Three principles](#three-principles)

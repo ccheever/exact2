@@ -445,7 +445,7 @@ final class SidebarCell: NSTableCellView {
         title.isEnabled = !row.face.disabled
         addSubview(title)
         textField = title
-        if let name = row.face.base, let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) {
+        if let name = row.face.base, let symbol = FaceSymbol.image(name) {
             let image = NSImageView(image: symbol)
             image.isEnabled = !row.face.disabled
             addSubview(image)

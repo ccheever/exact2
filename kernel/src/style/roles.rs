@@ -311,6 +311,10 @@ pub fn theme_css() -> String {
                 "color:var(--exact-canvas-text);--exact-scheme-color:var(--exact-canvas-text);",
             ),
             "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
+            // The design's accent is authored (LLP 1121 D9): a spinner reads it.
+            "AccentColor" => out.push_str(
+                "--exact-accent-design:var(--exact-accent);--exact-accent-said:var(--exact-accent-design);",
+            ),
             _ => {}
         }
     }
@@ -477,6 +481,12 @@ pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
         AUTHORED.with(|a| a.replace(accent)),
         std::marker::PhantomData,
     )
+}
+
+/// The accent the painting scope holds now ([`authored_accent`]): the
+/// nearest one the node being painted or an ancestor authored, or none.
+pub fn scoped_accent() -> Option<ColorValue> {
+    AUTHORED.with(|a| a.get())
 }
 
 /// What [`authored_accent`] restores; the thread's, so it stays on it.

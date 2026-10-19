@@ -150,29 +150,24 @@ impl<'a> NodeRef<'a> {
             .map(|s| self.arena.local_id(s))
     }
 
+    /// Whether a platform control's start stops the inherited row `id` at
+    /// this node (LLP 1104 D4): an ancestor's value, and its motion, do not
+    /// reach it. An authored clear (`color="inherit"`) takes it through, as
+    /// [`Self::source_of`] does.
+    pub fn starts(&self, id: StyleId) -> bool {
+        !self.style.written.has(id)
+            && self
+                .arena
+                .style_starts(self.slot)
+                .any(|start| start.mask.has(id))
+    }
+
     /// Whether an author declaration chooses this row, including an explicit
     /// CSS clear that inherits or uses the initial value (LLP 1115.000 D2).
     /// `style.written` is this node's declarations alone; an inherited row
     /// can also be chosen by an ancestor. A platform start stops that walk.
     pub fn says(&self, id: StyleId) -> bool {
-        let mut current = Some(self.slot);
-        while let Some(slot) = current {
-            let own = self.arena.style(slot);
-            if own.written.has(id) {
-                return true;
-            }
-            if own.mask.has(id)
-                || !id.inherited()
-                || self
-                    .arena
-                    .style_starts(slot)
-                    .any(|start| start.mask.has(id))
-            {
-                return false;
-            }
-            current = self.arena.parent(slot);
-        }
-        false
+        self.arena.says(self.slot, id)
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited

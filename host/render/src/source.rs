@@ -41,6 +41,17 @@ impl<D: DataSource> Anonymous<D> {
 }
 
 impl<D: DataSource> DataSource for Anonymous<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.inner.prepare_snapshot(module, deadline)
+    }
+    fn take_storage_changed(&mut self) -> bool {
+        self.inner.take_storage_changed()
+    }
+
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         self.inner.query(source, args)
     }

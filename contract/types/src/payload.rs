@@ -93,7 +93,7 @@ pub fn handler_arity_message(
     };
     // The event's record, the action's to take or leave
     // (`event_record`).
-    let record = if event == "selectionchange" && control == Some("field") {
+    let record = if event == "selectionchange" && contract_syntax::edits_text(control) {
         Some("InputEvent")
     } else {
         crate::event_record(event)

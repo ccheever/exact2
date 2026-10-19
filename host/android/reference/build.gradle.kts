@@ -1,15 +1,16 @@
 // The Material reference (LLP 1115.001.001 D3, D4): each specimen of `specimens.json` drawn by Compose Material 3 on
 // Robolectric's native graphics, at the pinned SDK and the Pixel's density, with what the oracle compares beside each
-// picture. Nothing links this module; `./gradlew :reference:draw -Preference.out=<dir>` runs it.
+// picture. Nothing links this module; `./gradlew :reference:draw -Preference.out=<dir>` runs it, and
+// `./gradlew :reference:assembleDebug` builds the catalogue a phone shows (`Catalogue.kt`).
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 
-plugins { id("com.android.library") }
+plugins { id("com.android.application") }
 apply(plugin = "org.jetbrains.kotlin.plugin.compose")
 
 android {
     namespace = "dev.exact.reference"
     compileSdk { version = release(37) { minorApiLevel = 2 } }
-    defaultConfig { minSdk = 31 }
+    defaultConfig { applicationId = "dev.exact.reference"; minSdk = 31; targetSdk = libs.versions.referenceSdk.get().toInt() }
     buildFeatures { compose = true }
     testOptions { unitTests { isIncludeAndroidResources = true } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -19,6 +20,7 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.icons)
+    implementation(libs.compose.activity)
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.test.junit4)
     debugImplementation(libs.compose.test.manifest)

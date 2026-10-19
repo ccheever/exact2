@@ -2,7 +2,8 @@
 //! `title1`, 2 `title2`, 3 `title3`, 4 and on `headline`), read from the
 //! schema's ramp at the root font size (the platform's body size), so it
 //! follows Dynamic Type as Apple's own ramp does, at the style's emphasized
-//! weight (LLP 1116 D7: bold for a title, `headline`'s semibold). A written `font-size` or
+//! weight (LLP 1116 D7: bold for `title1` and `title2`, semibold for `title3` as Apple's
+//! emphasized Title 3 is, `headline`'s semibold). A written `font-size` or
 //! `font-weight` wins; an inherited one does not. `font` takes a text style
 //! as WebKit's `font: -apple-system-headline` does.
 use exact_kernel::{Kernel, RowValue, StyleId};
@@ -80,7 +81,12 @@ fn a_heading_is_its_levels_text_style_at_the_root_size_unless_written() {
         "a title's emphasized weight, not the parent's"
     );
     assert_eq!(weight(&r, "h2"), 700.0);
-    assert_eq!(weight(&r, "h3"), 700.0);
+    assert_eq!(
+        weight(&r, "h3"),
+        600.0,
+        "Apple's emphasized Title 3 is semibold"
+    );
+    assert_eq!(weight(&r, "chosen"), 600.0, "the chosen level's weight");
     assert_eq!(weight(&r, "h5"), 600.0, "headline is semibold");
     assert_eq!(size(&r, "sized"), 20.0, "the author's size wins");
     assert_eq!(weight(&r, "sized"), 700.0);
@@ -157,4 +163,32 @@ fn font_takes_only_a_text_style() {
             "{value}: {e}"
         );
     }
+}
+
+/// Each level's implied weight (LLP 1115.000 D12.2, final 2026-10-19): 1 and
+/// 2 bold, 3 semibold (Apple's emphasized Title 3), 4 and on `headline`'s
+/// semibold; a written weight wins at every level.
+#[test]
+fn each_heading_level_has_its_emphasized_weight() {
+    let mut src = String::from("component App\n  view\n    column font-weight=300\n");
+    for level in 1..=6 {
+        src += &format!("      text testId=\"h{level}\" role=\"heading\" aria-level={level} \"x\"\n      text testId=\"w{level}\" role=\"heading\" aria-level={level} font-weight=400 \"x\"\n");
+    }
+    let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{e}"));
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let weights: Vec<f64> = (1..=6)
+        .map(|l| number(&r, &format!("h{l}"), StyleId::FontWeight))
+        .collect();
+    assert_eq!(weights, [700.0, 700.0, 600.0, 600.0, 600.0, 600.0]);
+    let written: Vec<f64> = (1..=6)
+        .map(|l| number(&r, &format!("w{l}"), StyleId::FontWeight))
+        .collect();
+    assert_eq!(written, [400.0; 6], "a written weight wins");
 }

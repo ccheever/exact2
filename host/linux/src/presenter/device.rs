@@ -134,6 +134,28 @@ impl<D: DataSource> Presenter<D> {
     }
 }
 
+/// One open device's pointing class, as [`touch_only`] reads it (the evdev reader's, `input.rs`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Pointing {
+    /// Relative axes: a mouse, a trackball.
+    pub relative: bool,
+    /// Absolute X and Y: a touch screen, a touchpad, a tablet, a KVM's mouse.
+    pub absolute: bool,
+    /// BTN_TOUCH: a finger or stylus contact.
+    pub touch: bool,
+    /// BTN_LEFT: a button that clicks, which a touchpad and a KVM's mouse have.
+    pub left: bool,
+}
+
+/// Whether a touch screen is the only thing that points, CSS's primary
+/// `pointer: coarse` and `hover: none`: an absolute device that reports
+/// touch and no left button, beside no mouse or touchpad.
+pub fn touch_only(devices: &[Pointing]) -> bool {
+    let screen = |d: &Pointing| d.absolute && d.touch && !d.left;
+    let cursor = |d: &Pointing| d.relative || (d.absolute && d.left);
+    devices.iter().any(screen) && !devices.iter().any(cursor)
+}
+
 #[cfg(test)]
 #[path = "device_tests.rs"]
 mod tests;

@@ -10,7 +10,7 @@
 
 use std::cell::RefCell;
 
-use crate::{view::flags, Change, Deco, Editor, Input, Outcome, Selected};
+use crate::{view::flags, Change, Deco, Editor, Input, Outcome, Selected, SelectionMode};
 
 /// The call was the editor's: prevent the platform's default.
 pub const HANDLED: u32 = 1;
@@ -25,7 +25,6 @@ struct Abi {
     input: Vec<u16>,
     out: Vec<u32>,
     text: Vec<u16>,
-    ranges: Vec<u32>,
 }
 
 thread_local! {
@@ -60,38 +59,6 @@ pub extern "C" fn mde_input(len: u32) -> *mut u16 {
         input.clear();
         input.resize(len as usize, 0);
         input.as_mut_ptr()
-    })
-}
-
-/// Room for decoration range triples `(start, end, fragile)`.
-#[no_mangle]
-pub extern "C" fn mde_decoration_ranges(len: u32) -> *mut u32 {
-    ABI.with(|abi| {
-        let ranges = &mut abi.borrow_mut().ranges;
-        ranges.clear();
-        ranges.resize(len as usize, 0);
-        ranges.as_mut_ptr()
-    })
-}
-
-/// Reconcile decorations with the kernel's rules. The input buffer contains
-/// the old source followed by the current source. Output triples at `mde_out`
-/// are `(input range index, mapped start, mapped end)`.
-#[no_mangle]
-pub extern "C" fn mde_reconcile_decorations(before: u32, current: u32) -> u32 {
-    ABI.with(|abi| {
-        let abi = &mut *abi.borrow_mut();
-        let (before, current) = (before as usize, current as usize);
-        if before.saturating_add(current) > abi.input.len() {
-            abi.out.clear();
-            return 0;
-        }
-        abi.out = crate::decorations::reconcile(
-            &String::from_utf16_lossy(&abi.input[..before]),
-            &String::from_utf16_lossy(&abi.input[before..before + current]),
-            &abi.ranges,
-        );
-        abi.out.len() as u32
     })
 }
 
@@ -145,6 +112,25 @@ pub extern "C" fn mde_select(h: u32, from: u32, to: u32, placed_from: u32, place
             Selected::Place => 2,
         }
     })
+}
+
+/// The app's `setSelectionRange(from, to)`.
+#[no_mangle]
+pub extern "C" fn mde_set_selection(h: u32, from: u32, to: u32) -> u32 {
+    with(h, 0, |e, _| bits(e.set_selection(from, to)))
+}
+
+/// The app's `setRangeText`: `from..to` becomes the input; `mode` 0
+/// preserve, 1 select, 2 start, 3 end.
+#[no_mangle]
+pub extern "C" fn mde_replace(h: u32, from: u32, to: u32, len: u32, mode: u32, now: f64) -> u32 {
+    let mode = match mode {
+        1 => SelectionMode::Select,
+        2 => SelectionMode::Start,
+        3 => SelectionMode::End,
+        _ => SelectionMode::Preserve,
+    };
+    with(h, len, |e, text| bits(e.replace(from, to, text, mode, now)))
 }
 
 /// Select everything.

@@ -28,6 +28,24 @@ impl<D: DataSource> Host<D> {
         self.commit(&timed, error)
     }
 
+    /// The agent's `prefer extension` (LLP 1124 D7), in one batch: a native
+    /// module source's preferred value, its readers asked again.
+    pub fn extension(&mut self, json: &str) -> String {
+        let Some((receipts, reply)) = self.runner.extension_agent(json) else {
+            return self.finish(Batch::new(), Some("prefer extension: not a request".into()));
+        };
+        let error = reply.err();
+        if receipts.is_empty() {
+            return self.finish(Batch::new(), error);
+        }
+        let at_ms = self.now_ms;
+        let timed: Vec<Timed> = receipts
+            .into_iter()
+            .map(|receipt| Timed { at_ms, receipt })
+            .collect();
+        self.commit(&timed, error)
+    }
+
     /// The batch of a host that replaces `old` (a boot, a new generation):
     /// the old runner's last outputs go first, every voice ended and every
     /// note it turned on given its note-off now, clock out's Stop sent, so

@@ -12,8 +12,8 @@ pub struct Sprite {
     pub anchor: Vec2,
     /// Flip texture coordinates horizontally and vertically.
     pub flip: [bool; 2],
-    /// Linear RGBA tint.
-    pub color: [f32; 4],
+    /// RGBA tint: `Color::hex("#ffffffc0")`.
+    pub color: crate::Color,
     /// Translucency sorts back-to-front by depth first. At equal depth only,
     /// smaller layers draw first; this is not a 2D z-order.
     pub layer: i32,
@@ -52,7 +52,7 @@ impl Default for Sprite {
             size: Vec2::ONE,
             anchor: Vec2::splat(0.5),
             flip: [false; 2],
-            color: [1.; 4],
+            color: crate::Color::default(),
             layer: 0,
             frame: [0; 4],
             alpha: AlphaMode::Blend,
@@ -75,7 +75,7 @@ impl Sprite {
             && self.size.is_finite()
             && self.size.min_element() > 0.
             && self.anchor.is_finite()
-            && self.color.iter().all(|n| n.is_finite())
+            && self.color.0.iter().all(|n| n.is_finite())
             && self.cutoff.is_finite()
             && (0. ..=1.).contains(&self.cutoff)
         {

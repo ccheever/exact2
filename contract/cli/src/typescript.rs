@@ -87,7 +87,9 @@ pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<S
         .flat_map(|action| exact_runner::vm::instructions(plan.code(action.body)))
         .flatten()
         .filter(|instruction| instruction.op == Opcode::Send)
-        .map(|instruction| quoted(plan.str(StrId(instruction.args[1] as u32))))
+        .map(|instruction| plan.str(StrId(instruction.args[1] as u32)))
+        .filter(|source| plan.module_named(source).is_none())
+        .map(quoted)
         .collect();
     writeln!(
         out,
@@ -102,7 +104,9 @@ pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<S
     out.push_str("\nexport interface SourceMap {\n");
     for row in &plan.sources {
         let name = plan.str(row.name);
-        if exact_plan::runner_owned_source(name) {
+        // The runner's own sources and a native module's names are not the
+        // data module's to answer (LLP 1133.002 D13).
+        if exact_plan::runner_owned_source(name) || plan.module_named(name).is_some() {
             continue;
         }
         write!(out, "  {}: {{ args: [", quoted(name)).unwrap();
@@ -228,7 +232,10 @@ fn summary(plan: &Plan, out: &mut String) {
     let sources: Vec<_> = plan
         .sources
         .iter()
-        .filter(|row| !exact_plan::runner_owned_source(plan.str(row.name)))
+        .filter(|row| {
+            let name = plan.str(row.name);
+            !exact_plan::runner_owned_source(name) && plan.module_named(name).is_none()
+        })
         .collect();
     if sources.is_empty() {
         return;

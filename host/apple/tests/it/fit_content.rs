@@ -51,7 +51,8 @@ fn a_fit_content_route_reports_its_rows_and_not_its_box() {
     // is the whole viewport.
     assert_eq!(heights(&first, sheet), [16.0 + 3.0 * 44.0 + 16.0]);
     assert!(heights(&first, view(&host, "plain")).is_empty());
-    assert_eq!(count(&first, "content"), 1, "{first}");
+    // The sheet's, and the root's (the document's extent).
+    assert_eq!(count(&first, "content"), 2, "{first}");
     let more = view(&host, "more");
     let grown = host.dispatch_at(more, Event::Press, 0.0);
     assert_eq!(heights(&grown, sheet), [16.0 + 4.0 * 44.0 + 16.0]);
@@ -681,4 +682,39 @@ fn segments_are_the_windows_in_every_sheet() {
         k.node(view(&host, "medium-pane")).unwrap().frame.height,
         400.0
     );
+}
+
+/// A root's extent is the document's (the iOS and Mac presenters scroll what
+/// overflows it): its box and the boxes below it, down to one that clips. The
+/// root's padding is not added past them, as the viewport, not the root, is
+/// the scroll container (CSS Overflow 3 §2.2), and an empty box adds nothing.
+#[test]
+fn a_roots_extent_is_its_box_and_what_overflows_it_down_to_a_clip() {
+    let src = r##"component Page
+  state tall = false
+  action grow
+    tall = true
+  view
+    main width="100%" height="100%" box-sizing="border-box" padding-bottom=34
+      button press=grow testId="grow" height=44
+        text "Grow"
+      if tall
+        column height=1200 flex-shrink=0
+      column position="absolute" left=0 right=0 bottom=0 height=8
+      column height=10 overflow="hidden"
+        column height=5000 flex-shrink=0
+      column position="absolute" top=3000 left=0 width=0 height=0
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    assert_eq!(heights(&first, 1), [874.0], "{first}");
+    let grown = host.dispatch_at(view(&host, "grow"), Event::Press, 0.0);
+    assert_eq!(heights(&grown, 1), [44.0 + 1200.0 + 10.0], "{grown}");
 }

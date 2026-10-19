@@ -63,7 +63,7 @@ struct Seen {
     window: (f32, f32),
     edges: [f32; 4],
     /// The colours a bar is drawn in, which a new palette changes.
-    colors: [[u8; 4]; 4],
+    colors: [[u8; 4]; 8],
 }
 
 /// What the presenter keeps of its shell's bars.
@@ -160,7 +160,7 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn fit_bars(&mut self) -> Option<String> {
         self.bars.painter.as_ref()?;
         let (window, safe, frame) = self.bar_window();
-        let above = (safe[0] + look::TOP_HEIGHT - frame[1]).max(0.0);
+        let above = (safe[0] + look::top_height() - frame[1]).max(0.0);
         let nav = look::nav_height(self.bar_font_scale());
         let below = (frame[1] + frame[3] - (window.1 - safe[2] - nav)).max(0.0);
         match self.host.set_bar_room(Some((above, below))) {
@@ -310,14 +310,24 @@ impl<D: DataSource> Presenter<D> {
                 .filter(|_| barred)
                 .and_then(|route| self.content_scroller(route));
         }
+        use super::palette::{material, Material};
         use super::top::look::Role;
-        let colors = [
+        let [a, b, c, d] = [
             Role::Surface,
             Role::SurfaceContainer,
             Role::OnSurface,
             Role::Primary,
         ]
         .map(|role| role.color(dark));
+        // And those the navigation bar reads by Material's names.
+        let [e, f, g, h] = [
+            Material::OnSurfaceVariant,
+            Material::SecondaryContainer,
+            Material::Secondary,
+            Material::OnSecondaryContainer,
+        ]
+        .map(|role| material(role, dark).unwrap_or_default());
+        let colors = [a, b, c, d, e, f, g, h];
         let seen = Seen {
             dark,
             font_scale,

@@ -6,6 +6,9 @@
 //
 //   bun scripts/measure-controls.mjs <web|macos|ios|linux|android> [--json] [--keep <dir>] [--scratch <worktree>]
 //
+// On the Mac the run is activated (EXACT_AGENT_ACTIVATE=1: a key window, where AppKit draws a control's accent),
+// so it takes the focus while it runs; the app in front before is put back after.
+//
 // For each (control, parameter), over the control's pixels:
 // - exact: at least 4 pixels within ΔE00 3 of the authored colour where
 //   the plain build's pixel is not;
@@ -17,8 +20,8 @@
 // - none: else (the platform's own colour stands);
 // - unmeasured: fewer than 16 pixels in the frame, or frames that differ
 //   between the builds (the run fails, naming it).
-// Pixels that move between two looks 0.7 s apart in either build
-// (animation) are left out first (theme2's 08:42 ruling, as is the hue).
+// Pixels that move between two looks in either build, the app's clock
+// held (an animation the clock does not drive), are left out first (theme2's 08:42 ruling, as is the hue).
 // Run each host's prerequisites first (a web dist, a native build of the
 // host fixture, a simulator or emulator of your own, Android's reader APK:
 // with --scratch for the reader), as agent.mjs says.
@@ -113,6 +116,28 @@ function build(dir, authored) {
  * Linux host under adb), which boots the plan its APK bakes: the fixture
  * goes in as the app of a scratch checkout (`--scratch <worktree>`, whose
  * `apps/tamber-host` it overwrites) and the APK is built there. */
+/** The app in front on this Mac (its LaunchServices ASN and bundle id), or
+ * null: put back in front after the Mac's activated run (`frontAgain`). */
+function frontApp() {
+  const asn = spawnSync('lsappinfo', ['front'], { encoding: 'utf8' }).stdout.trim().replace(/:$/, '');
+  if (!asn) return null;
+  const info = spawnSync('lsappinfo', ['info', '-only', 'bundleid', asn], { encoding: 'utf8' }).stdout;
+  return { asn, bundle: /(?:bundleID|"CFBundleIdentifier")="([^"]+)"/.exec(info)?.[1] ?? null };
+}
+
+/** `front` in front again, only while it still runs (neither launched nor
+ * reopened): LaunchServices' `setfront`, else (refused to a process like this
+ * one) an Apple Event `activate` to its bundle; said when neither can. */
+function frontAgain(front) {
+  const running = () => /pid\s*=\s*\d+|"pid"\s*=\s*\d+/.test(spawnSync('lsappinfo', ['info', '-only', 'pid', front.asn], { encoding: 'utf8' }).stdout);
+  if (!running()) return;
+  const set = spawnSync('lsappinfo', ['setfront', front.asn], { encoding: 'utf8' });
+  if (set.status === 0 && !/ERROR/.test(set.stdout + set.stderr)) return;
+  // (Checked running in the same script, the moment before: an app that quits in between could be launched again.)
+  if (front.bundle && spawnSync('osascript', ['-e', `if application id "${front.bundle}" is running then tell application id "${front.bundle}" to activate`], { encoding: 'utf8' }).status === 0) return;
+  console.error(`measure-controls: could not put ${front.bundle ?? front.asn} back in front`);
+}
+
 function capture(plan, png, dir) {
   const ids = [...new Set(ROWS.map(r => r[2]))];
   let root = ROOT, target = ['--plan', plan];
@@ -130,13 +155,21 @@ function capture(plan, png, dir) {
     root = scratch;
     target = ['--reader', '--app', 'tamber-host'];
   }
-  const r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, 'clock +700 real', `screenshot ${png.replace(/\.png$/, '.again.png')}`], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
+  // The Mac draws a control's accent only in a key window, which an agent's window never is (it takes no focus):
+  // EXACT_AGENT_ACTIVATE=1, for this run only, activates the app; it puts back the app in front when it quits, and
+  // so does this, however the run ends (LLP 1121 stage 9 F2).
+  const front = host === 'macos' ? frontApp() : null;
+  let r;
+  try {
+    r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, `screenshot ${png.replace(/\.png$/, '.again.png')}`],
+      { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, env: host === 'macos' ? { ...process.env, EXACT_AGENT_ACTIVATE: '1' } : process.env });
+  } finally { if (front) frontAgain(front); }
   if (r.status !== 0) throw new Error(`agent ${host}: ${r.stderr || r.stdout}`);
   const replies = r.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
   const frames = {};
   for (const reply of replies) if (reply.node?.testId) frames[reply.node.testId] = reply.node.space;
   const shot = replies.findLast(x => x.screenshot), image = decodePng(readFileSync(png));
-  // A second look 0.7 s later: a pixel that moved between them is animation.
+  // A second look, the app's clock held: a pixel that moved is an animation the clock does not drive.
   const again = decodePng(readFileSync(png.replace(/\.png$/, '.again.png')));
   // A phone's screenshot is its whole screen: the viewport's width, and the
   // status bar above the app's first row (the reader draws under no other).
@@ -146,6 +179,11 @@ function capture(plan, png, dir) {
     const top = Number(bars.match(/type=statusBars frame=\[\d+,\d+\]\[\d+,(\d+)\]/)?.[1] ?? NaN);
     if (!points || !Number.isFinite(top)) throw new Error(`${host}: the screenshot's scale or the status bar's height is unknown`);
     return { frames, image, again, points, top };
+  }
+  // The Mac's pictures count only if each was taken active, in a key window (the activated run says so on each): an
+  // inactive window draws every control grey, which would read every accent cell as none.
+  if (host === 'macos' && replies.filter(x => x.screenshot).some(x => x.active !== true)) {
+    throw new Error('macos: a picture was taken with the app not active or its window not key (EXACT_AGENT_ACTIVATE): measure again');
   }
   return { frames, image, again, points: shot.w, top: 0 };
 }
@@ -223,6 +261,12 @@ if (import.meta.main) {
       // The two builds' pixels are compared one for one: their frames must agree.
       const [fa, fp] = [a.frames[id].viewport, p.frames[id].viewport];
       if (['x', 'y', 'w', 'h'].some(k => Math.abs(fa[k] - fp[k]) > 0.5)) return { control, parameter, fidelity: 'unmeasured', why: `${id}'s frame differs between the builds` };
+      // A frame either screenshot does not hold whole is not measured.
+      const outside = (c, f) => {
+        const k = c.image.width / c.points, tall = (c.image.height - c.top) / k;
+        return f.x < -0.5 || f.y < -0.5 || f.x + f.w > c.points + 0.5 || f.y + f.h > tall + 0.5;
+      };
+      if (outside(a, fa) || outside(p, fp)) return { control, parameter, fidelity: 'unmeasured', why: `${id} runs past the screenshot` };
       // Every other colour the fixture asks for (a field's ground paints its placeholder's box too).
       const others = [...new Set(ROWS.map(o => o[3]).filter(c => c !== target))];
       // Pixels either build moved between its two looks (animation) decide nothing.

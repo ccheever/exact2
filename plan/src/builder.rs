@@ -100,7 +100,7 @@ impl PlanBuilder {
             .strings
             .iter()
             .enumerate()
-            .map(|(i, s)| (s.clone(), StrId(i as u32)))
+            .map(|(i, s)| (s.to_owned(), StrId(i as u32)))
             .collect();
         PlanBuilder {
             plan,
@@ -607,6 +607,33 @@ impl PlanBuilder {
             ty,
         });
         SourcesId(self.plan.sources.len() as u32 - 1)
+    }
+
+    /// A native module's name (LLP 1133.002 D13): `source` is answered by
+    /// the module through the native slot, not by the app's data.
+    #[allow(clippy::too_many_arguments)]
+    pub fn module(
+        &mut self,
+        source: SourcesId,
+        extension: &str,
+        declared: &str,
+        send: bool,
+        live: bool,
+        request: &str,
+        sync: &str,
+        substitute: &str,
+    ) {
+        let row = ModulesRow {
+            source,
+            extension: self.str(extension),
+            declared: self.str(declared),
+            send,
+            live,
+            request: self.str(request),
+            sync: self.str(sync),
+            substitute: self.str(substitute),
+        };
+        self.plan.modules.push(row);
     }
 
     /// A run of argument expressions.

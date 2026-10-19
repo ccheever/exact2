@@ -39,11 +39,6 @@ pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
 }
 
 impl<D: DataSource> Bridge<D> {
-    /// Install before boot; each replacement measurer keeps this callback.
-    pub fn set_decorated_measure(&mut self, read: Option<crate::measure::DecoratedMeasureFn>) {
-        self.decorated_measure = read;
-    }
-
     /// The first ask for `perf` (`exact_measure_work`): this runtime counts
     /// its plan sites' work from now, where its bake counts any, and every
     /// runtime booted after counts from boot.
@@ -241,7 +236,8 @@ impl<D: DataSource> Bridge<D> {
     /// `{"button","title","symbol","raster","leading","label","fits","style",
     /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
     /// empty) for a node that is not a button, the symbol as the platform
-    /// names it, the style's row of the `buttonStyles` table (`bordered` for a
+    /// names it (an svg-only icon's "", its `symbolPath` and `symbolViewBox`
+    /// beside it, and `symbolIcon`, its token's name, for the agent), the style's row of the `buttonStyles` table (`bordered` for a
     /// name not in it); with no `buttonStyle` written, `"style":null` and no
     /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
@@ -254,7 +250,11 @@ impl<D: DataSource> Bridge<D> {
                 let style = kernel
                     .node(view)
                     .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle));
-                crate::button::face_json(face.as_ref(), rows.as_ref(), style)
+                let icon = face
+                    .as_ref()
+                    .and_then(|f| f.symbol.as_deref())
+                    .and_then(|s| crate::icon_path::icon_name(h.runner().plan(), s));
+                crate::button::face_json_named(face.as_ref(), rows.as_ref(), style, icon)
             },
         );
         self.output = json.into_bytes();
@@ -393,9 +393,10 @@ impl<D: DataSource> Bridge<D> {
 
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
-    /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",
+    /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol",("symbolPath","symbolViewBox": an
+    /// svg-only icon's, `icon_path::push_json`),"title",
     /// "secondary","subtitle","accessory","target","pressable","action",
-    /// "checked","destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
+    /// "checked","destructive","disabled","authoredEdge","nextAuthoredTop","titleLook","secondaryLook"}]}],"spaceBelow"}`,
     /// `null` for a node that is not one. A look is `{"lines","ellipsis",
     /// "color","font"}`: a colour row's wire form and `{"size","weight",
     /// "italic","family","numeric"}`, each `null` where the author said nothing.
@@ -463,6 +464,8 @@ impl<D: DataSource> Bridge<D> {
                             r.view, r.custom
                         ));
                         opt(&r.symbol, &mut json);
+                        // An svg-only icon's path (LLP 1121 D10, stage 9 A2).
+                        crate::icon_path::push_json(r.icon.as_deref(), &mut json);
                         json.push_str(",\"title\":");
                         opt(&r.title, &mut json);
                         json.push_str(",\"secondary\":");
@@ -476,13 +479,15 @@ impl<D: DataSource> Bridge<D> {
                             Accessory::Radio(id, on) => ("radio", Some(id), on),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"action\":{},\"destructive\":{},\"disabled\":{}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"action\":{},\"destructive\":{},\"disabled\":{},\"authoredEdge\":{},\"nextAuthoredTop\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,
                             r.action,
                             r.destructive,
-                            r.disabled
+                            r.disabled,
+                            r.authored_edge,
+                            r.next_authored_top
                         ));
                         look(",\"titleLook\":", &r.title_look, &mut json);
                         look(",\"secondaryLook\":", &r.secondary_look, &mut json);

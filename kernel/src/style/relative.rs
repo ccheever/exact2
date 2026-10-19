@@ -113,7 +113,9 @@ fn same_role(written: &str, name: &str) -> bool {
 pub fn column_index(column: crate::style::metrics::Column) -> usize {
     use crate::style::metrics::Column;
     match column {
-        Column::Web => 0,
+        // Android's type is the device's reported ramp, never a table's
+        // (LLP 1115.001.001 D2.5): its look reads the web's until that lands.
+        Column::Web | Column::Material => 0,
         Column::Ios => 1,
         Column::Mac => 2,
         Column::Neutral => 3,

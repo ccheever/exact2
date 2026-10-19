@@ -37,7 +37,7 @@ fn role(name: &str, sf: bool) -> Vec<String> {
 /// first, as an icon's `sf` does before a role's Apple name), and, when a
 /// source is bound, each role the plan's strings name.
 pub(crate) fn table(plan: &Plan, bound: bool) -> String {
-    let s = |id: u32| plan.strings.get(id as usize).map_or("", String::as_str);
+    let s = |id: u32| plan.strings.get(id as usize).unwrap_or("");
     let mut out: Vec<String> = Vec::new();
     for i in &plan.icons {
         let (path, file) = match s(i.path.0) {

@@ -40,8 +40,9 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" -exact-tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
+    // An empty name is no symbol, as an empty `sf/` one is (stage 9 H,
+    // vocab.rs's an_empty_symbol_name_is_no_symbol).
     for role in [
-        "",
         "Search",
         "serach",
         "bookmark.filled",
@@ -54,10 +55,7 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{error}");
         // LLP 1116 D8: after the roles, the form that names any SF Symbol.
-        let sf = format!(
-            "`symbol:sf/{}`",
-            if role.is_empty() { "star.fill" } else { role }
-        );
+        let sf = format!("`symbol:sf/{role}`");
         assert!(
             error.message.contains("`symbol:sf/<name>`") && error.message.contains(&sf),
             "{error}"

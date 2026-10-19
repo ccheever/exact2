@@ -75,7 +75,7 @@ struct HeaderShape: Equatable {
             var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
                 for case let child as NodeView in node.container.subviews {
-                    if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
+                    if child.kind == "image", let name = child.faceSymbol {
                         if symbol == nil { symbol = name; ink = (child, "tint_color") }
                     } else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? (child, "text_color") }
                     else { walk(child) }
@@ -266,7 +266,7 @@ struct BadgeFace: Equatable {
         var text = "", symbol: String?, ink: NodeView?
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
-                if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = symbol ?? name; ink = ink ?? child }
+                if child.kind == "image", let name = child.faceSymbol { symbol = symbol ?? name; ink = ink ?? child }
                 else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
                 else { walk(child) }
             }
@@ -304,7 +304,7 @@ struct BadgeFace: Equatable {
             TextEngine.color(c[0]).setFill()
             UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
             let ink = TextEngine.color(c[1])
-            if let symbol, let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
+            if let symbol, let glyph = FaceSymbol.image(symbol, points: size * 0.42, configuration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
                 glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
             } else {
                 let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: size * 0.42, weight: .medium), .foregroundColor: ink]
@@ -328,6 +328,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // The bar as the route coming into view wants it, alongside UIKit's
         // transition: a cancelled pop calls this again for the source (§9.10).
         host?.showBar(nav, for: controller as? RouteController, animated: animated)
+        host?.followFloatingBar(nav, for: controller, animated: animated)
         host?.navigationController(nav, willShow: controller, animated: animated)
         app?.navigationController?(nav, willShow: controller, animated: animated)
     }
@@ -336,7 +337,21 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // Restoring a hidden bar changes the route's safe area. Lay out its
         // container before reporting that cover to the kernel.
         nav.view.setNeedsLayout()
-        if nav.viewIfLoaded?.window != nil { nav.view.layoutIfNeeded() }
+        if nav.viewIfLoaded?.window != nil {
+            // That layout can start the bar's own update UIKit deferred to
+            // the transition's end (iPadOS applies a push's items only then):
+            // started inside the end, it takes the bar's touches and never
+            // gives them back (UIKit gives them back when a transition ends,
+            // and this one already has), so Back and a drawn title take no
+            // taps. What this layout took is given back at once, before the
+            // host and the app hear of the route: a bar either of them turns
+            // off stays off. (An update UIKit animates takes taps a moment
+            // early; one it leaves to a later turn is not this layout's.)
+            let bar = nav.navigationBar, touches = bar.isUserInteractionEnabled
+            nav.view.layoutIfNeeded()
+            if touches, !bar.isUserInteractionEnabled { bar.isUserInteractionEnabled = true }
+        }
+        host?.followFloatingBar(nav, for: controller, animated: false) // (where it settled: a cancelled pop's source included)
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }
@@ -357,6 +372,26 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     weak var host: NavigationHost?
     /// The field's placeholder is drawn in an authored colour, not UIKit's.
     var paintsPlaceholder = false
+    /// The field's text is drawn in its own colour or the design's FieldText.
+    var paintsInk = false
+    /// UIKit's field's text: the node's own colour, else the design's
+    /// FieldText where it overrides it, else UIKit's (LLP 1115 D4, LLP 1121
+    /// D9); and its fill, the design's Field where it overrides it. Set
+    /// again on a live retheme.
+    func ink() {
+        #if !os(tvOS)
+        guard let field else { return }
+        let text = controller.searchBar.searchTextField
+        text.backgroundColor = field.fieldGroundColor
+        if field.showsOwnTextColor || ThemeRoles.color("FieldText", in: field) != nil {
+            text.textColor = field.fieldInk
+            paintsInk = true
+        } else if paintsInk {
+            text.textColor = .label
+            paintsInk = false
+        }
+        #endif
+    }
     weak var field: NodeView? {
         didSet {
             if oldValue !== field { oldValue?.headerField = nil }
@@ -383,11 +418,18 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     /// The navigation item the controller is on.
     weak var item: UINavigationItem?
     /// The field scrolls away with the content only while it is empty
-    /// (`NavigationHost.searchField`).
+    /// (`NavigationHost.searchField`), and never when its author made it
+    /// stick vertically, CSS's way to keep a box in view as its scroller
+    /// scrolls (React Navigation's `hideWhenScrolling={false}`): `position:
+    /// sticky` with a `top` or `bottom` that is not `auto` (CSS Positioned
+    /// Layout 3 §3.4: a box with both `auto` does not stick on that axis).
     func applyHiding() {
         #if os(iOS)
         guard let item else { return }
-        let hides = (field?.props["value"] ?? "").isEmpty
+        let sticks = field.map { f in
+            f.style["position_type"]?.string == "sticky" && ["top", "bottom"].contains { f.style[$0]?.length(basis: 0) != nil }
+        } ?? false
+        let hides = (field?.props["value"] ?? "").isEmpty && !sticks
         if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
         #endif
     }
@@ -604,7 +646,10 @@ extension NavigationHost {
     func retheme() {
         var seen = Set<ObjectIdentifier>()
         for nav in [primaryNavigation].compactMap({ $0 }) + presentedNavigations + tabNavigations.values where seen.insert(ObjectIdentifier(nav)).inserted { titleInk(nav) }
-        for c in controllers.values { c.titleView?.retheme() }
+        for c in controllers.values {
+            c.titleView?.retheme()
+            c.search?.ink()
+        }
     }
 
     func makeNavigation(first: NodeView?) -> UINavigationController {
@@ -871,6 +916,7 @@ extension NavigationHost {
             bar.searchTextField.attributedPlaceholder = nil
             bar.placeholder = placeholder
         }
+        search.ink()
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
@@ -927,14 +973,15 @@ extension NavigationHost {
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
     /// scroll edge appearance follows it; its inset does not change. A
     /// scroller with something above it in the route keeps its place and the
-    /// title keeps still: what is above it would sit under the bar.
+    /// title keeps still: what is above it would sit under the bar. A route
+    /// with no bar in containers that take the whole view puts its first
+    /// scroller under the status bar the same way (LLP 1130 D3).
     private func collapse(_ c: RouteController, shape: HeaderShape?, shows: Bool, scroller: NodeView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
-        let flowing = { (v: NodeView) in
-            !v.isHidden && v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-        }
-        let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil } }
-            ?? (shows ? kids.first(where: flowing) : nil)
+        let flowing = { (v: NodeView) in !v.isHidden && Self.inFlow(v) }
+        let whole = wantsWholeView && presenter.viewportFit != "cover"
+        let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
+            ?? (shows || whole ? kids.first(where: flowing) : nil)
         let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let physical = target?.scrollView
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
@@ -976,15 +1023,13 @@ extension NavigationHost {
     /// Register a replacement before its first native layout. Resolve only
     /// the containing route, preserving that stack's Back relationships.
     func scrollBackendChanged(_ node: NodeView) {
-        var responder: UIResponder? = node
-        while let current = responder {
+        for current in ViewPresentation.controllers(for: node) {
             if let route = current as? RouteController, route.host === self,
                let nav = route.navigationController {
                 guard route.collapseScroll === node || route.edgeScroll === node || (node.scrollView != nil && contentScroller(of: route) === node) else { return }
                 prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
                 return
             }
-            responder = current.next
         }
     }
 
@@ -1022,9 +1067,7 @@ extension NavigationHost {
     /// cover. One that scrolls vertically only: UIKit's bottom inset would
     /// let a sideways carousel scroll up and down.
     static func bottomScroller(in route: NodeView) -> NodeView? {
-        let flowing = { (v: NodeView) in
-            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-        }
+        let flowing = inFlow
         // The last in-flow child spans the bottom edge alone when every other
         // ends above its top, as children stacked down a block or a column
         // do. Beside it in a row or a grid, a sibling reaches the edge too
@@ -1046,6 +1089,21 @@ extension NavigationHost {
             if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }
             parent = last
         }
+    }
+
+    /// Whether `v` takes a place in its parent's flow as the kernel lays it
+    /// out: not `display: none`, not positioned out of it, and not a closed
+    /// `dialog` or popover, which the host leaves out of layout
+    /// (`MenuHost.layOut`), as a browser's `dialog:not([open])` and
+    /// `[popover]:not(:popover-open)` are `display: none`. So a route's
+    /// menus and confirmations, written between its header and its scroller
+    /// or after the scroller, leave the scroller its route's top and bottom
+    /// edges. One given back to layout to show in Exact's views (a context
+    /// menu's preview, the agent's painted popover) counts as laid out.
+    static func inFlow(_ v: NodeView) -> Bool {
+        let topLayer = v.props["popover"] != nil || v.props["semanticTag"] == "dialog"
+        return v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+            && (!topLayer || v.presenter?.menus.isLaidOut(v) == true)
     }
 
     /// The physical backend owned by a content node.
@@ -1093,7 +1151,7 @@ extension NavigationHost {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
-        let image = i.badge?.image ?? i.chip?.image(tint: presenter.viewport.tintColor) ?? i.symbol.flatMap { UIImage(systemName: $0) }
+        let image = i.badge?.image ?? i.chip?.image(tint: presenter.viewport.tintColor) ?? i.symbol.flatMap { FaceSymbol.image($0, points: FaceSymbol.barItemPoints) }
         let item: UIBarButtonItem
         if i.menu, let button = presenter.views[i.id] {
             // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
@@ -1251,13 +1309,16 @@ extension NavigationHost {
             // UIKit's own does, but a title's insets are not sampled.
             let search = searching(c)
             let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
-            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 {
+            // A route showing no bar has no title: its inset is the status bar's, none in landscape (LLP 1130 D3).
+            let barless = !routeShowsBar(c, in: nav)
+            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
                 let inset = sv.adjustedContentInset.top
+                if c.insetsBarless != barless { c.insetsBarless = barless; node.scrollCollapsed = 0 }
                 // tvOS has no large titles: every title is inline.
                 #if os(tvOS)
                 let inline = true
                 #else
-                let inline = c.navigationItem.largeTitleDisplayMode != .always
+                let inline = c.navigationItem.largeTitleDisplayMode != .always || barless
                 #endif
                 if inline {
                     // An inline title does not collapse: its inset is the one it has.

@@ -6,7 +6,7 @@
 // loopback port it listens on, and answers JSON lines until the driver hangs
 // up; then it waits on that port for the next session, which opens with
 // `{"token":T,"app":bundle id}`, and ends after ten idle minutes or `quit`.
-//   {"op":"tap","point":[x,y],"screen":[x,y]?}
+//   {"op":"tap","point":[x,y],"screen":[x,y]?,"display":[w,h]?}
 //                                a tap at a point in the app's scene, points
 //                                → {"done":true,"injected":{"start":ms,"end":ms,"via":…}}
 //   {"op":"drag","point":[x,y],"to":[x,y],"press":s,"velocity":v,"hold":s}
@@ -69,7 +69,8 @@ final class ExactTouches: XCTestCase {
                 let start = Date().timeIntervalSince1970 * 1000
                 var via = "synthesizer"
                 let screen = (req["screen"] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil }
-                switch screen.map(Synthesizer.tap) ?? .missing {
+                let size = (req["display"] as? [Double]).flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
+                switch screen.map({ Synthesizer.tap($0, display: size.flatMap(Displays.showing)) }) ?? .missing {
                 case .injected: break
                 // Only a tap that was never injected falls back to the public one; one still in flight may yet land, and
                 // a second tap would press twice (a toggle back where it was), so it fails instead.
@@ -125,6 +126,7 @@ enum Synthesizer {
     private typealias InitPath = @convention(c) (AnyObject, Selector, CGPoint, Double) -> AnyObject
     private typealias Lift = @convention(c) (AnyObject, Selector, Double) -> Void
     private typealias InitRecord = @convention(c) (AnyObject, Selector, NSString, Int) -> AnyObject
+    private typealias InitRecordOnDisplay = @convention(c) (AnyObject, Selector, NSString, Int, Int) -> AnyObject
     private typealias Add = @convention(c) (AnyObject, Selector, AnyObject) -> Void
     private typealias Get = @convention(c) (AnyObject, Selector) -> AnyObject?
     private typealias Synthesize = @convention(c) (AnyObject, Selector, AnyObject, @escaping @convention(block) (Bool, NSError?) -> Void) -> Void
@@ -140,18 +142,22 @@ enum Synthesizer {
     /// A touch down at `at`, in portrait screen points, lifted 50 ms later:
     /// `injected` or `refused` by the completion, `unfinished` when none came
     /// in 5 s (it may still land), `missing` when this Xcode has no such SPI.
-    static func tap(_ at: CGPoint) -> Outcome {
+    static func tap(_ at: CGPoint, display: Int?) -> Outcome {
         let pathClass: AnyClass? = NSClassFromString("XCPointerEventPath"), recordClass: AnyClass? = NSClassFromString("XCSynthesizedEventRecord")
         guard let alloc = imp(pathClass, "alloc", Alloc.self, classMethod: true), let recordAlloc = imp(recordClass, "alloc", Alloc.self, classMethod: true),
               let initPath = imp(pathClass, "initForTouchAtPoint:offset:", InitPath.self),
               let up = imp(pathClass, "liftUpAtOffset:", Lift.self), let initRecord = imp(recordClass, "initWithName:interfaceOrientation:", InitRecord.self),
               let add = imp(recordClass, "addPointerEventPath:", Add.self), let synthesizer = imp(XCUIDevice.self, "eventSynthesizer", Get.self),
               let device = synthesizer.1(XCUIDevice.shared, synthesizer.0) else { return .missing }
+        let initOnDisplay = imp(recordClass, "initWithName:displayID:interfaceOrientation:", InitRecordOnDisplay.self)
+        if display != nil, initOnDisplay == nil { return .missing }
         let syn = NSSelectorFromString("synthesizeEvent:completion:")
         guard let method = class_getInstanceMethod(object_getClass(device), syn) else { return .missing }
         let path = initPath.1(alloc.1(pathClass!, alloc.0), initPath.0, at, 0)
         up.1(path, up.0, 0.05)
-        let record = initRecord.1(recordAlloc.1(recordClass!, recordAlloc.0), initRecord.0, "exact" as NSString, UIInterfaceOrientation.portrait.rawValue)
+        let blank = recordAlloc.1(recordClass!, recordAlloc.0), portrait = UIInterfaceOrientation.portrait.rawValue
+        let record = if let display, let initOnDisplay { initOnDisplay.1(blank, initOnDisplay.0, "exact" as NSString, display, portrait) }
+            else { initRecord.1(blank, initRecord.0, "exact" as NSString, portrait) }
         add.1(record, add.0, path)
         var result: Bool?
         unsafeBitCast(method_getImplementation(method), to: Synthesize.self)(device, syn, record) { ok, _ in DispatchQueue.main.async { result = ok } }
@@ -224,4 +230,30 @@ final class Link {
             buffer.append(contentsOf: chunk[0..<n])
         }
     }
+}
+
+/// The display a tap goes to on a device with more than one (the iPhone
+/// Duo's inner and outer displays): XCTest presses its main display unless
+/// an event names another, and the Duo's main display is the outer one.
+/// `display` in a tap is the size of the screen the app's window is on, as
+/// the host reports it with its aim (not its scene's, which Split View or a
+/// smaller window makes smaller); each display's size is read once, from a
+/// screenshot (XCUIScreen has no public bounds), and matched to it either
+/// way round.
+enum Displays {
+    private static let displays: [(id: Int, sides: (CGFloat, CGFloat))] = {
+        let screens = XCUIScreen.screens
+        return screens.count < 2 ? [] : screens.compactMap { screen in
+            guard (screen as NSObject).responds(to: NSSelectorFromString("displayID")) else { return nil }
+            return ((screen as NSObject).value(forKey: "displayID") as? Int).map { ($0, sides(screen.screenshot().image.size)) }
+        }
+    }()
+
+    static func showing(_ screen: CGSize) -> Int? {
+        let want = sides(screen)
+        return displays.first { abs($0.sides.0 - want.0) < 1 && abs($0.sides.1 - want.1) < 1 }?.id
+    }
+
+    /// A size's short and long sides, the same whichever way the display is turned
+    private static func sides(_ size: CGSize) -> (CGFloat, CGFloat) { (min(size.width, size.height), max(size.width, size.height)) }
 }

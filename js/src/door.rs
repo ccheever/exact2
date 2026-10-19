@@ -99,6 +99,17 @@ pub(crate) unsafe extern "C" fn host_door(
                     (*store).observe_topic(&b);
                 }
                 Ok(None)
+            } else if a == "kept" {
+                // What the app keeps across launches (LLP 1069.010.000 D5):
+                // the device's, and a candidate on trial changes none of it.
+                if let Some(store) = state.store {
+                    (*store).observe_external_read();
+                }
+                if state.baking || (state.validating && !b.is_empty()) {
+                    Err("bake".into())
+                } else {
+                    super::storage::kept(state.kept, &b)
+                }
             } else if a == "later" {
                 Ok(state.later.then(|| "later".into()))
             } else {

@@ -20,7 +20,7 @@ test('a boundary takes its tuple and the inherited token text, in document order
   const own = el(page, 'c3', { 'data-x-b': '1', 'data-x-pin': 'ink=plain' });
   const bad = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'dark-style:dim' });
   const bound = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'unset' });
-  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {}, [], { '--x-text-primary': 'text.primary', '--x-text-secondary': 'text.secondary' });
+  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {}, [], { '--x-text-primary': 'text.primary', '--x-text-secondary': 'text.secondary', '--exact-canvas-text': 'CanvasText' });
   for (const f of After) f();
   expect(document.documentElement.getAttribute('data-x-modes')).toBe('dark-style=black,ink=tint');
   expect(dim.getAttribute('data-x-modes')).toBe('dark-style=dim,ink=tint');
@@ -60,6 +60,9 @@ test('a boundary takes its tuple and the inherited token text, in document order
   expect(T(pinned, 'color', 'var(--x-text-secondary)')).toEqual({ names: ['text.secondary'], text: 'var(--x-text-secondary)', modes: 'dark-style=dim,ink=tint', implied: true });
   expect(T(page, 'color', 'var(--x-text-secondary)').implied).toBe(false);
   expect(T(page, 'color', '#123456')).toBeUndefined();
+  // A role's override is named too (stage 9 E: a held row that reads it names it); a host's own property is not.
+  expect(T(page, 'color', 'var(--exact-canvas-text)').names).toEqual(['CanvasText']);
+  expect(T(page, 'color', 'var(--exact-accent)')).toBeUndefined();
   // Off a boundary a clear is written as itself.
   const plainBox = el(page, '');
   Sx(S, plainBox, 'color', '', () => 'inherit', 0);
@@ -110,6 +113,9 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   const frame = (design, rev, css, more = {}) => ({ ...batch, base: null, kind: 'tamber-snapshot', design, scrub: { id: 'scrub-1', rev }, tokens: [{ ...batch.tokens[0], css }], ...more });
   expect(design(frame('d3', 2, ['#222222ff', '#333333ff'], { kind: 'tamber-batch', base: 'd2' })).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#333333ff');
+  // Transitions stay off through the drag, and come back once it rests.
+  expect(document.documentElement.getAttribute('data-x-scrub')).toBe('');
+  await new Promise(ok => setTimeout(ok, 200));
   expect(document.documentElement.getAttribute('data-x-scrub')).toBe(null);
   expect(design(frame('d4', 1, ['#444444ff', '#555555ff'])).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#333333ff');

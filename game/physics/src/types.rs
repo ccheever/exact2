@@ -231,8 +231,9 @@ pub struct Hit {
 }
 
 impl Collider {
-    /// Match a primitive's dimensions. A plane becomes a 1 cm box slab whose
-    /// top is at Y=0. Assets require an authored collision shape and are refused.
+    /// Match a cube, cuboid, sphere, capsule, cylinder or plane's dimensions.
+    /// A plane becomes a 1 cm box slab whose top is at Y=0. Ring, torus, cone
+    /// and assets require explicit collision geometry and are refused.
     pub fn of(mesh: &exact_game::Mesh) -> Self {
         use exact_game::Mesh;
         mesh.validate().unwrap_or_else(|e| panic!("{e}"));
@@ -250,6 +251,9 @@ impl Collider {
             Mesh::Plane { width, depth } => Shape::Box {
                 half: Vec3::new(width * 0.5, 0.005, depth * 0.5),
             },
+            Mesh::Ring { .. } | Mesh::Torus { .. } | Mesh::Cone { .. } => {
+                panic!("Collider::of: {mesh:?} needs an authored collision shape")
+            }
             Mesh::Asset(name) => {
                 panic!("Collider::of: asset {name} needs an authored collision shape")
             }

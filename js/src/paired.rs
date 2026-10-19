@@ -28,7 +28,33 @@ impl Paired {
         expected_app: &str,
         expected_grants: &str,
     ) -> Result<Self, String> {
-        if receipt.len() > 1 << 20 || plan.len() > 32 << 20 || bytecode.len() > 32 << 20 {
+        let module = Self::module(receipt, bytecode, None, expected_app, expected_grants)?;
+        let meta: Value = serde_json::from_str(receipt).map_err(|e| e.to_string())?;
+        let card = &meta["plan"];
+        if plan.len() > 32 << 20
+            || card["file"] != "app.plan"
+            || card["bytes"].as_u64() != Some(plan.len() as u64)
+            || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(plan)))
+        {
+            return Err("module candidate plan does not match its receipt".into());
+        }
+        let plan = Plan::decode(plan).map_err(|e| format!("candidate plan: {e:?}"))?;
+        if plan.app_id != expected_app {
+            return Err("candidate plan and module name different apps".into());
+        }
+        Ok(Self { plan, module })
+    }
+    /// Admit bytecode from an already pinned widget generation without decoding
+    /// the running app's plan. The generation pairs all its entry plans (D8).
+    pub(crate) fn module(
+        receipt: &str,
+        bytecode: impl AsRef<[u8]> + Into<Bytecode>,
+        entry: Option<(&str, &[u8])>,
+        expected_app: &str,
+        expected_grants: &str,
+    ) -> Result<Module, String> {
+        let bytes = bytecode.as_ref();
+        if receipt.len() > 1 << 20 || bytes.len() > 32 << 20 {
             return Err("module candidate exceeds its size limit".into());
         }
         let meta: Value = serde_json::from_str(receipt).map_err(|e| e.to_string())?;
@@ -41,7 +67,7 @@ impl Paired {
         }
         if BYTECODE_VERSION == 0
             || meta["bytecodeVersion"].as_u64() != Some(BYTECODE_VERSION.into())
-            || bytecode.get(..12) != crate::PRELUDE.get(..12)
+            || bytes.get(..12) != crate::PRELUDE.get(..12)
         {
             return Err("module candidate has an incompatible Hermes bytecode version".into());
         }
@@ -53,27 +79,64 @@ impl Paired {
                 "module candidate changes the client's admitted grants; rebuild the client".into(),
             );
         }
-        for (key, name, bytes) in [
-            ("plan", "app.plan", plan),
-            ("module", "app.hbc", &bytecode[..]),
-        ] {
-            let card = &meta[key];
-            let digest = format!("{:x}", Sha256::digest(bytes));
-            if card["file"].as_str() != Some(name)
-                || card["bytes"].as_u64() != Some(bytes.len() as u64)
-                || card["sha256"].as_str() != Some(&digest)
+        let card = &meta["module"];
+        if card["file"] != "app.hbc"
+            || card["bytes"].as_u64() != Some(bytes.len() as u64)
+            || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(bytes)))
+        {
+            return Err("module candidate module does not match its receipt".into());
+        }
+        if let Some((kind, plan)) = entry {
+            let card = &meta["plans"][kind];
+            if plan.len() > 32 << 20
+                || card["file"] != format!("plans/{kind}.plan")
+                || card["bytes"].as_u64() != Some(plan.len() as u64)
+                || card["sha256"].as_str() != Some(&format!("{:x}", Sha256::digest(plan)))
             {
-                return Err(format!("module candidate {key} does not match its receipt"));
+                return Err("snapshot entry does not match its module receipt".into());
             }
         }
-        let plan = Plan::decode(plan).map_err(|e| format!("candidate plan: {e:?}"))?;
-        if plan.app_id != expected_app {
-            return Err("candidate plan and module name different apps".into());
+        Ok(Module::new(bytecode, expected_app, expected_grants))
+    }
+}
+
+/// A module's bytecode: the program's own, read in place for the
+/// runtime's life, or bytes it owns, shared with the engine that runs them.
+/// The bake's `APP_BYTECODE` is aligned so that Hermes reads it where it is
+/// linked (the shim copies bytes that are not aligned).
+#[derive(Clone)]
+pub enum Bytecode {
+    /// Linked into the program.
+    Linked(&'static [u8]),
+    /// Read from elsewhere (an update, a test's fixture).
+    Owned(std::sync::Arc<[u8]>),
+}
+
+impl std::ops::Deref for Bytecode {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match self {
+            Bytecode::Linked(bytes) => bytes,
+            Bytecode::Owned(bytes) => bytes,
         }
-        Ok(Self {
-            plan,
-            module: Module::new(bytecode, expected_app, expected_grants),
-        })
+    }
+}
+
+impl From<&'static [u8]> for Bytecode {
+    fn from(bytes: &'static [u8]) -> Self {
+        Bytecode::Linked(bytes)
+    }
+}
+
+impl From<Vec<u8>> for Bytecode {
+    fn from(bytes: Vec<u8>) -> Self {
+        Bytecode::Owned(bytes.into())
+    }
+}
+
+impl From<std::sync::Arc<[u8]>> for Bytecode {
+    fn from(bytes: std::sync::Arc<[u8]>) -> Self {
+        Bytecode::Owned(bytes)
     }
 }
 
@@ -82,8 +145,8 @@ impl Paired {
 /// each for its revision (the page's checkpoint names it). A few recent
 /// bytecodes are kept, shared with their modules rather than copied, and
 /// compared byte for byte.
-pub(crate) fn revision_of(bytecode: &std::sync::Arc<[u8]>) -> String {
-    type Known = Vec<(std::sync::Arc<[u8]>, String)>;
+pub(crate) fn revision_of(bytecode: &Bytecode) -> String {
+    type Known = Vec<(Bytecode, String)>;
     static KNOWN: std::sync::Mutex<Known> = std::sync::Mutex::new(Vec::new());
     let mut known = KNOWN
         .lock()
