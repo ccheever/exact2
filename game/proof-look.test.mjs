@@ -185,7 +185,7 @@ test('in the browser, buried sparks fail the look and sparks above the ground pa
       const text = await new Response(p.stdout).text() + await new Response(p.stderr).text();
       const code = await p.exited;
       // A fresh game's first proof stops at the directory guard; the rerun is the proof.
-      if (attempt === 0 && text.includes('changed during build; rerun the proof')) continue;
+      if (attempt === 0 && /changed during build\b[^\n]*rerun the proof/.test(text)) continue;
       return {text, code, summary:JSON.parse(readFileSync(resolve(dir, 'summary.json'), 'utf8'))};
     }
     throw new Error(`${label}: the proof never ran past its build`);
