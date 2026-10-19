@@ -421,3 +421,31 @@ test('round 5: a refusal that names a mode and a limit is still a refusal, not t
   expect(f.collections[0]).not.toBe(first);
   expect(f.collections[0].modes.map((m: any) => m.name)).toEqual(['dark-style=grey, light', 'dark-style=grey, dark']);
 });
+
+test('round 6: a refusal is never the mode limit by its text (a collection named so); a replaced collection holding a stranger\'s variable is refused, all undone', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0];
+  col.name = 'Limited to 2 modes';
+  f.variables.find(v => v.name === 'accent/fill').remove();
+  f.figma.variables.createVariable('accent/fill', col, 'COLOR');
+  let undos = 0;
+  const trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { undos++; trigger(); };
+  await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/did not make/);
+  expect([undos, f.collections.length, f.collections[0]]).toEqual([0, 1, col]);
+  // The one-tuple rename that needs new collections, with a variable of the person's own in the old one.
+  await load(2);
+  const one = (style: string) => variant(d => {
+    const contexts = d.modifiers.mode.contexts;
+    for (const c of Object.keys(contexts)) if (!c.startsWith('dark-style=black')) delete contexts[c];
+    for (const s of ['light', 'dark']) { contexts[`dark-style=${style}, ${s}`] = contexts[`dark-style=black, ${s}`]; if (style !== 'black') delete contexts[`dark-style=black, ${s}`]; }
+    d.modifiers.mode.default = `dark-style=${style}, light`;
+  });
+  await send({ type: 'apply', text: one('black') }, 'applied');
+  const first = f.collections[0];
+  f.figma.variables.createVariable('local/gutter', first, 'FLOAT');
+  await expect(send({ type: 'apply', text: one('grey') }, 'applied')).rejects.toThrow(/local\/gutter/);
+  expect(f.collections).toEqual([first]);
+  expect(f.variables.some(v => v.name === 'local/gutter')).toBe(true);
+});

@@ -145,7 +145,14 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     const names = new Set([...col.modes.map((x: any) => x.name), ...final.map(([n]) => n)]);
     let n = 0;
     const temp = () => { while (names.has(`~tamber ${n}`)) n++; names.add(`~tamber ${n}`); return `~tamber ${n}`; };
-    for (const mode of c.modes) if (!ids[mode]) ids[mode] = col.addMode(temp());
+    // Figma's refusal of a mode too many, told from every other error here and only here.
+    for (const mode of c.modes) {
+      if (ids[mode]) continue;
+      try { ids[mode] = col.addMode(temp()); } catch (e: any) {
+        const limit = /\blimited to (\d+) modes?\b/i.exec(String(e?.message ?? e));
+        throw limit ? Object.assign(new Error(String(e?.message ?? e)), { capacity: Number(limit[1]) }) : e;
+      }
+    }
     const idOf = (mode: string, slot: string) => (slot === '' && parked ? parked[1] : ids[mode]);
     const touched = final.filter(([name, slot]) => col.modes.find((x: any) => x.modeId === idOf(name, slot))?.name !== name);
     for (const [name, slot] of touched) col.renameMode(idOf(name, slot), temp());
@@ -166,10 +173,10 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
 }
 /** Whether the document changed since the last undo step was committed. */
 let dirty = false;
-/** Figma's refusal of one mode too many (`in addMode: Limited to N modes only`), and nothing else. */
-const tooManyModes = (e: any) => /\blimited to \d+ modes?\b/i.test(String(e?.message ?? e));
+/** Figma's refusal of one mode too many, as `write` marks it at `addMode`, and nothing else. */
+const tooManyModes = (e: any) => typeof e?.capacity === 'number';
 /** The modes a collection may have, from Figma's refusal (`Limited to N modes`). */
-const limitOf = (e: any) => Number(/limited to (\d+)/i.exec(String(e?.message ?? e))?.[1] ?? 2);
+const limitOf = (e: any) => e.capacity as number;
 
 figma.ui.onmessage = async (msg: any) => {
   const say = (reply: object) => figma.ui.postMessage({ ...reply, id: msg.id });
@@ -223,7 +230,15 @@ figma.ui.onmessage = async (msg: any) => {
           // A layout the design outgrew (one collection to one a tuple, or
           // back): the earlier pull's collections go.
           const now = new Set(plan.collections.map(c => c.id)), collections = await figma.variables.getLocalVariableCollectionsAsync();
-          for (const c of before?.collections ?? []) { const old = collectionIn(collections, c); if (old && !now.has(old.id) && old.getSharedPluginData?.(KEY, 'owned')) old.remove(); }
+          // One holding a variable Tamber did not make is refused (the whole pull undone), never removed with it.
+          const variables = await figma.variables.getLocalVariablesAsync();
+          for (const c of before?.collections ?? []) {
+            const old = collectionIn(collections, c);
+            if (!old || now.has(old.id) || !old.getSharedPluginData?.(KEY, 'owned')) continue;
+            const theirs = variables.filter((v: any) => v.variableCollectionId === old.id && !v.getSharedPluginData?.(KEY, 'token')).map((v: any) => v.name);
+            if (theirs.length) throw new Error(`the collection \`${old.name}\` this pull would replace has variables Tamber did not make (${theirs.join(', ')}): move them, then pull`);
+            old.remove();
+          }
           keep('baseline', msg.text);
           keep('plan', JSON.stringify(plan));
           figma.commitUndo();
