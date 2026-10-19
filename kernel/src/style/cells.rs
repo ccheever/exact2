@@ -53,6 +53,14 @@ impl Dimension {
             // (A calc() whose percentage is 0 is points on every basis.)
             (true, Dimension::Points(v)) => Dimension::Points(space(v, cell)),
             (true, Dimension::Calc(0.0, v)) => Dimension::Points(space(v, cell)),
+            // A tree whose percentages count for nothing (`0%`), the same on
+            // any basis, is points too.
+            (true, Dimension::Compare(c)) => {
+                match (c.value(env, Some(0.0)), c.value(env, Some(1e4))) {
+                    (Some(a), Some(b)) if a == b => Dimension::Points(space(a, cell)),
+                    _ => self,
+                }
+            }
             _ => self,
         }
     }
@@ -185,5 +193,19 @@ mod tests {
         assert_eq!(celled.margin.top, Lpa::length(-16.0));
         assert_eq!(celled.padding.bottom, plain.padding.bottom);
         assert_ne!(celled.padding.bottom, Lp::length(0.0));
+        // A calc() tree whose percentage is 0 is points; one with a real
+        // percentage is as it is.
+        let mut t = StyleProps::default();
+        for (id, v) in [
+            (StyleId::PaddingTop, "calc(0% + 14px + 0vw)"),
+            (StyleId::PaddingLeft, "calc(50% + 8px + 0vw)"),
+        ] {
+            t.set_dynamic(id, &StyleValue::Text(v.into())).unwrap();
+        }
+        let plain = t.to_taffy(crate::NodeType::View, &env);
+        let celled = t.to_taffy(crate::NodeType::View, &env.with_cell_spaces(true));
+        assert_eq!(celled.padding.top, Lp::length(16.0));
+        assert_ne!(plain.padding.top, Lp::length(16.0));
+        assert_eq!(celled.padding.left, plain.padding.left);
     }
 }
