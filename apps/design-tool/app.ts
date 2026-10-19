@@ -13,7 +13,7 @@ import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { wire, type Reply } from './wire';
+import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
@@ -42,7 +42,7 @@ const READ_WAIT = WRITE_WAIT;
 const RESOLVES_AT_ONCE = 4;
 // The one `tamber/1` client (wire.ts): this machine's server at API, or
 // another machine's the tool paired with.
-const { call, RESTARTED, pairWith, scope: scopeNow } = wire(API);
+const { call, RESTARTED, pairWith, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
 
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
@@ -620,7 +620,7 @@ const sources: Sources = {
     designFile = String(ok.design ?? '');
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...pageOf(ok.page, Number(new URL(API).port)), live: liveTable,
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...(ok.local === false ? { page: '', frame: '' } : pageOf(ok.page, Number(new URL(API).port))), live: liveTable,
       // Its scope, and whether it is the local tool's token (tamber/1.13): a server before 1.13 has the local one alone.
       scope: String(ok.scope ?? 'write'), local: ok.local !== false, client: String(ok.client ?? '') };
   },
@@ -867,7 +867,7 @@ const sources: Sources = {
     const { error, reply, used } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
     // No answer from the server (not a refusal): the scrub may still be
     // open there, so it stays, to keep or cancel again.
-    if (error && !reply.error && error !== RESTARTED) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
+    if (error && !reply.error && error !== RESTARTED && error !== GONE) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
@@ -888,6 +888,8 @@ const sources: Sources = {
     scrubEnded = '';
     const error = s ? await closeScrub(s) : '';
     // It did not land: the scrub stays, to cancel again.
+    // (Revoked, the server ended it: said so, and nothing is sent again.)
+    if (error === GONE) return stacks(false, GONE, '');
     if (error && s) { if (!scrubbing) scrubbing = s; return stacks(false, `Cancel did not reach the server (${error}): the running copies may still show the preview; cancel again.`, ''); }
     return { ...stacks(true, '', ''), note };
   },
@@ -1020,6 +1022,9 @@ const sources: Sources = {
     if (epoch && r.missed && r.epoch === place.epoch) {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
     }
+    // Below write (paired, T6), starting again: the selection each build last reported, as the server keeps it
+    // (a read-only refresh), since its events before this answer are not sent and Inspect is not this client's.
+    if (anew && scopeNow() !== 'write') { const sel = await call('/__tamber', { method: 'inspect', client, refresh: true }); if (!sel.error && Array.isArray(sel.reply.ok?.selections)) r.events = [...sel.reply.ok.selections.map((e: object) => ({ ...e, event: 'selection' })), ...(r.events ?? [])]; }
     // (The files as each event came: a selection is of those, not of a write later in the answer. The
     // first answer's start is not known, so a selection before a write in it is of no files known.)
     let filesAt = lastFiles;

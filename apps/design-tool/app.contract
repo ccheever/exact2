@@ -1284,7 +1284,7 @@ component DesignTool
             // code its tool shows; an https door or a tunnel to this machine.
             column gap=8 padding=12 border-radius=12 background-color="-exact-secondary-background" testId="pair-remote"
               text "A design server on another machine" role="heading" aria-level=3
-              text "Its tool shows a code and an address. Open the address in this browser once and accept its certificate if its SHA-256 is the one shown, then type both here." color="-exact-secondary-label" font="-exact-footnote"
+              text "Its tool shows a code and an address. Pair from the tool that address serves (<address>/__tamber/tool/, its certificate accepted in this browser if its SHA-256 is the one shown): type the address and the code there. That server refuses a tool opened anywhere else." color="-exact-secondary-label" font="-exact-footnote" testId="pair-remote-how"
               input value=remoteAt input=editRemoteAt placeholder="https://192.168.1.20:7743" aria-label="Design server address" testId="remote-at"
               input value=remoteCode input=editRemoteCode submit=pairRemote placeholder="XXXXX-XXXXX" aria-label="Pairing code" testId="remote-code"
               button press=pairRemote disabled=(pending(pairedWith) or remoteAt.trim() == "" or remoteCode.trim() == "") buttonStyle="bordered" testId="remote-pair"
@@ -1438,10 +1438,10 @@ component DesignTool
                             button press=editFromSelection(r.token, r.column, inspected.place) testId=`heldrow-link-${r.name}`
                               text ((r.state != "" or r.edit != "") ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
                           if r.state != ""
-                            button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
+                            button press=editState(r.state, r.stateText) disabled=(not canPropose) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
                               text r.stateLabel
                           if r.edit != ""
-                            button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
+                            button press=editRow(r.edit, r.editWords, r.editText) disabled=(not canPropose) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
                               text r.editLabel
                           if r.reason != ""
                             text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
@@ -1466,19 +1466,19 @@ component DesignTool
                         button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-link-${r.name}`
                           text `Open ${r.token}`
                       if r.state != ""
-                        button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`selrow-state-${r.name}`
+                        button press=editState(r.state, r.stateText) disabled=(not canPropose) buttonStyle="bordered" testId=`selrow-state-${r.name}`
                           text r.stateLabel
                       if r.edit != ""
-                        button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`selrow-row-${r.name}`
+                        button press=editRow(r.edit, r.editWords, r.editText) disabled=(not canPropose) buttonStyle="bordered" testId=`selrow-row-${r.name}`
                           text r.editLabel
                       if r.promote != ""
-                        button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) testId=`selrow-param-${r.name}`
+                        button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) disabled=(not canPropose) testId=`selrow-param-${r.name}`
                           text "Make it a param"
                       if r.promote != "" and r.tokenize
-                        button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) testId=`selrow-tokenize-${r.name}`
+                        button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) disabled=(not canPropose) testId=`selrow-tokenize-${r.name}`
                           text "Make it a token"
                       if r.detach != ""
-                        button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) testId=`selrow-detach-${r.name}`
+                        button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) disabled=(not canPropose) testId=`selrow-detach-${r.name}`
                           text "Detach to this template"
                       if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
@@ -1571,13 +1571,13 @@ component DesignTool
                   column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                     text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                     for c in g.dials key=c.name
-                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+                      DialControl(locked=(not canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
                     if g.more.length > 0
                       button press=toggleMore(g.name) testId=`more-${g.name}`
                         text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                       if opened.includes(g.name)
                         for c in g.more key=c.name
-                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+                          DialControl(locked=(not canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
               if design.components.length > 0
                 column gap=12 testId="components"
                   text "Components" role="heading" aria-level=2
@@ -1591,13 +1591,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                            ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                                ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -1661,7 +1661,7 @@ component DesignTool
                           text `${d.name} (dial)`
                     for r in branch.roles key=r
                       text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
-                    button press=pin disabled=(not canWrite) buttonStyle="bordered" testId="pin"
+                    button press=pin disabled=(not canPropose) buttonStyle="bordered" testId="pin"
                       text "Pin a value"
                   else
                     if branch.expression and typed.ok
@@ -1681,36 +1681,36 @@ component DesignTool
                           row gap=8 align-items="center" testId=`part-${p.key}`
                             text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
                             if p.control == "number"
-                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                             else if p.control == "select"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 for o in p.options key=o
                                   option (o == "" ? "none" : o) value=o
                             else if p.control == "inset"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 option "outside" value=""
                                 option "inset" value="inset"
                             else if p.control == "style"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 option "unsaid" value=""
                                 option "italic" value="italic"
                             else
-                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose) placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                         if partMissing != ""
                           text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
-                    input value=shownValue change=cellText aria-label=`${branch.token} value` testId="branch-value"
+                    input value=shownValue change=cellText disabled=(not canPropose) aria-label=`${branch.token} value` testId="branch-value"
                   if not branch.exact
                     button press=onlyThisMode testId="only-this-mode"
                       text "Only this mode"
                   if not branch.param
                     row gap=8
-                      input value=renameTo input=editRename submit=renameToken placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
-                      button press=renameToken disabled=(renameTo.trim() == "") testId="rename"
+                      input value=renameTo input=editRename submit=renameToken disabled=(not canPropose) placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                      button press=renameToken disabled=(renameTo.trim() == "" or not canPropose) testId="rename"
                         text "Rename"
                       button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
                         text "Remove"
                   dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
-                    button press=removeToken destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                    button press=removeToken disabled=(not canPropose) destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
                       text "Remove"
                     button commandfor="confirm-remove" command="close"
                       text "Cancel"
@@ -1719,9 +1719,9 @@ component DesignTool
               column gap=8 testId="add"
                 text "Add a token" role="heading" aria-level=3
                 row gap=8
-                  input value=newName input=editNewName submit=addToken placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
-                  input value=newValue input=editNewValue submit=addToken placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
-                  button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
+                  input value=newName input=editNewName submit=addToken disabled=(not canPropose) placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
+                  input value=newValue input=editNewValue submit=addToken disabled=(not canPropose) placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
+                  button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "" or not canPropose) testId="add-token"
                     text "Add"
               if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
                 column gap=4 testId="move-editor"
@@ -1730,7 +1730,7 @@ component DesignTool
                   if stateStale
                     text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
                   if editKind != "detach-param"
-                    input value=editValue input=stateValue aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
+                    input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
               if editKind == "set-state" or editKind == "set-row"
                 column gap=4 testId="state-editor"
                   if editKind == "set-row"
@@ -1741,7 +1741,7 @@ component DesignTool
                     text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
                   if stateStale
                     text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
-                  input value=editValue input=stateValue aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
+                  input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
                   if draftStale or partsStale
@@ -1838,7 +1838,7 @@ component DesignTool
                             if md.dark != ""
                               view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
                             text md.label font="-exact-caption2" color="-exact-secondary-label"
-                            input value=md.value change=editImportValue(h.proposal, m.index, md.mode) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                            input value=md.value change=editImportValue(h.proposal, m.index, md.mode) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
                     text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
                     for o in h.offers key=o.role
                       row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
@@ -1968,6 +1968,8 @@ component DialControl
   props
     c: Control
     focused: bool
+    // Below propose (a paired reader, T6): not editable.
+    locked: bool
     onNumber: action
     onText: action
     onStep: action
@@ -1980,19 +1982,19 @@ component DialControl
       if c.control == "color"
         row gap=8 align-items="center" testId=`dial-${c.name}-color`
           view width=28 height=28 border-radius=6 background-color=c.swatch border="1px solid -exact-separator"
-          input value=c.value change=onText aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
+          input value=c.value change=onText disabled=(locked) aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
       else if c.control == "slider"
         // Each value while it is dragged; let go, a scrub open on it is kept.
-        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease aria-label=c.label testId=`dial-${c.name}-slider`
+        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease disabled=(locked) aria-label=c.label testId=`dial-${c.name}-slider`
       else if c.control == "stepper"
-        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onStep aria-label=c.label testId=`dial-${c.name}-stepper`
+        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onStep disabled=(locked) aria-label=c.label testId=`dial-${c.name}-stepper`
       else if c.control == "select"
-        select value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-select`
+        select value=c.value change=onText disabled=(locked) aria-label=c.label testId=`dial-${c.name}-select`
           for o in c.options key=o
             option o value=o
       else if c.control == "token"
         // A param's own default: a token's name or a literal, typed.
-        input value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-field`
+        input value=c.value change=onText disabled=(locked) aria-label=c.label testId=`dial-${c.name}-field`
       if c.bounds != ""
         text c.bounds color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-bounds`
       if c.help != ""
@@ -2004,6 +2006,8 @@ component ParamControl
   props
     r: ParamRow
     focused: bool
+    // Below propose (a paired reader, T6): not editable.
+    locked: bool
     onNumber: action
     onText: action
     onStep: action
@@ -2011,11 +2015,11 @@ component ParamControl
     onReset: action
   view
     column gap=2 testId=`param-${r.short}`
-      DialControl(c=r.c, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
+      DialControl(c=r.c, locked=locked, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
       row gap=8 align-items="center" padding="0 4px"
         text (r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
         if r.set
-          button press=onReset testId=`param-${r.short}-reset`
+          button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
             text "Reset"
       if r.pinned.length > 0
         text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`

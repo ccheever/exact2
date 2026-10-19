@@ -77,6 +77,8 @@ const sessions = () => scrubSessions({
   restore: () => {},
   opened: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, reason: 'opened', seq: seq() + 1 }); save(); },
   ended: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, seq: seq() + 1 }); save(); },
+  // (A paired client ended has no write left, a release waiting on its preview included.)
+  allowed: (client: string) => !client.startsWith('remote:') || paired.some(p => p.client === client),
 });
 let scrubs = sessions();
 const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok ? send({ ok: r.ok }) : send({ error: r.error }, r.status ?? 409);
@@ -126,9 +128,10 @@ const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 const normal = (c: unknown) => String(c ?? '').toUpperCase().replace(/[\s-]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
 /** Who a request is: the local client, a paired one (its token past its expiry ends it, as revoked), or no one (null). */
 function who(req: Request) {
+  // (Every token past its expiry ends, whoever asks, as the server's sweep ends it.)
+  for (const p of paired.filter(c => Date.parse(c.expires) <= Date.now())) revoke(p.client, 'expired');
   if (tokenIn(req) === TOKEN) return { local: true, scope: 'write', client: null as string | null };
   const p = paired.find(c => c.token === tokenIn(req));
-  if (p && Date.parse(p.expires) <= Date.now()) { revoke(p.client, 'expired'); return null; }
   if (p) p.lastSeen = new Date().toISOString();
   return p ? { local: false, scope: p.scope, client: p.client } : null;
 }
@@ -150,6 +153,7 @@ function revoke(client: string, reason = 'revoked') {
   paired = paired.filter(c => c !== p);
   gone.add(p.token);
   present.delete(client);
+  scrubs.absent((c: string) => present.has(c));
   held = held.map(h => h.client === client ? { ...h, revoked: true } : h);
   const inspected = BUILDS.filter(b => b.inspector === client).map(b => b.id);
   if (BUILDS.some(b => b.inspector === client || b.pinBy === client || b.holdBy === client)) {

@@ -18,6 +18,7 @@ const refusal = (error: Reply['error'], status: number) => {
 };
 const RESTARTED = 'The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again.';
 export const GONE = 'This client was revoked, or its pairing expired: nothing more is sent to the design server. Pair again with a new code.';
+const BEFORE = 'This was made before the tool paired with another design server, so it is not sent there: review it again.';
 
 /** What each method needs (scripts/tamber-pairing.mjs's table, which
  * scripts/design-tool-scope.test.mjs holds this to): a paired client never
@@ -30,9 +31,16 @@ export const NEEDS: Record<string, string> = {
   clients: 'local', revoke: 'local', 'pair-code': 'local',
 };
 const SCOPES = ['read', 'propose', 'write'];
-/** What a request needs: inspect other than a refresh is `write` (it moves the
- * builds), as the server reads it; a method not in the table, `local`. */
-const needOf = (path: string, body: any) => path !== '/__tamber' ? 'read' : body?.method === 'inspect' && body.refresh !== true ? 'write' : NEEDS[String(body?.method)] ?? 'local';
+/** What a request needs, as the server reads it: inspect other than a
+ * refresh is `write` (it moves the builds), and so is a drop of another
+ * client's held proposal (`ownerOf` its proposer, null when not known); a
+ * method not in the table, `local`. */
+export const needOf = (path: string, body: any, ownerOf: (id: string) => string | null = () => null) => {
+  if (path !== '/__tamber') return 'read';
+  if (body?.method === 'inspect' && body.refresh !== true) return 'write';
+  if (body?.method === 'drop') { const by = ownerOf(String(body.proposal)); return by !== null && by !== body.client ? 'write' : 'propose'; }
+  return NEEDS[String(body?.method)] ?? 'local';
+};
 /** Why a paired client at `scope` does not send `need`'s request; "" when it may. */
 export const above = (scope: string, need: string, method: string) => need === 'local' ? `${method} is the local tool's alone: this client is paired.` : SCOPES.indexOf(scope) < SCOPES.indexOf(need) ? `This client is paired at ${scope}: ${method} needs ${need}. Nothing was sent.` : '';
 
@@ -48,10 +56,14 @@ export function doorOf(text: string): { origin: string; error: string } {
   return { origin: u.origin, error: '' };
 }
 
-/** The client, local at `api` until it pairs. */
-export function wire(api: string) {
-  let base = api, paired = false, gone = false, scope = 'write';
+/** The client, local at `api` until it pairs; `ownerOf` a held proposal's proposer. */
+export function wire(api: string, ownerOf: (id: string) => string | null = () => null) {
+  let base = api, paired = false, gone = false, scope = 'write', pairedToken = '';
   let token: string | null = null;
+  // What the rest of the tool holds of a token (a review's, an undo's, a held list's server run): a handle
+  // for it, never the token, so no state, log or reply shown carries one.
+  const tokens = new Map<string, string>(), handles = new Map<string, string>();
+  const handleOf = (t: string) => { let h = handles.get(t); if (!h) { h = `run-${handles.size + 1}`; handles.set(t, h); tokens.set(h, t); } return h; };
   // One ask at a time: the first reads start together.
   let asking: Promise<{ token: string | null; error: string }> | null = null;
   const noServer = () => paired
@@ -70,6 +82,8 @@ export function wire(api: string) {
   async function askToken(): Promise<{ token: string | null; error: string }> {
     try {
       const res = await fetch(`${api}/__tamber/token`, { exactTimeout: 5000, redirect: 'error' });
+      // (Paired meanwhile: this machine's token is never the one used.)
+      if (paired) return tokenOf();
       if (!res.ok) return { token: null, error: `${api} gave no design server token: it answers only this machine's loopback, and only while \`bun exact.mjs tamber tool\` runs.` };
       token = String(((await res.json()) as { token?: unknown }).token ?? '') || null;
       return { token, error: token ? '' : noServer() };
@@ -79,7 +93,7 @@ export function wire(api: string) {
     }
   }
 
-  /** One `tamber/1` request: its reply (and the token it went with), or the
+  /** One `tamber/1` request: its reply (and a handle for the token it went with), or the
    * words to show. A token the server no longer knows (it restarted: a bare
    * not-found, which an operation's own refusal never is) is asked for again,
    * once, for a read. A write goes with the token of the server run it
@@ -90,21 +104,25 @@ export function wire(api: string) {
    * nothing more. */
   async function call(path: string, body: unknown, timeout = 15000, bound?: string): Promise<{ error: string; reply: Reply; used: string }> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const got = bound ? { token: bound, error: '' } : await tokenOf();
+      const got = bound ? { token: tokens.get(bound) ?? null, error: RESTARTED } : await tokenOf();
       if (!got.token) return { error: got.error, reply: {}, used: '' };
+      const used = handleOf(got.token);
       if (paired && gone) return { error: GONE, reply: {}, used: '' };
-      const over = paired ? above(scope, needOf(path, body), String((body as { method?: unknown })?.method ?? path)) : '';
+      // Paired, a write bound to another token (this machine's server's, a review made before pairing)
+      // never goes to the door: a token goes only to the server it came from.
+      if (paired && got.token !== pairedToken) return { error: BEFORE, reply: {}, used: '' };
+      const over = paired ? above(scope, needOf(path, body, ownerOf), String((body as { method?: unknown })?.method ?? path)) : '';
       if (over) return { error: over, reply: {}, used: '' };
       try {
         const res = await fetch(`${base}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
           headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
         const reply = (await res.json().catch(() => ({}))) as Reply;
-        if (res.status === 401 && paired) { gone = true; token = null; return { error: GONE, reply: {}, used: got.token }; }
+        if (res.status === 401 && paired) { gone = true; token = null; return { error: GONE, reply: {}, used }; }
         const unknown = res.status === 404 && !reply.error;
-        if (unknown && bound) { if (token === bound) token = null; return { error: RESTARTED, reply: {}, used: bound }; }
+        if (unknown && bound) { if (token === got.token) token = null; return { error: RESTARTED, reply: {}, used }; }
         if (unknown && attempt === 0 && !paired) { token = null; continue; }
-        if (res.ok) return { error: '', reply, used: got.token };
-        return { error: refusal(reply.error, res.status), reply, used: got.token };
+        if (res.ok) return { error: '', reply, used };
+        return { error: refusal(reply.error, res.status), reply, used };
       } catch (e) {
         if ((e as { code?: string }).code === 'bake') throw e;
         return { error: noServer(), reply: {}, used: '' };
@@ -125,7 +143,7 @@ export function wire(api: string) {
       const reply = (await res.json().catch(() => ({}))) as Reply;
       if (res.status === 429) return { ok: false, error: 'Too many tries from here: wait a minute, then type the code again.', client: '', scope: '' };
       if (!res.ok || typeof reply.ok?.token !== 'string') return { ok: false, error: res.ok ? 'The design server gave no token.' : refusal(reply.error, res.status), client: '', scope: '' };
-      base = door.origin; token = reply.ok.token; paired = true; gone = false; asking = null; scope = String(reply.ok.scope ?? 'read');
+      base = door.origin; token = pairedToken = reply.ok.token; paired = true; gone = false; asking = null; scope = String(reply.ok.scope ?? 'read');
       return { ok: true, error: '', client: String(reply.ok.client ?? ''), scope: String(reply.ok.scope ?? '') };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
