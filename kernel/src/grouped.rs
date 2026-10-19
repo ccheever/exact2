@@ -459,6 +459,22 @@ impl Kernel {
         if out.title.is_none() {
             out.custom = true;
         }
+        // UIKit's content configuration draws none of the row's box: a row
+        // whose author wrote an edge of it, or its background image, is its
+        // own views, carried, as every other host draws it (LLP 1084 D7).
+        let w = &row.style.written;
+        if out.authored_edge
+            || [
+                (StyleId::BorderWidthTop, StyleId::BorderStyleTop),
+                (StyleId::BorderWidthRight, StyleId::BorderStyleRight),
+                (StyleId::BorderWidthBottom, StyleId::BorderStyleBottom),
+                (StyleId::BorderWidthLeft, StyleId::BorderStyleLeft),
+            ]
+            .iter()
+            .any(|&(width, line)| w.has(width) || w.has(line))
+        {
+            out.custom = true;
+        }
         out.action = out.pressable
             && row.props.str(PropId::Href).is_none()
             && out.accessory == Accessory::None
