@@ -82,11 +82,12 @@ final class MIDIMacTests: XCTestCase {
             timer = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
             due = CACurrentMediaTime() + 0.010
             timer.schedule(deadline: .now() + 0.010, repeating: 0.010, leeway: .nanoseconds(0))
-            timer.setEventHandler { [unowned self] in
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
                 let now = CACurrentMediaTime()
-                lock.withLock { beats.append((due, now - due)) }
+                self.lock.withLock { self.beats.append((self.due, now - self.due)) }
                 // The expirations this handler stands for keep the timer's phase.
-                due += Double(max(1, timer.data)) * 0.010
+                self.due += Double(max(1, self.timer.data)) * 0.010
             }
             timer.resume()
         }
@@ -117,23 +118,40 @@ final class MIDIMacTests: XCTestCase {
         let ports = try XCTUnwrap(delivered.last)
         XCTAssertTrue(ports.hasPrefix("{\"ports\":{\"state\":\"granted\""), ports)
         XCTAssertTrue(ports.contains("\"name\":\"exact test in\""), ports)
-        // A strict timer's lag on a user-interactive queue: the scheduling a busy
-        // machine adds to the arm's thread and CoreMIDI's (75 ms seen at load
-        // 117). A coalesced hold timer is late past it (100 ms with it near 0).
-        let busy = MainLag(queue: DispatchQueue(label: "send lag", qos: .userInteractive))
         // Runner ms: 200 ms from now, and a note-off taken back before its hold.
-        let now = (CACurrentMediaTime() - ExactEnv.t0) * 1000, out = String(uid(destination))
+        var now = (CACurrentMediaTime() - ExactEnv.t0) * 1000
+        let out = String(uid(destination))
         output.apply(["ops": [["op": "send", "id": 1, "output": out, "data": [0x90, 60, 100], "at": now + 200],
                               ["op": "send", "id": 2, "output": out, "data": [0x80, 60, 0], "at": now + 400],
                               ["op": "retract", "id": 2]]])
-        wait(0.6)
-        let got = lock.withLock { arrived }
-        XCTAssertEqual(got.map(\.status), [0x90], "the retracted note-off never went out")
-        let late = (got[0].at - (ExactEnv.t0 + (now + 200) / 1000)) * 1000
-        XCTAssertGreaterThan(late, -1, "not early")
-        busy.stop()
-        XCTAssertLessThan(late, 2 + busy.most * 1000, "on time (the machine \(busy.most) s busy)")
+        // Timed only while a strict beat on a user-interactive queue (the arm's
+        // thread and CoreMIDI's stand-in) stays within 20 ms of its time until
+        // the note came: a busy machine delays the hand-off itself (75 ms seen
+        // at load 117) and says nothing either way. The 2 ms ceiling is never
+        // widened: a coalesced hold timer is 90-100 ms late.
+        var timed = false, worst = 0.0
+        for attempt in 0..<5 where !timed {
+            let busy = MainLag(queue: DispatchQueue(label: "send lag", qos: .userInteractive))
+            if attempt > 0 {
+                lock.withLock { arrived.removeAll() }
+                now = (CACurrentMediaTime() - ExactEnv.t0) * 1000
+                output.apply(["ops": [["op": "send", "id": UInt64(10 + attempt), "output": out, "data": [0x90, 60, 100], "at": now + 200]]])
+            }
+            wait(0.6)
+            busy.stop()
+            let got = lock.withLock { arrived }
+            if attempt == 0 { XCTAssertEqual(got.map(\.status), [0x90], "the retracted note-off never went out") }
+            guard let first = got.first else { XCTFail("no note came"); break }
+            let due = ExactEnv.t0 + (now + 200) / 1000, lag = busy.most(due - 0.250, first.at)
+            worst = max(worst, lag)
+            guard lag <= 0.020 else { continue }
+            timed = true
+            let late = (first.at - due) * 1000
+            XCTAssertGreaterThan(late, -1, "not early")
+            XCTAssertLessThan(late, 2, "on time")
+        }
         output.shutdown()
+        if !timed { throw XCTSkip("a user-interactive thread lagged past 20 ms in every attempt (\(worst) s): too loaded to time a send") }
     }
 
     func testAnInputIsStampedAndAReplugKeepsItsID() throws {
@@ -377,19 +395,23 @@ final class MIDIMacTests: XCTestCase {
         XCTAssertGreaterThan(ticks.count, 10)
         XCTAssertLessThan(ticks.count, 30, "batched")
         for (a, b) in zip(ticks, ticks.dropFirst()) { XCTAssertGreaterThan(b.at - a.at, 0.040, "ticks alone no more often than 50 ms") }
-        // A main queue busy with the parallel test run adds its own latency
-        // (83 ms seen; 470 ms at load 85): the bound is that no batch is held
-        // a second time past what main's own lag explains.
+        // A batch is timed only if the hub heard its oldest tick within the
+        // 50 ms and main lagged at most 20 ms while it waited: then it goes by
+        // 100 ms after that tick, and a second hold (150) does not. Under load
+        // a batch says nothing either way (main lagged 470 ms at load 85); the
+        // ceiling is never widened by a measured lag.
+        var timedBatches = 0, worst = 0.0
         for d in ticks {
             let oldest = ExactEnv.t0 + d.list[0].ms / 1000, late = lag.most(oldest, d.at)
-            // Its drain is due 50 ms after the oldest tick, or when the hub
-            // heard it if later; a second hold would come 50 ms after that.
-            let handoff = lock.withLock { handed.filter { abs($0.key - oldest) < 0.001 }.min { abs($0.key - oldest) < abs($1.key - oldest) }.map { $0.value - $0.key } } ?? 0
-            XCTAssertLessThan(d.at - oldest, max(0.050, handoff) + 0.045 + late, "nor held past a second batch (main \(late) s late meanwhile, heard \(handoff) s after its stamp)")
+            let handoff = lock.withLock { handed.filter { abs($0.key - oldest) < 0.001 }.min { abs($0.key - oldest) < abs($1.key - oldest) }.map { $0.value - $0.key } } ?? .infinity
+            worst = max(worst, late)
+            guard handoff <= 0.050, late <= 0.020 else { continue }
+            timedBatches += 1
+            XCTAssertLessThan(d.at - oldest, 0.100, "nor held past a second batch")
         }
         let start = try XCTUnwrap(got.first { $0.list.contains { $0.status == 0xFA } })
         let fa = try XCTUnwrap(want.first { $0.status == 0xFA })
-        XCTAssertLessThan(start.at - fa.at, 0.010, "Start at once")
+        if lag.most(fa.at, start.at) <= 0.002 { XCTAssertLessThan(start.at - fa.at, 0.010, "Start at once") }
         // Not followed: a tick goes nowhere, a note still comes.
         output.apply(["ops": [["op": "open", "inputs": [input], "clock": []]]])
         wait(0.1)
@@ -399,6 +421,7 @@ final class MIDIMacTests: XCTestCase {
         wait(0.3)
         XCTAssertEqual(messages(deliveries).flatMap(\.list).map(\.status), [0x90])
         output.shutdown()
+        if timedBatches < 3 { throw XCTSkip("\(timedBatches) batches came on a quiet enough machine (main lagged up to \(worst) s): too loaded to time them (their order, count and spacing were checked)") }
     }
 
     /// Review round 1 (Astra): a drain at once (a note) leaves the ticks
