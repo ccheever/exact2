@@ -29,7 +29,7 @@ import { contactSheet, encodeApng, encodePng } from './png.mjs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openTouches, realTap } from '../host/apple/touches.mjs';
+import { openTouches, realTap, springboard } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot, referenceNote } from './agent-compare.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead, holdTap } from './agent-drag.mjs';
 import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
@@ -728,6 +728,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
       touches, touch, crashes, udid: dev.udid, installNote: kept?.note,
+      springboard: request => springboard(touches, request, name => { if (socket.destroyed || consoleDone) throw crashed(`${name}: the app's agent socket is gone; the archive session cannot resume`); }),
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -1351,7 +1352,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       for (const key of Object.keys(tags)) if (r[key] === undefined) r[key] = tags[key];
       return r;
     },
-    close: carrier.close,
+    close: carrier.close, springboard: carrier.springboard,
   };
   // Platform timing and Android's reader start on a live host clock; seed the driver's relative seeks where the host handed time over (LLP 1080.000 §12; LLP 1107 D1).
   // Headless Android starts at zero, so the same read keeps its seek clock unchanged.

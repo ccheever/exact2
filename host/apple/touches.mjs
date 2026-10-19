@@ -257,7 +257,7 @@ export async function openTouches({ udid, appId }) {
       }));
       // Its own session and its output in a file: it outlives this process.
       const out = openSync(log, 'w');
-      child = spawn('xcodebuild', ['test-without-building', '-xctestrun', run, '-destination', `id=${udid}`, '-only-testing:ExactTouches/ExactTouches/testDrive'], { stdio: ['ignore', out, out], detached: true });
+      child = spawn('xcodebuild', ['test-without-building', '-xctestrun', run, '-derivedDataPath', resolve(ROOT, 'target/touch-runner/derived', udid), '-destination', `id=${udid}`, '-only-testing:ExactTouches/ExactTouches/testDrive'], { stdio: ['ignore', out, out], detached: true });
       closeSync(out);
       // Recorded before its hello: a driver killed while it waits leaves a runner the next one can retire.
       kept = { key: identity.key, port: null, token: bridge.env.EXACT_AGENT_TOKEN, pid: child.pid, run, log };
@@ -306,6 +306,17 @@ export async function openTouches({ udid, appId }) {
 const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.session && a.generation === b.generation
   && ['w', 'h', 'x', 'y'].every((k) => a.screen[k] === b.screen[k]) && a.point[0] === b.point[0] && a.point[1] === b.point[1]
   && String(a.viewport) === String(b.viewport);
+
+/** SpringBoard reads and gestures over the session's existing runner (WP14). */
+export async function springboard(touches, request, alive) {
+  const name = `SpringBoard ${request.action}`;
+  if (!touches) throw new Error(`${name}: open the iOS session with touch: 'platform'`);
+  alive(name);
+  const result = await touches.ask({ ...request, op: 'springboard' });
+  if (result.error) throw new Error(`${name}: ${result.error}`);
+  alive(name);
+  return result;
+}
 
 /** How long the ops during a still gesture wait for the touch to reach the view it landed on: a scroll view hands it
  *  on about 150 ms after the window dispatched it (`delaysContentTouches`). */

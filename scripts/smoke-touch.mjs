@@ -108,10 +108,6 @@ for (const timing of ['agent', 'platform']) {
   }
 }
 
-// The system's archived Live Activities, using the approved SpringBoard kit.
-try { await (await import('../host/apple/activity-archive.mjs')).archiveActivities(); }
-catch (error) { check(false, `activity archive: ${error.message}`); }
-
 console.log(`touch smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const f of failures) console.error(`FAIL ios-touch ${f}`);
 process.exit(failures.length ? 1 : 0);

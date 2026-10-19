@@ -28,7 +28,8 @@
 // its time. Without them, or when that SPI is missing or refuses the touch,
 // the public `XCUICoordinate` call makes it; one the synthesizer has not
 // finished in time fails, never played again.
-// It never launches, activates or terminates the app: the driver launched it.
+// SpringBoard archive operations (LLP 1126.001 WP14) use the same session.
+// `app` reactivates only the running app the driver launched.
 import XCTest
 import UIKit
 import Foundation
@@ -62,6 +63,9 @@ final class ExactTouches: XCTestCase {
             // Fresh each request: the app is launched after the runner starts.
             let target = XCUIApplication(bundleIdentifier: app)
             switch op {
+            case "springboard":
+                do { session.send(try Self.springboard(req, app: target)) }
+                catch { session.send(["error": String(describing: error)]) }
             case "foreground":
                 session.send(["state": Self.name(target.state)])
             case "tap":
@@ -121,6 +125,42 @@ final class ExactTouches: XCTestCase {
         case .notRunning: return "notRunning"
         default: return "unknown"
         }
+    }
+
+    static func springboard(_ request: [String: Any], app: XCUIApplication) throws -> [String: Any] {
+        let spring = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func refuse(_ why: String) -> NSError { NSError(domain: "ExactTouches", code: 1, userInfo: [NSLocalizedDescriptionKey: why]) }
+        func point(_ key: String) throws -> XCUICoordinate {
+            guard let xy = request[key] as? [Double], xy.count == 2, xy.allSatisfy(\.isFinite) else { throw refuse("SpringBoard needs a finite \(key)") }
+            return spring.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: xy[0], dy: xy[1]))
+        }
+        func tree(_ node: any XCUIElementSnapshot) -> [String: Any] {
+            let frame = node.frame
+            return ["label": node.label, "identifier": node.identifier, "type": node.elementType.rawValue,
+                    "frame": [frame.minX, frame.minY, frame.width, frame.height], "children": node.children.map(tree)]
+        }
+        switch request["action"] as? String {
+        case "home": XCUIDevice.shared.press(.home)
+        case "lock":
+            let selector = NSSelectorFromString("pressLockButton")
+            guard XCUIDevice.shared.responds(to: selector) else { throw refuse("this XCTest has no pressLockButton for the locked archive read") }
+            _ = XCUIDevice.shared.perform(selector)
+        case "app":
+            guard app.state != .notRunning else { throw refuse("the app exited while SpringBoard was showing; its agent session cannot resume") }
+            app.activate()
+        case "tap": try point("point").tap()
+        case "hold":
+            guard let seconds = request["seconds"] as? Double, seconds.isFinite, seconds > 0, seconds <= 5 else { throw refuse("SpringBoard hold needs seconds in 0...5") }
+            try point("point").press(forDuration: seconds)
+        case "swipe": try point("point").press(forDuration: 0.1, thenDragTo: point("to"))
+        case "tree": return ["tree": tree(try spring.snapshot())]
+        case "find":
+            guard let label = request["label"] as? String else { throw refuse("SpringBoard find needs an exact label") }
+            let element = spring.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+            return ["elements": element.exists ? [tree(try element.snapshot())] : []]
+        default: throw refuse("unknown SpringBoard action")
+        }
+        return ["done": true]
     }
 }
 
