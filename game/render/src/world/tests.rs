@@ -1487,3 +1487,6 @@ fn a_static_offset_writes_no_pages_per_tick() {
 
 #[path = "../pose_cycle_tests.rs"]
 mod pose_cycle_tests;
+
+#[path = "../teleport_tests.rs"]
+mod teleport_tests;

@@ -61,8 +61,9 @@ fn an_accent_on_switches_is_unreachable_on_the_mac_only() {
 
 #[test]
 fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
-    // The Mac's checkbox is best-effort: no word.
-    let view = "component App\n  state on = true\n  action check(checked: bool)\n    on = checked\n  view\n    input type=\"checkbox\" checked=on change=check aria-label=\"A\" accent-color=\"accent.brand\"\n";
+    // The Mac's checkbox is exact and its disabled prominent button best-effort
+    // (measured in a key window, stage 9 F2): no word for either.
+    let view = "component App\n  state on = true\n  action check(checked: bool)\n    on = checked\n  action go\n    on = on\n  view\n    column\n      input type=\"checkbox\" checked=on change=check aria-label=\"A\" accent-color=\"accent.brand\"\n      button \"Go\" buttonStyle=\"bordered-prominent\" press=go disabled=true accent-color=\"accent.brand\"\n";
     let path = app(
         "checkbox",
         "\"macos\": {}",
@@ -70,6 +71,16 @@ fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
         view,
     );
     assert_eq!(unreachable(&path), Vec::<String>::new());
+    // A disabled checkbox under an accent is none on the Mac (AppKit draws it grey): said.
+    let disabled = view.replace("change=check aria-label", "change=check disabled=true aria-label");
+    let path = app(
+        "checkbox-disabled",
+        "\"macos\": {}",
+        "  accent.brand = #e0218a\n",
+        &disabled,
+    );
+    let said = unreachable(&path);
+    assert!(said.iter().any(|s| s.contains("disabled checkbox")), "{said:?}");
     // A switch with no accent anywhere: nothing set, nothing unreachable.
     let plain = SWITCHES.replace(" accent-color=\"accent.brand\"", "");
     let path = app(

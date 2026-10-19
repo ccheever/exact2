@@ -1,6 +1,7 @@
 # Scroll: restore a top-level virtualized list, scroll-padding and scroll-margin on any scroller, native smooth element jumps and scrollend (rest of #138)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** UIKit animates element reveals through setContentOffset(_:animated:) and sends scrollend when the animation ends, as the Mac does; Linux reveals and the remaining scrollend qualification are in QUEUE.md.
 **Systems:** Contract, runner collections, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -200,3 +201,38 @@ Keep open with the bounded scope below.
 Padding/margins and settlement have web semantics. A remounted list has no browser automatic-restoration equivalent, and only the app knows its document/conversation identity.
 
 Amend LLP 1010/1070 scopes. Expose a first-visible key/offset and a matching explicit restore; avoid a hidden unbounded top-level cache. Verify reduced motion and real-time smooth scrolling, not only a frozen agent clock.
+
+## Closed, 2026-10-18
+
+UIKit now reveals an element as the Mac does, with the platform's own
+animation: `scrollIntoView(id)` with omitted, `auto` or `smooth` behavior
+calls `setContentOffset(_:animated: true)` on each scroller above the target
+(LLP 1115.000 D8.4), and explicit `instant`, Reduce Motion and the frozen agent
+land at once. The scroller's `scrollend` is held until
+`scrollViewDidEndScrollingAnimation` and sent once after the last `scroll`.
+Nested scrollers aim the outer port at where the inner animations land; a new
+request, an authored `scrollTop` write or a drag replaces a running reveal
+where it is, with one `scrollend`; a held request carried out again while its
+reveal runs does not restart it; content an anchor correction moves under it
+sends it on to where its target now is. The earlier attempt "did not move" because
+UIKit animates a scroll only in a scene's window: a bare `UIWindow` in the
+xctest agent stays put for a hand-built `UIScrollView` too, so the motion test
+runs hosted (`ElementScrollTests.testUIKitRevealsAnimateAndAReplacementEndsThem`).
+LLP 1070.000 §14, LLP 1010 and the grammar say what iOS does.
+
+On an iPhone 18 Pro simulator (iOS 27.1), an 80-row `scroll` with `scroll=`
+and `scrollend=` handlers, driven with `--timing platform`: the unsaid reveal
+of row 30 sent 18 `scroll` events and one `scrollend`, at offset 930; a
+recording shows the rows passing through 2, 10, 21 and 28 on the way, the
+app's end count still 0 until it arrived. The smooth reveal of row 60 did the
+same, ending clamped at the range's end (1817). Under
+`prefers-reduced-motion: reduce` the smooth reveal landed at once. The hosted UIKit test compares
+the reveal with a hand-built `UIScrollView`'s animation and passed five
+iterations; the instant and `scrollTop` replacements first delivered two
+`scrollend`s (UIKit reports the animation ended from inside the write that
+stops it), and one after the fix.
+
+What remains is in QUEUE.md: Linux element reveals land at once; Linux and
+Android `scrollend` timing and Android device qualification; macOS trackpad
+momentum with real input. A reveal that collapses a large title realigns when
+it arrives; that path was not driven.

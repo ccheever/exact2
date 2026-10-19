@@ -127,6 +127,11 @@ extension CollectionHost {
             animateOffset(id, scroll, to: moved)
             return
         }
+        if presenter?.elementScrolls.revealing(scroll) != nil {
+            // An element reveal heads for where its target now is instead (`IntoView.swift`).
+            presenter?.elementScrolls.retarget(scroll)
+            return
+        }
         let insets = scroll.adjustedContentInset
         var target = scroll.contentOffset
         if let start {

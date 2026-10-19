@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51 and 52 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55 and 56 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1668,6 +1668,104 @@ reversed offsets before the patch. The accompanying safety and spacing
 test holds the other fallback behavior. Explicit content-alignment safety
 and `justify-content:stretch` are covered at the Taffy layer because the
 kernel's declaration vocabulary does not admit them.
+
+## Patch 54: derive a flex column item's ratio width after flexing
+
+A width transferred from a preferred height is not an authored cross size.
+Column item setup keeps that width unresolved, allowing the automatic height
+minimum to use a definite stretched width or the content alone, as
+[Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) and
+[§9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes) require.
+Patch 12 still excludes a provisional stretched width in wrapping columns.
+
+Cross sizing derives the width from the flexed height ([§9.4](https://www.w3.org/TR/css-flexbox-1/#cross-sizing)).
+Patch 50's automatic inline minimum is resolved at this stage for columns:
+`minimum_ratio_width` accepts the used border-box height and keeps the larger
+of its transferred width and the content's min-content width. Other layout
+callers retain the preferred-height calculation. Final stretch still uses
+authored width bounds, preserving Patch 50's intrinsic-width protection.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+32 literal `Chrome 151 ratio column shrink` cases measured with Chrome
+151.0.7922.34 on 2026-10-19. Before the patch, 22 frames differed. The reported
+50×80 item becomes 50×50. In a 20px-tall column, stretch gives 50×50,
+`flex-start` gives 20×20, and wrapping gives 50×20. Controls cover explicit
+widths, auto and fixed margins, taller content, minimum and maximum widths,
+zero height minima, hidden overflow, disabled shrinking, two ratios, reversed
+columns, padding and borders under both box-sizing modes, and rows. Existing
+`Chrome 151 ratio column stretch` cases retain intrinsic and wider-content coverage.
+
+## Patch 55: floor stretched flex sizes before cross-axis alignment
+
+`determine_used_cross_size` includes padding and border in the minimum used
+cross size, including when an authored maximum is smaller. This keeps the
+content size nonnegative ([CSS Sizing §3.3](https://www.w3.org/TR/css-sizing-3/#box-sizing))
+before `outer_target_size` feeds alignment. Applying the floor only in child
+layout left alignment using a size smaller than the box it positioned.
+The same floor applies to the comparison that detects actual stretch.
+Patch 50 still excludes a column's automatic ratio minimum from final stretch;
+authored bounds keep their box-sizing adjustment and minimum precedence.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+23 literal `Chrome 151 column stretch floor` cases measured with Chrome
+151.0.7922.34 on 2026-10-19. Eight frames failed before the patch. The reported
+40×80 item in a 10px RTL column moves from x=0 to x=-30, including with a
+ratio under either box-sizing mode. Controls cover LTR, fitting items,
+`flex-start`, explicit widths, padding and borders, and minimum/maximum
+bounds under both box-sizing modes. Existing ratio-stretch fixtures pass.
+
+## Patch 56: transfer incoming dimensions in flex and grid content measurement
+
+Flex resolves Patch 12's ratio from the incoming dimensions when computing its
+layout constants. Grid omits preferred sizes before
+ratio resolution in `ContentSize`, retaining the sizes and limits derived from
+incoming dimensions. A content probe can therefore transfer a definite cross
+size without restoring the preferred main size it was asked to ignore
+([Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto),
+[§9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes)).
+
+For non-replaced containers in `ContentSize`, a transferred width is a minimum,
+not a known dimension: flex measures its items and grid sizes its tracks before
+combining their content with that floor. Taller content can likewise exceed
+the existing automatic height floor. Both transfers use the declared box
+sizing and retain the authored bounds. Both incoming dimensions remain
+authoritative; an authored size replaced by flexing no longer supplies a
+second ratio floor.
+A ratio height derived from a definite width supplies a definite cross size
+and available space for flex item measurement, even while retained as a floor
+that content can exceed ([CSS Sizing §4.2](https://www.w3.org/TR/css-sizing-4/#aspect-ratio)).
+This preserves item sizing when the root reaches its ratio floor on its first
+pass and needs no second layout. The parent-side rules of patches 44, 50, 54
+and 55 are unchanged.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+40 literal `Chrome 151 ratio container minimum` cases measured with Chrome
+151.0.7922.34 on 2026-10-19. Seventeen frames failed before the patch. Flex and
+grid items with `height:80px;aspect-ratio:1` in a 50×20 column change from
+50×20 to Chrome's 50×50. The row analogues change from 20×80 (flex) and 20×50
+(grid) to 50×50 through the same fix. Controls cover block items, taller
+content, zero minima, hidden overflow, alignment, wrapping, explicit widths,
+padding and borders under both box-sizing modes, specified-height caps,
+disabled shrinking, percentage children and a nested flex column.
+
+The 31 literal `Chrome 151 ratio container content floor` cases use the same
+Chrome version and date. Thirteen frames failed with a transferred width
+treated as known: flex and grid row items with 70px or 120px of min-content
+width stayed 50×50 instead of Chrome's 70×50 or 120×50. Controls cover fixed
+and stretched cross sizes, specified-width caps, zero minima,
+hidden overflow, alignment, both box-sizing modes, wider and taller column
+content, and a flex column inside a row. The original 10px-content row cases
+retain the 50px transferred floor. Four `ratio two transfer` cases with 10px
+content hold the declared ratio: columns give 50×25 and rows give 60×30 for
+both flex and grid items.
+
+Ten `Chrome 151 ratio definite cross` cases use the same version and date,
+both in a 50px block and as roots offered 50px
+(`ratio_roots_in_a_definite_offer_match_chrome`). Four root frames and six
+wrapped frames failed before preserving the definite cross size and available
+space. The auto-width 1:1 flex root's ratio item changes from 10×50 to 50×50,
+matching Chrome and `origin/main` at c8f5d6c96. Controls cover a second ratio,
+height bounds, wrapping, alignment, column direction, and flex and grid items.
 
 ## Cargo workspace boundary
 

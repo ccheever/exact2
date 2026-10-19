@@ -141,10 +141,10 @@ extension Agent {
     func nativeInFlight() -> Bool {
         if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
         // A smooth correction (a list following its end, a smooth
-        // `scrollIntoView`) is UIKit's scroll animation under platform timing
-        // (LLP 1070.000 §11): the fixed point is where it lands, within
-        // settle's bound (LLP 1035.003 D5).
-        if !presenter.collections.animating.isEmpty || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
+        // `scrollIntoView`) and an element reveal are UIKit's scroll
+        // animation under platform timing (LLP 1070.000 §11, §14): the fixed
+        // point is where it lands, within settle's bound (LLP 1035.003 D5).
+        if !presenter.collections.animating.isEmpty || presenter.elementScrolls.revealsInFlight || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
               node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),

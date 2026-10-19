@@ -1,6 +1,7 @@
 # Data modules cannot send on a WebSocket (receive-only on every host)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** LLP 1016.000 D7: TypeScript sources send on a resource's socket on the web JS target, macOS, iOS (simulator) and Linux; what remains is in QUEUE.md
 **Systems:** runner streams, data modules, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -389,3 +390,28 @@ Selected as the next core investment by Charlie on 2026-10-08; keep open for des
 T3 Code and the already queued Supabase/Convex consumers make sending a reusable capability. Preserve net.websocket grants, lifetime ownership, inspection and bounded transport.
 
 Charlie selected this priority on 2026-10-08. Select the stream-handle/mutation-send API and distinguish protocol frames from coalescible state snapshots. Verify subscribe/ack/ping, ordering, backpressure, close reason and disposal. Review #227 independently; it fixes refusal consistency, not sending.
+
+## Closed, 2026-10-18
+
+The iOS simulator drive (iPhone 18 Pro, iOS 27.0) of the X21 app sending
+from mutations, an app outside the repo made by `exact new`, against a Bun
+echo server on the Mac's 127.0.0.1:8791 (`bun exact.mjs agent ios`, three
+drives), matched the macOS and Linux drives. No iOS change was needed.
+
+- The server logged `received ping from module`, `received bytes 1,2,3`
+  and `close 4001 finished`.
+- The view showed `echo ping from module` and `bytes 3,2,1`, then
+  `close 4001 finished true` from the mapper's `close` event.
+- `state.streams` read `"readyState":1,"bufferedAmount":0,"sent":2` (the
+  echo had drained the transport); inside the sending mutation the handle
+  read `readyState 1; buffered 16`. `logs` showed `socket send: 16 bytes
+  (feed)`, `socket send: 3 bytes (feed)` and `socket close: 0 bytes (feed)`.
+- A send after the close logged `send sent failed: the socket is not open;
+  it ends unsent`.
+- `refresh` on an open socket logged `forget request 1 (feed)` and the
+  server `close 1000`; the next send went out on request 2.
+
+What remained moved to `QUEUE.md`, under "A stream that can send" (the
+wasm web host, Rust sources, worker-placed streams, the native abort, the
+Chrome-oracle conformance case, the async-lane echo test, a drive on Linux
+itself and on an iPhone) and "Upstream ibex2's queued-message count".

@@ -3946,3 +3946,46 @@ Built to the approved plan's point 5 (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:
   - Tab bars draw a path again when the size class changes: the in-page bar's items are keyed on the glyph's size and the bar watches the size class; the root tab bar watches it too and reads its own traits once in its window. Tested compact, regular, compact with the faces unchanged, in both.
   - A symbol segment's path is drawn at the control's body size and again as the text size changes (keyed on that size; the control watches the content size).
   - The agent's icon name: the source form carries none (the compiler and the runner's bridge expand the name away), so two tokens on one SVG (`icon.reply`, `icon.respond`) give one form and one plan string, and the host reports the first declared, the best it knows. theme2 ruled (21:49) to keep that and QUEUE it, with a build lint for two icon tokens with identical sources as the cheaper real fix.
+
+### Stage 9, commit C1: `explain` answers an icon and a param (draft for theme2)
+
+QUEUE (stage 7 B, round 2): an icon and a param were read through `describe` and `resolve` only.
+Under `tamber/1.12`, optional fields (theme2's 19:25 ruling (a): one computation, two readers).
+- **`describe`'s icon entry** gains `draws`, `{target: source}` for each target the app ships: the
+  source that target draws, by D10's rule (`contract_lower::icons::draws`, the same function
+  `tamber-icon-missing` now checks with), or null. It reads stage 9 A's rule: Apple draws an
+  icon's SF Symbol, else a template SVG's path (not yet on a watch).
+- **`explain` of an icon** answers `kind: "icon"`, its value as its design writes it, its chain
+  (the icon an alias, `icon.alias = icon.home`, names; empty for an `icon(…)`), and its `describe`
+  entry. The server folds a design as the build does with or without params, so an alias reads in
+  an app that has none. An icon param (it was
+  refused, "an icon") answers the same by its full name, its chain the icon or param its default
+  names, with its `param`.
+- **`explain` of a param** adds `param`: its component and identity, kind, the place of its line,
+  its default as written, and `set`, the design's line that sets the app's value, or null.
+- **Tests** (`tamber_serve_explain.rs`): an sf-only, an svg-only and a three-source icon's `draws`
+  in `explain` and `describe`; a param before and after the app sets its value.
+
+### Stage 9, commit C2: `uses` of an icon; a motion token's sites by instance (draft for theme2)
+
+The rest of the QUEUE entry C1 began, under `tamber/1.12` (theme2 19:25 (b)). Both join the app's
+elements (every source it loads, walked from each view) to the source map's nodes by span, so a
+site is located as the map has it (`sitesAt` outlines by it) and a component used twice is two.
+- **An icon** (`contract::tamber_uses::icon_sites`, `tamber_explain::icon_uses`): each plan node
+  of an `image` whose source names it (its string, either arm of a condition, or `src`), directly
+  or through an icon param of its component, by identity, whose value (the design's, else its
+  default as decoded) resolves to it, to a fixed point (`via: {token: <param>}`); `row` is `symbol`.
+  A text, another attribute or a comment that spells `symbol:…` is no site. Asked about an icon
+  param, `uses` answers by its full name with the images that read it.
+- **A motion token by instance** (`motion_instances`): each plan node declared at the element
+  whose attribute holds a literal is a site, the literal kept as `literal` (an animation's
+  longhands, which the compiler composes, included). A literal in no element of the views (an
+  unused component, a component argument's) keeps `site: null`. `site` was always null before
+  1.12; the answer's `plan` is the digest.
+- The QUEUE entry closes but for the motion rebuild class (a motion value's change stays
+  `rebuild`), kept as its own entry.
+- **Tests** (`tamber_serve_explain.rs`): an icon drawn directly and through a param in a component
+  used twice; a text, an attribute and a comment spelling it are no sites, a parenthesized source
+  over two lines is; an icon param asked about; a motion literal in a component used twice (two
+  sites, the literal kept), an animation longhand's instance at its node, one in an unused
+  component (`site: null`); a design the app doesn't build has no sites.

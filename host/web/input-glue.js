@@ -347,6 +347,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (h.state === "active") showPress(h.el, false); else snap(h.el, () => h.el.removeAttribute("data-exact-held"));
     if (reason) h.dropped?.(reason);
   };
+  // (Announced once it is: a hold sent while the glue loads, after paint, waits for it — `exact-hold`.)
+  queueMicrotask(() => globalThis.dispatchEvent?.(new Event("exact-hold")));
   (globalThis.exact ??= {}).hold = (el, state, dropped) => {
     if (state != null && !["active", "hover", "focus-visible"].includes(state)) return { error: "holdState is active, hover, focus-visible or null", malformed: true };
     letGo("replaced");

@@ -82,7 +82,9 @@ on macOS and Linux.
   row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
   press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
   `:active` part row is edited by `set-state`). Stage 9's later wire changes add under the same
-  version: D2's `set-row`, D3's `add-param` and `remove-param`.
+  version: D2's `set-row`, D3's `add-param` and `remove-param`; C1's `explain` of an icon and a
+  param, and `describe`'s icon `draws`; C2's `uses` of an icon and a motion token's sites by
+  instance.
 
 ## Where it runs
 
@@ -210,7 +212,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `fallback` (a length's or number's is its default tuple's value, twice);
   - `exports`;
   - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
-    written, null where unwritten (D10).
+    written, null where unwritten (D10), and `draws` (*1.12*): `{target: source}` for each target the
+    app ships, the source that target draws (`sf`, `svg`) or null for none, by D10's rule (the one
+    `tamber-icon-missing` checks).
   - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
@@ -227,10 +231,11 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
   - `resolve`, `explain` and `uses` take a param's full or short name as `token` and answer by its
-    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`.
+    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`,
+    and since *1.12* through `explain` and `uses` too (below).
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
-  `describe` and `resolve` only.
+  `describe` and `resolve`, and since *1.12* `explain` and `uses`.
 - `files`;
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
@@ -279,6 +284,15 @@ tuple:
 - `dials` lists the dials it depends on, and `names` the tokens its values name, as the checker
   resolved them;
 - `files` gives the digests it read (*1.1*).
+- **An icon** (*1.12*) answers `{token, kind: "icon", value, whens: [], dials: [], names, icon,
+  files}`: `value` its line's value as written (an `icon(…)`, or another icon's name), `names` the
+  icon that value names (empty for an `icon(…)`), `icon` its `describe` entry (`draws` included:
+  what it draws, the named icon's sources for an alias). An icon param answers the same by its full name, its
+  `value` its default as written, `names` the icon or param that default names, and `param`
+  (below).
+- **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
+  where its line is, its default as written, and `set`, the design's line that sets the app's
+  value (`{file, line, value}`), or null.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
@@ -302,13 +316,30 @@ read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliase
 - `aliases`: the tokens whose values name it, directly or through another;
 - `files`: the digests it read.
 
-A duration or easing token (*1.9*) is written into its rows at build, so the plan has no node
-for it: `plan` is null, and each site is a source literal, `{site: null, row, file, line, col,
-end_col, argument?, via?}`. These are the literals of a motion row the build wrote it into
-(`row` is that row's name, `-` as `_`) in every source the app loads, a package's too, and the
-component arguments whose literals name it (`row` null, `argument: {component, name}`), which an
-expansion writes into a row. `via: {token}` says when the literal names the token through
-another token. A comment is no site.
+A duration or easing token (*1.9*) is written into its rows at build, so its sites are found
+through its source literals: the literals of a motion row the build wrote it into (`row` is that
+row's name, `-` as `_`) in every source the app loads, a package's too, and the component
+arguments whose literals name it (`row` null, `argument: {component, name}`), which an expansion
+writes into a row. `via: {token}` says when the literal names the token through another token. A
+comment is no site. Since *1.12* (stage 9 C2) the answer's `plan` is the digest, and each plan node
+declared at the element whose attribute holds a literal (in any part of its value: a condition's
+arm, a `+`'s side), or whose row the source map says is written at a `style`'s attribute holding
+it, is its own site: `site` that node, located as the map has it (`file`, `line`, `col`, `end_col`,
+`component`, `chain`), and `literal` `{file, line, col, end_col}` the literal's place, so a
+component used twice gives two sites for its one literal. A literal no node is declared or written
+at (a component no one uses, a component argument's) keeps the older shape, `{site: null, row,
+file, line, col, end_col, argument?, via?}` at the literal's place; before 1.12 every site had that
+shape and `plan` was null.
+
+An icon (*1.12*) is read where an `image`'s source names it (a string, a template with no `${}`,
+either arm of a condition or a `match`, a list's items): each plan node of such an image,
+located as the map has it, `row` `symbol` (the image's source, not a style row). Through an icon
+param of the image's component (by its identity) whose value (the design's line, by its full name
+or by its short name where only one component has it; else its default) resolves to the icon, to a
+fixed point, the site says `via: {token: <param>}`, and `aliases` lists those params; a source
+that is the thing asked about has no `via`. Asked about an icon param, `uses` answers by its full
+name with the images that read it (or a param resolving to it). A node that shares its element's span
+with another (a button's text child) is a motion site only where it binds the row's kind.
 
 A `file` that is not the design the app builds has no sites. The JS target's plan and a native
 bake of the same sources have the same sites. How many instances of each site are mounted on a

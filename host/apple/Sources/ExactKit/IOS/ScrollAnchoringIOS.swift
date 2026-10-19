@@ -36,6 +36,8 @@ extension NodeView {
               let shift = ScrollAnchoring.shift(of: anchor, in: self, space: sv, changes: presenter?.anchorChanges ?? .init(),
                                                 live: { [weak self] in self?.presenter?.views[$0.id] === $0 }),
               shift != 0 else { return }
+        // An element reveal heads for where its target now is instead (`IntoView.swift`).
+        if presenter?.elementScrolls.revealing(sv) != nil { presenter?.elementScrolls.retarget(sv); return }
         // While a finger or a fling moves it, move the offset by the shift
         // only, as UIKit's own content offset adjustment does; at rest, clamp.
         if sv.isTracking || sv.isDecelerating {

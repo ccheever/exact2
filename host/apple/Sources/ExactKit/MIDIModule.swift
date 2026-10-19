@@ -171,8 +171,14 @@ final class MIDIHub {
         if now {
             DispatchQueue.main.async { self.drain() }
         } else if later {
+            // Strict, as the arm's hold: a coalesced `asyncAfter` can come
+            // 150 ms late where the system coalesces timers (an occluded or
+            // App Napped app), and a batch was held past a second one.
             let wait = max(0, 0.05 - (CACurrentMediaTime() - message.at))
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { self.drain(armed: armed) }
+            let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+            timer.schedule(deadline: .now() + wait, leeway: .nanoseconds(0))
+            timer.setEventHandler { timer.cancel(); self.drain(armed: armed) }
+            timer.resume()
         }
     }
 

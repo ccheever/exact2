@@ -266,7 +266,7 @@ impl AbsoluteBox {
         };
         let parent_size = area_size.map(Some);
 
-        if let Some(min) = crate::compute::ratio::minimum_ratio_width(tree, node, parent_size) {
+        if let Some(min) = crate::compute::ratio::minimum_ratio_width(tree, node, parent_size, None) {
             self.min_size.width = Some(min).maybe_max(self.min_size.width);
         }
         let mut given = self.size;

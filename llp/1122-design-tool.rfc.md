@@ -1310,3 +1310,70 @@ added).
 | A live param scrubbed on the web and the natives | **Met**: `Controls.hit` (the post action buttons' padding) 5 → 10px, the frame's padding following and every build's design digest the served one: the JS loop, the wasm loop, the iOS simulator, the Mac. Keep wrote one line. |
 | The param rung from the canvas | **Met** on the JS and wasm loops and with the iOS simulator attached: a post's reply button inspected offers "Edit Controls.hit" on its padding rows and "Edit Controls.radius" on its radius rows. |
 
+
+
+### T4, states (step 1 and step 2 `6fbc0264fa` with README `9d488627c5` and fixes `e7ccae826d`; the hold replay `2ca697fc0b`, `86bcbefcbc`, `28ce115532`, `7df268ad8c`; the pages' glue wait `49af400183`, `a747b9e2ee`, `fbbba0cf0d` and the JS page's glue load `82c4602f66`, `479a5fa29e`, `236b0186ed`, `902c31665a`; optional *1.12* rung `state`)
+
+- **Held states** (D8, step 1; `holds.ts`): Pressed, Hovered or Focused holds that state on the
+  selected copy (`hold`), one a build, a new one replacing the last; Let go ends it. The status
+  says Holding until the build's `held` report on that hold frame, then Held (the server forgets a
+  report at each hold frame, so a listing's `held` is its hold's); where it is (here, the press's
+  node the build names, `held.site`, or another node of the build, which a hold here replaces);
+  why the last one went (real input, disabled, no single view there, another hold, its client
+  gone, no single site in a new plan) and a state a build cannot hold. While it is held here the
+  selection's page is asked again for the held look's rows (an inspect refresh, once a hold; a
+  selection's held report counts only as the answer to the hold it was asked under), each row at
+  its part's place; a host that reports none, or not their tokens, says provenance incomplete.
+- **The state rung** (D6, step 2, the server's join): a style's `:active` part row (the map's
+  `state` and `at`, origin `class:<Name>`) joins as `{rung: "state", style, state, row, file,
+  text?, token?}`, the default: the style by the name its file declares it with (the compiler may
+  rename a second `style Card`), the row as its author wrote it, the style's file relative to the
+  app, the value as written (only a whole one literal), and the token its whole value is, offered
+  beside it. A held row carries it where the build names the held node; a style outside the app's
+  own Contract sources (a package's, vendored or linked) is read-only; an inline `:active` row on a
+  node points at `set-row` (T5). The editor starts from the value as written, its draft bound to
+  the copy and the files' digests it was opened on (a write since, or a stale or read-only copy,
+  refuses Apply until the copy is selected and the row opened again); `set-state` rebuilds.
+- **The hold replay** (stage 8 E, fixed here by the lead's 18:30): after a new plan, a held site
+  corresponds by its place and call-site chain: the same calls take the same chain; as many copies
+  whose calls moved go by rank where each file's calls moved as one edit moves them; else the
+  unmoved kept and the rest so among themselves; copies added or removed keep the unmoved chain;
+  else, or on a throw, cleared with the diagnostic.
+- **The workbench's state parts** (moved here from stage 8's gate): a selected component's
+  `:active` part rows, each with its state rung, are the workbench's state parts; T3's component
+  panel lists params, not state parts.
+- **Known limits:**
+  - only `:active` parts carry their place in the map: a `:hover`, `:focus-visible`, `:disabled` or
+    `:checked` part's rows are offered no state rung, so a held hover or focus look is read-only (a
+    gap against D8: QUEUE, the compiler to record `at` for every state part);
+  - the replay goes by places alone (the map has no other identity of a call or an element): a
+    reorder that keeps its spacing, a call or element moved onto another's old place, or a copy
+    added or removed while one keeps its line can carry the hold to the other copy (the host lets
+    it go, `gone`, where the copies' instance paths differ); a slot filled at two outlets is one
+    copy, its outlets told apart by their order;
+  - a hold sent while a page's input glue loads (a page reloading after a rebuild) waits for the
+    glue to say it has (`exact-hold`) up to 60 s, then says it is not loaded. The gate found two
+    causes, both fixed above: the pages' fixed 2 s wait, and the JS page loading its glue only after
+    an animation frame, which a canvas scrolled out of view in the tool never gets (it now loads a
+    second on as well). The wasm shell's own activation still waits on frames (QUEUE), and the
+    agents' own `holdState` waits are still 2 s;
+  - a page that answers a refresh with no selection leaves "asked" said until the next selection
+    (data sources have no timers); a hold ended because its client went says nothing (the server
+    sends no reason);
+  - before the server's first file read the join has no own-sources list and uses the path rule
+    (the write refuses a vendored file regardless).
+
+### T4's gate (2026-10-18; the run is `~/x2theme/t4-gate-run.txt`)
+
+On a copy of the clone (`dt4-gate`, its main `95d7d41` with two Post buttons in the home header,
+the second disabled).
+
+| Gate line | Result |
+|---|---|
+| Hold pressed on the Post button shows its `:active` look with no touch | **Met** on the JS loop and the wasm loop (#0059d6, "Held pressed."), the iOS simulator (#0059d6 against #006aff at rest) and the Mac (held `active` on the wire; its screen capture was covered on the shared desktop, the look met in stage 8's gate). |
+| Real input on it lets the hold go | **Met** on the JS and wasm loops ("real input on the node let it go"). |
+| The disabled Post button refuses a hold | **Met** on the JS and wasm loops, the iOS simulator and the Mac (`disabled`). |
+| Hovered: held where a pointer is, unsupported where none | **Met**: held on the Mac; the iOS simulator answers `unsupported` ("this host holds no hover"), to the owning client only. |
+| Inspect on the held node shows the state part's rows | **Met** on the JS loop with stage 9 E: the held row ":active background-color" at its part (`screens.contract:582`) with its token, no provenance incomplete, "Edit PostButton :active background-color" on it. |
+| The workbench's state parts, editable through `set-state` | **Met**: the selection's `:active` row offers the state rung (the default) and "Edit the token primary_600 instead"; the field starts at `primary_600`; Rebuilds; Apply wrote one line (`screens.contract:582`, `primary_600` → `positive_500`). |
+| After the rebuild the hold is held again | **Met** on the JS loop (00:49Z, at main with the glue fixes): the server re-sent it at the corresponding copy ("Holding pressed.", where before the replay fix every PostButton cleared), the reloaded page held it 2 s later ("Held pressed.") with the canvas out of view, and in view its ground was the new `:active` value, `positive_500`, with no touch. **Met** on the wasm loop too (01:17Z, in a quiet window): Held again after its restart, `positive_500` in view. |
