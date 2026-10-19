@@ -21,6 +21,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, developmentBuildEnv } from './app.mjs';
+import { webOnly } from './app-cli.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const TOOL_TARGET = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(ROOT, 'target');
@@ -125,8 +126,9 @@ export function bakeOutside(app, platform, target, env) {
   const built = spawnSync(bakeTool.command, bakeTool.args, { ...bakeTool.options(), stdio: ['ignore', 'inherit', 'inherit'] });
   if (built.status !== 0) throw new Error(`the bake tool did not build (${bakeTool.command} ${bakeTool.args.join(' ')})`);
   const tool = `${bakeTool.built} ${statSync(bakeTool.built).mtimeMs}`;
-  // Its warnings are said on every build, as Cargo replays a build script's.
-  const warn = (warnings) => { for (const warning of warnings ?? []) console.error(`warning: ${app.name}: ${warning}`); };
+  // Its warnings are said on every build, as Cargo replays a build script's: the SF Symbols only the web draws blank
+  // one line where the first was, as `contract build` says them (18 of them every euxy build).
+  const warn = (warnings) => { for (const line of bakeWarnings(app.name, warnings ?? [])) console.error(line); };
   let record = null; try { record = JSON.parse(readFileSync(at, 'utf8')); } catch { /* none yet */ }
   if (fresh(record, dir, env, tool)) { warn(record.warnings); return dir; }
   rmSync(at, { force: true });
@@ -144,6 +146,17 @@ export function bakeOutside(app, platform, target, env) {
   writeFileSync(`${at}.${process.pid}.tmp`, JSON.stringify(record));
   renameSync(`${at}.${process.pid}.tmp`, at);
   return dir;
+}
+
+/** An Apple bake's warning lines for app `name`, in the compiler's order: each, but the SF Symbols only the web draws
+ * blank (`webOnly`), which are one line counting them at the first one's place. */
+export function bakeWarnings(name, warnings) {
+  const web = warnings.filter(webOnly), one = web.length === 1, lines = [];
+  for (const warning of warnings) {
+    if (!webOnly(warning)) lines.push(warning);
+    else if (warning === web[0]) lines.push(`${warning.split(' warning [')[0]} warning [lower-symbol-platform] ${web.length} SF Symbol use${one ? '' : 's'} draw${one ? 's' : ''} blank on the web, here first: an icon token or a role draws on every host (\`bun exact.mjs contract build --json\` says each, and how)`);
+  }
+  return lines.map((line) => `warning: ${name}: ${line}`);
 }
 
 /** Places what the link carries, `plan`, the `compat` text naming it (`id`) and the module's `bytecode`, in `dir`,
