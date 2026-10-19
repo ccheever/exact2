@@ -160,7 +160,8 @@ The node's block wins over its class's, row by row.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
-`env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, a layout region's
+`env(safe-area-inset-*)`, `env(viewport-segment-* x y)`,
+`env(titlebar-area-x|y|width|height)`, a layout region's
 `env(-exact-<region>-inset-*)`, or a `calc()`, `min()`, `max()` or `clamp()` of
 these (`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything
 else is `lower-attr-value`, with the kernel's reason.
@@ -172,6 +173,15 @@ the layout viewport, inside the safe area by default: `layout-margins` (UIKit's
 the same kept clear of rounded corners. `padding-left="env(-exact-layout-margins-inset-left)"`
 puts a header where a UIKit screen's would be. On a host without them (the web,
 Linux, Windows) each is the safe area.
+
+The title-bar area is
+[Window Controls Overlay](https://wicg.github.io/window-controls-overlay/)'s: the part
+of the title bar beside the window's controls. On the Mac, under `viewport-fit="cover"`,
+it is AppKit's title bar less the traffic lights and their margins (`78 0 822×32` in a
+900-point window); all zero in full screen and while a toolbar fills the title bar (an
+app with routes has one, LLP 1115.002 D2). Everywhere else it is undefined, as in a browser
+tab: `env(titlebar-area-height, 0px)` takes its fallback, and without one the row takes
+its initial value.
 
 `-exact-fit="shrink"` on a `text` (CSS has no such property; LLP 1116.001 D1.4) draws
 a line too wide for its content box at the scale that fits: its whole line under

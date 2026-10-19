@@ -18,7 +18,7 @@ impl DataSource for Module {
         })?;
         let admitted = Paired::module(
             module.receipt,
-            module.bytecode,
+            std::sync::Arc::<[u8]>::from(module.bytecode),
             Some((module.kind, module.plan)),
             &self.app_id,
             &self.grants,

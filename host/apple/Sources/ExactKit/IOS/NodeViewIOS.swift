@@ -30,6 +30,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var inlineText: [InlineText] = []
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
     var extras: NodeExtras?
+    /// A box's gradient and shadows (`NodePaintExtras`); nil until one is set.
+    var paintExtras: NodePaintExtras?
     package override class var layerClass: AnyClass { NodeLayer.self }
     /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
     var boxDrawn = false
@@ -66,9 +68,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     private func makeSpecs() -> TextSpecs { let made = TextSpecs(); specs = made; return made }
     var textLayoutValid = false
     var flowShapes: [TextFlowShape] = []
-    var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
-    var liveText: String?
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     package var style: NodeStyle = [:]
     /// What the host's own writers hid (a covered route, a tab a native control
@@ -276,12 +276,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
     package var scale: CGFloat = 1
     package var rotate: CGFloat = 0
-    package var contextTransform = CGAffineTransform.identity {
-        didSet {
-            if contextTransform.isIdentity { presenter?.contextNodes.remove(id) }
-            else { presenter?.contextNodes.insert(id) }
-        }
-    }
     weak package var presenter: Presenter?
     /// The actual scroll port; a native list supplies its collection view.
     /// `scroll` remains the plain scroller that holds authored children.
@@ -324,8 +318,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var raster: NativeRasterLease? { didSet { if raster == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil } } }
     /// An image's pixels as a sublayer's contents (`applyImageLayer`).
     var imageLayer: CALayer?
-    /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
-    var flightLook: FlightLook?
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
@@ -360,12 +352,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var press: PressFeedback {
         get { pressing?.feedback ?? PressFeedback() }
         set { if pressing != nil || !newValue.atRest { pressingMade.feedback = newValue } }
-        _modify { let made = pressingMade; yield &made.feedback }
+        _modify {
+            if let pressing { yield &pressing.feedback; return }
+            var feedback = PressFeedback()
+            yield &feedback
+            if !feedback.atRest { pressingMade.feedback = feedback }
+        }
     }
     var pressPaint: PressPaint {
         get { pressing?.paint ?? PressPaint() }
         set { if pressing != nil || !newValue.atRest { pressingMade.paint = newValue } }
-        _modify { let made = pressingMade; yield &made.paint }
+        _modify {
+            if let pressing { yield &pressing.paint; return }
+            var paint = PressPaint()
+            yield &paint
+            if !paint.atRest { pressingMade.paint = paint }
+        }
     }
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.

@@ -167,7 +167,8 @@ pub struct Host<D: DataSource> {
     /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
     head_edited: bool,
     language: Option<String>,
-    mirror: IdMap<ViewId, Mirror>,
+    /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
+    mirror: IdMap<ViewId, Box<Mirror>>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
     /// Hatch words: those journaled as viewless here, and those the plan does not give this platform.

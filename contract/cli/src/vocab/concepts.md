@@ -1071,3 +1071,26 @@ component App
 
 - The action the task runs clears the message whatever it reads: a gated task is armed at
   commits, not by the clock (docs/agent-pitfalls.md, "A gate reads state at commits").
+
+## titlebar: a row beside the Mac's traffic lights
+names: titlebar-area, titlebar-area-x, titlebar-area-y, titlebar-area-width, titlebar-area-height, title-bar, traffic-lights, trafficLightPosition, window-controls-overlay, hiddenInset
+
+Window Controls Overlay's `env(titlebar-area-x|y|width|height)` is the part of the title
+bar the page may draw in, beside the window's controls. On the Mac, under
+`viewport-fit="cover"`, it is AppKit's title bar less the traffic lights: in a 900-point
+window `78 0 822×32`. It is all zero in full screen and while the window has a toolbar (an
+app with routes has one), and undefined elsewhere: in a browser tab, on iOS, Linux and
+Windows, and on a Mac window that does not cover its title bar. Give each a fallback.
+
+```contract
+component App
+  view
+    main viewport-fit="cover" display="flex" flex-direction="column" width="100%" height="100%"
+      row margin-left="env(titlebar-area-x, 0px)" width="env(titlebar-area-width, 100%)" height="env(titlebar-area-height, 0px)" align-items="center"
+        text "Drafts" role="heading" aria-level=1
+      scroll flex=1 min-height=0 padding=16
+        text "Body"
+```
+
+- Nothing moves the traffic lights or sets the row's height: the title bar is AppKit's.
+- More: docs/contract-grammar.md (lengths).

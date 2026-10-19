@@ -48,7 +48,7 @@ impl Paired {
     /// the running app's plan. The generation pairs all its entry plans (D8).
     pub(crate) fn module(
         receipt: &str,
-        bytecode: impl AsRef<[u8]> + Into<std::sync::Arc<[u8]>>,
+        bytecode: impl AsRef<[u8]> + Into<Bytecode>,
         entry: Option<(&str, &[u8])>,
         expected_app: &str,
         expected_grants: &str,
@@ -100,13 +100,53 @@ impl Paired {
     }
 }
 
+/// A module's bytecode: the program's own, read in place for the
+/// runtime's life, or bytes it owns, shared with the engine that runs them.
+/// The bake's `APP_BYTECODE` is aligned so that Hermes reads it where it is
+/// linked (the shim copies bytes that are not aligned).
+#[derive(Clone)]
+pub enum Bytecode {
+    /// Linked into the program.
+    Linked(&'static [u8]),
+    /// Read from elsewhere (an update, a test's fixture).
+    Owned(std::sync::Arc<[u8]>),
+}
+
+impl std::ops::Deref for Bytecode {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match self {
+            Bytecode::Linked(bytes) => bytes,
+            Bytecode::Owned(bytes) => bytes,
+        }
+    }
+}
+
+impl From<&'static [u8]> for Bytecode {
+    fn from(bytes: &'static [u8]) -> Self {
+        Bytecode::Linked(bytes)
+    }
+}
+
+impl From<Vec<u8>> for Bytecode {
+    fn from(bytes: Vec<u8>) -> Self {
+        Bytecode::Owned(bytes.into())
+    }
+}
+
+impl From<std::sync::Arc<[u8]>> for Bytecode {
+    fn from(bytes: std::sync::Arc<[u8]>) -> Self {
+        Bytecode::Owned(bytes)
+    }
+}
+
 /// The bytecode's SHA-256, hashed once per process for the same bytes: a
 /// render server makes a module per request from one bytecode, and asks
 /// each for its revision (the page's checkpoint names it). A few recent
 /// bytecodes are kept, shared with their modules rather than copied, and
 /// compared byte for byte.
-pub(crate) fn revision_of(bytecode: &std::sync::Arc<[u8]>) -> String {
-    type Known = Vec<(std::sync::Arc<[u8]>, String)>;
+pub(crate) fn revision_of(bytecode: &Bytecode) -> String {
+    type Known = Vec<(Bytecode, String)>;
     static KNOWN: std::sync::Mutex<Known> = std::sync::Mutex::new(Vec::new());
     let mut known = KNOWN
         .lock()
