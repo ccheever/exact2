@@ -10,11 +10,16 @@ shape SettingsWire
   bubble: string
   border: string
   drawer: string
+shape SettingsModeFrame
+  border: string
+  drawer: string
+  muted: string
 shape SettingsMode
   id: string
   label: string
   selected: bool
   split: bool
+  frame: SettingsModeFrame
   left: SettingsWire
   right: SettingsWire
 shape SettingsOrb
@@ -161,12 +166,12 @@ component SettingsModePreview
   props
     mode: SettingsMode
   view
-    column position="relative" width=49 height=84 align-self="center" padding=3 box-sizing="border-box" border-radius=16 border-width=1.5 border-style="solid" border-color=mode.left.border background-color=mode.left.drawer
+    column position="relative" width=49 height=84 align-self="center" padding=3 box-sizing="border-box" border-radius=16 border-width=1.5 border-style="solid" border-color=mode.frame.border background-color=mode.frame.drawer
       row flex=1 overflow="hidden" border-radius=11
         SettingsPreviewPane(colors=mode.left, compact=mode.split)
         if mode.split
           SettingsPreviewPane(colors=mode.right, compact=true)
-      view position="absolute" bottom=6 left="50%" width=14 height=3.5 translate="-7px 0px" border-radius=9999 background-color=mode.left.muted
+      view position="absolute" bottom=6 left="50%" width=14 height=3.5 translate="-7px 0px" border-radius=9999 background-color=mode.frame.muted
 component SettingsPreviewPane
   props
     colors: SettingsWire
