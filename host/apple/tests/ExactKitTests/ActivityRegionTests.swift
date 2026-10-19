@@ -22,7 +22,6 @@ extension ActivityDriverTests {
         XCTAssertGreaterThan(center[2], center[0] + 100, "the actual 80 pt proposal draws Thin, even after an ideal-size probe")
     }
 
-
     func testMinimumDoesNotTurnIntrinsicOverflowIntoAnAuthoredWidth() throws {
         let render = try self.render(try Self.plan("SNAPSHOT_EDGES"), kind: "edges", state: nil)
         let measured = render.measure(.compactLeading, proposal: ProposedViewSize(width: 80, height: nil))
@@ -79,15 +78,55 @@ extension ActivityDriverTests {
         let render = try self.render(try Self.plan("SNAPSHOT_EDGES"), kind: "edges", state: nil)
         let view = SnapshotActivity.view(render, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white)
         let clear = try XCTUnwrap(image(view, proposal: ProposedViewSize(width: 300, height: nil)))
-        let locked = try XCTUnwrap(image(view.environment(\.redactionReasons, .privacy), proposal: ProposedViewSize(width: 300, height: nil)))
+        let locked = try XCTUnwrap(image(view.redacted(reason: .privacy), proposal: ProposedViewSize(width: 300, height: nil)))
         try write(clear, "nested-public-clear"); try write(locked, "nested-private-locked")
         let a = try pixels(clear), b = try pixels(locked)
         XCTAssertEqual(a.width, b.width); XCTAssertEqual(a.height, b.height)
-        let publicRow = a.width * 4 * 20
-        XCTAssertTrue(Array(a.data.prefix(publicRow)) == Array(b.data.prefix(publicRow)), "the public label stays visible")
-        XCTAssertTrue(Array(a.data.dropFirst(publicRow)) != Array(b.data.dropFirst(publicRow)), "the private descendant redacts")
+        let laid = try XCTUnwrap(render.laidOut(.lockScreen, proposal: ProposedViewSize(width: 300, height: nil)))
+        func descendants(_ node: HeadlessSession.Node) -> [HeadlessSession.Node] {
+            [node] + node.children.compactMap { laid.snapshot.nodes[$0] }.flatMap(descendants)
+        }
+        let lines = descendants(laid.root).filter { $0.kind == "text" && !$0.lines.isEmpty }
+        for line in lines {
+            let rect = rect(of: line, in: laid)
+            let shown = try region(clear, rect), hidden = try region(locked, rect)
+            XCTAssertGreaterThan(try ink(clear, in: rect, background: [255,255,255]), 20, "the comparison contains the label's own ink")
+            XCTAssertEqual(shown == hidden, line.lines.first?.text == "Public label", "only the private line redacts: \(line.lines.map(\.text))")
+        }
+        XCTAssertEqual(lines.count, 2)
+    }
+
+    func testPrivateViewRedactsItsOwnBackground() throws {
+        let render = try self.render(try Self.plan("SNAPSHOT_EDGES"), kind: "edges", state: nil)
+        let proposal = ProposedViewSize(width: 300, height: nil)
+        let laid = try XCTUnwrap(render.laidOut(.lockScreen, proposal: proposal))
+        let node = try XCTUnwrap(laid.snapshot.nodes.values.first { $0.props["testId"] == "private-paint" })
+        let rect = rect(of: node, in: laid)
+        let view = SnapshotActivity.view(render, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white)
+        let clear = try XCTUnwrap(image(view, proposal: proposal))
+        let locked = try XCTUnwrap(image(view.redacted(reason: .privacy), proposal: proposal))
+        let shown = try region(clear, rect), hidden = try region(locked, rect)
+        func red(_ bytes: [UInt8]) -> Int { stride(from: 0, to: bytes.count, by: 3).filter { Int(bytes[$0]) > Int(bytes[$0 + 2]) + 100 }.count }
+        XCTAssertGreaterThan(red(shown), 500)
+        XCTAssertEqual(red(hidden), 0, "the private view's red background must not survive privacy redaction")
+    }
+
+    private func rect(of node: HeadlessSession.Node, in laid: ActivityRender.Laid) -> CGRect {
+        var result = node.frame, current = node.id
+        while current != laid.root.id, let parent = laid.snapshot.nodes.values.first(where: { $0.children.contains(current) }) {
+            result = result.offsetBy(dx: parent.frame.minX, dy: parent.frame.minY); current = parent.id
+        }
+        return result
+    }
+
+    private func region(_ image: CGImage, _ rect: CGRect) throws -> [UInt8] {
+        let p = try pixels(image)
+        return (max(0, Int(rect.minY))..<min(p.height, Int(rect.maxY.rounded(.up)))).flatMap { y in
+            (max(0, Int(rect.minX))..<min(p.width, Int(rect.maxX.rounded(.up)))).flatMap { x in Array(p.data[((y * p.width + x) * 4)..<((y * p.width + x) * 4 + 3)]) }
+        }
     }
 }
+
 private struct ProbeAfterProposal: Layout {
     let layout: PlacementLayout
     typealias Cache = PlacementLayout.Cache

@@ -14,6 +14,7 @@ struct SnapshotNodeView: View {
     var isRoot = false
     var inheritedPrivacy = true
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.redactionReasons) private var redaction
 
     private var style: SnapshotStyle { SnapshotStyle(node) }
     private var paint: SnapshotPaint { SnapshotPaint(style: style, dark: scheme == .dark) }
@@ -25,6 +26,7 @@ struct SnapshotNodeView: View {
         }
     }
     private var leaf: Bool { ["text", "time", "image"].contains(node.kind) || node.props["type"] == "progress" }
+    private var redactPaint: Bool { !environment.placeholder && privateContent && redaction.contains(.privacy) }
     private var bounds: CGRect { CGRect(origin: .zero, size: node.frame.size) }
 
     var body: some View {
@@ -44,8 +46,14 @@ struct SnapshotNodeView: View {
             .frame(width: node.frame.width, height: node.frame.height, alignment: .topLeading)
             .modifier(Clip(outline: style.clips ? paint.paddingOutline(in: bounds) : nil))
             // The root's background is the container's (D5), never drawn twice.
-            .background { if !isRoot { paint.fill(in: bounds) } }
-            .overlay { paint.border(in: bounds) }
+            .background {
+                if !isRoot {
+                    if redactPaint {
+                        if paint.hasBackground { paint.outline(in: bounds).fill(Color.primary.opacity(0.15)) }
+                    } else { paint.fill(in: bounds) }
+                }
+            }
+            .overlay { if !redactPaint { paint.border(in: bounds) } }
             .modifier(PathClip(path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
             .modifier(Privacy(word: environment.placeholder || !leaf ? nil : privateContent ? "private" : "public"))

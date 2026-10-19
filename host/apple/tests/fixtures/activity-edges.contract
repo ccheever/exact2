@@ -16,6 +16,7 @@ component Edges
       text "Public label"
       view data-privacy="private"
         text title
+      view data-privacy="private" width=80 height=16 background-color="#ff0000" testId="private-paint"
     view slot="compactLeading" min-width=20
       text "MMMMMMMMMMMMMMMMMMMM" color="#ff0000"
     view slot="compactTrailing" width="100%"
