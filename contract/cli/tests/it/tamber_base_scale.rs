@@ -250,3 +250,32 @@ fn an_alias_to_a_base_name_exports_the_neutral_columns_length() {
     );
     assert_eq!(light["pill"]["$value"], px(scale::RADIUS_FULL), "{text}");
 }
+
+/// Round 3 (Grok): a base name misdeclared beside another refusal is said
+/// at once: beside an icon's refusal, and where the checker refused another
+/// token (a kind the design wrote).
+#[test]
+fn every_misdeclared_base_name_is_said_beside_other_refusals() {
+    let vocab = contract_lower::tamber_vocab();
+    let ids = |design: &str| -> Vec<(String, u32)> {
+        let errors =
+            exact_tamber::check_design(exact_tamber::parse(design).unwrap(), &vocab).unwrap_err();
+        errors
+            .iter()
+            .filter(|d| d.id == "tamber-base-kind")
+            .map(|d| (d.message.clone(), d.line))
+            .collect()
+    };
+    let beside_icon =
+        ids("tamber t\n\ntheme\n  space.md = #ff0000\n\nicons\n  radius.md = icon(sf \"star\")\n");
+    assert_eq!(beside_icon.len(), 2, "{beside_icon:?}");
+    let beside_checker =
+        ids("tamber t\n\ntheme\n  ink = nowhere.at.all\n  space.lg: color = #ffffff\n");
+    assert_eq!(beside_checker.len(), 1, "{beside_checker:?}");
+    let design = "tamber t\n\ntheme\n  ink = nowhere.at.all\n  space.lg: color = #ffffff\n";
+    let all = exact_tamber::check_design(exact_tamber::parse(design).unwrap(), &vocab).unwrap_err();
+    assert!(
+        all.iter().any(|d| d.id != "tamber-base-kind"),
+        "the checker's own refusal: {all:?}"
+    );
+}

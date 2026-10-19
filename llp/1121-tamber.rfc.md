@@ -4635,8 +4635,9 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
     leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
   - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
     with radius.full left out.
-- **SCHEMA_DIGEST** moves, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x374f_477d_d305_5b7e`
-  (`kernel/src/wire/codec.rs`; the `scale` table and the metrics' terminal column). Nothing else pins it.
+- **SCHEMA_DIGEST** moves once, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x1360_51a6_5170_bf6a`
+  (`kernel/src/wire/codec.rs`; the `scale` table, the metrics' terminal column and theme2's unit flag, `style length`.
+  Rounds 1 and 2 pinned `0x374f_477d_d305_5b7e` before the flag). Nothing else pins it.
 - **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
 - **Tests:**
   - `kernel/src/style/scale.rs`:
@@ -4700,6 +4701,39 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
     lowering's copy is gone. Test: `tamber_serve.rs` (`propose` and `transaction` refused, file unchanged, a length
     accepted).
   - **A scale cell names a metric that holds a length** (fix 4). A `style` row's bare number may be a weight or a flex
-    factor, which the table doesn't mark, so a `style` reference must end in `-gap`, `-inset`, `-radius`, `-width` or
-    `-height`, the endings the kernel's row test maps to length properties. `=grouped-header-weight` stops the build,
-    checked by hand.
+    factor, which the table didn't mark. Round 2 asked the name's ending; theme2 ruled for a per-row unit flag
+    instead (below).
+- **theme2's unit flag** (ruling after round 2, in place of fix 4's name endings):
+  - **The marker.** A `style` metric written on a length property says so in the schema: its kind is `style length`.
+    It applies to a gap, an inset, a corner, a width or height, a padding, a margin or an offset: 59 of the 83 `style`
+    rows. Its number is px; its other cells are `unset`, `auto`, a percentage, an `em`, `rem`, `px`, `vw` or `vh`
+    length, or a `calc()`. The generated `Metric` carries it as `length`, true for a `length` row too, and its kind
+    stays `Style`, so every reader of a style row reads it as before.
+  - **The build holds the marker to the row both ways** (`codec.rs`, `style_length_marker`):
+    - a `style` row whose name says a length property (every name but a colour's, a line style's, a position's, a
+      font's, a weight's, a switch size's, an alignment's, an appearance's, a box model's or a flex factor's, as the
+      row test reads names) is refused without the marker;
+    - a marked row is refused where its name says no length, or where a cell holds no length.
+  - **A scale cell may name only a `length` or `style length` metric** (`build/scale.rs`); the name endings are gone
+    from it.
+  - **The kernel's row test reads the marker** (`style::metrics`): `every_value_is_one_a_row_takes` takes a row's being
+    a length from the marker, and only which property it is written on from its name. A new test,
+    `the_length_marker_is_the_names_length_rows`, holds the marked set to the set the names gave before the flag,
+    exactly (59 rows), so nothing the kernel reads moves.
+  - **Checked by hand on a mutated schema, each refused with its message:**
+    - `grouped-row-gap` unmarked;
+    - `grouped-header-weight` marked;
+    - a marked row with a keyword cell;
+    - `=grouped-header-weight` in a scale cell.
+  - **The digest moves within B1** (above): `0x374f_477d_d305_5b7e` → `0x1360_51a6_5170_bf6a`.
+- **After review round 3 (Astra RIGHT, Grok RIGHT WITH CHANGES):**
+  - **A binding reads the terminal's cells** (Grok, should-fix). Under `Column::Terminal` the scale's spacings are
+    cells (`1ch`, `2ch`), which `Tamber::length`'s points read as no length. It now reads a cell as its px
+    (`style::cells::parse`). `base_alias.rs` checks the terminal column: space.sm 8, space.lg 16, radius.md 0, and
+    `card.pad` 8, then 16 under `tone=wide`.
+  - **A host's length read is read aside** (Grok, nit). `Tamber::length` wraps its `theme::measure` in
+    `theme::recorded`, as `color` does, so its read joins no style parse's names.
+  - **Every misdeclared base name is said at once** (Grok, nit). Beside an icon's refusal, `check_design` appends
+    `misnamed` too. Where the checker refused, so no kind was inferred, it appends each base name the design wrote a
+    kind other than `length` on (`misdeclared`). Test: `tamber_base_scale.rs`
+    `every_misdeclared_base_name_is_said_beside_other_refusals`.

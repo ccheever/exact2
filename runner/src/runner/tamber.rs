@@ -255,9 +255,14 @@ impl<D: DataSource> Tamber<'_, D> {
         (root, at.unwrap_or(root))
     }
 
-    /// Length `text` (px, `rem`, `em`, a text style, the hairline) in points
+    /// Length `text` (px, `rem`, `em`, a text style, the hairline, cells) in points
     /// at `place`.
     fn points(&self, text: &str, place: Place) -> Option<f64> {
+        // The terminal's column holds cells (`1ch`, `2lh`): their px (round
+        // 3, Grok).
+        if let Some(px) = exact_kernel::style::cells::parse(text) {
+            return Some(f64::from(px));
+        }
         let (root, reference) = self.font_sizes(place);
         match exact_kernel::style::relative::parse(text) {
             Some((unit, n)) => {
@@ -276,10 +281,12 @@ impl<D: DataSource> Tamber<'_, D> {
     pub fn length(&mut self, name: &str, place: Place) -> Option<f64> {
         use exact_kernel::style::theme;
         let table = crate::bridge::theme_table_at(&self.runner.plan, self.tuple(place));
-        let text = {
+        // Read aside, as `color` reads: the names a style parse records stay
+        // its own (round 3, Grok).
+        let (text, _) = theme::recorded(|| {
             let _scope = theme::bind(&table);
             theme::measure(name, |k, _| k == theme::Kind::Length).map(|(_, v)| v.to_string())
-        };
+        });
         let Some(text) = text else {
             self.say_once(name, "no such token `{name}` in this plan");
             return None;

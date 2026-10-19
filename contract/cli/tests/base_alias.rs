@@ -12,6 +12,9 @@ use exact_runner::{DataError, DataSource, Place, Runner, Value};
 
 const CARD_PAD: Token<Length> = Token::new("card.pad");
 const SPACE_XL: Token<Length> = Token::new("space.xl");
+const SPACE_SM: Token<Length> = Token::new("space.sm");
+const SPACE_LG: Token<Length> = Token::new("space.lg");
+const RADIUS_MD: Token<Length> = Token::new("radius.md");
 use std::path::PathBuf;
 
 struct NoData;
@@ -121,6 +124,21 @@ fn an_alias_to_a_base_name_reads_each_columns_and_the_apps_own_live() {
             "{column:?}"
         );
     }
+    // The terminal's column is cells (round 3, Grok): a binding reads their
+    // px, an alias's too, and a radius is 0.
+    set_column(Column::Terminal);
+    let mut r = boot(&alias);
+    let read = |r: &mut Runner<NoData>, t: Token<Length>| r.tamber().get(t, Place::Root);
+    assert_eq!(read(&mut r, SPACE_SM), Some(8.0));
+    assert_eq!(read(&mut r, SPACE_LG), Some(16.0));
+    assert_eq!(read(&mut r, RADIUS_MD), Some(0.0));
+    assert_eq!(
+        read(&mut r, CARD_PAD),
+        Some(8.0),
+        "card.pad = space.md, one cell"
+    );
+    r.set_mode("tone", "wide").unwrap();
+    assert_eq!(read(&mut r, CARD_PAD), Some(16.0), "space.lg, two cells");
     // The app's own `space.md` is its token: it wins through the alias, which
     // folds with it (as any token reference does), and an edit of it re-folds
     // the alias, which the design server's batch then carries.

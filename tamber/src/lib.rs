@@ -203,11 +203,16 @@ pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Di
             checked
         }
         Ok(checked) if refused.is_empty() => return Err(misnamed(&design, &checked.0, vocab)),
-        Ok(_) => {
+        // Each refusal at once: a base name misdeclared beside another
+        // refusal is said too (round 3, Grok).
+        Ok(checked) => {
+            refused.extend(misnamed(&design, &checked.0, vocab));
             refused.sort_by_key(|d| (d.line, d.col));
             return Err(refused);
         }
         Err(mut errors) => {
+            // The checker refused: a kind is known where the design wrote it.
+            errors.extend(misdeclared(&design, vocab));
             errors.append(&mut refused);
             errors.sort_by_key(|d| (d.line, d.col));
             return Err(errors);
@@ -244,6 +249,21 @@ fn misnamed(design: &Design, tokens: &[Checked], vocab: &Vocab) -> Vec<Diagnosti
         .map(|(t, d)| {
             let name = &d.name;
             Diagnostic::new("tamber-base-kind", format!("`{0}` is a base length (the scale's `{0}`): an app sets it to a length (`{0} = 12px`), not a {1}", name.value, t.kind.name()), name.line, name.col)
+        })
+        .collect()
+}
+
+/// [`misnamed`] where the checker refused and no kind was inferred: each
+/// base name the design writes a kind other than `length` on.
+fn misdeclared(design: &Design, vocab: &Vocab) -> Vec<Diagnostic> {
+    design
+        .tokens
+        .iter()
+        .filter(|d| vocab.bases.contains(&d.name.value))
+        .filter_map(|d| {
+            let kind = d.kind.as_deref().filter(|k| k.trim() != "length")?;
+            let name = &d.name;
+            Some(Diagnostic::new("tamber-base-kind", format!("`{0}` is a base length (the scale's `{0}`): an app sets it to a length (`{0} = 12px`), not a {1}", name.value, kind.trim()), name.line, name.col))
         })
         .collect()
 }

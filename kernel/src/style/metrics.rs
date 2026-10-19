@@ -357,53 +357,103 @@ mod tests {
         assert!(named("-exact-control-height").is_none());
     }
 
+    /// The rows the grouped sheet writes a `style` metric on, by its name, as
+    /// the row test found them before theme2's unit flag: the oracle the
+    /// flag is held to ([`the_length_marker_is_the_names_length_rows`]).
+    fn written_on(name: &str) -> &'static [StyleId] {
+        use StyleId::*;
+        match name {
+            n if n.ends_with("-fill") || n.contains("-ground") => &[BackgroundColor],
+            "grouped-separator" => &[BorderColorBottom, BorderColorTop],
+            "header-edge-width" => &[BorderWidthBottom],
+            "header-edge-style" => &[BorderStyleBottom],
+            "header-edge-color" => &[BorderColorBottom],
+            "header-position" => &[PositionType],
+            "header-top" => &[Top],
+            n if n.ends_with("-color") => &[TextColor],
+            n if n.ends_with("-tint") => &[TintColor],
+            "grouped-section-width" => &[Width],
+            "grouped-section-max-width" => &[MaxWidth],
+            "grouped-footer-font" => &[FontSize],
+            n if n.ends_with("-weight") => &[FontWeight],
+            n if n.ends_with("-radius") => &[BorderRadiusTopLeft],
+            "grouped-edge-width" => &[BorderWidthTop],
+            n if n.ends_with("-gap") => &[RowGap, ColumnGap],
+            n if n.ends_with("-min-height") => &[MinHeight],
+            n if n.ends_with("-height") => &[Height],
+            n if n.ends_with("-width") || n.ends_with("-size") && !n.contains("switch") => &[Width],
+            "grouped-switch-size" => &[ControlSize],
+            "grouped-field-align" | "grouped-title-button-align" => &[TextAlign],
+            "grouped-button-appearance" => &[Appearance],
+            "grouped-button-box-sizing" => &[BoxSizing],
+            "grouped-button-title-grow" => &[FlexGrow],
+            "grouped-button-align" => &[AlignSelf],
+            n if n.contains("padding") => &[PaddingTop, PaddingLeft],
+            _ => &[MarginTop, MarginLeft],
+        }
+    }
+
+    /// The length properties among [`written_on`]'s.
+    const LENGTH_ROWS: [StyleId; 14] = {
+        use StyleId::*;
+        [
+            Top,
+            Width,
+            MaxWidth,
+            MinHeight,
+            Height,
+            RowGap,
+            ColumnGap,
+            BorderRadiusTopLeft,
+            BorderWidthTop,
+            BorderWidthBottom,
+            PaddingTop,
+            PaddingLeft,
+            MarginTop,
+            MarginLeft,
+        ]
+    };
+
+    /// theme2's unit flag (LLP 1121 stage 11 B): the `style` rows the schema
+    /// marks as lengths (`style length`, [`Metric::length`]) are exactly
+    /// those the names said are written on a length property, so the marker
+    /// moves nothing the kernel reads.
+    #[test]
+    fn the_length_marker_is_the_names_length_rows() {
+        let mut marked = 0;
+        for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
+            let by_name = written_on(m.name).iter().all(|r| LENGTH_ROWS.contains(r));
+            assert_eq!(m.length, by_name, "{}", m.name);
+            marked += usize::from(m.length);
+        }
+        assert_eq!(marked, 59);
+        // A `length` row is a length too; a `number` row is not.
+        assert!(METRICS
+            .iter()
+            .all(|m| m.length == (m.kind == MetricKind::Length) || m.kind == MetricKind::Style));
+    }
+
     /// Every value of every column is one its kind of row takes: a metric
     /// that a row refused would leave a hole in one platform's sheet only.
+    /// Whether a row is a length is the schema's marker; which length (or
+    /// other) property it is written on, its name's.
     #[test]
     fn every_value_is_one_a_row_takes() {
-        // The rows the grouped sheet writes each kind of metric on.
-        let rows = |name: &str| -> &'static [StyleId] {
-            use StyleId::*;
-            match name {
-                n if n.ends_with("-fill") || n.contains("-ground") => &[BackgroundColor],
-                "grouped-separator" => &[BorderColorBottom, BorderColorTop],
-                "header-edge-width" => &[BorderWidthBottom],
-                "header-edge-style" => &[BorderStyleBottom],
-                "header-edge-color" => &[BorderColorBottom],
-                "header-position" => &[PositionType],
-                "header-top" => &[Top],
-                n if n.ends_with("-color") => &[TextColor],
-                n if n.ends_with("-tint") => &[TintColor],
-                "grouped-section-width" => &[Width],
-                "grouped-section-max-width" => &[MaxWidth],
-                "grouped-footer-font" => &[FontSize],
-                n if n.ends_with("-weight") => &[FontWeight],
-                n if n.ends_with("-radius") => &[BorderRadiusTopLeft],
-                "grouped-edge-width" => &[BorderWidthTop],
-                n if n.ends_with("-gap") => &[RowGap, ColumnGap],
-                n if n.ends_with("-min-height") => &[MinHeight],
-                n if n.ends_with("-height") => &[Height],
-                n if n.ends_with("-width") || n.ends_with("-size") && !n.contains("switch") => {
-                    &[Width]
-                }
-                "grouped-switch-size" => &[ControlSize],
-                "grouped-field-align" | "grouped-title-button-align" => &[TextAlign],
-                "grouped-button-appearance" => &[Appearance],
-                "grouped-button-box-sizing" => &[BoxSizing],
-                "grouped-button-title-grow" => &[FlexGrow],
-                "grouped-button-align" => &[AlignSelf],
-                n if n.contains("padding") => &[PaddingTop, PaddingLeft],
-                _ => &[MarginTop, MarginLeft],
-            }
-        };
         for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
+            let rows = written_on(m.name);
+            assert_eq!(
+                rows.iter().all(|r| LENGTH_ROWS.contains(r)),
+                m.length,
+                "{}: the marker and its row",
+                m.name
+            );
             for (column, cell) in [
                 ("iOS", m.ios),
                 ("the Mac", m.macos),
                 ("the web", m.web),
                 ("the neutral look", m.neutral),
             ] {
-                for &row in rows(m.name) {
+                for &row in rows {
                     let Some(written) = as_written(row, cell) else {
                         continue;
                     };
