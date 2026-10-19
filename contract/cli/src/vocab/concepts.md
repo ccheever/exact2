@@ -1061,7 +1061,7 @@ component App
 - A `popovertarget` button is the bar item's pull-down menu (`contract vocab menu`). Write the
   menu beside the header; one written in it is still its button's menu, never more bar buttons.
 
-More: docs/recipes/navigation-stack.md
+More: docs/contract-for-agents.md, "Bar buttons, glass and the search field"
 
 ## haptics: a tap the hand feels
 names: haptic, vibrate, vibration, Haptics, impactAsync, selectionAsync, notificationAsync, UIImpactFeedbackGenerator, UISelectionFeedbackGenerator, UINotificationFeedbackGenerator, sensoryFeedback, expo-haptics

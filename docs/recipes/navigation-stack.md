@@ -145,19 +145,3 @@ test "add, open, delete after asking"
 - A run (a workout, a quiz) has one exit, which ends it or asks; no Back leaves it running.
 - An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
   says so.
-
-## Bar buttons, glass and the search field
-
-- iOS 26 puts adjacent ungrouped bar buttons on one glass capsule. `buttonStyle="glass"`
-  on each gives it a separate capsule of its own; a `row role="group"` keeps some on one.
-- A `popovertarget` button is the item's pull-down menu. Write the menu beside the header;
-  one written in it is still its button's menu, never more bar buttons.
-- The header's `input type="search"` hides when scrolling while it is empty, as UIKit's
-  does; `position="sticky" top=0` on it keeps the search field visible.
-
-## A horizontal strip in a sheet
-
-`scrollIntoView(id)` scrolls every scroller above the element, as the web's does, so
-scrolling a strip of choices to one moves the sheet's form too. `block="nearest"` leaves a
-scroller that already shows it alone and `inline` places it across the strip:
-``scrollIntoView(`icon-${i}`, block="nearest", inline="start", behavior="instant")``.
