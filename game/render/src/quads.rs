@@ -152,8 +152,8 @@ pub(crate) struct Quads {
     #[cfg(not(target_arch = "wasm32"))]
     child_pipeline: Option<wgpu::RenderPipeline>,
     /// While a look frame is armed: what `frame` did with each sprite and
-    /// emitter, and the matrix it placed it at.
-    pub observed: Option<Vec<(Entity, QuadFact, glam::Mat4)>>,
+    /// emitter, the matrix it placed it at, and whether it is a sprite.
+    pub observed: Option<Vec<(Entity, QuadFact, glam::Mat4, bool)>>,
     counting: Option<coverage::Counting>,
     counted: coverage::CountPipelines,
 }
@@ -754,7 +754,7 @@ impl Quads {
                 // Skipped particles still charge the world budget in entity order.
                 left -= e.live(self.hz, f.alpha).min(left);
                 if let Some(seen) = &mut self.observed {
-                    seen.push((item.entity, QuadFact::Culled, t));
+                    seen.push((item.entity, QuadFact::Culled, t, false));
                 }
                 continue;
             }
@@ -824,7 +824,7 @@ impl Quads {
             });
             if let Some(seen) = &mut self.observed {
                 let drawn = (self.particle_data.len() - before) as u32;
-                seen.push((item.entity, QuadFact::Drawn(drawn), t));
+                seen.push((item.entity, QuadFact::Drawn(drawn), t, false));
             }
         }
         if ASSETS {
@@ -839,7 +839,7 @@ impl Quads {
                     .filter(|texture| texture.active && texture.sprite_bind.is_some())
                 else {
                     if let Some(seen) = &mut self.observed {
-                        seen.push((item.entity, QuadFact::Pending(s.texture.clone()), t));
+                        seen.push((item.entity, QuadFact::Pending(s.texture.clone()), t, true));
                     }
                     continue;
                 };
@@ -850,12 +850,12 @@ impl Quads {
                 let radius = 0.5 * (x.length_squared() + y.length_squared()).sqrt();
                 if cull && !crate::cull::sphere_visible(&camera, center, radius) {
                     if let Some(seen) = &mut self.observed {
-                        seen.push((item.entity, QuadFact::Culled, t));
+                        seen.push((item.entity, QuadFact::Culled, t, true));
                     }
                     continue;
                 }
                 if let Some(seen) = &mut self.observed {
-                    seen.push((item.entity, QuadFact::Drawn(1), t));
+                    seen.push((item.entity, QuadFact::Drawn(1), t, true));
                 }
                 let [fx, fy, fw, fh] = s.frame.map(f32::from);
                 let mut uv = if fw == 0. || fh == 0. {

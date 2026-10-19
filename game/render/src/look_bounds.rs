@@ -115,15 +115,17 @@ pub(crate) fn drawn_box(
             }
         }
     }
-    for (e, fact, pose) in &facts.quads {
+    for (e, fact, pose, sprite) in &facts.quads {
         if matches!(fact, QuadFact::Pending(_)) {
             continue;
         }
-        if let Some(s) = w.get::<Sprite>(*e) {
-            grow(Some(sprite_box(&s, pose)));
-        }
-        if let Some(emitter) = w.get::<Emitter>(*e) {
-            grow(Some(emitter_box(&emitter, pose)));
+        if *sprite {
+            grow(w.get::<Sprite>(*e).map(|s| sprite_box(&s, pose)));
+        } else {
+            grow(
+                w.get::<Emitter>(*e)
+                    .map(|emitter| emitter_box(&emitter, pose)),
+            );
         }
     }
     out

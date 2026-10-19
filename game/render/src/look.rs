@@ -542,8 +542,9 @@ fn writes(r: &Record) -> &'static str {
 }
 
 /// `state world:<entity> visible`: one word, and the reason, from what the
-/// frame's renderer did: the quads' decision for a sprite or an emitter, the
-/// GPU cull's lists for a mesh.
+/// frame's renderer did with each of the entity's drawables: the quads'
+/// decision for a sprite or an emitter, the GPU cull's lists and the CPU's
+/// blended cull for a mesh's parts.
 pub(crate) fn visible(
     w: &World,
     entity: Entity,
@@ -587,10 +588,64 @@ pub(crate) fn visible(
             "Opacity down the Parent chain is zero".into(),
         );
     }
-    if mesh.is_none() {
-        return quad_word(facts, entity);
+    // Each drawable's own decision: the mesh's (its opaque groups and blended
+    // records), the sprite's and the emitter's quads.
+    let mut parts: Vec<(&str, (String, String))> = Vec::new();
+    if let Some(mesh) = &mesh {
+        parts.push(("mesh", mesh_word(entity, mesh, pending, facts, read)));
     }
-    if let Some(Mesh::Asset(model)) = &mesh {
+    for (kind, sprite, has) in [
+        ("sprite", true, w.has::<exact_game::Sprite>(entity)),
+        ("emitter", false, w.has::<exact_game::Emitter>(entity)),
+    ] {
+        if has {
+            let fact = (facts.quads.iter())
+                .find(|(e, _, _, s)| *e == entity && *s == sprite)
+                .map(|(_, f, ..)| f);
+            parts.push((kind, quad_word(fact)));
+        }
+    }
+    combine(parts)
+}
+
+/// Whether a word says the drawable drew.
+fn drew(word: &str) -> bool {
+    matches!(word, "drawn" | "custom-material") || word.starts_with("outside-cascade")
+}
+
+/// An entity's word from its drawables' (`visible`): a mesh that drew keeps its
+/// own word; else `drawn` if a sprite or an emitter drew, naming it; else the
+/// first one's, naming the others'.
+fn combine(parts: Vec<(&str, (String, String))>) -> (String, String) {
+    if parts.len() == 1 {
+        return parts.into_iter().next().unwrap().1;
+    }
+    if let Some((_, word)) = parts.iter().find(|(k, w)| *k == "mesh" && drew(&w.0)) {
+        return word.clone();
+    }
+    if let Some((kind, (_, reason))) = parts.iter().find(|(_, w)| drew(&w.0)) {
+        return ("drawn".into(), format!("its {kind}: {reason}"));
+    }
+    let (kind, (word, reason)) = &parts[0];
+    let others: Vec<String> = (parts[1..].iter())
+        .map(|(k, (w, _))| format!("its {k}: {w}"))
+        .collect();
+    (
+        word.clone(),
+        format!("its {kind}: {reason}; {}", others.join("; ")),
+    )
+}
+
+/// A mesh's word: its model's residency, its level of detail, and the draw
+/// groups' and blended records' decisions for its parts.
+fn mesh_word(
+    entity: Entity,
+    mesh: &Mesh,
+    pending: impl Fn(&str) -> bool,
+    facts: &Facts,
+    read: &Reading,
+) -> (String, String) {
+    if let Mesh::Asset(model) = mesh {
         if pending(model) {
             return (
                 format!("asset-pending {model}"),
@@ -646,9 +701,7 @@ pub(crate) fn visible(
     }
     // Its opaque parts' word, then every part's: drawn if any part drew.
     let opaque = group_word(facts, read, &groups, &slots, lod_hidden);
-    let drew = matches!(opaque.0.as_str(), "drawn" | "custom-material")
-        || opaque.0.starts_with("outside-cascade");
-    if drew || blended.is_empty() {
+    if drew(&opaque.0) || blended.is_empty() {
         return opaque;
     }
     if blended.contains(&true) {
@@ -763,13 +816,8 @@ fn group_word(
 }
 
 /// A sprite's or an emitter's word: what the quads did with it this frame.
-fn quad_word(facts: &Facts, entity: Entity) -> (String, String) {
-    match facts
-        .quads
-        .iter()
-        .find(|(e, ..)| *e == entity)
-        .map(|(_, f, _)| f)
-    {
+fn quad_word(fact: Option<&QuadFact>) -> (String, String) {
+    match fact {
         Some(QuadFact::Pending(texture)) => (
             format!("asset-pending {texture}"),
             "its texture is not resident".into(),

@@ -431,15 +431,22 @@ fn an_inspection_from_beyond_a_hide_distance_leaves_the_live_levels_as_they_were
     assert_eq!(camera["data"], crate::look::base64(&before.data));
 }
 
-/// One model entity with an opaque part 200 m to the side of the view and a
-/// half-transparent part in front of the camera, or, `away`, 200 m to the
-/// other side too.
+/// One entity with up to three drawables: `mesh`, a model whose opaque square
+/// is 200 m to the side, out of view, and whose half-transparent square is
+/// delivered in front of the camera or 200 m to the other side; `sprite`, a
+/// white 2 m sprite in front of the camera; `emitter`, one with no live particle.
+#[derive(Default, Args)]
+struct MixedArgs {
+    mesh: bool,
+    sprite: bool,
+    emitter: bool,
+}
 struct Mixed;
 impl Game for Mixed {
     const ID: &'static str = "look-mixed";
-    const ASSETS: &'static [&'static str] = &["mixed.model"];
-    type Args = ();
-    fn setup(w: &mut World, _: &()) {
+    const ASSETS: &'static [&'static str] = &["mixed.model", "white.tex"];
+    type Args = MixedArgs;
+    fn setup(w: &mut World, args: &MixedArgs) {
         w.insert_resource(Environment {
             background: Some([0.; 3].into()),
             fog: None,
@@ -453,9 +460,25 @@ impl Game for Mixed {
                 Camera::default(),
             ),
         );
-        w.spawn_named("mixed", (Transform::default(), Mesh::asset("mixed.model")));
+        let e = w.spawn_named("mixed", (Transform::default(),));
+        if args.mesh {
+            w.insert(e, Mesh::asset("mixed.model"));
+        }
+        if args.sprite {
+            w.insert(e, Sprite::new("white.tex", [2., 2.]));
+        }
+        if args.emitter {
+            let empty = Emitter {
+                rate: 0.,
+                lifetime: 1.,
+                ..Default::default()
+            };
+            w.insert(e, empty);
+        }
     }
-    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn tick(w: &mut World, _: &Input, _: &MixedArgs) {
+        emitter::step(w);
+    }
 }
 
 /// A 2 m square facing the camera, opaque at 200 m along x and blended at
@@ -501,33 +524,84 @@ fn mixed_model(glass: f32) -> asset::Model {
     }
 }
 
+type MixedSurface = WorldSurface<Mixed, crate::ModelExecutor, true>;
+
+/// A `Mixed` surface after three frames on the GPU cull's path (pinned, as a
+/// device without indirect draws would draw every group whole), the last
+/// frame's pixels lit, and `visible`'s word for the entity.
+fn mixed(gpu: &Gpu, args: MixedArgs, glass: f32) -> (usize, String) {
+    let mut s = MixedSurface::default();
+    s.device_ready(wgpu::Features::empty());
+    s.bind(&args.values(), None).unwrap();
+    s.asset("mixed.model", Ok(&bin::to_vec(&mixed_model(glass))));
+    let white = asset::TextureData {
+        width: 1,
+        height: 1,
+        mips: vec![vec![255; 4]],
+        ..Default::default()
+    };
+    s.asset("white.tex", Ok(&bin::to_vec(&white)));
+    fixture::render(gpu, &mut s, &frame(0.)).unwrap();
+    let r = s.renderer_for_test().unwrap();
+    r.cull.indirect_execution = true;
+    r.cull.epoch += 1;
+    let mut pixels = None;
+    for ms in [20., 40.] {
+        pixels = Some(fixture::render(gpu, &mut s, &frame(ms)).unwrap().0);
+    }
+    assert!(s.error().is_none(), "{:?}", s.error());
+    assert!(!s.renderer_for_test().unwrap().cull.direct);
+    let pixels = pixels.unwrap();
+    let lit = (pixels.data.chunks(4)).filter(|p| p[..3].iter().any(|&c| c > 10));
+    let reply = s
+        .agent(r#"{"op":"state","entity":"mixed","visible":true,"width":320,"height":180}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let word = value["visible"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{reply}"));
+    (lit.count(), word.to_owned())
+}
+
 #[test]
 fn an_entity_whose_blended_part_draws_is_drawn_though_its_opaque_part_is_out_of_view() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
-    for (glass, word) in [(0., "drawn"), (-200., "frustum")] {
-        let mut s = WorldSurface::<Mixed, crate::ModelExecutor, true>::default();
-        s.device_ready(wgpu::Features::empty());
-        s.bind(&[], None).unwrap();
-        s.asset("mixed.model", Ok(&bin::to_vec(&mixed_model(glass))));
-        let mut pixels = None;
-        for ms in [0., 20., 40.] {
-            pixels = Some(fixture::render(&gpu, &mut s, &frame(ms)).unwrap().0);
-        }
-        assert!(s.error().is_none(), "{:?}", s.error());
-        let pixels = pixels.unwrap();
-        let lit = (pixels.data.chunks(4)).filter(|p| p[..3].iter().any(|&c| c > 10));
-        let lit = lit.count();
-        assert_eq!(
-            lit > 1000,
-            glass == 0.,
-            "glass at {glass}: {lit} pixels lit"
-        );
-        let reply = s
-            .agent(r#"{"op":"state","entity":"mixed","visible":true,"width":320,"height":180}"#)
-            .unwrap();
-        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
-        assert_eq!(value["visible"], word, "glass at {glass}: {reply}");
-    }
+    let model = || MixedArgs {
+        mesh: true,
+        ..Default::default()
+    };
+    let (lit, word) = mixed(&gpu, model(), 0.);
+    assert!(lit > 1000, "{lit} pixels lit");
+    assert_eq!(word, "drawn");
+    // Nothing in view: no pixel lit, and every part was dropped.
+    let (lit, word) = mixed(&gpu, model(), -200.);
+    assert_eq!(lit, 0);
+    assert_eq!(word, "frustum");
+}
+
+#[test]
+fn an_entity_is_drawn_when_its_sprite_draws_whatever_its_emitter_or_mesh_did() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    // An emitter with no live particle beside a sprite in view.
+    let args = MixedArgs {
+        sprite: true,
+        emitter: true,
+        ..Default::default()
+    };
+    let (lit, word) = mixed(&gpu, args, 0.);
+    assert!(lit > 1000, "{lit} pixels lit");
+    assert_eq!(word, "drawn");
+    // A model out of view (both its parts) beside a sprite in view.
+    let args = MixedArgs {
+        mesh: true,
+        sprite: true,
+        ..Default::default()
+    };
+    let (lit, word) = mixed(&gpu, args, -200.);
+    assert!(lit > 1000, "{lit} pixels lit");
+    assert_eq!(word, "drawn");
 }

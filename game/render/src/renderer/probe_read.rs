@@ -78,8 +78,8 @@ pub(crate) struct Facts {
     /// Why the particle draws went uncounted, if they did.
     pub uncounted: Option<&'static str>,
     /// What the quads did with each sprite and emitter (`Quads::observed`),
-    /// and the matrix they placed it at.
-    pub quads: Vec<(exact_game::Entity, crate::quads::QuadFact, glam::Mat4)>,
+    /// the matrix they placed it at, and whether it is a sprite.
+    pub quads: Vec<(exact_game::Entity, crate::quads::QuadFact, glam::Mat4, bool)>,
     /// Each model record's box in its entity's space (`model_boxes`); `None`
     /// for a skinned one, whose box the frame's palette gives (`look::model_boxes`).
     pub model_boxes: Vec<Option<crate::look_bounds::Aabb>>,
