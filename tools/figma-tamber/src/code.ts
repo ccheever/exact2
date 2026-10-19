@@ -3,7 +3,7 @@
 // for a push. The UI (ui.ts) holds the server, the paired token and every
 // request; this thread only touches the document, never the network. Each
 // reply carries the request's `id`, an error too.
-import { conflicts, contextsMoved, pull, push, same, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, lightClashes, pull, push, same, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 declare const figma: any;
 declare const __html__: string;
@@ -324,7 +324,10 @@ figma.ui.onmessage = async (msg: any) => {
         const { baseline, plan } = stored();
         if (!baseline || !plan) { say({ type: 'error', message: 'pull first: this file has no Tamber variables from a pull' }); break; }
         const { now, unread } = await holding(plan);
-        say({ type: 'collected', source: push(baseline, plan, now), baseline, unread });
+        // A token whose Light modes differ (the split layout, one light side): asked first, the person's choice sent.
+        const clashes = lightClashes(JSON.parse(baseline), plan, now).filter(c => !msg.prefer?.[c.token]);
+        if (clashes.length) { say({ type: 'collected', clashes: clashes.map(c => ({ token: c.token, collections: Object.keys(c.values) })), unread }); break; }
+        say({ type: 'collected', source: push(baseline, plan, now, msg.prefer ?? {}), baseline, unread });
         break;
       }
     }

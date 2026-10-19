@@ -247,9 +247,19 @@ function fromFigma(old: Json, value: FigmaValue): Json {
 /** The export pulled (`baseline`, its text), with each variable's values as
  * Figma has them (`now`, by collection name, then variable name, then mode),
  * as the text `import` takes. */
-export function push(baseline: string, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>): string {
+export function push(baseline: string, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>, prefer: Record<string, string> = {}): string {
   const doc = JSON.parse(baseline);
   const byContext = tokensOf(doc);
+  // One light side (theme2's 18:54 (2)): in the split layout each tuple's
+  // collection has a Light mode for it; the person's choice (`prefer`, a
+  // token's collection) is written to every one of them.
+  now = structuredClone(now);
+  for (const clash of lightClashes(doc, plan, now)) {
+    const chosen = prefer[clash.token];
+    const value = chosen === undefined ? undefined : clash.values[chosen];
+    if (value === undefined) continue;
+    for (const [collection, variable, mode] of clash.at) now[collection][variable][mode] = value;
+  }
   for (const c of plan.collections) {
     for (const v of c.variables) {
       for (const mode of c.modes) {
@@ -266,6 +276,35 @@ export function push(baseline: string, plan: Plan, now: Record<string, Record<st
     }
   }
   return JSON.stringify(doc);
+}
+
+/** In the split layout, the tokens whose Light modes (one per tuple's
+ * collection, one light side in the design: theme2's 18:54 (2)) hold
+ * different values: each the values by collection, and where they are. */
+export function lightClashes(doc: Json, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>): { token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] {
+  const contexts = plan.collections.flatMap(c => Object.values(c.contexts));
+  const light = lightTwins(doc, contexts);
+  const out: { token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] = [];
+  for (const [kept, twins] of light.twins) {
+    if (!twins.length) continue;
+    const group = new Set([kept, ...twins]);
+    const tokens = new Set(plan.collections.flatMap(c => c.variables.map(v => v.token)));
+    for (const token of tokens) {
+      const values: Record<string, FigmaValue> = {}, at: [string, string, string][] = [];
+      for (const c of plan.collections) {
+        const v = c.variables.find(x => x.token === token);
+        for (const mode of v ? c.modes : []) {
+          const value = now[c.name]?.[v!.name]?.[mode];
+          if (!group.has(c.contexts[mode]) || value === undefined) continue;
+          values[c.name] = value;
+          at.push([c.name, v!.name, mode]);
+        }
+      }
+      const all = Object.values(values);
+      if (all.some(x => !same(x, all[0]))) out.push({ token, values, at });
+    }
+  }
+  return out;
 }
 
 export interface Conflict {

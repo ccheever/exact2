@@ -86,7 +86,18 @@ async function pullDesign() {
 
 async function pushDesign() {
   await speaks();
-  const { source, baseline, unread } = await ask({ type: 'collect' }, 'collected');
+  let got = await ask({ type: 'collect' }, 'collected');
+  // A token whose Light modes differ (one per tuple's collection, one light side in the design): the person picks.
+  if (got.clashes?.length) {
+    const prefer: Record<string, string> = {};
+    for (const c of got.clashes) {
+      const pick = c.collections.find((name: string) => confirm(`${c.token.replaceAll('.', '/')} has different Light values in ${c.collections.join(' and ')}, and the design has one light side.\n\nOK takes ${name}'s for all; Cancel looks at the next.`));
+      if (!pick) { show(`not pushed: pick one Light value for ${c.token}, or make them equal`); return; }
+      prefer[c.token] = pick;
+    }
+    got = await ask({ type: 'collect', prefer }, 'collected');
+  }
+  const { source, baseline, unread } = got;
   const got = await call(paired, '/__tamber', { method: 'import', kind: 'dtcg', client: 'figma', source, baseline });
   const r = got.review ?? {};
   // What the design could not take, and why (a length changed in Light only, say: both schemes take one value).

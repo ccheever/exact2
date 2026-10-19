@@ -709,3 +709,30 @@ test('the theme fixture pulls into three modes (one light, two dark); a light ed
   await send({ type: 'apply', text: REAL }, 'applied');
   expect(col.modes.map((m: any) => m.name)).toEqual(['light', 'dark-style=black, dark', 'dark-style=dim, dark']);
 });
+
+test('theme2 18:54: a file pulled with two light modes merges them on the next pull, an edit in the dropped one named first', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied'); // the older plugin's four modes
+  const col = f.collections[0], blackLight = col.modes.find((m: any) => m.name === 'dark-style=black, light').modeId;
+  const dimLight = col.modes.find((m: any) => m.name === 'dark-style=dim, light').modeId;
+  f.variables.find(v => v.name === 'accent/fill').valuesByMode[dimLight] = { r: 1, g: 0, b: 0, a: 1 };
+  const checked = await send({ type: 'check', text: REAL }, 'checked');
+  expect(checked.conflicts.map((c: any) => [c.mode, c.figmaOnly])).toEqual([['dark-style=dim, light', true]]);
+  await send({ type: 'apply', text: REAL }, 'applied');
+  expect(col.modes.map((m: any) => [m.name, m.modeId === blackLight])).toEqual([['light', true], ['dark-style=black, dark', false], ['dark-style=dim, dark', false]]);
+});
+
+test('theme2 18:54: in the split layout, Light values that differ for a token are asked about before a push, the choice sent for both', async () => {
+  await load(2);
+  await send({ type: 'apply', text: REAL }, 'applied');
+  expect(f.collections.map(c => [c.name, c.modes.map((m: any) => m.name)])).toEqual([['Tamber · dark-style=black', ['Light', 'Dark']], ['Tamber · dark-style=dim', ['Light', 'Dark']]]);
+  const black = f.collections[0];
+  const fill = f.variables.find(v => v.name === 'accent/fill' && v.variableCollectionId === black.id);
+  fill.valuesByMode[black.modes[0].modeId] = { r: 1, g: 0, b: 0, a: 1 };
+  const asked = await send({ type: 'collect' }, 'collected');
+  expect(asked.clashes).toEqual([{ token: 'accent.fill', collections: ['Tamber · dark-style=black', 'Tamber · dark-style=dim'] }]);
+  expect(asked.source).toBeUndefined();
+  const chosen = await send({ type: 'collect', prefer: { 'accent.fill': 'Tamber · dark-style=black' } }, 'collected');
+  const out = tokensOf(JSON.parse(chosen.source));
+  expect([out['dark-style=black, light']['accent.fill'].$value.hex, out['dark-style=dim, light']['accent.fill'].$value.hex]).toEqual(['#ff0000', '#ff0000']);
+});
