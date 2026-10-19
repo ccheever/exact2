@@ -116,11 +116,25 @@ function build(dir, authored) {
  * Linux host under adb), which boots the plan its APK bakes: the fixture
  * goes in as the app of a scratch checkout (`--scratch <worktree>`, whose
  * `apps/tamber-host` it overwrites) and the APK is built there. */
-/** The app in front on this Mac (its LaunchServices ASN), or null: put back
- * in front after the Mac's activated run by `lsappinfo setfront`, which
- * neither launches nor reopens one that has gone. */
+/** The app in front on this Mac (its LaunchServices ASN and bundle id), or
+ * null: put back in front after the Mac's activated run (`frontAgain`). */
 function frontApp() {
-  return spawnSync('lsappinfo', ['front'], { encoding: 'utf8' }).stdout.trim().replace(/:$/, '') || null;
+  const asn = spawnSync('lsappinfo', ['front'], { encoding: 'utf8' }).stdout.trim().replace(/:$/, '');
+  if (!asn) return null;
+  const info = spawnSync('lsappinfo', ['info', '-only', 'bundleid', asn], { encoding: 'utf8' }).stdout;
+  return { asn, bundle: /(?:bundleID|"CFBundleIdentifier")="([^"]+)"/.exec(info)?.[1] ?? null };
+}
+
+/** `front` in front again, only while it still runs (neither launched nor
+ * reopened): LaunchServices' `setfront`, else (refused to a process like this
+ * one) an Apple Event `activate` to its bundle; said when neither can. */
+function frontAgain(front) {
+  const running = () => /pid\s*=\s*\d+|"pid"\s*=\s*\d+/.test(spawnSync('lsappinfo', ['info', '-only', 'pid', front.asn], { encoding: 'utf8' }).stdout);
+  if (!running()) return;
+  const set = spawnSync('lsappinfo', ['setfront', front.asn], { encoding: 'utf8' });
+  if (set.status === 0 && !/ERROR/.test(set.stdout + set.stderr)) return;
+  if (front.bundle && spawnSync('osascript', ['-e', `tell application id "${front.bundle}" to activate`], { encoding: 'utf8' }).status === 0) return;
+  console.error(`measure-controls: could not put ${front.bundle ?? front.asn} back in front`);
 }
 
 function capture(plan, png, dir) {
@@ -148,9 +162,7 @@ function capture(plan, png, dir) {
   try {
     r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, `screenshot ${png.replace(/\.png$/, '.again.png')}`],
       { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, env: host === 'macos' ? { ...process.env, EXACT_AGENT_ACTIVATE: '1' } : process.env });
-  } finally {
-    if (front && spawnSync('lsappinfo', ['setfront', front], { encoding: 'utf8' }).status !== 0) console.error(`measure-controls: could not put ${front} back in front`);
-  }
+  } finally { if (front) frontAgain(front); }
   if (r.status !== 0) throw new Error(`agent ${host}: ${r.stderr || r.stdout}`);
   const replies = r.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
   const frames = {};
