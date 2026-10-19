@@ -716,6 +716,16 @@ export async function stateOp(s, args) {
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
   if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
+  // What covers a target may leave on one of the app's timers, which the agent's frozen clock never reaches (a boot
+  // overlay's `after(900, …)`, euxy FRICTION 9): the tasks still waiting, and the step that runs them.
+  if (/covers its middle/.test(error.message ?? '')) try {
+    const r = await session.state(), now = r?.clock;
+    const due = Object.entries(r?.tasks ?? {}).filter(([, at]) => Number.isFinite(at) && at > now).sort((a, b) => a[1] - b[1]);
+    if (Number.isFinite(now) && due.length) {
+      const shown = due.slice(0, 3).map(([name, at]) => `\`${name}\` at ${at} ms`).join(', ') + (due.length > 3 ? `, and ${due.length - 3} more` : '');
+      error.message += `; the agent's clock stands at ${now} ms, and the app's tasks wait on it (${shown}): if what covers it leaves on a timer, \`clock +${Math.ceil(due[Math.min(2, due.length - 1)][1] - now)}\` runs ${due.length > 1 ? 'them' : 'it'}`;
+    }
+  } catch { /* the refusal as it was */ }
   try {
     for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
       const canvasName = canvas.props?.testId ?? canvas.id;
