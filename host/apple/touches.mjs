@@ -311,6 +311,10 @@ const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.ses
  *  on about 150 ms after the window dispatched it (`delaysContentTouches`). */
 export const REACH_MS = 250;
 
+/** How long before a real drag's lift its clock step (`drag.tick`, agent-drag.mjs `heldTick`) stops moving on real
+ *  time: the touch is seen to begin a log read late, and the step's last request must land while the finger is down. */
+export const TICK_MARGIN = 150;
+
 /** A drag's bounds (LLP 1080.000 §11): each duration in ms; the travel is bounded so its moves fit the dispatch log's ring (D5). */
 export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000 };
 
@@ -322,9 +326,10 @@ export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000
  * foreground and injects, and the window's dispatch log must show exactly
  * one new touch that began and ended (for a drag that moves, moved by the
  * asked delta) — else an error that says what the log saw. `drag` is
- * `{dx, dy, press, over, hold, during}`, points and ms; `during` are thunks
+ * `{dx, dy, press, over, hold, during, tick}`, points and ms; `during` are thunks
  * run while the finger is down after the move, each bracketed by the log:
- * begun before the first, not lifted after the last. `ask` is the app's carrier; `touches`
+ * begun before the first, not lifted after the last; `tick(until)` moves the
+ * app's clock after them, given the local time to stop moving on real time. `ask` is the app's carrier; `touches`
  * the runner's.
  */
 // What a lost touch's error advises: the synthesizer, unlike XCTest's public calls, does not wait for the app to go idle
@@ -437,11 +442,21 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         during.push(await raced(op()));
       }
       if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
+      if (drag.tick) await raced(drag.tick(seen + drag.press + (moves ? drag.over : 0) + drag.hold - TICK_MARGIN));
     } catch (error) {
       const done = await injecting;
       if (done.error) throw transport(`${what}: the touch runner: ${done.error}`);
       throw error;
     }
+  } else if (drag?.tick) {
+    // No ops: the clock moves from when the touch is seen to begin (or the runner ends) until shortly before the lift.
+    let seen = null;
+    for (const by = Date.now() + RUNNER_MS; seen === null && !finished && Date.now() < by;) {
+      const page = await ask({ op: 'tap', log: a.seq });
+      if (page.log?.some((e) => e.phase === 'began')) seen = Date.now(); else await new Promise((r) => setTimeout(r, 16));
+    }
+    try { await drag.tick(seen === null ? 0 : seen + drag.press + (moves ? drag.over : 0) + drag.hold - TICK_MARGIN); }
+    catch (error) { const done = await injecting; if (done.error) throw transport(`${what}: the touch runner: ${done.error}`); throw error; }
   }
   const injected = await injecting;
   if (injected.error) throw transport(`${what}: the touch runner: ${injected.error}`);
