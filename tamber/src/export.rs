@@ -15,6 +15,7 @@
 //! expression or a role included, and a changed one is proposed as a
 //! `set-token` for its tuple.
 
+use crate::export_dials::{alike, read_css};
 use crate::import::{counted, dtcg::colour, Import, Unmapped};
 use crate::syntax::Token;
 use crate::{fallback, Diagnostic, Folded, Folding, Half, Host, Op, Vocab};
@@ -533,7 +534,9 @@ fn flatten(tree: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
 
 /// A context source's tokens, in order: a token tree, or a reference to a
 /// set or a tree in the same document (`#/sets/…`), resolved as the
-/// Resolver Module says. A reference elsewhere, or a cycle, is refused.
+/// Resolver Module says. A reference elsewhere, a cycle, or a document
+/// whose references multiply past one import's work is refused, charged
+/// before each tree is copied.
 fn source_tokens(
     doc: &Value,
     src: &Value,
@@ -543,7 +546,9 @@ fn source_tokens(
     if depth > 16 {
         return Err("references nest too deep".into());
     }
+    crate::budget::spend(1)?;
     let Some(r) = src.get("$ref").and_then(Value::as_str) else {
+        crate::budget::copy(src)?;
         flatten(src, "", out);
         return Ok(());
     };
@@ -557,7 +562,10 @@ fn source_tokens(
                 source_tokens(doc, s, depth + 1, out)?;
             }
         }
-        None => flatten(target, "", out),
+        None => {
+            crate::budget::copy(target)?;
+            flatten(target, "", out);
+        }
     }
     Ok(())
 }
@@ -619,18 +627,7 @@ fn written_colour(value: &Value) -> Option<String> {
 
 /// A colour value as the colour it reads as.
 fn read(value: &Value) -> Option<Wide> {
-    match colour(value).and_then(|c| exact_color::parse(&c))? {
-        Parsed::Legacy(c) => Some(Half::legacy(c).wide()),
-        Parsed::Wide(w) => Some(w),
-        _ => None,
-    }
-}
-
-/// Two colours the same, to a reprint's rounding: a millionth in linear
-/// sRGB, well inside an 8-bit step.
-fn alike(x: &Wide, y: &Wide) -> bool {
-    let (p, q) = (x.linear_srgb(), y.linear_srgb());
-    p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-6) && (x.alpha - y.alpha).abs() < 1e-6
+    colour(value).and_then(|c| read_css(&c))
 }
 
 /// Two colour values the same: as written, or as the colours they read as
@@ -704,12 +701,49 @@ pub fn reimport(
     current: &str,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    reimport_against(incoming, None, kept, current, vocab)
+}
+
+/// [`reimport`] against `explicit`, the export a client says it pulled
+/// (stage 10b's `baseline`), when given: that one only, never another kept
+/// one or the design's own, and only while its axes and contexts are the
+/// design's (an export from before an axis moved is pulled again).
+pub fn reimport_against(
+    incoming: &str,
+    explicit: Option<&str>,
+    kept: &[String],
+    current: &str,
+    vocab: &Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
+    let _work = crate::budget::Work::begin();
     let doc: Value =
         serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
     let cur = crate::check(current, vocab)?;
     let fresh = dtcg(&cur, vocab)?;
-    let baseline = baseline_for(&doc, kept, &fresh).map_err(refuse)?;
+    let baseline = match explicit {
+        Some(b) => {
+            let (theirs, ours): (Value, Value) = (
+                serde_json::from_str(b)
+                    .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?,
+                serde_json::from_str(&fresh)
+                    .map_err(|e| refuse(format!("the design's export: {e}")))?,
+            );
+            // Each context's name, tuple and scheme, and the axes, the design's
+            // own: a recognised digest over a forged mapping plans nothing.
+            let axes = |d: &Value| header(d).map(|h| h["axes"].clone());
+            if context_map(&theirs).is_none()
+                || context_map(&theirs) != context_map(&ours)
+                || axes(&theirs) != axes(&ours)
+            {
+                return Err(refuse(
+                    "pull first: the baseline's axes or contexts are not the design's".into(),
+                ));
+            }
+            b.to_string()
+        }
+        None => baseline_for(&doc, kept, &fresh).map_err(refuse)?,
+    };
     let base: Value = serde_json::from_str(&baseline)
         .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?;
     let contexts =
@@ -772,9 +806,10 @@ pub fn reimport(
             .map(|(m, _)| m.clone())
     };
     let mut names: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for all in theirs.values().chain(ours.values()) {
         for (n, _) in all {
-            if !names.contains(n) {
+            if seen.insert(n.as_str()) {
                 names.push(n.clone());
             }
         }
@@ -812,6 +847,10 @@ pub fn reimport(
         });
     }
     let mut accepted: Vec<(String, Vec<Op>)> = Vec::new();
+    // Tokens whose every changed context is on a line that is one colour dial
+    // alone, moved to one literal: the dial's change (D14; stage 10b).
+    let mut dialed: Vec<(crate::export_dials::Candidate, crate::export_dials::Literal)> =
+        Vec::new();
     for name in &names {
         if !in_base(name) {
             report(&mut unmapped, name, "", "not in the export it came from: a new token is added to the design, not by re-import".into());
@@ -1000,6 +1039,17 @@ pub fn reimport(
                     comment: None,
                 })
             };
+        // A dial's change, if it is one; its literals are planned the same,
+        // for when the dial cannot take it.
+        let candidate = crate::export_dials::candidate(
+            &cur,
+            decl,
+            &written,
+            &tuples,
+            &changed,
+            &|c| want(c).map(|(t, _)| t),
+            &|modes, dark| branch(decl, &under, modes, dark),
+        );
         let mut token_ops: Vec<Op> = Vec::new();
         let mut why = None;
         // A light side under an axis under scheme=dark shows its base's: an
@@ -1312,15 +1362,24 @@ pub fn reimport(
                 }
             }
         }
-        match why {
-            Some((block, w)) => report(&mut unmapped, name, &block, w),
-            None => accepted.push((name.clone(), token_ops)),
+        match (candidate, why) {
+            (Some(c), why) => dialed.push((c, why.map_or(Ok(token_ops), Err))),
+            (None, Some((block, w))) => report(&mut unmapped, name, &block, w),
+            (None, None) => accepted.push((name.clone(), token_ops)),
         }
     }
+    // A changed value whose line is one dial alone is that dial's change
+    // (D14; stage 10b), first in the transaction.
+    let dialed = crate::export_dials::dials(&cur, current, dialed, vocab);
+    for (name, block, why) in &dialed.refused {
+        report(&mut unmapped, name, block, why.clone());
+    }
+    // A dial that cannot take its tokens' change: their literals, pinned.
+    accepted.extend(dialed.fallback);
+    let (mut ops, mut dials) = (dialed.ops, dialed.changes);
+    let mut mapped = dialed.kept + dials.iter().map(|d| d.from.len()).sum::<usize>();
     // Together, as one transaction: a token whose operations the design
     // refuses beside the others' (a dial nothing uses any more) is reported.
-    let mut ops: Vec<Op> = Vec::new();
-    let mut mapped = 0;
     for (name, token_ops) in accepted {
         if !token_ops.is_empty() {
             let mut trial = ops.clone();
@@ -1342,11 +1401,14 @@ pub fn reimport(
         mapped += 1;
     }
     let counted = counted(names.len() + extra.len(), mapped, unmapped.len())?;
+    let pins = crate::export_dials::marks(&cur, current, &ops, &mut dials, vocab, &under, &branch);
     Ok(Import {
         ops,
         offers: Vec::new(),
         unmapped,
         counted,
+        dials,
+        pins,
     })
 }
 
@@ -1359,7 +1421,7 @@ fn mapped_unchanged(accepted: &mut Vec<(String, Vec<Op>)>, name: &str) {
 /// checker selects it: the `when` naming the most axes among those that
 /// hold; for the light side of one naming an axis `under scheme=dark`, the
 /// line without such axes.
-fn branch(t: &Token, under: &[&str], modes: &Modes, dark: bool) -> Option<usize> {
+pub(crate) fn branch(t: &Token, under: &[&str], modes: &Modes, dark: bool) -> Option<usize> {
     let select = |base: bool| {
         let holding = (0..t.whens.len()).filter(|&i| {
             let w = &t.whens[i];

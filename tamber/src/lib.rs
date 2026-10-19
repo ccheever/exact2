@@ -9,12 +9,14 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod budget;
 mod check;
 mod color_fn;
 mod component;
 mod css;
 mod edit;
 pub mod export;
+mod export_dials;
 mod export_kinds;
 mod fmt;
 mod fold;

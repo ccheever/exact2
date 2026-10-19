@@ -175,6 +175,20 @@ whose design the port serves.
   reason, and the count: source values = mapped + reported. Accepting is
   one transaction, and Undo one step. Astryx's import comes from its CLI
   (`bun exact.mjs tamber import astryx …`) and is reviewed the same way.
+- Pairing (T6, LLP 1122 D12): the local tool's Clients panel mints a code at
+  a scope ("Pair a client"), shows it with each remote door's address and
+  certificate fingerprint, lists the paired clients and revokes one. On the
+  other machine, open the door's address (`https://<host>:<port>/__tamber/tool/`,
+  its certificate's SHA-256 checked), and type the address and the code: the
+  tool works there at its scope. What its scope can't do is greyed and said;
+  at `propose` an edit is held for review. The canvas comes through the
+  server's gateway on its own origin (a grant in the frame's `#g=`, dropped
+  once entered); revoked, the tool says so and sends nothing more.
+- Exact's base scale and packages (LLP 1121 stage 11): `space.*` and
+  `radius.*` are listed read-only, each platform's value and its source,
+  the columns the app ships first; a package's tokens under their package.
+  Set for this app writes the app's override line (`set-token`); Back to
+  the base or the package removes it.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
   `scripts/design-tool.test.mjs` drives the built tool against a real
   server on a copy of `apps/theme-fixture`. Both run on the checkout's own

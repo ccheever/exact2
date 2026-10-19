@@ -172,6 +172,9 @@ function targetOf(req, scheme, host) {
 
 export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false }) {
   return async (req, res) => {
+    // A connection 8 MiB behind on what it was sent asks nothing more, the
+    // tool's files included: answers queue only while they are read.
+    if ((req.socket?.writableLength || 0) > 8 << 20) { req.socket.destroy(); return; }
     res.setHeader('cache-control', 'no-store');
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('referrer-policy', 'no-referrer');
@@ -330,6 +333,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     async addPort({ host, port, handler }) {
       if (!certificate) throw new Error('addPort needs the TLS listener (--remote)');
       const server = secure(certificate, (req, res) => {
+        if ((req.socket?.writableLength || 0) > 8 << 20) { req.socket.destroy(); return; } // (8 MiB unread: cut, as the main door does)
         // As the design server's door: one of the certificate's names, an origin-form target.
         const at = hostOf(req, 'https'), url = at && names.includes(at.name) ? targetOf(req, 'https', at.host) : null;
         if (!url) return refuse(res, 404, 'not found');

@@ -29,6 +29,27 @@ pub(crate) fn app(tag: &str, design: &str) -> std::path::PathBuf {
     dir
 }
 
+/// An import planned alone, as the wire plans one (`contract tamber
+/// import-plan`, stage 10b): the app's design on stdin; its reply.
+pub(crate) fn plan_alone(dir: &std::path::Path, request: Value) -> (Value, Vec<Value>) {
+    let design = dir.join("app.tamber");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "import-plan", design.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let text = std::fs::read_to_string(&design).ok();
+    writeln!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"request": request, "design": text})
+    )
+    .unwrap();
+    let out = child.wait_with_output().unwrap();
+    (serde_json::from_slice(&out.stdout).unwrap(), Vec::new())
+}
+
 pub(crate) struct Serve {
     child: Child,
     input: ChildStdin,
@@ -105,7 +126,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.14");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -393,7 +414,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.14");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -578,7 +599,7 @@ fn compare_revert_plan_and_import_plan() {
     assert_eq!(guarded["error"]["conflict"], true, "{guarded}");
     assert_eq!(guarded["error"]["stale"], json!(["brand.tamber"]));
     let css = include_str!("../../../../tamber/tests/import/shadcn-neutral.css");
-    let (imported, _) = s.ask(json!({"method": "import-plan", "kind": "shadcn", "source": css}));
+    let (imported, _) = plan_alone(&dir, json!({"kind": "shadcn", "source": css}));
     assert_eq!(
         imported["ok"]["counted"],
         json!({"source": 47, "mapped": 47, "reported": 0})
@@ -594,20 +615,39 @@ fn compare_revert_plan_and_import_plan() {
             json!({"name": p.file_name().unwrap().to_str().unwrap(), "text": std::fs::read_to_string(&p).unwrap()})
         })
         .collect();
-    let (figma, _) = s.ask(json!({"method": "import-plan", "kind": "dtcg", "sources": sources}));
+    let (figma, _) = plan_alone(&dir, json!({"kind": "dtcg", "sources": sources}));
     assert_eq!(
         figma["ok"]["counted"],
         json!({"source": 104, "mapped": 101, "reported": 3}),
         "{figma}"
     );
     // A file name of any characters is no way to stop the server.
-    let (named, _) =
-        s.ask(json!({"method": "import-plan", "kind": "dtcg", "name": "日本語", "source": "{}"}));
+    let (named, _) = plan_alone(
+        &dir,
+        json!({"kind": "dtcg", "name": "日本語", "source": "{}"}),
+    );
     assert!(
         named.get("ok").is_some() || named.get("error").is_some(),
         "{named}"
     );
-    let (astryx, _) = s.ask(json!({"method": "import-plan", "kind": "astryx", "source": "{}"}));
+    // The serve itself reads no source: only a held re-import's marks.
+    let (refused, _) = s.ask(json!({"method": "import-plan", "kind": "shadcn", "source": css}));
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no method"),
+        "{refused}"
+    );
+    let (riding, _) = s.ask(json!({"method": "import-plan", "marks": [], "source": css}));
+    assert!(
+        riding["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no method"),
+        "{riding}"
+    );
+    let (astryx, _) = plan_alone(&dir, json!({"kind": "astryx", "source": "{}"}));
     assert!(astryx["error"]["message"]
         .as_str()
         .unwrap()
@@ -992,8 +1032,9 @@ fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
     assert!(again["ok"]["text"].is_string(), "{again}");
     assert_eq!(std::fs::read_to_string(&design).unwrap(), before);
     // The unedited export, imported, plans nothing against its baseline.
-    let (planned, _) = s.ask(
-        json!({"method": "import-plan", "kind": "dtcg", "source": text, "name": "app.tokens.json"}),
+    let (planned, _) = plan_alone(
+        &dir,
+        json!({"kind": "dtcg", "source": text, "name": "app.tokens.json"}),
     );
     assert_eq!(planned["ok"]["ops"], json!([]), "{planned}");
     assert_eq!(

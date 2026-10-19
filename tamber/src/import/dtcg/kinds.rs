@@ -32,6 +32,7 @@ impl Resolve<'_> {
         if let Some(why) = &d.refused {
             return Err(why.clone());
         }
+        crate::budget::spend(1)?;
         if visiting.len() > 256 {
             return Err("an alias chain longer than 256".into());
         }
@@ -51,6 +52,7 @@ impl Resolve<'_> {
 
     /// `v` with each alias inside it replaced by what it names.
     fn inner(&self, v: &Value, visiting: &mut BTreeSet<String>) -> Result<Value, String> {
+        crate::budget::spend(1)?;
         match v {
             Value::Object(o) => o
                 .iter()
@@ -62,7 +64,7 @@ impl Resolve<'_> {
                 .map(|x| self.leaf(x, visiting))
                 .collect::<Result<_, _>>()
                 .map(Value::Array),
-            v => Ok(v.clone()),
+            v => crate::budget::copy(v).map(|()| v.clone()),
         }
     }
 
@@ -191,6 +193,21 @@ fn family(ty: &str, v: &Value) -> Result<String, String> {
             false => format!("\"{m}\""),
         }
     };
+    // A name a design's quotes can't hold (a quote, a backslash, a control
+    // character) is no family it reads: reported, never written broken.
+    // Tokens Studio's stack is CSS as written: its quotes are its own, only
+    // a control character refused there.
+    let held = |m: &str| !m.chars().any(|c| c == '"' || c == '\\' || c.is_control());
+    if !match v {
+        Value::String(s) if ty == "fontFamilies" => !s.chars().any(char::is_control),
+        Value::String(s) => held(s),
+        Value::Array(a) => a.iter().filter_map(Value::as_str).all(held),
+        _ => true,
+    } {
+        return Err(format!(
+            "`{v}` has a quote, a backslash or a control character in a family name"
+        ));
+    }
     match v {
         Value::String(s) if ty == "fontFamilies" => Ok(s.trim().to_string()),
         Value::String(s) => Ok(member(s.trim())),

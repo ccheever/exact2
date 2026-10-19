@@ -261,6 +261,14 @@ fn read_family(v: &Json) -> Option<String> {
         Json::Array(a) => a.iter().map(Json::as_str).collect::<Option<_>>()?,
         _ => return None,
     };
+    // A name a design's quotes can't hold (a quote, a backslash, a control
+    // character) is no family it reads: reported, never written broken.
+    if list
+        .iter()
+        .any(|m| m.chars().any(|c| c == '"' || c == '\\' || c.is_control()))
+    {
+        return None;
+    }
     Some(
         list.into_iter()
             .map(member_text)

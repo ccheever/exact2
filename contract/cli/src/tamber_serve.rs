@@ -69,7 +69,7 @@ mod scrub;
 mod walk;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.13";
+pub const PROTOCOL: &str = "tamber/1.14";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -632,17 +632,16 @@ impl Server {
             Some("scrub-fold") => vec![reply(self.scrub_fold(&request))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
-            // The wire's own, for `history`, `revert` and `import`.
+            // The wire's own: history, revert, a re-import's marks (sources are read alone).
             Some("compare") => vec![reply(crate::tamber_history::compare(&request))],
             Some("revert-plan") => {
                 vec![reply(self.read_files(true).and_then(|now| {
                     crate::tamber_history::revert_plan(&request, &now)
                 }))]
             }
-            Some("import-plan") => vec![reply(self.texts().and_then(|now| {
+            Some("import-plan") if crate::tamber_import::marks_only(&request) => vec![reply(self.texts().and_then(|now| {
                 let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
-                let kept = crate::tamber_export::kept(&self.dir.join(&self.design));
-                crate::tamber_import::plan(&request, design.map_or("tamber app\n", |t| t), &kept)
+                crate::tamber_import::plan(&request, design.map(String::as_str), &[])
             }))],
             Some("export") => vec![reply(self.export(&request))],
             other => vec![reply(Err(
@@ -773,14 +772,14 @@ impl Server {
         let text = exact_tamber::export::dtcg(&folding, &self.vocab)
             .map_err(|all| refused(&self.design, all))?;
         // `keep: false` (below write, stage 10 A1): keeping one can prune another's.
+        let digest = exact_tamber::export::digest(&text); // what a client's `import` names as its baseline (stage 10b)
         if request.get("keep") == Some(&json!(false)) {
-            return Ok(json!({"kind": "dtcg", "text": text, "baseline": null}));
+            return Ok(json!({"kind": "dtcg", "text": text, "baseline": null, "digest": digest}));
         }
         let kept = crate::tamber_export::keep(&self.dir.join(&self.design), &text)
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
         Ok(json!({
-            "kind": "dtcg",
-            "text": text,
+            "kind": "dtcg", "text": text, "digest": digest,
             "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
         }))
     }

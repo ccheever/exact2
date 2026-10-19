@@ -322,5 +322,6 @@ component Swatch
     fill: string
     ink: string
   view
-    column background-color=fill padding=8 border-radius=8 border-width=1 border-style="solid" border-color="-exact-separator"
+    // An ink on an accent (`AccentColorText`) is the ink on this fill as the accent.
+    column background-color=fill accent-color=(ink == "AccentColorText" ? fill : "auto") padding=8 border-radius=8 border-width=1 border-style="solid" border-color="-exact-separator"
       text name color=ink
