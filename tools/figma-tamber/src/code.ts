@@ -139,19 +139,22 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     // the new ones.
     // (a default that is neither a pull's nor a new collection's own is the
     // person's: left as it is, its name and values theirs)
-    let parked: [string, string] | null = null;
+    const parked: [string, string][] = [];
     if (!used.has(col.defaultModeId)) {
       const own = Object.keys(prior).find(ctx => prior[ctx] === col.defaultModeId);
       const take = own === undefined && made ? c.modes.find(mode => !ids[mode]) : undefined;
-      if (take) { ids[take] = col.defaultModeId; used.add(col.defaultModeId); } else if (own !== undefined) parked = [own, col.defaultModeId];
+      if (take) { ids[take] = col.defaultModeId; used.add(col.defaultModeId); } else if (own !== undefined) parked.push([own, col.defaultModeId]);
     }
+    // A mode parked before stays parked while its context is away, default
+    // or not: what is on it is listed (check's revived) before it ever goes.
+    for (const [ctx, id] of Object.entries(was?.parked ?? {})) if (!used.has(id) && !parked.some(([, p]) => p === id) && col.modes.some((x: any) => x.modeId === id)) parked.push([ctx, id]);
     // Only modes a pull made (the ids it kept for contexts) go; one the person added stays.
     const ours = new Set(Object.values(prior));
-    for (const m of [...col.modes]) if (!used.has(m.modeId) && m.modeId !== parked?.[1] && ours.has(m.modeId)) did(col.removeMode(m.modeId));
+    for (const m of [...col.modes]) if (!used.has(m.modeId) && !parked.some(([, p]) => p === m.modeId) && ours.has(m.modeId)) did(col.removeMode(m.modeId));
     // Names in two steps, each first to a name no mode has or will have, so
     // two modes trading names never ask for one another still has.
-    const final: [string, string][] = [...c.modes.map(mode => [mode, mode] as [string, string]), ...(parked ? [[`unused: ${parked[0]}`.slice(0, 40), ''] as [string, string]] : [])];
-    const names = new Set([...col.modes.map((x: any) => x.name), ...final.map(([n]) => n)]);
+    const unused = parked.map(([ctx]) => `unused: ${ctx}`.slice(0, 40));
+    const names = new Set([...col.modes.map((x: any) => x.name), ...c.modes, ...unused]);
     let n = 0;
     const temp = () => { while (names.has(`~tamber ${n}`)) n++; names.add(`~tamber ${n}`); return `~tamber ${n}`; };
     // Figma's refusal of a mode too many, told from every other error here and only here.
@@ -164,10 +167,10 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
         throw limit ? Object.assign(new Error(String(e?.message ?? e)), { capacity: Number(limit[1]), collection: col.name, personal }) : e;
       }
     }
-    const idOf = (mode: string, slot: string) => (slot === '' && parked ? parked[1] : ids[mode]);
-    const touched = final.filter(([name, slot]) => col.modes.find((x: any) => x.modeId === idOf(name, slot))?.name !== name);
-    for (const [name, slot] of touched) did(col.renameMode(idOf(name, slot), temp()));
-    for (const [name, slot] of touched) did(col.renameMode(idOf(name, slot), name));
+    const final: [string, string][] = [...c.modes.map(mode => [mode, ids[mode]] as [string, string]), ...parked.map(([, id], i) => [unused[i], id] as [string, string])];
+    const touched = final.filter(([name, id]) => col.modes.find((x: any) => x.modeId === id)?.name !== name);
+    for (const [, id] of touched) did(col.renameMode(id, temp()));
+    for (const [name, id] of touched) did(col.renameMode(id, name));
     const tokens = new Set(c.variables.map(v => v.token));
     for (const x of variables) if (x.variableCollectionId === col.id && x.getSharedPluginData?.(KEY, 'token') && !tokens.has(x.getSharedPluginData(KEY, 'token'))) did(x.remove());
     for (const v of c.variables) {
@@ -186,7 +189,7 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     }
     c.id = col.id;
     c.contextIds = Object.fromEntries(c.modes.map(mode => [c.contexts[mode], ids[mode]]));
-    if (parked?.[0]) c.parked = { [parked[0]]: parked[1] };
+    if (parked.length) c.parked = Object.fromEntries(parked);
   }
 }
 /** Whether the document changed since the last undo step was committed. */

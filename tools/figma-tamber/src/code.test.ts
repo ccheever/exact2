@@ -632,3 +632,18 @@ test('round 14: values on a parked mode are listed when the contexts move, the c
   const checked = await send({ type: 'check', text: grey }, 'checked');
   expect(checked.revived.map((r: any) => r.variable)).toContain('accent/fill');
 });
+
+test('round 15: a parked mode no longer the default stays parked, its values kept, not removed unnamed', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], first = col.modes[0].modeId;
+  const gone = variant(doc => { delete doc.modifiers.mode.contexts['dark-style=black, light']; doc.modifiers.mode.default = 'dark-style=dim, light'; });
+  await send({ type: 'apply', text: gone }, 'applied');
+  const fill = f.variables.find(v => v.name === 'accent/fill');
+  fill.valuesByMode[first] = { r: 1, g: 0, b: 0, a: 1 };
+  // Another mode made the default (moved first), then the same export pulled.
+  col.modes.push(col.modes.shift());
+  await send({ type: 'apply', text: gone }, 'applied');
+  expect(col.modes.some((m: any) => m.modeId === first && m.name === 'unused: dark-style=black, light')).toBe(true);
+  expect(fill.valuesByMode[first]).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+});
