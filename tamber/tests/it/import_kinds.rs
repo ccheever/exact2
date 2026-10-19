@@ -350,6 +350,18 @@ fn each_importer_maps_what_the_source_means_or_reports_it() {
     )];
     let i = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
     assert!(accepted(&i).contains("  ds.f: family = \"Acme, Display\"\n"));
+    // A name with a quote in it: reported, never written as a broken line.
+    let files = vec![(
+        "t.json".to_string(),
+        r#"{"f": {"$type": "fontFamily", "$value": ["Say \"hi\"", "serif"]}}"#.to_string(),
+    )];
+    let i = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    assert!(!accepted(&i).contains("ds.f"), "{}", accepted(&i));
+    assert!(
+        i.unmapped.iter().any(|u| u.why.contains("quote")),
+        "{:?}",
+        i.unmapped
+    );
 }
 
 /// Review round 1 (Grok): chains of references, a leading over a token, and

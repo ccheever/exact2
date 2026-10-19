@@ -191,6 +191,18 @@ fn family(ty: &str, v: &Value) -> Result<String, String> {
             false => format!("\"{m}\""),
         }
     };
+    // A name a design's quotes can't hold (a quote, a backslash, a control
+    // character) is no family it reads: reported, never written broken.
+    let held = |m: &str| !m.chars().any(|c| c == '"' || c == '\\' || c.is_control());
+    if !match v {
+        Value::String(s) => held(s),
+        Value::Array(a) => a.iter().filter_map(Value::as_str).all(held),
+        _ => true,
+    } {
+        return Err(format!(
+            "`{v}` has a quote, a backslash or a control character in a family name"
+        ));
+    }
     match v {
         Value::String(s) if ty == "fontFamilies" => Ok(s.trim().to_string()),
         Value::String(s) => Ok(member(s.trim())),
