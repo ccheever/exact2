@@ -1,8 +1,8 @@
 // Per-instance model visibility and order (ProviderModelsSection
 // groupModelsForDisplay / nextHiddenModelsForBulkToggle, modelOrdering.ts
 // sortModelsForProviderInstance, modelSelection.ts applyInstanceModelPreferences).
-// "Favorites, visibility, and ordering are saved on this device": the
-// preferences live beside favorites in T3Client.local and the picker honors them.
+// Legacy device preferences remain migration inputs. The pure transforms here
+// also prepare atomic environment mutations in model-preferences.ts.
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
 
@@ -68,7 +68,7 @@ export function applyPickerPrefs(local: object, instanceId: string, models: Obj[
 
 export const MODEL_PREF_OPS = ['provider-model-hide', 'provider-model-move', 'provider-model-bulk'];
 /**
- * One device-only model preference change. `models` is the instance's full
+ * One pure preference change, used to construct environment mutations. `models` is the instance's full
  * list (built-in and custom, `isCustom` set) as the Models section shows it.
  */
 export function runModelPrefOp(local: Local, op: string, instanceId: string, slug: string, value: string, models: { slug: string; isCustom: boolean }[]): void {

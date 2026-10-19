@@ -117,7 +117,7 @@ async function mint(client: T3Client, native: Native, meta: AttachmentMeta, disp
   return url;
 }
 const message = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
-const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
+const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
 
 /**
  * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered
@@ -133,7 +133,7 @@ async function renderedAttachment(client: T3Client, native: Native | null | unde
   const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `attachment:${id}`, kind: 'attachment', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${id}`, { thread: false }) }, // the owner names the document
+    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${id}`, { thread: false }, client) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: [],
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };

@@ -1,10 +1,12 @@
 // Composer commands the footer and banners issue,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9: ChatView.tsx (onResume,
+// adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3. Sources at 9c161462c9: ChatView.tsx (onResume,
 // onImplementPlanInNewThread, handleUnsnoozeActiveThread, acknowledgeActiveThreadWoke,
 // onProviderModelSelect's provider lock), ChatView.logic.ts (deriveLockedProvider,
 // resolveComposerProviderSelection), threadWorkflows.ts (threadSupportsProviderHandoff),
 // TraitsPicker.tsx (option choice) and QueuedRunsControl.tsx.
+import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
 import { arr, obj, str, type Obj } from '../client/domain';
+import { visiblePullRequests } from '../panel/shell-pr';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
@@ -179,10 +181,14 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     await access.dispatch(storage, { type: 'thread.unsnooze', commandId, threadId, reason: 'user' }, 'Wake thread');
     return '';
   }
-  if (op === 'compact') {
-    // onCompactContext: a standalone "/compact" turn; the draft stays local.
+  if (op === 'compact' || op === 'goal-resume' || op === 'goal-clear') {
+    // Native commands run as separate turns; the draft and its attachments stay local.
     const projection = requireThread(client), threadId = client.threadId;
-    if (activeRun(projection)) throw new ClientError('Compacting is unavailable right now');
+    if (op === 'compact' ? !!activeRun(projection) : providerGoalWorking(client)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
+    if (op !== 'compact') {
+      const goal = providerGoal(client.shell.threads.find(thread => thread.id === threadId)?.goal);
+      if (!goal || op === 'goal-resume' && !presentProviderGoal(goal, false).canResume) throw new ClientError('That goal action is no longer available.');
+    }
     requireProvider(client);
     const staged = stagedFor(client), key = client.draftKey;
     for (const command of nextTurnCommands(obj(projection.thread), staged)) {
@@ -190,8 +196,9 @@ export async function composerCommand(client: T3Client, native: Native, storage:
       await access.dispatch(storage, { ...command, commandId, threadId }, 'Change mode');
     }
     const [commandId, messageId] = await access.ids(2);
-    await access.dispatch(storage, { type: 'message.dispatch', commandId, threadId, messageId, text: '/compact', attachments: [], createdBy: 'user', creationSource: 'web',
-      modelSelection: dispatchSelection(client, client.providerId, client.modelId, client.modelOptions), deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, 'Compact context');
+    const chosen = composerSelection(client);
+    await access.dispatch(storage, { type: 'message.dispatch', commandId, threadId, messageId, text: op === 'compact' ? '/compact' : op === 'goal-resume' ? '/goal resume' : '/goal clear', attachments: [], createdBy: 'user', creationSource: 'web',
+      modelSelection: dispatchSelection(client, chosen.instanceId, chosen.model, client.modelOptions), deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, op === 'compact' ? 'Compact context' : op === 'goal-resume' ? 'Resume goal' : 'Clear goal');
     clearStaged(client, key);
     return '';
   }
@@ -199,10 +206,17 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'branch-restore' || op === 'branch-restore-confirmed') return restoreThreadBranch(client, native, storage, op === 'branch-restore-confirmed');
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
   if (op === 'stop-background') {
-    // handleStopBackgroundWork → interruptThreadTurn without a run: the latest run owns the background work.
+    // A PR watch can hold a thread that never ran (interruptThreadTurn).
     const projection = requireThread(client), threadId = client.threadId;
     const runs = arr(projection.runs), run = activeRun(projection) ?? runs.reduce<Obj | undefined>((latest, entry) => !latest || Number(entry.ordinal) > Number(latest.ordinal) ? entry : latest, undefined);
-    if (!run) throw new ClientError('There is no background work to stop.');
+    if (!run) {
+      for (const link of visiblePullRequests(obj(projection.thread).pullRequests)) {
+        if (link.watch === undefined) continue;
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'thread.pull-request.watch', commandId, threadId, host: link.host, repository: link.repository, number: link.number, watching: false }, 'Stop pull request watch');
+      }
+      return '';
+    }
     const [commandId] = await access.ids(1);
     await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id) }, 'Stop background work');
     return '';

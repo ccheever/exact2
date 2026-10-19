@@ -28,6 +28,7 @@ mod contain;
 mod control_roles;
 pub mod controls;
 pub mod dataset;
+mod decorations;
 mod disabled_look;
 mod edits;
 mod error;
@@ -146,6 +147,9 @@ pub(crate) struct Lowerer<'a> {
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
+    /// Literal decoration rows and the aliases visible to each source file.
+    pub decorations: BTreeMap<String, serde_json::Value>,
+    pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
     /// The `keyframes` declarations, by name, with what each animates (LLP 1055 D5).
     pub keyframes: BTreeMap<String, Vec<exact_motion::Property>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
@@ -303,6 +307,8 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
+        decorations: BTreeMap::new(),
+        decoration_scopes: file.decoration_scopes.clone(),
         keyframes: BTreeMap::new(),
         fns: file
             .fns
@@ -341,6 +347,7 @@ fn lower_with_sites(
         names_tokens_outside_views(file, root_types),
         asset_root,
     );
+    l.declare_decorations(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -897,6 +904,9 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
+        if a.name == "decorations" {
+            return self.bind_decorations(tag, a, scope, locals, bindings);
+        }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };

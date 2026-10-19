@@ -7,6 +7,17 @@ const partial = { instanceId: 'p', skills: [{ name: 'global' }], slashCommands: 
 ] };
 const complete = { ...partial, workspaceSnapshots: [{ cwd: '/repo', skills: [], slashCommands: [] }] };
 describe('workspace provider discovery', () => {
+  test('expires completed workspace scans after five minutes and bounds requests when the server clock lags', async () => {
+    const discovery = new WorkspaceDiscovery(), now = Date.parse('2026-10-18T00:00:00Z');
+    const provider = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: new Date(now).toISOString() }] };
+    const wake = { prompt: '', config: provider };
+    expect(discovery.state('env', 1, provider, '/repo', wake, true, now).needed).toBe(false);
+    const stale = discovery.state('env', 1, provider, '/repo', wake, true, now + 300_000);
+    expect(stale.needed).toBe(true);
+    await discovery.refresh(stale.key, async () => ({ providers: [provider] }));
+    expect(discovery.state('env', 1, provider, '/repo', wake, true, now + 300_001).needed).toBe(false);
+    expect(discovery.state('env', 1, provider, '/repo', wake, true, now + 600_000).needed).toBe(true);
+  });
   test('uses partial workspace skills and commands while keeping discovery retryable', () => {
     expect(hasCompleteProviderWorkspaceSnapshot(partial, '/repo')).toBe(false);
     expect(workspaceValues(partial, '/repo', 'skills')).toEqual([{ name: 'repo-skill' }]);

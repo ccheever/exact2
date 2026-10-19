@@ -16,14 +16,14 @@ export interface ThreadState {
   hasMore: boolean;
   latestLocalTurnOrdinal: number | null;
 }
-export interface Activity { id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
+export interface Activity { replArguments?: ReturnType<typeof import('../timeline/tool-activity').replArguments>; terminal?: boolean; terminalTruncated?: boolean; terminalSpans?: ReturnType<typeof import('../timeline/command-output').commandSpans>; toolImages?: Pick<import('../timeline/tool-images').ToolImage, 'id' | 'name' | 'source'>[]; id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
   detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string;
   /** V2ItemInspector's search results and file change, a subagent's avatar and live start. */
   results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number; diffRunId?: string; diffPath?: string;
   startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string; modelLine?: string; effort?: string; speed?: string; speedLabel?: string;
   /** A thread read's label in parts: `<linkPrefix> “<linkTitle>”`, the title opening linkThreadId. */
   linkPrefix?: string; linkTitle?: string; linkThreadId?: string }
-export interface Message { id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
+export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
   meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
@@ -130,7 +130,7 @@ const TURN_ITEM_TYPES = [
   "notification", "user_message", "assistant_message", "reasoning", "proposed_plan", "todo_list",
   "user_input_request", "file_change", "command_execution", "file_search", "web_search", "approval_request",
   "checkpoint", "run_interrupt_request", "run_interrupt_result", "system_notice", "error", "compaction",
-  "handoff", "fork", "thread_created", "subagent", "dynamic_tool",
+  "handoff", "fork", "thread_created", "subagent", "dynamic_tool", "secret_request",
 ];
 /** hasUnknownUnionTag: an object whose `type` is a string this build does not know. */
 function isUnknownTurnItem(value: unknown): boolean {
@@ -151,6 +151,11 @@ function validateTurnItem(value: unknown, path: string): Obj {
   if (type === "user_message") {
     oneOf(item.inputIntent, ["turn_start", "queued_turn", "steer", "promoted_queued_to_steer"], `${path}.inputIntent`);
     objects(item.attachments, `${path}.attachments`);
+  }
+  if (type === "secret_request") {
+    string(item.label, `${path}.label`); string(item.reason, `${path}.reason`, true);
+    oneOf(item.secretStatus, ["pending", "saved", "declined", "cancelled"], `${path}.secretStatus`);
+    optionalFields(item, ["placeholder"], "string", path);
   }
   if (type === "proposed_plan") string(item.markdown, `${path}.markdown`, true);
   if (type === "todo_list") objects(item.steps, `${path}.steps`);
@@ -495,11 +500,12 @@ export function readyCheckpoint(state: ThreadState | null): number | null {
   return latest;
 }
 
-// Reference projectSettings.resolveWorktreeCleanup: off clears every rule,
+// T3 Code 9c161462c9 projectSettings.resolveWorktreeCleanup: off clears every rule,
 // custom owns a complete rule object, otherwise inherit environment retention.
 export function effectiveWorktreeRules(settings: Obj, override: Obj): Obj {
   const policy = obj(override.worktreeCleanup ?? settings.worktreeCleanup);
   const rules = policy.mode === 'off' ? {} : policy.mode === 'custom' ? obj(policy.rules) : obj(settings.storageCleanup);
-  return { worktreeAfterDays: typeof rules.worktreeAfterDays === 'number' ? rules.worktreeAfterDays : null,
+  return { worktreeKeepWhen: str(rules.worktreeKeepWhen, 'uncommitted-changes'), worktreeSettledAfterDays: typeof rules.worktreeSettledAfterDays === 'number' ? rules.worktreeSettledAfterDays : null,
+    worktreeAfterDays: typeof rules.worktreeAfterDays === 'number' ? rules.worktreeAfterDays : null,
     worktreeOnMerge: rules.worktreeOnMerge === true, worktreeOnDelete: rules.worktreeOnDelete === true, worktreeUnchanged: rules.worktreeUnchanged === true };
 }

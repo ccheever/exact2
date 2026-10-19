@@ -73,23 +73,3 @@ describe('Right panels keep every surface across launches', () => {
     expect(JSON.stringify((owner.local as { rightPanels?: object }).rightPanels)).not.toContain('SIM-1');
   });
 });
-
-describe("The Diff's preview for a project outside the server's root (DiffPanel shouldRetryBranchDiffAtEnvironmentCwd)", () => {
-  test('a refused cwd is asked again at the server cwd; anything else is not retried', async () => {
-    const { requestDiff } = await import('../../src/diff/diff-outside-root');
-    const asked: string[] = [];
-    const refuse = async (_method: string, payload: Record<string, unknown>) => {
-      asked.push(String(payload.cwd));
-      if (payload.cwd !== '/srv/root') throw new Error('Review diff preview cwd must stay within the configured workspace root.');
-      return { cwd: payload.cwd, sources: [] };
-    };
-    const request = { method: 'review.getDiffPreview', payload: { cwd: '/elsewhere/repo', ignoreWhitespace: false } };
-    expect(await requestDiff({ cwd: '/srv/root' }, request, refuse)).toEqual({ cwd: '/srv/root', sources: [] });
-    expect(asked).toEqual(['/elsewhere/repo', '/srv/root']);
-    // No server cwd, the same cwd, another error or a turn diff: the error stands.
-    await expect(requestDiff({}, request, refuse)).rejects.toThrow('configured workspace root');
-    await expect(requestDiff({ cwd: '/elsewhere/repo' }, request, refuse)).rejects.toThrow('configured workspace root');
-    await expect(requestDiff({ cwd: '/srv/root' }, request, async () => { throw new Error('git failed'); })).rejects.toThrow('git failed');
-    await expect(requestDiff({ cwd: '/srv/root' }, { method: 'orchestration.getTurnDiff', payload: {} }, async () => { throw new Error('configured workspace root'); })).rejects.toThrow();
-  });
-});

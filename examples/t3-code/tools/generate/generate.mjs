@@ -7,12 +7,13 @@
 //   gen-css-words.mjs  src/highlight/css-words.ts: the CSS grammar's word lists
 //   gen-icons.mjs      src/settings/settings-b-lucide.ts, src/shared/pages-icons.contract (Lucide);
 //                      src/shared/timeline-files.contract and timeline-files-tables.ts, data/pierre-icons.tsv,
-//                      assets/composer-icons.json (Pierre); the icon tables of icon-tables.mjs and
+//                      the icon tables of icon-tables.mjs and
 //                      icon-marks.mjs (src/shared/icons.contract and nine more in their features' folders)
 //   gen-morph.mjs      src/shell/shell-morph.contract: morphicons' plan for each icon pair
 //   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations
 //   gen-shell-parser.mjs src/highlight/shell-parser/: unbash parser runtime and declarations
 //   gen-mermaid.mjs    assets/mermaid/vendor/: Mermaid's ES module build and DOMPurify for the Mermaid page
+//   gen-codex-directives.mjs src/highlight/codex-directives.js and .d.ts: the pinned inline directive parser
 //
 // The app build runs it before it bakes (data/build.rs). Run it by hand before anything else reads
 // them: `bun test examples/t3-code`, the strict tsc, `contract build`, the AppKit tests.
@@ -33,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-shell-parser.mjs'];
+const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-shell-parser.mjs'];
 
 /** Every input: this directory's scripts, package.json and bun.lock (no generator reads an app source). */
 export function inputs() {

@@ -29,16 +29,17 @@ formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> strin
 formatDecimal: (cents to "12.34"; literal digits)
 formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
 formatTime: ("2:13 PM"; minutes east of UTC)
-frame: (in an action)
+frame: (action)
 includes: s.includes(x) -> bool  (text or list)
 indexOf: s.indexOf(x) -> number  (-1 for none)
 isEmpty: s.isEmpty() -> bool
 join: xs.join(sep) -> string
 length: s.length -> number  (text or list)
 map: xs.map(x => U) -> U[]
-measure: (in an action)
+measure: (action)
 parseNumber: (none for "12px")
 performanceNow: (ms since launch)
+rangeFrame: (action)
 round: (half up)
 slice: s.slice(start, end?) -> text|list
 sortBy: sortBy(xs, x => key, "desc"?) -> T[]  (stable)

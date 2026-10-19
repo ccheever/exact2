@@ -1,6 +1,6 @@
 // The project icon picker's "Open in <Finder>". Reference
 // ProjectFaviconPickerDialog.tsx, ProjectSettingsPanel.tsx pickProjectFavicon and
-// apps/desktop/src/ipc/methods/window.ts pickProjectFavicon (1e2ecbd975; MIT, see LICENSE-T3):
+// apps/desktop/src/ipc/methods/window.ts pickProjectFavicon (9c161462c9; MIT, see LICENSE-T3):
 // the footer's trailing action opens the native picker for one image in the project's workspace
 // root; a pick closes the dialog and selects that absolute path, a failure toasts "Could not open
 // image picker" and keeps the dialog open. Offered only when every member is a project of the

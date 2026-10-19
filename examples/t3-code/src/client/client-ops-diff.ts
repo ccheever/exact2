@@ -8,7 +8,6 @@ import { message } from './client-shared';
 import { adoptDiff, currentSelection, diffPaths, diffRequest, diffView, selectBaseRef, selectCheckpoint, selectScope, selectTurn, turnSummaries } from '../diff/diff';
 import { loadBaseRefs } from '../diff/diff-base-ref';
 import { rememberDiffLayout } from '../appearance/settings-appearance-look';
-import { requestDiff } from '../diff/diff-outside-root';
 import { diffReview, loadDiffFiles } from '../diff/diff-review';
 import { type Native, type Files } from './protocol';
 import { letGo } from './let-go';
@@ -51,7 +50,7 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
   const epoch = this.threadEpoch, threadId = this.threadId, asked = JSON.stringify(request);
   this.diffLoading = true;
   try {
-    const result = await requestDiff(this.config, request, (method, payload) => this.request(native, method, payload)); // DiffPanel's server-cwd retry
+    const result = await this.request(native, request.method, request.payload)
     if (epoch === this.threadEpoch && threadId === this.threadId && this.diffOpen && JSON.stringify(diffRequest(this)) === asked) {
       // A named file stays collapsed, as in the reference (onOpenTurnDiff leaves 'Expand <file>' false).
       this.diffText = adoptDiff(this, request, result);

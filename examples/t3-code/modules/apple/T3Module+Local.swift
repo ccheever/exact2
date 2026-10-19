@@ -15,6 +15,19 @@ extension T3Module {
     func localOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         let generation = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
+        case "cliCommandState", "cliCommandInstall", "cliCommandUninstall":
+            let operation = request["op"] as? String ?? ""
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let command = T3LocalBackend.shared.cliCommand()
+                    let state = try operation == "cliCommandInstall" ? command.install() : operation == "cliCommandUninstall" ? command.uninstall() : command.state()
+                    reply.send(["ok": true, "generation": generation, "value": state])
+                } catch {
+                    let failure = error as? T3Failure ?? T3Failure(kind: "CliCommand", message: "\(error.localizedDescription)")
+                    reply.send(["ok": false, "generation": generation, "error": failure.json])
+                }
+            }
+
         // The primary's bearer for the data module's connection to it (src/transport/transport-session.ts; memory only).
         case "localBearer":
             reply.send(["ok": true, "generation": generation, "value": ["token": T3LocalBackend.shared.bearerToken() ?? ""]])

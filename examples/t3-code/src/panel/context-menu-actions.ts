@@ -1,3 +1,4 @@
+import { requestComposerField } from '../composer/composer-field-request';
 // What the Files tree row and pull request number menus do (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3): FileBrowserPanel.tsx showEntryContextMenu with
 // fileContextMenu.ts useFileContextMenu.activate, and pullRequestLinkContextMenu.ts
@@ -52,10 +53,9 @@ export async function filesTreeChoice(client: T3Client, native: Native, relative
   }
   if (picked === 'add-to-chat') {
     // insertTextAtEnd(`${mention} `, { ensureLeadingBoundary: true }): the end of the prompt, a space before it where words would join.
-    const reply = await bridgeReply(native, { op: 'editorEdit', text: `${mention} `, pad: true });
-    const value = obj(reply.value);
-    if (reply.ok && value.applied === true) return;
-    pushToast(client, value.reason === 'no composer'
+    const reply = await requestComposerField(native, { op: 'editorEdit', text: `${mention} `, pad: true });
+    if (reply.accepted) return;
+    pushToast(client, reply.reason === 'no composer'
       ? { kind: 'error', title: 'Unable to add to chat', description: 'Open a chat for this project and try again.' }
       : { kind: 'error', title: 'Unable to add to chat', description: "The chat isn't ready to accept input right now." });
     return;

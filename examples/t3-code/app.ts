@@ -1,3 +1,4 @@
+import { threadFindTick, threadFindView } from './src/timeline/thread-find-runtime';
 import type { StreamPicked } from './src/browser/server-browser-files';
 import { serverStreamSource, serverStreamPainted, serverStreamInput, serverStreamUpload, serverStreamFrame, serverStreamDecode } from './src/browser/server-browser-runtime';
 import { snapshotSettings } from './src/snapshot/snapshot-settings';
@@ -18,7 +19,12 @@ import { settingsCore } from './src/settings/settings-core-view';
 import { archivedSettings, licenseSettings, storageSettings } from './src/settings/settings-data';
 import { T3Client } from './src/client/client';
 import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './src/composer/composer-editor';
+import { composerRichSource } from './src/composer/composer-rich-source';
+import { composerFieldOwner } from './src/composer/auto-balance-owner';
+import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
+import { composerIntentAnswer } from './src/composer/composer-intent-source';
 import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
+import { composerChipObserved, composerChipPressed } from './src/composer/composer-chip-events';
 import { composerBranches } from './src/composer/composer-controls-branch';
 import { providerFieldValues } from './src/providers/providers';
 import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './src/providers/providers-scope';
@@ -33,7 +39,7 @@ import { pagesSource } from './src/pages/pages-sources';
 import { ariaChord } from './src/shell/keyboard-dispatch';
 import { snapshot, modelCatalog } from './src/client/presentation';
 import { noteComposerTyping } from './src/composer/composer-typing-guard';
-import { obj, str, type Obj } from './src/client/domain';
+import { arr, obj, str, type Obj } from './src/client/domain';
 import { nativeFiles, type Native, type Files } from './src/client/protocol';
 import { adoptAppFiles } from './src/media/save-file';
 import { noteTranscriptFacts } from './src/timeline/transcript-facts';
@@ -101,7 +107,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
 // hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
 export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
-  if (native?.available) native = letGoAware(native);
+  if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
@@ -122,23 +128,31 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
     return { ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? '')), chatgptPlan: chatGptPlanSnapshot(client) }; // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
   }
+  if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
   if (source === 'refreshTimelineReads') {
     noteNow(client, Number(args[0]) || 0);
     await refreshTimelineReads(client, native);
     return { complete: true };
   }
-  if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false); // args[1]: the chat view is on screen (ChatComposer mounted)
+  if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false, typeof args[2] === 'number' ? args[2] : undefined); // args[1]: the chat view is on screen (ChatComposer mounted)
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
-  if (source === 'composerChip') return chipPopoverView(client, native); // composer-chip-popover.ts: args[0] re-asks on each revision
+  if (source === 'composerRich') return composerRichSource(client, { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' });
+  if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client), native);
+  if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
+  if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client), native);
+  if (source === 'composerIntent') return composerIntentAnswer(client, args);
+  if (source === 'composerChip') return chipPopoverView(client);
+  if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
+  if (source === 'composerChipPressed') return composerChipPressed(client, args[0]);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   const scoped = PROJECT_SCOPED_PAGES.has(source) ? settingsPageClient(client, native, args) : { client, args }; // a background environment's project (projects-fleet.ts)
   const pageClient = scoped.client; args = scoped.args;
   if (source === 'archivedSettings') return archivedSettings(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, Number(args[3]) || 0, Number(args[4]) || 0, String(args[6] || ''), String(args[7] || ''), String(args[8] || '')); // args[4]: settingsRefresh
   if (source === 'licenseSettings') return licenseSettings(client, native, String(args[0] || ''), String(args[1] || ''), Number(args[2]) || 0, args[3] === true);
   if (source === 'diagnosticsSettings') return diagnosticsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, Number(args[3]) || 0, Number(args[4]) || 0);
-  if (source === 'storageSettings') return storageSettings(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''), Number(args[8]) || 0);
+  if (source === 'storageSettings') return storageSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''), Number(args[8]) || 0);
   if (source === 'pagesHome') return pagesHome(client, native);
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, viewport: Number(args[5]) || 1280, sidebar: Number(args[6]) || 0 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
@@ -158,8 +172,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'providerChange' && String(args[0] || '').startsWith('upkeep:')) { if (native?.available) await scopedUpkeepOp(client, native, args); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
   if (source === 'providerChange' && /^setup:(codex|chatgpt)-/.test(String(args[0] || ''))) { const target = native?.available ? (String(args[0]).startsWith('setup:chatgpt-') ? codexContext(client, native, '') : codexTarget(client, native, String(args[1] || ''))) : null; if (target) await codexSetupOp(target, String(args[0]), String(args[2] ?? ''), String(args[3] ?? ''), () => client.savePreferences(storage)); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
   if (source === 'providerChange' && String(args[0] || '').startsWith('setup:')) { if (native?.available) await scopedSetupOp(client, native, args); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
-  if (source === 'providerChange') return client.command(String(args[0] || ''), String(args[1] || ''), args[0] === 'favorite-model' ? String(args[2] || '') : JSON.stringify({ key: String(args[2] ?? ''), value: String(args[3] ?? '') }), 0, native, storage, providersRoute(client, String(args[4] ?? '')));
-  if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), args.slice(4, 9).map(value => String(value ?? ''))) }), 0, native, storage, providersRoute(client, String(args[9] ?? '')));
+  if (source === 'providerChange') return client.command(String(args[0] || ''), String(args[1] || ''), args[0] === 'favorite-model' ? String(args[2] || '') : JSON.stringify({ key: String(args[2] ?? ''), value: String(args[3] ?? ''), projectIds: args[5] ? JSON.parse(String(args[5])) : [] }), 0, native, storage, providersRoute(client, String(args[4] ?? '')));
+  if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), (Array.isArray(args[4]) ? args[4] : []).map(value => String(value ?? ''))), commandArgs: args[6] }), 0, native, storage, providersRoute(client, String(args[5] ?? '')));
   if (source === 'keybindingSettings') return keybindingSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), String(args[6] || ''));
   if (source === 'saveKeybinding') return client.command('keybinding-save', String(args[0]), JSON.stringify({ previous: args[1], command: args[2], key: args[3], when: args[4] }), 0, native, storage);
   if (source === 'scheduledSettings') return scheduledPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), args[4] === true, Number(args[5]) || 0, String(args[8] || ''), String(args[9] || ''), String(args[10] || ''), String(args[11] || ''), Number(args[6]) || 0); // live-automations: the scope's machine, project and checkout; args[11]: taskBase; args[6]: settingsRefresh
@@ -184,7 +198,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'createProvider') return client.command('provider-create', String(args[0] || ''), JSON.stringify({ driver: args[1], name: args[2], binaryPath: args[3], homePath: args[4] }), 0, native, storage);
   if (source === 'paletteView') return paletteView(client, native, args);
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
-  if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219)
+  if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : []); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219)
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision

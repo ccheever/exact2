@@ -29,7 +29,7 @@ import { primaryWelcome } from '../connections/local-lifecycle';
 import type { Shell } from '../client/domain';
 import { codexSetupView, readCodexSetupMode, codexFlow, codexInstance, type CodexSetupView } from '../providers/codex-setup'; // OnboardingCodexSetup
 import { watchProviderSetup } from '../providers/provider-setup';
-import { setChatGptCreatedHandler } from '../providers/providers';
+import { setChatGptCreatedHandler } from '../providers/provider-created-callback';
 import { fleetSetupHost } from '../providers/codex-fleet-host';
 import type { CodexHost } from '../providers/codex-setup';
 const terminals = new WeakMap<T3Client, Map<string, OnboardingTerminal>>();

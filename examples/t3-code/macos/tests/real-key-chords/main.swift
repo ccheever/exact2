@@ -286,7 +286,7 @@ final class RealKeyChordsTests: XCTestCase {
         XCTAssertEqual(upper, [])
     }
 
-    func testCommandBIsTheRichTextComposersBold() {
+    func testFormattingChordReachesTheHostWithoutNativeSourceMutation() {
         let f = fixture
         XCTAssertTrue(f.activate() || screenLocked)
         f.window.makeFirstResponder(f.composerText)
@@ -294,13 +294,9 @@ final class RealKeyChordsTests: XCTestCase {
         f.composerText.setSelectedRange(NSRange(location: 0, length: 5))
         f.host.pressed = []
         f.press(Chord(key: "mod+b"))
-        XCTAssertEqual(f.host.pressed, [], "the composer's bold, not sidebar.toggle")
-        XCTAssertEqual(f.composerText.string, "**draft**")
-        f.composer.editor.styler.richText = false
-        f.composerText.string = "draft"
-        f.press(Chord(key: "mod+b"))
-        XCTAssertEqual(f.host.pressed, ["mod+b"], "the plain text composer leaves ⌘B to sidebar.toggle")
-        f.composer.editor.styler.richText = true
+        // This module-only host registers every chord; the app's Contract scopes formatting.
+        XCTAssertEqual(f.host.pressed, ["mod+b"])
+        XCTAssertEqual(f.composerText.string, "draft")
     }
 }
 

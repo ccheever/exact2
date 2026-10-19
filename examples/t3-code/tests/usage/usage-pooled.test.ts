@@ -384,14 +384,15 @@ describe('usage across environments', () => {
     page = await rig.page({ metric: 'cost' });
     expect([page.total, page.sessions, page.providers.map(row => row.key), page.notices]).toEqual(['$1.50', '1 sessions', ['codex'], []]);
     expect([page.providerFilter.label, page.providerFilter.all, page.providerFilter.rows.filter(row => !row.checked).map(row => row.key)])
-      .toEqual(['5 providers', false, ['claude']]);
+      .toEqual(['6 providers', false, ['claude']]);
+    expect(page.providerFilter.rows.map(row => row.key)).toContain('pi');
     const limits = (await rig.page()).pooled;
     expect(limits.pools.map(pool => pool.driver)).toEqual(['codex']); // the hub's Claude seat leaves with its driver
     expect(limits.notices.map(notice => notice.text)).toEqual(['Old hub: token expired']);
     expect(rig.client.local).toMatchObject({ pages: { usage: { hiddenProviders: ['claude'] } } });
     await rig.command('usage-provider', '', 'codex');
     page = await rig.page({ metric: 'cost' });
-    expect([page.total, page.chatgptShared, page.providerFilter.label]).toEqual(['$0.00', false, '4 providers']);
+    expect([page.total, page.chatgptShared, page.providerFilter.label]).toEqual(['$0.00', false, '5 providers']);
     expect((await rig.page()).pooled.links).toEqual([]);
     await rig.command('usage-provider', '', ''); // "All providers" shows every one
     expect((await rig.page({ metric: 'cost' })).providerFilter.label).toBe('All providers');

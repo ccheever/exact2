@@ -121,12 +121,8 @@ test('fourteen additional language icons resolve in files and fenced code', () =
 
 test('generated file art retains language logos, theme tints and the diff/XML strokes', async () => {
   const drawings = await Bun.file(new URL('../../src/shared/timeline-files.contract', import.meta.url)).text();
-  const art = await Bun.file(new URL('../../assets/composer-icons.json', import.meta.url)).json();
   for (const token of ['csharp', 'dart', 'diff', 'elixir', 'haskell', 'java', 'kotlin', 'lua', 'php', 'powershell', 'r', 'scala', 'toml', 'xml']) {
     expect(drawings).toContain(`token == "${token}"`);
-    expect(art.pierre[token]).toContain('<path');
-    expect(art.colors[token]).toHaveLength(2);
   }
-  expect(art.pierre.xml).toContain('stroke="currentColor"');
   expect(drawings).toContain('stroke-width=w0');
 });

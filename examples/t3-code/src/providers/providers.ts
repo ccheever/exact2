@@ -1,4 +1,5 @@
-import { providerWritable } from './provider-permissions';
+import { notifyChatGptCreated } from './provider-created-callback';
+import { providerSettingsWritable, providerWritable } from './provider-permissions';
 // T3 Code 9c161462c9 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
@@ -12,7 +13,9 @@ import { obj, str, arr, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { accentHsv } from './settings-b-accent';
-import { favoriteSlugs, groupModels, instancePrefs, runModelPrefOp, MODEL_PREF_OPS } from './settings-b-models';
+import { buildProviderInstanceOverridePatch, projectProviderEnabled } from './project-provider-overrides';
+import { modelPreferenceSource, runEnvironmentModelPrefOp } from './model-preferences';
+import { favoriteSlugs, groupModels, instancePrefs, MODEL_PREF_OPS } from './settings-b-models';
 import { DRIVERS, driverMeta, instanceEnabled, legacyProviders, sameValue, versionLabel, providerSummary, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
 import { letGo } from '../client/let-go';
@@ -71,7 +74,7 @@ const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2)
 function rowStatus(row: Row, provider: Obj | undefined) {
   const enabled = instanceEnabled(row.instance);
   const statusKey = enabled ? (['ready', 'warning', 'error', 'disabled'].includes(str(provider?.status)) ? str(provider?.status) : 'warning') : 'disabled';
-  const summary = enabled ? providerSummary(provider) : { headline: 'Disabled', detail: '' };
+  const summary = enabled ? providerSummary(provider ? { ...provider, enabled: true } : provider) : { headline: 'Disabled', detail: '' };
   const compatibility = str(obj(provider?.compatibilityAdvisory).status);
   const incompatible = enabled && ['graceful', 'unsupported', 'broken'].includes(compatibility);
   const needsAttention = statusKey === 'warning' || statusKey === 'error';
@@ -81,8 +84,10 @@ function rowStatus(row: Row, provider: Obj | undefined) {
 }
 
 const fieldRow = (instanceId: string, field: DriverField, value: string, extra: { placeholder?: string; redacted?: boolean; clearable?: boolean } = {}, first = false) => ({
-  rowKey: `${instanceId}:${field.key}:${value}`, key: field.key, first, label: field.label, description: field.description,
-  placeholder: extra.placeholder ?? field.placeholder, control: field.control as string, value, redacted: extra.redacted === true, clearable: extra.clearable === true,
+  rowKey: `${instanceId}:${field.key}:${field.control === 'password' ? String(value.length > 0) : value}`, key: field.key, first, label: field.label, description: field.description,
+  placeholder: field.control === 'password' && value.length > 0 ? 'Configured' : extra.placeholder ?? field.placeholder, control: field.control as string,
+  value: field.control === 'password' ? '' : value, redacted: extra.redacted === true || field.control === 'password' && value.length > 0,
+  clearable: extra.clearable === true || field.control === 'password' && value.length > 0,
   options: (field.options || []).map(option => ({ value: option.value, label: option.label, selected: option.value === (value || field.options![0]!.value) })),
 });
 
@@ -163,8 +168,9 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const variables = envRows(host, row.id, row.instance, dedicated);
   // deriveProviderModelsForDisplay: built-ins from the server, custom rows from the current config.
   const models = deriveProviderModelsForDisplay({ liveModels: arr(provider?.models), customModels: row.driver === 'antigravity' ? [] : readCustomModelEntries(config.customModels) });
-  // ProviderModelsSection: favorites, visible, then hidden; order and visibility are device preferences (settings-b-models.ts).
-  const favorites = favoriteSlugs(host.local, row.id), prefs = instancePrefs(host.local, row.id), hiddenSet = new Set(prefs.hiddenModels);
+  // ProviderModelsSection: favorites, visible, then hidden, using this environment’s preferences.
+  const source = modelPreferenceSource(host);
+  const favorites = favoriteSlugs(source, row.id), prefs = instancePrefs(source, row.id), hiddenSet = new Set(prefs.hiddenModels);
   const display = groupModels<Obj & { slug: string; isCustom: boolean }>(models.map(model => ({ ...(model as Obj), slug: str(model.slug), isCustom: model.isCustom === true })), favorites, hiddenSet, prefs.modelOrder);
   const favoriteCount = display.filter(entry => entry.group === 'favorite').length;
   const hiddenCount = display.filter(entry => !entry.model.isCustom && hiddenSet.has(entry.model.slug)).length;
@@ -188,7 +194,9 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
       return fieldRow(row.id, field, redacted ? '' : str(variable?.value), { placeholder: redacted ? 'Stored secret - enter a new value to replace' : field.placeholder, redacted, clearable: variable !== undefined });
     }),
     // A managed Codex instance folds its read-only runtime paths instead (CodexManagedRuntimeFields).
-    fields: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [] : (meta?.fields || []).map((field, index) => fieldRow(row.id, field, str(config[field.key]), {}, index === 0)),
+    localAcp: row.driver === 'acpRegistry' && config.source === 'local',
+    commandArgs: (Array.isArray(config.commandArgs) ? config.commandArgs : []).filter((arg): arg is string => typeof arg === 'string').map((value, index) => ({ key: `${row.id}:${index}:${value}`, index, value })),
+    fields: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [] : (meta?.fields || []).filter(field => row.driver !== 'acpRegistry' || config.source !== 'local' || field.key === 'source' || field.key === 'commandPath').map((field, index) => fieldRow(row.id, row.driver === 'acpRegistry' && config.source === 'local' && field.key === 'commandPath' ? { ...field, label: 'Executable', description: 'Executable name or path on this environment.', placeholder: 'e.g. dsh' } : field, str(config[field.key]) || (field.key === 'source' ? 'registry' : ''), {}, index === 0)),
     codexRuntime: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [codexRuntimeFields(host, row.id, provider)] : [],
     variables: variables.map((variable, index) => ({ rowKey: `${row.id}:env:${index}:${str(variable.name)}:${variable.valueRedacted === true ? '' : str(variable.value)}:${variable.sensitive === true}:${variable.valueRedacted === true}`,
       index, name: str(variable.name), value: variable.valueRedacted === true ? '' : str(variable.value), sensitive: variable.sensitive === true,
@@ -223,21 +231,26 @@ export function healthInterval(settings: Obj): { seconds: number; preset: number
  * `target:<id>` for the instance a setup entry point opened (the route's targetInstanceId):
  * a removed target shows no editor instead of another account.
  */
-export function providerPage(host: ProviderHost, selection: string, nowMs: number) {
-  if (!host.ready) return { available: false, writable: false, message: 'Connect an environment to set up its providers.', checked: '', selectedId: '', rows: [], editors: [], emptyEditor: '', healthSeconds: '300', healthDown: '270', healthUp: '330', healthCustom: false, cursorUsage: false, macos: false, hubs: [] };
+export function providerPage(host: ProviderHost, selection: string, nowMs: number, projectIds: string[] = []) {
+  if (!host.ready) return { projectIds: '', available: false, writable: false, settingsWritable: false, enableWritable: false, message: 'Connect an environment to set up its providers.', checked: '', selectedId: '', rows: [], editors: [], emptyEditor: '', healthSeconds: '300', healthDown: '270', healthUp: '330', healthCustom: false, cursorUsage: false, macos: false, hubs: [] };
   const target = selection.startsWith('target:') ? selection.slice(7) : '', selectedId = target || selection;
   const settings = settingsOf(host), live = liveProviders(host), rows = providerRows(settings, live, selectedId);
+  const scoped = projectIds.length > 0 && obj(obj(host.config.environment).capabilities).projectProviderInstanceOverrides === true;
+  const displayRows: Row[] = scoped ? rows.map(row => ({ ...row, instance: { ...row.instance,
+    enabled: projectProviderEnabled(settings, projectIds[0]!, row.id, instanceEnabled(row.instance)),
+    config: { ...obj(row.instance.config), enabled: projectProviderEnabled(settings, projectIds[0]!, row.id, instanceEnabled(row.instance)) } } })) : rows;
   const targetMissing = target !== '' && !rows.some(row => row.id === target);
-  const selected = rows.find(row => row.id === selectedId) ?? (targetMissing ? undefined : rows[0]);
+  const selected = displayRows.find(row => row.id === selectedId) ?? (targetMissing ? undefined : displayRows[0]);
   const latest = live.reduce((value, provider) => str(provider.checkedAt) > value ? str(provider.checkedAt) : value, '');
   const health = healthInterval(settings);
   return {
-    available: true, writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view this environment's providers but can't change their settings.",
+    projectIds: scoped ? JSON.stringify(projectIds) : '', available: true, settingsWritable: providerSettingsWritable(host), enableWritable: scoped ? providerSettingsWritable(host) : providerWritable(host), writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view providers but cannot manage provider instances.",
     checked: live.length ? checkedLabel(latest, nowMs) : 'Not checked yet', selectedId: selected?.id || '',
-    rows: rows.map((row, index) => {
+    rows: displayRows.map((row, index) => {
       const provider = live.find(candidate => candidate.instanceId === row.id), status = rowStatus(row, provider);
       const name = str(row.instance.displayName).trim() || driverMeta(row.driver)?.label || row.driver;
-      return { id: row.id, first: index === 0, name, driver: row.driver, enabled: status.enabled, selected: row.id === selected?.id, version: versionLabel(provider?.version),
+      const override = scoped ? obj(obj(obj(settings.projectSettingsOverrides)[projectIds[0]!]).providerInstances)[row.id] : undefined;
+      return { projectOverride: typeof obj(override).enabled === 'boolean', id: row.id, first: index === 0, name, driver: row.driver, enabled: status.enabled, selected: row.id === selected?.id, version: versionLabel(provider?.version),
         status: `${status.summary.headline}${status.needsAttention && status.inlineDetail ? ` · ${status.inlineDetail}` : ''}`,
         dot: status.needsAttention ? status.statusKey : '', accent: str(row.instance.accentColor), badge: str(row.instance.accentColor) ? initials(name) : '', icon: instanceIconUrl(row.instance, row.driver) };
     }),
@@ -283,10 +296,10 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
   return {
     created, auth: created ? [providerWizardAuth(created, liveProviders(host).find(provider => provider.instanceId === created), setupOf(host, created), environmentLabelOf(host))] : [],
     sessions: open ? [{ key: `wizard:${serial}` }] : [], prepared: prepared ? [prepared] : [],
-    drivers: DRIVERS.filter(driver => driver.id !== 'acpRegistry').map(driver => ({ id: driver.id, label: driver.label, selected: driver.id === identity.meta.id })),
+    drivers: DRIVERS.filter(driver => driver.id !== 'acpRegistry').map(driver => ({ id: driver.id, label: driver.label, badge: driver.id === 'muse' ? 'Beta' : '', selected: driver.id === identity.meta.id })),
     driver: identity.meta.id, driverLabel: identity.meta.label, label: identity.shownLabel, instanceId: identity.instanceId, idError: identity.error,
     preview: identity.shownLabel.trim() || `${identity.meta.label} Workspace`, idPlaceholder: `${identity.meta.id}_work`,
-    fields: identity.meta.fields.map((field, index) => ({ ...fieldRow('wizard', field, ''), index })),
+    fields: identity.meta.fields.map((field, index) => ({ ...fieldRow('wizard', field, field.key === 'source' ? 'registry' : ''), index })),
     environment: str(obj(host.config.environment).label) || 'this environment',
     chatgpt: chatgptDialog(host, open && dialog === 'chatgpt', serial), chatgptConnected: open && dialog === 'chatgpt' && chatgptConnected(host, serial),
     codexPicker: open && dialog === 'codex-picker' && target ? [codexTargetResolver?.(host, target) ?? codexPicker(host, target)].filter(picker => picker !== null) : [],
@@ -334,7 +347,7 @@ const withKey = (base: Obj, key: string, value: unknown) => { const next: Obj = 
 // AddProviderInstanceDialog); validation stays with the form.
 const FAILURE_TITLES: Record<string, string> = { 'provider-remove': 'Could not delete provider instance', 'provider-reset': 'Could not reset provider instance',
   'provider-add': 'Could not add provider instance', 'provider-create': 'Could not add provider instance' };
-const TOASTED = ['provider-name', 'provider-display', 'provider-enabled', 'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-remove', 'provider-env-name',
+const TOASTED = ['provider-name', 'provider-display', 'provider-enabled', 'provider-accent', 'provider-argument-add', 'provider-argument-remove', 'provider-argument-value', 'provider-field', 'provider-env-field', 'provider-env-remove', 'provider-env-name',
   'provider-env-value', 'provider-env-sensitive', 'provider-model-add', 'provider-model-remove', ...Object.keys(FAILURE_TITLES)];
 const toastOf = (host: ProviderHost) => hostClient(host); // a background environment's page toasts in this window
 
@@ -366,13 +379,13 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
   }
   if (op === 'provider-add' || op === 'provider-create') return createInstance(host, native, op, id, input);
   if (MODEL_PREF_OPS.includes(op)) {
-    // Device-only: the Models section's switches, arrows and bulk toggle.
+    // Atomic environment mutations preserve changes made by other clients.
     const provider = liveProviders(host).find(candidate => candidate.instanceId === id);
     const row = providerRows(settingsOf(host), liveProviders(host), id).find(candidate => candidate.id === id);
     const custom = row ? readCustomModelEntries(obj(row.instance.config).customModels).map(entry => entry.slug) : [];
     const models = [...arr(provider?.models).filter(model => model.isCustom !== true).map(model => ({ slug: str(model.slug), isCustom: false })),
       ...custom.map(slug => ({ slug, isCustom: true }))];
-    runModelPrefOp(host.local, op, id, str(input.key), str(input.value), models);
+    await runEnvironmentModelPrefOp(host, native, op, id, str(input.key), str(input.value), models);
     return '';
   }
   if (op === 'provider-chatgpt') {
@@ -390,7 +403,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     // renderSetup's ManagedCodexSetup autoStart, in this dialog or (onAccountCreated) on the welcome's new row.
     chatgptCreated = { serial: wizardSerial, instanceId, displayName };
     Object.assign(codexFlow(host, instanceId), { autoStart: true, autoStartHandled: false, displayName });
-    onChatGptCreated?.(host, instanceId, displayName);
+    notifyChatGptCreated(host, instanceId, displayName);
     return '';
   }
   if (op === 'provider-hub-add' || op === 'provider-hub-remove') {
@@ -413,6 +426,13 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     return '';
   }
   const settings = await freshSettings(host, native);
+  if (op === 'provider-enabled' && Array.isArray(input.projectIds) && input.projectIds.length) {
+    if (obj(obj(host.config.environment).capabilities).projectProviderInstanceOverrides !== true) throw new ClientError('This server does not support project provider settings.');
+    const projectIds = input.projectIds.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+    if (!['true', 'false', 'inherit'].includes(str(input.value))) throw new ClientError('Choose enabled, disabled, or the environment setting.');
+    await host.rpc(native, 'server.updateSettings', { patch: { projectSettingsOverrides: buildProviderInstanceOverridePatch(settings, projectIds, id, input.value === 'inherit' ? undefined : input.value === 'true') } }, true);
+    await refreshConfig(host, native); return '';
+  }
   const row = providerRows(settings, liveProviders(host), id).find(candidate => candidate.id === id);
   if (!row) throw new ClientError('That provider instance is no longer available.');
   const instance = row.instance, config = obj(instance.config), meta = driverMeta(row.driver);
@@ -451,12 +471,22 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) throw new ClientError('Choose a six-digit hex color.');
       if (color === str(instance.accentColor)) return '';
       next = withKey(instance, 'accentColor', color || undefined);
+    } else if (op.startsWith('provider-argument-')) {
+      if (row.driver !== 'acpRegistry' || config.source !== 'local') throw new ClientError('This provider does not use a local ACP command.');
+      const args = (Array.isArray(config.commandArgs) ? config.commandArgs : []).filter((arg): arg is string => typeof arg === 'string');
+      const index = Number(input.key);
+      if (op === 'provider-argument-add') { if (args.length >= 100) throw new ClientError('Keep at most 100 arguments.'); args.push(''); }
+      else if (!Number.isInteger(index) || index < 0 || index >= args.length) throw new ClientError('That argument is no longer available.');
+      else if (op === 'provider-argument-remove') args.splice(index, 1);
+      else if (op === 'provider-argument-value') args[index] = str(input.value);
+      else throw new ClientError('Unknown argument action.');
+      next = { ...instance, config: { ...config, commandArgs: args } };
     } else if (op === 'provider-field') {
       const field = meta?.fields.find(candidate => candidate.key === str(input.key));
       if (!field) throw new ClientError('That setting is not available for this provider.');
       const text = str(input.value).trim();
       if (text === str(config[field.key]).trim()) return '';
-      next = { ...instance, config: text || field.persist ? { ...config, [field.key]: text } : withKey(config, field.key, undefined) };
+      next = { ...instance, config: text || field.persist || field.control === 'password' ? { ...config, [field.key]: text } : withKey(config, field.key, undefined) };
     } else if (op === 'provider-env-field') {
       const field = meta?.env.find(candidate => candidate.key === str(input.key));
       if (!field) throw new ClientError('That variable is not available for this provider.');
@@ -542,7 +572,9 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
     const registryIconUrl = resolveOfficialAcpRegistryIconUrl(prepared.icon);
     if (registryIconUrl) config.registryIconUrl = registryIconUrl;
   }
-  if (driver === 'acpRegistry' && !str(config.agentId)) throw new ClientError('Select an ACP or configure one manually.');
+  if (driver === 'acpRegistry' && config.source === 'local' && !str(config.commandPath)) throw new ClientError('Executable is required.');
+  if (driver === 'acpRegistry' && config.source === 'local') config.commandArgs = (Array.isArray(input.commandArgs) ? input.commandArgs : []).filter((arg): arg is string => typeof arg === 'string');
+  if (driver === 'acpRegistry' && config.source !== 'local' && !str(config.agentId)) throw new ClientError('Select an ACP or configure one manually.');
   if (driver === 'acpRegistry') config.distribution = 'auto';
   if (driver === 'codex') config.setupMode = 'existing';
   const accent = str(input.accentColor).trim();
@@ -551,20 +583,18 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   await host.rpc(native, 'server.updateSettings', { patch: {}, providerInstanceMutation: { operation: 'create', instanceId, instance } }, true);
   await refreshConfig(host, native);
   // An ACP Registry instance continues to its sign-in step instead (AddProviderInstanceDialog).
-  if (driver === 'acpRegistry' && op === 'provider-add') acpCreated = { serial: wizardSerial, instanceId };
-  if (driver !== 'acpRegistry') pushToast(toastOf(host), { kind: 'success', title: 'Provider instance added', description: `${meta.label} instance '${instanceId}' was added.` });
+  if (driver === 'acpRegistry' && config.source !== 'local' && op === 'provider-add') acpCreated = { serial: wizardSerial, instanceId };
+  if (driver !== 'acpRegistry' || config.source === 'local') pushToast(toastOf(host), { kind: 'success', title: 'Provider instance added', description: `${meta.label} instance '${instanceId}' was added.` });
   return '';
 }
 
 /** The picker's instance on a background computer (codex-setup-host.ts registers it). */
 let codexTargetResolver: ((host: ProviderHost, target: string) => ReturnType<typeof codexPicker> | null) | null = null;
 export function setCodexTargetResolver(resolver: typeof codexTargetResolver): void { codexTargetResolver = resolver; }
-/** The welcome's onAccountCreated (pages-welcome.ts registers it): the new row comes first and starts. */
-let onChatGptCreated: ((host: ProviderHost, instanceId: string, displayName: string) => void) | null = null;
-export function setChatGptCreatedHandler(handler: typeof onChatGptCreated): void { onChatGptCreated = handler; }
+export { setChatGptCreatedHandler } from './provider-created-callback';
 
 export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
-  'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
+  'provider-accent', 'provider-argument-add', 'provider-argument-remove', 'provider-argument-value', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
   'provider-model-remove', 'provider-hub-add', 'provider-hub-remove', 'provider-chatgpt', 'provider-refresh', 'provider-health', 'provider-cursor-usage', 'acp-prepare', ...MODEL_PREF_OPS];
 export type { Driver };
 

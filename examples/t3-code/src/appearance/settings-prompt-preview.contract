@@ -1,26 +1,51 @@
 // Settings › Appearance's prompt sample, adapted from T3 Code (MIT, see LICENSE-T3):
 // SettingsFontPreviews.tsx PromptFontPreview, "a live composer editor: type in it to feel the
 // family and size". It holds the composer's serialized sample (a `$skill` and two Markdown file
-// links, drawn as chips) in its own state, so typing never reaches a thread's draft or sends,
+// links, drawn as chips) in separate root state, so typing never reaches a thread's draft or sends,
 // and a remount (Advanced on or off) starts it again from the sample. Its textarea is the
-// composer's kind: `t3-prompt-preview` gives it its own native editor on macOS (T3Module
-// promptPreview, T3ComposerEditor.swift): chips, atomic chip keys and undo grouping.
+// composer's shared source producer, with rich syntax disabled as in PromptFontPreview.
+// Its editable sample has its own value and never changes the active thread's metadata.
+use ComposerChipControls, ComposerChipLayout from "../composer/composer-chip-controls.contract"
+use ComposerRichView from "../composer/composer-rich.contract"
+use cmp-bold, cmp-italic, cmp-strike, cmp-code-inline, cmp-h1, cmp-h2, cmp-h3, cmp-h4 from "../composer/composer-rich.contract"
+use cmp-h5, cmp-h6, cmp-quote, cmp-rule, cmp-code-block, cmp-list-depth0, cmp-list-depth1, cmp-list-depth2 from "../composer/composer-rich.contract"
+use cmp-list-depth3, cmp-list-depth4, cmp-list-depth5, cmp-list-depth6, cmp-list-depth7, cmp-list-depth8, cmp-chip-neutral, cmp-chip-invalid from "../composer/composer-rich.contract"
+use cmp-chip-pull-request, cmp-chip-pr-draft, cmp-chip-thread, cmp-chip-mention, cmp-chip-file, cmp-chip-skill, cmp-chip-review-comment, cmp-chip-citation from "../composer/composer-rich.contract"
+use cmp-chip-terminal, cmp-chip-preview-annotation, cmp-chip-image, cmp-chip-video, cmp-syn-kw, cmp-syn-kw-i, cmp-syn-decl, cmp-syn-decl-i from "../composer/composer-rich.contract"
+use cmp-syn-type, cmp-syn-type-i, cmp-syn-fn, cmp-syn-fn-i, cmp-syn-var, cmp-syn-var-i, cmp-syn-const, cmp-syn-const-i from "../composer/composer-rich.contract"
+use cmp-syn-param, cmp-syn-param-i, cmp-syn-pyparam, cmp-syn-pyparam-i, cmp-syn-flag, cmp-syn-flag-i, cmp-syn-interp, cmp-syn-interp-i from "../composer/composer-rich.contract"
+use cmp-syn-bold, cmp-syn-bold-i, cmp-syn-str, cmp-syn-str-i, cmp-syn-esc, cmp-syn-esc-i, cmp-syn-num, cmp-syn-num-i from "../composer/composer-rich.contract"
+use cmp-syn-nul, cmp-syn-nul-i, cmp-syn-op, cmp-syn-op-i, cmp-syn-builtin, cmp-syn-builtin-i, cmp-syn-punct, cmp-syn-punct-i from "../composer/composer-rich.contract"
+use cmp-syn-com, cmp-syn-com-i, cmp-syn-key, cmp-syn-key-i, cmp-syn-tag, cmp-syn-tag-i, cmp-syn-heading, cmp-syn-heading-i from "../composer/composer-rich.contract"
+use cmp-syn-attr, cmp-syn-attr-i, cmp-syn-regex, cmp-syn-regex-i, cmp-syn-deco, cmp-syn-deco-i, cmp-syn-italic from "../composer/composer-rich.contract"
 use CorePalette from "../settings/settings-core-shared.contract"
 
+fn promptPreviewSample(): string = "Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) before shipping."
+
 component PromptFontPreview
+  inject
+    richPromptPreview: ComposerRichView
+    promptPreviewText: string
+    promptPreviewWrite: action
+    promptPreviewOwner: string
+    promptPreviewSnapshotOwner: string
+    promptPreviewSerial: number
+    promptPreviewChipLayout: ComposerChipLayout
   props
     family: string
     size: number
     pal: CorePalette
-  state prompt = "Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) before shipping."
-  action write(value: string)
-    prompt = value
+  action write(value: string, e: InputEvent)
+    promptPreviewWrite(value, e)
   view
     // rounded-lg border bg-background px-3 py-2 around ComposerPromptEditor (min-h-14, max-h-42, leading-relaxed):
     // the bare box (appearance none: no field look), and focus:outline-none is `outline="none"`, no focus ring
     // (main #459).
     column width="100%" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.border background-color=pal.thumb box-sizing="border-box" id=`paint-PromptFontPreview-1-${family}` data-paint="border canvas" data-pick="canvas"
-      textarea value=prompt input=write hatch="t3-prompt-preview" aria-label="Prompt font preview" placeholder="Ask for changes, send follow-ups, or attach images" testId="prompt-font-preview" appearance="none" width="100%" field-sizing="content" min-height="3.5rem" max-height="10.5rem" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" font-family=family font-size=size line-height=`${size * 1.625}px` color=pal.text caret-color=pal.text autocorrect="off" outline="none" id="prompt-font-preview" data-paint="text" data-pick="text"
-        // The editor's placeholder role (text-placeholder, at 75% there); the palette has no 75% token.
-        ::placeholder
-          color=pal.muted
+      scroll width="100%" max-height="10.5rem"
+        box position="relative" width="100%" id="prompt-preview-field-wrap"
+          textarea value=promptPreviewText input=write decorations=richPromptPreview.decorations hatch="t3-prompt-preview" data-snapshot-owner=promptPreviewSnapshotOwner data-owner=promptPreviewOwner aria-label="Prompt font preview" placeholder="Ask for changes, send follow-ups, or attach images" testId="prompt-font-preview" appearance="none" width="100%" field-sizing="content" min-height="3.5rem" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" font-family=family font-size=size line-height=`${size * 1.625}px` color=pal.text caret-color=pal.text autocorrect="off" outline="none" id="prompt-font-preview" data-paint="text" data-pick="text"
+            // The editor's placeholder role (text-placeholder, at 75% there); the palette has no 75% token.
+            ::placeholder
+              color=pal.muted
+          ComposerChipControls(source=richPromptPreview, layout=promptPreviewChipLayout, owner=promptPreviewOwner, value=promptPreviewText, serial=promptPreviewSerial, surface="preview", size=size, family=family)

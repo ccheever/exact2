@@ -2,7 +2,10 @@
 // review comment's and preview annotation's ContextChipPopover, ComposerContextActions), contextChipParts.tsx
 // PullRequestChip, and MessagesTimeline.tsx's sent pull request chip.
 import { describe, expect, test } from 'bun:test';
-import type { T3Client } from '../../src/client/client';
+import { T3Client } from '../../src/client/client';
+import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
+import { composerFieldObserved } from '../../src/composer/composer-field-bridge';
+import { composerChipStore } from '../../src/composer/composer-chip-store';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { chipPopover } from '../../src/composer/composer-chip-popover';
@@ -53,17 +56,25 @@ describe('the review comments behind the draft\'s chips are saved with it', () =
 
 function harness(press: Obj, extra: Obj = {}) {
   const calls: Obj[] = [];
-  const native = { available: true, watch() {}, later: async (request: Obj) => { calls.push(request); return { ok: true, generation: 0, value: request.op === 'editorChip' ? press : {} }; } } as unknown as Native;
-  const client = { snapshotOwner: 'draft:t1', draftKey: 'draft:t1', local: { drafts: {} }, snapshotDrafts: [{ id: 'img-1', name: 'one.png' }, { id: 'img-2', name: 'two.png' }], ...extra } as unknown as T3Client;
-  return { calls, native, client };
+  const native = { available: true, watch() {}, later: async (request: Obj) => { calls.push(request); return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
+  const client = new T3Client(), list = extra.snapshotDrafts ?? [{ id: 'img-1', name: 'one.png' }, { id: 'img-2', name: 'two.png' }];
+  Object.defineProperty(client, 'snapshotDrafts', { get: () => list });
+  for (const [key, value] of Object.entries(extra)) if (key !== 'snapshotDrafts') Object.defineProperty(client, key, { configurable: true, value });
+  const owner = composerFieldOwner(client), value = `[chip](t3-context://v1/${press.act}/${press.context})`;
+  const snapshot = { generation: client.generation, snapshotOwner: client.snapshotOwner, owner, value, start: 0, end: 0, composing: false, live: true, focused: true, inputSerial: 0 };
+  composerFieldObserved(client, [snapshot, false], owner);
+  const chip = { kind: 'context' as const, contextKind: String(press.act), contextId: String(press.context), image: false, label: 'chip', start: 0, end: value.length, source: value };
+  const admitted = composerChipStore(client).presses.open(snapshot, 'composer', [chip], chip, [10, 20, 80, 18]);
+  return { calls, native, client, seq: admitted!.seq, snapshot };
 }
 
 describe('an action press is taken once and performed', () => {
   test('an image opens the expanded preview over the draft\'s images, stepping round', async () => {
-    const { calls, native, client } = harness({ seq: 9, open: false, surface: 'composer', owner: 'draft:t1', act: 'image', context: 'image_img-2' });
-    expect(await chipAct(client, native, 9)).toBe('');
-    expect(calls.map(call => call.op)).toEqual(['editorChip', 'editorChipClose']);
-    expect(calls[1]).toMatchObject({ seq: 9 });
+    const { calls, native, client, seq } = harness({ seq: 9, open: false, surface: 'composer', owner: 'draft:t1', act: 'image', context: 'image_img-2' });
+    expect(await chipAct(client, native, seq)).toBe('');
+    expect(calls.map(call => call.op)).toEqual(['snapshotDraftSize', 'snapshotDraftSize']);
+    await chipAct(client, native, seq); // The action has already been consumed.
+    expect(calls).toHaveLength(2);
     // A client that cannot read the images' sizes leaves them unknown: the preview keeps the whole media box.
     expect(composerImagePreview(client)).toEqual([{ open: true, id: 'img-2', name: 'two.png', position: '(2/2)', many: true, width: 0, height: 0 }]);
     composerImageStep(client, 'chip-image-next');
@@ -76,32 +87,32 @@ describe('an action press is taken once and performed', () => {
   test('opening reads each draft image\'s natural size once (ZoomableImage\'s onLoad), so the preview fits the image', async () => {
     const sizes: Obj = { 'img-3': { width: 640, height: 480 } };
     const asked: string[] = [];
-    const { native, client } = harness({ seq: 4, open: false, surface: 'composer', owner: 'draft:t1', act: 'image', context: 'image_img-3' }, {
+    const { native, client, seq } = harness({ seq: 4, open: false, surface: 'composer', owner: 'draft:t1', act: 'image', context: 'image_img-3' }, {
       snapshotDrafts: [{ id: 'img-3', name: 'three.png' }, { id: 'img-4', name: 'four.png' }],
       call: async (_native: Native, request: Obj) => { asked.push(`${request.op} ${request.id}`); if (!sizes[String(request.id)]) throw new Error('unreadable'); return sizes[String(request.id)]; } });
-    expect(await chipAct(client, native, 4)).toBe('');
+    expect(await chipAct(client, native, seq)).toBe('');
     expect(asked).toEqual(['snapshotDraftSize img-3', 'snapshotDraftSize img-4']);
     expect(composerImagePreview(client)[0]).toMatchObject({ id: 'img-3', width: 640, height: 480 });
     composerImageStep(client, 'chip-image-next');
     expect(composerImagePreview(client)[0]).toMatchObject({ id: 'img-4', width: 0, height: 0 });
     composerImageStep(client, 'chip-image-close');
   });
-  test('a stale press, another surface\'s or another draft\'s is dropped', async () => {
-    for (const [press, seq] of [[{ seq: 9, open: false, surface: 'composer', act: 'image', context: 'image_img-1' }, 8], [{ seq: 9, open: false, surface: 'preview', act: 'image', context: 'image_img-1' }, 9],
-      [{ seq: 9, open: false, surface: 'composer', owner: 'draft:other', act: 'image', context: 'image_img-1' }, 9]] as const) {
-      const { native, client } = harness(press);
-      await chipAct(client, native, seq);
-      expect(composerImagePreview(client)).toEqual([]);
-    }
+  test('a stale sequence and an invalidated owner cannot consume a shared action', async () => {
+    const { native, client, seq } = harness({ act: 'image', context: 'image_img-1' });
+    await chipAct(client, native, seq + 1);
+    expect(composerImagePreview(client)).toEqual([]);
+    client.generation++;
+    await chipAct(client, native, seq);
+    expect(composerImagePreview(client)).toEqual([]);
   });
   test('a thread opens it, a mention its file, a missing pull request says so', async () => {
     const opened: string[] = [];
-    const { native, client } = harness({ seq: 3, open: false, surface: 'composer', act: 'thread', context: 'thread_t2' },
+    const { native, client, seq } = harness({ seq: 3, open: false, surface: 'composer', act: 'thread', context: 'thread_t2' },
       { shell: { threads: [{ id: 't2' }], projects: [] }, openSelected: async (_: Native, id: string) => { opened.push(id); } });
-    await chipAct(client, native, 3);
+    await chipAct(client, native, seq);
     expect(opened).toEqual(['t2']);
     const missing = harness({ seq: 4, open: false, surface: 'composer', act: 'pr-open', context: 'review-comment_gone' });
-    await expect(chipAct(missing.client, missing.native, 4)).rejects.toThrow('That pull request is no longer available.');
+    await expect(chipAct(missing.client, missing.native, missing.seq)).rejects.toThrow('That pull request is no longer available.');
   });
 });
 
