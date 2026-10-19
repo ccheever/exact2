@@ -42,7 +42,8 @@ design server: it reads, and it proposes. It never writes the design.
   - A pull is one undo step. If Figma refuses any part, the plugin undoes all of it: the earlier collections, modes,
     variables, values and kept export come back as they were.
   - An alias is followed to its value, into a library's collection too. One that goes nowhere, or round in a cycle,
-    is listed on push and sent as it was pulled.
+    is listed on push and sent as it was pulled. A pull lists every alias in a Tamber variable first, then writes the
+    design's value over it.
 - **Push** writes Figma's values back into that export and sends it as `import`, with the pulled export as its
   `baseline`. The server holds the result as a proposal, planned against the design as it is now. Accept it in the
   design tool.

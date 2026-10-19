@@ -553,7 +553,7 @@ test('round 9: a Figma-only edit is listed before a pull of the unchanged export
   expect([writes, undos]).toEqual([0, 0]);
 });
 
-test('round 10: an alias of the person\'s that reads as the design\'s value stays an alias through a pull', async () => {
+test('round 12: every alias of the person\'s in a Tamber variable is listed before a pull, and written over with the design\'s value', async () => {
   await load(10);
   await send({ type: 'apply', text: TEXT }, 'applied');
   const col = f.collections[0], fill = f.variables.find(v => v.name === 'accent/fill'), mode = col.modes[0].modeId;
@@ -562,9 +562,12 @@ test('round 10: an alias of the person\'s that reads as the design\'s value stay
   const brand = f.figma.variables.createVariable('blue', other, 'COLOR');
   brand.setValueForMode(other.modes[0].modeId, fill.valuesByMode[mode]);
   fill.valuesByMode[mode] = { type: 'VARIABLE_ALIAS', id: brand.id };
-  expect((await send({ type: 'check', text: TEXT }, 'checked')).conflicts).toEqual([]);
+  const checked = await send({ type: 'check', text: TEXT }, 'checked');
+  expect([checked.conflicts, checked.aliases.map((a: any) => a.variable)]).toEqual([[], ['accent/fill']]);
+  const literal = tokensOf(JSON.parse(TEXT))[col.modes[0].name]['accent.fill'];
   await send({ type: 'apply', text: TEXT }, 'applied');
-  expect(fill.valuesByMode[mode]).toEqual({ type: 'VARIABLE_ALIAS', id: brand.id });
+  expect(fill.valuesByMode[mode].type).toBeUndefined();
+  expect(tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source))[col.modes[0].name]['accent.fill']).toEqual(literal);
 });
 
 test('round 11: an alias is judged by what it reads once the pull is written, and one the pull replaces is listed first', async () => {
