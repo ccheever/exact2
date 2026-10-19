@@ -496,6 +496,13 @@ fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
         "    nav = go(select(nav, \"patterns\"), url)\n",
         "    nav = open(nav, url)\n",
         "    let n = back(nav)\n    nav = select(n, \"today\")\n",
+        // A binder of the same name hides the pushed `let`.
+        "    let n = go(nav, url)\n    nav = match some(nav) { case some(n) => select(n, \"patterns\"), case none => n }\n",
+        "    let n = go(nav, url)\n    match some(nav)\n      case some(n)\n        nav = select(n, \"patterns\")\n      case none\n        nav = n\n",
+        // A choice is pushed only when every arm is.
+        "    let on = url.startsWith(\"/patterns/\")\n    let n = on ? go(nav, url) : nav\n    nav = on ? n : select(n, \"patterns\")\n",
+        // A `let` in another block.
+        "    if url == \"/\"\n      let n = go(nav, url)\n      nav = n\n    else\n      let n = nav\n      nav = select(n, \"patterns\")\n",
     ] {
         assert_eq!(warned(&app(body)), [], "{body}");
     }
@@ -505,22 +512,36 @@ fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
 /// spells it, a query concatenated after it.
 #[test]
 fn a_template_location_names_its_path() {
-    let refusal = |location: &str| {
-        contract::compile(&format!(
-            "routes nav\n  home \"/\"\n    day \"/day/:key\"\n    open \"/open\"\ncomponent App\n  state k = \"a\"\n  action visit\n    nav = push(nav, {location})\n  view\n    button press=visit\n      text \"Go\"\n"
-        ))
-        .unwrap_err()
+    let app = |location: &str| {
+        format!(
+            "routes nav\n  home \"/\"\n    day \"/day/:key\"\n    open \"/open\"\ncomponent App\n  state k = \"a\"\n  state ks = [\"a\"]\n  action visit\n    nav = push(nav, {location})\n  view\n    button press=visit\n      text \"Go\"\n"
+        )
     };
+    let refusal = |location: &str| contract::compile(&app(location)).unwrap_err();
     for (location, write) in [
-        ("`/day/${k}`", "write `path(\"day\", k)`"),
+        ("`/day/${k}`", "path(\"day\", k)"),
         (
             "`/open?u=${encodeURIComponent(k)}`",
-            "write `` path(\"open\") + `?u=${encodeURIComponent(k)}` ``",
+            "path(\"open\") + `?u=${encodeURIComponent(k)}`",
         ),
+        // A method and `length` as the author writes them.
+        (
+            "`/day/${k.trim().toLowerCase()}`",
+            "path(\"day\", k.trim().toLowerCase())",
+        ),
+        ("`/day/${ks.length}`", "path(\"day\", ks.length)"),
     ] {
         let e = refusal(location);
         assert_eq!(e.id, "route-template", "{e}");
-        assert!(e.message.ends_with(write), "{e}");
+        let quoted = match write.contains('`') {
+            true => format!("write `` {write} ``"),
+            false => format!("write `{write}`"),
+        };
+        assert!(e.message.ends_with(&quoted), "{e}");
+        // The repair compiles.
+        if let Err(e) = contract::compile(&app(write)) {
+            panic!("{write}: {e}");
+        }
     }
     let e = refusal("`/elsewhere/${k}`");
     assert!(e.message.ends_with("would make another location)"), "{e}");

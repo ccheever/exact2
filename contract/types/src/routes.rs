@@ -201,7 +201,14 @@ fn path_call(parts: &[TemplatePart], table: &exact_route::Table) -> Option<Strin
             Expr::Number(n, _) => n.to_string(),
             Expr::Call(f, args, _) => {
                 let args = args.iter().map(written).collect::<Option<Vec<_>>>()?;
-                format!("{f}({})", args.join(", "))
+                // A method, and `length`, as the author writes them.
+                match (f.as_str(), args.split_first()) {
+                    ("length", Some((recv, []))) => format!("{recv}.length"),
+                    (m, Some((recv, rest))) if contract_syntax::idioms::is_method(m) => {
+                        format!("{recv}.{m}({})", rest.join(", "))
+                    }
+                    _ => format!("{f}({})", args.join(", ")),
+                }
             }
             _ => return None,
         })

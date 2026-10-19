@@ -358,6 +358,17 @@ fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
     .unwrap_err();
     assert_eq!(e.id, "lower-attr-value", "{e}");
     assert!(e.message.contains("has 5"), "{e}");
+    // A value inside a function's parentheses is one, interpolation and all.
+    for attr in [
+        "padding=`calc(${\"10px + 2px\"})`",
+        "padding=`calc(${pad}px + 2px) 0`",
+    ] {
+        if let Err(e) = contract::compile(&format!(
+            "component A\n  state pad = 16\n  view\n    box {attr}\n"
+        )) {
+            panic!("{attr}: {e}");
+        }
+    }
     // A template's values, each its own longhand's.
     let r = boot(
         "component A\n  state pad = 16\n  state on = true\n  view\n    column\n      box testId=\"radii\" border-radius=`${pad}px ${pad / 2}px 0 0`\n      box testId=\"pad\" padding=`${pad}px 0`\n      box testId=\"arm\" border-style=\"solid\" border-width=(on ? `${pad}px 0` : \"0\")\n",

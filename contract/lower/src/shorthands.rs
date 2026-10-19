@@ -665,14 +665,14 @@ pub(crate) fn computed_list<'e>(
             // A literal is split at compile time, and a template at its
             // text's white space: each interpolation is one value.
             Expr::Str(..) => None,
-            Expr::Template(parts, at) if template_words(parts, *at).is_some() => {
-                parts.iter().find_map(|p| match p {
-                    TemplatePart::Expr(x) => {
-                        (box_sides::values(&shape(x, body, 0)).len() > 1).then(|| x.span())
-                    }
-                    TemplatePart::Text(_) => None,
-                })
-            }
+            // Refused only where an interpolation the compiler can read adds
+            // a value: its white space outside the template's parentheses.
+            Expr::Template(parts, at) => match template_words(parts, *at) {
+                Some(words) => {
+                    (box_sides::values(&shape(e, body, 0)).len() > words.len()).then(|| e.span())
+                }
+                None => (box_sides::values(&shape(e, body, 0)).len() > 1).then(|| e.span()),
+            },
             Expr::Ternary(_, yes, no, _) => lists(yes, body).or_else(|| lists(no, body)),
             Expr::Match { some, none, .. } => lists(some, body).or_else(|| lists(none, body)),
             Expr::Let { body: b, .. } => lists(b, body),
