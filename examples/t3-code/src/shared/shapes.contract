@@ -218,6 +218,7 @@ shape Question
   question: string
   multiSelect: bool
   canRespond: bool
+  operable: bool
   live: bool
   responding: bool
   dismissible: bool
