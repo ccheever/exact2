@@ -8,6 +8,7 @@ import { homeDraftLocation } from './home-drafts';
 import { mobileNewTaskPendingOpen, mobileNewTaskPendingClose, mobileNewTaskFocusSavedEnvironment, type MobileNewTaskPendingRoute } from './new-task-pending';
 import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import type { MobilePendingTaskEditorResult } from './mobile-pending-task-editor';
+import type { MobilePendingTaskPreferences } from './mobile-pending-task-draft';
 import type { MobileDraftClient } from './mobile-draft-recovery';
 // Mobile365aa87982 NewTaskFlowProvider, NewTaskDraftRouteScreen and DraftScreen.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
@@ -222,7 +223,8 @@ export function mobileNewTaskFlowOwns(owner: string, visit: string, client: T3Cl
 }
 
 export async function mobileNewTaskFlowAction(owner: string, visit: string, kind: string, id: string, value: string,
-  nativeInput: Native | null | undefined, suppliedStorage: Files, client: MobileDraftClient = mobileClient, background: EnvironmentFleet = fleet, now = 0): Promise<NewTaskFlowResult> {
+  nativeInput: Native | null | undefined, suppliedStorage: Files, client: MobileDraftClient = mobileClient, background: EnvironmentFleet = fleet, now = 0,
+  preferences: MobilePendingTaskPreferences = { ready: false, serialized: '' }): Promise<NewTaskFlowResult> {
   const flow = flows.get(client), result = (message = '', nextLocation = '', submitted = false): NewTaskFlowResult => ({
     revision: client.revision, requestRoute: visit, nextLocation, message, alertTitle: '', submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
@@ -369,7 +371,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       const marker = flow.pendingEditor?.marker;
       if (!marker || flow.pendingEditor?.status !== 'ready') return result('Reopen the saved pending task before saving.');
       const closed = await mobileNewTaskPendingClose(client, base, client === mobileClient ? nativeFiles(base) : storage,
-        marker, { flowOwner: flow.owner, current });
+        marker, { flowOwner: flow.owner, current, preferences });
       assertCurrent(); flow.pendingEditor = closed;
       if (closed.status !== 'finished') {
         flow.selected = selection(client);
