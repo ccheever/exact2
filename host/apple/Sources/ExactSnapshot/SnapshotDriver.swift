@@ -50,9 +50,6 @@ public struct SnapshotEnvironment {
     public var entryDate: Date
     /// An agent read freezes live leaves at its clock; WidgetKit leaves this nil.
     public var frozenDate: Date?
-    /// A live session's input (the watch app's live driver); nil in a widget,
-    /// whose nodes take no input.
-    package var live: SnapshotLiveInput?
 
     public init(family: Family, entryName: String = "snapshot", placement: ActivityPlacement? = nil, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
                 rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now, frozenDate: Date? = nil) {
@@ -63,7 +60,6 @@ public struct SnapshotEnvironment {
     /// Whether a nested link draws as a `Link` (D7): the medium and larger
     /// Home Screen families, the Lock Screen and the expanded Island.
     package var takesLinks: Bool {
-        if live != nil { return false }
         switch family {
         case .systemMedium, .systemLarge, .systemExtraLarge: return true
         case .liveActivity: return placement?.takesLinks ?? false

@@ -73,6 +73,7 @@ private struct LiveRoot: View {
     @State private var model: LiveModel?
     @State private var failure: String?
     @Environment(\.scenePhase) private var phase
+    @Environment(\.isLuminanceReduced) private var dimmed
     @Environment(\.displayScale) private var scale
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dynamicTypeSize) private var textSize
@@ -100,15 +101,7 @@ private struct LiveRoot: View {
             }
         }
         .onChange(of: phase) { _, phase in model?.setActive(phase == .active) }
-        // The platform's Back: the navigation bar's chevron presses the author's Escape control.
-        .toolbar {
-            if let back = model?.escapeControl {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { model?.press(back.id) } label: { Image(systemName: "chevron.backward") }
-                        .accessibilityLabel(back.label)
-                }
-            }
-        }
+        .onChange(of: dimmed) { _, dimmed in print("exact-watch luminance reduced \(dimmed)") }
     }
 
     private func boot(size: CGSize) {
@@ -126,7 +119,13 @@ private struct LiveRoot: View {
             let plan = try Data(contentsOf: Bundle.main.bundleURL.appendingPathComponent(name))
             let session = try HeadlessSession(plan: plan, size: size, facts: facts, assetRoot: Bundle.main.bundleURL)
             let live = try LiveModel(session: session, zero: start)
-            live.onPress = { _ in WKInterfaceDevice.current().play(.click) }
+            live.onCommand = { command in
+                print("exact-watch command \(command.name) \(command.args)")
+                switch command.name {
+                case "haptic": Self.haptic(command.args.first as? String ?? "")
+                default: log.notice("command \(command.name, privacy: .public) has no watch arm")
+                }
+            }
             var ticks = 0
             live.onTurn = { label in
                 ticks += 1
@@ -144,6 +143,25 @@ private struct LiveRoot: View {
             log.error("boot failed: \(String(describing: error), privacy: .public)")
         }
     }
+
+    /// `haptic(kind)` (iOS's kinds, `ExactKit` Haptics) as the watch's nearest
+    /// `WKHapticType`; a kind with none is logged, as iOS logs one it does not play.
+    private static func haptic(_ kind: String) {
+        let type: WKHapticType? = switch kind {
+        case "selection": .click
+        case "success": .success
+        case "warning": .retry
+        case "error": .failure
+        case "impact", "impact-light", "impact-medium", "impact-soft": .click
+        case "impact-heavy", "impact-rigid": .start
+        default: nil
+        }
+        guard let type else {
+            Logger(subsystem: "dev.exact.watch", category: "live").notice("haptic \(kind, privacy: .public) is not one this platform plays")
+            return
+        }
+        WKInterfaceDevice.current().play(type)
+    }
 }
 
 @main struct ExactWatch: App {
@@ -153,15 +171,12 @@ private struct LiveRoot: View {
     }
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
+            // The app's own screen when it declares a watch entry; its routes bring their
+            // own stack. Otherwise the complications' placeholders.
+            if Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil {
                 LiveRoot()
-                    .toolbar {
-                        if !WatchEntry.all.isEmpty {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                NavigationLink { Gallery() } label: { Image(systemName: "square.grid.2x2") }
-                            }
-                        }
-                    }
+            } else {
+                NavigationStack { Gallery() }
             }
         }
     }

@@ -117,6 +117,20 @@ public final class HeadlessSession {
     /// The runner's next timer deadline after the last turn, in its clock's
     /// milliseconds; nil when no timer is due. A live host calls `advance(at:)` then.
     public private(set) var timerDue: Double?
+    /// A command a turn sent to the host (`haptic("success")`, …).
+    public struct Command {
+        public let name: String
+        public let args: [Any]
+    }
+    private var commands: [Command] = []
+
+    /// The commands the turns since the last call sent, in order.
+    public func takeCommands() -> [Command] {
+        Owner.shared.sync {
+            defer { commands.removeAll() }
+            return commands
+        }
+    }
 
     /// Boots the supplied plan, or the linked app's baked plan when nil.
     public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver) throws {
@@ -271,6 +285,28 @@ public final class HeadlessSession {
         try turn { core.runtime.fieldEvent(node, kind, payload, now: now) }
     }
 
+    /// The platform's Back from the route keyed `key` under the navigation root `root`
+    /// (LLP 1115 D5; iOS's `NavigationRules.back`): press the live control the root's
+    /// `navigationBack` names, else deliver the location beneath to the root's `navigate`,
+    /// else the runner's own back of the router. Nil when there is nothing to go back to.
+    @discardableResult
+    public func back(root: UInt32, route key: String, at now: Double) throws -> Snapshot? {
+        let named = Owner.shared.sync { nodes[root]?.props["navigationBack"] }
+        let control = Owner.shared.sync {
+            nodes.values.filter { node in
+                named != nil && node.props["id"] == named && node.handlers.contains("press") && node.props["disabled"] != "true"
+            }.map(\.id).min()
+        }
+        if let control { return try press(control, at: now) }
+        if named.map({ name in Owner.shared.sync { nodes.values.contains { $0.props["id"] == name } } }) == true { return nil }
+        guard let location = core.runtime.locationBeneath(key), !location.isEmpty else { return nil }
+        if Owner.shared.sync({ nodes[root]?.handlers.contains("navigate") }) == true {
+            return try turn { core.runtime.navigate(root, location, now: now) }
+        }
+        guard let batch = core.runtime.hostBack(key, now: now) else { return nil }
+        return try turn { batch }
+    }
+
     /// A native control's title (`exact_press_face`, LLP 1069.011.000 D1): a
     /// `button` the kernel made a platform control has no text child.
     public func controlTitle(_ node: UInt32) -> String? {
@@ -284,10 +320,13 @@ public final class HeadlessSession {
         return object?["title"] as? String ?? object?["label"] as? String
     }
 
+    #if EXACT_INSPECT
     /// An agent request answered by the runner (LLP 1012): `tree`, `state`, `logs`, `tags`.
+    /// A development build's only: the widget extension links this session too.
     public func agent(_ request: String) -> String {
         Owner.shared.sync { core.runtime.agent(request) }
     }
+    #endif
 
     /// Calls `wake` on the main queue when a request's reply is ready; the host
     /// then calls `refresh(at:)`. One wake per session; nil removes it.
@@ -354,6 +393,12 @@ public final class HeadlessSession {
             case .language:
                 language = op.payload["lang"] as? String ?? ""
                 changed.formUnion(nodes.keys)
+            // An effect for the host (`haptic`, `copyText`, …); a live host runs it after the turn.
+            case .command:
+                if let name = op.payload["name"] as? String, !["preventDefault", "stopPropagation"].contains(name) {
+                    commands.append(Command(name: name, args: op.payload["args"] as? [Any] ?? []))
+                }
+                continue
             default: continue
             }
             changed.insert(op.id)
