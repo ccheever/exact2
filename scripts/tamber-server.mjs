@@ -95,9 +95,9 @@ import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMa
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
-import { planAlone, sourcesOf, stopImports } from './tamber-isolate.mjs';
+import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
-import { importReview, marked } from './tamber-import-review.mjs';
+import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
@@ -1474,42 +1474,3 @@ const revertKey = o => /^(un)?set-state$/.test(o.op) ? editKey(o.file, { what: '
   // An axis's values each their own item, as a token's `when`s are.
   when: ['set-token', 'unset-token-when'].includes(o.op) ? o.when : /axis-value/.test(o.op) ? [{ axis: o.axis, value: o.value }] : [],
 });
-
-/** `bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>]
- * [--prefix <p>]`: another system's theme (LLP 1121 D14) as held proposals
- * on the design server: its transaction as one, each role override it
- * offers as its own, for a person to accept or decline. Prints the count
- * and the unmapped report. */
-export async function importTheme(argv) {
-  const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const words = argv.filter((a, i) => !a.startsWith('-') && !['--app', '--prefix'].includes(argv[i - 1]));
-  const [kind, source, base] = words;
-  if (!kind || !source || !base) { console.error('usage: bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>] [--prefix <prefix>]'); return 2; }
-  // Planned here, watched as the wire's imports are (scripts/tamber-isolate.mjs); Astryx's theme as resolved on this machine.
-  const app = resolve(at('--app') ?? '.');
-  const planned = await planAlone({ kind, sources: sourcesOf(resolve(source)), prefix: at('--prefix'), ...(kind === 'astryx' ? { resolved: true } : {}) }, designPath(app) ?? resolve(app, 'app.tamber'), {}, app);
-  if (!planned.ok) { console.error(`tamber import: ${planned.error?.message}${planned.error?.diagnostics ? `\n  ${planned.error.diagnostics.map(d => d.message ?? d).join('\n  ')}` : ''}`); return 1; }
-  const imported = planned.ok;
-  // Held on the design it was planned on (its digest), as the wire's imports are; with no design file, refused.
-  if (!imported.digest) { console.error('tamber import: the design file is not there: create it, then import'); return 1; }
-  const origin = new URL(base).origin;
-  const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error' });
-  if (!got.ok) { console.error(`tamber import: ${origin} gave no token (${got.status}); it answers this machine's loopback only`); return 1; }
-  const { token } = await got.json();
-  const client = `import:${kind}`;
-  const { source: n, mapped, reported } = imported.counted;
-  console.log(`${kind}: ${n} source values, ${mapped} mapped, ${reported} reported`);
-  for (const u of imported.unmapped) console.log(`  unmapped ${u.block} ${u.name}: ${u.value || '(empty)'} (${u.why}${u.token ? `; would be ${u.token}` : ''})`);
-  const { ops, review } = importReview(imported);
-  const { offers } = review;
-  const offered = offers.flatMap(o => o.items);
-  for (const o of offers) console.log(`  offer ${o.role} → ${o.token}${o.items.length ? `: items ${o.items.join(', ')}` : `: ${o.note}`}`);
-  // The source as the design has it already: nothing to propose; a role
-  // override declined before is not offered again on its own.
-  if (!imported.ops.length) { console.log('nothing to propose: the design has every mapped value already'); return 0; }
-  const res = await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: JSON.stringify({ method: 'propose', hold: true, client, ops, review, ...(imported.digest ? { files: { [relative(app, designPath(app))]: imported.digest } } : {}) }) });
-  const held = await res.json();
-  if (!held.ok) { console.error(`tamber import: ${held.error?.message}`); return 1; }
-  console.log(`proposal ${held.ok.proposal}: ${ops.length} operations (${imported.ops.length} tokens and axes, ${offered.length} offered), held for review`);
-  return 0;
-}
