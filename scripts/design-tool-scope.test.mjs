@@ -84,3 +84,36 @@ test('the paired client: a token goes only to the server it came from, nothing a
     for (const s of sent) expect(s.url).not.toContain('7Q2KD');
   } finally { globalThis.fetch = real; }
 });
+
+test('an answer from before a pairing, or from an older one, changes nothing: this machine\'s token read late, an old pairing\'s 401', async () => {
+  const real = globalThis.fetch, sent = [];
+  let readLate = null, lateRevoke = null, pairs = 0;
+  globalThis.fetch = async (url, init = {}) => {
+    const at = String(url), token = init.headers?.['x-exact-tamber-token'] ?? null;
+    sent.push({ at, token });
+    if (at.endsWith('/__tamber/token')) return { ok: true, status: 200, json: async () => { await readLate; return { token: 'local-token' }; } };
+    if (at.endsWith('/__tamber/pair')) { pairs += 1; return Response.json({ ok: { token: `paired-${pairs}`, client: 'remote:ada#1', scope: 'propose', expires: '' } }); }
+    if (token === 'paired-1' && lateRevoke) { await lateRevoke; return Response.json({ error: { message: 'gone' } }, { status: 401 }); }
+    return Response.json({ ok: {} });
+  };
+  try {
+    // This machine's token, its body still being read when the tool pairs: the paired token stays.
+    let release = () => {}; readLate = new Promise(ok => { release = ok; });
+    const w = wire('http://127.0.0.1:7740');
+    const asked = w.call('/__tamber', { method: 'hello' });
+    await Bun.sleep(10);
+    await w.pairWith('https://door.example.test:7743', 'X', 'ada');
+    release(); readLate = null;
+    await asked;
+    expect(sent.at(-1)).toMatchObject({ at: 'https://door.example.test:7743/__tamber', token: 'paired-1' });
+    // A 401 to the first pairing's token, answered after the tool paired again: the new session goes on.
+    let revoke = () => {}; lateRevoke = new Promise(ok => { revoke = ok; });
+    const old = w.call('/__tamber', { method: 'hello' });
+    await Bun.sleep(10);
+    await w.pairWith('https://door.example.test:7743', 'Y', 'ada');
+    revoke();
+    expect((await old).error).toBe(GONE);
+    expect((await w.call('/__tamber', { method: 'hello' })).error).toBe('');
+    expect(sent.at(-1)).toMatchObject({ token: 'paired-2' });
+  } finally { globalThis.fetch = real; }
+});

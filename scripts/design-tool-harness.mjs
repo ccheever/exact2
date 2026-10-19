@@ -101,6 +101,8 @@ export async function proxied(app, before = () => {}) {
     return new Response(bytes, { status: res.status, headers: out });
   } });
   const tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', `http://127.0.0.1:${proxy.port}`, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-  const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+  let said = '';
+  tool.stderr.on('data', d => { said = (said + d).slice(-4000); });
+  const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
   return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
 }

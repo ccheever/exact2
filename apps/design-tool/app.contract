@@ -1514,25 +1514,25 @@ component DesignTool
                   if b.unsupported != ""
                     text `Not applied: ${b.unsupported}` color="-exact-system-orange" font="-exact-caption1" testId=`build-unsupported-${b.id}`
               row gap=8 align-items="center" flex-wrap="wrap" testId="pin-form"
-                select value=pinBuild change=choosePinBuild aria-label="Pin on" testId="pin-build"
+                select value=pinBuild change=choosePinBuild disabled=(not canWrite) aria-label="Pin on" testId="pin-build"
                   option "Every build" value=""
                   for b in changes.builds key=b.id
                     option `${b.host} · ${b.id}` value=b.id
-                select value=pinScheme change=choosePinScheme aria-label="Scheme" testId="pin-scheme"
+                select value=pinScheme change=choosePinScheme disabled=(not canWrite) aria-label="Scheme" testId="pin-scheme"
                   option "Scheme…" value=""
                   option "Light" value="light"
                   option "Dark" value="dark"
-                select value=pinContrast change=choosePinContrast aria-label="Contrast" testId="pin-contrast"
+                select value=pinContrast change=choosePinContrast disabled=(not canWrite) aria-label="Contrast" testId="pin-contrast"
                   option "Contrast…" value=""
                   option "More" value="more"
                   option "Less" value="less"
                   option "No preference" value="no-preference"
                 for a in pinAxes key=a.name
-                  select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) aria-label=a.name testId=`pin-mode-${a.name}`
+                  select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) disabled=(not canWrite) aria-label=a.name testId=`pin-mode-${a.name}`
                     option `${a.name}…` value=""
                     for v in a.values key=v
                       option v value=v
-                input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
+                input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") disabled=(not canWrite) placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
                 button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk or not canWrite) buttonStyle="filled" testId="pin-apply"
                   text "Pin"
                 // One axis on one build, alone: it replaces that build's pin.
@@ -1700,14 +1700,14 @@ component DesignTool
                           text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
                     input value=shownValue change=cellText disabled=(not canPropose) aria-label=`${branch.token} value` testId="branch-value"
                   if not branch.exact
-                    button press=onlyThisMode testId="only-this-mode"
+                    button press=onlyThisMode disabled=(not canPropose) testId="only-this-mode"
                       text "Only this mode"
                   if not branch.param
                     row gap=8
                       input value=renameTo input=editRename submit=renameToken disabled=(not canPropose) placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
                       button press=renameToken disabled=(renameTo.trim() == "" or not canPropose) testId="rename"
                         text "Rename"
-                      button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
+                      button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose) destructive=true testId="remove"
                         text "Remove"
                   dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
                     button press=removeToken disabled=(not canPropose) destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
@@ -1827,7 +1827,7 @@ component DesignTool
                     text `Tokens (${h.mapped.length})` role="heading" aria-level=3
                     for m in h.mapped key=`${m.index}`
                       row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
-                        input type="checkbox" disabled=pending(written) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                        input type="checkbox" disabled=(pending(written) or not canWrite) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
                         text m.name width=200 flex-shrink=0 font="-exact-footnote"
                         if m.kind != "token"
                           text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
@@ -1843,7 +1843,7 @@ component DesignTool
                     for o in h.offers key=o.role
                       row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
                         if o.items != ""
-                          input type="checkbox" disabled=pending(written) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
+                          input type="checkbox" disabled=(pending(written) or not canWrite) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
                         text `${o.role} = ${o.token}` font="-exact-footnote"
                         if o.note != ""
                           text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
@@ -1862,7 +1862,7 @@ component DesignTool
                     text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
                     for it in h.items key=`${it.index}`
                       row gap=8 align-items="center"
-                        input type="checkbox" checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
+                        input type="checkbox" disabled=(not canWrite) checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
                         text it.text font="-exact-footnote"
                     row gap=8
                       button press=acceptAll(h.proposal) disabled=(pending(written) or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
@@ -1875,13 +1875,13 @@ component DesignTool
               text "Import a theme" role="heading" aria-level=2
               text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"
               row gap=8 align-items="center"
-                select value=importKind change=chooseKind aria-label="Kind" testId="import-kind"
+                select value=importKind change=chooseKind disabled=(not canPropose) aria-label="Kind" testId="import-kind"
                   option "shadcn (CSS)" value="shadcn"
                   option "Tailwind v4 (CSS)" value="tailwind"
                   option "DTCG (JSON, a file a mode)" value="dtcg"
                 button press=pickImport disabled=(pending(imported) or not canPropose) testId="import-choose"
                   text "Choose files…"
-                input type="file" multiple=(importKind == "dtcg") id="import-file" testId="import-file" display="none" change=importPicked
+                input type="file" multiple=(importKind == "dtcg") disabled=(not canPropose) id="import-file" testId="import-file" display="none" change=importPicked
               match imported
                 case some(i)
                   text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") white-space="pre-wrap" testId="import-result"

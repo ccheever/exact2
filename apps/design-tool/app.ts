@@ -347,7 +347,7 @@ const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stal
 // The poll now (a newer one replaces it), and whether the build list must
 // be read again from hello (the poll started again, and no read has
 // succeeded since).
-let polls = 0, resync = true, polled = '';
+let polls = 0, resync = true, polled = '', seeded = '';
 const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
 /** Builds as the panel lists them: each one's effective scheme, contrast,
  * mode and root font size from its status (an app's own setScheme beats a
@@ -1022,9 +1022,6 @@ const sources: Sources = {
     if (epoch && r.missed && r.epoch === place.epoch) {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
     }
-    // Below write (paired, T6), starting again: the selection each build last reported, as the server keeps it
-    // (a read-only refresh), since its events before this answer are not sent and Inspect is not this client's.
-    if (anew && scopeNow() !== 'write') { const sel = await call('/__tamber', { method: 'inspect', client, refresh: true }); if (!sel.error && Array.isArray(sel.reply.ok?.selections)) r.events = [...sel.reply.ok.selections.map((e: object) => ({ ...e, event: 'selection' })), ...(r.events ?? [])]; }
     // (The files as each event came: a selection is of those, not of a write later in the answer. The
     // first answer's start is not known, so a selection before a write in it is of no files known.)
     let filesAt = lastFiles;
@@ -1331,6 +1328,14 @@ const sources: Sources = {
     return { axes: axes.map(a => ({ name: a.name, values: a.values })) };
   },
   loadSelection: async () => {
+    // Below write (paired, T6), once a server run, its builds and the design read: the selection each build
+    // last reported, as the server keeps it (a read-only refresh); its events before the poll began are not
+    // sent, and Inspect is not this client's.
+    if (scopeNow() !== 'write' && place.epoch && seeded !== place.epoch && designAxes.length && !selectionNow) {
+      seeded = place.epoch;
+      const sel = await call('/__tamber', { method: 'inspect', client: polled, refresh: true }), e = (sel.reply.ok?.selections ?? []).at(-1);
+      if (!sel.error && e && !selectionNow) { const b = buildsNow.get(String(e.build)); selectionNow = { e: { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: digestKey(lastFiles) }; }
+    }
     latch();
     const b = selectionNow ? buildsNow.get(String(selectionNow.e.build)) : undefined;
     const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '');

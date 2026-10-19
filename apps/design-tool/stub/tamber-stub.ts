@@ -78,7 +78,7 @@ const sessions = () => scrubSessions({
   opened: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, reason: 'opened', seq: seq() + 1 }); save(); },
   ended: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, seq: seq() + 1 }); save(); },
   // (A paired client ended has no write left, a release waiting on its preview included.)
-  allowed: (client: string) => !client.startsWith('remote:') || paired.some(p => p.client === client),
+  allowed: (client: string) => !client.startsWith('remote:') || paired.some(p => p.client === client && Date.parse(p.expires) > Date.now()),
 });
 let scrubs = sessions();
 const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok ? send({ ok: r.ok }) : send({ error: r.error }, r.status ?? 409);

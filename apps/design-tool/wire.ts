@@ -59,6 +59,8 @@ export function doorOf(text: string): { origin: string; error: string } {
 /** The client, local at `api` until it pairs; `ownerOf` a held proposal's proposer. */
 export function wire(api: string, ownerOf: (id: string) => string | null = () => null) {
   let base = api, paired = false, gone = false, scope = 'write', pairedToken = '';
+  // Each pairing starts a new session: an answer that comes from an older one changes nothing.
+  let session = 0;
   let token: string | null = null;
   // What the rest of the tool holds of a token (a review's, an undo's, a held list's server run): a handle
   // for it, never the token, so no state, log or reply shown carries one.
@@ -82,10 +84,11 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
   async function askToken(): Promise<{ token: string | null; error: string }> {
     try {
       const res = await fetch(`${api}/__tamber/token`, { exactTimeout: 5000, redirect: 'error' });
-      // (Paired meanwhile: this machine's token is never the one used.)
+      if (!res.ok) return paired ? tokenOf() : { token: null, error: `${api} gave no design server token: it answers only this machine's loopback, and only while \`bun exact.mjs tamber tool\` runs.` };
+      const given = String(((await res.json()) as { token?: unknown }).token ?? '') || null;
+      // (Paired meanwhile, while it was asked or read: this machine's token is never the one used.)
       if (paired) return tokenOf();
-      if (!res.ok) return { token: null, error: `${api} gave no design server token: it answers only this machine's loopback, and only while \`bun exact.mjs tamber tool\` runs.` };
-      token = String(((await res.json()) as { token?: unknown }).token ?? '') || null;
+      token = given;
       return { token, error: token ? '' : noServer() };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e; // no server at build
@@ -106,7 +109,7 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
     for (let attempt = 0; attempt < 2; attempt++) {
       const got = bound ? { token: tokens.get(bound) ?? null, error: RESTARTED } : await tokenOf();
       if (!got.token) return { error: got.error, reply: {}, used: '' };
-      const used = handleOf(got.token);
+      const used = handleOf(got.token), at = session;
       if (paired && gone) return { error: GONE, reply: {}, used: '' };
       // Paired, a write bound to another token (this machine's server's, a review made before pairing)
       // never goes to the door: a token goes only to the server it came from.
@@ -117,7 +120,8 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
         const res = await fetch(`${base}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
           headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
         const reply = (await res.json().catch(() => ({}))) as Reply;
-        if (res.status === 401 && paired) { gone = true; token = null; return { error: GONE, reply: {}, used }; }
+        // (A 401 to an older pairing's token ends that one, not the session since.)
+        if (res.status === 401 && paired) { if (at === session && got.token === pairedToken) { gone = true; token = null; } return { error: GONE, reply: {}, used }; }
         const unknown = res.status === 404 && !reply.error;
         if (unknown && bound) { if (token === got.token) token = null; return { error: RESTARTED, reply: {}, used }; }
         if (unknown && attempt === 0 && !paired) { token = null; continue; }
@@ -143,7 +147,7 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
       const reply = (await res.json().catch(() => ({}))) as Reply;
       if (res.status === 429) return { ok: false, error: 'Too many tries from here: wait a minute, then type the code again.', client: '', scope: '' };
       if (!res.ok || typeof reply.ok?.token !== 'string') return { ok: false, error: res.ok ? 'The design server gave no token.' : refusal(reply.error, res.status), client: '', scope: '' };
-      base = door.origin; token = pairedToken = reply.ok.token; paired = true; gone = false; asking = null; scope = String(reply.ok.scope ?? 'read');
+      base = door.origin; token = pairedToken = reply.ok.token; paired = true; gone = false; asking = null; scope = String(reply.ok.scope ?? 'read'); session += 1;
       return { ok: true, error: '', client: String(reply.ok.client ?? ''), scope: String(reply.ok.scope ?? '') };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
