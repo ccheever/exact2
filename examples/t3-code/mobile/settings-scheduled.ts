@@ -159,6 +159,7 @@ export function mobileScheduledEdit(key:string,value:string) {
 }
 export async function mobileScheduledEnvironment(environmentId:string,scopeJSON:string,nativeInput:Native|null|undefined){
   const state=editor;if(!state||state.draft.task||state.busy||!nativeInput?.available)return result('The task environment cannot be changed.');
+  if(environmentId===state.environmentId)return result();
   try{const {source,live,canOperate}=await target(environmentId,settingsNative(nativeInput));if(editor!==state)return result('The task editor changed.');const draft={...defaultDraft(live,decodeMobileServerScope(scopeJSON)),title:state.draft.title,prompt:state.draft.prompt,schedule:state.draft.schedule,enabled:state.draft.enabled};branchSerial++;Object.assign(state,{environmentId,label:source.label,draft,config:live.config,projects:live.shell.projects,canOperate,connected:true,branches:[],nextCursor:null});return result();}catch(error){if(letGo(error))throw error;state.error=error instanceof Error?error.message:'Could not change environment.';return result(state.error);}
 }
 export async function mobileScheduledSave(nativeInput:Native|null|undefined){
