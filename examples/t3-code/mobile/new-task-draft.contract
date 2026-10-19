@@ -4,6 +4,7 @@ use NewTaskSnapshot, ComposerColors from "./composer-shapes.contract"
 use NewTaskRecovery, NewTaskRecoveryNotice from "./new-task-recovery.contract"
 use MobileNewTaskClone, NewTaskCloneSnapshot, NewTaskCloneColors from "./new-task-clone.contract"
 use ThreadColors from "./thread-shapes.contract"
+use NewTaskFlowResult from "./new-task-flow.contract"
 use NewTaskHero, NewTaskWorkspace from "./new-task.contract"
 use ComposerAttachmentStrip from "./composer-attachments.contract"
 use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
@@ -35,6 +36,12 @@ component NewTaskDraft
     chooseEnvironment: action
     chooseBranch: action
     editDraft: action
+    changeInteraction: action
+    localReply: option<NewTaskFlowResult>
+    localPending: bool
+    interactionDisabled: bool
+    controlFontSize: number
+    controlLineHeight: number
     focusChanged: action
     action: action
     pickAttachments: action
@@ -50,6 +57,7 @@ component NewTaskDraft
   derive bottomPadding = max(safeBottom, 10)
   derive dictating = voice.busy and voice.owner == voiceOwner
   derive voicePresented = voice.owner == voiceOwner and voice.phase != "idle"
+  derive localReplyKey = match localReply { case some(reply) => `${reply.requestRoute}:${reply.revision}:${reply.message}`, case none => "" }
   action geometryChanged(expected: string, width: number, height: number)
     if expected == owner
       let routeFrame = frame(`new-task-route-bounds-${routeId}`)
@@ -105,12 +113,15 @@ component NewTaskDraft
             if not voicePresented
               t3-composer-attachment-button configuration=attachments.menuConfiguration change=pickAttachments button-tint=threadColors.iconSubtle
                 button-disabled=(not data.canSelect or voiceDisabled) width=44 height=44 flex-shrink=0 aria-label="Add attachment"
-              column flex=1 min-width=0 align-items="flex-end"
-                button press=openModelSettings disabled=(not data.canSelect) box-sizing="border-box" max-width="100%" height=38.5 padding-left=7 padding-right=7 border-radius=10.5 aria-label="Model and reasoning settings"
+              row flex=1 min-width=0 justify-content="flex-end" align-items="center" gap=7
+                button press=openModelSettings disabled=(not data.canSelect) box-sizing="border-box" min-width=0 flex-shrink=1 max-width="100%" height=38.5 padding-left=7 padding-right=7 border-radius=10.5 aria-label="Model and reasoning settings"
                   row min-width=0 align-items="center" gap=7
                     ProviderIcon(driver=data.composer.providerDriver, size=14, dark=dark, iconUrl=data.composer.providerIconURL)
-                    text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                    text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=controlFontSize line-height=`${controlLineHeight}px` font-weight=500 color=colors.foreground
                     t3-symbol symbol-name="chevron.down" symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
+                if data.planModeEnabled
+                  for mode in [data.interactionMode] key=`${data.interactionKey}:${mode}:${interactionDisabled}:${localReplyKey}`
+                    NewTaskInteraction(mode=mode, owner=data.composer.contentOwner, disabled=interactionDisabled, pending=localPending, colors=colors, fontSize=controlFontSize, lineHeight=controlLineHeight, choose=changeInteraction)
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
               if recovery.blocked
                 button disabled=true width=44 height=44 padding=0 aria-label="Resolve saved task before sending"
@@ -126,3 +137,29 @@ component NewTaskDraft
                 VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
               ThreadSendButton(data=data.composer, sendLabel=data.composer.sendLabel, sendSymbol=data.composer.sendSymbol, canSend=data.composer.canSend, showStop=data.composer.showStop, blockedReason=data.composer.blockedReason, action=action, colors=threadColors)
+      if data.interactionError != ""
+        text data.interactionError aria-live="polite" padding-left=14 padding-right=14 padding-top=7 font-size=controlFontSize line-height=`${controlLineHeight}px` color=colors.danger
+
+component NewTaskInteraction
+  props
+    mode: string
+    owner: string
+    disabled: bool
+    pending: bool
+    colors: ComposerColors
+    fontSize: number
+    lineHeight: number
+    choose: action
+  state pressedMode = mode
+  derive shownMode = pending ? pressedMode : mode
+  action pressed
+    if not disabled
+      let next = shownMode == "plan" ? "default" : "plan"
+      pressedMode = next
+      choose(next, owner)
+  view
+    button appearance="none" press=pressed disabled=disabled height=38.5 padding-left=7 padding-right=7 border-radius=10.5 flex-shrink=0 opacity=(disabled ? 0.45 : 1)
+      aria-label=`Interaction mode: ${shownMode == "plan" ? "Plan" : "Build"}` aria-description=`Switches to ${shownMode == "plan" ? "Build" : "Plan"} mode`
+      row align-items="center" gap=7
+        t3-symbol symbol-name=(shownMode == "plan" ? "list.bullet.clipboard" : "hammer") symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+        text (shownMode == "plan" ? "Plan" : "Build") min-width=0 flex-shrink=1 line-clamp=1 font-size=fontSize line-height=`${lineHeight}px` font-weight=500 color=colors.foreground

@@ -4,11 +4,11 @@ import { mobileNewTaskCloneObserve } from './new-task-clone';
 import { mobileLayoutFacts } from './root-presentation';
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
-import { MobileDraftClient } from './mobile-draft-recovery';
+import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobileNewTask } from './new-task';
 import { mobileNewTaskFileSnapshot, mobileNewTaskFileRead } from './new-task-file';
 import { mobileAppLink } from './navigation-links';
-import { obj, type Obj } from './shared/domain';
+import { arr, obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
 import { draftContext, patchDraftContext } from './shared/composer-controls-branch';
@@ -16,6 +16,8 @@ import { branchState } from './shared/r4-git-branch';
 import { mobileComposerTarget } from './composer-target';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTaskFlowView as view, mobileNewTaskFlowAction as act, mobileNewTaskFlowOwns as owns, mobileNewTaskRoute } from './new-task-flow';
+import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftLookup, mobileNewTaskDraftCreate, mobileNewTaskDraftBind } from './mobile-new-task-drafts';
+import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 
 async function fixture() {
   const client = new MobileDraftClient(), fleet = new EnvironmentFleet(), calls: Obj[] = [];
@@ -1024,4 +1026,186 @@ test('actual branch picker distinguishes untouched checkout from selecting that 
   expect(mobileNewTaskDraftSelectedBranch(mobileNewTaskDraftPresentation(f.client, f.client.draftKey)!)).toBe('main');
   await mobileNewTaskPrepare('', f.native, f.client);
   expect(mobileNewTaskDraftSelectedBranch(mobileNewTaskDraftPresentation(f.client, f.client.draftKey)!)).toBe('main');
+});
+
+const localInteractionPreferences = { ready: true, serialized: JSON.stringify({ ready: true, planModeEnabled: true }) };
+async function localInteractionDraft() {
+  const f = await fixture();
+  f.client.config.providers = [{ instanceId: 'provider', driver: 'codex', enabled: true, installed: true, status: 'ready',
+    showInteractionModeToggle: true, models: [{ slug: 'model', name: 'Model', isDefault: true }] }];
+  const chooser = f.snapshot('/new');
+  expect((await f.action(chooser.owner, 'project', '["env","a"]')).message).toBe('');
+  const flow = f.snapshot('/new/draft');
+  expect(flow.ready).toBe(true); expect(flow.draftOwner).toBe(mobileComposerTarget(f.client).owner);
+  expect(f.client).toBeInstanceOf(MobileDraftClient);
+  return { ...f, flow };
+}
+
+test('NewTask local interaction projects the supported ordinary draft mode', async () => {
+  const f = await localInteractionDraft(), calls = f.calls.length;
+  const before = JSON.stringify([f.client.interactionMode, mobileNewTaskDraftPresentation(f.client, f.client.draftKey)?.choices]);
+  const data = mobileNewTask('', f.client, f.fleet, localInteractionPreferences);
+  expect({ enabled: obj(data).planModeEnabled ?? null, mode: obj(data).interactionMode ?? null,
+    changed: JSON.stringify([f.client.interactionMode, mobileNewTaskDraftPresentation(f.client, f.client.draftKey)?.choices]) !== before,
+    calls: f.calls.slice(calls) })
+    .toEqual({ enabled: true, mode: 'default', changed: false, calls: [] });
+});
+
+test('NewTask local interaction changes a ready ordinary draft', async () => {
+  const f = await localInteractionDraft(), calls = f.calls.length;
+  const response = await act(f.flow.owner, 'visit', 'interaction', f.flow.draftOwner, 'plan', f.native, f.files,
+    f.client, f.fleet, 1791420000000, localInteractionPreferences);
+  expect({ message: response.message, mode: f.client.interactionMode,
+    stored: mobileNewTaskDraftPresentation(f.client, f.client.draftKey)?.choices?.interactionMode ?? null,
+    calls: f.calls.slice(calls) }).toEqual({ message: '', mode: 'plan', stored: 'plan', calls: [] });
+});
+
+async function localInteractionStorage() {
+  const f = await localInteractionDraft(), writes: Obj[] = [];
+  let disk = '';
+  f.files.fs.atomicWriteFile = async (_path, bytes) => { disk = new TextDecoder().decode(bytes); writes.push(obj(JSON.parse(disk))); };
+  await f.client.persist(f.files); writes.length = 0; f.calls.length = 0;
+  const choose = (value: string, preferences = localInteractionPreferences, blocked = false) => act(f.flow.owner, 'visit', 'interaction', f.flow.draftOwner,
+    value, f.native, f.files, f.client, f.fleet, 1791420000000, preferences, blocked);
+  return { ...f, writes, choose, disk: () => obj(JSON.parse(disk)) };
+}
+const localInteractionChoice = (document: Obj, key: string) => obj(obj(obj(obj(document.mobileNewTaskDrafts).records)[key]).choices).interactionMode;
+
+for (const row of [
+  { name: 'loaded on', ready: true, saved: { ready: true, planModeEnabled: true }, provider: true, enabled: true },
+  { name: 'loaded off', ready: true, saved: { ready: true, planModeEnabled: false }, provider: true, enabled: false },
+  { name: 'loading ignores stale true', ready: false, saved: { ready: true, planModeEnabled: true }, provider: true, enabled: false },
+  { name: 'malformed JSON', ready: true, saved: null, provider: true, enabled: false },
+  { name: 'invalid preference value', ready: true, saved: { ready: true, planModeEnabled: 'true' }, provider: true, enabled: false },
+  { name: 'failed inner snapshot', ready: true, saved: { ready: false, planModeEnabled: true }, provider: true, enabled: false },
+  { name: 'provider hides modes', ready: true, saved: { ready: true, planModeEnabled: true }, provider: false, enabled: false },
+  { name: 'no selected provider status', ready: true, saved: { ready: true, planModeEnabled: true }, provider: null, enabled: true },
+]) test(`NewTask local interaction preference/provider gate: ${row.name}`, async () => {
+  const f = await localInteractionStorage(), key = f.client.draftKey;
+  expect(mobileNewTaskDraftChoicesUpdate(f.client, key, { interactionMode: 'plan' })).toBe(true);
+  f.client.interactionMode = 'plan'; f.client.local.deviceSettings.planModeEnabled = true;
+  if (row.provider === null) f.client.config.providers = [];
+  else arr(f.client.config.providers)[0]!.showInteractionModeToggle = row.provider;
+  const preferences = { ready: row.ready, serialized: row.saved === null ? '{' : JSON.stringify(row.saved) };
+  const data = mobileNewTask('', f.client, f.fleet, preferences);
+  expect({ enabled: data.planModeEnabled, mode: data.interactionMode, stored: mobileNewTaskDraftLookup(f.client, key)?.choices?.interactionMode,
+    clientMode: f.client.interactionMode, writes: f.writes.length, calls: f.calls })
+    .toEqual({ enabled: row.enabled, mode: row.enabled ? 'plan' : 'default', stored: 'plan', clientMode: 'plan', writes: 0, calls: [] });
+  if (!row.enabled) { expect((await f.choose('default', preferences)).message).not.toBe(''); expect(f.writes).toEqual([]); }
+  else { expect((await f.choose('default', preferences)).message).toBe(''); expect(localInteractionChoice(f.writes.at(-1)!, key)).toBe('default'); }
+});
+
+for (const offline of [false, true]) test(`NewTask local interaction persists both choices without server authority: offline=${offline}`, async () => {
+  const f = await localInteractionStorage(), key = f.client.draftKey;
+  const other = mobileNewTaskDraftCreate(f.client, { id: 'other-mode-draft', environmentId: 'env', projectId: 'b', origin: f.client.origin, createdAt: '2026-10-09T00:00:00.000Z' });
+  const before = JSON.stringify({ text: f.client.draft, model: [f.client.providerId, f.client.modelId, f.client.modelOptions], runtime: f.client.runtimeMode,
+    workspace: draftContext(f.client), other: mobileNewTaskDraftLookup(f.client, other.key) });
+  f.client.scopes = ['orchestration:read']; if (offline) f.client.connection = 'disconnected';
+  expect((await f.choose('plan')).message).toBe(''); expect(localInteractionChoice(f.writes[0]!, key)).toBe('plan');
+  expect((await f.choose('default')).message).toBe(''); expect(localInteractionChoice(f.writes.at(-1)!, key)).toBe('default');
+  expect(JSON.stringify({ text: f.client.draft, model: [f.client.providerId, f.client.modelId, f.client.modelOptions], runtime: f.client.runtimeMode,
+    workspace: draftContext(f.client), other: mobileNewTaskDraftLookup(f.client, other.key) })).toBe(before);
+  const restart = new MobileDraftClient(), disk = f.disk();
+  const files: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode(JSON.stringify(disk)).buffer; }, async atomicWriteFile() {} } };
+  const native: Native = { available: true, watch() {}, async later(input) { if (obj(input).op !== 'devicePresentation') throw Error('Unexpected restart request'); return { ok: true, generation: 0, value: {} }; } };
+  const handles = mobileDraftRecoveryHandles(restart, native, files);
+  expect((await restart.command('dismiss-error', '', '', 0, handles.native, handles.storage)).message).toBe('');
+  expect(mobileNewTaskDraftLookup(restart, key)?.choices?.interactionMode).toBe('default');
+  expect(f.calls).toEqual([]);
+});
+
+test('NewTask local interaction rejects imports, stale visits, unready routes and wrong content owners', async () => {
+  const f = await localInteractionStorage(), key = f.client.draftKey;
+  expect((await f.choose('plan', localInteractionPreferences, true)).message).not.toBe('');
+  expect((await f.choose('other')).message).not.toBe('');
+  await expect(act(f.flow.owner, 'visit', 'interaction', 'wrong-owner', 'plan', f.native, f.files, f.client, f.fleet, 0, localInteractionPreferences))
+    .rejects.toMatchObject({ kind: 'superseded' });
+  f.snapshot('/new/draft', 'new-visit');
+  expect((await f.choose('plan')).message).toContain('route changed');
+  const unready = f.snapshot('/new/draft?environmentId=env&projectId=a&pendingTaskId=missing', 'unready');
+  expect(unready.ready).toBe(false);
+  expect((await act(unready.owner, 'unready', 'interaction', f.flow.draftOwner, 'plan', f.native, f.files, f.client, f.fleet, 0, localInteractionPreferences)).message).not.toBe('');
+  expect(mobileNewTaskDraftLookup(f.client, key)?.choices?.interactionMode).toBeUndefined(); expect(f.writes).toEqual([]); expect(f.calls).toEqual([]);
+});
+
+test('NewTask local interaction retains an accepted choice when storage rejects', async () => {
+  const f = await localInteractionStorage(); f.files.fs.atomicWriteFile = async () => { throw Error('mode storage failed'); };
+  expect((await f.choose('plan')).message).toBe('mode storage failed');
+  expect([f.client.interactionMode, mobileNewTaskDraftLookup(f.client, f.client.draftKey)?.choices?.interactionMode]).toEqual(['plan', 'plan']);
+  expect(mobileNewTask('', f.client, f.fleet, localInteractionPreferences).interactionError).toBe('mode storage failed'); expect(f.calls).toEqual([]);
+});
+
+for (const firstFails of [false, true]) test(`NewTask local interaction accepts opposite intents while the first save waits: firstFails=${firstFails}`, async () => {
+  const f = await localInteractionStorage(), key = f.client.draftKey, serial: string[] = [];
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(done => { entered = done; }), held = new Promise<void>(done => { release = done; });
+  let count = 0, queue = Promise.resolve();
+  f.files.fs.atomicWriteFile = (_path, bytes) => {
+    const mode = String(localInteractionChoice(obj(JSON.parse(new TextDecoder().decode(bytes))), key));
+    const position = ++count;
+    const writing = queue.then(async () => {
+      if (position === 1) { entered(); await held; if (firstFails) throw Error('old mode save failed'); }
+      serial.push(mode);
+    });
+    queue = writing.catch(() => {}); return writing;
+  };
+  const first = f.choose('plan'); await started;
+  expect(owns(f.flow.owner, 'visit', f.client)).toBe(true); expect(f.client.interactionMode).toBe('plan');
+  const second = f.choose('default'); expect(f.client.interactionMode).toBe('default'); release();
+  const secondResult = await second, firstResult = await first;
+  expect([secondResult.message, firstResult.message, f.client.interactionMode, mobileNewTaskDraftLookup(f.client, key)?.choices?.interactionMode])
+    .toEqual(['', '', 'default', 'default']);
+  expect(serial).toEqual(firstFails ? ['default'] : ['plan', 'default']);
+  expect(mobileNewTask('', f.client, f.fleet, localInteractionPreferences).interactionError).toBe(''); expect(f.calls).toEqual([]);
+});
+
+test('NewTask local interaction ignores an older save rejection after the newer choice succeeds', async () => {
+  const f = await localInteractionStorage(); let entered!: () => void, release!: () => void, count = 0;
+  const started = new Promise<void>(done => { entered = done; }), held = new Promise<void>(done => { release = done; });
+  f.files.fs.atomicWriteFile = async () => { if (++count === 1) { entered(); await held; throw Error('late old rejection'); } };
+  const first = f.choose('plan'); await started;
+  expect((await f.choose('default')).message).toBe(''); release(); expect((await first).message).toBe('');
+  expect(f.client.interactionMode).toBe('default'); expect(mobileNewTask('', f.client, f.fleet, localInteractionPreferences).interactionError).toBe('');
+});
+
+test('NewTask local interaction completion cannot rewrite a successor draft or its errors', async () => {
+  const f = await localInteractionStorage(), originalKey = f.client.draftKey;
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(done => { entered = done; }), held = new Promise<void>(done => { release = done; });
+  f.files.fs.atomicWriteFile = async () => { entered(); await held; throw Error('departed mode save failed'); };
+  const first = f.choose('plan'); await started;
+  const other = mobileNewTaskDraftCreate(f.client, { id: 'mode-successor', environmentId: 'env', projectId: 'a', origin: f.client.origin, createdAt: '2026-10-10T00:00:00.000Z' });
+  expect(mobileNewTaskDraftBind(f.client, other.key, 'successor')).toBe(true); f.client.interactionMode = 'default';
+  f.snapshot('/new', 'successor', 'successor-flow'); release();
+  expect((await first).message).toBe(''); expect(f.client.interactionMode).toBe('default');
+  expect(mobileNewTaskDraftLookup(f.client, originalKey)?.choices?.interactionMode).toBe('plan');
+  expect(mobileNewTaskDraftLookup(f.client, other.key)?.choices).toBeNull();
+  expect(mobileNewTask('', f.client, f.fleet, localInteractionPreferences).interactionError).toBe('');
+});
+
+test('NewTask local interaction works in restored and scratch drafts without changing their destination', async () => {
+  const f = await localInteractionStorage(), key = f.client.draftKey;
+  const location = `/new/draft?draftId=${encodeURIComponent(key)}`, restoring = f.snapshot(location, 'restored');
+  expect((await f.action(restoring.owner, 'prepare', '', '', 'restored')).message).toBe('');
+  const restored = f.snapshot(location, 'restored'); expect(restored.ready).toBe(true);
+  f.client.config.scratchWorkspaceRoot = '/a'; expect(mobileNewTask('', f.client, f.fleet).scratch).toBe(true);
+  const before = JSON.stringify([f.client.environmentId, f.client.projectId, f.client.draftKey, draftContext(f.client)]), calls = f.calls.length;
+  expect((await act(restored.owner, 'restored', 'interaction', restored.draftOwner, 'plan', f.native, f.files, f.client, f.fleet, 0, localInteractionPreferences)).message).toBe('');
+  expect(JSON.stringify([f.client.environmentId, f.client.projectId, f.client.draftKey, draftContext(f.client)])).toBe(before); expect(f.calls.slice(calls)).toEqual([]);
+});
+
+test('NewTask local interaction admits the bound next draft while a validated captured launch waits', async () => {
+  const f = await localInteractionStorage(), originalKey = f.client.draftKey;
+  f.client.local.drafts[originalKey] = 'captured task';
+  const pending = { method: 'orchestration.launchThread', payload: { commandId: 'captured-command', threadId: 'captured-thread', projectId: 'a', initialMessage: { text: 'captured task', attachments: [] } },
+    description: 'Captured launch', threadId: 'captured-thread', text: 'captured task', uncertain: true };
+  expect(mobileNewTaskLaunchPrepare(f.client, pending)).not.toBeNull(); f.client.local.pending.env = pending;
+  expect(mobileNewTaskLaunchPendingOwned(f.client)).toBe(true);
+  const choosing = f.snapshot('/new', 'next', 'next-flow');
+  expect((await f.action(choosing.owner, 'project', '["env","b"]', '', 'next')).message).toBe('');
+  const next = f.snapshot('/new/draft', 'next', 'next-flow'); expect(next.ready).toBe(true);
+  const before = JSON.stringify(f.client.pending), calls = f.calls.length; f.client.busy = true;
+  expect((await act(next.owner, 'next', 'interaction', next.draftOwner, 'plan', f.native, f.files, f.client, f.fleet, 0, localInteractionPreferences)).message).toBe('');
+  expect(f.client.draftKey).not.toBe(originalKey); expect(f.client.interactionMode).toBe('plan');
+  expect(JSON.stringify(f.client.pending)).toBe(before); expect(f.calls.slice(calls)).toEqual([]);
 });

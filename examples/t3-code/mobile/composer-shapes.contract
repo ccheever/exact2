@@ -98,6 +98,11 @@ shape NewTaskBranch
   last: bool
 shape NewTaskSnapshot
   pendingEditor: bool
+  planModeEnabled: bool
+  interactionMode: string
+  interactionKey: string
+  interactionBlocked: bool
+  interactionError: string
   revision: number
   environmentId: string
   projectId: string
