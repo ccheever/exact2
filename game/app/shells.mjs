@@ -619,6 +619,15 @@ export function sdkFetch({offline = false, source = gameRoot, env = process.env}
   });
 }
 
+/** What a proof's build would otherwise create in the game's directory, made before the
+ * proof's first input inventory: the generated `.shells/` and the baked `assets/`. The
+ * build then rewrites the same files and creates no entry under the proof's watch. */
+export function prepareProofTree(dir, env = process.env) {
+  const game = gameDefaults(dir)?.game;
+  if (game) gameShells(dir, game, gameRoot);
+  return bakeGameArt(dir, env);
+}
+
 /** Bake a game's art/ into assets/ with the GPU shell's own baker (`exact-game-bake
  * --art`), so a later build writes the same bytes and creates nothing. A game
  * without art/ (or a manifest to prune) is left alone. */

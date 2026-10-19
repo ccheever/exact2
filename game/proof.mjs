@@ -8,7 +8,7 @@ import { open as openSession, render } from '../scripts/agent.mjs';
 import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
-import { bakeGameArt } from './app/shells.mjs';
+import { prepareProofTree } from './app/shells.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 import { decodePng } from '../scripts/png.mjs';
 
@@ -606,7 +606,7 @@ export function proofInputs(root, app, cachePath) {
     state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
   }
   groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
+  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads,assetRows:assetState};
 }
 // One reader per proof. Directory changes require a rerun, even for baked assets.
 export function proofInputReader(root, app, cachePath) {
@@ -616,8 +616,11 @@ export function proofInputReader(root, app, cachePath) {
     // Content identity alone misses an edit that is reverted while the build reads it.
     if (previous && previous.authoredState !== inputs.authoredState)
       throw new Error('authored proof inputs changed during build; rerun the proof');
-    if (previous && previous.assetState !== inputs.assetState)
-      throw new Error('app or asset directories changed during build; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)');
+    if (previous && previous.assetState !== inputs.assetState) {
+      const before = new Map(previous.assetRows), after = new Map(inputs.assetRows);
+      const changed = [...new Set([...before.keys(), ...after.keys()])].filter(dir => before.get(dir) !== after.get(dir));
+      throw new Error(`app or asset directories changed during build: ${changed.join(', ')}; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)`);
+    }
     previous = inputs;
     return inputs;
   };
@@ -865,9 +868,9 @@ export async function proof(meta, script) {
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
-    // Bake art/ before the first input inventory: the build's own bake then rewrites
-    // the same files and creates none, so a fresh game's first proof completes.
-    if (bakeGameArt(app, {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')})) say(`BAKE ${name} art/ into assets/`);
+    // Generate .shells/ and bake art/ before the first input inventory: the build then
+    // rewrites the same files and creates no entry, so a fresh game's first proof completes.
+    if (prepareProofTree(app, {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')})) say(`BAKE ${name} art/ into assets/`);
     let inputs;
     const scanInputs = proofInputReader(root, app, resolve(buildOut, 'input-digests.json'));
     const readInputs = () => inputs = scanInputs();

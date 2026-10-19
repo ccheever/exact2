@@ -6,7 +6,6 @@ import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
 import {writeFixtureFile} from './tests/proof-helpers.mjs';
-import {bakeGameArt} from './app/shells.mjs';
 
 test('receipts issued before directory checks rebuild once even when source and artifact digests still match', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'proof-receipt-version-')), receipt = resolve(dir, 'build.sha256');
@@ -173,10 +172,13 @@ test('generated entry changes refuse a receipt until a stable rerun; in-place re
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
-// A fresh game with art/: the proof bakes before its first inventory, so the build's
-// own bake rewrites the same files and creates no entry under the watch.
+// A fresh game with art/: the proof generates its shells and bakes before its first
+// inventory, so the build's own shells and bake rewrite the same files and create no
+// entry under the watch. Without that the build's .shells/ and assets/ are new entries.
 test('an absent assets tree the build would create does not throw once the proof has baked', async () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'proof-prebake-')), bin = resolve(dir, 'bin');
+  const {createGame} = await import('./new.mjs');
+  const {gameDefaults, gameShells, prepareProofTree} = await import('./app/shells.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-prebake-'))), bin = resolve(dir, 'bin');
   const baked = 'crate model bytes';
   // Cargo is substituted: `cargo run … --art <game>` writes what bake_art would.
   mkdirSync(bin);
@@ -187,20 +189,20 @@ mkdirSync(resolve(game, 'assets'), {recursive:true});
 writeFileSync(resolve(game, 'assets/crate.model'), ${JSON.stringify(baked)});
 writeFileSync(resolve(game, '.baked-assets.json'), JSON.stringify({'crate.model':createHash('sha256').update(${JSON.stringify(baked)}).digest('hex')}));\n`, {mode:0o755});
   const env = {...process.env, PATH:`${bin}:${process.env.PATH}`};
-  const proveOnce = async (app, prebake) => {
-    writeFixtureFile(app, 'app.contract', 'plan');
-    writeFixtureFile(app, 'art/crate.gltf', 'authored model');
-    if (prebake) expect(bakeGameArt(app, env)).toBe(true);
-    const read = proofInputReader(dir, app), receipt = resolve(app, 'build.sha256');
-    // The build's bake: the same bytes, written whether or not they exist.
+  const proveOnce = async (name, prepare) => {
+    const app = resolve(dir, name);
+    createGame(app, undefined, {assets:true});
+    if (prepare) expect(prepareProofTree(app, env)).toBe(true);
+    const read = proofInputReader(dir, app), receipt = resolve(dir, `${name}.sha256`);
+    // The build: its shells and its bake, the same bytes whether or not they exist.
     return ensureBuildReceipt({receipt, inputs:() => read().all, artifact:() => 'product', build:async () => {
+      gameShells(app, gameDefaults(app).game, import.meta.dir);
       spawnSync('cargo', ['run', '--', '--art', app], {env});
     }});
   };
   try {
-    writeFixtureFile(dir, 'game/Cargo.toml', '[workspace]\n');
-    expect(await proveOnce(resolve(dir, 'game/games/baked'), true)).toBe(true);
-    await expect(proveOnce(resolve(dir, 'game/games/unbaked'), false)).rejects.toThrow('asset directories changed during build');
+    expect(await proveOnce('prepared', true)).toBe(true);
+    await expect(proveOnce('unprepared', false)).rejects.toThrow(/asset directories changed during build: \S*unprepared\//);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
@@ -439,6 +441,10 @@ test('proof summaries record both identities from the completed bake', async () 
           writeFileSync(resolve(app, '.baked-assets.json'), JSON.stringify(manifest));
         },
       }));
+      // The fixture's art is not a model: the bake is the mocked build's alone.
+      const shells = ${JSON.stringify(resolve(import.meta.dir, 'app/shells.mjs'))};
+      const unmocked = await import(shells);
+      mock.module(shells, () => ({...unmocked, prepareProofTree:() => false}));
       const {proof} = await import(${JSON.stringify(resolve(import.meta.dir, 'proof.mjs'))});
       await proof(import.meta, async () => {});
     `);
