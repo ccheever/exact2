@@ -201,18 +201,6 @@ impl Dimension {
         }
     }
 
-    /// A space (padding, margin, gap) under `env`'s terminal space rule: a
-    /// length that resolves to points is whole cells of `cell` on its axis
-    /// ([`cells::space`]); a percentage or a `calc()` with one is as it is.
-    pub(crate) fn spaced(self, env: &Env, cell: f32) -> Dimension {
-        match (env.cell_spaces, self.resolve(env)) {
-            // (A calc() whose percentage is 0 is points on every basis.)
-            (true, Dimension::Points(v)) => Dimension::Points(cells::space(v, cell)),
-            (true, Dimension::Calc(p, v)) if p == 0.0 => Dimension::Points(cells::space(v, cell)),
-            _ => self,
-        }
-    }
-
     /// Whether a padding lowers to zero as the engine compares lengths, by
     /// bits: `auto`, or `+0` points or percent — never `-0`.
     fn lp_is_zero(self, env: &Env) -> bool {

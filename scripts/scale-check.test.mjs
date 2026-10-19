@@ -253,6 +253,10 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
   expect(unread[0].why).toContain('not whole cells in the reply');
   const thinPad = check('terminal', { ...layout, nodes: layout.nodes.map(n => ({ ...n, cells: undefined })) }, null, { boxes: [{ testId: 'box', child: 'inner', padding: 'space.sm' }] }, base);
   expect(thinPad.map(r => r.ok)).toEqual([false]);
+  // A terminal reply with no grid at all fails too.
+  const gridless = check('terminal', { ...layout, cell: undefined, nodes: layout.nodes.map(n => ({ ...n, cells: undefined })) }, null, { boxes: [{ testId: 'box', child: 'inner', padding: 8, even: true }] }, base);
+  expect(gridless.map(r => r.ok)).toEqual([false]);
+  expect(gridless[0].why).toContain('no cell grid');
   expect(gaps[2].why).toBe('gap 24, expected 16; its gap paints 2 cells, expected 1');
   // A reply missing what is measured fails: no cells for an even box, radii not four lengths (an elliptical corner's pair).
   const thin = { ...layout, nodes: layout.nodes.map(n => ({ ...n, cells: undefined, radius: n.testId === 'round' ? [[8, 4], 8, 8, 8] : n.radius })) };

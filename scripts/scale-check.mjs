@@ -236,6 +236,10 @@ export function check(host, layout, image, expect, base = () => undefined) {
     // Its box as the host laid it out (and the cells it paints, in a grid).
     const row = { host, testId: want.testId, ok: true, why: [], box: { x: box.x, y: box.y, w: box.w, h: box.h, ...(box.cells ? { cells: box.cells } : {}) } };
     const fail = why => { row.ok = false; row.why.push(why); };
+    // The terminal paints in cells: a reply that gives no grid cannot say
+    // which rows it paints.
+    const grid = layout.cell && Number.isFinite(layout.cell.w) && layout.cell.w > 0 && Number.isFinite(layout.cell.h) && layout.cell.h > 0;
+    if (host === 'terminal' && !grid) fail('its reply gives no cell grid: the cells it paints cannot be read');
     const padding = named(pick(want.padding, host));
     if (padding === 'missing') fail(`no padding expected for ${host}`);
     else if (padding !== undefined && !Number.isFinite(padding)) fail(`padding ${JSON.stringify(padding)} is no number`);

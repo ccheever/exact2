@@ -12,6 +12,7 @@ use crate::error::StyleValueError;
 use crate::generated::{StyleCodec, StyleId};
 use crate::style::relative::admits_relative;
 use crate::style::StyleValue;
+use crate::{Dimension, Env};
 
 /// One column, in layout pixels.
 pub const COLUMN: f32 = 8.0;
@@ -33,10 +34,27 @@ pub fn border(widths: [f32; 4]) -> [f32; 4] {
 /// a declared deviation beside [`border`]; LLP 1121 stage 11 (c)). Applied
 /// only under a kernel's terminal space rule ([`crate::Env::cell_spaces`]).
 pub fn space(px: f32, cell: f32) -> f32 {
-    let n = ((px / cell).abs() - 0.5).ceil().max(0.0);
+    // In f64, so a length already whole cells keeps every one of them.
+    let n = ((f64::from(px) / f64::from(cell)).abs() - 0.5)
+        .ceil()
+        .max(0.0);
     match n == 0.0 {
         true => 0.0,
-        false => (n * cell).copysign(px),
+        false => ((n * f64::from(cell)) as f32).copysign(px),
+    }
+}
+
+impl Dimension {
+    /// A space (padding, margin, gap) under `env`'s terminal space rule: a
+    /// length that resolves to points is whole cells of `cell` on its axis
+    /// ([`space`]); a percentage or a `calc()` with one is as it is.
+    pub(crate) fn spaced(self, env: &Env, cell: f32) -> Dimension {
+        match (env.cell_spaces, self.resolve(env)) {
+            // (A calc() whose percentage is 0 is points on every basis.)
+            (true, Dimension::Points(v)) => Dimension::Points(space(v, cell)),
+            (true, Dimension::Calc(0.0, v)) => Dimension::Points(space(v, cell)),
+            _ => self,
+        }
     }
 }
 
@@ -103,7 +121,7 @@ mod tests {
         assert_eq!(s.column_gap, 8.0);
         s.set_dynamic(StyleId::PaddingTop, &StyleValue::Text("1lh".into()))
             .unwrap();
-        assert_eq!(s.padding_top, crate::Dimension::Points(16.0));
+        assert_eq!(s.padding_top, Dimension::Points(16.0));
     }
 
     #[test]
@@ -128,6 +146,9 @@ mod tests {
         assert_eq!(space(12.0, COLUMN), 8.0);
         assert_eq!(space(-24.0, ROW), -16.0);
         assert_eq!(space(-8.0, ROW).to_bits(), 0.0f32.to_bits());
+        // A large length already whole rows keeps every one, either sign.
+        assert_eq!(space(134_217_744.0, ROW), 134_217_744.0);
+        assert_eq!(space(-134_217_744.0, ROW), -134_217_744.0);
         // The engine's style: padding, margin and gap in points, each on its
         // axis; a percentage as it is; nothing changes without the rule.
         let mut s = StyleProps::default();
