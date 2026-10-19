@@ -140,6 +140,26 @@ impl Levels {
     pub fn selected(&self) -> &[Option<u8>] {
         &self.selected
     }
+    /// Each entry's slot and the level it drew last (`restore` takes it back).
+    pub fn saved(&self) -> Vec<(u32, Option<u8>)> {
+        (self.entries.iter().map(|e| e.slot))
+            .zip(self.selected.iter().copied())
+            .collect()
+    }
+    /// Put back the levels `saved` holds, by slot, as `set` keeps them across
+    /// a rebatch, and mark them for the cull and skinning to read again.
+    pub fn restore(&mut self, saved: &[(u32, Option<u8>)]) {
+        if self.entries.is_empty() {
+            return;
+        }
+        for (e, selected) in self.entries.iter().zip(&mut self.selected) {
+            *selected = saved.iter().find(|(s, _)| *s == e.slot).and_then(|s| s.1);
+            for i in e.record as usize..(e.record + e.count) as usize {
+                self.hidden[i] = selected.is_some_and(|level| self.records[i] != level);
+            }
+        }
+        self.changed = true;
+    }
     /// Choose every entity's level from its distance (`distance(entry)`) and
     /// mark the records of other levels hidden.
     pub fn select(&mut self, distance: impl Fn(&Lod) -> f32) {

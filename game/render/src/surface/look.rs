@@ -28,8 +28,8 @@ pub(super) struct Look<const ASSETS: bool> {
     stash_format: Option<wgpu::TextureFormat>,
     /// A readback still mapping (on the web, until the page's next turn).
     pending: Option<Pending>,
-    /// The line each tell last told: a settled frame tells once.
-    logged: Vec<(&'static str, String)>,
+    /// The tells the last judged frame told `logs`: a settled frame tells once.
+    logged: crate::tells::Logged,
     /// Tell lines the next `logs` reply carries. They stay out of the world's
     /// journal, which a save carries: presentation never enters a save.
     unread: Vec<String>,
@@ -48,7 +48,7 @@ impl<const ASSETS: bool> Default for Look<ASSETS> {
             stash: None,
             stash_format: None,
             pending: None,
-            logged: Vec::new(),
+            logged: Default::default(),
             unread: Vec::new(),
             points: (0., 0.),
             held: None,
@@ -487,6 +487,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let labels = renderer.probe_labels(&feed.shape_names());
         let readback = renderer.probe_copies(&mut encoder, &texture, &facts);
         queue.submit([encoder.finish()]);
+        renderer.end_look();
         renderer.submitted();
         readback.map();
         Ok((readback, facts, records, labels))
@@ -510,19 +511,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         } else {
             crate::tells::Judgement::default()
         };
-        // `logs` gets each tell once per change.
-        for tell in &judged.tells {
-            if !self
-                .look
-                .logged
-                .iter()
-                .any(|(n, l)| *n == tell.name && *l == tell.line)
-            {
-                self.look
-                    .unread
-                    .push(format!("tick={} {}", p.tick, tell.line));
-                self.look.logged.retain(|(n, _)| *n != tell.name);
-                self.look.logged.push((tell.name, tell.line.clone()));
+        // `logs` gets each tell once per change between judged frames.
+        if p.whole {
+            for tell in self.look.logged.fresh(&judged) {
+                (self.look.unread).push(format!("tick={} {}", p.tick, tell.line));
             }
         }
         let head = format!("{{\"tick\":{},\"hash\":\"0x{:016x}\"", p.tick, p.hash);

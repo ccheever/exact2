@@ -368,17 +368,22 @@ impl crate::Hooks for Copying {
     }
 }
 
-/// The variant the listing names for the soft sparks' draw, and the listing.
-fn soft_sparks_variant<H: crate::Hooks + Default>() -> Option<(u64, String)> {
+/// The variant the listing names for the soft sparks' draw, whether the
+/// listed frame drew direct, and the listing; `direct` allows direct frames
+/// at four samples, as phones do.
+fn soft_sparks_variant<H: crate::Hooks + Default>(direct: bool) -> Option<(u64, u64, String)> {
     let gpu = fixture::device_or_skip(fixture::device())?;
     let mut s = WorldSurface::<SoftSparks, (), false, H>::default();
     s.bind(&[], None).unwrap();
     for ms in [0., 20., 40., 60.] {
         fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
+        s.renderer_for_test().unwrap().set_direct(direct);
     }
+    let before = s.renderer_for_test().unwrap().direct_frames;
     let reply = s
         .agent(r#"{"op":"state","draws":true,"width":320,"height":180}"#)
         .unwrap();
+    let drew = s.renderer_for_test().unwrap().direct_frames - before;
     let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
     let draws = value["draws"]
         .as_array()
@@ -389,18 +394,20 @@ fn soft_sparks_variant<H: crate::Hooks + Default>() -> Option<(u64, String)> {
             .is_some_and(|b| b.starts_with("particle dots"))
     });
     let variant = sparks.unwrap_or_else(|| panic!("{reply}"))["variant"].as_u64();
-    Some((variant.unwrap_or_else(|| panic!("{reply}")), reply))
+    Some((variant.unwrap_or_else(|| panic!("{reply}")), drew, reply))
 }
 
 #[test]
 fn a_quad_record_names_the_pipeline_its_draw_bound() {
-    // Soft additive dots (4 × soft + additive) in a frame whose translucent
-    // pass reads the depth.
-    let Some((soft, reply)) = soft_sparks_variant::<()>() else {
-        return;
-    };
-    assert_eq!(soft, 5, "{reply}");
-    // Under a scene copy the same authored batch draws hard.
-    let (copied, reply) = soft_sparks_variant::<Copying>().unwrap();
-    assert_eq!(copied, 1, "{reply}");
+    for direct in [false, true] {
+        // Soft additive dots (4 × soft + additive, and 8 if the frame drew
+        // direct) in a frame whose translucent pass reads the depth.
+        let Some((soft, drew, reply)) = soft_sparks_variant::<()>(direct) else {
+            return;
+        };
+        assert_eq!(soft, 8 * drew + 5, "{reply}");
+        // Under a scene copy the same authored batch draws hard.
+        let (copied, drew, reply) = soft_sparks_variant::<Copying>(direct).unwrap();
+        assert_eq!(copied, 8 * drew + 1, "{reply}");
+    }
 }

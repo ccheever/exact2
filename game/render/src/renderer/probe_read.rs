@@ -160,8 +160,8 @@ pub(crate) struct Reading {
     pub height: u32,
     /// Per query: whether any sample passed.
     pub covered: Vec<bool>,
-    /// Per counted particle draw: its fragments in front of the scene that
-    /// move an 8-bit pixel.
+    /// Per counted particle draw: its fragments that contribute above zero in
+    /// front of the scene's depth at a sample they cover.
     pub counts: Vec<u32>,
     /// The indirect arguments as words.
     pub indirect: Vec<u32>,

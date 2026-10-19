@@ -132,6 +132,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) probe: Option<probe::Probe>,
     /// Records the probe has built: an unarmed frame builds none (tests).
     pub(crate) probe_built: std::cell::Cell<u64>,
+    // The live frames' levels of detail, kept while a look frame selects its own.
+    look_levels: Option<Vec<(u32, Option<u8>)>>,
     // The look frames' shadow-texel pipeline, its layout and its counter.
     shadow_texels: Option<(wgpu::ComputePipeline, wgpu::BindGroupLayout, wgpu::Buffer)>,
 }
@@ -416,6 +418,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             hook_metrics: None,
             probe: None,
             probe_built: Default::default(),
+            look_levels: None,
             shadow_texels: None,
             counts: Stats {
                 draws: 1,

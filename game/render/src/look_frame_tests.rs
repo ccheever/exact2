@@ -321,3 +321,73 @@ fn an_attached_model_is_bounded_and_levelled_where_its_joint_holds_it() {
         assert_eq!(value["visible"], "drawn", "direct {direct}: {reply}");
     }
 }
+
+/// A model whose level of detail hides it beyond 100 m, 99 m from the game's
+/// camera: within the selection's 5% band, where hysteresis keeps whatever
+/// level it drew last.
+struct Band;
+impl Game for Band {
+    const ID: &'static str = "look-lod-band";
+    const ASSETS: &'static [&'static str] = &["crate.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(0., 0., 99.).looking_at(Vec3::ZERO, Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        let lod = ModelLod {
+            levels: Vec::new(),
+            hide: Some(100.),
+        };
+        let at = Transform::default().with_scale(10.);
+        w.spawn_named("crate", (at, Mesh::asset("crate.model"), lod));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn an_inspection_from_beyond_a_hide_distance_leaves_the_live_levels_as_they_were() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut model: asset::Model =
+        bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
+    model.materials.fill(Default::default());
+    model.textures.clear();
+    let mut s = WorldSurface::<Band, crate::ModelExecutor, true>::default();
+    s.device_ready(wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    s.asset("crate.model", Ok(&bin::to_vec(&model)));
+    for ms in [0., 20., 40.] {
+        fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
+    }
+    let visible = |s: &mut WorldSurface<Band, crate::ModelExecutor, true>| {
+        let reply = s
+            .agent(r#"{"op":"state","entity":"crate","visible":true,"width":320,"height":180}"#)
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        value["visible"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{reply}"))
+            .to_owned()
+    };
+    let (before, _) = fixture::render(&gpu, &mut s, &frame(60.)).unwrap();
+    assert_eq!(visible(&mut s), "drawn");
+    // From 110 m the inspection's own frame hides it.
+    let orbit = s
+        .agent(r#"{"op":"screenshot","form":"look","yaw":0,"pitch":0,"distance":110,"width":320,"height":180}"#)
+        .unwrap();
+    assert!(orbit.contains("\"data\""), "{orbit}");
+    let (after, _) = fixture::render(&gpu, &mut s, &frame(80.)).unwrap();
+    let changed = (after.data.chunks(4).zip(before.data.chunks(4))).filter(|(a, b)| a != b);
+    assert_eq!(changed.count(), 0, "pixels the next live frame changed");
+    assert_eq!(visible(&mut s), "drawn");
+    let camera = s
+        .agent(r#"{"op":"screenshot","form":"look","width":320,"height":180}"#)
+        .unwrap();
+    let camera: serde_json::Value = serde_json::from_str(&camera).unwrap();
+    assert_eq!(camera["data"], crate::look::base64(&before.data));
+}

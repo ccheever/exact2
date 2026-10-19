@@ -212,14 +212,27 @@ impl Probe {
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Arm the next encode's instruments; `pixels` false reads no colour back.
+    /// The levels of detail the live frames chose are kept, and put back by
+    /// `end_look`: a look frame selects its own, from its own camera, and the
+    /// selection's hysteresis must not carry them into the next live frame.
     pub(crate) fn arm_probe(&mut self, pixels: bool) {
         self.probe = Some(Probe::new(pixels));
+        self.look_levels = Some(self.levels.saved());
+    }
+    /// After a look frame is submitted: the live frames' levels of detail
+    /// again, which the next frame writes to the cull and skinning (after the
+    /// look frame's own writes, which its submission has taken).
+    pub(crate) fn end_look(&mut self) {
+        if let Some(saved) = self.look_levels.take() {
+            self.levels.restore(&saved);
+        }
     }
     /// Drop every frame-scoped instrument: the probe, and the quads' counting
-    /// and observations (a look frame whose encode failed).
+    /// and observations (a look frame whose encode failed), and end the look.
     pub(crate) fn disarm_probe(&mut self) {
         self.probe = None;
         self.quads.disarm();
+        self.end_look();
     }
     /// Once every draw group and quad of the frame is prepared (after
     /// `prepare_cull`): its occlusion queries, one for each draw the forward
