@@ -1767,6 +1767,64 @@ space. The auto-width 1:1 flex root's ratio item changes from 10×50 to 50×50,
 matching Chrome and `origin/main` at c8f5d6c96. Controls cover a second ratio,
 height bounds, wrapping, alignment, column direction, and flex and grid items.
 
+## Patch 57: preserve the inline content minimum beyond a ratio height cap
+
+A non-replaced container's `ContentSize` probe with a supplied height keeps
+its authored maximum width instead of the width transferred from `max-height`.
+The automatic inline minimum's container probe supplies its clamped definite
+height; an indefinite-height probe retains the transferred cap, including
+for a flex basis. A leaf's probe leaves both dimensions unknown so it reaches
+its text measurer: supplying a height would derive a width and return early.
+The minimum combines that independent content width with the height transfer.
+Block uses the same ratio-aware content measurement as flex and grid: a
+derived width is an automatic minimum that wider content can exceed, unless
+an explicit inline minimum or scrolling disables it. Block and flex also
+keep the transferred maximum out of a supplied-height probe's min/max short
+circuit.
+
+A row item with a definite height keeps that wider content minimum when
+flex chooses its automatic minimum. Specified widths and maximum widths
+still cap it. When flex chooses its main-axis automatic minimum, auto-height
+rows, columns and replaced elements retain the transferred cap; the
+hypothetical-size clamp is unchanged. A column item's inline minimum can
+still exceed its transferred width cap, as in block, absolute and root layout.
+This follows Chrome 151.0.7922.34, measured on 2026-10-19.
+[Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) defines a
+converted cross-axis maximum for the content suggestion of non-replaced
+elements too; the inline-axis behavior here is the measured browser result.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+50 literal `Chrome 151 ratio max-height minimum` cases. Before the patch,
+28 frames differed. The reported item changes from 60×60 to 120×60; with
+`max-width:90px` it becomes 90×60. Controls cover block, flex and grid items,
+wide and tall column content, minimum heights below and above the maximum,
+ratios 2 and 0.5, explicit minima, hidden overflow, box sizing, flex bases,
+shrinking, wrapping, reversed rows, percentage heights and definite stretch.
+An auto-height row item stays 60×60, as does the column analogue.
+
+`browser_replaced::constraints::ratio_cross_maximum_still_caps_replaced_minima`
+holds eight measurements of canvas and loaded-image items (natural size
+300×150), including 60×60 rows and columns, a width cap and a zero minimum.
+
+The 48 literal `Chrome 151 ratio max-height growth` cases use the same Chrome
+version and date. They hold growth in 200px rows with block, flex and grid
+items and outer parents. Removing the transferred cap from an indefinite-height
+basis probe froze the reported item at 60×60 instead of Chrome's 200×60;
+25 cases (33 frames) failed before restricting the uncapped probe to a
+supplied height. Controls cover zero minima, hidden overflow, padding under
+both box-sizing modes, flex bases, a width cap, another ratio, minimum heights,
+explicit heights and definite stretch. Equal minimum and maximum heights
+without an authored height keep 60×60 in a 50px row, as
+Chrome and `origin/main` do; they do not gain a definite-height exception.
+
+The 24 literal `Chrome 151 ratio inline probe` cases use the same version
+and date. Eleven text-leaf frames failed before preserving the independent
+probe. The 120px word keeps 120×60 with max-height and 120×80 without it;
+controls cover an authored width cap, zero minimum, scrolling, another ratio,
+both box-sizing modes, shorter and wrapping text, and growth. Block and
+absolute children, the root and flex-start column items with a 120px child
+keep 120×60 in Chrome and the kernel; main's 60×60 is not a cap to restore.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
