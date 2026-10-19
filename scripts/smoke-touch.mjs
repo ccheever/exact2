@@ -13,7 +13,7 @@
 // lands on the cell or accessory UIKit draws, not the hidden authored node.
 //   bun scripts/smoke-touch.mjs [--build] [--sim <udid|name>]
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
 import { HOST_DEV, resolveApp } from './app.mjs';
@@ -96,7 +96,6 @@ for (const timing of ['agent', 'platform']) {
     const up = await s.pointer('up');
     check(down.delivery === 'platform' && up.delivery === 'platform' && up.touch?.type === 'direct' && up.touch.ended - up.touch.began > 0.5, `${timing}: a held contact was not one real touch held 600 ms: ${JSON.stringify({ down, up })}`);
     console.log(`${timing}: taps ${taps.join(', ')} ms`);
-    if (timing === 'agent') await archiveActivities(s, device.udid);
   } catch (error) {
     check(false, `${timing}: ${error.message}`);
   } finally { await s.close(); }
@@ -128,6 +127,9 @@ for (const timing of ['agent', 'platform']) {
   }
 }
 
+// No foreground drive follows the archive: each kind ends from a fresh app launch.
+await archiveActivities(device.udid, check);
+
 console.log(`touch smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const f of failures) console.error(`FAIL ios-touch ${f}`);
 process.exitCode = failures.length ? 1 : 0;
@@ -139,11 +141,12 @@ process.exitCode = failures.length ? 1 : 0;
   }
 }
 
-// LLP 1126.001 WP14: compare the system archive on the touch step's own session.
-async function archiveActivities(s, udid) {
-  const dir = resolve(ROOT, 'target/ios-touch-archive');
-  mkdirSync(dir, {recursive:true});
-  const start = performance.now(), comparisons = [];
+// LLP 1126.001 WP14: compare through the touch step's runner, then end from a fresh app.
+async function archiveActivities(udid, check) {
+  const dir = mkdtempSync(resolve(ROOT, 'target/ios-touch-archive-'));
+  console.log(`activity archive: ${dir}`);
+  const start = performance.now(), comparisons = [], cleanups = [];
+  let s;
   const spring = (action, rest = {}) => s.springboard({action, ...rest});
   const elements = tree => [tree, ...(tree.children ?? []).flatMap(elements)];
   const labels = tree => tree.nodes.flatMap(node => {
@@ -170,38 +173,33 @@ async function archiveActivities(s, udid) {
     comparisons.push({name, labels:expected});
     return tree;
   }
-  async function resume(context) {
-    let timer;
-    try {
-      const {state} = await spring('foreground');
-      if (state === 'notRunning') throw Error('the app exited while SpringBoard was showing');
-      if (state !== 'runningForeground') {
-        await spring('home');
-        let icon;
-        for (let page = 0; page < 3; page++) {
-          icon = (await spring('find', {label:'Caltrain'})).elements.find(n => n.frame[2] > 0 && n.frame[3] > 0);
-          if (icon) break;
-          if (page < 2) await spring('swipe', {point:[350,450], to:[50,450]});
-        }
-        if (!icon) throw Error('Caltrain’s Home Screen icon was not exposed on three pages');
-        await spring('tap', {point:[icon.frame[0] + icon.frame[2] / 2, icon.frame[1] + icon.frame[3] / 2]});
-        const deadline = performance.now() + 5000;
-        while ((await spring('foreground')).state !== 'runningForeground') {
-          if (performance.now() >= deadline) throw Error('Caltrain did not become foreground within 5 s of its icon tap');
-          await Bun.sleep(100);
-        }
+  async function endActivities(session) {
+    await session.clock('data');
+    const active = state => state.resources.activities.activities.filter(a => ['active','stale'].includes(a.activityState));
+    const activities = active(await session.state());
+    for (const activity of activities) {
+      await session.tap(activity.kind === 'departure' ? 'end-activity' : 'end-alert');
+      const deadline = performance.now() + 12_000;
+      while (true) {
+        await session.clock('data');
+        if (!active(await session.state()).some(a => a.id === activity.id)) break;
+        if (performance.now() >= deadline) throw Error(`activity ${activity.id} did not end within 12 s`);
+        await Bun.sleep(100);
       }
-      await Promise.race([s.state(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('the app did not answer state within 5 s')), 5000); })]);
-    } catch (error) { throw Error(`${context}: the agent session did not resume after Home/lock: ${error.message}`); }
-    finally { clearTimeout(timer); }
+    }
+    const remaining = active(await session.state());
+    if (remaining.length) throw Error(`Caltrain did not end activities: ${JSON.stringify(remaining)}`);
+    return activities.length;
   }
   for (const kind of ['departure', 'service-alert']) {
-    let background = false;
+    s = null;
     try {
-      const alive = (await s.state()).resources.activities.activities;
-      for (const previous of ['departure','service-alert']) if (alive.some(a => a.kind === previous && ['active','stale'].includes(a.activityState))) {
-        await s.tap(previous === 'departure' ? 'end-activity' : 'end-alert'); await s.clock('data');
-      }
+      // App controls use agent activation; the existing drag mode also opens the SpringBoard runner.
+      s = await open({host:'ios', app:'caltrain', touch:'drag'});
+      await endActivities(s);
+      await s.tap('change-station');
+      await s.type('station-search', 'Palo');
+      await s.tap('station-paloalto');
       await s.tap(kind === 'departure' ? 'start-activity' : 'start-alert');
       await s.clock('data');
       const started = (await s.state()).resources.activities.activities.find(a => a.kind === kind && ['active','stale'].includes(a.activityState));
@@ -213,7 +211,6 @@ async function archiveActivities(s, udid) {
         record(`${kind}-gallery-${placement}`, gallery[placement]);
         await s.op({op:'screenshot', activity, path:resolve(dir, `${kind}-gallery-${placement}.png`)});
       }
-      background = true;
       await spring('home');
       const leading = labels(gallery.compactLeading), trailing = labels(gallery.compactTrailing);
       await archive(`${kind}-compact`, [...leading, ...trailing]);
@@ -227,11 +224,24 @@ async function archiveActivities(s, udid) {
       await spring('lock'); await spring('home');
       await archive(`${kind}-locked`, labels(gallery.lockScreen), true);
       await spring('swipe', {point:[200,850], to:[200,200]});
-      await resume(kind); background = false;
-      await s.tap(kind === 'departure' ? 'end-activity' : 'end-alert'); await s.clock('data');
+    } catch (error) {
+      check(false, `${kind} archive: ${error.message}`);
     } finally {
-      if (background) await resume(`${kind} archive cleanup`);
-      record('result', {milliseconds:performance.now() - start, comparisons});
+      if (s) {
+        try { simctl('terminate', udid, resolveApp('caltrain').id); }
+        catch (error) { check(false, `${kind} archive terminate: ${error.message}`); }
+        try { await s.close(); }
+        catch (error) { check(false, `${kind} archive close: ${error.message}`); }
+        let fresh;
+        try {
+          fresh = await open({host:'ios', app:'caltrain'});
+          const ended = await endActivities(fresh);
+          cleanups.push({kind, ended});
+          console.log(`${kind}: fresh launch ended ${ended} activities`);
+        } catch (error) { check(false, `${kind} archive cleanup: ${error.message}`); }
+        finally { await fresh?.close(); }
+      }
+      record('result', {milliseconds:performance.now() - start, comparisons, cleanups});
     }
   }
   console.log(`activity archive: ${comparisons.length} exact-label comparisons in ${((performance.now() - start) / 1000).toFixed(1)} s`);

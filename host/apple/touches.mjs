@@ -310,7 +310,7 @@ const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.ses
 /** SpringBoard reads and gestures over the session's existing runner (WP14). */
 export async function springboard(touches, request, alive) {
   const name = `SpringBoard ${request.action}`;
-  if (!touches) throw new Error(`${name}: open the iOS session with touch: 'platform'`);
+  if (!touches) throw new Error(`${name}: open the iOS session with touch: 'drag' or 'platform'`);
   alive(name);
   const result = await touches.ask({ ...request, op: 'springboard' });
   if (result.error) throw new Error(`${name}: ${result.error}`);

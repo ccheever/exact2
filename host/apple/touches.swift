@@ -29,7 +29,7 @@
 // the public `XCUICoordinate` call makes it; one the synthesizer has not
 // finished in time fails, never played again.
 // SpringBoard archive operations (LLP 1126.001 WP14) use the same session.
-// The driver reactivates its existing app after the archive reads.
+// It never launches, activates or terminates the app: the driver owns its lifecycle.
 import XCTest
 import UIKit
 import Foundation
@@ -60,11 +60,14 @@ final class ExactTouches: XCTestCase {
             guard let req = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any], let op = req["op"] as? String else {
                 session.send(["error": "unreadable request"]); continue
             }
+            // Socket reads block this run loop. Deliver pending lifecycle notifications before
+            // XCTest reads app state, including a fresh launch after Home or the Lock Screen.
+            while CFRunLoopRunInMode(.defaultMode, 0, true) == .handledSource {}
             // Fresh each request: the app is launched after the runner starts.
             let target = XCUIApplication(bundleIdentifier: app)
             switch op {
             case "springboard":
-                do { session.send(try Self.springboard(req, app: target)) }
+                do { session.send(try Self.springboard(req)) }
                 catch { session.send(["error": String(describing: error)]) }
             case "foreground":
                 session.send(["state": Self.name(target.state)])
@@ -127,7 +130,7 @@ final class ExactTouches: XCTestCase {
         }
     }
 
-    static func springboard(_ request: [String: Any], app: XCUIApplication) throws -> [String: Any] {
+    static func springboard(_ request: [String: Any]) throws -> [String: Any] {
         let spring = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         func refuse(_ why: String) -> NSError { NSError(domain: "ExactTouches", code: 1, userInfo: [NSLocalizedDescriptionKey: why]) }
         func point(_ key: String) throws -> XCUICoordinate {
@@ -145,7 +148,6 @@ final class ExactTouches: XCTestCase {
             let selector = NSSelectorFromString("pressLockButton")
             guard XCUIDevice.shared.responds(to: selector) else { throw refuse("this XCTest has no pressLockButton for the locked archive read") }
             _ = XCUIDevice.shared.perform(selector)
-        case "foreground": return ["state": name(app.state)]
         case "tap": try point("point").tap()
         case "hold":
             guard let seconds = request["seconds"] as? Double, seconds.isFinite, seconds > 0, seconds <= 5 else { throw refuse("SpringBoard hold needs seconds in 0...5") }

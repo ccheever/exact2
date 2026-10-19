@@ -727,7 +727,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
       touches, touch, crashes, udid: dev.udid, installNote: kept?.note,
-      springboard: request => springboard(touches, request, name => { if (socket.destroyed || consoleDone) throw crashed(`${name}: the app's agent socket is gone; the archive session cannot resume`); }),
+      springboard: request => springboard(touches, request, name => { if (socket.destroyed || consoleDone) throw crashed(`${name}: the app's agent socket is gone; the archive comparison lost its app session`); }),
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
