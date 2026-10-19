@@ -68,8 +68,8 @@ test('Lineage Stop appears for a hovered or focused owned agent and gates repeat
   expect(row.derives({}, { ...scope, row: { id: 'kid', canStop: false }, hovered: 'kid' }).stopShown).toBe(false);
   const groups = contractComponent('shell-details.contract', 'LineageGroups'), state = groups.state();
   const calls: unknown[][] = [], act = (...args: unknown[]) => calls.push(args);
-  groups.call('stop', state, { busy: false, act }, ['kid']);
+  groups.call('stop', state, { busy: false, act }, ['shell:stop-subagent', 'kid']);
   expect(calls).toEqual([['shell:stop-subagent', 'kid', '']]);
-  groups.call('stop', state, { busy: true, act }, ['other']);
+  groups.call('stop', state, { busy: true, act }, ['shell:stop-workflow', 'other']);
   expect(calls).toHaveLength(1);
 });

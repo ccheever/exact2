@@ -93,6 +93,7 @@ impl Lowerer<'_> {
             None => std::borrow::Cow::Borrowed(expanded),
         };
         let expanded = &*expanded;
+        decorations::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;

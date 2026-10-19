@@ -803,6 +803,14 @@ impl Loader<'_> {
                         .is_some_and(|to| scope.shapes.contains(to))
                 })
                 .collect();
+            let mut aliases: Vec<_> = scope
+                .names
+                .iter()
+                .filter(|((kind, _), _)| *kind == Kind::Decoration)
+                .map(|((_, alias), target)| (alias.clone(), target.clone()))
+                .collect();
+            aliases.sort();
+            unit.file.decoration_scopes.insert(index as u32, aliases);
             rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
             // Refusals that are no `use` line's to fix, reported with the rest.
             refused.extend(scope.refused.take().into_iter().map(CompileError::from));
@@ -1171,6 +1179,11 @@ impl Loader<'_> {
             sounds,
             shapes: all!(shapes),
             styles: all!(styles),
+            decorations: all!(decorations),
+            decoration_scopes: files
+                .iter_mut()
+                .flat_map(|file| std::mem::take(&mut file.decoration_scopes))
+                .collect(),
             keyframes: all!(keyframes),
             timelines: all!(timelines),
             // CSS `@color-profile`s are global by name too (LLP 1100 D3).
@@ -1206,6 +1219,11 @@ fn declarations(file: &File) -> impl Iterator<Item = (Kind, &str)> {
         .chain(file.shapes.iter().map(|s| (Kind::Call, &*s.name)))
         .chain(file.fns.iter().map(|f| (Kind::Call, &*f.name)))
         .chain(file.styles.iter().map(|s| (Kind::Style, &*s.name)))
+        .chain(
+            file.decorations
+                .iter()
+                .map(|s| (Kind::Decoration, &*s.name)),
+        )
         .chain(file.keyframes.iter().map(|k| (Kind::Keyframes, &*k.name)))
         .chain(file.timelines.iter().map(|t| (Kind::Timeline, &*t.name)))
 }
@@ -1227,6 +1245,7 @@ fn unknown(u: &UseDecl, n: &UseName, from: &Scope) -> CompileError {
         (Kind::Component, "components"),
         (Kind::Call, "shapes and functions"),
         (Kind::Style, "styles"),
+        (Kind::Decoration, "decorations"),
         (Kind::Keyframes, "keyframes"),
         (Kind::Timeline, "timelines"),
     ] {

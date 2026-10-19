@@ -45,6 +45,8 @@ shape PrOrphanGroup
   path: string
   threads: PrOrphanRef[]
 shape PrCodeView
+  revealPath: string
+  revealNonce: number
   find: DiffFindView
   available: bool
   mounted: bool
