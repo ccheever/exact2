@@ -99,8 +99,8 @@ private final class ExactTabBar: UITabBar {
 /// A tab bar item that remembers the symbol it was made with.
 private final class TabBarItem: UITabBarItem { var made = "" }
 private extension ExactTabBar {
-    /// Its items' svg-only icon paths drawn again at the size its size class
-    /// now gives (`FaceSymbol.tabBarPoints`); nothing else is touched.
+    /// Its items' svg-only icon paths drawn again at the size its idiom and
+    /// size class now give (`FaceSymbol.tabBarPoints`); nothing else is touched.
     func redrawPaths() {
         let points = FaceSymbol.tabBarPoints(traitCollection)
         for case let item as TabBarItem in items ?? [] {
@@ -402,8 +402,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             value.onMeasure = { [weak self, weak owner, weak value] in
                 if let owner, let value { self?.measure(owner, value) }
             }
-            // A path's glyph is sized by the size class (`FaceSymbol.tabBarPoints`): drawn again as it changes.
-            value.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (bar: ExactTabBar, _: UITraitCollection) in bar.redrawPaths() }
+            // A path's glyph is sized by the idiom and the size class (`FaceSymbol.tabBarPoints`): drawn again as either changes.
+            value.registerForTraitChanges([UITraitUserInterfaceIdiom.self, UITraitHorizontalSizeClass.self]) { (bar: ExactTabBar, _: UITraitCollection) in bar.redrawPaths() }
             owner.addSubview(value)
             bars[owner.id] = value
             return value
