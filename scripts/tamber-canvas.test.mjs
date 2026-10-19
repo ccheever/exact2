@@ -12,6 +12,7 @@ import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import { BODY_LIMIT, CANVAS_COOKIE, CHECKPOINT_LIMIT, MINT_RATE, PLACEHOLDER, canonical, canvasGateway, needs, rewriter } from './tamber-canvas.mjs';
 import { tamberServer } from './tamber-server.mjs';
+import { developmentGate } from './install-page.mjs';
 
 const ORIGIN = 'https://canvas.test:9443';
 const TOOL = 'https://canvas.test:9442';
@@ -447,34 +448,125 @@ test('mint: rate-limited per client, refused to an unknown token, url never loop
     // Every scope check was a remote one.
     expect(allowed.length).toBeGreaterThan(0);
     expect(allowed.every(local => local === false)).toBe(true);
-    // A's shapes are required.
-    expect(() => canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, allows })).toThrow(TypeError);
+    // A's own limiter and allows by default; anything but functions is refused.
+    canvasGateway({ loop: loopBase, pairing, origin: ORIGIN }).close();
+    expect(() => canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, limiter: 'no' })).toThrow(TypeError);
   } finally { await g.stop(); }
 });
 
-test('the server\'s `canvas` method (the seam until A lands) answers with the gateway\'s mint for the request\'s token', async () => {
-  const fakeServe = () => {
-    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
-    child.kill = () => { child.exitCode = 0; child.emit('exit', 0); };
-    let buf = '';
-    child.stdin.on('data', chunk => {
-      buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
-      for (const line of lines) child.stdout.write(`${JSON.stringify({ id: JSON.parse(line).id, ok: { files: {} } })}\n`);
-    });
-    return child;
-  };
-  let given;
-  const canvas = { mint: token => { given = token; return { ok: { url: `${ORIGIN}/canvas/x/`, grant: 'g' } }; } };
+/** A stand-in for `contract tamber serve`: every request answered. */
+const fakeServe = () => {
+  const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
+  child.kill = () => { child.exitCode = 0; child.emit('exit', 0); };
+  let buf = '';
+  child.stdin.on('data', chunk => {
+    buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
+    for (const line of lines) child.stdout.write(`${JSON.stringify({ id: JSON.parse(line).id, ok: { files: {} } })}\n`);
+  });
+  return child;
+};
+
+/** A real design server's wire (stage 10 A's pairing and dispatcher) with
+ * the gateway it makes, each on its own loopback port: `post` a request as
+ * a local or a remote (`peer`) client, `pair` a client at a scope. */
+async function wired(canvas = pairing => canvasGateway({ loop: loopBase, pairing, origin: ORIGIN, toolOrigin: TOOL })) {
   const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, canvas });
-  const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': tamber.token }, socket: { remoteAddress: '127.0.0.1' } });
-  let status = 0, text = '';
-  const res = { writeHead(s) { status = s; }, write(t) { text += t; }, end(t) { text += t ?? ''; }, destroyed: false, writableEnded: false };
-  queueMicrotask(() => req.end('{"method":"canvas"}'));
-  await tamber.handle(req, res, new URL('/__tamber', 'http://x'), { allowed: true, local: true });
-  expect(status).toBe(200);
-  expect(JSON.parse(text)).toEqual({ ok: { url: `${ORIGIN}/canvas/x/`, grant: 'g' } });
-  expect(given).toBe(tamber.token);
-  await tamber.close();
+  const wire = createServer(), port = createServer();
+  await listening(wire); await listening(port);
+  const wireBase = `http://127.0.0.1:${wire.address().port}`;
+  const gate = developmentGate([{ origin: wireBase }], wire.address().port);
+  let remote = null, peers = 0;
+  wire.on('request', async (req, res) => { if (!(await tamber.handle(req, res, new URL(req.url, 'http://x'), remote ?? gate.check(req)))) { res.writeHead(404); res.end(); } });
+  if (tamber.canvas) port.on('request', (req, res) => { tamber.canvas.handle(req, res, new URL(req.url, 'http://x')); });
+  const local = (await (await fetch(`${wireBase}/__tamber/token`)).json()).token;
+  await tamber.ready;
+  const post = async (request, token = local, path = '/__tamber', peer = null) => {
+    remote = peer ? { local: false, remote: true, peer } : null;
+    try {
+      const res = await fetch(`${wireBase}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { 'x-exact-tamber-token': token } : {}) }, body: JSON.stringify(request) });
+      const text = await res.text();
+      let body = {};
+      try { body = JSON.parse(text); } catch {}
+      return { status: res.status, ...body };
+    } finally { remote = null; }
+  };
+  const pair = async (scope, name) => {
+    const { code } = (await post({ method: 'pair-code', scope, name })).ok;
+    return (await post({ code }, null, '/__tamber/pair', `203.0.113.${++peers}`)).ok;
+  };
+  const at = (path, init = {}) => fetch(`http://127.0.0.1:${port.address().port}${path}`, { redirect: 'manual', ...init });
+  const stop = async () => { await tamber.close(); for (const s of [wire, port]) { s.closeAllConnections?.(); s.close(); } };
+  return { tamber, post, pair, at, local, stop };
+}
+
+test('with stage 10 A: `canvas` through the real dispatcher (read), enter, proxy, and A\'s revoke ending the stream and the next request', async () => {
+  const w = await wired();
+  try {
+    const p = await w.pair('read', 'phone');
+    expect(p.client).toBe('remote:phone#1');
+    // Minted over the wire as a remote request, the paired token in its header only.
+    const minted = await w.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.9');
+    expect(minted.status).toBe(200);
+    expect(minted.ok.url).toBe(`${ORIGIN}/canvas/remote%3Aphone%231/`);
+    const entry = await w.at(new URL(minted.ok.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${minted.ok.grant}` });
+    expect(entry.status).toBe(303);
+    const cookie = entry.headers.get('set-cookie').split(';')[0];
+    expect((await w.at('/', { headers: { cookie } })).status).toBe(200);
+    const sse = await w.at('/__dev/page', { headers: { cookie } });
+    const reader = sse.body.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain(`"page":"${ORIGIN}/"`);
+    expect(w.tamber.canvas.live).toBe(1);
+    // A's revoke, by the local tool.
+    closed.length = 0;
+    const t0 = performance.now();
+    expect((await w.post({ method: 'revoke', client: p.client })).ok).toEqual({ revoked: p.client });
+    const ended = await Promise.race([reader.read().then(r => (r.done ? 'done' : 'more'), () => 'cut'), new Promise(ok => setTimeout(() => ok('open'), 2000))]);
+    expect(['done', 'cut']).toContain(ended);
+    expect(performance.now() - t0).toBeLessThan(1000);
+    while (!closed.includes('/__dev/page') && performance.now() - t0 < 2000) await new Promise(ok => setTimeout(ok, 5));
+    expect(closed).toContain('/__dev/page');
+    expect(w.tamber.canvas.live).toBe(0);
+    expect((await w.at('/', { headers: { cookie } })).status).toBe(404);
+    // Its token is told it was revoked; no grant for it.
+    expect((await w.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.9')).status).toBe(401);
+  } finally { await w.stop(); }
+});
+
+test('with stage 10 A: a propose client mints (canvas is read) but is refused the write routes; the local token, no token and no gateway as the table says', async () => {
+  const w = await wired();
+  try {
+    const p = await w.pair('propose', 'tablet');
+    const minted = await w.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.10');
+    expect(minted.status).toBe(200);
+    const entry = await w.at(new URL(minted.ok.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${minted.ok.grant}` });
+    const cookie = entry.headers.get('set-cookie').split(';')[0];
+    expect((await w.at('/', { headers: { cookie } })).status).toBe(200);
+    for (const path of ['/__dev/design', '/__dev/checkpoint?id=1-2-3-4&seq=1', '/__dev/open']) {
+      const refused = await w.at(path, { method: 'POST', headers: { cookie, origin: ORIGIN }, body: '{}' });
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toMatchObject({ scope: 'propose', needs: 'write' });
+    }
+    // A write client passes the same route.
+    const wr = await w.pair('write', 'desk');
+    const m2 = (await w.post({ method: 'canvas' }, wr.token, '/__tamber', '198.51.100.11')).ok;
+    const c2 = (await w.at(new URL(m2.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${m2.grant}` })).headers.get('set-cookie').split(';')[0];
+    expect((await w.at('/__dev/design', { method: 'POST', headers: { cookie: c2, origin: ORIGIN }, body: '{}' })).status).toBe(200);
+    // The local token passes the table (read) and is told the canvas is a paired client's.
+    const local = await w.post({ method: 'canvas' });
+    expect([local.status, local.error.message]).toEqual([400, '`canvas` is a paired client\'s: the local tool frames the dev loop itself']);
+    // No token, or an unknown one: the wire's not-found, before any method.
+    expect((await w.post({ method: 'canvas' }, null)).status).toBe(404);
+    expect((await w.post({ method: 'canvas' }, randomBytes(32).toString('hex'), '/__tamber', '198.51.100.12')).status).toBe(404);
+    // The local token through B's listener is no one.
+    expect((await w.post({ method: 'canvas' }, w.local, '/__tamber', '198.51.100.13')).status).toBe(404);
+  } finally { await w.stop(); }
+  // A server with no gateway answers so.
+  const bare = await wired(null);
+  try {
+    const p = await bare.pair('read', 'x');
+    const none = await bare.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.14');
+    expect([none.status, none.error.message]).toEqual([404, 'this server has no canvas gateway']);
+  } finally { await bare.stop(); }
 });
 
 test('a write client\'s checkpoint takes the loop\'s own cap; every other body 1 MiB', async () => {

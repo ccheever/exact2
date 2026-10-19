@@ -4290,8 +4290,11 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
     with the client's name, never a secret) all of them are aborted, so the client's streams close and the loop's long poll ends. The
     client's sessions and grants are deleted, and its next request is not-found.
   - `close()` unsubscribes.
-- **The server:** `tamberServer({canvas})` answers `canvas` with the gateway's `mint` for the request's token, behind
-  a marked seam until A's dispatcher and METHOD_SCOPE land.
+- **The server:** `tamberServer({canvas: pairing => canvasGateway({loop, pairing, origin, toolOrigin})})` makes the
+  gateway from the run's pairing and returns it (`canvas`, for B's canvas port to call `handle`); `close()` closes
+  it. `canvas` is in A's METHOD_SCOPE as `read`, so A's dispatcher checks its scope like any method's. It then mints
+  for the paired token the request came with. The local token passes the table but has no paired token, so it is
+  answered 400 (the local tool frames the dev loop itself). With no gateway, the answer is 404.
 - **Tests** (`tamber-canvas.test.mjs`, a fake pairing and a fake loop on loopback, plain HTTP):
   - the route table;
   - mint, entry, the cookie's exact attributes, 303, the page proxied;
@@ -4309,13 +4312,16 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
   - the mint rate limit, and `close()` unsubscribing;
   - a `write` client's checkpoint between 1 MiB and the cap passes and one over it is 413, as is any other body over
     1 MiB, none reaching the loop;
-  - the server's `canvas` seam.
+  - with A's real pairing and dispatcher (a stand-in design server, the real wire): `canvas` minted by a remote
+    paired client, entry, a proxied page and SSE stream, A's `revoke` ending the stream and the loop's request at
+    once, the next request not-found and the token's next `canvas` 401; a `propose` client minting but refused the
+    `write` routes while a `write` client passes; the local token 400, no or an unknown token not-found, the local
+    token through B's listener not-found, a server with no gateway 404.
 - **What waits on A and B:**
-  - **A (reload1):** built to A's shapes on x2/s10a: `pairing` is `tamberServer(...).pairing` (`lookup`, `onEnd`,
-    which calls back at once for a client already ended), and `limiter` and `allows` are injected, defaulting to
-    `scripts/tamber-pairing.mjs`'s exports once A lands. `canvas: 'read'` joins METHOD_SCOPE, and the two-line seam
-    moves into A's dispatcher. Whether the local token may mint
-    is A's `lookup`'s answer.
+  - **A (reload1): landed.** The gateway runs on the run's pairing (`tamberServer(...).pairing`: each request acts
+    as `lookup`'s client, and `onEnd`, at once for a client already ended, ends its streams). `limiter` and
+    `allows` default to `scripts/tamber-pairing.mjs`'s. `canvas: 'read'` is in METHOD_SCOPE, and the method is
+    answered in A's dispatcher (the early seam is gone).
   - **B (rt1):** the canvas's second TLS port gives `handle` its requests and the gateway its `origin`; the tool's
     remote origin is `toolOrigin`. The real-Chrome checks wait on B: the SameSite=Strict cookie reaching the framed
     canvas (the two origins differ only by port), the framed canvas unable to read the tool's origin, revoke closing

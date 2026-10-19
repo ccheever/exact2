@@ -52,6 +52,7 @@
 //   destroyed), and its sessions and grants deleted. A session evicted past
 //   the cap ends its own; a client has at most 32 in flight.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { allows as pairingAllows, limiter as pairingLimiter } from './tamber-pairing.mjs';
 
 export const CANVAS_COOKIE = '__Host-exact-canvas';
 export const GRANT_MS = 30_000;
@@ -235,14 +236,16 @@ const put = async (res, chunk, signal) => {
 };
 
 /** The gateway for the dev loop at `loop` (its loopback origin), served on
- * `origin` (the canvas's public origin), framed by `toolOrigin`. A's
- * interface (scripts/tamber-pairing.mjs): `pairing` is the run's, as
- * `tamberServer(...).pairing` returns it (`lookup`, `onEnd`); `limiter`
- * (`limiter({rate, per, clock}) → {take, wait}`) and `allows(scope, needs,
- * local)` are that module's exports. TODO(stage 10 A): default `limiter` and
- * `allows` to them once it lands. `log` hears each client's end and its
- * reason (`'revoked'` or `'expired'`), never a secret. */
-export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = Date.now, limiter, allows, log = () => {} }) {
+ * `origin` (the canvas's public origin), framed by `toolOrigin`. Stage 10
+ * A's interface (scripts/tamber-pairing.mjs): `pairing` is the run's, as
+ * `tamberServer(...).pairing` returns it. Each request acts as `lookup`'s
+ * client for the session's token, and `onEnd` (at once for a client already
+ * ended) ends its streams. `limiter` and `allows` are that module's.
+ * `log` hears each client's end and its reason (`'revoked'` or
+ * `'expired'`), never a secret. A server makes it with
+ * `tamberServer({canvas: pairing => canvasGateway({loop, pairing, origin,
+ * toolOrigin})})`, and answers `canvas` with its `mint`. */
+export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = Date.now, limiter = pairingLimiter, allows = pairingAllows, log = () => {} }) {
   if (typeof limiter !== 'function' || typeof allows !== 'function') throw new TypeError('canvasGateway takes A\'s `limiter` and `allows`');
   // One bucket per client, for grant minting.
   const mints = limiter({ ...MINT_RATE, clock: now });

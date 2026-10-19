@@ -107,7 +107,7 @@ const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, 
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
 const GONE = 'this paired client was revoked or its token expired';
-export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code']);
+export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -148,7 +148,8 @@ function spawnContract(appDir) {
  * `pairTtlMs` is a paired token's lifetime (`--pair-ttl`), `clock` the
  * pairing's time (tests), `remote()` the run's open remote doors (stage 10
  * B's `list()`), shown with each pairing code. The returned `pairing` is the
- * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`). */
+ * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`); `canvas(pairing)`
+ * makes that gateway (scripts/tamber-canvas.mjs), which `canvas` answers. */
 export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = null }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
@@ -451,6 +452,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // rate-limit hit is logged with its peer and told to the clients without
   // it, never with a code.
   const pairs = pairing({ ttlMs: pairTtlMs, clock, say: w => { log(`tamber: pairing: ${w.what}${w.peer ? ` (from ${w.peer})` : ''}${w.why ? `: ${w.why}` : ''}`); send({ event: 'pairing', seq: ++seq, epoch, what: w.what }); } });
+  const gateway = canvas ? canvas(pairs) : null;
   // A build's report (a registration replays pins, inspect and holds) comes
   // after every paired client past its deadline has ended, as a request does.
   const reportFrom = channel.report;
@@ -475,7 +477,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // no one, as is any request through B's listener or a tunnel.
     if (access?.local === true && tokenOf(req)) return { scope: scopeOf(req), local: true, client: null };
     const paired = pairs.lookup(String(req.headers['x-exact-tamber-token'] ?? ''));
-    return paired ? { scope: paired.scope, local: false, client: paired.client } : null;
+    return paired ? { scope: paired.scope, local: false, client: paired.client, token: String(req.headers['x-exact-tamber-token']) } : null;
   };
   const wasRevoked = req => revokedTokens.has(createHash('sha256').update(String(req.headers['x-exact-tamber-token'] ?? '')).digest('hex'));
   async function handle(req, res, url, access) {
@@ -582,8 +584,6 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (!res.writableEnded && !res.destroyed) answer();
       return true;
     }
-    // Stage 10 C (scripts/tamber-canvas.mjs); TODO(A): `canvas: 'read'` in METHOD_SCOPE, then in dispatch.
-    if (request?.method === 'canvas' && canvas) { const r = canvas.mint(String(req.headers['x-exact-tamber-token'])); json(res, r.ok ? 200 : r.status, r.ok ? { ok: r.ok } : { error: r.error }); return true; }
     if (!request || !METHODS.has(request.method)) {
       json(res, 400, { error: { message: `a request is an object whose method is one of ${[...METHODS].join(', ')}` } });
       return true;
@@ -592,7 +592,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     let reply;
     // A request the server can't take (one too deeply nested to send on,
     // say) is refused, never an uncaught failure.
-    try { reply = await dispatch(request, scope, who.local); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
+    try { reply = await dispatch(request, scope, who.local, who.token); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
     json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
     return true;
@@ -644,7 +644,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
-  async function dispatch(request, scope, local = false) {
+  async function dispatch(request, scope, local = false, paired = null) {
     // Every method's scope, in one place, before any handler: none is no
     // method this wire serves (fail closed; scripts/tamber-pairing.mjs).
     const need = needs(request, id => proposals.get(id)?.client ?? null);
@@ -652,6 +652,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!allows(scope, need, local)) return refusal(request.method, scope, need);
     // Presence is also checked as requests come, not only every 5 s.
     absent();
+    // A paired client's canvas grant (stage 10 C), for the token it came with.
+    if (request.method === 'canvas') return !gateway ? { status: 404, error: { message: 'this server has no canvas gateway' } } : paired ? gateway.mint(paired) : { status: 400, error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } };
     if (request.method === 'pair-code') {
       // Beside the code, where a remote client reaches this server and the certificate it checks (1.13).
       const minted = pairs.mint({ scope: request.scope, name: request.name }), doors = minted.ok ? remote() : [];
@@ -1101,6 +1103,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
 
   function close() {
+    gateway?.close();
     pairs.close();
     clearTimeout(timer);
     clearInterval(absence);
@@ -1128,7 +1131,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // `compete()`: the dev loop's build of an edit the watcher does not see
   // (a Contract source's), which ends a scrub as a hand edit does.
   // `pairing`: the run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`; scripts/tamber-pairing.mjs).
-  return { handle, close, ready, channel, pairing: pairs, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
+  return { handle, close, ready, channel, pairing: pairs, canvas: gateway, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
 }
 
 /** The app directory an argument names (a directory, or a file in it). */

@@ -56,6 +56,8 @@ export const METHOD_SCOPE = Object.freeze({
   clients: 'local',
   revoke: 'local',
   'pair-code': 'local',
+  // Stage 10 C's gateway grant (scripts/tamber-canvas.mjs): seeing the canvas is reading.
+  canvas: 'read',
 });
 
 /** Whether a client of `scope` may do what `needs`: `local` needs the local
