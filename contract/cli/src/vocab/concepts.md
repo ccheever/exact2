@@ -141,7 +141,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar
+names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -189,8 +189,11 @@ component App
   `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
   path("recipe", name)) : push(nav, path("recipe", name))`.
 - Each route keeps its own scroll: a pushed screen opens at its top, and Back returns to the
-  list where it was left. Build locations with `path("recipe", name)`; a route's parameters
-  are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
+  list where it was left. What an `if` swaps inside one route's scroll keeps that scroll's
+  place, as a web page's does, so the stages a person moves through (a quiz's start, its
+  questions, its results) are routes too; swapped by a state, the next stage opens where the
+  last was scrolled to, part way down and under the bar. Build locations with
+  `path("recipe", name)`; a route's parameters are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
   over the screen is a sheet (`contract vocab modal`).
 - A welcome shown at first launch only is not a second route: the main screen is the root
   route and shows the welcome while a `persist` flag is unset (docs/recipes/first-launch.md).
