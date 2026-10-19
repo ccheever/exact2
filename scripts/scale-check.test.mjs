@@ -157,7 +157,11 @@ test('a box\'s gap, height and named lengths are checked through the names given
     { testId: 'row', between: ['a', 'b'], gap: 'space.md' },
     { testId: 'header', height: 'space.header' },
     { testId: 'row', between: ['a', 'b'], gap: 'space.lg' },
+    // Aligned on neither axis: refused unless its axis is named.
+    { testId: 'row', between: ['b', 'header'], gap: 40 },
+    { testId: 'row', between: ['b', 'header'], gap: 40, axis: 'column' },
   ] }, (name) => names[name]);
-  expect(rows.map(r => r.ok)).toEqual([true, true, false]);
+  expect(rows.map(r => r.ok)).toEqual([true, true, false, false, true]);
   expect(rows[2].why).toContain('is no number');
+  expect(rows[3].why).toContain('aligned on neither axis');
 });

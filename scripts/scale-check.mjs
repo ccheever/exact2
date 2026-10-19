@@ -187,8 +187,13 @@ export function check(host, layout, image, expect, base = () => undefined) {
       const [a, b] = (Array.isArray(want.between) ? want.between : []).map(id => (typeof id === 'string' && id ? nodes.find(n => n.testId === id) : null));
       if (!a || !b) fail(`its children ${JSON.stringify(want.between)} are not both in the layout`);
       else {
-        row.gap = Math.abs(b.y - a.y) < 0.5 ? b.x - (a.x + a.w) : b.y - (a.y + a.h);
-        if (Math.abs(row.gap - gap) > 0.5) fail(`gap ${row.gap}, expected ${gap}`);
+        // Across the axis it names, or the one its children are aligned on.
+        const axis = want.axis ?? (Math.abs(b.y - a.y) < 0.5 ? 'row' : Math.abs(b.x - a.x) < 0.5 ? 'column' : null);
+        if (axis !== 'row' && axis !== 'column') fail('its children are aligned on neither axis: name its `axis` (row or column)');
+        else {
+          row.gap = axis === 'row' ? b.x - (a.x + a.w) : b.y - (a.y + a.h);
+          if (Math.abs(row.gap - gap) > 0.5) fail(`gap ${row.gap}, expected ${gap}`);
+        }
       }
     }
     const height = named(pick(want.height, host));
@@ -222,7 +227,8 @@ export function check(host, layout, image, expect, base = () => undefined) {
 
 function drive(host, plan, png, steps = []) {
   const run = spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, '--plan', plan, '--storage', 'scale-check', '--reset-storage', '--json', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
-  const line = (run.stdout ?? '').split('\n').find(l => l.startsWith('{') && l.includes('"nodes"'));
+  // The last layout: the one after the steps.
+  const line = (run.stdout ?? '').split('\n').findLast(l => l.startsWith('{') && l.includes('"nodes"'));
   if (run.error || run.status !== 0 || !line) throw new Error(`the drive failed${run.error ? ` (${run.error.message})` : run.signal ? ` (${run.signal})` : ''}\n${run.stdout ?? ''}${run.stderr ?? ''}`);
   return JSON.parse(line);
 }
@@ -263,7 +269,7 @@ if (import.meta.main) {
   try {
     // (A plan with no design has none of its own.)
     if (ir.status === 0) overrides = overridesOf(JSON.parse(ir.stdout), schema.scale.map(r => r[0]));
-    else if (!/no design|no `?\.tamber|declares no design/i.test(`${ir.stdout}${ir.stderr}`)) throw new Error(`contract tamber ir: ${ir.stdout}${ir.stderr}`);
+    else if (!/^contract tamber: \S+ has no design \(an app\.tamber, or the file app\.json's "tamber" names\)$/m.test(`${ir.stdout}${ir.stderr}`)) throw new Error(`contract tamber ir: ${ir.stdout}${ir.stderr}`);
   } catch (e) { console.error(e.message); process.exit(1); }
   const base = (name, host) => baseLength(schema, overrides, name, host);
   // The first frame, then each `then`'s steps from a fresh launch.
