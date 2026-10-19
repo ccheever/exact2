@@ -13,7 +13,7 @@
 // lands on the cell or accessory UIKit draws, not the hidden authored node.
 //   bun scripts/smoke-touch.mjs [--build] [--sim <udid|name>]
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
@@ -22,6 +22,12 @@ import { appleArtifacts } from '../host/apple/build.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const shell = (command, args) => {
+  const result = spawnSync(command, args, {cwd: ROOT, encoding: 'utf8'});
+  if (result.status !== 0) throw Error(`${command} ${args.join(' ')}: ${result.stderr || result.stdout}`);
+  return result.stdout.trim();
+};
+const simctl = (...args) => shell('xcrun', ['simctl', ...args]);
 if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') + 1];
 if (argv.includes('--build')) {
   const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple'], { cwd: ROOT, stdio: 'inherit' });
@@ -77,6 +83,7 @@ for (const timing of ['agent', 'platform']) {
     const up = await s.pointer('up');
     check(down.delivery === 'platform' && up.delivery === 'platform' && up.touch?.type === 'direct' && up.touch.ended - up.touch.began > 0.5, `${timing}: a held contact was not one real touch held 600 ms: ${JSON.stringify({ down, up })}`);
     console.log(`${timing}: taps ${taps.join(', ')} ms`);
+    if (timing === 'agent') await archiveActivities(s, process.env.EXACT_SIM);
   } catch (error) {
     check(false, `${timing}: ${error.message}`);
   } finally { await s.close(); }
@@ -111,3 +118,84 @@ for (const timing of ['agent', 'platform']) {
 console.log(`touch smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const f of failures) console.error(`FAIL ios-touch ${f}`);
 process.exit(failures.length ? 1 : 0);
+
+// LLP 1126.001 WP14: compare the system archive on the touch step's own session.
+async function archiveActivities(s, udid) {
+  const dir = resolve(ROOT, 'target/ios-touch-archive');
+  mkdirSync(dir, {recursive:true});
+  const start = performance.now(), comparisons = [];
+  const spring = (action, rest = {}) => s.springboard({action, ...rest});
+  const elements = tree => [tree, ...(tree.children ?? []).flatMap(elements)];
+  const labels = tree => tree.nodes.flatMap(node => {
+    if (node.props.semanticTag === 'time' || node.type === 'time') return [];
+    const label = node.props.accessibilityLabel || (node.type === 'text' ? node.lines.map(line => line.text.trimEnd()).join(' ') : '');
+    return label ? [label] : [];
+  });
+  const record = (name, value) => writeFileSync(resolve(dir, `${name}.json`), JSON.stringify(value, null, 2));
+  async function archive(name, expected, locked = false) {
+    if (!expected.length) throw Error(`${name}: no stable gallery labels to compare`);
+    const deadline = performance.now() + 12_000;
+    let tree, missing, lockMissing;
+    do {
+      ({tree} = await spring('tree'));
+      const nodes = elements(tree);
+      missing = expected.filter(label => !nodes.some(node => node.label === label));
+      lockMissing = locked && (!nodes.some(n => n.identifier === 'SBCoverSheetWindow') || !nodes.some(n => n.identifier === 'proud-lock') || !nodes.some(n => n.label === 'Swipe up to unlock'));
+      if (!missing.length && !lockMissing) break;
+      await Bun.sleep(100);
+    } while (performance.now() < deadline);
+    record(name, tree);
+    simctl('io', udid, 'screenshot', resolve(dir, `${name}.png`));
+    if (missing.length || lockMissing) throw Error(`${name}: after 12 s, missing exact element labels ${JSON.stringify(missing)}${lockMissing ? '; locked cover sheet was not exposed' : ''}`);
+    comparisons.push({name, labels:expected});
+    return tree;
+  }
+  async function resume(context) {
+    await spring('app');
+    let timer;
+    try {
+      await Promise.race([s.state(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('the app did not answer state within 5 s')), 5000); })]);
+    } catch (error) { throw Error(`${context}: the agent session did not resume after Home/lock: ${error.message}`); }
+    finally { clearTimeout(timer); }
+  }
+  for (const kind of ['departure', 'service-alert']) {
+    let background = false;
+    try {
+      const alive = (await s.state()).resources.activities.activities;
+      for (const previous of ['departure','service-alert']) if (alive.some(a => a.kind === previous && ['active','stale'].includes(a.activityState))) {
+        await s.tap(previous === 'departure' ? 'end-activity' : 'end-alert'); await s.clock('data');
+      }
+      await s.tap(kind === 'departure' ? 'start-activity' : 'start-alert');
+      await s.clock('data');
+      const started = (await s.state()).resources.activities.activities.find(a => a.kind === kind && ['active','stale'].includes(a.activityState));
+      if (!started) throw Error(`${kind}: Caltrain did not start the activity`);
+      const gallery = {};
+      for (const placement of ['lockScreen','compactLeading','compactTrailing','minimal','expanded']) {
+        const activity = {entry:kind, placement, state:started.state};
+        gallery[placement] = await s.op({op:'tree', activity});
+        record(`${kind}-gallery-${placement}`, gallery[placement]);
+        await s.op({op:'screenshot', activity, path:resolve(dir, `${kind}-gallery-${placement}.png`)});
+      }
+      background = true;
+      await spring('home');
+      const leading = labels(gallery.compactLeading), trailing = labels(gallery.compactTrailing);
+      await archive(`${kind}-compact`, [...leading, ...trailing]);
+      const found = await spring('find', {label:leading[0]});
+      if (!found.elements.some(n => n.label === leading[0] && n.frame[1] < 100)) throw Error(`${kind}: no compact Island element labelled ${JSON.stringify(leading[0])}`);
+      await spring('hold', {point:[201,32], seconds:1.2});
+      await archive(`${kind}-expanded`, labels(gallery.expanded));
+      await spring('tap', {point:[20,400]});
+      await spring('swipe', {point:[15,2], to:[15,650]});
+      await archive(`${kind}-lockScreen`, labels(gallery.lockScreen));
+      await spring('lock'); await spring('home');
+      await archive(`${kind}-locked`, labels(gallery.lockScreen), true);
+      await spring('swipe', {point:[200,850], to:[200,200]});
+      await resume(kind); background = false;
+      await s.tap(kind === 'departure' ? 'end-activity' : 'end-alert'); await s.clock('data');
+    } finally {
+      if (background) await resume(`${kind} archive cleanup`);
+      record('result', {milliseconds:performance.now() - start, comparisons});
+    }
+  }
+  console.log(`activity archive: ${comparisons.length} exact-label comparisons in ${((performance.now() - start) / 1000).toFixed(1)} s`);
+}
