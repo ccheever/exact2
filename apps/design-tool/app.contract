@@ -1291,10 +1291,13 @@ component DesignTool
                           text r.source color="-exact-secondary-label" font="-exact-caption1"
                           if r.token != ""
                             button press=editFromSelection(r.token, r.column, inspected.place) testId=`heldrow-link-${r.name}`
-                              text (r.state != "" ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
+                              text ((r.state != "" or r.edit != "") ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
                           if r.state != ""
                             button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
                               text r.stateLabel
+                          if r.edit != ""
+                            button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
+                              text r.editLabel
                           if r.reason != ""
                             text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
                   for r in inspected.rows key=r.name

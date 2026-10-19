@@ -1417,6 +1417,7 @@ test "a row its author wrote is edited by set-row, the default: this template (e
   expect text "selrow-row-color" == "Edit style Panel"
   tap "selrow-row-background-color"
   expect state editKind == "set-row"
+  expect state editTarget == "{\"file\":\"card.contract\",\"at\":{\"line\":3,\"col\":9},\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"row\":\"background-color\"}"
   expect state editValue == "surface.card"
   expect text "row-label" == "This template · 2 instances: background-color"
   // A value the app does not build with: the server's refusal, nothing written.
@@ -1436,6 +1437,7 @@ test "a row its author wrote is edited by set-row, the default: this template (e
   clock +1
   clock data
   tap "selrow-row-color"
+  expect state editTarget == "{\"style\":\"Panel\",\"row\":\"color\",\"file\":\"styles.contract\"}"
   expect state editValue == "red"
   expect text "row-label" == "Style Panel: color"
   type "state-value" "blue"
@@ -1505,6 +1507,16 @@ test "a template row moves to a new param or token, and a param row detaches to 
   tap "apply"
   clock data
   expect text "undo" == "Undo (3)"
+  // A param another row still reads: detached here, its declaration kept (the server says the other reads it).
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 5, "site": 4, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 11, "col": 5, "end_col": 8, "component": "MapCard", "chain": []}, "rows": [{"name": "opacity", "value": "0.5", "source": "authored", "origin": "own", "token": {"names": ["app.tamber#MapCard.zoom"], "text": "app.tamber#MapCard.zoom", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.tamber#MapCard.zoom", "short": "MapCard.zoom", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 11, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "opacity", "instances": 1, "text": "MapCard.zoom"}}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-detach-opacity"
+  clock data
+  expect tree missing "proposal-error"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (4)"
   request POST "/__stub/restart" {} as ada
 
 test "the inspector places a light copy on the light column, and a build whose scheme is not known, or that went, offers no edit"

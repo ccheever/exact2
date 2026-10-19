@@ -39,12 +39,12 @@ const RESOLVES_AT_ONCE = 4;
 const NO_SERVER = `No design server answers at ${API}. Start one for your app with \`bun exact.mjs tamber tool <app>\`, then try again.`;
 
 type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
-type Reply = { ok?: any; error?: { message?: string; diagnostics?: Diagnostic[] } };
+type Reply = { ok?: any; error?: { message?: string; diagnostics?: Diagnostic[]; hint?: string } };
 /** A refusal's words: its message, and each diagnostic's file, line, id
  * and explanation, which say what to correct. */
 const refusal = (error: Reply['error'], status: number) => {
   const said = (error?.diagnostics ?? []).map(d => (typeof d === 'string' ? d : `${d.file ?? ''}${d.line ? `:${d.line}` : ''} ${d.id ?? ''}: ${d.message ?? ''}`.trim()));
-  return [error?.message ?? `The design server refused the request (${status}).`, ...said].join('\n');
+  return [error?.message ?? `The design server refused the request (${status}).`, ...said, ...(error?.hint ? [error.hint] : [])].join('\n');
 };
 let token: string | null = null;
 // One ask at a time: the first reads start together.
@@ -226,7 +226,7 @@ function opsOf(file: string, kind: string, target: string, when: string, value: 
   return p && p.set === null ? [{ op: 'set-param', name: lineName(target), when: [], value: p.default }, op] : [op];
 }
 // Whether `opsOf` read the params of the design these digests are of.
-const paramsOf = (kind: string, when: string, files: Record<string, string>) => !(kind === 'set-param' && when) || appParamsKey === digestKey(files);
+const paramsOf = (kind: string, when: string, files: Record<string, string>) => !((kind === 'set-param' && when) || kind === 'detach-param') || appParamsKey === digestKey(files);
 function opOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown> {
   const on = file ? { file } : {};
   switch (kind) {
@@ -823,8 +823,8 @@ const sources: Sources = {
     if (!ops.length && kind === 'detach-param') return { ...idle, ok: false, error: 'This param is set by the app\'s design, or its default reads another param: unset it, or give it a value of its own, before detaching it.' };
     if (!ops.length) return { ...idle, ok: false, error: `${lineName(target)}'s default reads another param, which its line can't: give it a value of its own first, then Only this mode.` };
     let { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
-    for (let n = 0, t: any = null, more: string[]; kind === 'detach-param' && error && n < 4 && (more = unread(error, target, ops)).length; n++)
-      ({ error, reply, used } = await call('/__tamber', { method: 'propose', ops: ops = moveOps(file, kind, (t = { ...(t ?? JSON.parse(target)), extra: [...(t?.extra ?? []), ...more] }), '', appParams, appKinds) })); // (a detach's closure, as the server names it, D6)
+    for (let n = 0, t: any = null, u: { more: string[]; keep: boolean }; kind === 'detach-param' && error && n < 4 && ((u = unread(error, target, ops)).more.length || (u.keep && !t?.keep)); n++)
+      ({ error, reply, used } = await call('/__tamber', { method: 'propose', ops: ops = moveOps(file, kind, (t = { ...(t ?? JSON.parse(target)), keep: t?.keep || u.keep, extra: [...(t?.extra ?? []), ...u.more] }), '', appParams, appKinds) })); // (a detach's closure, as the server names it, D6)
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // A param's first `when` line was planned from the params of another revision than this proposal's: asked again once the design is read.
