@@ -1227,7 +1227,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         // The presenter's clock: the runner's frame tasks and timers, and
         // the hatches' tickets and `after`s.
-        if p.wants_frames() {
+        if p.wants_frames() && agent::clock(p).is_none() {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }

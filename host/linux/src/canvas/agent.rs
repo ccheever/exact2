@@ -78,6 +78,9 @@ pub(crate) fn own_time<D: DataSource + Default>(
 
 /// The clock the host's turns run at while a driver holds it, or from the
 /// boot of a driver's launch: the runner's. `None` otherwise: the wall's.
+/// While it is the runner's, a display turn presents no frame: frame tasks
+/// run at the driver's clock steps, as virtual frames, not once per display
+/// refresh at an unmoved time.
 pub(super) fn clock<D: DataSource>(p: &crate::presenter::Presenter<D>) -> Option<f64> {
     (driven() || SEEK.load(Ordering::Relaxed)).then(|| p.host().now())
 }
