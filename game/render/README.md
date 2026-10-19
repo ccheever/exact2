@@ -742,7 +742,8 @@ until it has, and the driver asks again.
   shadowed sun whose shadow passes wrote no texel into its maps
   (`no-shadow-casters`). Each
   writes a `look: …` line to the world's `logs` when it appears or its line changes
-  between judged frames (a particle tell is told apart by its draw's batch), and a
+  between judged frames (a particle tell is told apart by its draw's batch and
+  its index among that batch's draws), and a
   tell that recovers is logged again when it returns; it stays out of
   the world's journal, which a save carries, so a tell never changes a save. A
   measurement a tell reads that the frame could not take is a gap, listed in
@@ -816,10 +817,12 @@ until it has, and the driver asks again.
   of detail not drawn when the account marks it, and `lod-hidden` comes from the
   frame's level selection, its distance measured from where the frame drew the
   entity, with the selection's hysteresis, wherever the draw path applies it: a
-  direct frame draws level 0 whole and answers `drawn`); the CPU cull answers for
-  blended models; for sprites and emitters the quads' own decision this frame
-  answers: a texture not resident, outside the view by the quad's own extent about
-  its anchor, or drawn.
+  direct frame draws level 0 whole and answers `drawn`, or `custom-material` for a
+  kept-whole group); the CPU cull answers for blended models. A model with opaque
+  and blended parts is `drawn` if any part drew; when none did, the word is its
+  opaque parts', noting the blended parts dropped too. For sprites and emitters
+  the quads' own decision this frame answers: a texture not resident, outside the
+  view by the quad's own extent about its anchor, or drawn.
 - **Views**: the game's camera; an orbit at a yaw, pitch and distance from the
   centre of the scene; or an orthographic plan from above. An orbit or plan first
   reads a camera frame for the scene's bounds: the cull's sphere of every item it
