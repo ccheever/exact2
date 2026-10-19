@@ -70,6 +70,12 @@ const located = v => {
   const u = new URL(v, 'http://h.invalid');
   return !u.pathname.startsWith('//') && (u.pathname + u.search + u.hash).length <= 2048;
 };
+// A location `navigate` takes is one more: spelled as URLs and the router
+// write it already (RFC 3986's path, query and fragment characters but
+// `'`, which a query escapes; each `%` a whole escape), so the copy arrives at exactly that spelling and
+// nothing it routes to is escaped past the bound.
+const CANONICAL = /^\/(?:[A-Za-z0-9\-._~!$&()*+,;=:@/?#]|%[0-9A-Fa-f]{2})*$/;
+const routable = v => located(v) && CANONICAL.test(v);
 // The states a hold names (LLP 1122 D8), and why a build lets one go.
 const HELD = ['active', 'hover', 'focus-visible'], DROPS = ['input', 'disabled', 'gone', 'replaced'];
 
@@ -600,7 +606,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
      * T7). One-shot: nothing is held, replayed or cleared. The refusal, the
      * build's lack of it, or the seq sent. */
     navigate(client, id, location) {
-      if (!located(location)) return { error: '`location` is a path on the build\'s own origin (with its query and fragment, printable ASCII, at most 2 KiB): no scheme or host' };
+      if (!routable(location)) return { error: '`location` is a path on the build\'s own origin, with its query and fragment, at most 2 KiB and spelled as a URL writes it (RFC 3986\'s characters, each `%` a whole escape): no scheme or host' };
       sweep();
       const b = listed().find(b => b.id === id);
       if (!b) return { error: `no registered build \`${id}\`` };

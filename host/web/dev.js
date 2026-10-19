@@ -481,9 +481,8 @@ if (es) {
       if (url.origin !== location.origin || url.pathname.startsWith("//")) return refuse("the location is no path on this page's origin");
       // There once the router's entry is the route (an agent's launch keys
       // ride on its address, history.state.url has none) or the address is
-      // it, either as the router spells it (it encodes what a URL may not).
-      const to = url.pathname + url.search, spelled = (at) => { try { return decodeURI(at ?? "") === decodeURI(to); } catch { return at === to; } };
-      const there = () => spelled(pages?.state?.url) || spelled(location.pathname + location.search), before = pages?.state?.url;
+      // it. (The server sends a location spelled as the router writes it.)
+      const to = url.pathname + url.search, there = () => pages?.state?.url === to || location.pathname + location.search === to, before = pages?.state?.url;
       if (!there()) {
         if (typeof x.wasm?.exact_route_match !== "function" || x.wasm.exact_route_match(x.writeIn(to)) !== 1) return refuse(`${said(to)} is no route of this app`);
         const nav = document.getElementById("exact-root")?.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");

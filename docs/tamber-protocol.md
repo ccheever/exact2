@@ -1246,9 +1246,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
   write scope and a present client, and names a registered build (else 400) that can navigate
   (else 409 with `unsupported: "navigate"`; the design tool then reloads that copy's frame at
   the location instead). `location` must start with one `/` (not `//` or `/\`) and be
-  printable ASCII with no backslash (percent-encoded, as a page's own location is), at most
-  2 KiB as given and as a URL spells it once resolved (no dot segment may make it `//…`); any
-  other is 400. Each is journaled with its client
+  spelled as a URL and the router write it (RFC 3986's path, query and fragment characters but
+  `'`, each `%` a whole escape), at most 2 KiB as given and as a URL spells it once resolved (no
+  dot segment may make it `//…`); any other is 400. A status's `location` is any printable
+  ASCII path within the bound. Each is journaled with its client
   and answered `{navigated: true, build, seq}`. A navigation holds nothing on the build: there is
   nothing to replay when it registers again or to clear when its client goes. Only the latest
   waits in a polled stream's queue. A build's `unsupported` for it is its sender's event alone
