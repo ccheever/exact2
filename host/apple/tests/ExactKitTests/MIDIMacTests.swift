@@ -64,25 +64,32 @@ final class MIDIMacTests: XCTestCase {
         timer.cancel()
     }
 
-    /// How late the main queue runs a strict timer's handler while it runs:
-    /// the most any 10 ms beat came late. A loaded machine delays every
-    /// handler on main, a batch's drain among them; a coalesced drain is late
-    /// past what this measures, so a bound that adds it still catches one.
+    /// How late the main queue runs a strict timer's handler: each 10 ms
+    /// beat's lateness, by when it ran. A loaded machine delays every handler
+    /// on main, a batch's drain among them; a bound adds only the lag seen
+    /// while that batch waited. Its own wakeups can run a coalesced drain on
+    /// time, so the lone-tick test measures with it only around its wait.
     private final class MainLag {
         private let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
-        private var due = CACurrentMediaTime()
-        private(set) var most = 0.0
+        private var due: Double
+        private(set) var beats: [(at: Double, late: Double)] = []
         init() {
+            due = CACurrentMediaTime() + 0.010
             timer.schedule(deadline: .now() + 0.010, repeating: 0.010, leeway: .nanoseconds(0))
-            due += 0.010
             timer.setEventHandler { [unowned self] in
                 let now = CACurrentMediaTime()
-                most = max(most, now - due)
-                due = max(due + 0.010, now - 0.010)
+                beats.append((now, now - due))
+                // The expirations this handler stands for keep the timer's phase.
+                due += Double(max(1, timer.data)) * 0.010
             }
             timer.resume()
         }
-        func stop() -> Double { timer.cancel(); return most }
+        func stop() { timer.cancel() }
+        /// The most a beat that ran in `from...to` came late.
+        func most(_ from: Double, _ to: Double) -> Double {
+            beats.filter { (from...to).contains($0.at) }.map(\.late).max() ?? 0
+        }
+        var most: Double { beats.map(\.late).max() ?? 0 }
     }
 
     private func wait(_ seconds: Double, until done: () -> Bool = { false }) {
@@ -345,7 +352,7 @@ final class MIDIMacTests: XCTestCase {
         let lag = MainLag()
         wait(5) { self.lock.withLock { finished } }
         wait(0.2)
-        let late = lag.stop()
+        lag.stop()
         let got = messages(deliveries), all = got.flatMap(\.list), want = lock.withLock { sent.filter { $0.status != 0xFE } }
         XCTAssertEqual(all.map(\.status), want.map(\.status), "every tick, Start and Stop, in order; no Active Sensing")
         for (m, s) in zip(all, want) { XCTAssertEqual(m.ms, (s.at - ExactEnv.t0) * 1000, accuracy: 0.5, "stamped from its packet") }
@@ -356,7 +363,10 @@ final class MIDIMacTests: XCTestCase {
         // A main queue busy with the parallel test run adds its own latency
         // (83 ms seen; 470 ms at load 85): the bound is that no batch is held
         // a second time past what main's own lag explains.
-        for d in ticks { XCTAssertLessThan(d.at - (ExactEnv.t0 + d.list[0].ms / 1000), 0.100 + late, "nor held past a second batch (main \(late) s late)") }
+        for d in ticks {
+            let oldest = ExactEnv.t0 + d.list[0].ms / 1000, late = lag.most(oldest, d.at)
+            XCTAssertLessThan(d.at - oldest, 0.100 + late, "nor held past a second batch (main \(late) s late meanwhile)")
+        }
         let start = try XCTUnwrap(got.first { $0.list.contains { $0.status == 0xFA } })
         let fa = try XCTUnwrap(want.first { $0.status == 0xFA })
         XCTAssertLessThan(start.at - fa.at, 0.010, "Start at once")
@@ -416,12 +426,16 @@ final class MIDIMacTests: XCTestCase {
         output.apply(["ops": [["op": "open", "inputs": [input], "clock": [input]], ["op": "request"]]])
         wait(2) { deliveries.contains { $0.json.contains(input) } }
         wait(0.2)
-        for _ in 0..<3 {
-            // Main's lag is measured before and after, never while the tick
-            // waits: a wakeup of main then would run a late drain with it.
+        // Timed only on a quiet main queue: an attempt whose main lagged more
+        // than 20 ms just before or after its wait proves nothing either way,
+        // and its ceiling is never widened toward the coalesced 150 ms.
+        var timed = 0, worst = 0.0
+        for _ in 0..<12 where timed < 3 {
+            // Measured around the wait, never during it: a wakeup of main
+            // then would run a coalesced drain on time.
             let before = MainLag()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
-            var late = before.stop()
+            before.stop()
             deliveries.removeAll()
             let at = CACurrentMediaTime()
             system(0xF8, at: at)
@@ -429,12 +443,16 @@ final class MIDIMacTests: XCTestCase {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.4))
             let after = MainLag()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
-            late = max(late, after.stop())
+            after.stop()
+            let late = max(before.most, after.most)
+            worst = max(worst, late)
+            guard late <= 0.020 else { continue }
+            timed += 1
             let tick = try XCTUnwrap(messages(deliveries).first { $0.list.contains { $0.status == 0xF8 } })
             XCTAssertGreaterThan(tick.at - at, 0.040, "a lone tick waits for its batch")
-            // The clock test's bound: a busy run adds its own latency.
-            XCTAssertLessThan(tick.at - at, 0.100 + late, "and goes when its 50 ms are up, not a coalesced 150 later (main \(late) s late)")
+            XCTAssertLessThan(tick.at - at, 0.100, "and goes when its 50 ms are up, not a coalesced 150 later")
         }
+        if timed == 0 { throw XCTSkip("the main queue lagged past 20 ms around every attempt (\(worst) s): too loaded to time a batch") }
         output.shutdown()
     }
 
