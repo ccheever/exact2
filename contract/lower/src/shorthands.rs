@@ -811,17 +811,35 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<Vec<Expr>>, Lower
 
 /// A template's values, split as a literal's are, at CSS white space outside
 /// parentheses in its text: each the template of its pieces, or the literal
-/// it is with no interpolation. An interpolation is part of one value, so
-/// one holding white space reaches its row as a list, which the row refuses
-/// as it does `padding=pad` holding one. `None` for text holding the mark.
+/// it is with no interpolation. `None`, so the template is not split, unless
+/// each interpolation is plainly part of one value: outside parentheses, a
+/// literal one a single token (non-empty, no white space or parentheses),
+/// and in a value that also holds text or only such literals. A computed
+/// interpolation holding white space reaches its row as a list, which the
+/// row refuses as it does `padding=pad` holding one.
 fn template_words(parts: &[TemplatePart], span: Span) -> Option<Vec<Expr>> {
     const MARK: char = '\u{e000}';
-    let (mut text, mut exprs) = (String::new(), Vec::new());
+    let (mut text, mut exprs, mut depth) = (String::new(), Vec::new(), 0usize);
     for p in parts {
         match p {
             TemplatePart::Text(t) if t.contains(MARK) => return None,
-            TemplatePart::Text(t) => text.push_str(t),
+            TemplatePart::Text(t) => {
+                for c in t.chars() {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => depth = depth.checked_sub(1)?,
+                        _ => {}
+                    }
+                }
+                text.push_str(t);
+            }
             TemplatePart::Expr(e) => {
+                let token = |s: &str| {
+                    !s.is_empty() && !s.chars().any(|c| c.is_whitespace() || c == '(' || c == ')')
+                };
+                if depth > 0 || matches!(e, Expr::Str(s, _) if !token(s)) {
+                    return None;
+                }
                 text.push(MARK);
                 exprs.push(e);
             }
@@ -838,6 +856,15 @@ fn template_words(parts: &[TemplatePart], span: Span) -> Option<Vec<Expr>> {
             if !chunk.is_empty() {
                 pieces.push(TemplatePart::Text(chunk.into()));
             }
+        }
+        // A value of computed interpolations alone may be empty.
+        let known = |p: &TemplatePart| match p {
+            TemplatePart::Text(_) => true,
+            TemplatePart::Expr(e) => matches!(e, Expr::Str(..) | Expr::Number(..)),
+        };
+        let has_text = pieces.iter().any(|p| matches!(p, TemplatePart::Text(_)));
+        if !has_text && !pieces.iter().all(known) {
+            return None;
         }
         out.push(match pieces.as_slice() {
             [TemplatePart::Text(t)] => Expr::Str(t.clone(), span),

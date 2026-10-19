@@ -358,16 +358,20 @@ fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
     .unwrap_err();
     assert_eq!(e.id, "lower-attr-value", "{e}");
     assert!(e.message.contains("has 5"), "{e}");
-    // A value inside a function's parentheses is one, interpolation and all.
+    // A template is split only where each interpolation is plainly part of
+    // one value; a single value in parentheses is bound whole.
+    let src = |attr: &str| format!("component A\n  state pad = 16\n  view\n    box {attr}\n");
+    if let Err(e) = contract::compile(&src("padding=`calc(${\"10px + 2px\"})`")) {
+        panic!("{e}");
+    }
     for attr in [
-        "padding=`calc(${\"10px + 2px\"})`",
         "padding=`calc(${pad}px + 2px) 0`",
+        "padding=`10px ${\"\"} 20px`",
+        "border-radius=`${\"calc(100%\"} - 10px) auto`",
+        "padding=`${pad} ${pad}`",
     ] {
-        if let Err(e) = contract::compile(&format!(
-            "component A\n  state pad = 16\n  view\n    box {attr}\n"
-        )) {
-            panic!("{attr}: {e}");
-        }
+        let e = contract::compile(&src(attr)).unwrap_err();
+        assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");
     }
     // A template's values, each its own longhand's.
     let r = boot(
@@ -551,7 +555,8 @@ fn a_choice_of_corner_lists_sets_each_corner() {
 
 /// CSS's two-value shorthands are split as the box shorthands are: `gap`
 /// into row and column, `overflow` and `overscroll-behavior` into x and y,
-/// from a literal, a literal arm or a template; a concatenation is refused
+/// from a literal, a literal arm or a template whose values each hold text;
+/// another template and a concatenation are refused
 /// naming the longhands, and a third value is refused.
 #[test]
 fn two_value_shorthands_split_into_their_rows() {
@@ -561,7 +566,7 @@ fn two_value_shorthands_split_into_their_rows() {
         "`${g}px ${g * 2}px`",
     ] {
         let r = boot(&format!(
-            "component A\n  state on = true\n  state g = 8\n  state o = \"auto\"\n  view\n    column\n      box testId=\"x\" width=10 height=10 gap={value} overflow=(on ? `hidden ${{o}}` : \"visible\") overscroll-behavior=\"contain none\"\n"
+            "component A\n  state on = true\n  state g = 8\n  state o = \"auto\"\n  view\n    column\n      box testId=\"x\" width=10 height=10 gap={value} overflow=(on ? \"hidden auto\" : \"visible\") overscroll-behavior=\"contain none\"\n"
         ));
         let s = style_of(&r, "x");
         assert_eq!((s.row_gap, s.column_gap), (8.0, 16.0), "{value}");
@@ -579,6 +584,11 @@ fn two_value_shorthands_split_into_their_rows() {
     }
     for (attr, says) in [
         ("gap=`${g}px ` + \"4px\"", "write `row-gap`/`column-gap`"),
+        // A value of a computed interpolation alone may be empty: not split.
+        (
+            "overflow=(on ? `hidden ${o}` : \"auto\")",
+            "write `overflow-x`/`overflow-y`",
+        ),
         (
             "overscroll-behavior=\"none \" + o",
             "write `overscroll-behavior-x`/`overscroll-behavior-y`",

@@ -492,6 +492,12 @@ fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
     );
     let src = app("    nav = select(push(nav, url), \"patterns\")\n");
     assert_eq!(warned(&src), [(SELECT.to_string(), 7)]);
+    // The app's own `push` is no router verb.
+    let own = app("    nav = select(push(nav, url), \"patterns\")\n").replace(
+        "component App\n",
+        "fn push(r: Router, url: string): Router = r\ncomponent App\n",
+    );
+    assert_eq!(warned(&own), [], "{own}");
     for body in [
         "    nav = go(select(nav, \"patterns\"), url)\n",
         "    nav = open(nav, url)\n",
@@ -543,6 +549,19 @@ fn a_template_location_names_its_path() {
             panic!("{write}: {e}");
         }
     }
-    let e = refusal("`/elsewhere/${k}`");
-    assert!(e.message.ends_with("would make another location)"), "{e}");
+    // No route, or text a repair could not write back as it reads: the hint alone.
+    for location in [
+        "`/elsewhere/${k}`",
+        "`/day/\\${k}`",
+        "`/day/${k}?q=\\\\`",
+        "`/day/${k}?q=\\``",
+        "`/day/${\"a\\\"b\"}`",
+    ] {
+        let e = refusal(location);
+        assert_eq!(e.id, "route-template", "{location}: {e}");
+        assert!(
+            e.message.ends_with("would make another location)"),
+            "{location}: {e}"
+        );
+    }
 }

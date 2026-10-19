@@ -1013,8 +1013,9 @@ top-right, bottom-right, bottom-left; no `/` elliptical radii), as a literal or 
 literal arm; `gap` takes its row and column gaps, and `overflow` and
 `overscroll-behavior` their x and y values, the same way (`gap="8px 16px"`,
 `overflow="hidden auto"`). A template is split the same way at its own text's white space,
-each interpolation one value (`` border-radius=`${r}px ${r}px 0 0` ``: the top corners `r`).
-A list built otherwise (a concatenation, a `fn` that returns one) is refused
+each interpolation part of one value that also holds text, outside parentheses
+(`` border-radius=`${r}px ${r}px 0 0` ``: the top corners `r`). Another list (`` `${a} ${b}` ``,
+a concatenation, a `fn` that returns one) is refused
 (`lower-css-shorthand`): write the longhands, each of which may be computed. A computed
 single value (`padding=pad`) is every side's.
 An empty string on any style row declares nothing, as CSSOM's `setProperty(p, "")`:

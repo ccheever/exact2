@@ -193,11 +193,17 @@ pub(super) fn location(f: Stdlib, args: &[Expr], shapes: &Shapes) -> Result<(), 
 /// `` `/day/${d.key}` `` is `path("day", d.key)`. A query after it is
 /// concatenated, `path("open") + `?u=${u}``.
 fn path_call(parts: &[TemplatePart], table: &exact_route::Table) -> Option<String> {
+    // Text that reads the same written back in a string or a template: no
+    // escape, quote, backtick or `$` (the generic hint covers the rest).
+    fn plain(s: &str) -> bool {
+        !s.chars()
+            .any(|c| matches!(c, '\\' | '`' | '"' | '$') || c.is_control())
+    }
     fn written(e: &Expr) -> Option<String> {
         Some(match e {
             Expr::Ident(n, _) => n.clone(),
             Expr::Member(base, field, _) => format!("{}.{field}", written(base)?),
-            Expr::Str(s, _) => format!("{s:?}"),
+            Expr::Str(s, _) if plain(s) => format!("\"{s}\""),
             Expr::Number(n, _) => n.to_string(),
             Expr::Call(f, args, _) => {
                 let args = args.iter().map(written).collect::<Option<Vec<_>>>()?;
@@ -212,6 +218,12 @@ fn path_call(parts: &[TemplatePart], table: &exact_route::Table) -> Option<Strin
             }
             _ => return None,
         })
+    }
+    if parts
+        .iter()
+        .any(|p| matches!(p, TemplatePart::Text(t) if !plain(t)))
+    {
+        return None;
     }
     // The path's segments, each its pieces, and the query's own text.
     let mut segments: Vec<Vec<Result<String, &Expr>>> = vec![Vec::new()];
@@ -252,11 +264,11 @@ fn path_call(parts: &[TemplatePart], table: &exact_route::Table) -> Option<Strin
                     _ => false,
                 })
     })?;
-    let mut args = vec![format!("{:?}", route.name)];
+    let mut args = vec![format!("\"{}\"", route.name)];
     for (p, s) in route.pattern.split('/').zip(&segments) {
         match (p.starts_with(':'), s.as_slice()) {
             (true, [Err(e)]) => args.push(written(e)?),
-            (true, [Ok(text)]) => args.push(format!("{text:?}")),
+            (true, [Ok(text)]) => args.push(format!("\"{text}\"")),
             _ => {}
         }
     }

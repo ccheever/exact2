@@ -122,6 +122,14 @@ fn select_after_push(checked: &Checked<'_>) -> Vec<LowerError> {
     let Some(decl) = &checked.file.routes else {
         return Vec::new();
     };
+    // A `fn` of the app's by one of these names is called in the router's place.
+    let fns = &checked.types.shapes.fns;
+    if ["go", "push", "select"]
+        .iter()
+        .any(|f| fns.contains_key(*f))
+    {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     for action in &checked.expanded.root.actions {
         let mut scope: Bound = action

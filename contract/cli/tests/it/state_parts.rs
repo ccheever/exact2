@@ -385,9 +385,9 @@ fn round_one_refusals_and_typing() {
     // As a list's row first, then elsewhere: the row is refused, the other is not
     // judged as one (the refusal names the row, at its instance).
     assert_eq!(refused(&format!("component App\n  view\n    column\n      Card()\n      list flex=1\n        Card()\n\n{card}")), "lower-state-target");
-    // A computed list in a state's border-color, as on the node: a template is
-    // split, a concatenation refused.
-    assert_eq!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=`${c} ${c}`\n      text \"b\"\n"), "compiled");
+    // A computed list in a state's border-color, as on the node: a template of
+    // interpolations alone and a concatenation are refused.
+    assert_ne!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=`${c} ${c}`\n      text \"b\"\n"), "compiled");
     assert_ne!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=c + \" \" + c\n      text \"b\"\n"), "compiled");
     // A row typed as the node's own rows are: `none` an arm.
     assert_eq!(refused("component App\n  state on = false\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        opacity=(on ? 0.5 : none)\n      text \"b\"\n"), "compiled");

@@ -1557,9 +1557,10 @@ outside parentheses as CSS expands the shorthand
 computed value is bound whole to the four rows, and no host splits it: an
 overriding longhand, an `env()` substituted later and each row's grammar
 would make a run-time split differ from the browser's. A template is split
-at compile time at its own text's white space, as a literal is, each
-interpolation one value (`` padding=`${pad}px 0` ``: the top and bottom
-`${pad}px`, the sides `0`); an interpolation holding white space reaches its
+at compile time at its own text's white space, as a literal is, when each
+interpolation is part of one value that also holds text, outside parentheses
+(`` padding=`${pad}px 0` ``: the top and bottom `${pad}px`, the sides `0`), and
+a literal one is one token; an interpolation holding white space reaches its
 row as a list, as a computed single value holding one does. Another computed
 value the compiler sees build a list (a concatenation, a `fn` returning one)
 is refused (`lower-css-shorthand`), naming the longhands, each of which may
