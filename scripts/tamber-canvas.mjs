@@ -267,8 +267,16 @@ const drained = (res, signal) => new Promise(ok => {
 });
 const put = async (res, chunk, signal) => {
   if (signal.aborted) throw new Error('ended');
-  // 8 MiB unread on the socket (behind the TLS door Bun's response drains before its socket does): cut.
-  if ((res.socket?.writableLength || 0) > 8 << 20) { res.destroy(); throw new Error('ended'); }
+  // Behind the TLS door Bun's response drains before its socket does: past
+  // 8 MiB unread on the socket, wait for it to come down to 4 MiB (a reader
+  // that is reading gets there), and only a socket stuck 30 s is cut.
+  const queued = () => res.socket?.writableLength || 0;
+  if (queued() > 8 << 20) {
+    for (const until = Date.now() + 30_000; queued() > 4 << 20; await new Promise(ok => setTimeout(ok, 50))) {
+      if (signal.aborted || res.destroyed) throw new Error('ended');
+      if (Date.now() > until) { res.destroy(); throw new Error('ended'); }
+    }
+  }
   if (!res.write(chunk)) await drained(res, signal);
   if (signal.aborted) throw new Error('ended');
 };
