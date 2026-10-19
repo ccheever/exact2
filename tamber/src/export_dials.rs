@@ -57,6 +57,16 @@ pub struct Candidate {
     value: String,
 }
 
+/// The token's literal operations, for when its dial cannot take the change,
+/// or the line and why they are refused too.
+pub(crate) type Literal = Result<Vec<Op>, (String, String)>;
+
+/// Two colours' texts the same colour (both parse, as candidates' do).
+fn alike(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+        || exact_color::parse(a).is_some_and(|x| exact_color::parse(b) == Some(x))
+}
+
 /// The dial a changed token moves by, if it does: every context whose
 /// winning line (`branch`) is one colour dial's name alone changed, all to
 /// one literal (`want`), one dial, and no other context changed.
@@ -91,7 +101,7 @@ pub(crate) fn candidate(
                 return None;
             }
             match &found {
-                Some((d, v)) if *d != dial || *v != value => return None,
+                Some((d, v)) if *d != dial || !alike(v, &value) => return None,
                 Some(_) => {}
                 None => found = Some((dial, value)),
             }
@@ -104,7 +114,7 @@ pub(crate) fn candidate(
         for dark in [false, true] {
             let context = &sides[usize::from(dark)];
             if dial_of(branch(modes, dark)).as_deref() == Some(dial.as_str())
-                && !(changed(context) && want(context).as_deref() == Some(value.as_str()))
+                && !(changed(context) && want(context).is_some_and(|w| alike(&w, &value)))
             {
                 return None;
             }
@@ -125,17 +135,34 @@ pub(crate) struct Dialed {
     pub changes: Vec<DialChange>,
     /// The tokens whose dial already has the value: mapped, nothing to do.
     pub kept: usize,
-    /// The tokens reported, and why.
-    pub refused: Vec<(String, String)>,
+    /// The tokens reported: the token, the line, why.
+    pub refused: Vec<(String, String, String)>,
+    /// The tokens whose dial cannot take their change, by their literals:
+    /// pinned overrides, marked, as any changed folded value is.
+    pub fallback: Vec<(String, Vec<Op>)>,
 }
 
-/// The candidates, by dial: one value a dial (tokens that would set it to
-/// different values are reported), already the dial's (mapped, no
-/// operation), or a set the design takes alone and together.
+impl Dialed {
+    /// A candidate its dial cannot take (`why`): its literals, else reported.
+    fn fall(&mut self, token: String, literal: Literal, why: String) {
+        match literal {
+            Ok(ops) => self.fallback.push((token, ops)),
+            Err((block, w)) => {
+                self.refused
+                    .push((token, block, format!("{why}; as a literal, {w}")))
+            }
+        }
+    }
+}
+
+/// The candidates, by dial: one value a dial, already the dial's (mapped,
+/// no operation), or a set the design takes alone and together. A dial its
+/// tokens would set to different values, or the design refuses, moves not:
+/// each token's literals are its change, pinned and marked.
 pub(crate) fn dials(
     cur: &Folding,
     current: &str,
-    candidates: Vec<Candidate>,
+    candidates: Vec<(Candidate, Literal)>,
     vocab: &Vocab,
 ) -> Dialed {
     let mut out = Dialed {
@@ -143,24 +170,27 @@ pub(crate) fn dials(
         changes: Vec::new(),
         kept: 0,
         refused: Vec::new(),
+        fallback: Vec::new(),
     };
-    let mut by: Vec<(String, Vec<Candidate>)> = Vec::new();
+    let mut by: Vec<(String, Vec<(Candidate, Literal)>)> = Vec::new();
     for c in candidates {
-        match by.iter_mut().find(|(d, _)| *d == c.dial) {
+        match by.iter_mut().find(|(d, _)| *d == c.0.dial) {
             Some((_, all)) => all.push(c),
-            None => by.push((c.dial.clone(), vec![c])),
+            None => by.push((c.0.dial.clone(), vec![c])),
         }
     }
+    let mut held: Vec<Vec<(Candidate, Literal)>> = Vec::new();
     for (dial, all) in by {
-        let tokens: Vec<String> = all.iter().map(|c| c.token.clone()).collect();
-        let value = all[0].value.clone();
-        if all.iter().any(|c| !c.value.eq_ignore_ascii_case(&value)) {
+        let tokens: Vec<String> = all.iter().map(|c| c.0.token.clone()).collect();
+        let value = all[0].0.value.clone();
+        if all.iter().any(|c| !alike(&c.0.value, &value)) {
             let values: Vec<String> = all
                 .iter()
-                .map(|c| format!("{} {}", c.token, c.value))
+                .map(|c| format!("{} {}", c.0.token, c.0.value))
                 .collect();
-            for t in &tokens {
-                out.refused.push((t.clone(), format!("tokens that follow the dial `{dial}` moved to different values ({}): one dial takes one value; make them agree, or change the dial", values.join(", "))));
+            let why = format!("tokens that follow the dial `{dial}` moved to different values ({}), and one dial takes one value", values.join(", "));
+            for (c, literal) in all {
+                out.fall(c.token, literal, why.clone());
             }
             continue;
         }
@@ -193,28 +223,29 @@ pub(crate) fn dials(
                     from: tokens,
                     impact: Vec::new(),
                 });
+                held.push(all);
             }
-            Err(all) => {
-                let first = all
+            Err(diags) => {
+                let first = diags
                     .first()
                     .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
-                for t in &tokens {
-                    out.refused.push((
-                        t.clone(),
-                        format!("its dial `{dial}` set to {value} is refused ({first})"),
-                    ));
+                let why = format!("its dial `{dial}` set to {value} is refused ({first})");
+                for (c, literal) in all {
+                    out.fall(c.token, literal, why.clone());
                 }
             }
         }
     }
     if !out.ops.is_empty() && crate::apply_all(current, &out.ops, vocab).is_err() {
-        for c in out.changes.drain(..) {
-            for t in c.from {
-                out.refused
-                    .push((t, "the dials it moves are refused together".into()));
-            }
-        }
+        out.changes.clear();
         out.ops.clear();
+        for (c, literal) in held.into_iter().flatten() {
+            out.fall(
+                c.token,
+                literal,
+                "the dials it moves are refused together".into(),
+            );
+        }
     }
     out
 }
@@ -227,6 +258,8 @@ pub(crate) fn marks(
     ops: &[Op],
     changes: &mut [DialChange],
     vocab: &Vocab,
+    under: &[&str],
+    branch: &dyn Fn(&Token, &[&str], &Vec<(String, String)>, bool) -> Option<usize>,
 ) -> Vec<Pin> {
     let mut pins = Vec::new();
     for op in ops {
@@ -244,38 +277,31 @@ pub(crate) fn marks(
         else {
             continue;
         };
-        // The lines that won where it writes:
-        // its own line, or for a new `when`, the line that won there before
-        // it: the narrowest that holds wherever it does, else the default.
-        let old: Vec<&str> = match decl.whens.iter().find(|w| w.conds == *when) {
-            Some(w) => vec![w.value.value.as_str()],
-            None => {
-                let holding = decl
-                    .whens
-                    .iter()
-                    .filter(|w| w.conds.iter().all(|c| when.contains(c)));
-                let most = holding.clone().map(|w| w.conds.len()).max();
-                match most {
-                    Some(n) => holding
-                        .filter(|w| w.conds.len() == n)
-                        .map(|w| w.value.value.as_str())
-                        .collect(),
-                    None => vec![decl.value.value.as_str()],
-                }
-            }
+        // The lines that won where it writes, side by side: its own line,
+        // or for a new `when`, each tuple and scheme it holds in, the line
+        // that won there before it.
+        let text = |b: Option<usize>| b.map_or(&decl.value.value, |w| &decl.whens[w].value.value);
+        let old: Vec<(&String, usize)> = match decl.whens.iter().position(|w| w.conds == *when) {
+            Some(w) => vec![(text(Some(w)), 0), (text(Some(w)), 1)],
+            None => (0..cur.tokens.first().map_or(1, |t| t.values.len()))
+                .map(|k| modes_of(cur, k))
+                .filter(|modes| when.iter().all(|c| modes.contains(c)))
+                .flat_map(|modes| {
+                    [false, true]
+                        .map(|dark| (text(branch(decl, under, &modes, dark)), usize::from(dark)))
+                })
+                .collect(),
         };
-        // What it followed there and no longer does, side by side: a side
-        // the literal keeps (`light-dark(accent, #f00)`) follows as before.
+        // What it followed there and no longer does: a side the literal
+        // keeps (`light-dark(accent, #f00)`) follows as before.
         let new = sides(value);
         let follows: Vec<String> = checked
             .dials
             .iter()
             .chain(&checked.names)
             .filter(|n| {
-                old.iter().any(|text| {
-                    let was = sides(text);
-                    (0..2).any(|i| names(&was[i], n) && !names(&new[i], n))
-                })
+                old.iter()
+                    .any(|(text, i)| names(&sides(text)[*i], n) && !names(&new[*i], n))
             })
             .cloned()
             .collect();
@@ -321,6 +347,43 @@ pub(crate) fn marks(
     pins
 }
 
+/// The marks `ops` make on the design as it is (`current`): each dial they
+/// set, with every token value it moves, and the pins they write. A held
+/// re-import recomputed (files moved since, or some of its items) is marked
+/// again so, never by the design it was planned on.
+pub fn marks_of(current: &str, ops: &[Op], vocab: &Vocab) -> Option<(Vec<DialChange>, Vec<Pin>)> {
+    let cur = crate::check(current, vocab).ok()?;
+    let mut changes: Vec<DialChange> = ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetDial { name, value } => Some(DialChange {
+                dial: name.clone(),
+                value: value.clone(),
+                from: Vec::new(),
+                impact: Vec::new(),
+            }),
+            _ => None,
+        })
+        .collect();
+    let under: Vec<&str> = cur
+        .design
+        .axes
+        .iter()
+        .filter(|a| a.under_dark)
+        .map(|a| a.name.value.as_str())
+        .collect();
+    let pins = marks(
+        &cur,
+        current,
+        ops,
+        &mut changes,
+        vocab,
+        &under,
+        &crate::export::branch,
+    );
+    Some((changes, pins))
+}
+
 /// A value's light and dark sides as written: a top-level `light-dark(a,
 /// b)`'s, else the whole value on both.
 fn sides(text: &str) -> [String; 2] {
@@ -347,24 +410,35 @@ fn sides(text: &str) -> [String; 2] {
     [t.to_string(), t.to_string()]
 }
 
-/// Whether `text` names `name` as a whole word (a dial or token reference).
+/// Whether `text` names `name` as a whole word (a dial or token reference),
+/// in any case, as names are read.
 fn names(text: &str, name: &str) -> bool {
     let word = |c: char| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_';
-    text.match_indices(name).any(|(at, _)| {
+    let (text, name) = (text.to_ascii_lowercase(), name.to_ascii_lowercase());
+    text.match_indices(&name).any(|(at, _)| {
         !text[..at].chars().next_back().is_some_and(word)
             && !text[at + name.len()..].chars().next().is_some_and(word)
     })
 }
 
-/// Tuple `k`'s name, `axis=value, …`, as the design orders its axes.
-fn label(f: &Folding, mut k: usize) -> String {
-    let mut parts: Vec<String> = Vec::new();
+/// Tuple `k`'s modes, as the design orders its axes.
+fn modes_of(f: &Folding, mut k: usize) -> Vec<(String, String)> {
+    let mut modes = Vec::new();
     for axis in f.design.axes.iter().rev() {
         let n = axis.values.len().max(1);
-        parts.push(format!("{}={}", axis.name.value, axis.values[k % n]));
+        modes.push((axis.name.value.clone(), axis.values[k % n].to_string()));
         k /= n;
     }
-    parts.reverse();
+    modes.reverse();
+    modes
+}
+
+/// Tuple `k`'s name, `axis=value, …` (`default` with no axes).
+fn label(f: &Folding, k: usize) -> String {
+    let parts: Vec<String> = modes_of(f, k)
+        .iter()
+        .map(|(a, v)| format!("{a}={v}"))
+        .collect();
     if parts.is_empty() {
         "default".into()
     } else {

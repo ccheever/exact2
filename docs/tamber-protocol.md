@@ -130,8 +130,9 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to
   a browser POST whose `Origin` isn't the server's own (`scripts/install-page.mjs`).
-- **A body** is one JSON object, at most 1 MiB less 64 bytes (room for the id the wire adds). A
-  larger one gets 413, or the connection is cut while it is being read.
+- **A body** is one JSON object, at most 1 MiB less 4,672 bytes (room for the id the wire adds and
+  the digests an `import` carries to the server). A larger one gets 413, or the connection is cut
+  while it is being read.
 - **A field of the wrong type** is an error. An optional field given as `null` reads as absent.
 
 **Replies.** A reply is `{"ok": …}` with 200, or `{"error": {"message": …, …}}` with one of these
@@ -851,15 +852,18 @@ list is unchanged: it keeps its own.
   seen to reach past the one variable. A changed value whose line followed dials or tokens by an expression
   is a literal over it, listed in `pins`, `[{token, when, follows}]`, with what it no longer follows
   (D14's mark). Inverting an expression is not attempted. Each list is absent when empty, and each
-  entry names its operations (`items`), as an offer does; a recomputed proposal keeps the entries
-  whose operations it kept, a dial's without its `impact` (read against the design as it was).
-  Tokens that would set one dial to different values are reported, not proposed.
+  entry names its operations (`items`), as an offer does; a recomputed proposal (files moved since,
+  or some items) is marked again on the design as it is, its dials' `impact` and its `pins` read
+  afresh, each dial keeping its `from`. Tokens that would set one dial to different values, or a
+  dial the design refuses, are proposed as literals instead, each a pin marked with the dial.
+  Colour values agree when they are the same colour (`#F00` and `red`).
 - **`baseline`** (*1.13*, stage 10b): the export text a client pulled, for a client below `write`,
   whose `export` keeps none. It is taken when its header's digest is an export this server run gave
-  out, a kept one, or the design's own; else the import is refused, 409 with `stale: true` ("pull
-  first"). It decides only which of the file's values are the client's edits: the operations are
-  planned against the design as it is, so a baseline can at most make a client propose values it
-  did not change, never revert another's edit unseen.
+  out, a kept one, or the design's own, and its contexts (each one's name, modes and scheme) and axes
+  are the design's now; else the import is refused, 409 with `stale: true` ("pull first"). It
+  decides only which of the file's values are the client's edits: the operations are planned
+  against the design as it is, so a baseline can at most make a client propose values it did not
+  change, never revert another's edit unseen.
 
 ### `export` (*1.4*, LLP 1121 D14)
 

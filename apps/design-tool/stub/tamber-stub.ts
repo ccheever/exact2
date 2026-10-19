@@ -341,9 +341,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
           // Its own diff and tokens: the items kept, as the server plans them.
           const kept = (p.ops as { index: number; op: { name?: string } }[]).filter(o => request.items.includes(o.index));
           // Its review renumbered to the items kept, as the server's is.
-          const review = p.review as { tokens?: number; offers?: { items?: number[] }[] } | undefined;
+          const review = p.review as { tokens?: number; offers?: { items?: number[] }[]; dials?: { items?: number[] }[]; pins?: { items?: number[] }[] } | undefined;
           const at = (i: number) => kept.findIndex(o => o.index === i);
-          const remapped = review && { ...review, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: (review.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(at).filter(i => i >= 0) })) };
+          const renumber = (all: { items?: number[] }[]) => all.map(o => ({ ...o, items: (o.items ?? []).map(at).filter(i => i >= 0) }));
+          // A re-import's dials and pins too, those whose operations it kept (stage 10b).
+          const marks = review && Object.fromEntries((['dials', 'pins'] as const).filter(k => review[k]).map(k => [k, renumber(review[k]!).filter(m => m.items.length)]));
+          const remapped = review && { ...review, ...marks, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: renumber(review.offers ?? []) };
           const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), ...(remapped ? { review: remapped } : {}), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
           held.push(fresh);
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });

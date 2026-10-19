@@ -159,6 +159,17 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
         Value::String(s) => Ok(Some(s.clone())),
         _ => Err(bad(&format!("`{k}` is a string"))),
     };
+    // A held re-import recomputed: its operations' marks on the design as it is.
+    if !request["marks"].is_null() {
+        let ops: Vec<Op> = crate::tamber_ops::parse_ops(&request["marks"], "")?
+            .into_iter()
+            .map(|(_, op)| op)
+            .collect();
+        let (dials, pins) =
+            exact_tamber::import::marks_of(current, &ops, &contract_lower::tamber_vocab())
+                .ok_or_else(|| bad("the design does not check"))?;
+        return Ok(json!({"dials": dials_json(&dials), "pins": pins_json(&pins)}));
+    }
     let kind = field("kind")?.ok_or_else(|| bad("`kind` is shadcn, tailwind or dtcg"))?;
     if kind == "astryx" {
         return Err(bad("Astryx resolves its theme package with a Bun install: run `bun exact.mjs tamber import astryx <source> <url> --app <app>`"));
@@ -246,6 +257,10 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
         // Each diagnostic in the shape the wire gives a checker's: named by
         // the source file when there is one, else by its message alone (an
         // importer of several names the file in it), no place invented.
+        // A baseline whose contexts are no longer the design's: pull again.
+        Some(Err(all)) if all.iter().any(|d| d.message.starts_with("pull first")) => Err(
+            json!({"message": all.iter().find(|d| d.message.starts_with("pull first")).map(|d| &d.message), "stale": true}),
+        ),
         Some(Err(all)) => Err(
             json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| if files.len() == 1 { json!({"file": files[0].0, "line": d.line, "col": d.col, "id": d.id, "message": d.message}) } else { json!({"id": d.id, "message": d.message}) }).collect::<Vec<_>>()}),
         ),
@@ -318,18 +333,26 @@ fn import_json(kind: &str, import: &Import) -> Value {
             "reported": import.counted.reported,
         },
         // A re-import's dial changes and marked pins (LLP 1121 D14, stage 10b).
-        "dials": import.dials.iter().map(|d| json!({
-            "dial": d.dial,
-            "value": d.value,
-            "from": d.from,
-            "impact": d.impact.iter().map(|i| json!({"token": i.token, "tuple": i.tuple, "before": i.before, "after": i.after})).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>(),
-        "pins": import.pins.iter().map(|p| json!({
-            "token": p.token,
-            "when": p.when.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(),
-            "follows": p.follows,
-        })).collect::<Vec<_>>(),
+        "dials": dials_json(&import.dials),
+        "pins": pins_json(&import.pins),
     })
+}
+
+fn dials_json(dials: &[exact_tamber::import::DialChange]) -> Vec<Value> {
+    dials.iter().map(|d| json!({
+        "dial": d.dial,
+        "value": d.value,
+        "from": d.from,
+        "impact": d.impact.iter().map(|i| json!({"token": i.token, "tuple": i.tuple, "before": i.before, "after": i.after})).collect::<Vec<_>>(),
+    })).collect()
+}
+
+fn pins_json(pins: &[exact_tamber::import::Pin]) -> Vec<Value> {
+    pins.iter().map(|p| json!({
+        "token": p.token,
+        "when": p.when.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(),
+        "follows": p.follows,
+    })).collect()
 }
 
 /// An operation as `tamber/1` writes it: kebab-case names, named fields.

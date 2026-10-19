@@ -9,7 +9,7 @@
 //! unchanged source proposes nothing.
 
 use crate::edit::{Op, WhenLine};
-pub use crate::export_dials::{DialChange, Impact, Pin};
+pub use crate::export_dials::{marks_of, DialChange, Impact, Pin};
 use crate::{Design, Diagnostic};
 
 pub mod astryx;

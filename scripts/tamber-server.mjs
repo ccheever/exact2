@@ -648,9 +648,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     json(res, 200, { ok: reply.ok });
   }
 
-  // What the wire itself reads of a review: the offers' items, the tokens' count.
+  // What the wire itself reads of a review: the offers', dials' and pins' items, the tokens' count.
   const reviewShaped = r => typeof r === 'object' && r !== null && !Array.isArray(r)
-    && (r.offers === undefined || Array.isArray(r.offers) && r.offers.every(o => typeof o === 'object' && o !== null && (o.items === undefined || Array.isArray(o.items) && o.items.every(Number.isInteger))))
+    && ['offers', 'dials', 'pins'].every(k => r[k] === undefined || Array.isArray(r[k]) && r[k].every(o => typeof o === 'object' && o !== null && (o.items === undefined || Array.isArray(o.items) && o.items.every(Number.isInteger))))
     && (r.tokens === undefined || Number.isInteger(r.tokens) && r.tokens >= 0);
   const needsClient = request => typeof request.client === 'string' && request.client ? null : { status: 400, error: { message: `${request.method} names its \`client\`` } };
 
@@ -696,7 +696,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (request.method === 'propose' && request.hold !== undefined) {
       if (request.hold !== true) return { status: 400, error: { message: '`hold` is true when given' } };
-      if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers` a list of objects with `items` (indices), its `tokens` a count' } };
+      if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers`, `dials` and `pins` lists of objects with `items` (indices), its `tokens` a count' } };
       // A revert's review is the server's own: it is planned again from it.
       if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope);
@@ -1001,20 +1001,18 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const review = old && {
         ...old,
         offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
-        // A re-import's marks follow their operations; a recomputed dial's impact is dropped, read on the design as it was (stage 10b).
-        ...Object.fromEntries(['dials', 'pins'].filter(k => old[k]).map(k => [k, old[k]
-          .map(({ impact, ...m }) => ({ ...m, items: (m.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) }))
-          .filter(m => m.items.length)])),
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
       let fresh;
+      // A re-import's dials and pins, marked again on the design as it is, never as it was (stage 10b).
+      const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); };
       // Some of a revert's items: on the files it was planned on, or that
       // selection planned again.
       if (reverted) review.revert = { ...review.revert, only: ops.map(revertKey) };
       // Its guards stay its guards: a part, or one planned again on files
       // moved since, checks what the whole was planned on.
       const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
-      try { fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own); } catch (e) { restore(id, p); throw e; }
+      try { fresh = (old?.dials || old?.pins ? await remark() : undefined) ?? await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };
@@ -1465,14 +1463,15 @@ function importReview(imported) {
     ops.push(...o.ops);
     return { role: o.role, token: o.token, items, note: o.note };
   });
-  // A re-import's dial changes and marked pins (stage 10b), when it has any,
-  // each naming the operations it is (`items`), as an offer does.
-  const same = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
-  const at = test => ops.flatMap((op, i) => (test(op) ? [i] : []));
-  const dials = (imported.dials ?? []).map(d => ({ ...d, items: at(op => op.op === 'set-dial' && op.name === d.dial) }));
-  const pins = (imported.pins ?? []).map(p => ({ ...p, items: at(op => op.op === 'set-token' && op.name === p.token && same(op.when, p.when)) }));
-  const marks = { ...(dials.length ? { dials } : {}), ...(pins.length ? { pins } : {}) };
-  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...marks } };
+  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...marked(ops, imported.dials, imported.pins) } };
+}
+/** A re-import's dial changes and marked pins (stage 10b), when it has any,
+ * each naming the operations it is (`items`), as an offer does. */
+function marked(ops, dials = [], pins = []) {
+  const same = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []), at = test => ops.flatMap((op, i) => (test(op) ? [i] : []));
+  dials = dials.map(d => ({ ...d, items: at(op => op.op === 'set-dial' && op.name === d.dial) }));
+  pins = pins.map(p => ({ ...p, items: at(op => op.op === 'set-token' && op.name === p.token && same(op.when, p.when)) }));
+  return { ...(dials.length ? { dials } : {}), ...(pins.length ? { pins } : {}) };
 }
 
 /** `bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>]

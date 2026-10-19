@@ -731,12 +731,11 @@ pub fn reimport_against(
                 serde_json::from_str(&fresh)
                     .map_err(|e| refuse(format!("the design's export: {e}")))?,
             );
-            let names = |d: &Value| {
-                context_map(d).map(|c| c.into_iter().map(|(n, ..)| n).collect::<Vec<_>>())
-            };
+            // Each context's name, tuple and scheme, and the axes, the design's
+            // own: a recognised digest over a forged mapping plans nothing.
             let axes = |d: &Value| header(d).map(|h| h["axes"].clone());
-            if names(&theirs).is_none()
-                || names(&theirs) != names(&ours)
+            if context_map(&theirs).is_none()
+                || context_map(&theirs) != context_map(&ours)
                 || axes(&theirs) != axes(&ours)
             {
                 return Err(refuse(
@@ -851,7 +850,8 @@ pub fn reimport_against(
     let mut accepted: Vec<(String, Vec<Op>)> = Vec::new();
     // Tokens whose every changed context is on a line that is one colour dial
     // alone, moved to one literal: the dial's change (D14; stage 10b).
-    let mut dialed: Vec<crate::export_dials::Candidate> = Vec::new();
+    let mut dialed: Vec<(crate::export_dials::Candidate, crate::export_dials::Literal)> =
+        Vec::new();
     for name in &names {
         if !in_base(name) {
             report(&mut unmapped, name, "", "not in the export it came from: a new token is added to the design, not by re-import".into());
@@ -1040,7 +1040,9 @@ pub fn reimport_against(
                     comment: None,
                 })
             };
-        if let Some(c) = crate::export_dials::candidate(
+        // A dial's change, if it is one; its literals are planned the same,
+        // for when the dial cannot take it.
+        let candidate = crate::export_dials::candidate(
             &cur,
             decl,
             &written,
@@ -1048,10 +1050,7 @@ pub fn reimport_against(
             &changed,
             &|c| want(c).map(|(t, _)| t),
             &|modes, dark| branch(decl, &under, modes, dark),
-        ) {
-            dialed.push(c);
-            continue;
-        }
+        );
         let mut token_ops: Vec<Op> = Vec::new();
         let mut why = None;
         // A light side under an axis under scheme=dark shows its base's: an
@@ -1364,17 +1363,20 @@ pub fn reimport_against(
                 }
             }
         }
-        match why {
-            Some((block, w)) => report(&mut unmapped, name, &block, w),
-            None => accepted.push((name.clone(), token_ops)),
+        match (candidate, why) {
+            (Some(c), why) => dialed.push((c, why.map_or(Ok(token_ops), Err))),
+            (None, Some((block, w))) => report(&mut unmapped, name, &block, w),
+            (None, None) => accepted.push((name.clone(), token_ops)),
         }
     }
     // A changed value whose line is one dial alone is that dial's change
     // (D14; stage 10b), first in the transaction.
     let dialed = crate::export_dials::dials(&cur, current, dialed, vocab);
-    for (name, why) in &dialed.refused {
-        report(&mut unmapped, name, "", why.clone());
+    for (name, block, why) in &dialed.refused {
+        report(&mut unmapped, name, block, why.clone());
     }
+    // A dial that cannot take its tokens' change: their literals, pinned.
+    accepted.extend(dialed.fallback);
     let (mut ops, mut dials) = (dialed.ops, dialed.changes);
     let mut mapped = dialed.kept + dials.iter().map(|d| d.from.len()).sum::<usize>();
     // Together, as one transaction: a token whose operations the design
@@ -1400,7 +1402,7 @@ pub fn reimport_against(
         mapped += 1;
     }
     let counted = counted(names.len() + extra.len(), mapped, unmapped.len())?;
-    let pins = crate::export_dials::marks(&cur, current, &ops, &mut dials, vocab);
+    let pins = crate::export_dials::marks(&cur, current, &ops, &mut dials, vocab, &under, &branch);
     Ok(Import {
         ops,
         offers: Vec::new(),
@@ -1420,7 +1422,7 @@ fn mapped_unchanged(accepted: &mut Vec<(String, Vec<Op>)>, name: &str) {
 /// checker selects it: the `when` naming the most axes among those that
 /// hold; for the light side of one naming an axis `under scheme=dark`, the
 /// line without such axes.
-fn branch(t: &Token, under: &[&str], modes: &Modes, dark: bool) -> Option<usize> {
+pub(crate) fn branch(t: &Token, under: &[&str], modes: &Modes, dark: bool) -> Option<usize> {
     let select = |base: bool| {
         let holding = (0..t.whens.len()).filter(|&i| {
             let w = &t.whens[i];

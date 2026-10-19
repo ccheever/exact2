@@ -25,6 +25,7 @@ theme
   accent.fill = accent
   accent.soft = oklch(from accent calc(l + lift) c h)
   surface.raised = oklch(from #3366cc calc(l + lift) c h)
+  surface.sunk = oklch(from #224488 calc(l - lift) c h)
 `;
 
 let dir, server, tamber, origin, local, flags = null, peers = 0;
@@ -125,4 +126,37 @@ test('a file whose header a tool dropped reads against the baseline the client n
   // A baseline for a source that is no Tamber export: 400.
   const css = await post({ method: 'import', client: 'figma', kind: 'shadcn', source: ':root { --primary: #ff0000; }', baseline: pulled }, token);
   expect(css.status).toBe(400);
+}, 120_000);
+
+test('a baseline with the design\'s digest but contexts mapped otherwise is stale: 409, pull first', async () => {
+  const token = await paired('propose');
+  const pulled = (await post({ method: 'export', kind: 'dtcg' }, token)).ok.text;
+  const forged = JSON.parse(pulled);
+  const contexts = forged.sets.exact.sources[0].$extensions.exact.contexts, [a, b] = Object.keys(contexts);
+  [contexts[a], contexts[b]] = [contexts[b], contexts[a]];
+  const text = JSON.stringify(forged);
+  const refused = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(text, (_, t) => { t.accent.fill.$value = RED; }), baseline: text }, token);
+  expect([refused.status, refused.error?.stale]).toEqual([409, true]);
+  expect(refused.error.message).toMatch(/^pull first/);
+}, 120_000);
+
+test('some items accepted: the dials and pins kept are marked again on the design as it is; a review\'s marks are shaped', async () => {
+  const token = await paired('propose');
+  const pulled = (await post({ method: 'export', kind: 'dtcg' }, token)).ok.text;
+  const BLUE = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' };
+  const both = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(pulled, (_, t) => { t.accent.fill.$value = RED; t.accent.soft.$value = BLUE; }), baseline: pulled }, token);
+  expect(both.status).toBe(200);
+  const { dials, pins } = both.ok.review;
+  expect([dials?.length, pins?.map(p => p.token)]).toEqual([1, ['accent.soft']]);
+  // The dial alone: held again, its impact read afresh, the pin gone with its operation.
+  const some = await post({ method: 'accept', client: 'person', proposal: both.ok.proposal, items: dials[0].items });
+  expect(some.ok?.recomputed).toBe(true);
+  const held = (await post({ after: 0, wait: false }, local, '/__tamber/events')).proposals.find(p => p.proposal === some.ok.proposal);
+  expect(held.review.pins).toBeUndefined();
+  expect(held.review.dials.map(d => [d.dial, d.from, d.items])).toEqual([['accent', ['accent.fill'], [0]]]);
+  expect(new Set(held.review.dials[0].impact.map(i => i.token))).toEqual(new Set(['accent.fill', 'accent.soft']));
+  // A review's dials and pins carry indices, as its offers do.
+  const files = (await post({ method: 'hello', client: 'person' })).ok.files;
+  const bad = await post({ method: 'propose', hold: true, client: 'person', files, ops: [{ op: 'set-dial', name: 'accent', value: '#00ff00' }], review: { dials: [{ items: ['x'] }] } });
+  expect(bad.status).toBe(400);
 }, 120_000);

@@ -216,8 +216,8 @@ fn a_when_line_that_is_the_dial_moves_the_dial() {
 }
 
 #[test]
-fn two_tokens_on_one_dial_agree_or_are_reported() {
-    let design = "tamber t\n\ndials\n  accent: color = #1083fe\n\ntheme\n  accent.fill = accent\n  accent.line = accent\n";
+fn two_tokens_on_one_dial_agree_or_are_pinned() {
+    let design = "tamber t\n\ndials\n  accent: color = #1083fe\n\ntheme\n  accent.fill = accent\n  accent.line = accent\n  accent.ring = accent\n";
     let (_, _, agree) = edited_in(design, |_, t| {
         t["accent"]["fill"]["$value"] = red();
         t["accent"]["line"]["$value"] = red();
@@ -232,16 +232,82 @@ fn two_tokens_on_one_dial_agree_or_are_reported() {
         t["accent"]["line"]["$value"] =
             json!({"colorSpace": "srgb", "components": [0.0, 0.0, 1.0], "hex": "#0000ff"});
     });
-    assert!(apart.ops.is_empty(), "{:?}", apart.ops);
+    // Apart, the dial moves not: each is its literal, a pin marked with the dial.
+    assert!(apart.dials.is_empty(), "{:?}", apart.dials);
+    assert_eq!(apart.ops.len(), 2, "{:?} {:?}", apart.ops, apart.unmapped);
     assert_eq!(
         apart
-            .unmapped
+            .pins
             .iter()
-            .filter(|u| u.why.contains("different values"))
-            .count(),
-        2,
+            .map(|p| (p.token.as_str(), p.follows.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("accent.fill", vec!["accent".to_string()]),
+            ("accent.line", vec!["accent".to_string()])
+        ]
+    );
+    // The same colour spelled two ways agrees.
+    let (_, _, alike) = edited_in(design, |_, t| {
+        t["accent"]["fill"]["$value"] = red();
+        t["accent"]["line"]["$value"] =
+            json!({"colorSpace": "srgb", "components": [1.0, 0.0, 0.0], "hex": "#FF0000"});
+    });
+    assert_eq!(alike.dials.len(), 1, "{:?}", alike.unmapped);
+}
+
+#[test]
+fn a_baseline_whose_contexts_are_mapped_otherwise_is_refused() {
+    use exact_tamber::export::reimport_against;
+    let text = dtcg(&check(DESIGN, &vocab()).unwrap(), &vocab()).unwrap();
+    // The digest, the axes and the names kept; two contexts' tuples swapped.
+    let mut forged: Value = serde_json::from_str(&text).unwrap();
+    let contexts = forged["sets"]["exact"]["sources"][0]["$extensions"]["exact"]["contexts"]
+        .as_object_mut()
+        .unwrap();
+    let names: Vec<String> = contexts.keys().cloned().collect();
+    let (a, b) = (contexts[&names[0]].clone(), contexts[&names[1]].clone());
+    assert_ne!(a, b);
+    contexts.insert(names[0].clone(), b);
+    contexts.insert(names[1].clone(), a);
+    let forged = forged.to_string();
+    let refused = reimport_against(&forged, Some(&forged), &[], DESIGN, &vocab()).unwrap_err();
+    assert!(refused[0].message.starts_with("pull first"), "{refused:?}");
+}
+
+#[test]
+fn a_new_when_is_marked_with_what_each_side_followed_where_it_holds() {
+    let design = "tamber t\n\naxes\n  brand = plain | loud\n  dark-style = black | dim  under scheme=dark\n\ndials\n  day: color = #fafafa\n  night: color = #101010\n\ntheme\n  ink = day\n    when dark-style=dim: light-dark(day, night)\n";
+    let (_, _, import) = edited_in(design, |name, t| {
+        if name.starts_with("brand=loud") && name.ends_with("dark") {
+            t["ink"]["$value"] = red();
+        }
+    });
+    // Each tuple's line: the dark side followed `day` on black, `night` on
+    // dim; the light side's `day` is kept on both.
+    assert_eq!(
+        import
+            .pins
+            .iter()
+            .map(|p| (p.when.clone(), p.follows.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                vec![
+                    ("brand".into(), "loud".into()),
+                    ("dark-style".into(), "black".into())
+                ],
+                vec!["day".to_string()]
+            ),
+            (
+                vec![
+                    ("brand".into(), "loud".into()),
+                    ("dark-style".into(), "dim".into())
+                ],
+                vec!["night".to_string()]
+            ),
+        ],
         "{:?}",
-        apart.unmapped
+        import.ops
     );
 }
 
