@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.12`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.13`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.12"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.13"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -86,6 +86,10 @@ on macOS and Linux.
   version: D2's `set-row`, D3's `add-param` and `remove-param`; C1's `explain` of an icon and a
   param, and `describe`'s icon `draws`; C2's `uses` of an icon and a motion token's sites by
   instance.
+- `tamber/1.13` (LLP 1121 stage 10, commit A1) checks every request's scope in one place (see
+  Scopes, under Authentication): `hello` says the client's `scope` and whether its token is the
+  local one (`local`), and a request above its client's scope is 403 naming both (`scope`,
+  `needs`). Stage 10's later wire changes add under the same version.
 
 ## Where it runs
 
@@ -134,8 +138,9 @@ statuses:
 | Status | When |
 |---|---|
 | 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused |
+| 403 | above the client's scope (*1.13*): `{message, scope, needs}` in `error`, on a request or a change stream path alike |
 | 404 | an unknown proposal or commit |
-| 409 | a conflict (`conflict: true`); a revert refused; a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
+| 409 | a conflict (`conflict: true`); a revert refused; a hold from a client below `write` with 64 held and none its own (*1.13*); a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
 | 413 | too large |
 | 500 | reading git failed (`history`, `revert`, a write's baseline) |
 | 503 | the design server is down |
@@ -178,6 +183,27 @@ statuses:
   only a paired token works through it, never the local one. The canvas has no tunnel port in
   stage 10 (QUEUE).
 
+### Scopes (*1.13*)
+
+Every method has one scope, in `scripts/tamber-pairing.mjs`'s table, which the wire checks
+before any handler runs. A method the table doesn't name is refused (400). A request above its
+client's scope is 403 with `{message, scope, needs}` in `error`, the change stream's paths too.
+
+| Scope | Requests |
+|---|---|
+| `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `scrub`, `scrub-release`, `scrub-cancel` |
+
+The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
+`preview`, `outline` and `hold` are `write` because they change what the developer's screens show.
+`inspect` reads: below `write`, `refresh: true` answers `{selections}`, the selection each build
+last reported (as its `selection` event gave it), asking no build again, since a build's answer
+outlines on the developer's screens; turning inspect mode on or off takes the builds' input, and
+is `write`. A client below `write` may not drop another's held proposal, so with 64 held its own
+oldest goes to make room, and with none of its own its hold is refused (409). The local tool's
+token is `write`.
+
 ## Requests
 
 Each request is `POST /__tamber` with `{"method": "…", …}`.
@@ -201,6 +227,7 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 
 **`hello`** answers:
 - `protocol` and `format`;
+- `scope` and `local` (*1.13*): the client's scope, and whether its token is the local one;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
@@ -625,7 +652,7 @@ pushes.
 ### Held proposals (LLP 1122 D10)
 
 **`propose` with `hold: true`** and a `client` keeps the plan for 15 minutes, 64 at most (the
-oldest goes), and announces it.
+oldest goes; below `write`, only the client's own, else 409: see Scopes), and announces it.
 - **The reply** is the plan (as `propose`) plus `{proposal, client, expires, ops: [{index, op}],
   review?}`. `expires` is an ISO-8601 UTC time.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
@@ -754,7 +781,9 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
 - **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
   path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
-  every commit. A link in a baseline's place is replaced, never written through.
+  every commit. A link in a baseline's place is replaced, never written through. Below `write`
+  scope (*1.13*), or with `keep: false`, no baseline is kept (`baseline: null`): keeping one prunes
+  the oldest, which another client's import may compare against.
 - **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
   then `light` and `dark`, named `axis=value, …, light`), each a complete set of the design's
   tokens (every kind since stage 6 G, under *1.9*), a colour checked to read back as the colour a
@@ -1182,7 +1211,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops

@@ -105,7 +105,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.12");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -393,7 +393,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.12");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -971,6 +971,12 @@ fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
         planned["ok"]["counted"]["source"],
         planned["ok"]["counted"]["mapped"]
     );
+    // `keep: false` (a client below write): the text, and nothing kept.
+    std::fs::remove_dir_all(dir.join(".exact/tamber-dtcg")).unwrap();
+    let (unkept, _) = s.ask(json!({"method": "export", "kind": "dtcg", "keep": false}));
+    assert_eq!(unkept["ok"]["text"], exported["ok"]["text"], "{unkept}");
+    assert!(unkept["ok"]["baseline"].is_null(), "{unkept}");
+    assert!(!dir.join(".exact/tamber-dtcg").exists());
 }
 
 /// LLP 1121 D10 (stage 6 F): an icon's sources in the IR and from

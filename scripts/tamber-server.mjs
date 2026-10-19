@@ -90,13 +90,14 @@ import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, remoteArgs } from './tamber-remote.mjs';
 import { serveTool, TOOL_DIST } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
+import { allows, needs, refusal } from './tamber-pairing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel']);
+export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -158,6 +159,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // their reports told to every client, their pins each client's own.
   // Each build's status a stale selection was last asked again under.
   const refreshed = new Map();
+  // Each build's last published selection: what a client below `write` reads
+  // (`inspect` `refresh`), for builds still registered, at most 256.
+  const lastSelection = new Map();
+  const pruneSelections = () => { const live = new Set(channel.list().map(b => b.id)); for (const id of lastSelection.keys()) if (!live.has(id)) lastSelection.delete(id); };
+  const remember = (id, selection) => {
+    lastSelection.delete(id); lastSelection.set(id, selection);
+    pruneSelections();
+    while (lastSelection.size > 256) lastSelection.delete(lastSelection.keys().next().value);
+  };
   // A selection (LLP 1122 D5) joined to source: refused and asked again
   // when it is from before the build's latest status; else published as a
   // `selection`, and every copy of its node outlined.
@@ -176,7 +186,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return map?.nodes && typeof map.digest === 'string' && (!digest || map.digest === digest) ? map : null;
   };
   const channel = buildChannel({
-    send: e => send({ ...e, seq: ++seq, epoch }), log,
+    // A build that reports no selection (inspect mode left) has none to read.
+    send: e => { if (e.event === 'selected' && e.selected == null) lastSelection.delete(e.build); send({ ...e, seq: ++seq, epoch }); }, log,
     // A held site in a build's new plan (LLP 1122 D8): the one site at the
     // old site's source location and call-site chain, by the two plans'
     // maps (a component called twice is two sites there); none otherwise.
@@ -202,6 +213,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (report.selected.planDigest && report.selected.planDigest !== params.plan) learnParams(null, report.selected.planDigest);
       const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map, app: appDir, own: known.size ? new Set(ownContracts()) : null });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
+      remember(build.id, selection);
       // Outlined as the client that owns inspect mode on that build, naming
       // the click it answers (its page does not scroll for it).
       // Every copy on every build (D5): the selection's source span, from its
@@ -447,6 +459,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname)) return false;
     // A remote door's request (tamber-remote.mjs) is never the local token's: until pairing, no token works there.
     if (req.method !== 'POST' || !tokenOf(req) || access.remote) { notFound(res); return true; }
+    const scope = scopeOf(req);
+    // The change stream's paths by the table too (scripts/tamber-pairing.mjs).
+    const stream = url.pathname === '/__tamber' ? null : needs({ method: url.pathname.slice('/__tamber/'.length) });
+    if (url.pathname !== '/__tamber' && !allows(scope, stream)) { const r = refusal(url.pathname.slice('/__tamber/'.length), scope, stream); json(res, r.status, { error: r.error }); return true; }
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
@@ -512,7 +528,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return true;
     }
     delete request.id;
-    const reply = await dispatch(request, scopeOf(req));
+    const reply = await dispatch(request, scope, true);
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
     json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
     return true;
@@ -526,7 +542,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
-  async function dispatch(request, scope = 'write') {
+  async function dispatch(request, scope, local = false) {
+    // Every method's scope, in one place, before any handler: none is no
+    // method this wire serves (fail closed; scripts/tamber-pairing.mjs).
+    const need = needs(request, id => proposals.get(id)?.client ?? null);
+    if (need === null) return { status: 400, error: { message: `\`${request.method}\` has no scope on this wire` } };
+    if (!allows(scope, need, local)) return refusal(request.method, scope, need);
     // Presence is also checked as requests come, not only every 5 s.
     absent();
     if (WRITES.has(request.method)) return needsClient(request) ?? write(request);
@@ -550,7 +571,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers` a list of objects with `items` (indices), its `tokens` a count' } };
       // A revert's review is the server's own: it is planned again from it.
       if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
-      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires);
+      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'history') return history(request);
@@ -560,14 +581,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // edit in place, no reload (LLP 1121 stage 4's live table); `design`:
     // the file an operation with no `file` edits; `page`: the dev loop's own
     // origin, which the design tool frames, null with no dev loop (1.3).
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, scope, local, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
-    if (request.method === 'outline') return needsClient(request) ?? outline(request, scope);
-    if (request.method === 'hold') return needsClient(request) ?? holdState(request, scope);
-    if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request, scope);
-    if (request.method === 'revert') return needsClient(request) ?? revert(request);
-    if (request.method === 'import') return needsClient(request) ?? importHeld(request);
+    if (request.method === 'outline') return needsClient(request) ?? outline(request);
+    if (request.method === 'hold') return needsClient(request) ?? holdState(request);
+    if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request);
+    if (request.method === 'revert') return needsClient(request) ?? revert(request, scope);
+    if (request.method === 'import') return needsClient(request) ?? importHeld(request, scope);
     if (request.method === 'drop') {
       const refused = needsClient(request);
       if (refused) return refused;
@@ -575,6 +596,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       forget(request.proposal, { client: request.client, reason: 'dropped' });
       return { ok: { dropped: request.proposal } };
     }
+    // Below write an export keeps no baseline: keeping one prunes the oldest, another client's import's.
+    if (request.method === 'export') return ask({ ...request, keep: allows(scope, 'write') && request.keep !== false });
     if (request.method === 'propose' && scrub?.inline) return proposeHere(request);
     return ask(request);
   }
@@ -596,10 +619,18 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
 
   /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
-   * mode on one build or every build that can, its client's while present;
-   * write scope, as it takes the builds' input. */
+   * mode on one build or every build that can, its client's while present.
+   * Below `write` it is read-only (the lead's ruling 5; `on` is refused by
+   * the table): `refresh` answers the selection each build last reported
+   * (`selections`), asking no build again, since a build's answer outlines
+   * on the developer's screens. */
   function inspect(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: 'inspect needs write scope: it takes the running builds\' input' } };
+    if (!allows(scope, 'write')) {
+      const build = request.build ?? null;
+      if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
+      pruneSelections();
+      return { ok: { selections: [...lastSelection].filter(([id]) => build === null || id === build).map(([, s]) => s) } };
+    }
     if (!present(request.client)) return { status: 409, error: { message: `inspect: \`${request.client}\` is not present: hold a long poll or a subscription that names it first (\`{client}\`)` } };
     const build = request.build ?? null;
     if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
@@ -611,8 +642,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** `outline` `{client, at: [{file, line, col}]}` (LLP 1122 D5): every
    * build that can inspect outlines its views at those source locations (a
    * token's `uses`, a changeset entry's), by the dev loop's current map. */
-  function outline(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: 'outline needs write scope: it draws on the running builds' } };
+  function outline(request) {
     if (!present(request.client)) return { status: 409, error: { message: `outline: \`${request.client}\` is not present` } };
     if (!Array.isArray(request.at) || request.at.length > 4096 || !request.at.every(a => a && typeof a.file === 'string' && Number.isInteger(a.line) && Number.isInteger(a.col))) return { status: 400, error: { message: 'outline names `at`: up to 4096 source locations `{file, line, col}`' } };
     // Nothing to outline: the outlines are cleared, map or none.
@@ -633,8 +663,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** A state held on one node of one build (LLP 1122 D4, D8; *1.11*):
    * `{build, site, instance, state}`, `state` null to let it go; its
    * client's while present, one a build. */
-  function holdState(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: 'hold needs write scope: it drives a running build' } };
+  function holdState(request) {
     if (!present(request.client)) return { status: 409, error: { message: `hold: \`${request.client}\` is not present` } };
     if (typeof request.build !== 'string') return { status: 400, error: { message: 'hold names its `build`, a registered build\'s id' } };
     const held = request.state == null ? null : { site: request.site, instance: request.instance ?? [], state: request.state };
@@ -660,10 +689,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return done.error ? { status: 400, error: { message: done.error } } : { ok: done };
   }
 
-  /** A scrub session's request: `write` scope, a present client, and a dev
-   * loop whose builds preview it. */
-  async function scrubbing(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: `${request.method} needs write scope: a scrub drives the running builds` } };
+  /** A scrub session's request (`write` scope, the dispatcher's): a present
+   * client, and a dev loop whose builds preview it. */
+  async function scrubbing(request) {
     if (!scrub) return { status: 501, error: { message: 'no builds preview here: a scrub needs the dev loop\'s design server' } };
     if (request.method === 'scrub-cancel') return scrubs.cancel(request);
     if (request.method === 'scrub-release') return scrubs.release(request);
@@ -729,6 +757,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // so a long poll that names the one it has is answered without the list.
   const proposals = new Map();
   let heldRevision = 0;
+
   const forget = (id, why) => { proposals.delete(id); heldRevision++; send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, ...why }); };
   const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now()) forget(id, { client: null, reason: 'expired' }); };
   const expiry = setInterval(expire, 30_000);
@@ -743,7 +772,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   /** The proposals held now, as a reconnecting client reads them. */
   const held = () => [...proposals].map(([id, p]) => p.shown);
-  async function hold(client, ops, files, replaces, review, requires) {
+  async function hold(client, ops, files, replaces, review, requires, scope = 'write') {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
@@ -787,8 +816,16 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
     const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}) };
+    // At most 64 held. A client below `write` may not drop another's
+    // (theme2's ruling (a)): at the cap its own oldest goes, and with none
+    // of its own its hold is refused, decided here, in the same turn as the
+    // insert. A `write` client's makes room by the oldest, as before.
+    if (proposals.size >= HELD && !allows(scope, 'write')) {
+      const own = [...proposals].find(([, p]) => p.client === client);
+      if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none is this client's: one must be accepted or dropped first` } };
+      forget(own[0], { client, reason: 'too many held' });
+    }
     proposals.set(id, { client, ops, base, guards, inferred, expires, shown }); heldRevision++;
-    // At most 64 held: the oldest goes.
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
@@ -897,9 +934,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return { ok: { commits, more: log.ok.more } };
   }
   /** A past commit's inverse on today's files, held for review. */
-  async function revert(request) {
+  async function revert(request, scope = 'write') {
     const plan = await planRevert(request.commit);
-    return plan.ok ? hold(request.client, plan.ok.ops, plan.ok.files, undefined, plan.ok.review) : plan;
+    return plan.ok ? hold(request.client, plan.ok.ops, plan.ok.files, undefined, plan.ok.review, undefined, scope) : plan;
   }
   /** A past commit's inverse planned on today's files: its operations, the
    * digests they were planned on, and the review; or refused, naming each
@@ -936,7 +973,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
-  async function importHeld(request) {
+  async function importHeld(request, scope = 'write') {
     if (typeof request.kind !== 'string') return { status: 400, error: { message: '`kind` is a string' } };
     for (const k of ['source', 'name', 'prefix']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
     // One file (`source`, `name`), or several (`sources`): the server reads either.
@@ -944,7 +981,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!planned.ok) return planned;
     const { ops, review } = importReview(planned.ok);
     if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
-    return hold(request.client, ops, undefined, undefined, review);
+    return hold(request.client, ops, undefined, undefined, review, undefined, scope);
   }
 
   function close() {
