@@ -352,6 +352,11 @@ final class MIDIMacTests: XCTestCase {
             self.lock.withLock { finished = true }
         }
         let lag = MainLag()
+        // When the hub heard each message, by its stamp: a tick it heard more
+        // than 50 ms late is drained at once, that late.
+        var handed: [Double: Double] = [:]
+        MIDIHub.observeHeard = { at, heard in self.lock.withLock { handed[at] = heard } }
+        defer { MIDIHub.observeHeard = nil }
         wait(5) { self.lock.withLock { finished } }
         wait(0.2)
         lag.stop()
@@ -367,7 +372,9 @@ final class MIDIMacTests: XCTestCase {
         // a second time past what main's own lag explains.
         for d in ticks {
             let oldest = ExactEnv.t0 + d.list[0].ms / 1000, late = lag.most(oldest, d.at)
-            XCTAssertLessThan(d.at - oldest, 0.100 + late, "nor held past a second batch (main \(late) s late meanwhile)")
+            // Its drain is due 50 ms after the oldest tick, or when the hub heard it if later.
+            let handoff = lock.withLock { handed.filter { abs($0.key - oldest) < 0.001 }.min { abs($0.key - oldest) < abs($1.key - oldest) }.map { $0.value - $0.key } } ?? 0
+            XCTAssertLessThan(d.at - oldest, max(0.100, handoff + 0.050) + late, "nor held past a second batch (main \(late) s late meanwhile, heard \(handoff) s after its stamp)")
         }
         let start = try XCTUnwrap(got.first { $0.list.contains { $0.status == 0xFA } })
         let fa = try XCTUnwrap(want.first { $0.status == 0xFA })

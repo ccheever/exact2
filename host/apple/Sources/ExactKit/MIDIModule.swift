@@ -153,9 +153,13 @@ final class MIDIHub {
         uids.withUnsafeBufferPointer { library.inputs(handle, $0.baseAddress, $0.count) }
     }
 
+    /// Tests: each message's stamp and when the hub heard it (the arm's thread).
+    nonisolated(unsafe) static var observeHeard: ((_ at: Double, _ heard: Double) -> Void)?
+
     /// One message from the arm's thread. A tick no session follows goes no
     /// further.
     private func heard(_ message: Heard) {
+        Self.observeHeard?(message.at, CACurrentMediaTime())
         let tick = message.bytes.first == 0xF8
         lock.lock()
         if tick && !clockUIDs.contains(message.uid) {
