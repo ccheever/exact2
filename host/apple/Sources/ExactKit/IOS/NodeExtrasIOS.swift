@@ -144,6 +144,12 @@ final class NodeExtras {
     /// The status bar's and the home indicator's bands its scroll view
     /// reaches into past its box, inset by as much (LLP 1130 D3).
     var pageBand = UIEdgeInsets.zero
+    /// The part of the band its scroll view's `contentInset` holds (LLP 1131 D2).
+    var bandInset = UIEdgeInsets.zero
+    /// A control bar over a scroller's content (LLP 1131 D3, D4): the scroller's paint rank, which it is placed
+    /// above, and UIKit's edge effect.
+    var bandOver: Int64?
+    var edgeInteraction: AnyObject?
     var scrollWritten: String?
     /// A hatched node whose hatch undoes its own additions: its row may be
     /// reused (LLP 1075.003.000.000 §8).
@@ -291,6 +297,9 @@ extension NodeView {
     }
     /// Its page band (`NodeExtras.pageBand`), zero for most.
     var pageBand: UIEdgeInsets { extras?.pageBand ?? .zero }
+    var bandInset: UIEdgeInsets { extras?.bandInset ?? .zero }
+    var bandOver: Int64? { get { extras?.bandOver } set { if newValue != nil || extras != nil { more.bandOver = newValue } } }
+    var edgeInteraction: AnyObject? { get { extras?.edgeInteraction } set { if newValue != nil || extras != nil { more.edgeInteraction = newValue } } }
     /// Its scroll view's frame: its bounds, and the band past them.
     package var scrollFrame: CGRect { bounds.inset(by: UIEdgeInsets(top: -pageBand.top, left: 0, bottom: -pageBand.bottom, right: 0)) }
     /// Native padding and footer space are content, unlike a bar or keyboard.
@@ -305,7 +314,7 @@ extension NodeView {
     /// scroll by the bar and the home indicator, as a table view's does not.
     func scrollFloor(_ sv: UIScrollView) -> CGFloat {
         guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height - pageBand.top - pageBand.bottom }
-        return max(0, sv.bounds.height - top - bottom)
+        return max(0, sv.bounds.height - top - bottom - pageBand.top - pageBand.bottom)
     }
 }
 extension UIColor {

@@ -562,8 +562,12 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             instance: *instance,
         }
     };
+    // A plain list has no card: its rows are the list's own ground, as
+    // UIKit's plain cells and an AppKit table's rows are, not a lighter fill.
     let mut group = vec![if cardless {
         s("background-color", "transparent", span)
+    } else if style == "plain" {
+        m("background-color", "ground-plain", span)
     } else {
         m("background-color", "card-fill", span)
     }];

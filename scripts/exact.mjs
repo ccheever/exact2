@@ -661,6 +661,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                this machine's host/iOS/tvOS Hermes bundles;
                                fetch the crates every bake reads offline;
                                build the engine rustdoc that game vocab reads
+  exact add <module> [<app>]   a standard module (geolocation): its dependency, installed
   exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds (Kotlin for android/)
                                (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
@@ -702,6 +703,23 @@ EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
 release needs a "Developer ID Application" certificate and notarytool
 credentials in the keychain; it says how to get each if one is missing.
 EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
+
+/** `exact add <module> [<app>]` (LLP 1133.001 D8): the app depends on one of exact2's standard modules by a path into
+ *  this checkout, as an app consumes exact2 by path, so the module never differs from the SDK it compiles against. */
+export function add(args, say = console.log) {
+  const [module, name] = args, short = String(module ?? '').replace(/^@exact\//, '');
+  const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+  const standard = readdirSync(resolve(ROOT, 'packages')).filter((p) => read(resolve(ROOT, 'packages', p, 'exact.json'))?.kind === 'interface');
+  if (!standard.includes(short)) throw new Error(`add: ${module ? `no standard module ${module}` : 'name a module'}; exact2's are ${standard.join(', ')} (exact add geolocation)`);
+  if (!name && !process.env.EXACT_APP_DIR) throw new Error('add: name the app (exact add geolocation <app>), or run bun exact.mjs add in it');
+  const app = resolveApp(name), at = resolve(app.dir, 'package.json'), manifest = read(at);
+  if (!manifest) throw new Error(`add: ${app.dir} has no package.json; an app exact new made has one`);
+  const key = `@exact/${short}`, spec = `file:${resolve(ROOT, 'packages', short)}`;
+  if (manifest.dependencies?.[key] !== spec) writeFileSync(at, JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, [key]: spec } }, null, 2) + '\n');
+  if (spawnSync(process.execPath, ['install'], { cwd: app.dir, stdio: 'inherit' }).status !== 0) throw new Error(`add: bun install failed in ${app.dir}`);
+  const grants = read(resolve(ROOT, 'packages', short, 'exact.json'))?.grants ?? [];
+  say(`add: ${key} is ${spec}. Name what you use: use … from "${key}" in app.contract, or import from it in app.ts${grants.length ? `; and grant one of ${grants.join(', ')} with its purpose's strings key in app.ts (exact docs a capability that asks permission)` : ''}.`);
+}
 
 /** `exact hatch <word> [<app>]`, `exact hatch --app [<app>]`, `exact hatch --window [<app>]` (LLP 1075.003.000.001 §5):
  *  an access hatch's stub for each target the app builds. A word is added to app.json `hatches` with the platforms
@@ -1174,6 +1192,7 @@ async function main(argv) {
   if (verb === 'tamber' && name === 'tool') return import('./tamber-server.mjs').then(m => m.toolCommand(rest)).then(code => process.exit(code));
   if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
+  if (verb === 'add') return add(guardFlags('add', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   // Words, never flags: a CSS name (`-exact-exit-animation`) is one, and --help was answered above.
   if (verb === 'docs') return docs(argv.slice(1));

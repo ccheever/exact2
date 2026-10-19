@@ -108,7 +108,9 @@ extension NodeView {
         let gradients = Gradient.layers(style["background_image"])
         let radius = radii.max() ?? 0
         let shape = CornerShape(style["corner_shape"])
-        let said = !styles.contains(where: { $0 == "dotted" || $0 == "dashed" }) && gradients.isEmpty && (shape == nil || shape?.isAppleContinuous == true) && sizes.allSatisfy { $0.width == $0.height }
+        // A background clipped inside the border box is drawn, in the clip `paintBackground` takes (`backgroundOutline`).
+        let clipped = backgroundClip != "border-box"
+        let said = !clipped && !styles.contains(where: { $0 == "dotted" || $0 == "dashed" }) && gradients.isEmpty && (shape == nil || shape?.isAppleContinuous == true) && sizes.allSatisfy { $0.width == $0.height }
             && widths.allSatisfy { $0 == widths[0] } && (widths[0] == 0 || colors.allSatisfy { $0 == colors[0] })
             && radii.allSatisfy { $0 == 0 || $0 == radius } && radius <= min(box.width, box.height) / 2
         if said {
@@ -136,9 +138,11 @@ extension NodeView {
             s.drawn = { [weak self] ctx, rect in
                 guard let self else { return }
                 let path = self.roundedPath(in: rect).cgPath
-                if let fill { ctx.addPath(path); ctx.setFillColor(fill); ctx.fillPath() }
-                for gradient in gradients.reversed() {
-                    gradient.paint(ctx, clip: path, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
+                if let ground = clipped ? self.backgroundOutline(path, in: rect) : path {
+                    if let fill { ctx.addPath(ground); ctx.setFillColor(fill); ctx.fillPath() }
+                    for gradient in gradients.reversed() {
+                        gradient.paint(ctx, clip: ground, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
+                    }
                 }
                 BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: sizes, styles: styles, shape: shape)
             }

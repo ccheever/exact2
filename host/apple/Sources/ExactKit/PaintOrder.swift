@@ -127,7 +127,18 @@ extension NodeView {
         // positioned route holders it stands for: among equals its subview
         // place — the routes' place in the tree (`placeOwner`) — orders it,
         // as CSS paints positioned siblings in tree order.
-        for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]!) }
+        // A control bar over its scroller (LLP 1131 D3) goes half a step above the scroller's place: over it and
+        // its equals, under the next rank.
+        #if os(macOS)
+        let place = { (child: PaintView) in dense.positions[child.siblingPaintRank]! }
+        #else
+        let place = { (child: PaintView) -> CGFloat in
+            let own = dense.positions[child.siblingPaintRank]!
+            guard let over = (child as? NodeView)?.bandOver, let under = dense.positions[over] else { return own }
+            return max(own, under + 0.0005)
+        }
+        #endif
+        for child in children { child.setPaintPosition(place(child)) }
     }
 
     /// Live children may reorder around an exit, but the ghost keeps its

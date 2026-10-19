@@ -111,7 +111,8 @@ impl Painter {
             }
         };
         if frags.is_empty() {
-            return at(self, (content.0, content.1));
+            // A flex text's lines go down its box as CSS's anonymous flex item.
+            return at(self, (content.0, content.1 + kernel.text_line_offset(node)));
         }
         for g in frags {
             let clip = Shape::rect((rect.0 + g.x, rect.1 + g.y, g.width, g.height));

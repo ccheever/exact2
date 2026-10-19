@@ -19,6 +19,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// the journal is written out when asked for (`canvas/journal.rs`).
     pub fn requests(&mut self) -> Option<Vec<i32>> {
         self.echo_journal();
+        if let Some(names) = crate::canvas::jni::jni_extensions::take_bound() {
+            self.bind_extensions(&names);
+        }
         if !self.scrolled {
             // The reader takes its requests once it has the turn's frame:
             // after first pixel (a displayed frame activates it), the
@@ -61,5 +64,24 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// The reader's answer to request `id`, or its cancellation (`None`).
     pub fn answer(&mut self, id: u32, answer: Option<&str>) {
         self.p.answer_request(id, answer);
+    }
+
+    /// A topic the reader's extensions announced (`ExtensionContext.changed`,
+    /// LLP 1016.002): its readers are asked again.
+    pub fn extension_changed(&mut self, topic: &str) {
+        self.p.host().runner().native_slot().changed(topic);
+    }
+
+    /// The extensions the APK carries (`exact.app.ExactExtensions`, LLP
+    /// 1133.001 D5), one a line: they answer their names from now on,
+    /// outside the agent; under it, only those `EXACT_AGENT_BIND` names
+    /// (`--bind`), and the substitute the rest (LLP 1124 D7).
+    pub fn bind_extensions(&mut self, names: &str) {
+        let agent = std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1");
+        let chosen = std::env::var("EXACT_AGENT_BIND").unwrap_or_default();
+        let bound: Vec<&str> = (names.lines().filter(|n| !n.is_empty()))
+            .filter(|n| !agent || chosen.split(',').any(|c| c == *n))
+            .collect();
+        self.p.host_mut().runner_mut().bind_extensions(&bound);
     }
 }

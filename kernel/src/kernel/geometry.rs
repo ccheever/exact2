@@ -292,6 +292,79 @@ impl Kernel {
         box_.iter().all(|v| v.is_finite()).then_some(box_)
     }
 
+    /// How far down its content box a `text` that is a flex container draws
+    /// its lines: its text is one anonymous flex item (CSS Flexbox §4),
+    /// placed by `align-items` in a row (its cross ends swapped under
+    /// `wrap-reverse`) and by `justify-content` in a column. Only the
+    /// vertical place moves: the width its lines wrap in stays the box's.
+    /// Zero for any other node, and for a text fragmented across columns,
+    /// whose lines its fragments place.
+    pub fn text_line_offset(&self, node: &crate::NodeRef<'_>) -> f32 {
+        use crate::generated::{
+            AlignContent, AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, Overflow,
+        };
+        let style = node.style;
+        if node.node_type != NodeType::Text
+            || style.display != Display::Flex
+            || self.fragments(node.key).is_some()
+        {
+            return 0.0;
+        }
+        let (_, top, _, bottom) = self.resolved_padding(node.key).unwrap_or_default();
+        let [border_top, _, border_bottom, _] = style.border_widths_in(self.arena.env());
+        let room = node.frame.height - top - bottom - border_top - border_bottom;
+        // The measured extent counts the top padding before the lines, and
+        // the bottom one after them in a box that clips or scrolls (Taffy's leaf).
+        let clips = style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible;
+        let lines = node.content.1 - top - if clips { bottom } else { 0.0 };
+        let free = (room - lines).max(0.0);
+        let reverse = style.flex_wrap == FlexWrap::WrapReverse;
+        let (flex_start, flex_end) = if reverse { (free, 0.0) } else { (0.0, free) };
+        match style.flex_direction {
+            FlexDirection::Row | FlexDirection::RowReverse => {
+                // A wrapping container's one line is placed by `align-content`,
+                // the item in it (as tall as it) by nothing more.
+                if style.flex_wrap != FlexWrap::Nowrap {
+                    match style.align_content {
+                        AlignContent::Normal | AlignContent::Stretch => {}
+                        AlignContent::Center
+                        | AlignContent::SpaceAround
+                        | AlignContent::SpaceEvenly => return free / 2.0,
+                        AlignContent::End => return free,
+                        AlignContent::FlexEnd => return flex_end,
+                        AlignContent::FlexStart | AlignContent::SpaceBetween => return flex_start,
+                        AlignContent::Start => return 0.0,
+                    }
+                }
+                match style.align_items {
+                    AlignItems::Center => free / 2.0,
+                    AlignItems::End | AlignItems::SelfEnd => free,
+                    AlignItems::FlexEnd => flex_end,
+                    AlignItems::FlexStart => flex_start,
+                    _ => 0.0,
+                }
+            }
+            direction => {
+                let reversed = direction == FlexDirection::ColumnReverse;
+                match style.justify_content {
+                    JustifyContent::Center
+                    | JustifyContent::SpaceAround
+                    | JustifyContent::SpaceEvenly => free / 2.0,
+                    JustifyContent::End => free,
+                    JustifyContent::FlexEnd if !reversed => free,
+                    JustifyContent::FlexStart
+                    | JustifyContent::Normal
+                    | JustifyContent::SpaceBetween
+                        if reversed =>
+                    {
+                        free
+                    }
+                    _ => 0.0,
+                }
+            }
+        }
+    }
+
     /// The CSS padding the last layout resolved, in points: left, top,
     /// right, bottom. A percentage is of the containing block's width, which
     /// in a multi-column container is the column's (CSS Multi-column §3.4).

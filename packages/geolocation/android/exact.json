@@ -2,7 +2,9 @@
   "kind": "implementation",
   "implements": "@exact/geolocation@^1.0",
   "platform": "android",
-  "targets": ["android"],
+  "targets": [
+    "android"
+  ],
   "shapes": {
     "AndroidLocation": {
       "provider": "string",
@@ -30,7 +32,14 @@
   },
   "names": [],
   "views": [],
-  "hatches": ["locationManager"],
-  "sources": { "kotlin": ["."] },
-  "artifacts": []
+  "hatches": [
+    "locationManager"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.geolocation.GeolocationModule"
 }

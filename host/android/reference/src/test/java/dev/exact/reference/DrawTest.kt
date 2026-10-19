@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -90,8 +92,12 @@ class DrawTest(private val id: String, private val scheme: String) {
             node.children.forEach(::walk)
         }
         walk(tagged)
+        // An inline control's layout box is its own node's (the tagged box's child), without the 48 dp
+        // minimumInteractiveComponentSize puts round it: Exact lays a control out at its drawn size and its padding,
+        // and answers the 48 dp as a touch target apart (LLP 1115.001.001 §5 Q5). Anything else's is the tagged box.
+        val control = tagged.children.firstOrNull { it.config.getOrNull(SemanticsProperties.Role) in CONTROLS }
         val facts = JSONObject().put("id", id).put("scheme", scheme).put("density", density.toDouble())
-            .put("layout", box(tagged.boundsInRoot, density)).put("nodes", nodes).put("texts", texts)
+            .put("layout", box((control ?: tagged).boundsInRoot, density)).put("nodes", nodes).put("texts", texts)
         File(out, "$name.json").writeText(facts.toString(2))
     }
 
@@ -112,6 +118,9 @@ class DrawTest(private val id: String, private val scheme: String) {
         }
 
         fun schemeOf(name: String) = if (name == "dark") darkColorScheme() else lightColorScheme()
+
+        /** The roles whose node is a control's own box. */
+        val CONTROLS = setOf(Role.Button, Role.Checkbox, Role.RadioButton, Role.Switch)
     }
 }
 
@@ -123,7 +132,12 @@ class DrawTest(private val id: String, private val scheme: String) {
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [36], qualifiers = "w443dp-h986dp-390dpi")
 class InputsTest {
+    @get:Rule val rule = createComposeRule()
+
     @Test fun write() {
+        var touch = 0f
+        rule.setContent { touch = LocalMinimumInteractiveComponentSize.current.value }
+        rule.waitForIdle()
         val out = File(System.getProperty("reference.out")!!).apply { mkdirs() }
         val schemes = JSONObject()
         for (name in listOf("light", "dark")) schemes.put(name, scheme(DrawTest.schemeOf(name)))
@@ -141,6 +155,7 @@ class InputsTest {
             .put("ButtonDefaults.ContentPadding.end", padding.calculateEndPadding(LayoutDirection.Ltr).value)
             .put("ButtonDefaults.ContentPadding.bottom", padding.calculateBottomPadding().value)
             .put("CheckboxDefaults.StrokeWidth", CheckboxDefaults.StrokeWidth.value)
+            .put("LocalMinimumInteractiveComponentSize", touch)
         File(out, "defaults.json").writeText(defaults.toString(2))
     }
 

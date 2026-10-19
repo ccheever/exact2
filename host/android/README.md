@@ -392,6 +392,7 @@ capability has a call of its own.
 | 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
 | 9 | a date or time control's picker (LLP 1115.001.000 D1) | the control's node; then five strings: its kind (`date`, `time`, `datetime-local`), what it shows now, its `min`, `max` and `step`, each as HTML writes it; then its `accent-color`, opaque ARGB, or 0 for none | asks the node's Kotlin hatch (D3), then shows the activity's `pickers`: Compose Material 3's where the app links it, else the framework's dialogs ("Pickers and hatches", below) | the value chosen in HTML's form, which exact2 sets as a person's choice (`input`, then `change`), or null when dismissed; exact2 journals `picker: dismissed for <node>` |
 | 10 | the moments the app's Kotlin hatches hear, and what their clock and input call back (LLP 1115.001.000 D4) | for each, led by its scope: 1 the app or 3 a node, then its moment (0 built, 1 changed, 2 ended), the node, its box (four floats as bits, the document's points), its word and `id` as strings, the count of its `data-*` words and each name and value; 5 a tick, its ticket, the clock (an `f64`'s bits, high word first) and the commit; 6 an `after`, its ticket; 7 input, its ticket, the node, then 1 and a pointer's phase, points and whether it was handled, or 2 and a key's `key`, `code`, down, repeat and handled (`hatches/reader.rs`) | calls the app's `exact.app.Hatches` (`HatchReader.told`) | none: what a hatch asks goes by `Native.hatchAct` |
+| 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}` | calls the extension's `later` or `release` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call |
 
 Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
@@ -469,6 +470,23 @@ string values, `emit("message", payload)` with the guest message, `emit("load", 
 Retired bindings and events for an old node allocation are ignored. A module button receives `performClick()`
 for an unscrolled tap that no long press took, at its painted position so a platform popup can anchor to it. Native drags, arbitrary
 pointer forwarding and zero-size service modules are not implemented by this button seam.
+
+## Module implementations (LLP 1133.001 D5)
+
+A package that implements a module on Android (`"platform": "android"` in its `exact.json`, with its `class` and its
+Kotlin under `sources.kotlin`) is compiled into the APK when the app binds it (LLP 1133.001 D4):
+`agent-android.mjs` adds its Kotlin to the build (`-PextensionDirs`) with a roster it writes,
+`exact.app.ExactExtensions`, and the permissions the app's grant lines derive (the bake's `reach.android`, from
+`runner/src/device.rs`) to the release manifest (`-Ppermissions`). The class subclasses `ExactExtension`
+(`Extensions.kt`): `later(name, args, reply)` for each source read and send, `release(name)` when a live source's
+last reader goes, and `resumed()` when the activity is in front again, which is where it reads again what the person
+changed in Settings, since Android sends no event for it. Its `ExtensionContext` gives the application, the activity
+in front, `changed(topic)`, which asks the topic's readers again, and `requestPermissions(permissions, done)`: one
+platform request, answered by `onRequestPermissionsResult`, or by the next resume when a recreated activity lost the
+result (LLP 1133.002 D9). The activity binds the roster's names as it is made (`Native.bindExtensions`); the host binds
+them outside the agent and, under it, only those a drive names (`--bind`), so the substitute answers the rest.
+`openURL("app-settings:")` opens the app's page in Settings (`ACTION_APPLICATION_DETAILS_SETTINGS`), journaled only
+under the agent. `packages/geolocation/android/Geolocation.kt` is one.
 
 ## Text fields (LLP 1115.001 D8)
 
@@ -1132,11 +1150,13 @@ The cut was the smallest one. Left in the reader:
     does no frame work while the activity is stopped. Android discards a stopped window's display lists, the reader's
     kept rows among them, so a start after a stop makes the reader again (`ExactActivity.read`) and the host paints
     everything for it; hosted views are made again with it. Nothing is saved for a process the system kills (D15.3).
-- **No check builds any of it.** Gradle is in none of the six checks or the async lane, and nothing builds
-  `exact-linux` for the Android target.
+- **Only the async lane's second tier builds it** (LLP 1133.002 stage 4): Weatherlight's APK, hourly, which
+  compiles `exact-linux` for the Android target and the reader's Kotlin with a module's. Gradle is in none of the
+  six checks.
 - **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
-  every app, and gives none a native module (LLP 1024) or a video player, which the benchmark's apps passed from an
-  activity of their own.
+  every app, and gives none an app's own native module (LLP 1024) or a video player, which the benchmark's apps
+  passed from an activity of their own. A package's implementation of a module is the exception (below, "Module
+  implementations").
 - **A GPU canvas over children draws nothing**: Caltrain's sky (`glass`, which refracts the content inside it) is
   blank with its module packaged, where a canvas without children (a game's world) draws (QUEUE.md).
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility

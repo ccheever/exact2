@@ -54,6 +54,8 @@ enum FocusSearch {
 final class Viewport: ScrollView {
     /// Its bands past the page's area (`Presenter.pageMargins`, LLP 1130 D1).
     var pageMargins = UIEdgeInsets.zero
+    /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
+    var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
     // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }

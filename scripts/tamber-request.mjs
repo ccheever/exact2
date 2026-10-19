@@ -34,3 +34,10 @@ export const tooDeep = (v, max = 64) => {
 export const parseRequest = text => {
   try { const v = JSON.parse(text); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; }
 };
+
+/** Whether a request may carry a paired credential: from this machine, or
+ * through one of stage 10 B's doors (its TLS listener or canvas port, or a
+ * tunnel the developer trusts). Plain HTTP from off this machine (a --lan
+ * bind's peer) never may (LLP 1122 D12): the wire and the canvas both ask
+ * this, so the rule lives here once. */
+export const viaDoor = access => access?.local === true || access?.remote === true || access?.tunnel === true;

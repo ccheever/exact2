@@ -11,6 +11,9 @@
 // FFI to the JNI, jnigraphics and AHardwareBuffer APIs.
 #![allow(unsafe_code)]
 
+#[path = "jni_extensions.rs"]
+pub mod jni_extensions;
+
 /// Define the JNI for an app over `CanvasHost<$data>` with the plan and
 /// compat the app's build script writes to `OUT_DIR` (`app.plan`,
 /// `compat.json`). `hatches = …` is the app's [`crate::hatches::Install`]
@@ -83,6 +86,8 @@ macro_rules! canvas_jni {
                 release(env, s, p);
                 out
             }
+
+            $crate::canvas_jni_extensions!();
 
             fn flag(b: bool) -> jboolean {
                 if b {

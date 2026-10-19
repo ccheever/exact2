@@ -63,6 +63,18 @@ android {
     // component fixture compile the app's actual provider without copying its Kotlin.
     val modulesDir = providers.gradleProperty("modulesDir").orNull?.let { file(it) } ?: appDir.resolve("modules/android")
     modulesDir.takeIf { it.isDirectory }?.let { sourceSets["main"].kotlin.directories.add(it.path) }
+    // The modules' implementations the app binds (LLP 1133.001 D5): their Kotlin, and the roster naming them that
+    // `agent-android.mjs` writes (`-PextensionDirs`).
+    providers.gradleProperty("extensionDirs").orNull?.split(',')?.filter { it.isNotEmpty() }?.forEach { sourceSets["main"].kotlin.directories.add(it) }
+    // The runtime permissions the app's grant lines derive (`-Ppermissions`, LLP 1133.002 D6), merged into the shell's
+    // manifest from the release source set's: an app that grants no device asks for none.
+    providers.gradleProperty("permissions").orNull?.split(',')?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }?.let { names ->
+        val permissions = layout.buildDirectory.file("permissions/AndroidManifest.xml").get().asFile
+        permissions.parentFile.mkdirs()
+        permissions.writeText("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
+            names.joinToString("") { "    <uses-permission android:name=\"$it\" />\n" } + "</manifest>\n")
+        sourceSets["release"].manifest.srcFile(permissions)
+    }
     // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).
     appDir.resolve(".exact/tamber/TamberTokens.kt").takeIf { it.isFile }?.let { sourceSets["main"].kotlin.directories.add(it.parent) }
     if (compose) buildFeatures { this.compose = true }
