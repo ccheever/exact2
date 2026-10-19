@@ -93,6 +93,7 @@ mod activities;
 mod apply;
 mod live_time;
 pub mod midi;
+mod modules;
 mod split;
 mod surface_record;
 mod time;
@@ -361,8 +362,8 @@ type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
-    /// The plan's string pool, interned once (`vm::intern`).
-    strings: Vec<Value>,
+    /// The plan's strings as values, made as they are read (`vm::intern`).
+    strings: vm::Strings,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
@@ -498,6 +499,8 @@ pub struct Runner<D: DataSource> {
     keeping: kept::Keeping,
     /// Resources asked again and again with new arguments (a development build's warning).
     churn: query::Churn,
+    /// The agent's preferred answers of native modules' sources (LLP 1124 D7).
+    extensions: modules::Extensions,
     poisoned: bool,
     /// Evaluate every site on every update (the incremental update's
     /// reference; `set_full_evaluation`).
@@ -917,6 +920,7 @@ impl<D: DataSource> Runner<D> {
             keeping: Default::default(),
             churn: Default::default(),
             activities: activities::Activities::default(),
+            extensions: Default::default(),
             delivery,
             viewport,
             page: Default::default(),

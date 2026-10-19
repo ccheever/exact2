@@ -1254,10 +1254,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online`, `can-share`, `can-share-files`, `can-share-pictures`, `can-open-files` and `has-focus` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows), `"bold-text"` `"true"|"false"` (Apple's Bold Text, refused by name elsewhere). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      const { media, page, fold, mode, midi } = preferGroups(facts);
-      // The midi group is the runner's (LLP 1125 §4), asked on its own; alone, its reply is the answer.
-      const midiReply = Object.keys(midi).length ? await s.op({ op: 'prefer', midi }) : null;
-      if (midiReply && ![media, page, fold, mode].some(g => Object.keys(g).length)) return midiReply;
+      const { media, page, fold, mode, midi, extension } = preferGroups(facts);
+      // The midi and extension groups are the runner's (LLP 1125 §4, LLP 1124 D7), each asked on its own; alone, its reply is the answer.
+      const replies = {}; for (const [k, g] of [['midi', { midi }], ['extension', extension]]) if (Object.values(g).some(v => Object.keys(v).length)) replies[k] = await s.op({ op: 'prefer', ...g });
+      if (Object.keys(replies).length && ![media, page, fold, mode].some(g => Object.keys(g).length)) return replies.extension ?? replies.midi;
       if (carrier.prefer) return s.tagged(await carrier.prefer(media, page, fold, mode));
       return s.op(preferOp(media, page, fold, mode));
     },

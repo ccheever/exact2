@@ -73,9 +73,40 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
             imports.push(format!("{name} as ${name}"));
         }
     }
-    Ok(if imports.is_empty() {
+    let facts = if imports.is_empty() {
         String::new()
     } else {
         format!("import{{{}}}from\"./facts.js\";", imports.join(","))
-    })
+    };
+    Ok(facts + &modules(plan, body))
+}
+
+/// A native module's sources and sends (LLP 1133.002 D13, §6), which
+/// modules.js answers as the runner's `modules.rs` does: each by its
+/// source's name, `[extension.name, send, its substitute, its type, when it
+/// asks for permission]`, an enum's members spelled out, so a preferred
+/// value outside them is refused.
+fn modules(plan: &Plan, body: &mut String) -> String {
+    if plan.modules.is_empty() {
+        return String::new();
+    }
+    let rows: Vec<String> = plan
+        .modules
+        .iter()
+        .map(|m| {
+            let source = &plan.sources[m.source.0 as usize];
+            let key = format!("{}.{}", plan.str(m.extension), plan.str(m.declared));
+            format!(
+                "{}:[{},{},{},{},{}]",
+                serde_json::to_string(plan.str(source.name)).unwrap(),
+                serde_json::to_string(&key).unwrap(),
+                m.send,
+                plan.str(m.substitute),
+                surface_type_json(plan, source.ty),
+                serde_json::to_string(plan.str(m.request)).unwrap(),
+            )
+        })
+        .collect();
+    let _ = write!(body, "$modules({{{}}});", rows.join(","));
+    "import{modules as $modules}from\"./modules.js\";".into()
 }

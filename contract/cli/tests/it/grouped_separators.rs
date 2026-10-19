@@ -19,7 +19,7 @@ fn boot(body: &str) -> Runner<NoData> {
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
     let source =
-        format!("component App\n  action go\n  view\n    column testId=\"root\" width=402 height=874\n{body}");
+        format!("style Native\n  appearance=\"auto\"\ncomponent App\n  action go\n  view\n    column testId=\"root\" width=402 height=874\n{body}");
     let plan = contract::bake(
         contract::compile(&source).unwrap_or_else(|e| panic!("{e}")),
         NoData,
@@ -149,4 +149,49 @@ fn a_rows_neighbour_is_the_next_shown_and_a_swipe_rows_edges_are_its_contents() 
         "the content's own `none`"
     );
     assert_eq!(line("shown-last"), None, "the last row shown has none");
+}
+
+/// A native button row keeps its inset as a margin and is no wider than its
+/// card less its insets: one its author makes as wide as the row stays in
+/// the card, and an unsized one is as wide as it was.
+#[test]
+fn a_full_width_native_button_row_stays_in_its_card() {
+    let r = boot(
+        "list appearance=\"auto\" flex=1
+  section
+    button appearance=\"auto\" press=go width=\"100%\" testId=\"full\"
+      text \"Full\"
+    button appearance=\"auto\" press=go testId=\"unsized\"
+      text \"Unsized\"
+    button appearance=\"auto\" press=go width=\"100%\" max-width=\"none\" testId=\"own\"
+      text \"Own\"
+    button appearance=\"auto\" press=go margin-left=0 testId=\"placed\"
+      text \"Placed\"
+    button class=Native press=go width=\"100%\" testId=\"class-symbol\"
+      image \"symbol:sf/star\"
+      text \"Starred\"",
+    );
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    let (full, unsized_) = (frame("full"), frame("unsized"));
+    assert_eq!(
+        (full.x, full.x + full.width),
+        (32.0, 386.0),
+        "inside the card"
+    );
+    assert_eq!(
+        (unsized_.x, unsized_.width),
+        (32.0, 354.0),
+        "stretched, as before"
+    );
+    assert_eq!(frame("own").width, 370.0, "an authored max-width wins");
+    assert_eq!(
+        (frame("placed").x, frame("placed").width),
+        (16.0, 370.0),
+        "a row its author placed with a margin is the author's, stretched across the card"
+    );
+    // A row a class made one: its inset knows a leading symbol, and its
+    // widest does too.
+    let symbol = frame("class-symbol");
+    assert_eq!((symbol.x, symbol.x + symbol.width), (72.0, 386.0));
 }

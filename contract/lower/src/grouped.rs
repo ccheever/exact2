@@ -25,9 +25,12 @@ mod actions;
 mod inputs;
 mod lines;
 mod messages;
+mod native;
 mod title;
 
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
+use native::native_row;
+pub(crate) use native::{margins_said, native_rows};
 
 use crate::{err, swipe_rows, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span};
@@ -149,35 +152,6 @@ fn attr(name: &str, value: Expr, span: Span) -> Attr {
         span,
         written: crate::IMPLIED,
     }
-}
-
-/// The sheet rows a native button takes (LLP 1069.011 D6), for a row whose
-/// class made it one: its inset and height, and nothing it refuses.
-pub(crate) fn native_rows(sheet: &mut Vec<Attr>) {
-    let Some(span) = sheet.first().map(|a| a.span) else {
-        return;
-    };
-    // Its own inset, which knows a leading symbol, outside its box as a
-    // native row's is; the rest is a button's.
-    sheet.retain(|a| a.name == "padding-left" || a.name == "margin-left");
-    for a in sheet.iter_mut() {
-        a.name = "margin-left".into();
-    }
-    sheet.extend(split(&native_row(span)[1..]).0);
-}
-
-/// A native button row's sheet (LLP 1069.011): the platform's control, at
-/// the row's inset and the height a row's button has. Where a platform's
-/// form shows a button at its own size (the Mac's, LLP 1115.002 D6), its
-/// margins and its place are metrics too, and are no row elsewhere.
-fn native_row(span: Span) -> Vec<Attr> {
-    vec![
-        m("margin-left", "row-inset", span),
-        m("min-height", "button-min-height", span),
-        m("margin-top", "button-margin-block", span),
-        m("margin-bottom", "button-margin-block", span),
-        m("align-self", "button-align", span),
-    ]
 }
 
 /// A native button's children without the sheet a row's parts were given:
@@ -816,7 +790,10 @@ fn row(node: &Node, separated: bool) -> Node {
         .find(|a| a.name == "appearance")
         .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"));
     if native {
-        return with(node, [context, native_row(span)].concat());
+        return with(
+            node,
+            [context, native_row(span, margins_said(attrs))].concat(),
+        );
     }
     // A destructive row's ink is the platform's (red in UIKit's list, the
     // label's in the Mac's form, whose button says it); a disabled row is the

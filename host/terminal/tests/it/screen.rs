@@ -675,3 +675,34 @@ fn a_grouped_rows_separator_is_drawn_without_a_border_and_not_under_the_last_row
     host.press(id);
     assert_eq!(host.frame().grid.cell(x, y).text, "─");
 }
+
+/// LLP 1084 D7: a native button row as wide as its row stays in its card:
+/// its inset is its margin and its widest the card less its insets.
+#[test]
+fn a_full_width_native_button_row_stays_in_its_card() {
+    let plan = contract::compile(
+        r#"component App
+  view
+    list appearance="auto" width=320 height=320
+      section
+        button appearance="auto" width="100%" testId="native"
+          text "Native"
+        row
+          text "Last"
+"#,
+    )
+    .unwrap();
+    let host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).unwrap();
+    let row = host
+        .kernel()
+        .node(host.by_test_id("native").unwrap())
+        .unwrap();
+    let card = host.kernel().node(row.parent.unwrap()).unwrap();
+    assert_eq!(row.frame.x - card.frame.x, 16.0, "its inset");
+    assert!(
+        row.frame.x + row.frame.width <= card.frame.x + card.frame.width,
+        "inside the card: {:?} in {:?}",
+        row.frame,
+        card.frame
+    );
+}

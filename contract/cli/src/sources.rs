@@ -239,6 +239,7 @@ impl Loader<'_> {
         match self.scope() {
             Ok(mut file) => {
                 file.design = design;
+                crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
                 Ok(file)
             }
             Err(all) => Err(resolve(&self.sources, all)),
@@ -713,12 +714,16 @@ impl Loader<'_> {
         }
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
-        let uses = file.uses.clone();
-        let index = source_id as usize;
         self.units.push(Unit {
             file,
             targets: Vec::new(),
         });
+        self.link(path, source_id as usize)
+    }
+
+    /// Load each file unit `index`'s `use` lines name, depth first.
+    fn link(&mut self, path: &Path, index: usize) -> Result<(), Vec<CompileError>> {
+        let uses = self.units[index].file.uses.clone();
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let from = self.sources.origins[index].clone();
         for u in &uses {
@@ -778,7 +783,22 @@ impl Loader<'_> {
                     self.sources.digests.push(digest(&used_src));
                     self.sources.texts.push(used_src.as_str().into());
                     self.active.push(key.clone());
-                    self.load_source(&key, &used_src, used as u32)?;
+                    if key.file_name().is_some_and(|f| f == "exact.json") {
+                        // A package's module declaration (LLP 1133.001), whose
+                        // `use`s name its implementations' files.
+                        let file = crate::declaration::read(&key, &used_src, used as u32).map_err(
+                            |(id, message)| {
+                                vec![use_error(id, format!("{}: {message}", described(u)), u)]
+                            },
+                        )?;
+                        self.units.push(Unit {
+                            file,
+                            targets: Vec::new(),
+                        });
+                        self.link(&key, used)?;
+                    } else {
+                        self.load_source(&key, &used_src, used as u32)?;
+                    }
                     self.active.pop();
                     self.cache.insert(key, used);
                     used
@@ -1142,6 +1162,18 @@ impl Loader<'_> {
                 })
                 .cloned()
                 .collect(),
+            modules: self
+                .units
+                .iter()
+                .enumerate()
+                .flat_map(|(u, unit)| {
+                    unit.file
+                        .modules
+                        .iter()
+                        .filter_map(move |m| unique[u].get(&(Kind::Call, m.name.clone())))
+                })
+                .cloned()
+                .collect(),
             ..Scope::default()
         });
         Ok(())
@@ -1258,6 +1290,7 @@ impl Loader<'_> {
             // The design is the app's, read beside its root (`design`).
             design: None,
             fns: all!(fns),
+            modules: all!(modules),
             components: all!(components),
         }
     }
@@ -1283,6 +1316,7 @@ fn declarations(file: &File) -> impl Iterator<Item = (Kind, &str)> {
     (file.components.iter().map(|c| (Kind::Component, &*c.name)))
         .chain(file.shapes.iter().map(|s| (Kind::Call, &*s.name)))
         .chain(file.fns.iter().map(|f| (Kind::Call, &*f.name)))
+        .chain(file.modules.iter().map(|m| (Kind::Call, &*m.name)))
         .chain(file.styles.iter().map(|s| (Kind::Style, &*s.name)))
         .chain(
             file.decorations

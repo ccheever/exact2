@@ -1471,6 +1471,30 @@ Android's reader and the terminal.
     **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
     clients of stage 10. **Gate:** a changed accent in Figma Variables is proposed as a dial
     change and a changed folded value as a pinned override.
+    **10c. A hosted relay** (Charlie, 2026-10-19: "We will prob need one yes"; design to
+    follow, its own plan): remote pairing for a team that shares no machine or LAN. What
+    stage 10 already fixes, and the relay must keep (theme2's check, 2026-10-19):
+    - **End to end, not terminated.** The relay forwards the client's TLS to the developer's
+      server unopened (a blind pass-through), so the per-run certificate's fingerprint, shown
+      with the pairing code and pinned by the client, still authenticates the developer's
+      server, and the relay never sees a token, a design or a canvas. A relay that terminated
+      TLS would break pinning and see every secret: ruled out.
+    - **The developer's server dials out.** Stage 10's listener only accepts; behind a NAT the
+      server must hold an outbound connection to the relay that the relay hands client streams
+      down. A new connector beside `--remote`, with the same routing and the same
+      `access.remote`.
+    - **Peers are the relay's.** The socket's peer is the relay for every relayed client, so
+      stage 10's per-peer pairing limit would lump them together: relayed pairing leans on the
+      per-code burn rule and a per-relay-session limit; a peer address the relay reports is
+      never trusted for anything but display.
+    - **Origins.** The relay's public host names become the tool's and the canvas's origins
+      (two, as stage 10's two ports; the canvas stays a different origin from the tool and the
+      cookie stays server-bound), and the Origin check and `remote.info()` name them.
+    - **Tokens unchanged.** Pairing codes, scoped in-memory tokens, revoke and the method table
+      work as in stage 10; the relay adds no credential of its own to the protocol (it may
+      have an account for the developer's server to connect, outside `tamber/1`).
+    **Gate:** set by its plan; at least stage 10's three lines through the relay, and the relay
+    shown unable to read a token or a design.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.
@@ -1548,6 +1572,9 @@ the implementation follows until Charlie rules otherwise.
    attributed tokens, and leaves a hosted relay out. Is that the model, and does a team
    relay belong in this program? *Provisional default:* local clients only; pairing as D13
    proposes when stage 10 comes; no relay.
+   **Answered (Charlie, 2026-10-19):** pairing as D13 is the model (stage 10, local and LAN);
+   a hosted relay is wanted ("We will prob need one yes"), design to follow: §5 stage 10c,
+   end to end through the relay, the developer's server dialing out.
 5. **Persistence and contrast.** Should `setMode` and the root-size percentage persist and
    apply before the first frame (so Dim never flashes Black)? Is an authored contrast
    variant for app colours wanted (D5)? *Provisional default:* neither persists, as
@@ -4079,3 +4106,92 @@ LLP 1115 D4).
   - After the re-check: on a boundary under a token colour, an implied row the boundary writes because its own bound colour clears or is refused stands over that binding, as the kernel's unwritten implied row does (`inked` reads `$xs` first; `modes_tests.rs` against the kernel, a clear and then a written value; `js-symbols.test.mjs`, a clear and a refused value).
   - After re-check 2: a boundary's bound colour that clears or is refused again, with nothing implied changed (`inherit` then `unset`), had its implied row cleared and not set back, so the kernel said written where the JS target did not; the runner now sets it again, unwritten, after each such clear (`NodeInst::unimply`, theme.rs). `modes_tests.rs` steps the kernel through inherit, unset, currentcolor, two refused values, a value, inherit, a value and unset against symbols.js's rule, and `js-symbols.test.mjs` the same in Chrome; iOS's segment test reads the image the installed segment was drawn from (`SegmentHost.drawn`).
   - On main with stage 9 A (the rebase): a path icon keeps A's rule (its tint, else its colour) and an SF Symbol takes B's; a path icon never takes the hierarchical face image (`faceImage`). So an untinted path icon with no written colour draws in its inherited colour where an untinted SF Symbol takes the platform's unsaid colour: both rulings, not a defect (theme2).
+
+### Stage 9's gate: met, with one deviation (2026-10-19; the run is `~/x2theme/stage9-gate-run.txt`)
+
+The clone at `3d3a4db` (H) on exact2 main: the server and web lines at `aa5cb16b1e`, H at
+`02dd4316e2`, the icon lines and the regression reruns at `188517d645` (B landed). Stage 9's commits: D1 `f1ac0f4df2`, D2 `12846f3be3`, D3 `08475ffeb5`, E
+`d731252e8d`..`7b4c2e4b2a`, A1 `6f5dd9004f`..`70f2a42327`, A2 `fcea1ec266`..`65d06ab882`, G1
+`1d7e20015`..`60fccd36b`, G2 `697ac7206`..`69c770245`, G3 `ad166145d`..`6fb914c35`, G4
+`c13fcdcde`..`b28c0c1a6`, F1 `44e834bfd`..`c11ac9f66`, F2 `419f6220f`..`f1ae334a2`, C
+`e8089e1e86`..`558b8a0638`, the icon-alias fix `abb270eb5e`, H's empty `symbol:` name `3f3d5459d0`, B
+`f7ed121e6b`..`188517d645`.
+
+| Gate line | Result |
+|---|---|
+| An svg-only icon token draws on iOS and the Mac, tinted by a colour token, and follows a live retheme; `tamber-icon-missing` no longer asks Apple targets for an `sf` | **Met** (x2-perf4, on `188517d645`): an svg-only icon with no `sf` builds for iOS and macOS with no `tamber-icon-missing`, draws on both, tinted by the token through `-exact-tint-color` or `color`, and follows a live mode change of the token (#0a7f2e → #1a4fd6) with no rebuild. |
+| Mac symbol images take their `color` and colour tokens | **Met** (x2-perf4): a Mac SF Symbol image takes its written `color` and the colour token, and follows the retheme; an unwritten one keeps the platform's colour. |
+| `explain` answers an icon and a param; `uses` lists an icon's image sites | **Met** on a copy of the clone: an icon's sources and `draws` per shipped target, a param's place and default; `uses` of an icon written twice, once in a component used twice, gives three sites, each with its chain. |
+| `set-row` edits a template colour in one line and hot-reloads; a stale digest is refused; a failing candidate writes nothing; promote to param and to token are each one transaction with one undo; a `class:` row's edit lands in the style's own file (T5) | **Met** on a copy of the clone, by the bytes: a one-line diff and undo gives them back; both stale digests (the op's and the files') refused; an unknown token and a wrong-kind value write nothing; each promotion is one transaction with one undo (the token's across two files); a style edit lands in its own file, and names the file to use where three files declare the style. Hot reload: on the JS dev loop, a `set-row` through the loop's own design server shows on the open page 303 ms later. |
+| Inspect on a held node names its rows' tokens and the state part's spans (T4) | **Met**: LLP 1122 T4's run (`~/x2theme/t4-gate-run.txt`) after E: the held row reads `:active background-color var(--x-primary_600)` at the part's span. |
+| On the web, an authored transition doesn't time a look; an iPad pointer shows a `:hover` look | **Met**: `looks.test.mjs` (a look snaps through an authored transition, entering and leaving); on an iPad simulator, `HeldStateTests.testIOSHoverLookAndHold`. **Deviation**: the iPad line is shown by that test, which drives the hover recognizer's callback; no real pointer was moved. |
+| No regressions: release output unchanged where none of this is used; conform clean; LLP 1061's press corpus unchanged | **Met**, through B. Release output: caltrain, theme-fixture, shelf, realworld, tamber-host and the press corpus, built before and after each of 22 runs of stage 9 commits (176 comparisons), are byte-identical, but for F2's re-measured control-role cells moving the schema digest (8 header bytes, every plan). Conform (rt1, post-B): `--synthetic --strict` 0 failures in 98 targets; of the apps, native-fixture and interaction-gallery fail as before stage 9, line for line (QUEUE; accepted as unchanged). The press corpus's plans are unchanged by B. |
+
+**H, the clone's icons:** the clone wrote no bare `symbol:sf/…`. Its settings rows' five computed
+sources (`symbol:sf/${symbol}`) take icon tokens and role names now: 34 of their 55 SF names are
+the same icon and 17 the same role, by the runner's rule. Four notification rows, whose names come
+from data at run time, were no icon and no role and drew nothing off Apple; they are icon tokens
+now. That needed one exact2 fix: an empty `symbol:` name is no symbol, as an empty `sf/` one is
+(the principled fix, checking no value in an `if` arm that folds false, is in QUEUE).
+**Also found and fixed in stage 9:** an icon naming another was refused by every fold but the
+build's; in an app with params that let a write's role-axis check skip the design (`abb270eb5e`).
+**B's movers:** B changes how hosts render, not any plan. On the Mac the clone's 8 menu and lightbox
+icons under `color="text"` now draw in the text colour where they drew the unsaid symbol grey
+(accepted by theme2).
+**Not gate lines:** 8 Swift tests fail on an iPad simulator only, and one sheet-timing test is flaky
+on iPhone (QUEUE). Also in stage 9: F1 and F2 (rt1), the native control follow-ups.
+
+**Stage 9 is closed.**
+
+### Stage 10, commit A1: one method→scope table (draft for theme2)
+
+`scripts/tamber-pairing.mjs`'s `METHOD_SCOPE` gives every method of the wire one scope, checked in the
+dispatcher before any handler. A method with no entry is refused (fail closed), and the change stream's
+two paths go through the same table.
+- `read`: hello, describe, resolve, explain, uses, history, export, inspect, and the streams.
+- `propose`: propose (held or not), import, revert, and drop of the client's own held proposal.
+- `write`: transaction, undo, commit, accept, drop of another client's proposal, pin, preview, outline,
+  hold, and the three scrub methods (ruling 5).
+- `local`, the local token only: pair-code, clients, revoke.
+A request above its scope is 403 `{message, scope, needs}`. Opens `tamber/1.13`.
+- **Read-only, below write:**
+  - `inspect` `refresh` reads each build's last published selection and asks no build (a build's answer
+    outlines on the developer's screens).
+  - `export` keeps no DTCG baseline (keeping one prunes another client's).
+  - `history`'s git runs with `--no-textconv`, `--no-show-signature` and `GIT_NO_LAZY_FETCH=1`.
+  - The JS loop's live `propose` class reads the design with the built reader only: no build and no
+    `cargo run`.
+- **The held-proposal cap:** a client below write may not drop another's proposal, so at the 64-proposal
+  cap its own oldest goes, else its hold is 409. This is decided in the same turn as the insert.
+- **Review:** 3 rounds with security passes and three quick re-checks; the last found nothing blocking.
+
+### Stage 10, commit A2: pairing, scoped tokens, clients and revoke (draft for theme2)
+
+To the brief and theme2's approval: (a) drop-own is propose; (b) a revoked client's held proposals
+stay, marked `revoked`; (c) 8 live codes, and 5 attempts a minute per peer.
+- **Codes:** 50 CSPRNG bits (`XXXXX-XXXXX`), 2 minutes, single use, compared in constant time.
+  - A failure counts against every live code, burned at 5.
+  - A peer gets a burst of 5 attempts, refilled at 5 a minute, limited before its body is read.
+  - Each burn and limit hit is logged with the peer, never a code.
+- **Tokens:** 32 bytes, in memory only, kept by SHA-256, 12 h (`--pair-ttl`).
+- **Clients:** named `remote:<name>#n` by the server, on every request and stream. A local client may not
+  take a `remote:` name.
+- **Local tool only:** `pair-code`, `clients`, `revoke`, and `bun exact.mjs tamber pair`.
+- **No cookie** is ever read.
+- **The local token** works only on a request the gate calls local. Through B's remote listener or a
+  trusted tunnel nothing is local, and only `POST /__tamber/pair` answers without a paired token.
+- **A revoke or an expiry:**
+  - ends the client's subscriptions, long polls (401), scrub (restored), pins, inspect, outlines and
+    holds, and the gateway's streams (`onEnd`);
+  - makes a request still sending its body 401, and a scrub release mid-preview writes nothing;
+  - lets a write already sent to the design server complete, as a local edit in flight would.
+- **Deadlines are facts at once:** every read treats a client past its deadline as gone. Its end, and
+  the callbacks, come from its timer or a sweep at each request and build report, never from inside
+  another event's send.
+- **The interface for C** (`lookup`, `onEnd`, `live`, `limiter`, `allows`, the table) **and for B**
+  (`access.remote`, `tunnel`, `peer`) is the module's doc comment.
+- **Review:** 3 rounds with security passes and six quick re-checks. Round 3's Grok and the last re-check
+  found nothing.
+- **Known limit (accepted, theme2):** five unauthenticated misses burn every live code, by the burn rule:
+  a LAN peer can deny pairing, never gain it (rate-limited per peer; pairing is LAN-only, ruling 1).
+

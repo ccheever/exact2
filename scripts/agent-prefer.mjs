@@ -16,12 +16,21 @@ export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected.
  * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names): round 9, three builds. */
 export function preferGroups(facts) {
-  const media = {}, page = {}, fold = {}, mode = {}, midi = {};
+  const media = {}, page = {}, fold = {}, mode = {}, midi = {}, extension = {};
   const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS, ...MODE_FACT, ...MIDI_FACTS };
   const expected = () => Object.entries(all).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
   const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
   for (const [given, value] of Object.entries(facts ?? {})) {
     const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
+    // A module's permission (LLP 1133.002 §6): `permission.geolocation granted|denied|prompt`.
+    if (/^permission\.[\w-]+$/.test(name) && ['granted', 'denied', 'prompt'].includes(String(value))) { (extension.permission ??= {})[name.slice(11)] = String(value); continue; }
+    // A native module's source (LLP 1124 D7): `extension geolocation.watchPosition={…}`, `{"error":"CODE"}` or `clear`.
+    if (name === 'extension') {
+      const m = /^([\w-]+\.\w+)=(.+)$/s.exec(String(value));
+      if (!m) throw new MalformedOperation(`prefer extension ${value}: expected <extension>.<source>=<JSON>|clear`);
+      try { (extension.extension ??= {})[m[1]] = m[2] === 'clear' ? 'clear' : JSON.parse(m[2]); } catch (e) { throw new MalformedOperation(`prefer extension ${m[1]}: ${e.message}`); }
+      continue;
+    }
     if (name === 'midi.state' && MIDI_FACTS['midi.state'].includes(value)) { midi.state = value; continue; }
     if (name === 'midi.inputs' || name === 'midi.outputs') { midi[name.slice(5)] = (Array.isArray(value) ? value : String(value).split(',')).map(n => String(n).trim()).filter(Boolean); continue; }
     if ((Object.hasOwn(PREFERENCES, name) ? PREFERENCES[name] : []).includes(value)) media[name] = value;
@@ -38,7 +47,7 @@ export function preferGroups(facts) {
     else throw new MalformedOperation(`prefer: ${name} ${value}: expected ${expected()}`);
   }
   if (fold.gap != null && fold.cols == null) throw new MalformedOperation('prefer: gap needs segments <cols>x<rows>');
-  return { media, page, fold, mode, midi };
+  return { media, page, fold, mode, midi, extension };
 }
 
 /** The request a native host answers: `media` rides along when nothing else does (an empty request is refused there by name). */

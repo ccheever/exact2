@@ -67,8 +67,8 @@ pub const DEVICES: &[Device] = &[
         web: Some("microphone"),
         ..ROW
     },
-    // Camera stays deferred (`rules/DEFERRED.md`); the row exists so a native
-    // module can declare it.
+    // A camera is a native module's (`rules/DEFERRED.md`, moved 2026-10-02):
+    // the row is what that module declares.
     Device {
         name: "camera",
         ios: &["NSCameraUsageDescription"],

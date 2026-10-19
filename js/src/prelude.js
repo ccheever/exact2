@@ -481,8 +481,8 @@
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
   // `claimed` once a settle has handed the executor its request, `release`
   // ends its watch on `signal`.
-  var pending = new Map();
-  var currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
+  var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
+  global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; } }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
   // A fetch's `signal` is watched through Ibex's own abort hooks natively,
   // which run before any listener and so cannot be stopped by one; a
   // browser realm's signal is the browser's, watched by a listener, and

@@ -855,6 +855,10 @@ impl<D: DataSource> Runner<D> {
     /// on this thread, after the commit that handed the request out, so a
     /// worker's snapshot is the store as committed then.
     pub fn dispatch_work(&mut self, token: u64) -> Dispatch {
+        // A module request the runner holds for the agent (LLP 1133.002 §6).
+        if let Some(dispatch) = self.module_dispatch(token) {
+            return dispatch;
+        }
         self.data.dispatch(token, &self.store)
     }
 
@@ -883,7 +887,9 @@ impl<D: DataSource> Runner<D> {
     /// Work the source held at dispatch and the last commit releases, in
     /// order; a host asks after every commit.
     pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
-        self.data.release(&self.store)
+        let mut out = self.data.release(&self.store);
+        out.extend(self.module_release());
+        out
     }
 
     /// A request a refused transaction dropped before it was handed out:
@@ -926,7 +932,13 @@ impl<D: DataSource> Runner<D> {
             || self
                 .pending
                 .iter()
-                .any(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
+                .any(|p| p.in_flight() && !self.held_for_agent(p))
+    }
+
+    /// A request held for the agent: a device's, or a module's (LLP 1133.002 §6).
+    fn held_for_agent(&self, p: &PendingReq) -> bool {
+        self.device_holds.iter().any(|h| h.ticket == p.ticket)
+            || self.extensions.holds_token(p.continuation)
     }
 
     /// The requests in flight, as `has_pending` counts them: the agent's
@@ -936,7 +948,7 @@ impl<D: DataSource> Runner<D> {
         let mut out: Vec<(String, u64)> = self
             .pending
             .iter()
-            .filter(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
+            .filter(|p| p.in_flight() && !self.held_for_agent(p))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
         out.extend(
@@ -1123,6 +1135,8 @@ impl<D: DataSource> Runner<D> {
         self.snapshot_sockets();
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome)
+        } else if self.plan.module_named(&p.source).is_some() {
+            self.module_parse(ty, &p.source, outcome)
         } else {
             self.data
                 .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)

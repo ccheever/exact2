@@ -531,8 +531,8 @@ impl<D: DataSource> Host<D> {
     /// there and Swift lists the word as unhandled.
     pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
         let mut props = props_for(node);
-        if let Some(line) = super::separator::json(self.runner.kernel(), node.id) {
-            props.insert(super::separator::PROP.into(), line);
+        if let Some(line) = super::layout::separator::json(self.runner.kernel(), node.id) {
+            props.insert(super::layout::separator::PROP.into(), line);
         }
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {

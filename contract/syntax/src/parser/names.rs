@@ -220,6 +220,42 @@ impl Parser {
 
     /// A name where the grammar can never read an expression: a shape field,
     /// a named argument, a member after `.`. Every word is one.
+    /// How many words a dotted argument name ahead has (`a.b=` is 2), when
+    /// the tokens ahead are one: two or more names joined by `.`, then `=`.
+    pub(super) fn dotted_name_ahead(&self) -> Option<usize> {
+        let at = |i: usize| &self.tokens[(self.pos + i).min(self.tokens.len() - 1)].kind;
+        let mut words = 0;
+        loop {
+            if !matches!(at(words * 2), TokenKind::Ident(_)) {
+                return None;
+            }
+            words += 1;
+            match at(words * 2 - 1) {
+                TokenKind::Punct(".") => {}
+                TokenKind::Punct("=") if words > 1 => return Some(words),
+                _ => return None,
+            }
+        }
+    }
+
+    /// A dotted argument, a platform's word on a module call,
+    /// `apple.desiredAccuracy=…` (LLP 1133.002 D13): `=` is never an
+    /// operator, so the words before it are no expression.
+    pub(super) fn dotted_arg(&mut self, words: usize) -> R<Expr> {
+        let span = self.peek().span;
+        let mut name = String::new();
+        for _ in 0..words * 2 - 1 {
+            match self.next().kind {
+                TokenKind::Ident(w) => name.push_str(&w),
+                _ => name.push('.'),
+            }
+        }
+        self.expect_punct("=")?;
+        let value = self.expr()?;
+        self.last += 1;
+        Ok(Expr::NamedArg(name, Box::new(value), span))
+    }
+
     pub(super) fn field_name(&mut self) -> R<(String, Span)> {
         match self.peek_kind().clone() {
             TokenKind::Ident(w) => {

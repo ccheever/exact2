@@ -74,7 +74,7 @@ const source = resolve(app.dir, 'app.contract');
 // A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
 // native client opening the dev URL reads), run the resident wasm loop below.
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
-  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, remoteAsked, residentPort: named != null && !webPortRange() ? port + 1 : 0 });
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, remoteAsked, pairTtlMs: (await import('../../scripts/tamber-pairing.mjs')).pairTtlOf(argv), residentPort: named != null && !webPortRange() ? port + 1 : 0 });
 }
 // Behind the JS loop (`--serve-as`) an app's resident loop is its producers
 // alone: nothing loads its page, so its builds are the web crate's bake
@@ -396,7 +396,7 @@ function announcePlan(plan, bytes) {
   const sha = bytes && createHash('sha256').update(bytes).digest('hex');
   try { writeSync(mapFd, JSON.stringify({ plan, map: bytes ? { sha256: sha, bytes: bytes.length, url: `/__dev/map/${sha}` } : null }) + '\n'); } catch { /* the parent went */ }
 }
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, pairTtlMs: (await import('../../scripts/tamber-pairing.mjs')).pairTtlOf(argv), live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
 // The resident compiler's map beside the plan it wrote (a generation from a
 // Rust producer carries none); the server checks its digest.
 function readMap() { try { return readFileSync(resolve(dist, 'app.plan.map.json')); } catch { return null; } }

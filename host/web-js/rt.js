@@ -142,7 +142,7 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
-class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
+export class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Why = "", Sched = null; // `Why`: the step the last commit was refused in and the exception's own words, cut (`why`): a boot refusal's reason (`mount`); the journal keeps them whole
 const why = (step, m, c = [...m]) => `while ${step}: ${c.length > WHY_MAX ? `${c.slice(0, WHY_MAX).join("")}… (${c.length - WHY_MAX} more characters in the journal)` : m}`, WHY_MAX = 300; // by code point; a write's value or a source's error may be long, or private
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
@@ -431,7 +431,7 @@ function closeLetGo() {
 }
 function ask(source, args, name, mutation = false) {
   if (["startActivity", "updateActivity", "endActivity"].includes(source)) throw new Refusal(`${source} is not linked into this artifact`);
-  let a; try { a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
+  let a; try { a = data.reserved?.[source] ? (v => v?.then ? v : { v })(data.reserved[source](source, args, name)) : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
   return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript

@@ -81,6 +81,11 @@ impl<D: DataSource> Runner<D> {
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }
+        // A native module's source is the module's, never the app data's
+        // (LLP 1133.002 D13).
+        if self.plan.module_named(&source).is_some() {
+            return self.module_answer(i, &source);
+        }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));
         if self.live.admitted {

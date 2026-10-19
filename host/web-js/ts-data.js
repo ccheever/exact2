@@ -323,6 +323,19 @@ export function install(data, mixed = false, modules = null) {
   load = modules && (() => painted().then(modules));
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
   let keys = null, asking = '', thrown = null;
+  // The answer an async function was called under, put back around each of
+  // its steps by the bundle's async helper (js/bake/src/typescript.mjs
+  // `asyncContextHelper`, LLP 1133.002 D14), as Hermes's prelude does with
+  // its `currentCall`: a watch, a fetch or a storage step after an `await` is
+  // that answer's. The synchronous turn alone stays `call.turn`.
+  globalThis.__exact_async_context = Object.freeze({
+    current: () => ({ call: answering.call, watching, asking }),
+    swap(to) {
+      const before = { call: answering.call, watching, asking };
+      answering.call = to?.call ?? null; watching = to?.watching ?? null; asking = to?.asking ?? '';
+      return before;
+    },
+  });
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
     keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId) : null, globalThis.indexedDB));
   __AUTH_INSTALL__
@@ -344,7 +357,7 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null, mutation, name: target ?? name }, target_ = target ?? name;
+    const call = answering.call = { stream: null, mutation, name: target ?? name, turn: true }, target_ = target ?? name;
     // What the source sent goes once the commit that asked it stands: an answer in flight's (a resource's, or a mutation's that
     // answers with a promise) whatever it then answers, a refused commit saying so (LLP 1016.000 D7, amended 2026-10-18).
     const effectsOf = answer => {
@@ -353,7 +366,7 @@ export function install(data, mixed = false, modules = null) {
     };
     let r;
     thrown = null;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; if (!mutation) thrown = effectsOf(true); throw e; } finally { asking = ''; watching = null; answering.call = null; }
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; if (!mutation) thrown = effectsOf(true); throw e; } finally { call.turn = false; asking = ''; watching = null; answering.call = null; }
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
     // Socket operations go out only with a value given now: not with a

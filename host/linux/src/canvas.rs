@@ -1118,7 +1118,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
-        p.set_live_clock(Some(crate::presenter::wall_since(started)));
+        agent::own_time(&mut p, started);
         crate::surfaces::acquire_fd();
         // What the reader read of the device, before the first frame (D3.1).
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
@@ -1227,7 +1227,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         // The presenter's clock: the runner's frame tasks and timers, and
         // the hatches' tickets and `after`s.
-        if p.wants_frames() {
+        if p.wants_frames() && agent::clock(p).is_none() {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }

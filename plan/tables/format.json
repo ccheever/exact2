@@ -281,6 +281,44 @@
       ]
     },
     {
+      "name": "modules",
+      "_comment": "LLP 1133.002 D13, LLP 1124 D5: the sources that are a native module's names, which the runner routes to the native slot rather than the app's data. `declared` and `extension` are what the wire carries; `request` is `always`, `when-prompt` or `never`; `sync` is the synchronous form's name, or empty; `substitute` is what the agent's runner answers with no implementation bound (LLP 1133.002 §6), a JSON object.",
+      "fields": [
+        {
+          "name": "source",
+          "codec": "idx:sources"
+        },
+        {
+          "name": "extension",
+          "codec": "str"
+        },
+        {
+          "name": "declared",
+          "codec": "str"
+        },
+        {
+          "name": "send",
+          "codec": "bool"
+        },
+        {
+          "name": "live",
+          "codec": "bool"
+        },
+        {
+          "name": "request",
+          "codec": "str"
+        },
+        {
+          "name": "sync",
+          "codec": "str"
+        },
+        {
+          "name": "substitute",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "source_params",
       "fields": [
         {

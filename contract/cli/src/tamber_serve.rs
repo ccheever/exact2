@@ -69,7 +69,7 @@ mod scrub;
 mod walk;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.12";
+pub const PROTOCOL: &str = "tamber/1.13";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -772,6 +772,10 @@ impl Server {
         let (_, folding) = self.design(&json!({}))?;
         let text = exact_tamber::export::dtcg(&folding, &self.vocab)
             .map_err(|all| refused(&self.design, all))?;
+        // `keep: false` (below write, stage 10 A1): keeping one can prune another's.
+        if request.get("keep") == Some(&json!(false)) {
+            return Ok(json!({"kind": "dtcg", "text": text, "baseline": null}));
+        }
         let kept = crate::tamber_export::keep(&self.dir.join(&self.design), &text)
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
         Ok(json!({

@@ -245,7 +245,7 @@ export function install(exact) {
   // commit's new animations here, and reconciles only when its clock moves.
   exact.After.push(() => seek(false));
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
-  const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
+  const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? [], ...exact.extensions?.holds?.() ?? []];
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
   const gpuPendingReply = (req, pending) => {
     const names = pending.map(item => item.name ?? 'GPU work');
@@ -259,7 +259,7 @@ export function install(exact) {
     // A read presents this clock without standing in for a commit hook.
     seek(false);
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
-    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
+    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? exact.extensions?.answer?.(req) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
     switch (req.op) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
@@ -500,7 +500,7 @@ export function install(exact) {
       // The driver's fetch faults (LLP 1103 D3), a form of `prefer`: the page's table, as glue.js answers it.
       // A new root font size is a resize to the page's fitted texts (navigation.js `refitTexts`, the entry's copy, not this one's).
       case 'midi': return exact.midi ? exact.midi.tap(req) : { error: 'tap midi: this plan hears no MIDI (no midimessage handler)' }; // @ref LLP 1125 §4
-      case 'prefer': { if (req.faults) return faultOp(req.faults); if (req.midi) return exact.midi ? exact.midi.prefer(req.midi) : { error: 'prefer midi: this plan keeps no MIDI queue' }; const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}); if (req.page?.['root-font-size'] !== undefined) dispatchEvent(new Event('resize')); const fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
+      case 'prefer': { if (req.faults) return faultOp(req.faults); if (req.extension || req.permission) return exact.extensions ? exact.extensions.prefer(req) : { error: 'prefer: this app reads no module' }; if (req.midi) return exact.midi ? exact.midi.prefer(req.midi) : { error: 'prefer midi: this plan keeps no MIDI queue' }; const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}); if (req.page?.['root-font-size'] !== undefined) dispatchEvent(new Event('resize')); const fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

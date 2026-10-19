@@ -1425,12 +1425,11 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
-import { bundleOptions, capturedSources } from './__exact_config.mjs';
+import { dataBundle } from './__exact_config.mjs';
 export default {
-  ...bundleOptions,
+  ...dataBundle(process.cwd()),
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
-  plugins: [capturedSources(process.cwd())],
 };
 "#,
     )

@@ -69,7 +69,12 @@
 //   the committed design back. Each opening and end is a `scrub` event.
 // - `GET /__tamber/tool/…`: the design tool's built files (`TOOL_DIST`), to
 //   a local request only, its pages' base set to that path.
-// - Every POST carries the token as `x-exact-tamber-token`, never in a URL.
+// - Every POST carries the token as `x-exact-tamber-token`, never in a URL,
+//   and no cookie is read. Each request's scope is checked in one place
+//   (scripts/tamber-pairing.mjs, tamber/1.13).
+// - `POST /__tamber/pair {code}` (stage 10 A2): a code a local client minted
+//   (`pair-code`) for a paired client's own token, at the code's scope; the
+//   local token lists (`clients`) and revokes (`revoke`) them.
 //
 // Mounted by both dev loops (host/web/dev.mjs, host/web-js/dev.mjs) when the
 // app has a design; `bun exact.mjs tamber serve <app>` runs it alone and
@@ -77,7 +82,7 @@
 // release build or a bake. D13 names WebSocket; the dev loops serve
 // server-sent events and no WebSocket, so stage 3 streams a POST's response.
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync, watch } from 'node:fs';
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
@@ -90,13 +95,19 @@ import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, remoteArgs } from './tamber-remote.mjs';
 import { serveTool, TOOL_DIST } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
+import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
+import { readBody, parseRequest as parse, tooDeep } from './tamber-request.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
+const body = req => readBody(req, BODY_LIMIT);
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel']);
+// A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
+const REMOTE = 'remote:';
+const GONE = 'this paired client was revoked or its token expired';
+export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -133,8 +144,11 @@ function spawnContract(appDir) {
  * selection is joined to and outlines are drawn from (LLP 1122 D5, T2c);
  * `designServed()` the
  * design it serves now (a live edit's) as `{digest, source}`, `source` the
- * SHA-256 of the design file it was made from, or null for the plan's own. */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null }) {
+ * SHA-256 of the design file it was made from, or null for the plan's own.
+ * `pairTtlMs` is a paired token's lifetime (`--pair-ttl`), `clock` the
+ * pairing's time (tests). The returned `pairing` is the run's paired
+ * clients, for stage 10 C's gateway (`lookup`, `onEnd`). */
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -149,15 +163,26 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const send = event => {
     events.push(event);
     if (events.length > KEPT) events.shift();
-    const line = `data: ${JSON.stringify(event)}\n\n`;
+    let line;
+    try { line = `data: ${JSON.stringify(event)}\n\n`; } catch { log(`tamber: an event could not be sent (${event.event})`); events.pop(); return; }
     // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
-    for (const res of subscribers) if (!event.only || res.client === event.only) res.write(line);
+    // A paired subscriber past its deadline gets nothing more (`live` ends it now).
+    for (const res of subscribers) if (!res.writableEnded && (!res.paired || pairs.live(res.paired)) && (!event.only || res.client === event.only)) res.write(line);
     for (const poll of polls) poll();
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
   // their reports told to every client, their pins each client's own.
   // Each build's status a stale selection was last asked again under.
   const refreshed = new Map();
+  // Each build's last published selection: what a client below `write` reads
+  // (`inspect` `refresh`), for builds still registered, at most 256.
+  const lastSelection = new Map();
+  const pruneSelections = () => { const live = new Set(channel.list().map(b => b.id)); for (const id of lastSelection.keys()) if (!live.has(id)) lastSelection.delete(id); };
+  const remember = (id, selection) => {
+    lastSelection.delete(id); lastSelection.set(id, selection);
+    pruneSelections();
+    while (lastSelection.size > 256) lastSelection.delete(lastSelection.keys().next().value);
+  };
   // A selection (LLP 1122 D5) joined to source: refused and asked again
   // when it is from before the build's latest status; else published as a
   // `selection`, and every copy of its node outlined.
@@ -176,7 +201,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return map?.nodes && typeof map.digest === 'string' && (!digest || map.digest === digest) ? map : null;
   };
   const channel = buildChannel({
-    send: e => send({ ...e, seq: ++seq, epoch }), log,
+    // A build that reports no selection (inspect mode left) has none to read.
+    send: e => { if (e.event === 'selected' && e.selected == null) lastSelection.delete(e.build); send({ ...e, seq: ++seq, epoch }); }, log,
     // A held site in a build's new plan (LLP 1122 D8): the one site at the
     // old site's source location and call-site chain, by the two plans'
     // maps (a component called twice is two sites there); none otherwise.
@@ -202,6 +228,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (report.selected.planDigest && report.selected.planDigest !== params.plan) learnParams(null, report.selected.planDigest);
       const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map, app: appDir, own: known.size ? new Set(ownContracts()) : null });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
+      remember(build.id, selection);
       // Outlined as the client that owns inspect mode on that build, naming
       // the click it answers (its page does not scroll for it).
       // Every copy on every build (D5): the selection's source span, from its
@@ -232,6 +259,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     preview: (texts, frame) => scrub.preview(texts, frame),
     restore: frame => scrub?.restore(frame),
     released: frame => scrub?.released?.(frame),
+    // A paired client's deadline is checked here too: its timer may not have run.
+    allowed: client => !gone(client),
     opened: e => send({ event: 'scrub', seq: ++seq, epoch, ...e, reason: 'opened' }),
     ended: e => send({ event: 'scrub', seq: ++seq, epoch, ...e }),
     idleMs: scrubIdleMs,
@@ -243,7 +272,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // every build. The same timer expires a polled build that stopped polling.
   const presence = new Map(); // client -> { open, answered }
   const PRESENT_MS = 35_000;
-  const present = client => { const p = presence.get(client); return !!p && (p.open > 0 || Date.now() - p.answered < PRESENT_MS); };
+  // A paired client revoked or expired is never present again (its streams'
+  // closes come after); one past its deadline is gone before its end runs.
+  const ended = new Set();
+  const gone = client => ended.has(client) || (!!client?.startsWith(REMOTE) && !pairs.live(client));
+  const present = client => { const p = presence.get(client); return !gone(client) && !!p && (p.open > 0 || Date.now() - p.answered < PRESENT_MS); };
   const attend = (client, delta, answered = false) => {
     if (!client) return;
     const p = presence.get(client) ?? { open: 0, answered: 0 };
@@ -251,7 +284,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (answered) p.answered = Date.now();
     presence.set(client, p);
   };
-  const absent = () => { channel.sweep(); scrubs.absent(present); for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
+  const absent = () => { pairs.expire(); channel.sweep(); scrubs.absent(present); for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
   const absence = setInterval(absent, 5_000);
   absence.unref?.();
   /** Announce `files` (path → digest): the paths whose digest moved, and
@@ -312,7 +345,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * first read, which may wait on a cold build of the compiler). */
   const ask = (request, { wait = answerMs, done = () => {} } = {}) => new Promise(reply => {
     if (down) { done(null); return reply({ error: { message: down } }); }
-    const line = JSON.stringify({ ...request, id: ++next });
+    let line;
+    try { line = JSON.stringify({ ...request, id: ++next }); } catch { done(null); return reply({ status: 400, error: { message: 'the request is too deeply nested' } }); }
     if (Buffer.byteLength(line) >= LINE_LIMIT) { done(null); return reply({ status: 413, error: { message: 'a request is at most 1 MiB' } }); }
     const id = next;
     const late = wait && setTimeout(() => reply({ status: 504, error: { message: 'the design server did not answer' } }), wait);
@@ -412,47 +446,77 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   watchAll([]);
   const ready = refresh();
+  // Paired clients (stage 10 A2, scripts/tamber-pairing.mjs). A burn or a
+  // rate-limit hit is logged with its peer and told to the clients without
+  // it, never with a code.
+  const pairs = pairing({ ttlMs: pairTtlMs, clock, say: w => { log(`tamber: pairing: ${w.what}${w.peer ? ` (from ${w.peer})` : ''}${w.why ? `: ${w.why}` : ''}`); send({ event: 'pairing', seq: ++seq, epoch, what: w.what }); } });
+  // A build's report (a registration replays pins, inspect and holds) comes
+  // after every paired client past its deadline has ended, as a request does.
+  const reportFrom = channel.report;
+  channel.report = body => { pairs.expire(); return reportFrom.call(channel, body); };
+  // A revoked token's hash: its next request is told it was revoked (401),
+  // any other unknown token gets not-found.
+  const revokedTokens = new Set();
 
   const tokenOf = req => {
     const given = Buffer.from(String(req.headers['x-exact-tamber-token'] ?? ''));
     const mine = Buffer.from(token);
     return given.length === mine.length && timingSafeEqual(given, mine);
   };
-  /** The body as text; null when over the limit (the connection is cut)
-   * or when the client left. */
-  const body = req => new Promise(done => {
-    if (req.destroyed) return done(null);
-    if (Number(req.headers['content-length']) > BODY_LIMIT) { req.destroy?.(); return done(null); }
-    const chunks = []; let size = 0, settled = false;
-    const finish = v => { if (!settled) { settled = true; done(v); } };
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > BODY_LIMIT) { finish(null); req.destroy?.(); } else chunks.push(chunk);
-    });
-    req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', () => finish(null));
-    req.on('close', () => finish(null));
-  });
-  const parse = text => {
-    try { const v = JSON.parse(text); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; }
+  /** Who a request is: the local token (`local`, its scope `scopeOf`'s), a
+   * paired client by its token, or null. The token is read from its header
+   * only, never a cookie (the lead's rule: canvas page code can set cookies
+   * this port receives). Through B's remote listener or a trusted tunnel
+   * the local token is no one (ruling 3). */
+  const principalOf = (req, access) => {
+    // The local token is the local tool's only where the request is local
+    // (the development gate's whole loopback test): a LAN peer holding it is
+    // no one, as is any request through B's listener or a tunnel.
+    if (access?.local === true && tokenOf(req)) return { scope: scopeOf(req), local: true, client: null };
+    const paired = pairs.lookup(String(req.headers['x-exact-tamber-token'] ?? ''));
+    return paired ? { scope: paired.scope, local: false, client: paired.client } : null;
   };
-
+  const wasRevoked = req => revokedTokens.has(createHash('sha256').update(String(req.headers['x-exact-tamber-token'] ?? '')).digest('hex'));
   async function handle(req, res, url, access) {
+    // Every paired client past its deadline ends before a request is read.
+    pairs.expire();
+    // Through B's remote listener or a trusted tunnel nothing is local,
+    // whatever else `access` says: no token page, no tool, no local token.
+    if (access?.remote || access?.tunnel) access = { ...access, local: false };
     if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access, toolDir); return true; }
     if (url.pathname === '/__tamber/token') {
       if (req.method !== 'GET' || !access.local) notFound(res);
       else json(res, 200, { token });
       return true;
     }
+    // The one path that needs no token (stage 10 A2): a pairing code for a
+    // token, once.
+    if (url.pathname === '/__tamber/pair') { await pairEndpoint(req, res, access); return true; }
     if (!['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname)) return false;
-    // A remote door's request (tamber-remote.mjs) is never the local token's: until pairing, no token works there.
-    if (req.method !== 'POST' || !tokenOf(req) || access.remote) { notFound(res); return true; }
+    const who = req.method === 'POST' ? principalOf(req, access) : null;
+    if (!who) { if (req.method === 'POST' && wasRevoked(req)) json(res, 401, { error: { message: GONE } }); else notFound(res); return true; }
+    const scope = who.scope;
+    // The change stream's paths by the table too (scripts/tamber-pairing.mjs).
+    const stream = url.pathname === '/__tamber' ? null : needs({ method: url.pathname.slice('/__tamber/'.length) });
+    if (url.pathname !== '/__tamber' && !allows(scope, stream)) { const r = refusal(url.pathname.slice('/__tamber/'.length), scope, stream); json(res, r.status, { error: r.error }); return true; }
+    // A remote door's request is read whole first: its connection deadline
+    // (tamber-remote.mjs) clears only once the body has ended.
+    const early = access.remote ? body(req) : null;
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
-    const text = await body(req);
+    const text = await (early ?? body(req));
     if (text == null) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     const request = parse(text);
+    // Nested past 64 levels: refused before anything of it is kept, since a
+    // value kept (a held proposal's review) is sent on to every stream.
+    if (request && tooDeep(request)) { json(res, 400, { error: { message: 'a request is nested at most 64 levels deep' } }); return true; }
+    // Revoked or expired while its body came: refused before anything it asks runs.
+    if (who.client && !pairs.live(who.client)) { json(res, 401, { error: { message: GONE } }); return true; }
+    // A paired client is the client its token names, whatever its body says.
+    // A local client may not name itself as a paired one (`remote:`).
+    if (request && who.client) request.client = who.client;
+    else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: down } }); return true; }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -460,9 +524,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // `{client}`: its commands live while it is present (LLP 1122 D4).
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
       res.client = client;
+      res.paired = who.client;
       subscribers.add(res);
       attend(client, 1);
+      // Revoked or expired: its stream ends at once.
+      const unend = who.client ? pairs.onEnd(who.client, () => { subscribers.delete(res); res.end(); }) : () => {};
       res.on('close', () => {
+        unend();
         subscribers.delete(res);
         // A subscription counts while open; a long poll for 35 s after.
         attend(client, -1);
@@ -499,11 +567,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // `wait: false` (a client's first ask, for where to start) is answered at once.
       if (request?.wait === false || events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch)) { answer(); return true; }
       await new Promise(ok => {
-        const poll = () => { polls.delete(poll); clearTimeout(wait); ok(); };
+        // Revoked or expired: the poll is answered 401 at once.
+        let unend = () => {}, done = false;
+        const poll = () => { if (done) return; done = true; polls.delete(poll); clearTimeout(wait); unend(); ok(); };
         const wait = setTimeout(poll, POLL_MS);
         polls.add(poll);
         res.on('close', poll);
+        // Revoked or expired: the poll is answered 401 at once (below).
+        if (who.client) unend = pairs.onEnd(who.client, poll);
       });
+      // Woken by its own client's end (revoke, expiry): told so, not answered.
+      if (who.client && (ended.has(who.client) || !pairs.live(who.client))) { if (!res.writableEnded) json(res, 401, { error: { message: GONE } }); return true; }
       if (!res.writableEnded && !res.destroyed) answer();
       return true;
     }
@@ -512,10 +586,51 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return true;
     }
     delete request.id;
-    const reply = await dispatch(request, scopeOf(req));
+    let reply;
+    // A request the server can't take (one too deeply nested to send on,
+    // say) is refused, never an uncaught failure.
+    try { reply = await dispatch(request, scope, who.local); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
     json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
     return true;
+  }
+
+  /** `POST /__tamber/pair {code, name?}` (stage 10 A2): the one request
+   * that carries no token. The token is answered in the body, once; the
+   * peer is B's (`access.peer`), else the socket's. A paired client's end
+   * (revoke, expiry) takes its presence, pins, scrub and long polls with it,
+   * keeps its held proposals marked as a revoked client's (theme2's ruling
+   * (b)), and is told to the others. */
+  async function pairEndpoint(req, res, access) {
+    if (req.method !== 'POST') { notFound(res); return; }
+    const peer = String(access?.peer ?? req.socket?.remoteAddress ?? 'unknown');
+    // Limited before its body is read or parsed: a flood costs no parsing.
+    const limited = pairs.admit(peer);
+    if (limited) { res.setHeader('retry-after', String(limited.retry)); json(res, 429, { error: limited.error }); return; }
+    const request = parse((await body(req)) ?? '');
+    if (!request) { json(res, 400, { error: { message: 'pairing is `{"code": "…", "name"?: "…"}`' } }); return; }
+    const reply = pairs.pair(request, peer, { admitted: true });
+    if (!reply.ok) {
+      if (reply.retry) res.setHeader('retry-after', String(reply.retry));
+      json(res, reply.status, { error: reply.error });
+      return;
+    }
+    const { client } = reply.ok, hash = createHash('sha256').update(reply.ok.token).digest('hex');
+    pairs.onEnd(client, reason => {
+      revokedTokens.add(hash);
+      ended.add(client);
+      presence.delete(client);
+      channel.clear(client);
+      scrubs.absent(present);
+      let marked = false;
+      for (const p of proposals.values()) if (p.client === client) { p.shown = { ...p.shown, revoked: true }; marked = true; }
+      if (marked) heldRevision++;
+      log(`tamber: ${client} ${reason}`);
+      send({ event: 'revoked', seq: ++seq, epoch, client, reason });
+    });
+    log(`tamber: ${client} paired (${reply.ok.scope}) from ${peer}`);
+    send({ event: 'paired', seq: ++seq, epoch, client, scope: reply.ok.scope });
+    json(res, 200, { ok: reply.ok });
   }
 
   // What the wire itself reads of a review: the offers' items, the tokens' count.
@@ -526,9 +641,21 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
-  async function dispatch(request, scope = 'write') {
+  async function dispatch(request, scope, local = false) {
+    // Every method's scope, in one place, before any handler: none is no
+    // method this wire serves (fail closed; scripts/tamber-pairing.mjs).
+    const need = needs(request, id => proposals.get(id)?.client ?? null);
+    if (need === null) return { status: 400, error: { message: `\`${request.method}\` has no scope on this wire` } };
+    if (!allows(scope, need, local)) return refusal(request.method, scope, need);
     // Presence is also checked as requests come, not only every 5 s.
     absent();
+    if (request.method === 'pair-code') return pairs.mint({ scope: request.scope, name: request.name });
+    if (request.method === 'clients') return { ok: { clients: [{ client: 'local', local: true, scope: 'write' }, ...pairs.list()] } };
+    if (request.method === 'revoke') {
+      if (typeof request.client !== 'string' || !pairs.has(request.client)) return { status: 404, error: { message: `no paired client \`${request.client}\`` } };
+      pairs.revoke(request.client);
+      return { ok: { revoked: request.client } };
+    }
     if (WRITES.has(request.method)) return needsClient(request) ?? write(request);
     if (request.method === 'commit') {
       const refused = needsClient(request);
@@ -550,7 +677,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers` a list of objects with `items` (indices), its `tokens` a count' } };
       // A revert's review is the server's own: it is planned again from it.
       if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
-      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires);
+      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'history') return history(request);
@@ -560,14 +687,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // edit in place, no reload (LLP 1121 stage 4's live table); `design`:
     // the file an operation with no `file` edits; `page`: the dev loop's own
     // origin, which the design tool frames, null with no dev loop (1.3).
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, scope, local, ...(local ? {} : { client: request.client }), app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
-    if (request.method === 'outline') return needsClient(request) ?? outline(request, scope);
-    if (request.method === 'hold') return needsClient(request) ?? holdState(request, scope);
-    if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request, scope);
-    if (request.method === 'revert') return needsClient(request) ?? revert(request);
-    if (request.method === 'import') return needsClient(request) ?? importHeld(request);
+    if (request.method === 'outline') return needsClient(request) ?? outline(request);
+    if (request.method === 'hold') return needsClient(request) ?? holdState(request);
+    if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request);
+    if (request.method === 'revert') return needsClient(request) ?? revert(request, scope);
+    if (request.method === 'import') return needsClient(request) ?? importHeld(request, scope);
     if (request.method === 'drop') {
       const refused = needsClient(request);
       if (refused) return refused;
@@ -575,6 +702,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       forget(request.proposal, { client: request.client, reason: 'dropped' });
       return { ok: { dropped: request.proposal } };
     }
+    // Below write an export keeps no baseline: keeping one prunes the oldest, another client's import's.
+    if (request.method === 'export') return ask({ ...request, keep: allows(scope, 'write') && request.keep !== false });
     if (request.method === 'propose' && scrub?.inline) return proposeHere(request);
     return ask(request);
   }
@@ -596,10 +725,18 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
 
   /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
-   * mode on one build or every build that can, its client's while present;
-   * write scope, as it takes the builds' input. */
+   * mode on one build or every build that can, its client's while present.
+   * Below `write` it is read-only (the lead's ruling 5; `on` is refused by
+   * the table): `refresh` answers the selection each build last reported
+   * (`selections`), asking no build again, since a build's answer outlines
+   * on the developer's screens. */
   function inspect(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: 'inspect needs write scope: it takes the running builds\' input' } };
+    if (!allows(scope, 'write')) {
+      const build = request.build ?? null;
+      if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
+      pruneSelections();
+      return { ok: { selections: [...lastSelection].filter(([id]) => build === null || id === build).map(([, s]) => s) } };
+    }
     if (!present(request.client)) return { status: 409, error: { message: `inspect: \`${request.client}\` is not present: hold a long poll or a subscription that names it first (\`{client}\`)` } };
     const build = request.build ?? null;
     if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
@@ -611,8 +748,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** `outline` `{client, at: [{file, line, col}]}` (LLP 1122 D5): every
    * build that can inspect outlines its views at those source locations (a
    * token's `uses`, a changeset entry's), by the dev loop's current map. */
-  function outline(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: 'outline needs write scope: it draws on the running builds' } };
+  function outline(request) {
     if (!present(request.client)) return { status: 409, error: { message: `outline: \`${request.client}\` is not present` } };
     if (!Array.isArray(request.at) || request.at.length > 4096 || !request.at.every(a => a && typeof a.file === 'string' && Number.isInteger(a.line) && Number.isInteger(a.col))) return { status: 400, error: { message: 'outline names `at`: up to 4096 source locations `{file, line, col}`' } };
     // Nothing to outline: the outlines are cleared, map or none.
@@ -633,8 +769,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** A state held on one node of one build (LLP 1122 D4, D8; *1.11*):
    * `{build, site, instance, state}`, `state` null to let it go; its
    * client's while present, one a build. */
-  function holdState(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: 'hold needs write scope: it drives a running build' } };
+  function holdState(request) {
     if (!present(request.client)) return { status: 409, error: { message: `hold: \`${request.client}\` is not present` } };
     if (typeof request.build !== 'string') return { status: 400, error: { message: 'hold names its `build`, a registered build\'s id' } };
     const held = request.state == null ? null : { site: request.site, instance: request.instance ?? [], state: request.state };
@@ -660,10 +795,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return done.error ? { status: 400, error: { message: done.error } } : { ok: done };
   }
 
-  /** A scrub session's request: `write` scope, a present client, and a dev
-   * loop whose builds preview it. */
-  async function scrubbing(request, scope) {
-    if (scope !== 'write') return { status: 403, error: { message: `${request.method} needs write scope: a scrub drives the running builds` } };
+  /** A scrub session's request (`write` scope, the dispatcher's): a present
+   * client, and a dev loop whose builds preview it. */
+  async function scrubbing(request) {
     if (!scrub) return { status: 501, error: { message: 'no builds preview here: a scrub needs the dev loop\'s design server' } };
     if (request.method === 'scrub-cancel') return scrubs.cancel(request);
     if (request.method === 'scrub-release') return scrubs.release(request);
@@ -729,6 +863,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // so a long poll that names the one it has is answered without the list.
   const proposals = new Map();
   let heldRevision = 0;
+
   const forget = (id, why) => { proposals.delete(id); heldRevision++; send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, ...why }); };
   const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now()) forget(id, { client: null, reason: 'expired' }); };
   const expiry = setInterval(expire, 30_000);
@@ -737,13 +872,16 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * within the cap. */
   const restore = (id, p) => {
     if (p.expires <= Date.now()) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'expired' }); return; }
+    // Its client ended while it was out being accepted: marked as held ones were.
+    if (gone(p.client)) p.shown = { ...p.shown, revoked: true };
     proposals.set(id, p); heldRevision++;
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...p.shown });
   };
   /** The proposals held now, as a reconnecting client reads them. */
-  const held = () => [...proposals].map(([id, p]) => p.shown);
-  async function hold(client, ops, files, replaces, review, requires) {
+  // A paired client past its deadline is shown as revoked before its end runs.
+  const held = () => [...proposals].map(([id, p]) => (gone(p.client) && !p.shown.revoked ? { ...p.shown, revoked: true } : p.shown));
+  async function hold(client, ops, files, replaces, review, requires, scope = 'write') {
     expire();
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
@@ -786,9 +924,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
-    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}) };
+    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}), ...(gone(client) ? { revoked: true } : {}) };
+    // At most 64 held. A client below `write` may not drop another's
+    // (theme2's ruling (a)): at the cap its own oldest goes, and with none
+    // of its own its hold is refused, decided here, in the same turn as the
+    // insert. A `write` client's makes room by the oldest, as before.
+    if (proposals.size >= HELD && !allows(scope, 'write')) {
+      const own = [...proposals].find(([, p]) => p.client === client);
+      if (!own) return { status: 409, error: { message: `${HELD} proposals are held and none is this client's: one must be accepted or dropped first` } };
+      forget(own[0], { client, reason: 'too many held' });
+    }
     proposals.set(id, { client, ops, base, guards, inferred, expires, shown }); heldRevision++;
-    // At most 64 held: the oldest goes.
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
@@ -897,9 +1043,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return { ok: { commits, more: log.ok.more } };
   }
   /** A past commit's inverse on today's files, held for review. */
-  async function revert(request) {
+  async function revert(request, scope = 'write') {
     const plan = await planRevert(request.commit);
-    return plan.ok ? hold(request.client, plan.ok.ops, plan.ok.files, undefined, plan.ok.review) : plan;
+    return plan.ok ? hold(request.client, plan.ok.ops, plan.ok.files, undefined, plan.ok.review, undefined, scope) : plan;
   }
   /** A past commit's inverse planned on today's files: its operations, the
    * digests they were planned on, and the review; or refused, naming each
@@ -936,7 +1082,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
-  async function importHeld(request) {
+  async function importHeld(request, scope = 'write') {
     if (typeof request.kind !== 'string') return { status: 400, error: { message: '`kind` is a string' } };
     for (const k of ['source', 'name', 'prefix']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
     // One file (`source`, `name`), or several (`sources`): the server reads either.
@@ -944,10 +1090,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!planned.ok) return planned;
     const { ops, review } = importReview(planned.ok);
     if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
-    return hold(request.client, ops, undefined, undefined, review);
+    return hold(request.client, ops, undefined, undefined, review, undefined, scope);
   }
 
   function close() {
+    pairs.close();
     clearTimeout(timer);
     clearInterval(absence);
     clearInterval(expiry);
@@ -973,7 +1120,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   // `compete()`: the dev loop's build of an edit the watcher does not see
   // (a Contract source's), which ends a scrub as a hand edit does.
-  return { handle, close, ready, channel, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
+  // `pairing`: the run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`; scripts/tamber-pairing.mjs).
+  return { handle, close, ready, channel, pairing: pairs, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
 }
 
 /** The app directory an argument names (a directory, or a file in it). */
@@ -1006,11 +1154,13 @@ async function listen({ host, port, handle, stop }) {
  * have the token); `--remote` and `--trust-tunnel` add its remote doors (scripts/tamber-remote.mjs). */
 export async function serveAlone(argv) {
   const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && !['--port', '--remote', '--trust-tunnel'].includes(argv[i - 1])) ?? '.'));
+  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && !['--port', '--remote', '--trust-tunnel', '--pair-ttl'].includes(argv[i - 1])) ?? '.'));
   if (!designPath(dir)) { console.error(`tamber serve: ${dir} has no design (app.tamber, or the file app.json's "tamber" names)`); return 1; }
   let asked;
   try { asked = remoteArgs(argv); } catch (e) { console.error(`tamber serve: ${e.message}`); return 2; }
-  const tamber = tamberServer({ appDir: dir });
+  const ttl = argv.includes('--pair-ttl') ? parseDuration(at('--pair-ttl')) : PAIR_TTL_MS;
+  if (ttl == null) { console.error(`tamber serve: --pair-ttl ${at('--pair-ttl')}: a duration from 1m to 30d, as 90m, 12h or 2d`); return 2; }
+  const tamber = tamberServer({ appDir: dir, pairTtlMs: ttl });
   // The remote doors first: one that cannot bind leaves nothing listening.
   const doors = await openRemote(tamber, asked).catch(async e => { console.error(`tamber serve: ${e.message}`); await tamber.close(); process.exit(1); });
   const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: async () => { await Promise.all([tamber.close(), doors?.close()]); } })

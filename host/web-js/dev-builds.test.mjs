@@ -3,8 +3,8 @@
 // loads, nor the design or a reload); an edit stops a young build; a value
 // batch during a verifying build applies at once, and the build after
 // carries it. EXACT_DEV_BUILD_HOLD_MS holds each build's end, as a slow one.
-import { expect, test } from 'bun:test';
-import { spawn } from 'node:child_process';
+import { afterEach, expect, test } from 'bun:test';
+import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -14,6 +14,9 @@ import { join, resolve } from 'node:path';
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 const sha = text => createHash('sha256').update(text).digest('hex');
 
+// A dev loop a test started ends with the test, a timeout included.
+afterEach(() => stopAll());
+
 /** The JS dev loop on the app at `dir`, its dist in a temporary directory,
  * `env` beside the process's own. */
 async function devLoop(dir, env = {}) {
@@ -22,13 +25,10 @@ async function devLoop(dir, env = {}) {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-js-builds-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', dir, '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Owned: ended with what it starts when the test ends, a timeout included (scripts/test-children.mjs).
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', dir, '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = async () => {
-    if (dev.exitCode === null && dev.signalCode === null) {
-      const exit = new Promise(ok => dev.once('exit', ok));
-      dev.kill('SIGTERM');
-      if (!(await Promise.race([exit.then(() => true), new Promise(ok => setTimeout(() => ok(false), 30_000).unref())]))) dev.kill('SIGKILL');
-    }
+    await dev.stop(30_000);
     rmSync(dist, { recursive: true, force: true });
   };
   let out = '', err = '';

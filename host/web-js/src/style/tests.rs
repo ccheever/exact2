@@ -390,7 +390,8 @@ fn a_bound_platform_color_is_admitted_only_as_a_plan_literal() {
     let gradient =
         "linear-gradient(-exact-platform-color(ios webJsTestColor, #010203), -exact-system-orange)";
     let mut plan = exact_plan::Plan::default();
-    plan.strings.extend([literal.into(), gradient.into()]);
+    plan.strings
+        .extend([literal.to_string(), gradient.to_string()]);
     let mut css = String::new();
     exact_kernel::gradient::color_css(
         &mut css,

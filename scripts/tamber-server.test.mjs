@@ -3,8 +3,8 @@
 // one token where one conflicts, a hand edit, a new file and a `git checkout`
 // reaching a subscriber and a long poll, a write announced once, a server
 // whose lock is another's answering 503, and the dev loop answering `hello`.
-import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
+import { spawnOwned, stopAll } from './test-children.mjs';
 import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -274,6 +275,8 @@ beforeAll(async () => {
   headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
   await tamber.ready;
 }, 600_000); // a cold checkout builds the compiler first
+// A dev loop a test started ends with the test, a timeout included (test-children.mjs).
+afterEach(() => stopAll());
 afterAll(async () => {
   await tamber?.close();
   server?.close();
@@ -430,13 +433,10 @@ async function devLoop(flags = [], app = 'theme-fixture') {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-tamber-dev-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Owned: ended with what it starts when the test ends, a timeout included (test-children.mjs).
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = async () => {
-    if (dev.exitCode === null && dev.signalCode === null) {
-      const exit = new Promise(ok => dev.once('exit', ok));
-      dev.kill('SIGTERM');
-      if (!(await Promise.race([exit.then(() => true), new Promise(ok => setTimeout(() => ok(false), 30_000).unref())]))) dev.kill('SIGKILL');
-    }
+    await dev.stop(30_000);
     rmSync(dist, { recursive: true, force: true });
   };
   let out = '', err = '';
@@ -757,7 +757,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.12');
+      expect(hello.protocol).toBe('tamber/1.13');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.

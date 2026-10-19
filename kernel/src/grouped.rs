@@ -534,8 +534,8 @@ fn inset_inside(arena: &NodeArena, scroll: u32) -> bool {
 /// row's left and right paddings (after a leading symbol too), the row
 /// spanning its card; a `delete=` row's content's, its swipe spanning the
 /// card. A native button row is the platform's control: its left margin
-/// moves, and it keeps its own padding. An end the author wrote stays the
-/// author's.
+/// and its widest (the card less its insets) move, and it keeps its own
+/// padding. An end the author wrote stays the author's.
 pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     use taffy::style::{LengthPercentage as Lp, LengthPercentageAuto as Lpa};
     use taffy::util::MaybeResolve;
@@ -582,6 +582,13 @@ pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::
             .left
             .maybe_resolve(None, crate::style::resolve_calc);
         s.margin.left = at.map_or(s.margin.left, |v| Lpa::length(v + by));
+        // Its widest, the card less its insets, moves with its inset.
+        if let crate::style::Dimension::Calc(percent, points) = arena.style(slot).max_width {
+            if !written.has(StyleId::MaxWidth) {
+                s.max_size.width =
+                    crate::style::Dimension::Calc(percent, points - by).floor_lpa(arena.env());
+            }
+        }
     } else if !content && !control && !written.has(StyleId::PaddingLeft) {
         let at = s
             .padding

@@ -53,6 +53,8 @@ pub struct File {
     pub design: Option<DesignSource>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
+    /// Native modules' sources and sends, read from packages (LLP 1133.001).
+    pub modules: Vec<crate::ModuleDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,

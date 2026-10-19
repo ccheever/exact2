@@ -221,6 +221,17 @@ a computed value, a word is renamed when it is the name whatever the value is;
 one that is the name for some values and a keyword for others (`${x} linear
 1s`), when it is also keyframes another file's of its name renamed, is refused
 (`contract-animation-ambiguous`): quote the name (`'linear'`).
+A package's export may be its module declaration, `exact.json` (LLP 1133.001
+D1): `use getCurrentPosition, GeolocationPosition from "@exact/geolocation"`
+brings the module's sources and sends and its shapes. A module's source is read
+by a `resource` and its send by a `send`, each `as shape` what it answers
+(`contract-module-kind`, `contract-module-answers`), with keyword arguments
+only: the module's options (`maximumAge=600000`), each omitted one left to the
+platform, and each platform's words as dotted keywords
+(`apple.desiredAccuracy="threeKilometers"`), checked against the words that
+platform's implementation declares (`contract-module-positional`,
+`contract-module-argument`, `call-argument-twice`). The device answers it, never
+the build: its placeholder is `else empty()` (`contract-module-placeholder`).
 Fonts are app-wide. A used file cannot declare routes. The root file's first
 component remains the root. A name both declared and used
 (`contract-use-shadows`), one name used from two declarations
@@ -518,7 +529,7 @@ primary       = NUMBER | STRING | TEMPLATE | "true" | "false" | "none"
               | "(" expr ")" | inline-match ;
 list          = "[" [ expr { "," expr } [ "," ] ] "]" ;
 arguments     = argument { "," argument } [ "," ] ;
-argument      = expr | arrow | FIELD "=" expr ;
+argument      = expr | arrow | FIELD { "." FIELD } "=" expr ;
 arrow         = ( IDENT | "(" [ IDENT { "," IDENT } ] ")" ) "=>" expr ;
 inline-match  = "match" expr "{" "case" "some" "(" IDENT ")" "=>" expr
                 "," "case" "none" "=>" expr [ "," ] "}" ;
@@ -544,7 +555,8 @@ comparison semantics. Logical operators short-circuit; ternary/match evaluates
 only its selected arm. Conditions require booleans.
 
 Named arguments are accepted only by the corresponding constructs: component
-uses, record construction/copy, localization (`t`), placeholders (`empty`),
+uses, a native module's sources and sends (the only place a dotted name,
+`apple.desiredAccuracy=`, is one), record construction/copy, localization (`t`), placeholders (`empty`),
 canvas `surface=` bindings, and specialized host commands (`share`,
 `scrollIntoView`). Ordinary function calls are positional. Arrow expressions are admitted
 as the callbacks to `map` and `filter`, with at most item and index parameters;

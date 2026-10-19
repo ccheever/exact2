@@ -169,7 +169,7 @@ function copyCompiler(path, copy, built) {
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
-export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], remoteAsked = { remote: null, tunnel: null }, residentPort = 0 }) {
+export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], remoteAsked = { remote: null, tunnel: null }, residentPort = 0, pairTtlMs }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
@@ -352,6 +352,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     buildTool();
     return false;
   };
+  // The same, starting nothing: for what a request below write scope reaches
+  // (`propose`'s class, stage 10 A1), which may not start a build.
+  const toolReady = () => tool.ready && fresh(tool.path, `${tool.path}.d`);
   buildTool();
   // The page's inspect table (LLP 1122 T2b, inspect.rs), made for dist's
   // plan when the page first asks (seconds for a large app, so no build
@@ -379,8 +382,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
     return tables.get(digest);
   };
-  const designOf = (text) => new Promise((done) => {
-    const compiler = toolFresh() ? { cmd: tool.path, pre: [] } : webCompiler();
+  // `readOnly` (what a request below write scope reaches): the built reader
+  // only, as it is, never a build or the `cargo run` fallback.
+  const designOf = (text, { readOnly = false } = {}) => new Promise((done) => {
+    if (readOnly && !toolReady()) return done({ error: 'the design reader is not built' });
+    const compiler = readOnly ? { cmd: tool.path, pre: [] } : toolFresh() ? { cmd: tool.path, pre: [] } : webCompiler();
     // A group: the debug fallback is a `cargo run`, stopped with its compilers.
     const child = tool.reading = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     child.on('error', (e) => done({ error: e.message }));
@@ -798,8 +804,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
    * compile; with none, the session's class stands and the release rebuilds. */
   async function inlineWhy(texts) {
     const file = relative(app.dir, designPath(app.dir));
-    if (!(file in texts) || !toolFresh()) return null;
-    const next = await scrubDesign(texts[file]);
+    if (!(file in texts) || !toolReady()) return null;
+    const next = await scrubDesign(texts[file], { readOnly: true });
     // The design the pages run once it is read (a build may land meanwhile).
     const from = scrubbed ?? design;
     if (next.error || !from || next.tokens.length !== from.tokens.length) return null;
@@ -851,7 +857,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, pairTtlMs, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {

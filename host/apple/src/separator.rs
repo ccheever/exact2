@@ -7,11 +7,11 @@
 use super::*;
 
 /// The derived prop's name.
-pub(super) const PROP: &str = "groupedSeparator";
+pub(crate) const PROP: &str = "groupedSeparator";
 
 /// `{"rect":[x,y,w,h],"color":…}` in the row's own space; `None` where the
 /// row has none.
-pub(super) fn json(kernel: &exact_kernel::Kernel, id: ViewId) -> Option<String> {
+pub(crate) fn json(kernel: &exact_kernel::Kernel, id: ViewId) -> Option<String> {
     if cfg!(target_os = "ios") {
         return None;
     }
@@ -31,7 +31,7 @@ impl<D: DataSource> Host<D> {
     /// box: those of every row of the card that holds it (a row's own edge,
     /// or the next row's top edge, decides the one above it), `id` being a
     /// row or a `delete=` row's content.
-    pub(super) fn emit_separators_beside(&mut self, id: ViewId, batch: &mut Batch) {
+    pub(crate) fn emit_separators_beside(&mut self, id: ViewId, batch: &mut Batch) {
         let kernel = self.runner.kernel();
         let row = |id: ViewId| {
             kernel
@@ -50,7 +50,7 @@ impl<D: DataSource> Host<D> {
     /// Sends `id`'s separator where it moved, and those of the grouped rows
     /// it holds: a row's own layout moves its line, and a group's says
     /// which of its rows is now the last.
-    pub(super) fn emit_separators(&mut self, id: ViewId, batch: &mut Batch) {
+    pub(crate) fn emit_separators(&mut self, id: ViewId, batch: &mut Batch) {
         let kernel = self.runner.kernel();
         let Some(node) = kernel.node(id) else {
             return;

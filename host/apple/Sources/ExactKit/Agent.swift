@@ -286,6 +286,7 @@ public final class Agent {
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
         // @ref LLP 1125 §4 — the MIDI ports the agent names, and a message from one: the runner's.
         case "prefer" where req["midi"] != nil: Agent.reply(tagged(midi(req)))
+        case "prefer" where req["extension"] != nil || req["permission"] != nil: Agent.reply(tagged(preferExtension(req)))
         case "midi": Agent.reply(tagged(midi(req)))
         case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
@@ -447,6 +448,19 @@ public final class Agent {
         session.apply(batch)
         if let error = batch.error { return ["error": error] }
         return ["midi": true]
+    }
+
+    /// `prefer extension` (LLP 1124 D7) and `prefer permission` (LLP
+    /// 1133.002 §6), as the runner answers them: a native module source's
+    /// preferred value, or its permission's state; readers asked again.
+    func preferExtension(_ req: [String: Any]) -> [String: Any] {
+        var forward = req
+        forward.removeValue(forKey: "session")
+        guard let data = try? JSONSerialization.data(withJSONObject: forward) else { return ["malformed": true, "error": "prefer extension: the request is not JSON"] }
+        let batch = session.runtime.preferExtension(String(decoding: data, as: UTF8.self))
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        return req["permission"] != nil ? ["permission": req["permission"]!] : ["extension": req["extension"] ?? [:]]
     }
 
     /// Move both clocks to one instant: the runner's (timers, each fired at

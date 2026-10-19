@@ -1,4 +1,4 @@
-import { bundleOptions } from '../../js/bake/src/typescript.mjs';
+import { asyncContext, bundleOptions, lowered } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -420,7 +420,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ] : ['start();']),
   ...(containerHatches ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers())));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
 // navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
@@ -514,7 +514,10 @@ const how = opt('--render') ?? 'rust';
 // local `fetch` stays local.
 const generatedRoots = [gen, realpathSync(gen)];
 const inside = (path, root) => { const child = relative(root, path); return child === '' || !isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep); };
-const scopedModule = (code, id) => {
+// `lower`: the page's bundle lowers `async` so an answer's context survives
+// its awaits (`asyncContext`, LLP 1133.002 D14); the server render, which
+// runs at build with no device to call, does not.
+const scopedModule = (code, id, lower = false) => {
   if (!ts || !isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
@@ -524,7 +527,7 @@ const scopedModule = (code, id) => {
   // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
   const absent = ['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
     'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
-  const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
+  const result = transformSync(id, code, { ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}), inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
     ...Object.fromEntries(absent.map(name => [name, [resolve(gen, 'ts-fetch.js'), 'absent']])),
     globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
@@ -555,7 +558,7 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => {
+  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: (code, id) => scopedModule(code, id, true) }, asyncContext()], logLevel: 'warn', onLog: (level, log) => {
     if (level === 'warn' && log.code === 'IMPORT_IS_UNDEFINED' && optionalHookWarning(log.id, log.message)) return;
     console.error(log.message);
   } });

@@ -646,7 +646,7 @@ fn unknown_component_props_report_all_names_and_declared_choices() {
 
 /// Each action's allowlist in the plan, as slot names, in plan order.
 fn plan_writes(plan: &exact_plan::Plan) -> Vec<(String, Vec<String>)> {
-    let name = |id: exact_plan::StrId| plan.strings[id.0 as usize].clone();
+    let name = |id: exact_plan::StrId| plan.strings[id.0 as usize].to_string();
     plan.actions
         .iter()
         .map(|a| {
