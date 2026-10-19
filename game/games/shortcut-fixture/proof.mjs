@@ -35,15 +35,18 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, pin, pi
   await w.save(saved);
   pinSave('after-shortcuts', saved);
   // The press moves no focus: a held key stays the world's, and Space after it is the world's.
+  const focused = async () => (await s.tree()).nodes.find(n => n.focused)?.props?.testId ?? null;
   await w.key_down('KeyW');
   await w.run(100);
+  const before = await focused();
   await w.tap('Digit1');
   await w.run(100);
   got = await shop(w);
   held = await input(s);
   check('with W held, Digit1 buys once more', got.buys === 3 && got.ones === 0, got);
   check('the world still holds W after the shortcut', held.held.includes('KeyW'), held);
-  check('the canvas keeps the focus', (await s.tree()).nodes.find(n => n.props?.testId === 'world')?.focused === true);
+  const after = await focused();
+  check('the shortcut moves no focus', after === before && after !== 'buy', {before, after});
   await w.key_up('KeyW');
   await w.tap('Space');
   await w.run(100);
