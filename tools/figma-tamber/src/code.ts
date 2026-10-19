@@ -228,7 +228,7 @@ figma.ui.onmessage = async (msg: any) => {
               // away; a surviving context keeps its mode, and the pull is refused.
               if (!tooManyModes(e2)) throw e2;
               const kept = (before?.collections ?? []).flatMap(c => Object.keys(c.contextIds ?? {})).filter(ctx => !moved?.removed.includes(ctx));
-              if (kept.length) throw new Error(`this file allows ${limitOf(e2)} modes a collection, and a default mode Figma can't remove holds one: remove the Tamber collection, then pull`);
+              if (kept.length) throw new Error(`this file allows ${limitOf(e2)} modes a collection, and a default mode Figma can't remove holds one: to pull, remove the collection with the mode ${kept[0]} (what is bound to it, and any variables you added there, go with it)`);
               undo();
               figma.commitUndo();
               await write(plan, before, true);
