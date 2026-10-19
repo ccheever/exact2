@@ -17,6 +17,7 @@ shape MobilePreviewColors
   border: string
   input: string
   inputBorder: string
+  placeholder: string
   primary: string
   primaryForeground: string
   subtle: string
@@ -58,6 +59,8 @@ component MobileBrowser
     action: action
     menuConfiguration: string
     menuEvent: action
+    addressFontSize: number
+    addressLineHeight: number
   state address = ""
   state editing = false
   action edit(value: string)
@@ -73,17 +76,19 @@ component MobileBrowser
   view
     column flex=1 min-height=0 background-color=colors.background font-family="DM Sans"
       if data.source != ""
-        row gap=7 padding=10.5 align-items="center"
-          button width=38.5 height=38.5 padding=0 disabled=(not data.canBack) press=action("back", "") aria-label="Back"
-            t3-symbol symbol-name="chevron.left" symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
-          button width=38.5 height=38.5 padding=0 disabled=(not data.canForward) press=action("forward", "") aria-label="Forward"
-            t3-symbol symbol-name="chevron.right" symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
-          input flex=1 min-width=0 height=35 box-sizing="border-box" border-radius=18 padding-left=10.5 padding-right=10.5
-            background-color=colors.input color=colors.foreground border-width=1 border-style="solid" border-color=colors.inputBorder font-size=12.25
-            value=(editing ? address : data.url) readonly=(not data.canNavigate) aria-label="Address"
+        row gap=3.5 padding-left=7 padding-right=7 padding-bottom=7 align-items="center"
+          button appearance="none" background-color=colors.subtle border-radius=999 width=38.5 height=38.5 padding=0 disabled=(not data.canBack) press=action("back", "") aria-label="Back"
+            t3-symbol symbol-name="chevron.left" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+          button appearance="none" background-color=colors.subtle border-radius=999 width=38.5 height=38.5 padding=0 disabled=(not data.canForward) press=action("forward", "") aria-label="Forward"
+            t3-symbol symbol-name="chevron.right" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+          input appearance="none" flex=1 min-width=0 height=35 box-sizing="border-box" border-radius=18 padding-left=14 padding-right=14
+            background-color=colors.input color=colors.foreground border-width=1 border-style="solid" border-color=colors.inputBorder font-size=addressFontSize line-height=`${addressLineHeight}px`
+            value=(editing ? address : data.url) readonly=(not data.canNavigate) aria-label="Address" placeholder="Enter a URL"
             input=edit key=pressedKey blur=blurred
-          button width=38.5 height=38.5 padding=0 disabled=(not data.canNavigate) press=action("reload", "") aria-label="Reload page"
-            t3-symbol symbol-name="arrow.clockwise" symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+            ::placeholder
+              color=colors.placeholder
+          button appearance="none" background-color=colors.subtle border-radius=999 width=38.5 height=38.5 padding=0 disabled=(not data.canNavigate) press=action("reload", "") aria-label="Reload page"
+            t3-symbol symbol-name="arrow.clockwise" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
           t3-preview-menu configuration=menuConfiguration change=menuEvent width=38.5 height=38.5
         row gap=7 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 align-items="center" border-bottom-width=1 border-style="solid" border-color=colors.border
           text data.controlLabel flex=1 font-size=10.5 color=colors.muted
