@@ -30,3 +30,40 @@ test('the probe stops a real Cargo rebuild of a copied completed fingerprint', (
     expect(events.some(row=>row.kind==='cache-rejected' && row.code===86)).toBe(true);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+
+test('cargo rustc reaches Cargo and records both compiler and command events', () => {
+  const dir=mkdtempSync('/tmp/exact-d2-cargo-rustc-'), probe=resolve(import.meta.dir,'probe.py');
+  try {
+    mkdirSync(resolve(dir,'src'));
+    writeFileSync(resolve(dir,'Cargo.toml'),'[workspace]\n[package]\nname="probe-dispatch"\nversion="0.1.0"\nedition="2021"\n');
+    writeFileSync(resolve(dir,'src/lib.rs'),'pub const VALUE: u32 = 1;\n');
+    const channel=Bun.TOML.parse(readFileSync(resolve(import.meta.dir,'../../../rust-toolchain.toml'),'utf8')).toolchain.channel;
+    const log=resolve(dir,'logs');
+    const result=spawnSync('python3',[probe,'cargo','rustc','--offline'],{cwd:dir,encoding:'utf8',
+      env:{...process.env,TMPDIR:'/tmp',PATH:`${homedir()}/.cargo/bin:${process.env.PATH}`,RUSTUP_TOOLCHAIN:channel,D2_LOG:log,CARGO_TARGET_DIR:resolve(dir,'target'),CARGO_BUILD_BUILD_DIR:resolve(dir,'target')}});
+    expect(result.status).toBe(0);
+    const events=readFileSync(resolve(log,'units.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
+    expect(events.some(row=>row.kind==='cargo' && row.args[0]==='rustc' && row.args.includes('--timings') && row.code===0)).toBe(true);
+    expect(events.some(row=>row.kind==='rustc' && row.args.includes('--crate-name') && row.code===0)).toBe(true);
+    expect(events.some(row=>row.kind==='command' && row.code===0)).toBe(true);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('the phase audit refuses failed or incomplete sampled commands', () => {
+  const dir=mkdtempSync('/tmp/exact-d2-audit-');
+  try {
+    writeFileSync(resolve(dir,'cargo-timing-fixture.html'),'const UNIT_DATA = [];');
+    writeFileSync(resolve(dir,'Cargo.lock'),'version = 4\npackage = []\n');
+    const events=resolve(dir,'units.jsonl');
+    const run=()=>spawnSync('python3',[resolve(import.meta.dir,'audit.py'),dir,'--phases',dir,'--lock',resolve(dir,'Cargo.lock')],{encoding:'utf8'});
+    writeFileSync(events,JSON.stringify({kind:'command',code:0,start:0,end:1})+'\n');
+    expect(run().status).toBe(0);
+    for (const rows of [[],[{kind:'command',code:1,start:0,end:1}],[{kind:'command',code:0,start:0,end:1},{kind:'command',code:86,start:1,end:2}]]) {
+      writeFileSync(events,rows.map(JSON.stringify).join('\n'));
+      const refused=run(); expect(refused.status).not.toBe(0);
+      expect(refused.stderr).toContain('phase samples require a completed command with exit code 0');
+      expect(refused.stdout).not.toContain('eligibleFraction');
+    }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});

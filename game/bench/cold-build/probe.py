@@ -10,7 +10,12 @@ def save(row):
     row.update(start=start, end=time.time(), load=load, loadEnd=os.getloadavg(), cwd=os.getcwd(), pid=os.getpid())
     fd = os.open(folder / 'units.jsonl', os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.write(fd, (json.dumps(row) + '\n').encode()); os.close(fd)
-if mode == 'rustc-probe' or args and pathlib.Path(args[0]).stem == 'rustc':
+if mode == 'cargo':
+    command = next((a for a in args if not a.startswith('+')), '')
+    if command in ['build', 'rustc', 'check', 'test']: args.append('--timings')
+    code = subprocess.call([os.environ['D2_CARGO']] + args, close_fds=False)
+    save(dict(kind='cargo', args=args, code=code))
+elif mode == 'rustc-probe' or args and pathlib.Path(args[0]).stem == 'rustc':
     mode = 'rustc-probe'
     compiled = '--crate-name' in args
     candidates = os.environ.get('D2_STOP_ON_REBUILD')
@@ -34,11 +39,6 @@ if mode == 'rustc-probe' or args and pathlib.Path(args[0]).stem == 'rustc':
         sys.stderr.buffer.write(line); sys.stderr.buffer.flush()
     code = proc.wait()
     save(dict(kind='rustc', args=args, phases=phases, code=code))
-elif mode == 'cargo':
-    command = next((a for a in args if not a.startswith('+')), '')
-    if command in ['build', 'rustc', 'check', 'test']: args.append('--timings')
-    code = subprocess.call([os.environ['D2_CARGO']] + args, close_fds=False)
-    save(dict(kind='cargo', args=args, code=code))
 else:
     cargo = shutil.which('cargo')
     if not cargo: sys.exit('cargo must be on PATH')

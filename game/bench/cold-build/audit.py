@@ -74,6 +74,10 @@ def main():
     if not files:
         parser.error('no Cargo timing reports found')
     rows = [json.loads(line) for line in (args.phases / 'units.jsonl').read_text().splitlines()] if args.phases else []
+    if args.phases:
+        commands = [r for r in rows if r['kind'] == 'command']
+        if not commands or any(r.get('code') != 0 for r in commands):
+            parser.error('phase samples require a completed command with exit code 0')
     compiled = [r for r in rows if r['kind'] == 'rustc' and '--crate-name' in r['args']]
     registry, tainted = packages(args.lock) if args.lock else (set(), set())
     totals = collections.defaultdict(float)

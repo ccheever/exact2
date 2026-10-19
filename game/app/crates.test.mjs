@@ -2,6 +2,7 @@ import {test, expect} from 'bun:test';
 import {mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, statSync, realpathSync, symlinkSync, utimesSync, rmSync, existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {compilerPaths, unitDepInfo} from '../../scripts/cargo-dep-info.mjs';
 import {gameCrateKey, keptGameCrates, registryPackages} from './crates.mjs';
 
 const root = resolve(import.meta.dir,'../..');
@@ -135,6 +136,61 @@ test('Cargo metadata places registry intermediates correctly with only CARGO_TAR
     expect(readFileSync(dep,'utf8')).not.toContain(source);
     expect(existsSync(resolve(b.target_directory,profile,'.fingerprint'))).toBe(false);
     expect(existsSync(resolve(b.build_directory,profile,'.fingerprint',original.id))).toBe(true);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('equal Cargo directories relocate to receipt-readable split intermediates', () => {
+  const dir=workspace(), a=resolve(dir,'a'), lock=resolve(dir,'Cargo.lock');
+  const b={target_directory:resolve(dir,'products'),build_directory:resolve(dir,'intermediate')};
+  try {
+    writeFileSync(lock,'[[package]]\nname="leaf"\nversion="1.0.0"\nsource="registry+example"\n');
+    const original=unit(a,'leaf',1), source='/registry/leaf/lib.rs';
+    writeFileSync(original.dep,`${original.dep}: ${source} ${a}/${profile}/build/leaf/out/generated.rs\n`);
+    const cache=keptGameCrates({root,env:process.env,...facts,directory:resolve(dir,'cache')});
+    cache.keep(metadata(a),'native',lock); cache.take(b,'native');
+    const dep=resolve(b.build_directory,profile,'deps',`${original.id}.d`);
+    const product=resolve(b.target_directory,profile,'deps',`lib${original.id}.rlib`);
+    mkdirSync(resolve(product,'..'),{recursive:true}); writeFileSync(product,'artifact');
+    expect(unitDepInfo({filenames:[product],target:{src_path:source,name:'leaf'}},dir,b)).toBe(dep);
+    expect(compilerPaths(readFileSync(dep,'utf8'),dir)).toEqual([source,`${b.build_directory}/${profile}/build/leaf/out/generated.rs`]);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('a target rebuilt against a private host build script cannot publish a generation', () => {
+  const dir=workspace(), a=resolve(dir,'a'), b=resolve(dir,'b'), c=resolve(dir,'c');
+  const compiler=spawnSync('rustc',['-vV'],{encoding:'utf8'});
+  expect(compiler.status).toBe(0);
+  const triple=/^host: (.+)$/m.exec(compiler.stdout)[1], profile=`${triple}/gpu-dev`;
+  try {
+    mkdirSync(resolve(dir,'src'));
+    writeFileSync(resolve(dir,'src/lib.rs'),'include!(concat!(env!("OUT_DIR"), "/value.rs"));\n');
+    writeFileSync(resolve(dir,'build.rs'),'fn main() { std::fs::write(std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("value.rs"), format!("pub const VALUE: bool = {};", cfg!(feature = "variant"))).unwrap(); }\n');
+    writeFileSync(resolve(dir,'Cargo.toml'),'[workspace]\n[package]\nname="leaf"\nversion="1.0.0"\nedition="2021"\n[features]\nvariant=[]\n[profile.gpu-dev]\ninherits="dev"\n');
+    const run=(target,variant=false)=>{
+      const result=spawnSync('cargo',['build','--offline','--target',triple,'--profile','gpu-dev',...(variant?['--features','variant']:[])],
+        {cwd:dir,env:{...process.env,CARGO_TARGET_DIR:target,CARGO_BUILD_BUILD_DIR:target},encoding:'utf8'});
+      expect(result.status).toBe(0);
+    };
+    run(a); run(b,true);
+    // Mark this dependency-free fixture eligible without fetching a registry.
+    // Real Cargo artifacts retain the target -> generated input -> host script edge.
+    const lock=resolve(dir,'eligible.lock');
+    writeFileSync(lock,'[[package]]\nname="leaf"\nversion="1.0.0"\nsource="registry+fixture"\n');
+    const cache=keptGameCrates({root,env:process.env,...facts,triple,directory:resolve(dir,'cache')});
+    cache.keep(metadata(a),'native',lock);
+    const generations=()=>readdirSync(resolve(cache.store,'native')).filter(n=>n.startsWith('gen-'));
+    const before=generations(); expect(before).toHaveLength(1);
+    const hostUnits=readdirSync(resolve(b,'gpu-dev/.fingerprint'));
+    expect(hostUnits.some(name=>!existsSync(resolve(a,'gpu-dev/.fingerprint',name)))).toBe(true);
+    rmSync(resolve(b,triple),{recursive:true});
+    cache.take(metadata(b),'native'); run(b,true);
+    expect(readdirSync(resolve(b,'gpu-dev/.fingerprint'))).toEqual(hostUnits);
+    expect(readdirSync(resolve(b,profile,'.fingerprint')).some(name=>!existsSync(resolve(a,profile,'.fingerprint',name)))).toBe(true);
+    cache.keep(metadata(b),'native',lock);
+    expect(generations()).toEqual(before);
+    cache.take(metadata(c),'native');
+    expect(readdirSync(resolve(c,'gpu-dev/.fingerprint'))).toEqual(readdirSync(resolve(a,'gpu-dev/.fingerprint')));
+    expect(readdirSync(resolve(c,profile,'.fingerprint'))).toEqual(readdirSync(resolve(a,profile,'.fingerprint')));
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

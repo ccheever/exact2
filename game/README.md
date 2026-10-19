@@ -651,7 +651,8 @@ See `game/bench/cold-build/README.md` for the measurement commands.
 The cache separates channel, profile, target triple, rustc, toolchain overrides
 and compiler/profile flags. It keeps two coherent registry generations,
 excluding path/git crates and their dependants, and uses Cargo metadata's
-resolved build and product directories. Cargo validates copied fingerprints;
+resolved build and product directories. A build with any private profile does
+not publish a generation. Cargo validates copied fingerprints;
 a rebuilt copied unit means the warm failed. Cache files are not game inputs.
 Web and release builds do not use it.
 Release/production bakes bind the product digest: a signed 64-bit

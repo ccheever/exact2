@@ -73,16 +73,19 @@ function canonical(path) {
 function placement(metadata) {
   const target = metadata.target_directory, build = metadata.build_directory;
   if (!target || !build) throw new Error('Cargo metadata must resolve target_directory and build_directory');
-  const pairs = [[target, TARGET], [canonical(target), TARGET], [build, BUILD], [canonical(build), BUILD]];
-  return { target: canonical(build),
+  // Shared directories name intermediates, including their symlink spellings.
+  const product = canonical(target), intermediate = canonical(build);
+  const productToken = product === intermediate ? BUILD : TARGET;
+  const pairs = [[build, BUILD], [intermediate, BUILD], [target, productToken], [product, productToken]];
+  return { target: intermediate,
     keep: pairs.sort(([a], [b]) => b.length - a.length),
-    take: [[BUILD, canonical(build)], [TARGET, canonical(target)]],
+    take: [[BUILD, intermediate], [TARGET, product]],
     plain: pairs.every(([path]) => /^[\w./+@-]+$/.test(path)) };
 }
 
 /** Registry generations for a profile. Pass resolved Cargo metadata to take/keep.
  * Only fresh profile directories are seeded; existing host or target profiles
- * stay private. Both sides of a split Cargo directory layout are relocated. */
+ * stay private and prevent publication. Both sides of a split Cargo directory layout are relocated. */
 export function keptGameCrates({ root, env, profile, triple, flags, strip = false, directory = resolve(homedir(), '.cache/exact/game-crates') }) {
   const idle = { take() {}, keep() {} };
   if (typeof Bun === 'undefined') return idle;
@@ -124,7 +127,9 @@ export function keptGameCrates({ root, env, profile, triple, flags, strip = fals
         const paths = placement(metadata), target = paths.target;
         if (!paths.plain) return;
         const stamp = JSON.parse(text(stampOf(target)) ?? '{}');
-        const dirs = profileDirs(target).filter(dir => !stamp.skipped?.includes(dir));
+        // Target units may depend on private host build scripts or proc macros.
+        if (stamp.skipped?.length) return;
+        const dirs = profileDirs(target);
         const saw = Object.fromEntries(dirs.map(dir => [dir, changed(resolve(target, dir, '.fingerprint'))]));
         if (dirs.every(dir => stamp.saw?.[dir] === saw[dir])) return;
         const newest = generations(kind).at(-1);
@@ -137,10 +142,6 @@ export function keptGameCrates({ root, env, profile, triple, flags, strip = fals
         if (dirs.some(dir => { const kept = has(dir); return mine(dir, kept).some(name => !kept.has(name)); })) {
           const making = resolve(store, kind, `.making-${process.pid}`);
           rmSync(making, { recursive: true, force: true });
-          for (const dir of stamp.skipped ?? []) {
-            const previous = resolve(store, kind, newest, dir);
-            if (existsSync(previous)) clone([previous], resolve(making, dirname(dir)));
-          }
           for (const dir of dirs) {
             const units = mine(dir), taken = new Set(units), hashes = new Set(units.map(name => unitOf(name)[2]));
             const here = resolve(target, dir), files = names(resolve(here, 'deps')).filter(file => hashes.has(hashOf(file)));

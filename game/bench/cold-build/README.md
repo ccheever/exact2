@@ -31,7 +31,8 @@ EXACT_GAME_PROOF_PROFILE=release \
 `/private/tmp` is macOS's realpath of `/tmp`; use `/tmp` on Linux. A first
 native proof may refuse newly generated directories: finish scaffold
 preparation before measuring, and record a refusal instead of treating a
-partial build as a completed cold sample. Do not change tracked SDK inputs
+partial build as a completed cold sample. The phase audit refuses samples
+without a completed command or with a nonzero command exit. Do not change tracked SDK inputs
 during a proof.
 
 Audit timing dependencies, including a deliberately late predecessor, then
@@ -61,7 +62,8 @@ The retained HTML and JSONL are untracked evidence filed by the orchestrator.
 The cache is built but unwired. Its admission requires three cold runs per leg
 under load 5, with eligible `gpu-dev` registry work above a quarter of total
 wall time. Once admitted, repeat on fresh targets seeded from one generation;
-set `D2_STOP_ON_REBUILD` to a JSON array of copied fingerprint hashes. The probe
+set `D2_STOP_ON_REBUILD` to the path of a JSON file containing an array of
+copied fingerprint hashes. The probe
 exits 86 on any rustc invocation for a copied completed fingerprint. Cargo may
 wrap that exit as 101; either is a failed warm. Count build-script run
 fingerprints separately, since a rustc observer does not see their execution.
@@ -70,3 +72,12 @@ The observer regression is `bun test game/bench/cold-build/probe.test.mjs`.
 It copies a completed Cargo target, changes source, and requires the observer
 to stop Cargo's real rebuild. Snapshot only completed copied hashes before
 starting Cargo: Cargo can clear a fingerprint before rustc starts.
+
+Before wiring reuse:
+
+- Keep one generation per strip configuration: GPU invocations set `strip=false`,
+  while the host keeps `gpu-dev`'s `strip = "debuginfo"`.
+- Resolve Cargo metadata in the same environment as the Cargo child, and pass it
+  to both `take` and `keep`.
+- Repeat the real-registry transfer count with the corrected observer, including
+  build-script run fingerprints. The earlier zero-rebuild count is unverified.
