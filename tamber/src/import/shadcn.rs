@@ -195,10 +195,11 @@ pub fn import(
     // The themes the source names, whether or not their values map; one
     // whose axis would take the design past its tuples is reported.
     let mut themes: Vec<String> = Vec::new();
+    let mut named_themes: HashSet<&str> = HashSet::new();
     for (_, _, _, targets) in &decls {
         for t in targets {
             if let Some(theme) = &t.0 {
-                if !themes.contains(theme) {
+                if named_themes.insert(theme) {
                     themes.push(theme.clone());
                 }
             }
@@ -359,6 +360,8 @@ pub fn import(
         &mut sources,
     );
     // Each colour's declarations mapped, by its token.
+    // Each token's place in `sources`, by name.
+    let mut source_at: HashMap<&str, usize> = HashMap::new();
     for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
         let Some(name) = names.get(var).filter(|_| *fate == Fate::Mapped) else {
             continue;
@@ -370,9 +373,12 @@ pub fn import(
             why: String::new(),
             token: Some(name.clone()),
         };
-        match sources.iter_mut().find(|(n, _)| n == name) {
-            Some((_, from)) => from.push(record),
-            None => sources.push((name.clone(), vec![record])),
+        match source_at.get(name.as_str()) {
+            Some(&k) => sources[k].1.push(record),
+            None => {
+                source_at.insert(name.as_str(), sources.len());
+                sources.push((name.clone(), vec![record]));
+            }
         }
     }
     // What would not hold where it lands: its declarations reported.

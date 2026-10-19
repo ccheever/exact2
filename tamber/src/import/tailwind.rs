@@ -208,7 +208,13 @@ fn resets(reset: &str, var: &str) -> bool {
     let Some(ns) = reset.strip_suffix("-*") else {
         return var == reset;
     };
-    let kept: &[&str] = match ns {
+    let kept = kept_under(ns);
+    var.starts_with(ns) && !kept.iter().any(|k| var.starts_with(k))
+}
+
+/// The names a namespace reset keeps (`--font-*` keeps `--font-weight…`).
+fn kept_under(ns: &str) -> &'static [&'static str] {
+    match ns {
         "--font" => &["--font-weight", "--font-size"],
         "--inset" => &["--inset-shadow", "--inset-ring"],
         "--text" => &[
@@ -222,8 +228,38 @@ fn resets(reset: &str, var: &str) -> bool {
         "--grid-column" => &["--grid-column-start", "--grid-column-end"],
         "--grid-row" => &["--grid-row-start", "--grid-row-end"],
         _ => &[],
+    }
+}
+
+/// The held names a reset clears, by place in `by_name`: its own name, every
+/// name (`--*`), or its namespace's but for the names it keeps, each kept
+/// range passed over whole, not read name by name.
+fn cleared_by(reset: &str, by_name: &std::collections::BTreeMap<String, usize>) -> Vec<usize> {
+    let Some(ns) = reset.strip_suffix("-*") else {
+        return by_name.get(reset).copied().into_iter().collect();
     };
-    var.starts_with(ns) && !kept.iter().any(|k| var.starts_with(k))
+    let ns = if reset == "--*" { "" } else { ns };
+    let mut kept: Vec<&str> = kept_under(ns).to_vec();
+    kept.sort_unstable();
+    let mut out = Vec::new();
+    let mut from = ns.to_string();
+    for k in kept.into_iter().map(Some).chain([None]) {
+        let names = by_name
+            .range::<String, _>(from.clone()..)
+            .take_while(|(n, _)| n.starts_with(ns) && k.is_none_or(|k| n.as_str() < k));
+        out.extend(
+            names
+                .filter(|(n, _)| resets(reset, n))
+                .map(|(_, &slot)| slot),
+        );
+        let Some(k) = k else { break };
+        // Past every name `k` begins: its last byte one higher (the kept
+        // names are ASCII).
+        let mut past = k.as_bytes().to_vec();
+        *past.last_mut().expect("a kept name") += 1;
+        from = String::from_utf8(past).expect("ASCII");
+    }
+    out
 }
 
 /// One theme declaration as read, before resets and defaults decide.
@@ -411,19 +447,8 @@ pub fn import_with(
             }
         }
         if e.value.trim().eq_ignore_ascii_case("initial") {
-            // What it clears, in the order they are held: the names under
-            // its namespace (`--*` all of them), or its own.
-            let under = match e.name.strip_suffix("-*") {
-                Some(_) if e.name == "--*" => "",
-                Some(ns) => ns,
-                None => e.name.as_str(),
-            };
-            let mut cleared: Vec<usize> = by_name
-                .range::<str, _>((std::ops::Bound::Included(under), std::ops::Bound::Unbounded))
-                .take_while(|(name, _)| name.starts_with(under))
-                .filter(|(name, _)| resets(&e.name, name))
-                .map(|(_, &slot)| slot)
-                .collect();
+            // What it clears, in the order they are held.
+            let mut cleared = cleared_by(&e.name, &by_name);
             cleared.sort_unstable();
             for slot in cleared {
                 if let Some((name, at)) = slots[slot].take() {
@@ -691,6 +716,8 @@ pub fn import_with(
         (&mut tokens, &mut unmapped, &mut sources),
     );
     // Each colour's declarations mapped, by its token.
+    // Each token's place in `sources`, by name.
+    let mut source_at: HashMap<&str, usize> = HashMap::new();
     for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
         let Some(name) = named.names.get(var).filter(|_| *fate == Fate::Mapped) else {
             continue;
@@ -702,9 +729,12 @@ pub fn import_with(
             why: String::new(),
             token: Some(name.clone()),
         };
-        match sources.iter_mut().find(|(n, _)| n == name) {
-            Some((_, from)) => from.push(record),
-            None => sources.push((name.clone(), vec![record])),
+        match source_at.get(name.as_str()) {
+            Some(&k) => sources[k].1.push(record),
+            None => {
+                source_at.insert(name.as_str(), sources.len());
+                sources.push((name.clone(), vec![record]));
+            }
         }
     }
     // What would not hold where it lands: its declarations reported.

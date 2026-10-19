@@ -369,7 +369,7 @@ pub fn css_read(css: &str) -> (Vec<Block>, Vec<Deep>) {
         (0, text.len()),
         (0, marks.len()),
         0,
-        &[],
+        &mut Vec::new(),
         &mut read,
     );
     let Reading { out, mut deep, .. } = read;
@@ -406,6 +406,12 @@ pub fn css_read(css: &str) -> (Vec<Block>, Vec<Deep>) {
 /// past any stylesheet's, short of the stack (each level reads its body
 /// again).
 const NESTING: usize = 64;
+
+/// The longest custom property name, and value or prelude, read: past them
+/// a declaration or a rule is reported, not copied about (no real one is
+/// near them).
+const NAME: usize = 256;
+const VALUE: usize = 4096;
 
 /// How many bytes of enclosing preludes the blocks may copy, all told: each
 /// block keeps its context, so 64 long preludes around many small rules
@@ -540,23 +546,37 @@ fn body(
     (lo, hi): (usize, usize),
     (from, to): (usize, usize),
     at: usize,
-    context: &[String],
+    context: &mut Vec<String>,
     read: &mut Reading,
 ) {
     let (text, marks) = (css.text, css.marks);
     let mut decls = Vec::new();
     let (mut start, mut k) = (lo, from);
-    let declaration = |segment: &str, decls: &mut Vec<(String, String)>| {
-        if let Some((name, value)) = segment.split_once(':') {
-            let name = name.trim();
-            if name.starts_with("--") && name.len() > 2 {
-                decls.push((name.to_string(), value.trim().to_string()));
+    // A custom property, or, its name or value past what one may be, a
+    // value reported.
+    let declaration =
+        |(from, to): (usize, usize), decls: &mut Vec<(String, String)>, read: &mut Reading| {
+            let segment = &text[from..to];
+            if let Some((name, value)) = segment.split_once(':') {
+                let name = name.trim();
+                if name.starts_with("--") && name.len() > 2 {
+                    let value = value.trim();
+                    if name.len() > NAME || value.len() > VALUE {
+                        let at = from + (segment.len() - segment.trim_start().len());
+                        let why = match name.len() > NAME {
+                            true => "a custom property's name past 256 bytes",
+                            false => "a custom property's value past 4 KiB",
+                        };
+                        read.deep.push((name.chars().take(80).collect(), at, why));
+                        return;
+                    }
+                    decls.push((name.to_string(), value.to_string()));
+                }
             }
-        }
-    };
+        };
     // Declarations so far, as one block, before a nested rule's: the order
     // the source has them.
-    let flush = |decls: &mut Vec<(String, String)>, read: &mut Reading| {
+    let flush = |decls: &mut Vec<(String, String)>, context: &[String], read: &mut Reading| {
         if !decls.is_empty() && !context.is_empty() {
             read.push(context, std::mem::take(decls), at);
         }
@@ -568,7 +588,7 @@ fn body(
         let (i, c) = marks[k];
         match c {
             ';' => {
-                declaration(&text[start..i], &mut decls);
+                declaration((start, i), &mut decls, read);
                 start = i + 1;
                 k += 1;
             }
@@ -589,24 +609,29 @@ fn body(
                     Some(j) => (j, marks[j].0),
                     None => (to, hi),
                 };
-                flush(&mut decls, read);
-                if context.len() >= NESTING {
+                flush(&mut decls, context, read);
+                let past = match (context.len() >= NESTING, prelude.len() > VALUE) {
+                    (true, _) => Some("nested past 64 rules"),
+                    (_, true) => Some("its prelude past 4 KiB"),
+                    _ => None,
+                };
+                if let Some(why) = past {
                     let prelude = prelude.chars().take(80).collect();
-                    read.deep
-                        .push((prelude, prelude_at, "nested past 64 rules"));
+                    read.deep.push((prelude, prelude_at, why));
                     start = (close + 1).min(hi);
                     k = j + 1;
                     continue;
                 }
-                let mut inner = context.to_vec();
-                inner.push(prelude.to_string());
+                // The context borrowed down, copied only into a block kept.
+                context.push(prelude.to_string());
                 let before = read.out.len();
-                body(css, (i + 1, close), (k + 1, j), prelude_at, &inner, read);
+                body(css, (i + 1, close), (k + 1, j), prelude_at, context, read);
                 // An `@theme` with no custom properties still marks where
                 // Tailwind writes the theme.
                 if prelude.starts_with("@theme") && read.out.len() == before {
-                    read.push(&inner, Vec::new(), prelude_at);
+                    read.push(context, Vec::new(), prelude_at);
                 }
+                context.pop();
                 start = (close + 1).min(hi);
                 k = j + 1;
             }
@@ -619,9 +644,9 @@ fn body(
     }
     // The last declaration may have no `;`.
     if start < hi {
-        declaration(&text[start..hi], &mut decls);
+        declaration((start, hi), &mut decls, read);
     }
-    flush(&mut decls, read);
+    flush(&mut decls, context, read);
 }
 
 /// The design's own role overrides a changed value could split: one whose

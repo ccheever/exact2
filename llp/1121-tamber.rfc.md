@@ -4851,7 +4851,10 @@ E23's round 5 found super-linear paths in the importers. They are fixed in two s
       longer lowers the parenthesis depth below zero, so every rule reads its marks as the whole text does (malformed
       CSS only; the 162 sheets are unchanged). A rule nested past 64 is not read, and is reported (one value, with its
       prelude's line), as is a block whose context the blocks would copy past 8 MiB in all, counting the copy in each
-      of its declarations' labels and reports; it was a stack overflow at about 100,000 levels;
+      of its declarations' labels and reports; it was a stack overflow at about 100,000 levels. The context is
+      borrowed down the rules and copied only into a block kept. A custom property's name past 256 bytes, its value
+      past 4 KiB, or a prelude past 4 KiB is reported likewise (one value, its line), so no one string is copied into
+      every token, report or message that reads it (no real stylesheet's is near them);
     - nested selectors (`engine::nested`): a selector past 1 KiB makes the chain none, checked before it is built, and
       a list past 1,024 likewise; `& &` at each of 40 levels ran past two minutes;
     - colour aliases (`engine.rs`): each block's chain followed once and remembered, cycles found once (Tarjan's),
@@ -4859,14 +4862,15 @@ E23's round 5 found super-linear paths in the importers. They are fixed in two s
       longer than 256", as the DTCG importer's), each block's walk stopping there, so blocks that share a long
       chain cost at most 256 steps each. 20,000 aliases in 80 chains took 28 s in debug, now 1.3 s;
     - shadcn's other kinds: each variable's last declaration and its declarations read once, a reference chain past
-      256 none (no name's kind standing in); the other-kind tokens grouped by variable once;
+      256 none (no name's kind standing in); the other-kind tokens grouped by variable once; each token's sources
+      (shadcn and Tailwind) and the themes found by name;
     - the kinds' fold check (`kinds::unfolded`, shared): tokens and the design's found by name through indexes, the
       probe's lines counted as it is written (it recounted the whole text per token), a diagnostic's token found by
       binary search;
     - Tailwind (`written_out`, `other_kinds`): each key written out once at each depth, with its chain's 16-deep
       refusal as before; one value past 64 KiB is refused ("its `var()`s write out past 64 KiB"), and all of them past
-      16 MiB; the theme's keys held by name (a reset clears its namespace by a range of names, in the order they are
-      held), owners and redefinitions looked up by index, and what reads a redefined `inline` key found once through
+      16 MiB; the theme's keys held by name (a reset of one name looks it up; a namespace's clears a range of names,
+      passing over the names it keeps, in the order they are held), owners and redefinitions looked up by index, and what reads a redefined `inline` key found once through
       its readers. 5,000 type keys took 38 s in debug, now 0.3 s; 20,000 keys and a 2,000-key `inline` chain 0.4 s.
   - **`marks`**: each token found by one index (its name, then in any ASCII case, the first so named, as before), and
     a dial's moved tokens by a name map. 3,000 set tokens and a dial take 0.14 s in debug (it was not slow there).

@@ -61,7 +61,7 @@ fn nesting_reads_each_level_and_stops_at_its_cap() {
     assert_eq!(blocks.len(), 20_000);
     // 64 long preludes around many small rules: each block would copy them
     // all; past 8 MiB of copies, the rest are reported instead.
-    let long = format!(".{}{{", "x".repeat(12_000));
+    let long = format!(".{}{{", "x".repeat(4_000));
     let many: String = (0..20_000)
         .map(|i| format!(".r{{--v{i}: #000;}}"))
         .collect();
@@ -87,7 +87,7 @@ fn nesting_reads_each_level_and_stops_at_its_cap() {
     // copies it, which the cap counts.
     let label = format!(
         "@layer {}{{:root{{{}}}}}",
-        "x".repeat(200_000),
+        "x".repeat(4_000),
         (0..6_000)
             .map(|i| format!("--c{i}: #000;"))
             .collect::<String>()
@@ -321,4 +321,58 @@ fn chains_past_256_links_stop_there() {
         past.as_deref().is_some_and(|w| !w.contains("box-shadow")),
         "{past:?}"
     );
+}
+
+#[test]
+fn long_values_are_reported_and_wide_sheets_read_once() {
+    // A value past 4 KiB, a name past 256 bytes and a prelude past 4 KiB are
+    // reported, each one value, not copied about.
+    let css = format!(
+        ":root{{--big: rgb({}0 0 0);--{}: #000;--ok: #fff;}}.{}{{--x: #000;}}",
+        "0".repeat(5_000),
+        "n".repeat(300),
+        "p".repeat(5_000)
+    );
+    let import = shadcn::import(&css, "shadcn", &parse("tamber app\n").unwrap(), &vocab()).unwrap();
+    let whys: Vec<&str> = import.unmapped.iter().map(|u| u.why.as_str()).collect();
+    assert_eq!(import.counted.source, 4);
+    assert!(
+        whys.contains(&"not read: a custom property's value past 4 KiB (line 1)"),
+        "{whys:?}"
+    );
+    assert!(
+        whys.contains(&"not read: a custom property's name past 256 bytes (line 1)"),
+        "{whys:?}"
+    );
+    assert!(
+        whys.contains(&"not read: its prelude past 4 KiB (line 1)"),
+        "{whys:?}"
+    );
+    // 20,000 empty rules inside a long prelude: the context is not copied
+    // for each.
+    let css = format!(".{}{{{}}}", "q".repeat(4_000), ".x{}".repeat(20_000));
+    let (_, took_empty) = timed(|| css_read(&css));
+    // Tailwind: 18,000 keys and 12,000 resets of one name, each found by name.
+    let mut css = String::from("@theme {\n");
+    for i in 0..18_000 {
+        css += &format!("  --text-x{i}: 1rem;\n");
+    }
+    for _ in 0..12_000 {
+        css += "  --text-x: initial;\n";
+    }
+    css += "}\n";
+    let (_, took_resets) = timed(|| tailwind::import(&css, "", &parse("tamber app\n").unwrap()));
+    // 30,000 colour declarations, each token's sources grouped by name.
+    let css = format!(
+        ":root{{{}}}",
+        (0..30_000)
+            .map(|i| format!("--c{i}: #{:06x};", i))
+            .collect::<String>()
+    );
+    let (import, took_sources) =
+        timed(|| shadcn::import(&css, "shadcn", &parse("tamber app\n").unwrap(), &vocab()));
+    assert_eq!(import.unwrap().counted.source, 30_000);
+    for t in [took_empty, took_resets, took_sources] {
+        assert!(t < Duration::from_secs(BOUND), "{t:?}");
+    }
 }
