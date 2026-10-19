@@ -612,11 +612,10 @@ exact-js-bake = ${dep('js/bake')}
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
         .placed(TYPESCRIPT_PLACEMENT)
 }
@@ -845,11 +844,10 @@ exact-js-bake = ${dep('apple', 'js/bake')}
     'apple/src/lib.rs': `//! ${title} on Apple: the Contract UI and the TypeScript data module.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
         .placed(TYPESCRIPT_PLACEMENT)
 }
