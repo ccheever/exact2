@@ -1865,6 +1865,18 @@ widths and limits, height limits, overflow, and both box-sizing modes.
 Second-row siblings expose the auto column's width independently of the
 ratio item's final size. No `justify-self` row is exposed by the kernel.
 
+The automatic-minimum predicates inspect only the tracks the item spans,
+as required by [CSS Grid §6.6](https://www.w3.org/TR/css-grid-1/#min-size-auto).
+An unrelated fractional track must not erase the content minimum; an
+unrelated auto minimum must not enable it. Both axes use the same predicates.
+The same test holds 12 `Chrome 151 grid ratio span` cases, measured with the
+same version and date. Six frames failed before this correction, including
+items without ratios on both axes. Controls cover preceding and following
+fractional tracks, a fraction inside the span, a single track, gaps, normal
+alignment and zero minima. Four `Chrome 151 grid ratio minimum floor` cases
+also retain measured 100×100 items with `min-height:100px`, in max-content
+and absolute shrink-to-fit grids, with normal and stretch alignment.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

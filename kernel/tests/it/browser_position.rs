@@ -75,6 +75,10 @@
 //! stretch in fixed, auto, intrinsic and fractional tracks. Controls cover
 //! normal alignment, margins, box sizing, authored limits, overflow and
 //! siblings that expose the auto column's content minimum.
+//! `Chrome 151 grid ratio span` and `Chrome 151 grid ratio minimum floor` were
+//! measured on 2026-10-19 with Chrome 151.0.7922.34. They cover spanning items
+//! beside fractional tracks on both axes, gaps, normal and stretch alignment,
+//! zero minima, and ratio floors in max-content and shrink-to-fit grids.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
