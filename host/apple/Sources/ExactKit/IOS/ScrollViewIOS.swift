@@ -12,6 +12,10 @@ package final class PlainView: UIView {
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         return NodeView.hitChildren(in: self, at: point, with: event)
     }
+    package override var accessibilityElements: [Any]? {
+        get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
+        set { super.accessibilityElements = newValue }
+    }
 }
 
 /// A scroll container — the viewport over the document, and a node whose
@@ -21,6 +25,10 @@ package final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 package class ScrollView: UIScrollView {
+    package override var accessibilityElements: [Any]? {
+        get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
+        set { super.accessibilityElements = newValue }
+    }
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event) else { return nil }
         return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
