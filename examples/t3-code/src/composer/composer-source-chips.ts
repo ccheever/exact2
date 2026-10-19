@@ -1,5 +1,5 @@
 // composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9.
-import { codeAt, composerMarkdown, type ComposerAtom, type ComposerBlockOrigin } from './composer-markdown';
+import { codeAt, composerMarkdown, type ComposerAtom, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown-inline';
 import type { ComposerEdit } from './composer-markdown-edit';
 import { assistantCitationLabel, collectAssistantCitations } from '../timeline/diff-citations';
@@ -50,6 +50,16 @@ export function composerChips(value: string): ComposerChip[] {
     if ((chips.at(-1)?.end ?? 0) <= chip.start) chips.push(chip);
   }
   return chips;
+}
+
+/** Control references belong to source content, independently of field paint.
+ *  Carried references need not have the delimiter that originally completed them. */
+export function composerChipsInBlocks(value: string, blocks: readonly ComposerBlock[], chips: readonly ComposerChip[] = composerChips(value)): ComposerChip[] {
+  return chips.filter(chip => Number.isInteger(chip.start) && Number.isInteger(chip.end)
+    && chip.start >= 0 && chip.end > chip.start && chip.end <= value.length
+    && value.slice(chip.start, chip.end) === chip.source
+    && blocks.some(block => block.kind !== 'code' && block.kind !== 'rule'
+      && chip.start >= block.contentStart && chip.end <= block.end));
 }
 
 /** Existing atoms keep their identity when an edit only changes adjacent text,
