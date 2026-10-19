@@ -113,3 +113,23 @@ test('browser agent settling retains render traps and quarantines all later modu
     await exited;server.stop(true);rmSync(profile,{recursive:true,force:true});
   }
 },120000);
+
+
+test('a Rust-edit candidate trap leaves the committed world driveable and skips candidate cleanup', async () => {
+  const output=mkdtempSync('/tmp/gpu-candidate-');
+  let bytes;
+  try {
+    const child=Bun.spawn(['rustc',resolve(import.meta.dir,'../../../game/engine/tests/fixtures/gpu-borrow-panic.rs'),'--crate-type','cdylib','--target','wasm32-unknown-unknown','-C','panic=abort','-o',resolve(output,'candidate.wasm')],{stderr:'pipe'});
+    const [code,errors]=await Promise.all([child.exited,new Response(child.stderr).text()]);expect(code,errors).toBe(0);bytes=readFileSync(resolve(output,'candidate.wasm'));
+  } finally {rmSync(output,{recursive:true,force:true});}
+  const wasm=new WebAssembly.Instance(new WebAssembly.Module(bytes),{env:{panic_log(){},world_borrowed(){}}});
+  let candidateCalls=0;
+  const f=await fixture({nextGpu:{gpu_render(){candidateCalls++;wasm.exports.trap_borrowed_world();},gpu_destroy(){candidateCalls++;},gpu_unload(){candidateCalls++;}}});
+  f.create(1);await f.exact.gpu.settled();
+  await expect(f.exact.gpu.swap(1)).rejects.toThrow(/unreachable/i);
+  expect(candidateCalls).toBe(1);
+  expect(f.exact.gpu.agent(1,{op:'state'}).world.tick).toBe(0);
+  await f.exact.gpu.settled();
+  expect(f.exact.gpu.agent(1,{op:'state'}).world.tick).toBe(0);
+  expect(f.order.includes('old destroy') || f.order.includes('old unload') || f.order.includes('replace')).toBe(false);
+});

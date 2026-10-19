@@ -40,7 +40,12 @@ function proofFiles(sdk, app) {
     }
     // Static declarations avoid executing a proof merely to discover its data.
     const data = /export const proofData = (\[[^;]*\]);/.exec(source);
-    if (data) for (const file of JSON.parse(data[1])) visit(resolve(dirname(path), file));
+    if (/export\s+const\s+proofData\b/.test(source) && !data) throw new Error(`${path}: unparseable proofData; use a JSON array declaration`);
+    if (data) {
+      let names; try { names = JSON.parse(data[1]); } catch { throw new Error(`${path}: unparseable proofData; use a JSON array declaration`); }
+      if (!Array.isArray(names) || names.some(name => typeof name !== 'string')) throw new Error(`${path}: proofData must be an array of paths`);
+      for (const file of names) visit(resolve(dirname(path), file));
+    }
   };
   visit(resolve(app, 'proof.mjs'));
   return [...files].sort().map(path => [path, path.startsWith(app + '/') ? 'app/' + relative(app,path) : 'sdk/' + relative(sdk,path)]);
@@ -49,7 +54,7 @@ const proofInventory = (sdk, app) => Object.fromEntries(proofFiles(sdk,app).map(
 function copyInput(app, src, file) {
   const from = resolve(app, file), to = resolve(src, file);
   mkdirSync(dirname(to), {recursive:true});
-  if (/\.(mjs|js)$/.test(file)) {
+  if (/\.(mjs|js|ts)$/.test(file)) {
     // SDK imports keep pointing at the SDK; game-local helpers stay in the snapshot.
     const source = readFileSync(from, 'utf8').replace(/((?:from\s*|import\s*\(\s*|import\s*)['"])(\.[^'"\n]+)(['"])/g, (all, head, path, tail) => {
       const target = resolve(dirname(from), path);

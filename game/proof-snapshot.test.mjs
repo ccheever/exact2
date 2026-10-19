@@ -91,3 +91,19 @@ test('snapshot run paths do not enter execution input digests and app status is 
     expect(inventory(sdk,app)).not.toEqual(before);
   } finally { rmSync(sdk,{recursive:true,force:true}); }
 });
+
+
+test('TypeScript proof helpers relocate SDK imports and malformed proofData fails by name', async () => {
+  const sdk=mkdtempSync(resolve(import.meta.dir,'../target/proof-typescript-')), app=resolve(sdk,'sample');
+  mkdirSync(app);spawnSync('git',['init','-q',sdk]);
+  writeFileSync(resolve(sdk,'helper.ts'),'export const value: number = 7;');
+  writeFileSync(resolve(app,'helper.ts'),"export {value} from '../helper.ts';");
+  writeFileSync(resolve(app,'proof.mjs'),"export {value} from './helper.ts';");
+  writeFileSync(resolve(app,'pins.json'),'{}');
+  try {
+    const run=snapshot(sdk,app,resolve(app,'artifacts/one'));
+    expect((await import(resolve(run.src,'proof.mjs'))).value).toBe(7);
+    writeFileSync(resolve(app,'proof.mjs'),"export const proofData = files();");
+    expect(()=>snapshot(sdk,app,resolve(app,'artifacts/two'))).toThrow('proof.mjs: unparseable proofData');
+  } finally {rmSync(sdk,{recursive:true,force:true});}
+});

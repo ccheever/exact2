@@ -1,4 +1,4 @@
-import {existsSync, readdirSync} from 'node:fs';
+import {readFileSync, existsSync, readdirSync} from 'node:fs';
 import {basename, dirname, relative, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 
@@ -62,4 +62,26 @@ export function proofInputFiles(root, app, inventory, ignoredDirectories = new S
   return [...new Set(sources)].sort().filter(file => !excluded.has(file) &&
     ![...ignoredDirectories].some(dir => resolve(repository, file).startsWith(dir + '/') && (!resolve(repository,file).startsWith(resolve(app) + '/') || dir.startsWith(resolve(app) + '/'))) &&
     !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
+}
+
+// Generated assets are runtime inputs even when Git excludes the bake's outputs.
+export function executionInputFiles(root, app, inventory, ignoredDirectories, authored) {
+  const files = [...(authored ?? proofInputFiles(root, app, inventory, ignoredDirectories))];
+  const walk = dir => {
+    if (existsSync(dir)) for (const entry of readdirSync(dir,{withFileTypes:true})) {
+      const path = resolve(dir,entry.name);
+      if (entry.isDirectory()) walk(path); else if (entry.isFile()) files.push(relative(root,path));
+    }
+  };
+  walk(resolve(app,"assets"));
+  const manifest = resolve(app, '.baked-assets.json');
+  if (existsSync(manifest)) {
+    files.push(relative(root, manifest));
+    for (const name of Object.keys(JSON.parse(readFileSync(manifest, 'utf8')))) {
+      const path = resolve(app, 'assets', name);
+      if (!path.startsWith(resolve(app, 'assets') + '/')) throw new Error(`invalid baked asset path: ${name}`);
+      files.push(relative(root, path));
+    }
+  }
+  return [...new Set(files)].sort();
 }

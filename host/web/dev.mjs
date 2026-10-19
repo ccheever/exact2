@@ -517,9 +517,10 @@ function captureGeneration(reuseCurrentAssets = false) {
 // The resident compiler — started, and started again after a Rust rebuild.
 let dev = null;
 let announced = false;
-let contractStamp; const readinessContracts = new Set([source]);
+let contractStamp, contractTreeStamp, compiledContract; const readinessContracts = new Set([source]);
+const contractBytes = () => { try { return createHash('sha256').update(readFileSync(source)).digest('hex'); } catch { return null; } };
 const contractInputsStamp = () => createHash('sha256').update([...readinessContracts].sort().map(path => { try { return path + ':' + readFileSync(path); } catch { return path + ':missing'; } }).join('\0')).digest('hex');
-function contractReady() { contractStamp = contractInputsStamp(); early?.phase('contract','ready'); }
+function contractReady(compiled = compiledContract) { contractStamp = compiled; contractTreeStamp = contractInputsStamp(); early?.phase('contract', compiled === contractBytes() ? 'ready' : 'build'); }
 function startCompiler() {
   early?.phase('contract','build');
   if (portableRust) startRustCompiler();
@@ -544,7 +545,7 @@ function startCompiler() {
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
-      if (kind === 'source') designSource = rest[0] === '-' ? null : rest[0]; // the design bytes the build compiled (LLP 1122 D5; the patch gate)
+      if (kind === 'source') { designSource = rest[0] === '-' ? null : rest[0]; compiledContract = rest[1]; } // the design bytes the build compiled (LLP 1122 D5; the patch gate)
       else if (kind === 'scrubbed') {
         let reply;
         try { reply = JSON.parse(rest.slice(1).join(' ')); } catch { reply = { error: 'an unreadable scrub reply' }; }
@@ -569,7 +570,7 @@ function startCompiler() {
         console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → candidate plan ready`);
         push({ ...announcement(), bytes });
       } else if (kind === 'error') {
-        contractStamp = contractInputsStamp(); early?.phase('contract','failed');
+        contractStamp = contractBytes(); contractTreeStamp = contractInputsStamp(); early?.phase('contract','failed');
         // Every refusal of the save, as one JSON string (dev.rs keeps its lines).
         let error = rest.join(' ');
         try { error = JSON.parse(error); } catch { /* a plain message */ }
@@ -715,7 +716,7 @@ function startModuleCompiler() {
     const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
     moduleStage = stage;
     early?.phase('typescript','build');
-    active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation'), design: designBytes() }; // its bytes if still so after
+    active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation'), design: designBytes(), contract:contractBytes() }; // its bytes if still so after
     // The served plan and receipt seed what the producer cannot compute: a
     // resource only Rust owns keeps its last Cargo-baked first-frame value.
     child.stdin.write(JSON.stringify({ id: active.id, out: active.output, previous: resolve(dist, 'app.plan'), receipt: resolve(dist, 'app.module.json') }) + '\n');
@@ -731,9 +732,9 @@ function startModuleCompiler() {
     }
     const lines = buffered.split('\n'); buffered = lines.pop();
     for (const line of lines) {
-      let early = null;
-      try { early = JSON.parse(line); } catch { /* answered below */ }
-      if (typeof early?.id === 'string' && scrubAsks.has(early.id)) { scrubAsks.get(early.id)(early); continue; }
+      let response = null;
+      try { response = JSON.parse(line); } catch { /* answered below */ }
+      if (typeof response?.id === 'string' && scrubAsks.has(response.id)) { scrubAsks.get(response.id)(response); continue; }
       const request = active, produced = Date.now();
       try {
         const reply = JSON.parse(line);
@@ -741,7 +742,7 @@ function startModuleCompiler() {
         // An edit arriving during compilation supersedes its entire candidate.
         if (request.id !== moduleRun) continue;
         if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
-        early?.phase('typescript','ready'); contractReady();
+        early?.phase('typescript','ready'); contractReady(request.contract);
         const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
         for (const [name, body] of captureAssets(request.output)) candidate.set(name, body);
         // A value-only design edit (LLP 1121 stage 4): the same structure and
@@ -969,7 +970,7 @@ const killCompiler = () => {
 startCompiler();
 if (early) {
   const watcher = watchModuleSources(app.dir, name => skipped.test(name) || (!name.endsWith('.contract') && /\.[^/]+$/.test(name)), () => {
-    if (contractStamp !== contractInputsStamp()) early.phase('contract','build');
+    if (contractStamp !== contractBytes() || contractTreeStamp !== contractInputsStamp()) early.phase('contract','build');
   });
   process.once('exit', () => watcher.close());
 }

@@ -15,9 +15,15 @@ function update(app, row) {
     try { mkdirSync(lock); writeFileSync(resolve(lock,'owner'), String(process.pid)); break; } catch (e) {
       if (e.code !== 'EEXIST') throw e;
       try {
-        const age = Date.now() - statSync(lock).mtimeMs;
+        const inode = statSync(lock).ino;
         let owner; try { owner = Number(readFileSync(resolve(lock,'owner'),'utf8')); } catch {}
-        if ((owner && !alive(owner)) || age > 2000) { rmSync(lock, {recursive:true, force:true}); continue; }
+        if (owner && !alive(owner)) {
+          // Keep the nonempty tombstone: a second observer of this dead owner
+          // cannot rename a successor over it (rename refuses nonempty targets).
+          try { renameSync(lock, `${lock}.dead-${owner}-${inode}`); }
+          catch (error) { if (!['ENOENT','EEXIST','ENOTEMPTY'].includes(error.code)) throw error; }
+          continue;
+        }
       } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
       if (Date.now() >= deadline) throw e;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
@@ -29,14 +35,16 @@ function update(app, row) {
     const temp = resolve(dir, `status.${process.pid}.tmp`);
     writeFileSync(temp, JSON.stringify(rows, null, 2) + '\n');
     renameSync(temp, resolve(dir, 'status.json'));
-  } finally { rmSync(lock, {recursive:true}); }
+  } finally {
+    if (readFileSync(resolve(lock,'owner'),'utf8') === String(process.pid)) rmSync(lock, {recursive:true});
+  }
 }
 export function startStatus(app, verb, extra = {}) {
   const previous = readStatus(app).filter(r => r.verb === verb && r.lastDurationMs != null).at(-1);
   let row = {verb, invocation:randomUUID(), pid:process.pid, phase:'starting', startedAt:Date.now(), elapsedMs:0, lastDurationMs:previous?.lastDurationMs ?? null, state:'running', exitCode:null, ...extra};
   const set = patch => { row = {...row, elapsedMs:Date.now() - row.startedAt, ...patch}; update(app, row); return row; };
   set({});
-  process.once('exit', code => set({state:code ? 'failed' : 'exited', exitCode:code}));
+  process.once('exit', code => set({state:code ? 'failed' : 'exited', exitCode:code, ...(verb === 'prove' ? {lastDurationMs:Date.now() - row.startedAt} : {})}));
   return {set, get:() => ({...row, elapsedMs:Date.now() - row.startedAt})};
 }
 export function formatStatus(rows) {
@@ -54,7 +62,7 @@ export async function waitReady(app, {timeout = 600, invocation} = {}) {
         try {
           const response = await fetch(new URL('__exact/ready', row.url), {signal:AbortSignal.timeout(1000)});
           const status = await response.json();
-          if (response.ok && status.invocation === invocation && status.phase === 'ready') return row;
+          if (response.ok && status.invocation === invocation && status.phase === 'ready') return status;
           if (status.phase === 'failed') throw new Error('web build failed; inspect status and compiler output');
         } catch (e) { if (e.message.startsWith('web build failed')) throw e; }
       }

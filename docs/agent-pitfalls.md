@@ -1425,7 +1425,10 @@ screen, 2026-10-16.)
   if its authored inputs differ from the snapshot, naming the file. Start a new
   proof to verify the edit. `tools/` probes and `.exact/status.json` are not game inputs.
   A fresh snapshot has no generated `.shells/surfaces.json`. Cache that declaration
-  with the GPU receipt and restore it before checking the host receipt.
+  with the GPU receipt and restore it before checking the host receipt. Restore
+  Git-ignored baked assets too: a Cargo cache hit does not rerun `bake_art`.
+  Shared Cargo targets are compilation caches; copy validated native products
+  into the run before driving them, so another proof cannot replace them.
   Declare proof-only JSON or other files with `export const proofData = ["relative/path"];`
   so the snapshot copies them and continuation checks them. Resolve SDK files from
   the shared runner’s `proofSDK`, not by walking up from a relocated proof.

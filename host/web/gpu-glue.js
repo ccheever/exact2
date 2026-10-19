@@ -16,24 +16,26 @@ import { inertAncestor } from "./navigation.js";
 const artifact = new URL(import.meta.url).searchParams.get("artifact");
 const stem = artifact ?? "gpu";
 let gpu;
-let trapped, trapError;
+const quarantines = new WeakMap();
+const trapped = (module = gpu) => quarantines.get(module)?.reply;
 const refusal = (message, subsystem = "gpu") => ({error:String(message), refused:{host:"web", subsystem, message:String(message)}});
-function retainTrap(error) {
+function retainTrap(error, module = gpu) {
   if (!(error instanceof WebAssembly.RuntimeError)) throw error;
-  if (!trapped) { console.error(error); trapped = refusal(error); trapError = error; }
-  return trapped;
+  if (!trapped(module)) { console.error(error); quarantines.set(module, {reply:refusal(error), error}); }
+  return trapped(module);
 }
-// Every exported entry shares the quarantine, including callbacks owned by assets.
+// Asset callbacks and exported entries share only their own instance's quarantine.
 function guardedModule(module) {
-  return new Proxy({}, {get(_target, key) {
+  const guarded = new Proxy({}, {get(_target, key) {
     const value = module[key];
     if (typeof value !== "function") return value;
     return (...args) => {
-      if (trapped) throw trapError;
-      try { const result = value(...args); return result?.catch ? result.catch(error => { retainTrap(error); throw error; }) : result; }
-      catch (error) { retainTrap(error); throw error; }
+      if (trapped(guarded)) throw quarantines.get(guarded).error;
+      try { const result = value(...args); return result?.catch ? result.catch(error => { retainTrap(error, guarded); throw error; }) : result; }
+      catch (error) { retainTrap(error, guarded); throw error; }
     };
   }});
+  return guarded;
 }
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const HOST_WORK_LIMIT = 16 * 1024 * 1024;
@@ -116,7 +118,7 @@ const pendingRecovery = () => {
 };
 async function settleModule() {
   await ready;
-  if (trapped) return [];
+  if (trapped()) return [];
   const deadline = performance.now() + 2500;
   while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
   if (recoveringDevice || recoveryTimer) return pendingRecovery();
@@ -141,7 +143,7 @@ async function settleModule() {
           await new Promise(resolve => setTimeout(resolve, 0));
           continue;
         }
-        if (trapped) return [];
+        if (trapped()) return [];
         let drew = false;
         for (const entry of surfaces.values()) if (entry.id && !entry.terminal && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
           render(entry, exact.now()); drew = true;
@@ -176,7 +178,7 @@ const clockFor = (frameNow) => exact.now?.() ?? frameNow;
 
 let hidden = document.hidden;
 function lifecycle(code) {
-  if (trapped) return;
+  if (trapped()) return;
   if (code === 0 || code === 1) hidden = code === 0;
   const deliver = () => { for (const entry of surfaces.values()) if (entry.id) gpu?.gpu_lifecycle(entry.id, code); };
   if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
@@ -361,7 +363,7 @@ function recoverDevice() {
 // canvas recorded since the last one once (LLP 1009 D7). It runs before the
 // task that rendered ends, which is when the browser presents the canvases.
 function flush(module = gpu) {
-  if (trapped) return;
+  if (trapped()) return;
   if (module && (module !== gpu || !terminalDevice) && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
 }
 
@@ -405,7 +407,7 @@ function renderModule(entry, now) {
 }
 
 function render(entry, now) {
-  if (trapped) return;
+  if (trapped()) return;
   try { renderModule(entry, now); } catch (error) { retainTrap(error); }
 }
 
@@ -418,7 +420,7 @@ let frameAt = null; // the last paced frame time: a render outside the frame loo
 let sentPeriod = 0, frameGeneration = 0, frameRaw = 0;
 function frame(now) {
   raf = null;
-  if (trapped) return;
+  if (trapped()) return;
   if (hidden && !exact.now) return;
   const at = frameAt = pace(now);
   frameRaw = now; frameGeneration++;
@@ -439,7 +441,7 @@ function frame(now) {
   if (more && (!exact.now || liveWindow)) schedule();
 }
 
-function schedule() { if (!trapped && (!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
+function schedule() { if (!trapped() && (!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
 
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
@@ -494,14 +496,14 @@ function ensure(entry) {
     if (!entry.restoreError && !entry.pendingRestore) delete entry.carry;
     restorePending(entry); delete entry.refused;
   } catch (error) {
-    if (entry.id && !trapped) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
+    if (entry.id && !trapped()) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
     entry.id = 0; entry.refused = refusal(error, "canvas");
     throw error;
   }
   attach(entry);
 }
 function restoreReply(reply) {
-  if (trapped) return reply;
+  if (trapped()) return reply;
   if (exact.worldCarry !== undefined && !terminalRestoreReported) {
     const candidates = [...surfaces.values()];
     if (candidates.length && candidates.every(e => e.id && (e.attemptedCarry === exact.worldCarry || JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")?.world === undefined))
@@ -732,7 +734,7 @@ function agent(view, request) {
   const entry = live(view);
   if (!entry) return null;
   const { w, h, s } = size(entry.host);
-  if (trapped) return trapped;
+  if (trapped()) return trapped();
   let reply;
   try { reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, ...(exact.now ? { now: exact.now() } : {}), width: w, height: h, scale: s })); }
   catch (error) { return retainTrap(error); }
@@ -809,7 +811,7 @@ const api = {
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
   handle(request, ask, tagged) {
-    if (trapped) return trapped;
+    if (trapped()) return trapped();
     const entry = live(request.id);
     if (!entry) return surfaces.get(request.id)?.refused ?? refusal(`view ${request.id} has no world`, "canvas");
     if (request.op === "tap" && request.contact !== undefined) {
@@ -849,7 +851,7 @@ const api = {
     return restoreReply(tagged(reply));
   },
   decorate(request, reply) {
-    if (trapped && request.op !== "logs") return trapped;
+    if (trapped() && request.op !== "logs") return trapped();
     if (reply?.then) return reply.then((r) => api.decorate(request, r));
     if (!reply || reply.error) return reply;
     if (request.op !== "logs") { const failed = [...surfaces.values()].find(e => e.refused); if (failed) return failed.refused; }
@@ -865,7 +867,7 @@ const api = {
     }
     if (request.op === "logs") {
       const world = [];
-      if (trapped) world.push({lines:[trapped.refused.message], refused:trapped.refused});
+      if (trapped()) world.push({lines:[trapped().refused.message], refused:trapped().refused});
       for (const [canvas, entry] of surfaces) {
         const since = request.all ? 0 : entry.logCursor;
         const journal = agent(canvas, { op: "logs", since });
@@ -1077,8 +1079,11 @@ async function swap(version) {
     }
     if (!next.gpu_flush()) throw new Error(`surfaces: flush: ${next.gpu_error()}`);
   } catch (error) {
-    for (const [,entry] of staged) if (entry.id) { retainEdits(entry, next); next.gpu_destroy(entry.id); }
-    next.gpu_unload(); exact.devError?.(String(error)); throw error;
+    if (!trapped(next)) {
+      try { for (const [,entry] of staged) if (entry.id) { retainEdits(entry, next); next.gpu_destroy(entry.id); } if (!trapped(next)) next.gpu_unload(); }
+      catch (cleanup) { console.error(cleanup); }
+    }
+    exact.devError?.(String(error)); throw error;
   }
   if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
   const oldModule = gpu;
@@ -1112,7 +1117,7 @@ try {
   api.version = version;
   loaded = true;
 } catch (error) {
-  if (!trapped) gpu?.gpu_unload(); gpu = undefined;
+  if (!trapped()) gpu?.gpu_unload(); gpu = undefined;
   const failure = failureOutcome(error);
   terminalRecovery({...failure, status:"no device"});
   reportRecovery(Object.assign(new Error(failure.error), {code:failure.code}), true);

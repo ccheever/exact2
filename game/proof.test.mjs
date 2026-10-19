@@ -573,8 +573,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 for (const scenario of ['report','repin','external-repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
   const native=process.platform==='win32'?'windows':'linux';
-  // A sibling checkout is external without Bun's expensive /tmp ancestor search.
-  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
+  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(tmpdir(), 'prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
@@ -1111,7 +1110,7 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
   } finally {rmSync(root,{recursive:true,force:true});}
 // Four fresh-output builds, each followed by exactly one stable rerun and a
 // cache hit. This checks hash equivalence and receipt policy, not build latency.
-},1200000);
+},600000);
 
 
 test('proof commands quote the actual script and every argument', async () => {

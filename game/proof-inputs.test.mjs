@@ -1,10 +1,10 @@
 import {test, expect} from 'bun:test';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
+import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync, chmodSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
+import {copyProofProducts, withProofBuild, buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
 import {writeFixtureFile} from './tests/proof-helpers.mjs';
 
 test('receipts issued before directory checks rebuild once even when source and artifact digests still match', async () => {
@@ -198,14 +198,15 @@ test('E11 receipts and proof provenance bind post-bake generated assets', async 
   const surface=()=>readFileSync(resolve(app,'.shells/surfaces.json'),'utf8');
   try {
     write('game/games/sample/art/crate.gltf','authored');write('game/games/sample/logic/src/lib.rs','surface');generated('mac-simd');
+    write('game/games/sample/.gitignore','/assets/\n/.baked-assets.json\n');spawnSync('git',['init','-q',dir]);spawnSync('git',['add','.'],{cwd:dir});
     mkdirSync(resolve(app, '.shells'), {recursive:true});
     let inputs;const read=()=>inputs=proofInputs(dir,app,resolve(out,'input-digests.json')), inputHash=value=>buildInputHash('linux','target').update(value).digest('hex'), before=read();let gpu='old-product',binary='old-host',builds=[];
-    const run=()=>{const scan=proofInputReader(dir,app,resolve(out,'input-digests.json'));const read=()=>inputs=scan();return ensureLinuxReceipts({directory:out,surface:resolve(app,'.shells/surfaces.json'),gpuInputs:()=>inputHash(read().gpu),hostInputs:()=>inputHash(read().host+surface()),gpuArtifact:()=>gpu,hostArtifact:()=>binary,build:async part=>{builds.push(part);if(part==='gpu'){generated('linux-simd');write('game/games/sample/.shells/surfaces.json',readFileSync(resolve(app,'logic/src/lib.rs'),'utf8'));gpu='linux-product';}else binary='linux-host';}});};await run();
+    const run=()=>{const scan=proofInputReader(dir,app,resolve(out,'input-digests.json'));const read=()=>inputs=scan();return ensureLinuxReceipts({directory:out,app,surface:resolve(app,'.shells/surfaces.json'),gpuInputs:()=>inputHash(read().gpu),hostInputs:()=>inputHash(read().host+surface()),gpuArtifact:()=>gpu,hostArtifact:()=>binary,build:async part=>{builds.push(part);if(part==='gpu'){generated('linux-simd');write('game/games/sample/.shells/surfaces.json',readFileSync(resolve(app,'logic/src/lib.rs'),'utf8'));gpu='linux-product';}else binary='linux-host';}});};await run();
     const summary=inputs.all, after=proofInputs(dir,app,resolve(out,'input-digests.json')), gpuReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-gpu.sha256'))), hostReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-host.sha256')));
     expect(before.all).not.toBe(after.all);
     expect({gpu:gpuReceipt.inputs,host:hostReceipt.inputs,summary}).toEqual({gpu:inputHash(after.gpu),host:inputHash(after.host+surface()),summary:after.all});
     expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);
-    rmSync(resolve(app,'.shells'),{recursive:true});await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
+    rmSync(resolve(app,'.shells'),{recursive:true});rmSync(resolve(app,'assets'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
     write('artifacts/linux/build-linux-surfaces.json','corrupt');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/logic/src/lib.rs','surface with added argument');await run();expect(builds.splice(0)).toEqual(['gpu','host']);
@@ -502,4 +503,46 @@ test('external repositories apply their own ignores and excludes with tracked pr
     rmSync(resolve(app, '.git'), {recursive:true});
     expect(proofInputFiles(sdk, app)).toContain('../external/logic/private/generated.rs');
   } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+
+test('two snapshots execute their private validated products while shared builds change', async () => {
+  const {snapshot} = await import('./proof-snapshot.mjs');
+  const {proofProductChanges} = await import('../scripts/agent-launch.mjs');
+  const sdk=mkdtempSync(resolve(tmpdir(),'proof-products-')), app=resolve(sdk,'game/games/sample'), target=resolve(app,'target');
+  mkdirSync(target,{recursive:true});spawnSync('git',['init','-q',sdk]);
+  writeFixtureFile(app,'logic/src/lib.rs','first');writeFixtureFile(app,'proof.mjs','');writeFixtureFile(app,'pins.json','{}');
+  const binary=resolve(target,'game'), module=resolve(target,'module');
+  const build=async run=>withProofBuild(target,async()=>{
+    const id=readFileSync(resolve(run.src,'logic/src/lib.rs'),'utf8');
+    writeFileSync(binary,'#!/bin/sh\nwhile read line; do cat "$(dirname "$0")/module"; printf "\\n"; done\n');chmodSync(binary,0o755);writeFileSync(module,id);
+    return copyProofProducts(sdk,run.src,{binary,module},resolve(run.src,'../build'));
+  });
+  let a,b;
+  try {
+    const first=snapshot(sdk,app,resolve(app,'artifacts/one')), firstProducts=await build(first);
+    a=Bun.spawn([firstProducts.binary],{stdin:'pipe',stdout:'pipe'});
+    writeFileSync(resolve(app,'logic/src/lib.rs'),'second');
+    const second=snapshot(sdk,app,resolve(app,'artifacts/two')), secondProducts=await build(second);
+    b=Bun.spawn([secondProducts.binary],{stdin:'pipe',stdout:'pipe'});
+    a.stdin.write('drive\n');a.stdin.end();b.stdin.write('drive\n');b.stdin.end();
+    expect(await new Response(a.stdout).text()).toBe('first\n');
+    expect(await new Response(b.stdout).text()).toBe('second\n');
+    expect(await a.exited).toBe(0);expect(await b.exited).toBe(0);
+    expect(proofProductChanges(firstProducts.receipt,firstProducts.binary,{dir:first.src},sdk)).toEqual([]);
+    expect(()=>copyProofProducts(sdk,first.src,{binary,module},resolve(first.src,'artifacts/invalid'),{module:createHash('sha256').update('first').digest('hex')})).toThrow('changed after validation');
+    writeFileSync(firstProducts.module,'corrupt');
+    expect(proofProductChanges(firstProducts.receipt,firstProducts.binary,{dir:first.src},sdk)).toContain(firstProducts.module);
+  } finally {a?.kill();b?.kill();rmSync(sdk,{recursive:true,force:true});}
+},60000);
+
+
+test('unchanged proof directories keep their identity when locale collation changes', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'proof-collation-')), app=resolve(root,'game/games/sample');
+  writeFixtureFile(app,'logic/Z/lib.rs','Z');writeFixtureFile(app,'logic/a/lib.rs','a');
+  const collate=String.prototype.localeCompare, read=proofInputReader(root,app);
+  try {
+    read();String.prototype.localeCompare=function(other){return -collate.call(this,other);};
+    expect(()=>read()).not.toThrow();
+  } finally {String.prototype.localeCompare=collate;rmSync(root,{recursive:true,force:true});}
 });

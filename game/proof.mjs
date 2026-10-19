@@ -1,6 +1,6 @@
 export const proofSDK = import.meta.dir + "/..";
 import {refusalMessage} from '../scripts/agent-keys.mjs';
-import {proofInputFiles, proofInputExcluded} from './inputs.mjs';
+import {proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
 export {proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
@@ -12,7 +12,7 @@ import { open as openSession, render } from '../scripts/agent.mjs';
 import { cdpFailureContext } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
-import { closeFilesystemReader } from '../scripts/filesystem.mjs';
+import { closeFilesystemReader, filesystemLock } from '../scripts/filesystem.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
 export function formatProofError(error) {
@@ -508,7 +508,8 @@ export function proofInputs(root, app, cachePath) {
   const generated = new Set(existsSync(manifest)
     ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
   const ignoredDirectories = new Set();
-  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories);
+  const authoredFiles = new Set(proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories));
+  const files=executionInputFiles(root,app,undefined,ignoredDirectories,authoredFiles);
   // File stats miss sources created, consumed and removed between scans. Walk
   // shared and app source directories, including empty ones, to retain edits.
   const directories = new Set();
@@ -517,7 +518,7 @@ export function proofInputs(root, app, cachePath) {
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
     if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
     directories.add(dir);
-    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
+    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
       if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
   };
   for(const file of files) {
@@ -531,7 +532,7 @@ export function proofInputs(root, app, cachePath) {
   }
   for(const row of rows) {
     const [file,digest,key]=row, input=[file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file,digest]; groups.all.push(input);
-    if (file !== prefix + '.baked-assets.json' && !generated.has(file)) {
+    if (authoredFiles.has(file) && file !== prefix + '.baked-assets.json' && !generated.has(file)) {
       // Source provenance survives moving the app relative to the SDK. Keep
       // execution paths and the in-flight file/directory checks unchanged.
       groups.authored.push([file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file, digest]);
@@ -586,18 +587,21 @@ export function proofInputReader(root, app, cachePath) {
     return inputs;
   };
 }
-export async function ensureLinuxReceipts({directory,surface,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
+export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
   if (surface) mkdirSync(dirname(surface),{recursive:true});
-  const declaration = resolve(directory,'build-linux-surfaces.json');
+  const declaration = resolve(directory,'build-linux-surfaces.json'), assets = resolve(directory,'build-linux-assets');
+  let cachedAssets = !app;
+  if (app) try { bakedAssetDigest(assets); restoreBakedAssets(assets, app); cachedAssets = true; } catch {}
   const artifact = () => {
     const product = gpuArtifact();
     if (!surface) return product;
-    if (!product || !existsSync(declaration)) return null;
-    return createHash('sha256').update(product).update(readFileSync(declaration)).digest('hex');
+    if (!product || !existsSync(declaration) || !cachedAssets) return null;
+    return createHash('sha256').update(product).update(readFileSync(declaration)).update(app ? bakedAssetDigest(assets) : '').digest('hex');
   };
   const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact,build:async () => {
     await build('gpu');
     if (surface) copyFileSync(surface,declaration);
+    if (app) { cacheBakedAssets(app,assets); cachedAssets = true; }
   }});
   // A fresh snapshot needs the declaration even when the GPU product is reused.
   if (surface) copyFileSync(declaration,surface);
@@ -605,6 +609,58 @@ export async function ensureLinuxReceipts({directory,surface,gpuInputs,hostInput
   // The GPU build may have changed surfaces.json; observe it only afterwards.
   const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs,artifact:hostArtifact,build:()=>build('host')});
   return gpu || host;
+}
+function bakedAssetDigest(cache) {
+  const hash = createHash('sha256'), files = JSON.parse(readFileSync(resolve(cache,'files.json')));
+  hash.update(JSON.stringify(files));
+  for (const name of files) hash.update(name).update(readFileSync(resolve(cache,name)));
+  return hash.digest('hex');
+}
+function cacheBakedAssets(app, cache) {
+  const root = resolve(import.meta.dir,'..'), authored = new Set(proofInputFiles(root,app));
+  const manifest = resolve(app,'.baked-assets.json');
+  const owned = new Set(existsSync(manifest) ? Object.keys(JSON.parse(readFileSync(manifest))).map(name=>'assets/'+name) : []);
+  const files = executionInputFiles(root,app,undefined,undefined,authored).filter(file => {
+    const name = relative(app,resolve(root,file));
+    return name === '.baked-assets.json' || name.startsWith('assets/') && (!authored.has(file) || owned.has(name));
+  }).map(file=>relative(app,resolve(root,file))).sort();
+  rmSync(cache,{recursive:true,force:true}); mkdirSync(cache,{recursive:true});
+  for (const name of files) { mkdirSync(dirname(resolve(cache,name)),{recursive:true}); copyFileSync(resolve(app,name),resolve(cache,name)); }
+  writeFileSync(resolve(cache,'files.json'),JSON.stringify(files));
+}
+function restoreBakedAssets(cache, app) {
+  const files = JSON.parse(readFileSync(resolve(cache,'files.json')));
+  for (const name of files) {
+    if (name !== '.baked-assets.json' && (!name.startsWith('assets/') || !resolve(app,name).startsWith(resolve(app,'assets')+'/'))) throw new Error(`invalid baked asset path: ${name}`);
+    const destination = resolve(app,name), bytes = readFileSync(resolve(cache,name));
+    if (existsSync(destination) && readFileSync(destination).equals(bytes)) continue;
+    mkdirSync(dirname(destination),{recursive:true}); writeFileSync(destination,bytes);
+  }
+}
+export async function withProofBuild(target, build) {
+  for (;;) {
+    let entered = false;
+    try { return await filesystemLock(target, 'proof-products/.lock', async () => { entered = true; return await build(); }); }
+    catch (error) { if (entered || !error.message.includes('stream is locked by another publisher')) throw error; }
+    await new Promise(ok => setTimeout(ok,100));
+  }
+}
+export function copyProofProducts(root, app, artifacts, destination, expected = {}) {
+  mkdirSync(destination,{recursive:true});
+  const products = {}, copied = {};
+  for (const [kind,path] of Object.entries(artifacts)) {
+    const to = resolve(destination,basename(path)), bytes = readFileSync(path);
+    copyFileSync(path,to);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    if (createHash('sha256').update(readFileSync(to)).digest('hex') !== hash) throw new Error(`proof product changed while copying: ${path}`);
+    if (expected[kind] && expected[kind] !== hash) throw new Error(`proof product changed after validation: ${path}`);
+    copied[kind] = to; products[to] = hash;
+    if (existsSync(path+'.proof.json')) { copyFileSync(path+'.proof.json',to+'.proof.json'); products[to+'.proof.json'] = createHash('sha256').update(readFileSync(to+'.proof.json')).digest('hex'); }
+  }
+  const inputs = Object.fromEntries(executionInputFiles(root,app).map(file => [file,createHash('sha256').update(readFileSync(resolve(root,file))).digest('hex')]));
+  const receipt = resolve(destination,'products.json');
+  writeFileSync(receipt,JSON.stringify({binary:copied.binary,inputs,products}));
+  return {...copied,receipt};
 }
 export function productDigest(path, cachePath) {
   try {
@@ -808,21 +864,24 @@ async function runProof(meta, script) {
       : host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `${profile}/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `${profile}/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : device ? 'ios' : 'ios-simulator'});
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     if (host === 'windows') process.env.EXACT_WINDOWS_BIN = artifacts.binary;
-    const built = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
-      directory:buildOut, surface:resolve(appInfo.workspace,'surfaces.json'), gpuInputs:() => inputHash(readInputs().gpu),
+    const validatedProducts = {};
+    const validatedProduct = kind => validatedProducts[kind] = productDigest(artifacts[kind],resolve(buildOut,`product-${host}-${kind}.json`));
+    const built = await withProofBuild(appInfo.target, async () => {
+    const rebuilt = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
+      directory:buildOut, app, surface:resolve(appInfo.workspace,'surfaces.json'), gpuInputs:() => inputHash(readInputs().gpu),
       completeGpu:() => {
         const receipt = JSON.parse(readFileSync(resolve(buildOut,'build-linux-gpu.sha256')));
         writeFileSync(artifacts.module + '.proof.json',JSON.stringify({...receipt,artifact:productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json'))}));
       },
       hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
-      gpuArtifact:() => productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json')),
-      hostArtifact:() => productDigest(artifacts.binary,resolve(buildOut,'product-linux-host.json')),
+      gpuArtifact:() => validatedProduct('module'),
+      hostArtifact:() => validatedProduct('binary'),
       build:async part => {
         say(`BUILD ${part} stale or missing receipt`);
         buildBake(appInfo,'linux',linuxTarget,{profile,part,env:{EXACT_GAME_PARANOID:'0'}});
       },
     }) : await ensureBuildReceipt({receipt, inputs:() => inputHash(readInputs().all),
-      artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
+      artifact:() => { const digest = artifactDigest(host, dist, artifacts); if (host === 'linux' || host === 'windows') { validatedProduct('binary'); validatedProduct('module'); } return digest; }, build:async () => {
       say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host}${device ? ' --device' : ''} --build-only`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
@@ -837,6 +896,13 @@ async function runProof(meta, script) {
         if (code !== 0) throw new Error(`app build exited ${code}`);
       }
     }});
+    if (host === 'linux') {
+      const privateProducts = copyProofProducts(root, app, artifacts, resolve(app,'artifacts/build',`${host}-${profile}`), validatedProducts);
+      process.env.EXACT_LINUX_BIN = privateProducts.binary;
+      process.env.EXACT_PROOF_PRODUCTS = privateProducts.receipt;
+    }
+    return rebuilt;
+    });
     // The proof reports the same post-build input tree that its receipts bind.
     inputDigest = inputs.all;
     sourceInputDigest = inputs.authored;

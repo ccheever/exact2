@@ -403,8 +403,9 @@ observations, and includes a Linux release check. It refuses failures or a missi
 requested browser, leaving the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
-execution-input tree, including baked assets and `.baked-assets.json`;
-`sourceInputs` identifies portable authored sources. The latter omits the bake's
+execution-input tree, including runtime files under `assets/` and `.baked-assets.json`,
+even when Git ignores those generated products;
+`sourceInputs` identifies portable authored sources. The latter follows authored-input tracking and omits the bake's
 manifest-owned outputs and the manifest itself, and names app and SDK files
 relative to their own roots. Rust crate `tests/` and `examples/` directories are
 excluded only when their parent contains `Cargo.toml`, inside or outside the SDK.
@@ -444,9 +445,13 @@ The SDK stays in its checkout and must remain unchanged throughout the run.
 Proof imports and declared `export const proofData = ["relative/file.json"];` data
 are checked separately from bake inputs; game-local dependencies are copied into
 `src/`. SDK helpers remain live and are checked before and after every leg.
-Snapshots share the original game’s `target/` for products and Cargo intermediates,
-and validated build receipts under
-`artifacts/build/`, so an unchanged second invocation can reuse compilation.
+Snapshots share the original game’s `target/` for compilation and validated receipts
+under `artifacts/build/`. A target lock covers proof build validation and copying;
+each Linux proof then executes private products under its source copy's
+`artifacts/build/`, checked against their input and product digests by the driver.
+Linux GPU receipt hits restore the surface declaration and generated runtime assets.
+Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
+`proofData` declaration is refused by name.
 Direct `proof.mjs` runs use `artifacts/<host>/`.
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an

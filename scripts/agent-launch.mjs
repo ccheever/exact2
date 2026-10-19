@@ -1,4 +1,4 @@
-import {gameNonInput, proofInputFiles} from '../game/inputs.mjs';
+import {gameNonInput, proofInputFiles, executionInputFiles} from '../game/inputs.mjs';
 export {gameNonInput} from '../game/inputs.mjs';
 import {readStatus, formatStatus} from '../game/status.mjs';
 // Session setup shared by the agent CLI and its programmatic driver.
@@ -1040,4 +1040,18 @@ export async function exclusiveIOS(udid, bundle, launch, { directory = resolve(t
     carrier.close = () => closed ??= (async () => { try { await close(); } finally { await unlock(); } })();
     return carrier;
   } catch (error) { await unlock(); throw error; }
+}
+
+/** A proof executes private products and checks those copies against their inputs. */
+export function proofProductChanges(receipt, bin, app, root = ROOT) {
+  const record = JSON.parse(readFileSync(receipt,'utf8')), changed = [];
+  if (record.binary !== bin) return ['proof receipt names another binary'];
+  const files = executionInputFiles(root,app.dir);
+  for (const file of new Set([...files,...Object.keys(record.inputs)])) {
+    const path = resolve(root,file);
+    if (!files.includes(file) || !existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== record.inputs[file]) changed.push(file);
+  }
+  for (const [path,hash] of Object.entries(record.products))
+    if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== hash) changed.push(path);
+  return changed;
 }
