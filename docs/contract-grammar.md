@@ -1046,6 +1046,13 @@ hairline thick in the separator role, as wide as what holds it (a flex column
 included), with no margin of its own. Its `color`, `border-*` and `margin` are
 yours to write.
 
+`-exact-accessory-checkmark-width` and `-exact-accessory-checkmark-height` are
+length ramps ([LLP 1137](../llp/1137-length-ramps.rfc.md)): UIKit's list-cell
+checkmark at the root font size, growing with the text size as a text style
+does (19 × 17.33 at the default size, 48 × 43.33 at the largest). They are
+taken where `-exact-hairline` is; a grouped list's checkmark in a row of your
+own already has them on iOS.
+
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
 (`appearance="none"`, or a button given a background, border, radius or rich

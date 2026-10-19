@@ -62,7 +62,8 @@ fn css_text_in(
             }
             // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
             // `medium`, in `rem`, so it follows the browser's root size.
-            Unit::TextStyle(_) => {
+            // @ref LLP 1137 — a length ramp likewise.
+            Unit::TextStyle(_) | Unit::Ramp(_) => {
                 let medium = exact_kernel::style::relative::MEDIUM;
                 num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");

@@ -342,7 +342,7 @@ fn scaling_font(
             }
             match parse(s) {
                 Some((_, 0.0)) => Some(false),
-                Some((Unit::Rem | Unit::TextStyle(_), _)) => Some(true),
+                Some((Unit::Rem | Unit::TextStyle(_) | Unit::Ramp(_), _)) => Some(true),
                 Some((Unit::Em, _)) => em,
                 _ => None,
             }

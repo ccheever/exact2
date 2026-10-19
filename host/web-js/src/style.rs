@@ -726,11 +726,21 @@ pub fn metric_map(plan: &Plan, code: &[u8]) -> Option<String> {
             continue;
         }
         let name = plan.str(exact_plan::StrId(i.args[0] as u32));
+        // A length ramp the code names itself (LLP 1137): its length at CSS's `medium`.
+        if let Some(rem) = ramp_rem(name) {
+            let pair = format!("{}:{}", serde_json::json!(name), serde_json::json!(rem));
+            if !pairs.contains(&pair) {
+                pairs.push(pair);
+            }
+            continue;
+        }
         let Some(metric) = named(name) else { continue };
         let web = match value(metric, column()) {
             exact_kernel::MetricValue::Number(n) => serde_json::json!(n),
             exact_kernel::MetricValue::Text("unset") => serde_json::Value::Null,
-            exact_kernel::MetricValue::Text(t) => serde_json::json!(t),
+            exact_kernel::MetricValue::Text(t) => {
+                serde_json::json!(ramp_rem(t).unwrap_or_else(|| t.to_string()))
+            }
             // A `length` row's, which no sheet names.
             exact_kernel::MetricValue::Em(_) | exact_kernel::MetricValue::Rem(_) => continue,
         };
@@ -745,6 +755,19 @@ pub fn metric_map(plan: &Plan, code: &[u8]) -> Option<String> {
             pairs.join(",")
         )
     })
+}
+
+/// A length ramp's text (LLP 1137) as the JS target writes it: its length at
+/// CSS's `medium` in `rem`, as a literal one is (`exact_web::css`).
+fn ramp_rem(text: &str) -> Option<String> {
+    use exact_kernel::style::relative::{named_length, Unit, MEDIUM};
+    let unit @ Unit::Ramp(_) = named_length(text)? else {
+        return None;
+    };
+    Some(format!(
+        "{}rem",
+        exact_web::css::num(unit.basis(MEDIUM, MEDIUM, 1.0) / MEDIUM)
+    ))
 }
 
 /// A computed `transition`'s entries as an author's (LLP 1081 D5), shared by

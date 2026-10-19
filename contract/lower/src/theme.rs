@@ -108,14 +108,20 @@ pub fn vocab() -> tamber::Vocab {
             .collect(),
         named_lengths: tamber::Vocab::named_lengths(
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
-            exact_kernel::NAMED_LENGTHS.iter().copied(),
+            exact_kernel::NAMED_LENGTHS
+                .iter()
+                .copied()
+                .chain(exact_kernel::LENGTH_RAMPS.iter().map(|(n, _)| *n)),
         ),
         bases: exact_kernel::style::scale::names()
             .map(String::from)
             .collect(),
         sizes: tamber::Vocab::named_lengths(
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
-            exact_kernel::NAMED_LENGTHS.iter().copied(),
+            exact_kernel::NAMED_LENGTHS
+                .iter()
+                .copied()
+                .chain(exact_kernel::LENGTH_RAMPS.iter().map(|(n, _)| *n)),
         )
         .into_iter()
         .filter_map(|name| {

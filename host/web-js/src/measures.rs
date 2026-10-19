@@ -34,11 +34,11 @@ pub fn css(kind: Kind, value: &str) -> String {
         _ => return value.trim().to_string(),
     }
     match relative::parse(value) {
-        Some((Unit::TextStyle(id), n)) => {
+        Some((unit @ (Unit::TextStyle(_) | Unit::Ramp(_)), n)) => {
             let medium = relative::MEDIUM;
             format!(
                 "{}rem",
-                exact_web::css::num(n * Unit::TextStyle(id).basis(medium, medium, 1.0) / medium)
+                exact_web::css::num(n * unit.basis(medium, medium, 1.0) / medium)
             )
         }
         Some((Unit::Hairline, _)) => exact_web::css::HAIRLINE.to_string(),
