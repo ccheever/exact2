@@ -378,6 +378,7 @@ export function newEnough(protocol: unknown): boolean {
  * the rule's id. Any other reason as the server gave it. */
 export function plainWhy(why: string): string {
   const light = /tamber-under-light: the light side `([^`]+)` is not the default's `([^`]+)`/.exec(why);
-  if (light) return `its Light value ${light[1]} differs from its other Light value ${light[2]}, and Tamber keeps one Light value a token: set it the same in every Light mode, then push`;
+  // (a dark style's branch whose Light side is not the default's: only the Dark side varies by dark style)
+  if (light) return `its Light value here, ${light[1]}, is not the one the design keeps for every dark style, ${light[2]}: only the Dark side varies by dark style, so put the Light value back to ${light[2]}, or change it for every dark style at once (the same in every Light mode), then push`;
   return why;
 }

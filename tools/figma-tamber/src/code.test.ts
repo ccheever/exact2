@@ -851,5 +851,14 @@ test('leftovers (round 1): a parked mode dragged off the default is named, never
   mine.modes.unshift(...mine.modes.splice(2, 2)); // (theirs dragged to the top)
   for (const m of mine.modes.slice(2)) mine.removeMode(m.modeId); // (Tamber's two deleted by hand)
   f.raise(2);
-  await expect(send({ type: 'apply', text: two }, 'applied')).rejects.toThrow("`Tamber` needs 2 more places: remove `Personal A` (yours) and `Personal B` (yours), and the values on them go (`Personal A` is the default mode, which Figma won't remove: drag another mode above it first); then pull");
+  // (every mode left is in the way, and Figma keeps one: the collection goes instead)
+  await expect(send({ type: 'apply', text: two }, 'applied')).rejects.toThrow('`Tamber` has no place for 2 more (`Personal A` (yours), `Personal B` (yours) hold every one, and Figma keeps one mode): remove that collection to pull');
+  // A collection over the limit (lowered since): what is over it counts too.
+  await load(4);
+  await send({ type: 'apply', text: ctx(['dark-style=black, light'], 'dark-style=black, light') }, 'applied');
+  const over = f.collections[0];
+  over.addMode('Personal A');
+  over.addMode('Personal B');
+  f.raise(2);
+  await expect(send({ type: 'apply', text: two }, 'applied')).rejects.toThrow('`Tamber` needs 2 more places: remove `Personal A` (yours) and `Personal B` (yours), and the values on them go; then pull');
 });

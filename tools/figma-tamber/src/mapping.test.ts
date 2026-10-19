@@ -1,6 +1,6 @@
 // The Figma plugin's mapping (tools/figma-tamber/src/mapping.ts), on the
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
-import { plainWhy, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, plainWhy, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
@@ -187,8 +187,8 @@ test('one choice a token and light side: two light sides of one token are asked 
   expect([ctx('a', 'black', 'light'), ctx('a', 'dim', 'light'), ctx('b', 'black', 'light'), ctx('b', 'dim', 'light')].map(k => out[k].c.$value.hex)).toEqual(['#ff0000', '#ff0000', '#0000ff', '#0000ff']);
 });
 
-test('a value not proposed for two Light values says which differ and what to make equal, never the rule\'s id', () => {
+test('a value not proposed for a dark style\'s Light value says which differs from the one kept and what to do, never the rule\'s id', () => {
   const why = "the design would refuse it (tamber-under-light: the light side `#1df032ff` is not the default's `#1d9bf0ff`: an axis `under scheme=dark` varies the dark side only)";
-  expect(plainWhy(why)).toBe('its Light value #1df032ff differs from its other Light value #1d9bf0ff, and Tamber keeps one Light value a token: set it the same in every Light mode, then push');
+  expect(plainWhy(why)).toBe('its Light value here, #1df032ff, is not the one the design keeps for every dark style, #1d9bf0ff: only the Dark side varies by dark style, so put the Light value back to #1d9bf0ff, or change it for every dark style at once (the same in every Light mode), then push');
   expect(plainWhy('no token of that name')).toBe('no token of that name');
 });
