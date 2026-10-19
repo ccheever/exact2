@@ -61,18 +61,6 @@ component MobileBrowser
     menuEvent: action
     addressFontSize: number
     addressLineHeight: number
-  state address = ""
-  state editing = false
-  action edit(value: string)
-    address = value
-    editing = true
-  action blurred
-    editing = false
-  action pressedKey(value: string)
-    if value == "Enter"
-      preventDefault()
-      action("navigate", editing ? address : data.url)
-      editing = false
   view
     column flex=1 min-height=0 background-color=colors.background font-family="DM Sans"
       if data.source != ""
@@ -81,12 +69,9 @@ component MobileBrowser
             t3-symbol symbol-name="chevron.left" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
           button appearance="none" background-color=colors.subtle border-radius=999 width=38.5 height=38.5 padding=0 disabled=(not data.canForward) press=action("forward", "") aria-label="Forward"
             t3-symbol symbol-name="chevron.right" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
-          input appearance="none" flex=1 min-width=0 height=35 box-sizing="border-box" border-radius=18 padding-left=14 padding-right=14
-            background-color=colors.input color=colors.foreground border-width=1 border-style="solid" border-color=colors.inputBorder font-size=addressFontSize line-height=`${addressLineHeight}px`
-            value=(editing ? address : data.url) readonly=(not data.canNavigate) aria-label="Address" placeholder="Enter a URL"
-            input=edit key=pressedKey blur=blurred
-            ::placeholder
-              color=colors.placeholder
+          for tab in data.tabs key=tab.id
+            if tab.selected
+              MobileBrowserAddress(url=data.url, canNavigate=data.canNavigate, colors=colors, action=action, addressFontSize=addressFontSize, addressLineHeight=addressLineHeight)
           button appearance="none" background-color=colors.subtle border-radius=999 width=38.5 height=38.5 padding=0 disabled=(not data.canNavigate) press=action("reload", "") aria-label="Reload page"
             t3-symbol symbol-name="arrow.clockwise" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
           t3-preview-menu configuration=menuConfiguration change=menuEvent width=38.5 height=38.5
@@ -132,3 +117,31 @@ component MobilePreviewButton
           t3-symbol symbol-name=(devices ? "iphone" : "globe") symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
         if count > 1
           text `${count}` position="absolute" right=1.75 top=1.75 min-width=14 padding-left=3.5 padding-right=3.5 border-radius=8 background-color=colors.primary color=colors.primaryForeground font-size=8.75 font-weight=700 text-align="center"
+
+component MobileBrowserAddress
+  props
+    url: string
+    canNavigate: bool
+    colors: MobilePreviewColors
+    action: action
+    addressFontSize: number
+    addressLineHeight: number
+  state address = ""
+  state editing = false
+  action edit(value: string)
+    address = value
+    editing = true
+  action blurred
+    editing = false
+  action pressedKey(value: string)
+    if value == "Enter"
+      preventDefault()
+      action("navigate", editing ? address : url)
+      editing = false
+  view
+    input appearance="none" flex=1 min-width=0 height=35 box-sizing="border-box" border-radius=18 padding-left=14 padding-right=14
+      background-color=colors.input color=colors.foreground border-width=1 border-style="solid" border-color=colors.inputBorder font-size=addressFontSize line-height=`${addressLineHeight}px`
+      value=(editing ? address : url) readonly=(not canNavigate) aria-label="Address" placeholder="Enter a URL"
+      input=edit key=pressedKey blur=blurred
+      ::placeholder
+        color=colors.placeholder
