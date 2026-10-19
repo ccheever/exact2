@@ -408,3 +408,67 @@ fn a_refused_icons_uses_are_not_refused_again() {
     let ids: Vec<&str> = errors.iter().map(|e| e.id.as_str()).collect();
     assert_eq!(ids, ["tamber-icon-svg"], "{errors:?}");
 }
+
+/// Stage 9 A2: a grouped row led by an svg-only icon is a standard cell
+/// whose symbol is "" and whose icon is its token form, which Apple draws
+/// as the cell's template image; an `sf` icon's row names its symbol and
+/// carries no icon.
+#[test]
+fn a_grouped_row_carries_an_svg_only_icon() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+    let path = app(
+        "grouped",
+        "\"ios\": {}",
+        "  icon.svg = icon(svg \"icons/reply.svg\")\n  icon.sf = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n",
+        "component App\n  action go\n  view\n    column testId=\"root\" width=402 height=874\n      list appearance=\"auto\" testId=\"list\" flex=1\n        section\n          button press=go\n            image \"symbol:icon.svg\"\n            text \"Reply\"\n          button press=go\n            image \"symbol:icon.sf\"\n            text \"Answer\"\n",
+    );
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(root, exact_kernel::Offer::definite(402.0, 874.0))
+        .unwrap();
+    let k = r.kernel();
+    let list = k.node_by_key(k.find_by_test_id("list")[0]).unwrap().id;
+    let rows = &k.grouped_list(list).unwrap().sections[0].rows;
+    assert!(!rows[0].custom, "{:?}", rows[0]);
+    assert_eq!(rows[0].symbol.as_deref(), Some(""));
+    assert_eq!(
+        rows[0].icon.as_deref(),
+        Some("icon||0 -960 960 960|M760-200v-160H200Z|icons/reply.svg")
+    );
+    assert_eq!(rows[0].title.as_deref(), Some("Reply"));
+    assert_eq!(rows[1].symbol.as_deref(), Some("bubble.left"));
+    assert_eq!(rows[1].icon, None);
+}
+
+/// A design icon naming another builds in an app with params, an icon
+/// param's default naming the alias too (beside `tamber_cli`'s test of an
+/// app without params, theme2 22:12).
+#[test]
+fn an_icon_alias_builds_beside_params() {
+    let design =
+        "  icon.house = icon(sf \"house\", svg \"icons/reply.svg\")\n  icon.home = icon.house\n";
+    let view = "component App\n  params\n    glyph: icon = \"icon.home\"\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    column  gap=\"param.gap\"\n      image \"symbol:icon.home\"\n      image \"symbol:param.glyph\"\n";
+    let path = app("alias-params", "\"ios\": {}, \"web\": {}", design, view);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let form = "symbol:icon|house|0 -960 960 960|M760-200v-160H200Z|icons/reply.svg";
+    assert!(plan.strings.iter().any(|s| s == form), "{:?}", plan.strings);
+}

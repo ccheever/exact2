@@ -154,6 +154,7 @@ mod tamber_scheme;
 mod tamber_scrub_fold;
 mod tamber_serve;
 mod tamber_serve_contract;
+mod tamber_serve_explain;
 mod tamber_serve_rows;
 mod tamber_set_param;
 mod tamber_shadows;

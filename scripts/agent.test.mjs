@@ -106,6 +106,15 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
   }
 });
 
+test('Android relative clocks start where the reader hands its live clock to the driver', async () => {
+  const calls = [], carrier = { host: 'android', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { calls.push(req); return req.op === 'tags' ? { clock: 62.5 } : { clock: req.to }; } };
+  const s = await open({ reuse: carrier });
+  assert.equal(s.now, 62.5);
+  await s.clock('+1');
+  assert.deepEqual(calls, [{ op: 'tags' }, { op: 'clock', to: 63.5 }]);
+});
+
 // A hold is the clock's (euxy FRICTION §2: a dice charge did nothing while held): the carrier is told it is virtual, no
 // wall time passes, and the app's clock moves by it; under --timing platform it stays real time.
 test('a held contact\'s hold moves the app\'s clock by its length', async () => {
@@ -249,6 +258,31 @@ test('compare: what one picture has and the other lacks is a region, both ways',
   const text = await reported(deleted.A, deleted.B, deleted.result, [page]);
   assert.match(text, /1 \[10,120 100×10\] \(1000 pt²\) under View \[0,0 120×200\]: here #fff, in the reference #222/);
   assert.doesNotMatch(text, /sits/);
+});
+
+test('compare: the regions up close, a row each, cut from both pictures at their own pixels', async () => {
+  const { grid, compareGrids, closeUp, report } = await import('./agent-compare.mjs');
+  // A 3x reference and screen: a box only the screen has, and one the reference has 4 pt lower.
+  const ref = picture(120, 200, [[10, 110, 30, 20]], 3), screen = picture(120, 200, [[60, 20, 40, 10], [10, 106, 30, 20]], 3);
+  const result = compareGrids(grid(ref, 120, 200), grid(screen, 120, 200));
+  const sheet = closeUp(ref, screen, result), n = result.regions.length;
+  // Three panels of the widest padded region (40 + 16 pt) at 3 px a point, two gaps; a band and a row a region.
+  assert.equal(sheet.width, 3 * 56 * 3 + 8);
+  const rows = result.regions.map(({ screen: b }) => (Math.min(200, b.y + b.h + 8) - Math.max(0, b.y - 8)) * 3);
+  assert.equal(sheet.height, rows.reduce((a, b) => a + 10 + b, 0));
+  // The first row's screen panel shows the screen's box, black, where the reference panel beside it is white.
+  const at = (x, y) => Array.from(sheet.data.subarray((y * sheet.width + x) * 4, (y * sheet.width + x) * 4 + 3));
+  const first = result.regions[0].screen, y = 10 + (8 + 2) * 3, x = (first.x - Math.max(0, first.x - 8) + 2) * 3;
+  assert.deepEqual([at(x, y), at(56 * 3 + 4 + x, y)], [[255, 255, 255], [20, 20, 20]]);
+  assert.equal(closeUp(ref, ref, compareGrids(grid(ref, 120, 200), grid(ref, 120, 200))), null, 'nothing differs: no sheet');
+  // A reference just under 1% shorter than the screen's shape, and a region at the bottom: each axis is cut by its own
+  // scale, inside the picture.
+  // (Cut by the width's scale, the bottom region's padded top lay below the reference's last row.)
+  const short = { ...picture(100, 1200, [], 3), height: 3564 }; short.data = short.data.subarray(0, 300 * 3564 * 4);
+  const low = picture(100, 1200, [[10, 1197, 30, 3]], 3), bottom = compareGrids(grid(short, 100, 1200), grid(low, 100, 1200));
+  assert.deepEqual(bottom.regions.map(box), [[10, 1197, 30, 3]]);
+  assert.ok(closeUp(short, low, bottom).height > 0);
+  assert.match(report(result, [], { reference: 'r', diff: 'd', close: 'c' }).split('\n')[0], new RegExp(`; up close, c \\(a row a region, 1 to ${n}\\)$`));
 });
 
 test('compare: an edge\'s anti-aliasing is no colour of the picture it is in', async () => {
@@ -399,6 +433,13 @@ test('a native named store is kept unless the drive resets it, under its lock; a
       assert.equal(lock?.storage === 's1', locked, `${host} lock`);
       if (locked) { assert.equal(lock.device, `the one ${host} device`); assert.deepEqual(order, ['resolve', 'lock', 'open']); }
     }
+    // A native drive that names no store has `default`, which --reset-storage empties; a web drive has none to reset.
+    let env = null, lock = null;
+    const injected = { open: async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; }, driveServer: async () => null,
+      exclusiveNativeStore: async (key, launch) => { lock = key; return launch(); }, resolveDevice: () => 'a device' };
+    assert.equal(await main(['ios', '--reset-storage', 'state'], injected), 0);
+    assert.deepEqual([lock?.storage, env?.EXACT_AGENT_STORAGE_FRESH], ['default', '1']);
+    await assert.rejects(main(['web', '--reset-storage', 'state'], injected), /need --storage <name>/);
   } finally { [console.log, console.error] = quiet; }
 });
 

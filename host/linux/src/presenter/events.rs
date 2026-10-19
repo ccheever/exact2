@@ -170,7 +170,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Focus uses the current tree, without requiring a painted box. Region
     /// pictures and window-backed surfaces have separate input boundaries.
-    pub(super) fn focus_refusal(&self, id: ViewId) -> Option<&'static str> {
+    pub(crate) fn focus_refusal(&self, id: ViewId) -> Option<&'static str> {
         if self.top_open() && self.alert.is_none() {
             return Some("page under surface is inert");
         }

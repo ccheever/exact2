@@ -16,6 +16,7 @@ They are compiled directly from these pages by `engine/src/recipes.rs`.
 | Answer a command | [Door message](door-message.md) | Engine HUD and events |
 | Draw a ring and a translucent halo | [Halo](halo.md) | Beacons |
 | Save a slot | [Save slot](save-slot.md) | Starter restore tests |
+| Light a tank or a sea from inside | [Underwater](underwater.md) | Underwater GPU test |
 
 Use the [engine reference](../engine/README.md) for borrowing and registration.
 Names, units and defaults are available through `bun scripts/exact.mjs game vocab <name>`.

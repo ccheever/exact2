@@ -67,6 +67,66 @@ fn apple(target: &str) -> bool {
     matches!(target, "ios" | "macos" | "tvos" | "watchos")
 }
 
+/// The source `target` draws for `icon`, by D10's rule (the one
+/// `tamber-icon-missing` checks): Apple the SF Symbol, else a template
+/// SVG's path (stage 9 A; not yet a watch's), every other host a
+/// template's path, and the web an SVG as written; `None` where it draws
+/// none.
+fn drawn(
+    target: &str,
+    icon: &tamber::Icon,
+    svg: Option<&crate::icon_svg::Svg>,
+) -> Option<&'static str> {
+    let template = svg.is_some_and(|s| s.not_template.is_none());
+    match apple(target) {
+        true if icon.sf.is_some() => Some("sf"),
+        true => (template && target != "watchos").then_some("svg"),
+        false => (template || (target == "web" && svg.is_some())).then_some("svg"),
+    }
+}
+
+/// An icon's SVG as the build reads it: none without one; refused where
+/// its path has a `|` (it joins the source form's parts), it is not under
+/// the app's `assets/`, it doesn't read as one, or a template is over its
+/// size (its path travels in the plan and in every literal source).
+fn svg_of(
+    icon: &tamber::Icon,
+    root: Option<&Path>,
+) -> Result<Option<crate::icon_svg::Svg>, String> {
+    let (file, root) = match (&icon.svg, root) {
+        (None, _) => return Ok(None),
+        (Some(_), None) => return Err(format!("`{}`: an icon's SVG is under the app's `assets/`; compile this source with `compile_path`", icon.name)),
+        (Some(file), _) if file.contains('|') => {
+            return Err(format!("`{}`: an SVG's path has no `|`", icon.name))
+        }
+        (Some(file), Some(root)) => (file, root),
+    };
+    std::fs::read_to_string(root.join("assets").join(file))
+        .map_err(|e| e.to_string())
+        .and_then(|t| Ok((t.len(), crate::icon_svg::read(&t)?)))
+        .and_then(
+            |(len, svg)| match svg.not_template.is_none() && len > MAX_SVG {
+                true => Err(format!("it is over {} KiB", MAX_SVG / 1024)),
+                false => Ok(Some(svg)),
+            },
+        )
+        .map_err(|why| format!("`{}`: `assets/{file}`: {why}", icon.name))
+}
+
+/// Which source each target the app at `root` ships draws for `icon`
+/// (`describe`'s icon entry, LLP 1121 stage 9 C), its SVG read as the build
+/// reads it ([`svg_of`]); one the build refuses draws as none.
+pub fn draws(icon: &tamber::Icon, root: &Path) -> Vec<(String, Option<&'static str>)> {
+    let svg = svg_of(icon, Some(root)).ok().flatten();
+    targets(Some(root))
+        .into_iter()
+        .map(|t| {
+            let source = drawn(&t.name, icon, svg.as_ref());
+            (t.name, source)
+        })
+        .collect()
+}
+
 /// A target the app ships, and each thing in the app that makes it shipped,
 /// so a refusal can say what to remove.
 #[derive(Debug, Clone, PartialEq)]
@@ -140,61 +200,20 @@ pub(crate) fn declare(
             message,
             span: at,
         };
-        let svg = match (&icon.svg, root) {
-            (None, _) => None,
-            (Some(_), None) => {
-                errors.push(refuse("tamber-icon-svg", format!("`{}`: an icon's SVG is under the app's `assets/`; compile this source with `compile_path`", icon.name)));
+        let svg = match svg_of(icon, root) {
+            Ok(svg) => svg,
+            Err(why) => {
+                errors.push(refuse("tamber-icon-svg", why));
                 continue;
-            }
-            // `|` joins the source form's parts.
-            (Some(file), _) if file.contains('|') => {
-                errors.push(refuse(
-                    "tamber-icon-svg",
-                    format!("`{}`: an SVG's path has no `|`", icon.name),
-                ));
-                continue;
-            }
-            (Some(file), Some(root)) => {
-                let path = root.join("assets").join(file);
-                // A template's path travels in the plan and in every literal source.
-                let read = std::fs::read_to_string(&path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|t| Ok((t.len(), crate::icon_svg::read(&t)?)))
-                    .and_then(
-                        |(len, svg)| match svg.not_template.is_none() && len > MAX_SVG {
-                            true => Err(format!("it is over {} KiB", MAX_SVG / 1024)),
-                            false => Ok(svg),
-                        },
-                    );
-                match read {
-                    Ok(svg) => Some(svg),
-                    Err(why) => {
-                        errors.push(refuse(
-                            "tamber-icon-svg",
-                            format!("`{}`: `assets/{file}`: {why}", icon.name),
-                        ));
-                        continue;
-                    }
-                }
             }
         };
         for target in targets.iter().map(|t| t.name.as_str()) {
-            // Every host draws a template's path (Apple's page and widget
-            // hosts too, where no SF Symbol is given: stage 9 A; not yet a
-            // watch's), Apple an SF Symbol, and the web a file as written.
-            let template = svg.as_ref().is_some_and(|s| s.not_template.is_none());
-            let drawn = (template && target != "watchos")
-                || if apple(target) {
-                    icon.sf.is_some()
-                } else {
-                    target == "web" && svg.is_some()
-                };
-            if drawn {
+            if drawn(target, icon, svg.as_ref()).is_some() {
                 continue;
             }
             errors.push(match (&svg, &icon.svg) {
                 // A one-colour SVG a watch doesn't draw yet: it needs the SF Symbol.
-                (Some(_), Some(_)) if template => refuse(
+                (Some(s), Some(_)) if s.not_template.is_none() => refuse(
                     "tamber-icon-missing",
                     format!("{} has no source for {target}: a watch draws an icon only as an SF Symbol (an `sf` source)", icon.name),
                 ),

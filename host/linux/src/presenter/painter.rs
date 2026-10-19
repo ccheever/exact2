@@ -229,6 +229,50 @@ mod tests {
         assert_eq!(OPENED.with(Cell::get), 1);
     }
 
+    /// A display whose clock started 15 s before the boot (a slow start):
+    /// the boot's clock begins at that reading, so its `after(10000)` is due
+    /// 10 s after the boot, not at the first frame; and the date at the
+    /// clock's zero is the display clock's start.
+    #[test]
+    fn a_boot_on_the_display_clock_starts_where_it_reads() {
+        let timer = contract::compile(
+            "component App\n  state ticks = 0\n  task tick mount\n    after(10000, step)\n  action step\n    ticks = ticks + 1\n  view\n    box width=8 height=8\n",
+        )
+        .expect("fixture compiles")
+        .encode();
+        let started = std::time::Instant::now() - std::time::Duration::from_secs(15);
+        let mut config = crate::app::Config::from_env(&timer, "{}");
+        config.clock_started = Some(started);
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            * 1000.0;
+        let (presenter, error) = crate::app::boot_presenter_with_painter::<()>(
+            &mut config,
+            (8., 8.),
+            PainterBoot {
+                choice: PainterChoice::Gpu,
+                open: counted,
+            },
+        )
+        .expect("boots");
+        assert!(error.is_none(), "{error:?}");
+        let runner = presenter.host.runner();
+        let due = runner.timer_due_ms().expect("the mount timer is armed");
+        let now = started.elapsed().as_secs_f64() * 1000.0;
+        assert!(
+            (25_000.0..=now + 10_000.0).contains(&due),
+            "due {due}, clock now {now}"
+        );
+        let zero = runner.wall_time().epoch_at_zero;
+        assert!(
+            (zero - (before - 15_000.0)).abs() < 1_000.0,
+            "zero {zero}, started {}",
+            before - 15_000.0
+        );
+    }
+
     #[test]
     fn boot_keeps_the_carrier_constructor_and_only_the_running_generation_identity() {
         for (selected, development, identity) in [
@@ -260,6 +304,7 @@ mod tests {
                 module: Ok(None),
                 updates: None,
                 hatches: None,
+                clock_started: None,
             };
             let (mut presenter, error) = crate::app::boot_presenter_with_painter::<()>(
                 &mut config,

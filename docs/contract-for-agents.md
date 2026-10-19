@@ -169,7 +169,9 @@ nothing): the window asks its `beforeunload` first, and the reply says
 macOS, iOS and Linux until one passes `--reset-storage`, and on web Chrome when the
 next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
-for the drive, including its `reload`). Without it a drive has no
+for the drive, including its `reload`). A native drive that names none uses the
+store `default`, kept the same way, as the app keeps its files from launch to
+launch. A web drive without one has no
 app storage: an `app:/` file read finds an empty store (code `ENOENT`, as a
 fresh install's first launch does), and a write or SQLite request is refused (`storage
 is unavailable in agent mode unless the drive names a scratch store (--storage
@@ -1400,7 +1402,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `progress value=done max=goal` (a goal, an upload; as wide as what holds it) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
-| `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
+| `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel; or a `text` and one closing button alone | `UIAlertController(.alert)`: the label its title, the text its message; the one-button alert when it has no action (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | any other `dialog` (a field, Save, Cancel), opened by `showModal(id)` or a button's `command="show-modal"` | a sheet as tall as its content, up to the large detent, its content laid out as written and centred across it (`width="100%" box-sizing="border-box"` fills it); `close(id)`, its `command="close"` button or a swipe down closes it. `closedby="none"` refuses the swipe, `"any"` also takes a tap on the page behind, and a dismissal the person made fires `cancel` (LLP 1115.000 D11.5). A form with a title bar is still a sheet route |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2). Keys of your own design: `appearance="none"` on the `radiogroup` keeps its buttons as you paint them; on iOS and the Mac the group keeps one Tab stop (the checked radio) and arrow keys that press the next or previous radio (Left and Right swapped right to left); on tvOS the focus engine moves between them |
@@ -1633,12 +1635,100 @@ component Metronome
 The shapes are flat and positional, as `playSounds`'s hit is: "none" is `""` or
 `-1`. Keep the tracks in a `derive`, so a commit that changes nothing else
 compares them at once. `exactTransport()` says what plays (`state`, `reason`,
-`bpm`, `anchorAt`, `anchorBeat`); a playhead is `anchorBeat + (performanceNow() -
-anchorAt) * bpm / 60000` in a frame task gated on it being shown. The gate turning
+`bpm`, `anchorAt`, `anchorBeat`); the beat now is `anchorBeat + (performanceNow() -
+anchorAt) * bpm / 60000`. A playhead or beat light follows it as an animation, not a
+frame task: a loop whose opacity is a computed `linear()` curve on a clock timeline,
+re-read by a task keyed on the anchor ("Following the transport", below), so no app
+code runs while it plays. A frame task is for text that changes
+with the beat, gated on it being shown. The gate turning
 false stops it; `stopSounds()` silences what sounds and the next steps still play.
 For one or two scheduled hits, `playSounds(hits)` with `at=` is enough (a list of a
 shape whose fields are, in order, `src`, `at`, `gain` and `group`, then optionally
 `playbackRate` and then `pan`).
+
+**Following the transport.** A playhead or a beat light that follows `exactTransport()`
+is an animation, not a frame task: each light loops over its cycle (a bar, a lane) and
+Core Animation or the browser plays it, so no app code runs while the music plays.
+`level` passes a `linear()` curve's output through as the opacity, so a computed curve
+says when in the cycle the light is lit; a negative delay puts the cycle where the
+transport is; a clock timeline keeps a light mounted later in the same phase.
+
+```contract
+timeline Transport
+keyframes level
+  from opacity=0
+  to opacity=1
+
+shape Transport
+  state: string
+  reason: string
+  bpm: number
+  anchorAt: number
+  anchorBeat: number
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+fn pct(t: number, cycle: number): string = `${round(t / cycle * 10000) / 100}%`
+// Lit through the first `span` ms of each `cycle`, a cycle starting `start` ms along the
+// beat grid; `pos` is where the transport was when the loop mounted.
+fn lit(span: number, cycle: number, start: number, pos: number): string = `level ${cycle}ms linear(1 0% ${pct(span, cycle)}, 0 ${pct(span, cycle)} 100%) ${0 - (((pos - start) % cycle) + cycle) % cycle}ms infinite`
+
+component Beats
+  state playing = false
+  state pos = 0
+  state synced = ""
+  resource transport = exactTransport() as shape Transport
+  derive anchor = `${transport.anchorAt} ${transport.anchorBeat} ${transport.bpm}`
+  derive beat = 60000 / transport.bpm
+  sequence click when playing
+    play([Track(beats=1, loops=0, offset=0, output="", steps=[])], bpm=120)
+  // Where the transport is, read once per play, seek or tempo change.
+  task follow when transport.state == "playing" key=anchor
+    after(1, sync)
+  action sync
+    pos = transport.anchorBeat * beat + performanceNow() - transport.anchorAt
+    synced = anchor
+  action toggle
+    playing = not playing
+  view
+    column padding=16 gap=8
+      button press=toggle testId="toggle"
+        text (playing ? "Stop" : "Play")
+      row gap=8 role="img" aria-label="Beat"
+        for i in range(4) key=i
+          view flex=1 padding=4 border-radius=4 position="relative" background-color="-exact-tertiary-fill"
+            if transport.state == "playing" and synced == anchor
+              for g in [synced] key=g
+                view position="absolute" inset=0 border-radius=4 background-color="AccentColor" opacity=0
+                  animation=lit(beat, 4 * beat, i * beat, pos) animation-timeline=Transport
+```
+
+- **What stays a frame task:** text that changes with the beat ("Count-in 3"), and only while
+  it shows. Read the position in an action (a pause's) as `anchorBeat + (performanceNow() -
+  anchorAt) * bpm / 60000` beats.
+- **A light that is not just on or off** puts every stop in the curve. Over a four-step cycle,
+  a trail ember lit the step after the head and fading from 0.4 to 0.18 through it is
+  `linear(0 0% 25%, 0.4 25%, 0.18 50%, 0 50% 100%)`; a fade after the beat is a few stops
+  sampled from its easing.
+- **A one-off change at a beat** (dim two beats after a touch) is a finite animation whose delay
+  is that beat's distance from now; a second, identical `keyframes` name restarts it, as CSS
+  restarts an animation only when its name changes.
 
 Tests read the runner's record: `expect sound has "assets/ding.wav" at 0`, with any
 of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|edit`, or
@@ -2132,7 +2222,7 @@ a loop from mutations: a `then` cannot send its own mutation
 instead.
 
 `performanceNow()` is the runner's clock in milliseconds since this launch of the app (it
-restarts at 0 on every launch; the driver's clock under the agent, from 0), as the web's
+restarts at 0 on every launch, and a window opened later reads the same clock; the driver's clock under the agent, from 0), as the web's
 `performance.now()`, not a date: a deadline of `performanceNow() + ms` sent to a server is
 in 1970, and one stored is meaningless after a relaunch. Anything stored or sent takes
 `time.epochAtZero + performanceNow()` ([timer recipe](recipes/timer-that-survives-relaunch.md)). For the date, read the reserved
@@ -2254,13 +2344,22 @@ alert; several actions with no text (an "Open in…" chooser) make an action
 sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
 An alert has no outside, on every host (LLP 1115.000 D13.4): Escape and Back
-cancel it and a tap or click beside it does nothing, which is `closedby="closerequest"`,
+cancel it (the Mac's one-button alert excepted, below) and a tap or click beside it does nothing, which is `closedby="closerequest"`,
 implied for the alert's shape, so leave `closedby` unwritten. Write
 `closedby="any"` only to ask for the platform's dismissible form in its place:
 an action sheet on an iPhone (a popover on an iPad), a dialog a click outside
 closes on the web, a sheet a click on the window behind it closes on the Mac, a
 Material dialog a tap outside cancels on Android.
 `close("<id>")` from an action closes it as its Cancel does.
+
+An alert that only tells ("Couldn't save the note." and OK) is a `text` and its
+one closing button, with no action: iOS's alert with that one button, macOS's
+`NSAlert` with it as the default (Return presses it and Escape does nothing, as
+on AppKit's own one-button alert), the web's modal `dialog`, Material's dialog
+on Android. Under `closedby="any"` it is the dialog's own sheet on the Mac, which a
+click outside dismisses; iOS keeps the alert, since an action sheet drops a
+lone Cancel in an iPad's popover. The action that learns of the failure sets the state its `text`
+reads and calls `showModal("<id>")` ([error-alert](recipes/error-alert.md)).
 
 A prompt (a rename's, `Alert.prompt`) is the alert with a text field: an
 `input` among its rows, which counts as its message when it has no `text`:

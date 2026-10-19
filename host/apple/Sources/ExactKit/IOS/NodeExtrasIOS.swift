@@ -71,6 +71,7 @@ final class NodeExtras {
     var doubleRecognizer: UITapGestureRecognizer?
     #if !os(tvOS)
     var hoverRecognizer: UIHoverGestureRecognizer?
+    var lookHoverRecognizer: UIHoverGestureRecognizer?
     #endif
     var textArea: UITextView?
     var field: UITextField?
@@ -190,6 +191,7 @@ extension NodeView {
     var doubleRecognizer: UITapGestureRecognizer? { get { extras?.doubleRecognizer } set { if newValue != nil || extras != nil { more.doubleRecognizer = newValue } } }
     #if !os(tvOS)
     var hoverRecognizer: UIHoverGestureRecognizer? { get { extras?.hoverRecognizer } set { if newValue != nil || extras != nil { more.hoverRecognizer = newValue } } }
+    var lookHoverRecognizer: UIHoverGestureRecognizer? { get { extras?.lookHoverRecognizer } set { if newValue != nil || extras != nil { more.lookHoverRecognizer = newValue } } }
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }

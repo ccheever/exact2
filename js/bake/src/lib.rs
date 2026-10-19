@@ -1134,7 +1134,7 @@ fn bake_in(
     let (plan, source_map) = compiled.map_err(|errors| {
         errors
             .into_iter()
-            .map(|e| e.to_string())
+            .map(|e| format!("{e}{}", contract::excerpt(&e)))
             .collect::<Vec<_>>()
             .join("\n")
     })?;

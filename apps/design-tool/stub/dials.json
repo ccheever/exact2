@@ -411,6 +411,7 @@
    "format": 1,
    "icons": [
     {
+     "draws": {},
      "material": "star",
      "name": "icon.star",
      "sf": "star",
@@ -3260,6 +3261,16 @@
    "names": [
     "accent.fill"
    ],
+   "param": {
+    "col": 5,
+    "component": "Card",
+    "default": "\"accent.fill\"",
+    "file": "app.contract",
+    "identity": "app.contract#Card",
+    "kind": "color",
+    "line": 5,
+    "set": null
+   },
    "token": "app.contract#Card.fill",
    "value": "accent.fill",
    "whens": []
@@ -3271,6 +3282,20 @@
     "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
+   "param": {
+    "col": 5,
+    "component": "Card",
+    "default": "\"8px\"",
+    "file": "app.contract",
+    "identity": "app.contract#Card",
+    "kind": "length",
+    "line": 6,
+    "set": {
+     "file": "app.tamber",
+     "line": 68,
+     "value": "12px"
+    }
+   },
    "token": "app.contract#Card.pad",
    "value": "12px",
    "whens": []
@@ -3282,6 +3307,20 @@
     "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
+   "param": {
+    "col": 5,
+    "component": "Card",
+    "default": "\"surface.card\"",
+    "file": "app.contract",
+    "identity": "app.contract#Card",
+    "kind": "color",
+    "line": 7,
+    "set": {
+     "file": "app.tamber",
+     "line": 69,
+     "value": "#eeeeee"
+    }
+   },
    "token": "app.contract#Card.tone",
    "value": "#eeeeee",
    "whens": []
@@ -3293,6 +3332,16 @@
     "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
+   "param": {
+    "col": 5,
+    "component": "Card",
+    "default": "\"150ms\"",
+    "file": "app.contract",
+    "identity": "app.contract#Card",
+    "kind": "duration",
+    "line": 8,
+    "set": null
+   },
    "token": "app.contract#Card.fade",
    "value": "150ms",
    "whens": []
@@ -3308,6 +3357,16 @@
    "names": [
     "accent.fill"
    ],
+   "param": {
+    "col": 5,
+    "component": "MapCard",
+    "default": "accent.fill",
+    "file": "app.tamber",
+    "identity": "app.tamber#MapCard",
+    "kind": "color",
+    "line": 62,
+    "set": null
+   },
    "token": "app.tamber#MapCard.pin",
    "value": "accent.fill",
    "whens": []
@@ -3319,6 +3378,16 @@
     "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
+   "param": {
+    "col": 5,
+    "component": "MapCard",
+    "default": "12",
+    "file": "app.tamber",
+    "identity": "app.tamber#MapCard",
+    "kind": "number",
+    "line": 63,
+    "set": null
+   },
    "token": "app.tamber#MapCard.zoom",
    "value": "12",
    "whens": []
@@ -3330,8 +3399,49 @@
     "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
+   "param": {
+    "col": 5,
+    "component": "MapCard",
+    "default": "300ms",
+    "file": "app.tamber",
+    "identity": "app.tamber#MapCard",
+    "kind": "duration",
+    "line": 64,
+    "set": null
+   },
    "token": "app.tamber#MapCard.pan",
    "value": "300ms",
+   "whens": []
+  },
+  "app.tamber#MapCard.glyph": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "icon": {
+    "draws": {},
+    "material": "star",
+    "name": "app.tamber#MapCard.glyph",
+    "sf": "star",
+    "svg": null
+   },
+   "kind": "icon",
+   "names": [
+    "icon.star"
+   ],
+   "param": {
+    "col": 5,
+    "component": "MapCard",
+    "default": "icon.star",
+    "file": "app.tamber",
+    "identity": "app.tamber#MapCard",
+    "kind": "icon",
+    "line": 65,
+    "set": null
+   },
+   "token": "app.tamber#MapCard.glyph",
+   "value": "icon.star",
    "whens": []
   }
  }

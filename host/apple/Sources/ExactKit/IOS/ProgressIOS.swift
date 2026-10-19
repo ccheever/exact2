@@ -47,8 +47,13 @@ extension ControlHost {
             let own = owner.ownColor("text_color") == nil ? nil : owner.channels("text_color").map { TextEngine.color($0) }
             // An `accent-color` on it or above (not the platform's tint, which
             // `accent-color: AccentColor` names), else the design's AccentColor.
-            let written = owner.style["accent_color"].map { "\($0)".contains("@tint/") || !"\($0)".contains("@tint") } ?? false
-            let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? ThemeRoles.color("AccentColor", in: spinner)
+            let written = Self.authorsAccent(owner)
+            // `accent-color: AccentColor` under an authored accent keeps that one, as the web's
+            // `var(--exact-accent, AccentColor)` does (LLP 1121 D9, stage 9 F1).
+            // (Resolved in the spinner's appearance, as the painters resolve it.)
+            let kept = written || owner.style["accent_color"]?.namesTint != true ? nil
+                : authoredAbove(owner).flatMap { above in above.style["accent_color"].flatMap { $0.channels(dark: owner.drawsDark, contrast: owner.drawsHighContrast, elevated: owner.drawsElevated, tint: above.ownTint(for: $0)) } }.map { TextEngine.color($0) }
+            let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
             assign(spinner, \.color, own ?? accent ?? Self.platformInk)
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
             assign(spinner, \.accessibilityIdentifier, owner.props["testId"])
@@ -62,6 +67,34 @@ extension ControlHost {
         }
         // One leaving with its exit holds too, under the agent's clock.
         if held { for id in leaving { if let s = spinners[id], s.isAnimating { s.stopAnimating() } } }
+    }
+
+    /// Whether `view` authors its `accent-color` (not the platform's tint,
+    /// which `accent-color: AccentColor` names).
+    static func authorsAccent(_ view: NodeView) -> Bool {
+        guard let accent = view.style["accent_color"] else { return false }
+        // A colour of its own, or one made from the tint (`Highlight`'s `@tint/0.2`); not the tint itself.
+        if case .object(let o) = accent, let sys = o["sys"]?.string { return sys != "@tint" }
+        return !accent.namesTint
+    }
+    /// The nearest view above `view` that authors an accent, if one does, by
+    /// the authored tree: a dialog's sheet, a lifted popover, a route (any,
+    /// presented or pushed) and a grouped list's carried row to their authored
+    /// parent, else the superview.
+    func authoredAbove(_ view: NodeView) -> NodeView? {
+        func parent(_ v: UIView) -> UIView? {
+            if let node = v as? NodeView {
+                if let p = presenter.menus.sheets.authoredParent(of: node) { return p }
+                if presenter.navigation.controllers[node.id]?.node === node, let p = presenter.navigation.logicalParent(of: node) ?? presenter.navigation.container { return p }
+            }
+            return presenter.menus.logicalParent(of: v) ?? presenter.groupedLists?.logicalParent(of: v) ?? v.superview
+        }
+        var at = parent(view)
+        while let current = at {
+            if let node = current as? NodeView, Self.authorsAccent(node) { return node }
+            at = parent(current)
+        }
+        return nil
     }
 
     /// The determinate bars (LLP 1116 D8). A change of value eases, as

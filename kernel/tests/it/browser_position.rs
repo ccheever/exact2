@@ -37,6 +37,30 @@
 //! columns, reversed columns, alignment overrides, auto and fixed margins,
 //! width and height bounds, padding, wider content, intrinsic widths,
 //! wrapping, block and grid.
+//! `Chrome 151 ratio column shrink` was measured on 2026-10-19 with Chrome
+//! 151.0.7922.34. It covers preferred heights in shorter columns, definite
+//! stretch versus wrapping, alignment and auto margins, content minima,
+//! authored widths, shrink opt-outs, padding, borders and row controls.
+//! `Chrome 151 ratio container minimum` uses that version and date for flex,
+//! grid and block items in short columns, including ratio floors, taller
+//! content, percentage children, shrink opt-outs, box sizing and row controls.
+//! `Chrome 151 ratio container content floor` uses that version and date for
+//! content wider or taller than the transfer, specified-size caps, insets,
+//! shrink opt-outs, ratio-2 floors and a flex column inside a row.
+//! `Chrome 151 ratio definite cross` uses that version and date for auto-width
+//! ratio containers in a 50px block and as roots offered 50px. Controls cover
+//! a second ratio, height bounds, wrapping, alignment, column direction,
+//! and flex and grid items.
+//! `Chrome 151 column stretch floor` uses that version and date for RTL
+//! columns with items wider than the line's stretch size. Controls cover
+//! ratios, LTR, fitting items, alignment, explicit widths, padding, borders
+//! and width bounds under both box-sizing modes.
+//!
+//! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
+//! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
+//! indefinite bases, padding, borders, margins and overflow, with column and wrap controls.
+//! The zero-inner-basis cases include negative margins on padding/border floors,
+//! growable zero-width items, negative left margins and a zero-height column.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
@@ -176,6 +200,60 @@ fn positioned_boxes_roots_and_ratios_match_chrome() {
     check(failures(fixture, true), &[]);
 }
 
+/// The same Chrome frames hold when the ratio container is the root in a
+/// 50px offer, where the first layout already reaches the ratio height and
+/// passes it to the item as a definite cross size.
+#[test]
+fn ratio_roots_in_a_definite_offer_match_chrome() {
+    let mut wrong = Vec::new();
+    for case in cases(include_str!("fixtures/browser_position.tsv"))
+        .into_iter()
+        .filter(|case| case.name.starts_with("Chrome 151 ratio definite cross "))
+    {
+        let root = case.nodes[0].2;
+        let nodes = case.nodes[1..]
+            .iter()
+            .map(|(id, parent, css, _)| (id - 1, parent - 1, css_rows(css)))
+            .collect();
+        let want: Vec<_> = case.want[1..]
+            .iter()
+            .map(|(id, frame)| (id - 1, *frame))
+            .collect();
+        let mut k = lay_out_with(props(&css_rows(root)), nodes, &[], &[]);
+        k.compute_layout(1, exact_kernel::Offer::definite(50.0, 600.0))
+            .unwrap();
+        wrong.extend(mismatches(case.name, &k, &want));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Chrome 151.0.7922.34, 2026-10-18: cross-axis auto margins with negative,
+/// zero and positive free space, in rows, columns and reversed directions.
+/// RTL columns sit in an LTR block; wrapping and fixed margins are controls.
+#[test]
+fn cross_axis_auto_margins_match_chrome() {
+    check(
+        failures(
+            include_str!("fixtures/browser_flex_auto_margins.tsv"),
+            false,
+        ),
+        &[],
+    );
+}
+
+/// Chrome 151.0.7922.34, 2026-10-18: overflowing and fitting flex lines,
+/// reversed main axes, RTL, and grid/block controls.
+#[test]
+fn flex_distribution_fallbacks_match_chrome() {
+    check(
+        failures(
+            include_str!("fixtures/browser_flex_wrap_reverse.tsv"),
+            false,
+        ),
+        &[],
+    );
+}
+
 /// The row itself receives MinContent, without an absolute solver's later
 /// definite-width pass. Chrome's width:min-content wrapper gives these frames.
 #[test]
@@ -232,6 +310,8 @@ fn min_content_rows_remeasure_content_dependent_bases() {
 
 /// Chrome 151.0.7922.34, 2026-10-18: a width:max-content wrapper around each
 /// case. The eight basic row cases also agree inside float:left wrappers.
+/// `Chrome 151 intrinsic wrap floor` also checks the min-content floor,
+/// including reversed rows, item and container padding, margins and a cap.
 /// A max-content root offer must publish wrapped frames without a parent's
 /// definite-width pass.
 #[test]

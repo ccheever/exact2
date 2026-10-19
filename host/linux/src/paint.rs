@@ -62,7 +62,7 @@ mod presented;
 mod region;
 pub mod rows;
 mod shadow;
-mod space;
+pub(crate) mod space;
 mod svg;
 pub(crate) use svg::{fitted, view_box};
 mod text_clip;

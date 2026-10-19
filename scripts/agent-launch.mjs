@@ -17,19 +17,9 @@ import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveAp
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
- * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, or Cargo's for a build
- * script's (`warning: <crate>@<version>: …`); its file from `cwd` when it is below it. */
-export function compilerWarnings(text, cwd = process.cwd()) {
-  const lines = new Set();
-  for (const line of String(text ?? '').split('\n')) {
-    const m = /^(?:warning: [\w-]+@[^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
-    if (!m) continue;
-    const near = relative(cwd, m[1]);
-    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
-  }
-  return [...lines];
-}
+// The compiler's warnings in a build's output, and the lines a drive says for them: app-cli.mjs, which runs a
+// drive's build first, has them; verify, the dev loop and agent-build.mjs read them from here.
+export { compilerWarnings, warningLines } from './app-cli.mjs';
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {
@@ -179,12 +169,24 @@ export function netOptions(environment = process.env) {
 export function resolveDevice(host, flags, appId) {
   if ((host === 'ios' || host === 'host-ios') && flags.device) { const ph = phone(flags.phone); flags.phone = ph.udid; return `phone ${ph.udid}`; }
   if (host === 'ios' || host === 'host-ios') {
-    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, hint: '--sim <udid|name> (or EXACT_SIM)' });
+    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, dir: resolveApp(flags.app).dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
     process.env.EXACT_SIM = sim.udid;
     return `simulator ${sim.udid}`;
   }
   if (host === 'android') { const serial = androidDevice(process.env); process.env.ANDROID_SERIAL = serial; return `android ${serial}`; }
   return 'this machine';
+}
+/** The store a drive that names none uses: on a native host, `default`, so the app's files are kept from one drive
+ * to the next as the app keeps them from one launch to the next (`--reset-storage` empties it, `--storage <name>`
+ * names another). On the web a named store is a Chrome profile emptied each drive, so a web drive names its own. */
+export function defaultStore(host, flags) {
+  return flags.storage ?? (['ios', 'macos', 'mac', 'linux'].includes(host) && !flags.url ? 'default' : undefined);
+}
+/** Says, at the first drive of the app on `device` that uses `defaultStore`, what that store is. */
+export function noteDefaultStore({ host, device, appId }, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
+  const part = (s) => String(s).replace(/[^\w.-]/g, '_');
+  if (existsSync(resolve(root, ...[host === 'mac' ? 'macos' : host, device, appId, 'default'].map(part)))) return;
+  console.error("note: no --storage named, so this drive uses the store `default`, kept from drive to drive as the app's own files are from launch to launch; --reset-storage empties it, --storage <name> names another");
 }
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
@@ -368,7 +370,8 @@ export function parseFlags(argv) {
   }
   if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
-  if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
+  // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
+  if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
 }
 

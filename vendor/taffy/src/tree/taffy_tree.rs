@@ -1596,6 +1596,13 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.layout_inputs.get(node.into()).filter(|r| !r.probed).and_then(|r| r.saved)
     }
 
+    /// The prior final inputs and output whatever its ancestors asked: for a
+    /// change none of those answers reads (one inside an absolutely
+    /// positioned box this node contains). The caller checks the output.
+    pub fn saved_layout(&self, node: NodeId) -> Option<(LayoutInput, LayoutOutput)> {
+        self.layout_inputs.get(node.into()).and_then(|r| r.saved)
+    }
+
     /// Clear caches through `boundary`, inclusive. The caller must either replay
     /// that boundary with its saved inputs or invalidate its ancestors too.
     pub fn mark_dirty_to(&mut self, node: NodeId, boundary: NodeId) {

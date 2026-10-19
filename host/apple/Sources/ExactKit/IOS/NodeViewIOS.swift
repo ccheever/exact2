@@ -510,7 +510,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A pointer over the node (an iPad's trackpad or mouse; a phone has
     /// none): `hover` in and out.
     package override var accessibilityElements: [Any]? {
-        get { textAccessibilityChildren() ?? super.accessibilityElements }
+        get { textAccessibilityChildren() ?? super.accessibilityElements ?? NodeView.emptyBoxAccessibility(of: self) }
         set { super.accessibilityElements = newValue }
     }
     /// A text field's Enter as a key (its characters are its `input`, the
@@ -768,8 +768,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
     package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        guard scrollView === self.scrollView else { return }
+        guard scrollView === self.scrollView, presenter?.elementScrolls.cutting !== scrollView else { return }
         followingEndAnimated = false
+        presenter?.elementScrolls.revealEnded(scrollView)
         // A smooth correction's driver ends its own motion (`OffsetDriver`);
         // a UIKit animation's end is not its end.
         if let c = presenter?.collections, c.offsetDrivers[id] != nil || c.startOwed.contains(id) { return }
@@ -947,8 +948,17 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                     if let hit = NodeView.hitChildren(in: contentView, at: self.convert(point, to: contentView), with: event) { return hit }
                 }
                 // Under `pointer-events: none` this box's own platform views
-                // (a native module's, paint F9) are not targets either.
-                if passesThrough, !(child is NodeView) { return nil }
+                // (a native module's, paint F9) are not targets either. The
+                // view holding its children (a clip that leaves its shadow
+                // outside, a scroller) is not one, but leads to them, unless
+                // hidden or refusing input: an `auto` descendant is still a target.
+                if passesThrough, !(child is NodeView) {
+                    let holder = self.container
+                    guard holder !== self, holder === child || holder.isDescendant(of: child) else { return nil }
+                    let chain = sequence(first: holder, next: { $0 === child ? nil : $0.superview })
+                    guard !chain.contains(where: { $0.isHidden || !$0.isUserInteractionEnabled }) else { return nil }
+                    return NodeView.hitChildren(in: holder, at: self.convert(point, to: holder), with: event)
+                }
                 return child.hitTest(self.convert(point, to: child), with: event)
             }) { return hit }
             // CSS `pointer-events: none` (inherited): the box is never the
