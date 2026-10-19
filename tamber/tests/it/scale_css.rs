@@ -316,6 +316,8 @@ fn chains_past_256_links_stop_there() {
     };
     let at = kind(256);
     let past = kind(257);
+    // (256: mapped as a length, so not reported at all.)
+    assert_eq!(at, None);
     assert_ne!(at, past, "{at:?}");
     assert!(
         past.as_deref().is_some_and(|w| !w.contains("box-shadow")),

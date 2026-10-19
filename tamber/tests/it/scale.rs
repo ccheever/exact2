@@ -164,15 +164,20 @@ fn the_budget_takes_a_design_near_its_limit_and_refuses_one_past_it() {
     assert!(took < Duration::from_secs(BOUND_NEAR), "{took:?}");
     // 3,000 tokens over 64 contexts: refused by the budget's message, not
     // run on into the isolate's RSS limit.
+    // (Its export is never built whole here: a client's file is small, and
+    // the design's own export is what the budget charges, as it is built.)
     let src = contexts_64(3000);
-    let (text, incoming) = exported(&src);
-    let (import, took) = timed(|| reimport(&incoming, std::slice::from_ref(&text), &src, &vocab()));
+    let (_, small) = exported(&contexts_64(10));
+    let (import, took) = timed(|| reimport(&small, &[], &src, &vocab()));
     let refused = import.unwrap_err();
     assert!(
         refused.iter().any(|d| d.message.contains("expands past")),
         "{refused:?}"
     );
     assert!(took < Duration::from_secs(BOUND_NEAR), "{took:?}");
+    // And the server's check of a baseline against it, likewise.
+    let refused = exact_tamber::export::own_digest(&src, &vocab()).unwrap_err();
+    assert!(refused.iter().any(|d| d.message.contains("expands past")));
 }
 
 // A debug build's, with room for a loaded machine; release is far under
