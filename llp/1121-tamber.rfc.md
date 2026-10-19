@@ -4079,3 +4079,56 @@ LLP 1115 D4).
   - After the re-check: on a boundary under a token colour, an implied row the boundary writes because its own bound colour clears or is refused stands over that binding, as the kernel's unwritten implied row does (`inked` reads `$xs` first; `modes_tests.rs` against the kernel, a clear and then a written value; `js-symbols.test.mjs`, a clear and a refused value).
   - After re-check 2: a boundary's bound colour that clears or is refused again, with nothing implied changed (`inherit` then `unset`), had its implied row cleared and not set back, so the kernel said written where the JS target did not; the runner now sets it again, unwritten, after each such clear (`NodeInst::unimply`, theme.rs). `modes_tests.rs` steps the kernel through inherit, unset, currentcolor, two refused values, a value, inherit, a value and unset against symbols.js's rule, and `js-symbols.test.mjs` the same in Chrome; iOS's segment test reads the image the installed segment was drawn from (`SegmentHost.drawn`).
   - On main with stage 9 A (the rebase): a path icon keeps A's rule (its tint, else its colour) and an SF Symbol takes B's; a path icon never takes the hierarchical face image (`faceImage`). So an untinted path icon with no written colour draws in its inherited colour where an untinted SF Symbol takes the platform's unsaid colour: both rulings, not a defect (theme2).
+
+### Stage 10, commit A1: one method→scope table (draft for theme2)
+
+`scripts/tamber-pairing.mjs`'s `METHOD_SCOPE` gives every method of the wire one scope, checked in the
+dispatcher before any handler. A method with no entry is refused (fail closed), and the change stream's
+two paths go through the same table.
+- `read`: hello, describe, resolve, explain, uses, history, export, inspect, and the streams.
+- `propose`: propose (held or not), import, revert, and drop of the client's own held proposal.
+- `write`: transaction, undo, commit, accept, drop of another client's proposal, pin, preview, outline,
+  hold, and the three scrub methods (ruling 5).
+- `local`, the local token only: pair-code, clients, revoke.
+A request above its scope is 403 `{message, scope, needs}`. Opens `tamber/1.13`.
+- **Read-only, below write:**
+  - `inspect` `refresh` reads each build's last published selection and asks no build (a build's answer
+    outlines on the developer's screens).
+  - `export` keeps no DTCG baseline (keeping one prunes another client's).
+  - `history`'s git runs with `--no-textconv`, `--no-show-signature` and `GIT_NO_LAZY_FETCH=1`.
+  - The JS loop's live `propose` class reads the design with the built reader only: no build and no
+    `cargo run`.
+- **The held-proposal cap:** a client below write may not drop another's proposal, so at the 64-proposal
+  cap its own oldest goes, else its hold is 409. This is decided in the same turn as the insert.
+- **Review:** 3 rounds with security passes and three quick re-checks; the last found nothing blocking.
+
+### Stage 10, commit A2: pairing, scoped tokens, clients and revoke (draft for theme2)
+
+To the brief and theme2's approval: (a) drop-own is propose; (b) a revoked client's held proposals
+stay, marked `revoked`; (c) 8 live codes, and 5 attempts a minute per peer.
+- **Codes:** 50 CSPRNG bits (`XXXXX-XXXXX`), 2 minutes, single use, compared in constant time.
+  - A failure counts against every live code, burned at 5.
+  - A peer gets a burst of 5 attempts, refilled at 5 a minute, limited before its body is read.
+  - Each burn and limit hit is logged with the peer, never a code.
+- **Tokens:** 32 bytes, in memory only, kept by SHA-256, 12 h (`--pair-ttl`).
+- **Clients:** named `remote:<name>#n` by the server, on every request and stream. A local client may not
+  take a `remote:` name.
+- **Local tool only:** `pair-code`, `clients`, `revoke`, and `bun exact.mjs tamber pair`.
+- **No cookie** is ever read.
+- **The local token** works only on a request the gate calls local. Through B's remote listener or a
+  trusted tunnel nothing is local, and only `POST /__tamber/pair` answers without a paired token.
+- **A revoke or an expiry:**
+  - ends the client's subscriptions, long polls (401), scrub (restored), pins, inspect, outlines and
+    holds, and the gateway's streams (`onEnd`);
+  - makes a request still sending its body 401, and a scrub release mid-preview writes nothing;
+  - lets a write already sent to the design server complete, as a local edit in flight would.
+- **Deadlines are facts at once:** every read treats a client past its deadline as gone. Its end, and
+  the callbacks, come from its timer or a sweep at each request and build report, never from inside
+  another event's send.
+- **The interface for C** (`lookup`, `onEnd`, `live`, `limiter`, `allows`, the table) **and for B**
+  (`access.remote`, `tunnel`, `peer`) is the module's doc comment.
+- **Review:** 3 rounds with security passes and six quick re-checks. Round 3's Grok and the last re-check
+  found nothing.
+- **Known limit (accepted, theme2):** five unauthenticated misses burn every live code, by the burn rule:
+  a LAN peer can deny pairing, never gain it (rate-limited per peer; pairing is LAN-only, ruling 1).
+
