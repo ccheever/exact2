@@ -4,9 +4,9 @@
 
 #![deny(missing_docs)]
 
+mod linked;
 #[path = "../../package_tool.rs"]
 mod package_tool;
-mod linked;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
@@ -368,7 +368,11 @@ fn module_constants(
     }
     metadata.push_str(&format!("pub const RUST_UPDATES: bool = {rust_updates};\n"));
     if platform != "web" {
-        metadata.push_str(if linked { LINKED_BYTECODE } else { APP_BYTECODE });
+        metadata.push_str(if linked {
+            LINKED_BYTECODE
+        } else {
+            APP_BYTECODE
+        });
     }
     Ok(metadata)
 }
