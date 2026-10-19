@@ -602,3 +602,16 @@ test('round 11 (Grok): an alias to a token the design drops is listed and writte
   expect(fill.valuesByMode[mode.modeId].type).toBeUndefined();
   expect(f.variables.includes(soft)).toBe(false);
 });
+
+test('round 13: values on a parked mode whose context comes back are listed before the pull writes over them', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], first = col.modes[0].modeId;
+  const gone = variant(doc => { delete doc.modifiers.mode.contexts['dark-style=black, light']; doc.modifiers.mode.default = 'dark-style=dim, light'; });
+  await send({ type: 'apply', text: gone }, 'applied');
+  const fill = f.variables.find(v => v.name === 'accent/fill');
+  fill.valuesByMode[first] = { r: 1, g: 0, b: 0, a: 1 }; // the person paints the unused mode
+  const back = variant(doc => { doc.modifiers.mode.default = 'dark-style=dim, light'; });
+  const checked = await send({ type: 'check', text: back }, 'checked');
+  expect(checked.revived.map((r: any) => [r.variable, r.mode])).toContainEqual(['accent/fill', 'unused: dark-style=black, light']);
+});

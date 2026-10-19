@@ -50,7 +50,7 @@ async function pair() {
 
 async function pullDesign() {
   const { text } = await call(paired, '/__tamber', { method: 'export', kind: 'dtcg', client: 'figma' });
-  const { conflicts, contexts, unread, drops, aliases } = await ask({ type: 'check', text }, 'checked');
+  const { conflicts, contexts, unread, drops, aliases, revived } = await ask({ type: 'check', text }, 'checked');
   const lines = conflicts.map((c: any) => `${c.collection}: ${c.variable} (${c.mode})${c.gone ? ', which the design no longer has' : c.figmaOnly ? ', changed in Figma only' : ''}`);
   const moved = [...contexts.added.map((c: string) => `+ ${c}`), ...contexts.removed.map((c: string) => `- ${c}`)];
   const gone = conflicts.some((c: any) => c.gone), kept = conflicts.some((c: any) => !c.gone);
@@ -61,6 +61,8 @@ async function pullDesign() {
   if (moved.length && !confirm(`The design's contexts changed since the last pull:\n${moved.join('\n')}\n\nOK rewrites the Tamber collections: a mode or collection the design no longer has goes, and what is bound to it in this file loses it.`)) { show('not pulled: the contexts changed'); return; }
   // Aliases of the person's the pull writes the design's value over.
   if (aliases.length && !confirm(`${aliases.length} alias(es) in Figma will be replaced by the design's values:\n${aliases.map((a: any) => `${a.collection}: ${a.variable} (${a.mode})`).join('\n')}\n\nOK pulls.`)) { show('not pulled: aliases would be replaced'); return; }
+  // Values on a mode Tamber kept unused whose context comes back: written over.
+  if (revived.length && !confirm(`${revived.length} value(s) on a mode Tamber kept unused come back to their context and are replaced by the design's:\n${revived.map((r: any) => `${r.collection}: ${r.variable} (${r.mode})`).join('\n')}\n\nOK pulls.`)) { show('not pulled: values on an unused mode would be replaced'); return; }
   // Variables a pull removes or makes again: what is bound to them in this file loses them.
   if (drops.length && !confirm(`${drops.length} variable(s) go or are made again with this pull, and what is bound to them loses them:\n${drops.map((d: any) => `${d.variable}: ${d.why}`).join('\n')}\n\nOK pulls.`)) { show('not pulled: variables would go'); return; }
   const done = await ask({ type: 'apply', text }, 'applied');

@@ -3,7 +3,7 @@
 // for a push. The UI (ui.ts) holds the server, the paired token and every
 // request; this thread only touches the document, never the network. Each
 // reply carries the request's `id`, an error too.
-import { conflicts, contextsMoved, pull, push, same, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, pull, push, same, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 declare const figma: any;
 declare const __html__: string;
@@ -228,7 +228,20 @@ figma.ui.onmessage = async (msg: any) => {
             }
           }
         }
-        say({ type: 'checked', conflicts: plan ? conflicts(plan, doc, held.now) : [], unread: held.unread, drops, aliases, contexts: plan ? contextsMoved(plan, doc) : { added: [], removed: [] } });
+        // And whatever is on a mode Tamber kept unused (a parked default) whose context comes back: the pull writes over it.
+        const revived: { collection: string; variable: string; mode: string }[] = [];
+        if (plan) {
+          const back = new Set(Object.keys(tokensOf(doc))), collections = await figma.variables.getLocalVariableCollectionsAsync(), variables = await figma.variables.getLocalVariablesAsync();
+          for (const c of plan.collections) {
+            const col = collectionIn(collections, c);
+            for (const [ctx, id] of Object.entries(c.parked ?? {})) {
+              const m = col?.modes.find((x: any) => x.modeId === id);
+              if (!m || !back.has(ctx)) continue;
+              for (const fv of variables.filter((x: any) => x.variableCollectionId === col.id && x.getSharedPluginData?.(KEY, 'token'))) if (fv.valuesByMode[id] !== undefined) revived.push({ collection: col.name, variable: fv.name, mode: m.name });
+            }
+          }
+        }
+        say({ type: 'checked', conflicts: plan ? conflicts(plan, doc, held.now) : [], unread: held.unread, drops, aliases, revived, contexts: plan ? contextsMoved(plan, doc) : { added: [], removed: [] } });
         break;
       }
       case 'apply': {
