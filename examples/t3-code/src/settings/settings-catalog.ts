@@ -102,6 +102,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["source-control-writing-style", "Source control writing style", "source-control", "", "repository conventions conventional commits custom instructions change descriptions request titles", "", "environment"],
   ["follow-change-request-templates", "Follow change request templates", "source-control", "", "repository pr pull request description structure", "", "environment"],
   ["review-guides", "Review guides", "source-control", "", "pull request guide tour", "project-defaults", "environment"],
+  ["review-guide-instructions", "Review guide instructions", "source-control", "scoped-input-reviewGuideInstructions", "review guide preferences instructions tour show dwell skip summaries", "project-defaults", "environment"],
   ["review-guide-model", "Review guide model", "source-control", "", "review guide effort model", "project-defaults", "environment"],
   ["source-control-writer-model", "Source control writer model", "source-control", "", "override generated commit change request pr titles descriptions branch bookmark", "project-defaults", "environment"],
   ["project-actions", "Actions", "projects", "", "commands scripts setup run dev server checkout worktree t3.json import", "", ""],

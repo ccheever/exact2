@@ -8,6 +8,7 @@ export { commandDisplayText, commandProgramName } from './command-label';
 // T3's own MCP tools take their presentation from timeline-t3tools.ts;
 // integration sources are not reproduced and keep the generic presentation.
 import { toolCallLines } from './timeline-item-detail';
+import { replToolTitle } from './tool-activity';
 import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
 import { summarizeT3ToolCalls, t3ActionPriority, t3ToolDefinition, t3ToolPresentation, t3ToolResultFailed, type T3ToolCall, type T3ToolPresentation } from './timeline-t3tools';
 import { extractToolActivityPresentation, notificationSource } from './timeline-work-rows';
@@ -141,13 +142,14 @@ export function claudeSkillInvocation(toolName: unknown, input: unknown): { name
   const name = trimmed(obj(input).skill);
   return name === undefined ? undefined : { name, args: trimmed(obj(input).args) };
 }
-/** dynamicToolTitle: CUA's `title`, or the skill a Claude `Skill` call loads. */
-export function dynamicToolTitle(toolName: unknown, input: unknown): string | undefined {
-  if (toolName === 'cua_repl.js') return trimmed(obj(input).title);
+/** dynamicToolTitle: a REPL's title, or the skill a Claude Skill call loads. */
+export function dynamicToolTitle(toolName: unknown, input: unknown, retainedTitle?: unknown): string | undefined {
+  const repl = replToolTitle(toolName, input, retainedTitle);
+  if (repl) return repl;
   const skill = claudeSkillInvocation(toolName, input);
   return skill === undefined ? undefined : `Skill: ${skill.name}`;
 }
-const dynamicTitle = (entry: WorkEntry) => entry.itemType === 'dynamic_tool' ? dynamicToolTitle(entry.item.toolName, entry.item.input) : undefined;
+const dynamicTitle = (entry: WorkEntry) => entry.itemType === 'dynamic_tool' ? dynamicToolTitle(entry.item.toolName, entry.item.input, entry.item.title) : undefined;
 const PATH_KEYS = ['path', 'filePath', 'file_path', 'relativePath', 'filename', 'fileName', 'newPath', 'oldPath'];
 function collectPaths(value: unknown, paths: string[], seen: Set<string>, depth: number): void {
   if (depth > 4 || paths.length >= 8) return;

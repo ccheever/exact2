@@ -209,6 +209,17 @@ pub enum Event {
         /// Whether it is open after the last change in this turn.
         new_open: bool,
     },
+    /// A decorated field checkbox requested a source edit (LLP 1114.007).
+    DecorationToggle {
+        /// Whether its marker was checked.
+        old_checked: bool,
+        /// Whether its marker should become checked.
+        new_checked: bool,
+        /// The marker's first UTF-16 source offset.
+        start: u32,
+        /// The offset after the marker.
+        end: u32,
+    },
     /// A scroll finished (DOM's `scrollend`): the person's, its momentum
     /// included, or an animated one.
     Scrollend,
@@ -542,6 +553,19 @@ impl Event {
             Event::Toggle { old_open, new_open } => Some(Value::record(vec![
                 Value::str(if *old_open { "open" } else { "closed" }),
                 Value::str(if *new_open { "open" } else { "closed" }),
+                Value::Number(-1.),
+                Value::Number(-1.),
+            ])),
+            Event::DecorationToggle {
+                old_checked,
+                new_checked,
+                start,
+                end,
+            } => Some(Value::record(vec![
+                Value::str(if *old_checked { "checked" } else { "unchecked" }),
+                Value::str(if *new_checked { "checked" } else { "unchecked" }),
+                Value::Number(f64::from(*start)),
+                Value::Number(f64::from(*end)),
             ])),
             Event::Key(k) | Event::Keycapture(k) | Event::Keyup(k) => Some(k.value()),
             Event::Pointerdown(p)
@@ -1068,7 +1092,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Change(_) => "change",
                 Event::Cancel => "cancel",
                 Event::Close => "close",
-                Event::Toggle { .. } => "toggle",
+                Event::Toggle { .. } | Event::DecorationToggle { .. } => "toggle",
                 Event::Scrollend => "scrollend",
                 Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
@@ -1224,7 +1248,9 @@ impl<D: DataSource> Runner<D> {
             Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
             Event::Close => (EventKind::Close, None, "close"),
-            Event::Toggle { .. } => (EventKind::Toggle, None, "toggle"),
+            Event::Toggle { .. } | Event::DecorationToggle { .. } => {
+                (EventKind::Toggle, None, "toggle")
+            }
             Event::Scrollend => (EventKind::Scrollend, None, "scrollend"),
             Event::Select {
                 formats,

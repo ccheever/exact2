@@ -152,3 +152,12 @@ export async function prSelectionHandoff(client: T3Client, native: Native, detai
   }
   return (await askInThread(client, native, `selection:${comment.id}`, task, str(detail.projectId))) ? 'sidebar:new-thread' : '';
 }
+
+/** A guide question keeps the same bounded handoff/concurrency path as other PR questions. */
+export async function prGuideTaskHandoff(client: T3Client, native: Native, detail: Obj, surface: string, task: HandoffTask,
+  elsewhere?: (kind: string, task: HandoffTask | null, mode: 'worktree' | 'local', detail: Obj) => Promise<string>): Promise<string> {
+  if (prState(client).handoff) return '';
+  if (surface === 'thread') { await writeToComposer(client, native, task); return ''; }
+  if (elsewhere) return elsewhere('ask', task, 'local', detail);
+  return await askInThread(client, native, 'guide', task, str(detail.projectId)) ? 'sidebar:new-thread' : '';
+}

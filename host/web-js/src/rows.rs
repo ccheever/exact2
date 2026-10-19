@@ -585,6 +585,16 @@ impl Em<'_> {
             .map(|b| plan.binding(b))
             .find(|b| b.kind == BindingKind::Prop && b.id == PropId::Markup as u16);
         if element == "textarea" {
+            if row
+                .bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16)
+            {
+                self.editor = true;
+                let decorate = self.uses.rt("decoratedEditor");
+                let _ = write!(self.out, "{decorate}({e});");
+            }
             match markup.map(|b| style::literal(plan, plan.code(b.expr))) {
                 Some(Some(v)) if v.as_str() == Some("markdown") => {
                     self.editor = true;

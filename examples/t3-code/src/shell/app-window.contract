@@ -47,6 +47,7 @@ use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView, TerminalDrawer from "../terminal/terminal.contract"
 use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode from "./hover-layer.contract"
 use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
+use WorkflowMemberCard from "../details/lineage-workflows.contract"
 use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
@@ -345,6 +346,7 @@ component T3Window
     clearModalError: action
     titleSend: action
   provide
+    guideKeysBlocked = paletteOpen or modal or settingsOpen
     dialogFocusId
     dialogMenuEntered
     dialogOpened
@@ -753,7 +755,7 @@ component T3Window
   state titleMenuY = 0
   state renaming = false
   state renameText = ""
-  state rightMaximized = false
+  derive rightMaximized = shell.panel.maximized and (rightPanel or shell.panel.open) and not narrowDiff
   action titleUi(what: string, value: string)
     let typed = renameText // the commit sends the field's text as the action found it
     if what == "open" or what == "context"
@@ -788,10 +790,6 @@ component T3Window
   action panelUi(what: string, id: string)
     let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
     titleMenuOpen = false
-    if what == "toggle" or what == "close" or what == "tab-close"
-      rightMaximized = closingTerminal ? rightMaximized : what == "tab-close" and shell.panel.count > 1 and rightMaximized
-    if what == "maximize"
-      rightMaximized = not rightMaximized
     panelUiRoot(what, id)
   action detailsAct(op: string, target: string, value: string)
     titleMenuOpen = false
@@ -907,6 +905,8 @@ component T3Window
               PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
             else if hoverTip.kind == "pr-preview"
               PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
+            else if hoverTip.kind == "workflow-member"
+              WorkflowMemberCard(tip=hoverTip)
             else if hoverTip.kind == "scopes"
               HoverScopes(tip=hoverTip)
             else if hoverTip.kind == "code"

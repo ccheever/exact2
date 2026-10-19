@@ -49,6 +49,37 @@ function put(s) {
   for (let i = 0; i < s.length; i++) m[i] = s.charCodeAt(i);
   return s.length;
 }
+
+/** The generic decorated editor shares the kernel's UTF-16 reconciliation. */
+export function reconcileDecorations(record, current) {
+  const lists = ['spans', 'blocks', 'hidden', 'atoms'];
+  const ranges = [], entries = [];
+  for (const kind of lists) for (const item of record[kind] ?? []) {
+    entries.push({ kind, item });
+    ranges.push(item.start, item.end, +(kind === 'hidden' || kind === 'atoms'));
+    if (kind === 'hidden' && item.reveal) {
+      entries.push({ kind: 'reveal', item: item.reveal, owner: item });
+      ranges.push(item.reveal.start, item.reveal.end, 0);
+    }
+  }
+  put(record.value + current);
+  const at = wasm.mde_decoration_ranges(ranges.length);
+  new Uint32Array(wasm.memory.buffer, at, ranges.length).set(ranges);
+  const count = wasm.mde_reconcile_decorations(record.value.length, current.length);
+  const mapped = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), count).slice();
+  const result = { provisional: record.value !== current, spans: [], blocks: [], hidden: [], atoms: [] };
+  const hidden = new Map();
+  for (let i = 0; i < mapped.length; i += 3) {
+    const { kind, item, owner } = entries[mapped[i]], range = { start: mapped[i + 1], end: mapped[i + 2] };
+    if (kind === 'reveal') { const run = hidden.get(owner); if (run) run.reveal = range; }
+    else {
+      const next = { ...item, ...range };
+      if (kind === 'hidden') { next.reveal = null; hidden.set(item, next); }
+      result[kind].push(next);
+    }
+  }
+  return result;
+}
 const text = n => utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_text(), n));
 
 /** A line's class, attributes and segments, from its `mde_view` record. */

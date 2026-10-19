@@ -57,17 +57,9 @@ enum T3ComposerIcons {
         return byExtension[ext].flatMap { pierre[$0] != nil ? $0 : nil } ?? "default"
     }
 
-    /// inferEntryKindFromPath: a name with no dot (or only a leading one) is a folder.
-    static func isFolder(_ path: String) -> Bool {
-        if path.hasSuffix("/") { return true }
-        let base = T3ComposerText.basename(path)
-        if base.hasPrefix(".") && !base.dropFirst().contains(".") { return true }
-        return !base.contains(".")
-    }
-
     static func name(for chip: T3ComposerChip, kind: String) -> String {
         switch chip.kind {
-        case "mention": return isFolder(chip.detail) ? "folder" : "pierre:" + token(for: chip.detail)
+        case "mention": return "pierre:" + token(for: chip.detail)
         case "skill": return "skill"
         case "citation": return "quote"
         default:

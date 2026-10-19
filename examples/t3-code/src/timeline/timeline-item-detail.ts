@@ -1,6 +1,8 @@
-// Ported from T3 Code 1e2ecbd975 packages/client-runtime/src/work-log/itemDetail.ts (MIT, LICENSE-T3).
+// Ported from T3 Code 9c161462c9 packages/client-runtime/src/work-log/itemDetail.ts (MIT, LICENSE-T3).
 // Exact adaptation: decoded JSON records/ISO strings replace schema/Effect types; output-only tools also disclose.
 import { arr, obj, str, type Obj } from '../client/domain';
+import { readToolOutputImage, turnItemOutputImages } from './tool-output-images';
+export { turnItemOutputImages } from './tool-output-images';
 
 const MAX_TEXT_BLOCK_DEPTH = 4;
 
@@ -18,11 +20,11 @@ function textFromBlocks(value: unknown, depth: number): string | null {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
     const parts = value.map((block) => textFromBlocks(block, depth + 1));
-    return parts.every((part) => part !== null) ? parts.join("\n") : null;
+    return parts.every((part) => part !== null) ? parts.filter(part => part !== "").join("\n") : null;
   }
   if (!isRecord(value)) return null;
   if (value.type === "text" && typeof value.text === "string") return value.text;
-  if (value.type === "image") return "[image]";
+  if (value.type === "image") return readToolOutputImage(value) ? "" : "[image]";
   if (value.type === "resource_link" && typeof value.uri === "string") return value.uri;
   if (value.type === "resource" && isRecord(value.resource)) {
     const resource = value.resource;
@@ -62,8 +64,9 @@ function prettyJsonText(text: string): string {
 }
 
 /** Formats a tool input or output for display: text blocks as text, the rest as JSON. */
-function formatToolValue(value: unknown): string | null {
+function formatToolValue(value: unknown, hasImagePreview = false): string | null {
   if (value === undefined || value === null) return null;
+  if (hasImagePreview && isRecord(value) && value.type === "image") return null;
   const text = textFromBlocks(value, 0);
   if (text !== null) return text.trim() ? prettyJsonText(text) : null;
   let json: string | undefined;
@@ -166,7 +169,7 @@ function commandOutputText(output: string): string {
 export function turnItemOutputText(item: Obj): string | null {
   switch (item.type) {
     case 'command_execution': return str(item.output).trim() ? commandOutputText(str(item.output)) || null : null;
-    case 'dynamic_tool': return item.outputOmitted === true ? null : formatToolValue(item.output);
+    case 'dynamic_tool': return item.outputOmitted === true ? null : formatToolValue(item.output, item.viewedImagePath !== undefined);
     case 'file_search': return arr(item.results).map(result => [
       `${str(result.fileName)}${result.line === undefined ? '' : `:${result.line}`}`, str(result.preview).trim(),
     ].filter(Boolean).join('\n')).join('\n') || null;
@@ -186,7 +189,7 @@ export function turnItemHasDetail(item: Obj): boolean {
     case 'file_change': case 'checkpoint': case 'fork': case 'handoff': return true;
     case 'file_search': return arr(item.results).length > 0 || Boolean(str(item.pattern).trim());
     case 'web_search': return arr(item.results).length > 0 || (Array.isArray(item.patterns) && item.patterns.length > 0);
-    case 'dynamic_tool': return item.outputOmitted === true || toolCallHasLines(toolCallLines({ args: item.input })) || turnItemOutputText(item) !== null;
+    case 'dynamic_tool': return item.outputOmitted === true || toolCallHasLines(toolCallLines({ args: item.input })) || turnItemOutputText(item) !== null || turnItemOutputImages(item).length > 0;
     case 'approval_request': return Boolean(str(item.prompt).trim());
     case 'user_input_request': return arr(item.questions).length > 0;
     case 'notification': return Boolean(str(item.detail).trim());
