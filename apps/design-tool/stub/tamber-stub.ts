@@ -121,7 +121,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -188,7 +188,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
       if (request.method === 'pair-code') return mint(request);
       // The gateway's grant (stage 10 C), for a paired client; its URL this stub's own, which has no gateway page.
-      if (request.method === 'canvas') return asker.client ? send({ ok: { url: `${API}/canvas/${encodeURIComponent(asker.client)}/`, grant: crypto.randomUUID(), expires: Date.now() + 30_000 } }) : send({ error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } }, 400);
+      // (A test names the canvas origin a gateway would have, `/__stub/canvas`; by default the stub's host over
+      // https, another port, which nothing serves: the frame is there, entered by nothing.)
+      if (request.method === 'canvas') return asker.client ? send({ ok: { url: `${canvasAt || `https://${new URL(API).hostname}:${Number(new URL(API).port) + 1}`}/canvas/${encodeURIComponent(asker.client)}/`, grant: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'), expires: Date.now() + 30_000 } }) : send({ error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } }, 400);
       if (request.method === 'clients') return send({ ok: { clients: [{ client: 'local', local: true, scope: 'write' }, ...paired.map(({ token: _, ...c }) => c)] } });
       if (request.method === 'revoke') return revoke(request.client) ? send({ ok: { revoked: request.client } }) : send({ error: { message: `no paired client \`${request.client}\`` } }, 404);
       // Scrubs, as the server takes them: a dev loop and a present client.
@@ -338,6 +340,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: { token: p.token, client: p.client, scope: p.scope, expires: p.expires } });
     },
   },
+  // The origin the next canvas grants name (a test's: another host refused by the tool).
+  '/__stub/canvas': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasAt = (await req.json().catch(() => ({}))).origin ?? ''; return send({ ok: true }); } },
   // The next pair-code and clients refused, once each.
   '/__stub/refuse-pairing': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refusePairing = new Set(['pair-code', 'clients']); return send({ ok: true }); } },
   // A code or a revoke as the local tool would ask it, for a test whose tool is the paired one.
@@ -383,7 +387,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear();
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = '';
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;

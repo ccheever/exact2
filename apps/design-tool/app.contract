@@ -22,6 +22,8 @@ shape Hello
   // A dev loop serves the wire: a value edit applies in place, and a
   // scrub previews on the running copies.
   live: bool
+  // The server's run: a restart is another.
+  epoch: string
   // This tool's scope on the server, and whether its token is the local
   // one, which pairs and revokes clients (tamber/1.13); a paired client's
   // name, as the server gives it.
@@ -668,8 +670,10 @@ component DesignTool
   state remoteAt = ""
   state remoteCode = ""
   mutation pairedWith as shape Pinned refreshes hello
-  // Its canvas, read once a server run.
-  resource canvasAt = loadCanvas(hello.local, hello.client, changes.epoch) as shape Canvas else empty(ok=true)
+  // Its canvas, read once a server run, and again when it is opened again
+  // or asked for again (a grant enters once).
+  state canvasTick = 0
+  resource canvasAt = loadCanvas(hello.local, hello.client, hello.epoch, canvasTick) as shape Canvas else empty(ok=true)
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
@@ -828,6 +832,8 @@ component DesignTool
     if not pending(pairedWith) and remoteAt.trim() != "" and remoteCode.trim() != ""
       send pairedWith = pairRemote(remoteAt, remoteCode, person)
       remoteCode = ""
+  action reloadCanvas
+    canvasTick = canvasTick + 1
   action reloadClients
     clientsTries = clientsTries + 1
     refresh clients
@@ -855,6 +861,7 @@ component DesignTool
   action editName(v: string)
     draftName = v
   action saveName
+    canvasTick = canvasTick + 1
     if draftName.trim() != ""
       person = draftName.trim()
       renaming = false
@@ -1382,7 +1389,11 @@ component DesignTool
                 if canvasAt.frame != ""
                   iframe src=canvasAt.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
                 else
-                  text (canvasAt.error != "" ? canvasAt.error : "The canvas comes through the design server's gateway.") color="-exact-secondary-label" testId="canvas-remote-none"
+                  row gap=8 align-items="center" flex-wrap="wrap"
+                    text (canvasAt.error != "" ? canvasAt.error : "The canvas comes through the design server's gateway.") color="-exact-secondary-label" flex=1 testId="canvas-remote-none"
+                    if canvasAt.error != ""
+                      button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-retry"
+                        text "Try Again"
               else if hello.page != ""
                 iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else

@@ -42,7 +42,7 @@ const READ_WAIT = WRITE_WAIT;
 const RESOLVES_AT_ONCE = 4;
 // The one `tamber/1` client (wire.ts): this machine's server at API, or
 // another machine's the tool paired with.
-const { call, RESTARTED, pairWith, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
+const { call, RESTARTED, pairWith, remote, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
 
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
@@ -611,10 +611,10 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 }
 
 const sources: Sources = {
-  ...pairingSources(call, pairWith),
+  ...pairingSources(call, pairWith, remote),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
-    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '' };
+    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
     const ok = reply.ok ?? {};
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
@@ -622,7 +622,7 @@ const sources: Sources = {
     // dev loop (tamber/1.3).
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...(ok.local === false ? { page: '', frame: '' } : pageOf(ok.page, Number(new URL(API).port))), live: liveTable,
       // Its scope, and whether it is the local tool's token (tamber/1.13): a server before 1.13 has the local one alone.
-      scope: String(ok.scope ?? 'write'), local: ok.local !== false, client: String(ok.client ?? '') };
+      scope: String(ok.scope ?? 'write'), local: ok.local !== false, client: String(ok.client ?? ''), epoch: String(ok.epoch ?? '') };
   },
   loadDesign: async ([file]) => {
     const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;

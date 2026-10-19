@@ -5,6 +5,7 @@
 import { expect, test } from 'bun:test';
 import { METHOD_SCOPE } from './tamber-pairing.mjs';
 import { above, doorOf, GONE, NEEDS, needOf, wire } from '../apps/design-tool/wire.ts';
+import { canvasFrame } from '../apps/design-tool/pairing.ts';
 
 test('the tool\'s scope table is the server\'s, method for method', () => {
   expect(NEEDS).toEqual({ ...METHOD_SCOPE });
@@ -116,4 +117,20 @@ test('an answer from before a pairing, or from an older one, changes nothing: th
     expect((await w.call('/__tamber', { method: 'hello' })).error).toBe('');
     expect(sent.at(-1)).toMatchObject({ token: 'paired-2' });
   } finally { globalThis.fetch = real; }
+});
+
+test('a canvas frame only on the paired door\'s host, over https, another port, at /canvas/<client>/; the grant only in its fragment', () => {
+  const grant = 'A'.repeat(43), door = 'https://192.168.1.20:7743', client = 'remote:Ada#1', at = '/canvas/remote%3AAda%231/';
+  expect(canvasFrame(`https://192.168.1.20:7745${at}`, grant, door, client)).toEqual({ frame: `https://192.168.1.20:7745${at}#g=${grant}`, error: '' });
+  for (const url of [
+    `http://127.0.0.1:5173${at}`, // the viewer's own dev loop
+    `https://127.0.0.1:7745${at}`, // this machine, not the door's host
+    `https://evil.example:7745${at}`, // another host
+    `https://192.168.1.20:7743${at}`, // the door's own origin: the frame could reach the tool
+    `http://192.168.1.20:7745${at}`, // not https
+    'https://192.168.1.20:7745/canvas/remote%3AGrace%231/', // another client's
+    `https://192.168.1.20:7745${at}?x=1`, `https://192.168.1.20:7745${at}#g=other`, `https://u:p@192.168.1.20:7745${at}`, 'not a url',
+  ]) expect([url, canvasFrame(url, grant, door, client).frame]).toEqual([url, '']);
+  expect(canvasFrame(`https://192.168.1.20:7745${at}`, 'short', door, client).frame).toBe('');
+  expect(canvasFrame(`https://192.168.1.20:7745${at}`, 'x#y'.repeat(10), door, client).frame).toBe('');
 });
