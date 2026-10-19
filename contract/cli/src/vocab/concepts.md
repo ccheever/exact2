@@ -1058,8 +1058,8 @@ component App
           text `${n}` testId="n"
 ```
 
-- A `popovertarget` button is the bar item's pull-down menu (`contract vocab menu`); the menu
-  may be written in the header or beside it.
+- A `popovertarget` button is the bar item's pull-down menu (`contract vocab menu`). Write the
+  menu beside the header; one written in it is still its button's menu, never more bar buttons.
 
 More: docs/recipes/navigation-stack.md
 

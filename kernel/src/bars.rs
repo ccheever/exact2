@@ -77,6 +77,10 @@ pub mod fact {
     /// Its role is `status`: a readout the bar shows as an item that is
     /// not pressed (LLP 1075.003 §9.15).
     pub const STATUS: u32 = 1 << 10;
+    /// A `popover` or a `dialog`: the top layer's when open, as on the web,
+    /// so neither it nor what it holds is the bar's (a menu written in the
+    /// header is its button's menu, not more items).
+    pub const LAYER: u32 = 1 << 11;
     /// A heading's `aria-level`, 1 to 6, shifted this far; 0 where it says
     /// none (ARIA's default is then 2).
     pub const LEVEL: u32 = 16;
@@ -185,6 +189,9 @@ impl<N: Copy + PartialEq> Walk<N> {
     fn walk<T: Tree<Node = N>>(&mut self, tree: &T, node: N, back_is_platforms: bool) {
         for child in tree.children(node) {
             let facts = tree.facts(child);
+            if facts & fact::LAYER != 0 {
+                continue;
+            }
             if facts & fact::HEADING != 0 {
                 self.headings.push(child);
             } else if facts & fact::SEARCH != 0 {
@@ -404,6 +411,11 @@ impl Tree for Live<'_> {
         );
         set(role == Some("tablist"), fact::TABLIST);
         set(role == Some("status"), fact::STATUS);
+        set(
+            props.str(PropId::Popover).is_some()
+                || props.str(PropId::SemanticTag) == Some("dialog"),
+            fact::LAYER,
+        );
         set((self.pressed)(id), fact::PRESS);
         set(
             crate::Invocation::of(self.kernel, &node).is_some_and(|i| i.opens_popover()),

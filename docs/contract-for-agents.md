@@ -1446,7 +1446,8 @@ glass capsule of its own (`sharesBackground = false`), one for each button so st
 this adds no spacing value or custom button face.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
-field, one tablist and its buttons; anything else in the header is not shown on iOS.
+field, one tablist and its buttons; anything else in the header is not shown on iOS. A
+menu or `dialog` written in the header is its opener's, as on the web, not bar buttons.
 On iOS the search field scrolls away with the content while it is empty, as UIKit's
 does; `position="sticky" top=0` on the `input` keeps it in view (React Navigation's
 `hideWhenScrolling={false}`). The route's scroller runs under the bars wherever its

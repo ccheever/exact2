@@ -150,8 +150,8 @@ test "add, open, delete after asking"
 
 - iOS 26 puts adjacent ungrouped bar buttons on one glass capsule. `buttonStyle="glass"`
   on each gives it a separate capsule of its own; a `row role="group"` keeps some on one.
-- A `popovertarget` button is the item's pull-down menu; write the menu in the header or
-  beside it (`contract vocab bar-buttons`).
+- A `popovertarget` button is the item's pull-down menu. Write the menu beside the header;
+  one written in it is still its button's menu, never more bar buttons.
 - The header's `input type="search"` hides when scrolling while it is empty, as UIKit's
   does; `position="sticky" top=0` on it keeps the search field visible.
 

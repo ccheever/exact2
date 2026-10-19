@@ -383,6 +383,55 @@ fn a_header_button_is_a_menu_item_when_its_invocation_opens_a_popover() {
 }
 
 #[test]
+fn a_menu_written_inside_the_header_is_its_buttons_menu_not_more_items() {
+    // header > [heading, button opening "more", menu "more" > [row, row]]:
+    // the euxy port's sort menu, whose rows had become bar buttons.
+    const OPENS: Props = &[(PropId::Popovertarget, "more")];
+    const MENU: Props = &[
+        (PropId::Id, "more"),
+        (PropId::Popover, "auto"),
+        (PropId::AccessibilityRole, "menu"),
+    ];
+    let tree = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![
+                text(12, H1),
+                button(50, OPENS),
+                Node(
+                    60,
+                    NodeType::View,
+                    MENU,
+                    vec![button(41, &[]), button(42, &[])],
+                ),
+            ],
+        )],
+    ));
+    let shape = tree.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!(shape.items, vec![50]);
+    assert_eq!(shape.trailing, vec![50]);
+    // A dialog written there is the top layer's too.
+    const DIALOG: Props = &[(PropId::SemanticTag, "dialog")];
+    let tree = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![
+                text(12, H1),
+                Node(60, NodeType::View, DIALOG, vec![button(41, &[])]),
+            ],
+        )],
+    ));
+    let shape = tree.header_shape(10, None, true, &pressed).unwrap();
+    assert!(shape.items.is_empty(), "{:?}", shape.items);
+}
+
+#[test]
 fn a_route_that_says_no_bar_or_hides_its_header_has_none() {
     let mut kernel = shelf();
     assert!(kernel.header_shape(10, None, false, &pressed).is_some());
