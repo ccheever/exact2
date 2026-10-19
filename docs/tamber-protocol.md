@@ -138,10 +138,12 @@ statuses:
 | Status | When |
 |---|---|
 | 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused |
+| 401 | a paired token revoked or expired, also a request whose client ended while it sent its body (*1.13*) |
 | 403 | above the client's scope (*1.13*): `{message, scope, needs}` in `error`, on a request or a change stream path alike |
 | 404 | an unknown proposal or commit |
 | 409 | a conflict (`conflict: true`); a revert refused; a hold from a client below `write` with 64 held and none its own (*1.13*); a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
 | 413 | too large |
+| 429 | too many pairing attempts from one peer (`retry-after`, *1.13*) |
 | 500 | reading git failed (`history`, `revert`, a write's baseline) |
 | 503 | the design server is down |
 | 504 | the design server didn't answer within 120 s |
@@ -162,7 +164,10 @@ statuses:
 - **Every POST** carries the token as `x-exact-tamber-token`, never in a URL. Reads need it too,
   since a design may be unreleased.
 - **A client follows no redirects** when fetching the token.
-- **Remote clients** (pairing, scoped tokens) are LLP 1121 stage 10; pairing is not yet built.
+- **Remote clients** pair (*1.13*, LLP 1121 stage 10 A2, below) for a token of their own; the
+  remote listener and its TLS are stage 10 B (below).
+- **No cookie** is ever read for authentication: a token travels only in `x-exact-tamber-token`
+  (canvas page code, the app under development, can set cookies this port receives).
 - **The remote listener** (stage 10 B, `scripts/tamber-remote.mjs`) is off unless asked:
   `--remote <host:port>` on a dev loop (`bun exact.mjs web`) or on `tamber serve` opens a second
   listener, bound only where it names, that speaks TLS only.
@@ -183,6 +188,48 @@ statuses:
   only a paired token works through it, never the local one. The canvas has no tunnel port in
   stage 10 (QUEUE).
 
+### Pairing (*1.13*)
+
+- **A code:** `pair-code {scope, name?}` (the local token only) answers `{code, scope, expires}`.
+  `bun exact.mjs tamber pair <url> --scope read|propose|write [--name <name>]` mints one from this
+  machine. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
+  `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
+  oldest.
+- **`POST /__tamber/pair {code, name?}`** needs no token, and is the one path a remote request
+  reaches without one. It answers `{token, client, scope, expires}` once. A wrong code is 403,
+  saying nothing of which codes exist. A wrong attempt can't be told from a guess at any one code,
+  so it counts against every live code, and a code with five is burned. A peer gets a burst of
+  five attempts, refilled at five a minute; past them, 429 with `retry-after`, whatever the code,
+  before the request's body is read.
+  A code that is not a string of at most 32 characters is 400. Each burn and the first limit hit
+  of each burst are logged (with the peer, never a code) and told as a `pairing` event.
+- **The token** is 32 random bytes, kept in memory only (a restart revokes every paired client),
+  by its SHA-256. It lives 12 hours (`--pair-ttl <duration>` on `tamber serve` and the dev loops:
+  `90m`, `12h`, `2d`, from a minute to 30 days). It carries the scope its code gave.
+- **The client** is named by the server: `remote:`, the code's or the request's `name`, then `#n`
+  (`remote:laptop#1`). On every request a paired token makes, `client` is that name, whatever the
+  body says, so every event, held proposal, journal entry and conflict's `by` names it. `hello`
+  gives it as `client`, with `local: false`. A local client may not name itself `remote:…` (400),
+  so neither can act as the other.
+- **A revoke or an expiry and requests in flight:** a request still sending its body when its
+  client ends (or its deadline passes) is refused (401) once it has; a scrub release whose client
+  ends while the builds take its preview writes nothing (401), and the builds get the committed
+  design back; one already dispatched (a write sent to the design server) completes, as a local
+  edit in flight would.
+- **The local token** is the local tool's only on a request the development gate calls local: a
+  LAN peer holding it is no one (404).
+- **Off this machine** (stage 10 B's listener, or a tunnel the developer trusts) nothing is local:
+  no token page, no tool, and the local token is no one. A request reaches only
+  `POST /__tamber/pair` without a paired token.
+- **`clients`** (the local token only) answers `{clients}`: the local token (`{client: "local",
+  local: true, scope: "write"}`), then each paired client's `{client, name, scope, peer, created,
+  expires, lastSeen}`. No token is ever listed.
+- **`revoke {client}`** (the local token only) ends a paired client at once, as its token's expiry
+  does: its subscriptions end, its long polls are answered 401, its scrub ends (the builds get the
+  committed design back), its pins, inspect mode, outlines and holds are handed back, and its next
+  request is 401. Its held proposals stay, marked `revoked: true`, for a `write` client to accept or
+  drop; they never apply themselves. A `revoked` event tells the others.
+
 ### Scopes (*1.13*)
 
 Every method has one scope, in `scripts/tamber-pairing.mjs`'s table, which the wire checks
@@ -194,6 +241,7 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
 | `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
 | `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `scrub`, `scrub-release`, `scrub-cancel` |
+| the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
 `preview`, `outline` and `hold` are `write` because they change what the developer's screens show.
@@ -227,7 +275,8 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 
 **`hello`** answers:
 - `protocol` and `format`;
-- `scope` and `local` (*1.13*): the client's scope, and whether its token is the local one;
+- `scope` and `local` (*1.13*): the client's scope, and whether its token is the local one; a
+  paired client's `client` too;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
@@ -858,9 +907,12 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 |---|---|
 | `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
 | `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
-| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?` |
+| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked) |
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |
+| `paired` | `client`, `scope` (*1.13*: a client paired) |
+| `revoked` | `client`, `reason`: `revoked` or `expired` (*1.13*) |
+| `pairing` | `what`: `burned` (a code had five wrong attempts), `limited` (a peer had too many) or `replaced` (a ninth code) (*1.13*) |
 | `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
 | `build-status` | `build`: one build, after its `status` report (one that moves only the design, up to 150 ms after: see the build channel's reports) |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |

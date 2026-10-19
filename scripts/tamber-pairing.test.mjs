@@ -207,3 +207,111 @@ test('a scope the wire can\'t name allows nothing; a read client reads a build\'
   }
 });
 
+// Stage 10 A2: codes, tokens and their ends, by an injected clock.
+import { CODE_MS, limiter, pairing, pairTtlOf, parseDuration } from './tamber-pairing.mjs';
+
+test('a code is 50 bits of base32, single use, gone after two minutes, and its token works until its time', () => {
+  let now = 1e12;
+  const pairs = pairing({ clock: () => now, ttlMs: 3600_000 });
+  const { code } = pairs.mint({ scope: 'propose', name: 'laptop' }).ok;
+  expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/);
+  // Typed as a person might: lower case, no hyphen.
+  const paired = pairs.pair({ code: code.replace('-', '').toLowerCase() }, 'peer-a');
+  expect(paired.ok).toMatchObject({ client: 'remote:laptop#1', scope: 'propose' });
+  expect(paired.ok.token).toMatch(/^[0-9a-f]{64}$/);
+  expect(pairs.pair({ code }, 'peer-a').status).toBe(403);
+  expect(pairs.lookup(paired.ok.token)).toMatchObject({ client: 'remote:laptop#1', scope: 'propose' });
+  // The list never carries a token.
+  expect(JSON.stringify(pairs.list())).not.toContain(paired.ok.token);
+  const late = pairs.mint({ scope: 'read' }).ok.code;
+  now += CODE_MS + 1;
+  expect(pairs.pair({ code: late }, 'peer-b').status).toBe(403);
+  // Past its lifetime, the token is no one's, and its end says so once.
+  const ends = [];
+  pairs.onEnd('remote:laptop#1', why => ends.push(why));
+  now += 3600_000;
+  // A lookup past the deadline is no one at once; the end is `expire`'s (or the timer's), not a read's.
+  expect(pairs.lookup(paired.ok.token)).toBe(null);
+  expect(ends).toEqual([]);
+  pairs.expire();
+  expect(ends).toEqual(['expired']);
+  pairs.close();
+});
+
+test('failed attempts count against every live code, which burns at five; a peer gets five tries a minute', () => {
+  let now = 1e12;
+  const said = [];
+  const pairs = pairing({ clock: () => now, say: w => said.push(w) });
+  const a = pairs.mint({ scope: 'read' }).ok.code, b = pairs.mint({ scope: 'write' }).ok.code;
+  for (let i = 0; i < 5; i++) expect(pairs.pair({ code: 'ZZZZZ-ZZZZZ' }, `peer-${i}`).status).toBe(403);
+  expect(pairs.pair({ code: a }, 'peer-x').status).toBe(403);
+  expect(pairs.pair({ code: b }, 'peer-x').status).toBe(403);
+  expect(said.filter(w => w.what === 'burned').length).toBe(2);
+  // No code in anything said.
+  expect(JSON.stringify(said)).not.toContain(a.slice(0, 5));
+  // Five tries a minute per peer: past them, even the right code is 429,
+  // its count untouched, and it still pairs from another peer.
+  for (let i = 0; i < 5; i++) pairs.pair({ code: 'ZZZZZ-ZZZZZ' }, 'peer-y');
+  const c = pairs.mint({ scope: 'read' }).ok.code;
+  const limited = pairs.pair({ code: c }, 'peer-y');
+  expect([limited.status, limited.retry > 0]).toEqual([429, true]);
+  expect(said.at(-1)).toEqual({ what: 'limited', peer: 'peer-y' });
+  expect(pairs.pair({ code: c }, 'peer-v').ok.scope).toBe('read');
+  const bucket = limiter({ rate: 5, per: 60_000, clock: () => now });
+  for (let i = 0; i < 5; i++) expect(bucket.take('p')).toBe(true);
+  expect(bucket.take('p')).toBe(false);
+  expect(bucket.wait('p')).toBeGreaterThan(0);
+  now += 12_000;
+  expect(bucket.take('p')).toBe(true);
+  pairs.close();
+});
+
+test('at most eight codes live; revoke ends a client once; --pair-ttl reads a duration', () => {
+  const pairs = pairing();
+  const codes = Array.from({ length: 9 }, () => pairs.mint({ scope: 'read' }).ok.code);
+  expect(pairs.pair({ code: codes[0] }, 'p').status).toBe(403);
+  const ok = pairs.pair({ code: codes[8] }, 'p').ok;
+  const ends = [];
+  pairs.onEnd(ok.client, why => ends.push(why));
+  expect(pairs.revoke(ok.client)).toBe(true);
+  expect(pairs.revoke(ok.client)).toBe(false);
+  expect([ends, pairs.lookup(ok.token)]).toEqual([['revoked'], null]);
+  expect(pairs.mint({ scope: 'admin' }).status).toBe(400);
+  expect([parseDuration('12h'), parseDuration('90m'), parseDuration('2d'), parseDuration('10s'), parseDuration('31d'), parseDuration('x')]).toEqual([43_200_000, 5_400_000, 172_800_000, null, null, null]);
+  expect([pairTtlOf([]), pairTtlOf(['--pair-ttl', '90m']), pairTtlOf(['--pair-ttl', 'soon'], code => `exit ${code}`)]).toEqual([43_200_000, 5_400_000, 'exit 2']);
+  pairs.close();
+});
+
+test('the limiter forgets refilled peers and keeps at most its bound; a limit hit is told once', () => {
+  let now = 0;
+  const bucket = limiter({ rate: 5, per: 60_000, clock: () => now, keys: 100 });
+  for (let i = 0; i < 1000; i++) bucket.take(`peer-${i}`);
+  now += 61_000;
+  bucket.take('fresh');
+  for (let i = 0; i < 300; i++) bucket.take(`next-${i}`);
+  // Bounded, and an old peer starts again full.
+  for (let i = 0; i < 5; i++) expect(bucket.take('peer-1')).toBe(true);
+  const said = [];
+  const pairs = pairing({ say: w => said.push(w) });
+  for (let i = 0; i < 9; i++) pairs.pair({ code: 'X' }, 'flood');
+  expect(said.filter(w => w.what === 'limited').length).toBe(1);
+  pairs.close();
+});
+
+test('an onEnd after the end hears why it ended', () => {
+  let now = 0;
+  const pairs = pairing({ ttlMs: 1000, clock: () => now });
+  const a = pairs.pair({ code: pairs.mint({ scope: 'read' }).ok.code }, 'p').ok;
+  now = 2000;
+  expect(pairs.live(a.client)).toBe(false);
+  // Past its deadline, before any end ran: heard at once, as expired.
+  const early = [];
+  pairs.onEnd(a.client, why => early.push(why));
+  expect(early).toEqual(['expired']);
+  pairs.expire();
+  const heard = [];
+  pairs.onEnd(a.client, why => heard.push(why));
+  expect(heard).toEqual(['expired']);
+  pairs.close();
+});
+

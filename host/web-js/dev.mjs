@@ -169,7 +169,7 @@ function copyCompiler(path, copy, built) {
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
-export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], remoteAsked = { remote: null, tunnel: null }, residentPort = 0 }) {
+export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], remoteAsked = { remote: null, tunnel: null }, residentPort = 0, pairTtlMs }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
@@ -857,7 +857,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, pairTtlMs, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
