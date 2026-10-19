@@ -12,8 +12,8 @@
 // terminal for the base values. The fixtures: packages/cards, packages/notes
 // and apps/scale-gate (its design sets space.md = 20px; base/ has none).
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -92,19 +92,30 @@ async function live() {
   const dir = join(WORK, 'live');
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
+  // Its log and its build out of the checkout: a write beside the app dir can
+  // reach the dev loop's watcher as an edit, and rebuild it in a loop.
+  const log = join(tmpdir(), `stage11-gate-live-${process.pid}.log`);
+  rmSync(log, { force: true });
   for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(join(GATE, f), join(dir, f));
   const port = 20_000 + (process.pid % 20_000);
   const base = `http://127.0.0.1:${port}`;
-  const dev = spawn(process.execPath, [join(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: join(WORK, 'live-dist') }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawn(process.execPath, [join(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: join(tmpdir(), `stage11-gate-live-dist-${process.pid}`) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let drive;
   try {
+    let said = '';
     await new Promise((ok, no) => {
-      let said = '';
-      const hear = c => { said += c; if (said.includes(`127.0.0.1:${port}/`)) ok(); };
+      const hear = c => { said += c; appendFileSync(log, c); if (said.includes(`127.0.0.1:${port}/`)) ok(); };
       dev.stdout.on('data', hear); dev.stderr.on('data', hear);
       dev.on('exit', code => no(new Error(`the dev loop exited (${code}): ${said.slice(-400)}`)));
       setTimeout(() => no(new Error('the dev loop said no address in 15 min')), 900_000);
     });
+    // Its first builds settled (5 s with nothing said, at most a minute), so
+    // the page the drive opens is not reloaded under it.
+    for (let quiet = 0, last = said.length, t = 0; quiet < 5 && t < 60; t++) {
+      await new Promise(ok => setTimeout(ok, 1000));
+      quiet = said.length === last ? quiet + 1 : 0;
+      last = said.length;
+    }
     const { token } = await (await fetch(`${base}/__tamber/token`)).json();
     const ask = async request => (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) })).json();
     const edit = async op => ask({ method: 'transaction', client: 'gate', files: (await ask({ method: 'hello' })).ok?.files, ops: [op] });
@@ -127,7 +138,7 @@ async function live() {
           if (replies.length === 2) edits.push(await edit({ op: 'remove-token', name: 'space.md' }));
         }
       });
-      drive.on('exit', code => (code === 0 ? ok() : no(new Error(`the drive exited ${code}: ${(heard || buf).trim().split('\n').slice(-4).join(' / ')}`))));
+      drive.on('exit', code => (code === 0 ? ok() : no(new Error(`the drive exited ${code}: ${(heard || buf).trim().split('\n').filter(l => !/^\s+at /.test(l)).slice(-4).join(' / ')}`))));
     });
     const [first, moved, back] = replies.map(paddings);
     const evidence = [`paddings (cards, notes): ${JSON.stringify(first)} at 20px; ${JSON.stringify(moved)} after set-token space.md 28px; ${JSON.stringify(back)} after remove-token (the web's base)`,
