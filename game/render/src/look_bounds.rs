@@ -182,9 +182,7 @@ fn primitive_half(mesh: &Mesh) -> Vec3 {
             let r = radius.abs() + tube.abs();
             Vec3::new(r, tube.abs(), r)
         }
-        Mesh::Cone { radius, height } => {
-            Vec3::new(radius.abs(), height.abs() * 0.5, radius.abs())
-        }
+        Mesh::Cone { radius, height } => Vec3::new(radius.abs(), height.abs() * 0.5, radius.abs()),
         Mesh::Asset(_) => Vec3::ZERO,
     }
 }
