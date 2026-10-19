@@ -67,6 +67,7 @@ shape ThreadRow
   showMeta: bool
   streaming: bool
   attribution: string
+  senderThreadId: string
   intent: string
   intentDescription: string
   intentTone: string
