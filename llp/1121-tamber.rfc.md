@@ -5137,16 +5137,21 @@ Built to theme2's 15:32 approval, on B1 and B2.
   - The numbers: down, space.xs, sm and md (0, 8 and 8 px) are 0 rows and space.lg and xl (16 px) 1 row; the clone's
     14, 12 and 10 px are 1 row each; across, a `ch` is a column (12 px, a column and a half, is one).
   - px and cells agree by construction, so the painter, scroll, `scrollIntoView`, follow-end, the collections' windows
-    and the inline transcript need no change. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
+    and the inline transcript need no change. One reader of a margin outside layout follows the rule too: a
+    virtualized list's keyed jump aligns a row by its root's margins (`runner/.../into_view.rs`), now in whole cells
+    when the kernel's rule is on. Turning a cell rule (spaces or borders) on or off after a layout restyles every box. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
     not landed); Astra's round 1 found it drifted from px cumulatively (item k of a gap-sm list at px 24k, painted on
     row k).
   - The visible change, accepted: a box padded `space.sm` shrinks to its content (the `even` box is its child's two
     rows, 0 rows of padding each side), and a gap-sm list has no blank row between items.
-  - scale-check: the terminal's paddings and gaps are expected in whole cells on each axis, in px and in cells, and
-    the `even` box paints equal rows above and below. Every other host is unchanged (the rule is off).
+  - scale-check: the terminal's paddings and gaps are expected in whole cells on each axis, in px and in cells (a
+    reply without whole cells for a padded box or a gap's children fails), and the `even` box paints equal rows above
+    and below. Every other host is unchanged (the rule is off): conform scale 5/5, Linux 5/5.
   - Tests: `kernel/src/style/cells.rs` (`space`, and the engine's style with and without the rule),
     `host_scale_tests.rs` `spaces_are_whole_cells_so_rows_follow_the_layout` (item k of a gap-sm list on row k,
-    where its px frame is; revealing item 30 in a ten-row scroller shows items 21 to 30), `layout_and_plan_answer_as_json`
+    where its px frame is; revealing item 30 in a ten-row scroller shows items 21 to 30), `collections.rs`
+    `a_keyed_jump_aligns_rows_by_their_margins_in_whole_cells`, `kernel/tests/it/env.rs`
+    `the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns`, `layout_and_plan_answer_as_json`
     (`1ch` of padding: a column across, none down) and `scale-check.test.mjs`.
   - The run: terminal 21/21 (even 0/1/0/1 cells top/right/bottom/left; sm padding 8, 0 px; md 8, 16; lg and xl 16,
     16; gaps 0, 8, 8, 16, 16 px across; the header 44; corners 0).

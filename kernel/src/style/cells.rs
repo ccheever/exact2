@@ -139,6 +139,8 @@ mod tests {
             (StyleId::PaddingRight, "10%"),
             (StyleId::RowGap, "8px"),
             (StyleId::ColumnGap, "12px"),
+            (StyleId::MarginTop, "-24px"),
+            (StyleId::PaddingBottom, "calc(10% + 8px)"),
         ] {
             s.set_dynamic(id, &StyleValue::Text(v.into())).unwrap();
         }
@@ -155,5 +157,9 @@ mod tests {
         assert_eq!(celled.gap.height, Lp::length(0.0));
         assert_eq!(celled.gap.width, Lp::length(8.0));
         assert_eq!(plain.gap.width, Lp::length(12.0));
+        // A negative margin by its size; a calc() with a percentage as it is.
+        assert_eq!(celled.margin.top, Lpa::length(-16.0));
+        assert_eq!(celled.padding.bottom, plain.padding.bottom);
+        assert_ne!(celled.padding.bottom, Lp::length(0.0));
     }
 }

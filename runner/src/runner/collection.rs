@@ -114,6 +114,7 @@ impl<D: DataSource> Runner<D> {
             update.reuse = self.reuse;
             update.scroll_padding = Some(&scroll_padding);
             update.scroll_margin = Some(&scroll_margin);
+            update.cell_spaces = self.kernel.arena().env().cell_spaces;
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
                     (

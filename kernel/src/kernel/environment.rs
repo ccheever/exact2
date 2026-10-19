@@ -131,6 +131,10 @@ impl Kernel {
         }
         let control_changed = self.arena.env().control_text_styles != env.control_text_styles
             || self.arena.env().button_fonts != env.button_fonts;
+        // A terminal's cell rules change every box's lengths, plain px
+        // included: every node restyles.
+        let cells_changed = self.arena.env().cell_spaces != env.cell_spaces
+            || self.arena.env().cell_borders != env.cell_borders;
         let before: Vec<_> = if control_changed {
             self.arena
                 .iter_live()
@@ -155,7 +159,8 @@ impl Kernel {
             .iter_live()
             // A covered box too: its top cover can hold an inset (cover.rs).
             .filter(|s| {
-                uses_env(self.arena.style(*s))
+                cells_changed
+                    || uses_env(self.arena.style(*s))
                     || self.arena.cover(*s).is_some()
                     || self.arena.neutral_alert(*s)
             })

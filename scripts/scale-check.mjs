@@ -255,7 +255,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
         // columns left and right (no half-row drift between edges).
         const whole = r => r && ['x', 'y', 'w', 'h'].every(k => Number.isInteger(r[k]));
         // (Only a host that paints in cells says them: the terminal.)
-        if (want.even && layout.cell && !(whole(box.cells) && whole(child.cells))) fail('its cells and its child\'s are not whole cells in the reply: the rows it paints cannot be read');
+        if (layout.cell && !(whole(box.cells) && whole(child.cells))) fail('its cells and its child\'s are not whole cells in the reply: the rows it paints cannot be read');
         else if (box.cells && child.cells) {
           const [b, c] = [box.cells, child.cells];
           row.margins = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
@@ -287,7 +287,9 @@ export function check(host, layout, image, expect, base = () => undefined) {
           const wantGap = cell ? cellsOf(gap, cell) * cell : gap;
           if (Math.abs(row.gap - wantGap) > 0.5) fail(`gap ${row.gap}, expected ${wantGap}`);
           // In a grid of cells, the gap as a length in whole cells.
-          if (layout.cell && a.cells && b.cells) {
+          const whole = r => r && ['x', 'y', 'w', 'h'].every(k => Number.isInteger(r[k]));
+          if (layout.cell && !(whole(a.cells) && whole(b.cells))) fail('its children\'s cells are not whole cells in the reply: the gap it paints cannot be read');
+          else if (layout.cell) {
             const cells = axis === 'row' ? b.cells.x - (a.cells.x + a.cells.w) : b.cells.y - (a.cells.y + a.cells.h);
             const wantCells = cellsOf(gap, axis === 'row' ? layout.cell.w : layout.cell.h);
             row.gapCells = cells;

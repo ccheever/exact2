@@ -128,7 +128,15 @@ impl Collection {
             ListAxis::Vertical => [StyleId::MarginTop, StyleId::MarginBottom],
             ListAxis::Horizontal => [StyleId::MarginLeft, StyleId::MarginRight],
         };
+        // As the kernel lays it out: in whole cells under a terminal's rule.
+        let cell = match self.axis {
+            ListAxis::Vertical => exact_kernel::style::cells::ROW,
+            ListAxis::Horizontal => exact_kernel::style::cells::COLUMN,
+        };
         let number = |id| match root.bound_style(u.env.plan, id) {
+            Some(Value::Number(n)) if n.is_finite() && u.cell_spaces => {
+                f64::from(exact_kernel::style::cells::space(*n as f32, cell))
+            }
             Some(Value::Number(n)) if n.is_finite() => *n,
             _ => 0.0,
         };

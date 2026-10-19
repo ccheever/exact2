@@ -461,6 +461,9 @@ pub struct Update<'a> {
     pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// Resolved CSS target outsets, top/right/bottom/left.
     pub scroll_margin: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
+    /// The kernel lays margins out in whole cells (a terminal's space rule,
+    /// LLP 1121 stage 11 (c)): what a row's margin is, read here, too.
+    pub cell_spaces: bool,
     /// The app modes around the nodes being visited (LLP 1121 D5).
     pub theme: theme::Around,
 }
@@ -498,6 +501,7 @@ impl<'a> Update<'a> {
             frame_buffers: Vec::new(),
             scroll_padding: None,
             scroll_margin: None,
+            cell_spaces: false,
             theme,
         }
     }

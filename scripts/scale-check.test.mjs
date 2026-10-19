@@ -246,6 +246,13 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
     { testId: 'c', between: ['c', 'd'], gap: 24 },
   ] }, base);
   expect(gaps.map(r => r.ok)).toEqual([true, true, false]);
+  // A reply with no cells for a gap's children, or a padded box's, fails.
+  const bare = { ...listed, nodes: listed.nodes.map(n => ({ ...n, cells: undefined })) };
+  const unread = check('terminal', bare, null, { boxes: [{ testId: 'a', between: ['a', 'b'], gap: 8 }] }, base);
+  expect(unread.map(r => r.ok)).toEqual([false]);
+  expect(unread[0].why).toContain('not whole cells in the reply');
+  const thinPad = check('terminal', { ...layout, nodes: layout.nodes.map(n => ({ ...n, cells: undefined })) }, null, { boxes: [{ testId: 'box', child: 'inner', padding: 'space.sm' }] }, base);
+  expect(thinPad.map(r => r.ok)).toEqual([false]);
   expect(gaps[2].why).toBe('gap 24, expected 16; its gap paints 2 cells, expected 1');
   // A reply missing what is measured fails: no cells for an even box, radii not four lengths (an elliptical corner's pair).
   const thin = { ...layout, nodes: layout.nodes.map(n => ({ ...n, cells: undefined, radius: n.testId === 'round' ? [[8, 4], 8, 8, 8] : n.radius })) };

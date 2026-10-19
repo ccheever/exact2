@@ -102,6 +102,7 @@ impl<D: DataSource> Runner<D> {
             u.fonts = Some(self.fonts.clone());
             u.scroll_padding = Some(&scroll_padding);
             u.scroll_margin = Some(&scroll_margin);
+            u.cell_spaces = self.kernel.arena().env().cell_spaces;
             u.full = self.full;
             u.discard = self.kernel.is_detached();
             u.rows = rows;
