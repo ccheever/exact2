@@ -23,7 +23,8 @@ function widest(el, strings, font) {
 function install(el) {
   if (el.exactLiveTime) { el.exactLiveTime.sync(); return; }
   let reserved = '', width = '';
-  const inline = () => el.parentElement?.hasAttribute('data-exact-text');
+  // Inside a paragraph, at any depth of runs, it is an inline run: no reservation (as the JS target compiles it).
+  const inline = () => !!el.parentElement?.closest('[data-exact-text]');
   function sync() {
     const values = el.getAttribute('data-time-reservation');
     // An authored width or maximum is the box (as the JS target compiles no reservation under one).

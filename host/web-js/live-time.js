@@ -73,8 +73,10 @@ export function liveTime(e, read, reserve = true) {
   // The formatted text is a node before the children, which stay as the
   // fallback (hidden by index.html's `time[data-time-shown]`): the runner's
   // tree keeps them, and they show again when the instant cannot format.
-  // A server-rendered time already has its formatted text first: that node is the one updated.
-  let values, previous = null, reserved = '', identity = '', model = '', fields = 0, shown = e.firstChild?.nodeType === Node.TEXT_NODE ? e.firstChild : null;
+  let values, previous = null, reserved = '', identity = '', model = '', fields = 0, shown = null;
+  // A server-rendered formatted time (`data-time-shown`) has its text before the fallback, perhaps after an
+  // `if`/`for` region's anchors: that node is the one updated, moved first, out of any region a fallback change rewrites.
+  if (e.hasAttribute('data-time-shown')) for (const n of e.childNodes) { if (n.nodeType === 3) { e.prepend(shown = n); break; } if (n.nodeType === 1) break; }
   const timer = { due: Infinity, hatch: true, action: () => { update(); return true; } };
   clock.timers.push(timer);
   function update() {
@@ -114,7 +116,8 @@ export function liveTime(e, read, reserve = true) {
         reserved = stamp;
       }
     }
-    if (!shown) { shown = document.createTextNode(''); e.prepend(shown); e.setAttribute('data-time-shown', ''); }
+    if (!shown) e.prepend(shown = document.createTextNode(''));
+    if (!e.hasAttribute('data-time-shown')) e.setAttribute('data-time-shown', '');
     if (text !== previous) shown.data = previous = text;
     if (format === 'relative') timer.due = clock.now + relativeDelay(datetime, now);
     if ((format === 'timer' || format === 'countdown') && (format !== 'countdown' || datetime > now)) timer.due = clock.now + 1000 - ((now - datetime) % 1000 + 1000) % 1000;
