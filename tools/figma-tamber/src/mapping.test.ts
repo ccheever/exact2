@@ -151,6 +151,22 @@ test('the plugin builds (its main thread and its UI, as Figma loads them)', asyn
   }
 });
 
+// What a browser has and Figma's main-thread sandbox does not (Charlie's
+// live push: structuredClone). The UI runs in an iframe, a browser's.
+const UNSANDBOXED = ['structuredClone', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'crypto', 'queueMicrotask', 'Blob', 'XMLHttpRequest', 'localStorage', 'window', 'document', 'navigator', 'performance', 'setImmediate', 'process', 'Buffer', 'require'];
+
+test('the main thread names no global Figma\'s sandbox lacks', async () => {
+  // The bundler's `define` swaps a free name only (never a property, a key,
+  // a string or a local), so a marker left in the output is a global read.
+  const build = async (entry: string) => {
+    const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife', define: Object.fromEntries(UNSANDBOXED.map(g => [g, `__figma_lacks_${g}`])) });
+    return [...new Set([...(await built.outputs[0].text()).matchAll(/__figma_lacks_(\w+)/g)].map(m => m[1]))];
+  };
+  expect(await build('code.ts')).toEqual([]);
+  // And it sees one: the UI, a browser's, reads `URL` and `document`.
+  expect(await build('ui.ts')).toEqual(expect.arrayContaining(['URL', 'document']));
+});
+
 test('one choice a token and light side: two light sides of one token are asked and written apart', () => {
   const ctx = (d: string, s: string, scheme: string) => `density=${d}, dark-style=${s}, ${scheme}`;
   const contexts: Record<string, any> = {}, info: Record<string, any> = {};

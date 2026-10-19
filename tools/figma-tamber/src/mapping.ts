@@ -253,7 +253,7 @@ export function push(baseline: string, plan: Plan, now: Record<string, Record<st
   // One light side (theme2's 18:54 (2)): in the split layout each tuple's
   // collection has a Light mode for it; the person's choice (`prefer`, a
   // token and light side's collection, by `token@context`) is written to every one of them.
-  now = structuredClone(now);
+  now = JSON.parse(JSON.stringify(now)); // (Figma's sandbox has no structuredClone; plain values)
   for (const clash of lightClashes(doc, plan, now)) {
     const chosen = prefer[clash.key];
     const value = chosen === undefined ? undefined : clash.values[chosen];
