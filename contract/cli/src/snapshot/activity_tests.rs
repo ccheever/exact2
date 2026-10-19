@@ -329,7 +329,8 @@ fn caltrain_activities_bake_with_state_schemas_and_unchanged_app_plan() {
         .unwrap()
         .encode();
     let all = compile_entries(&app, &manifest).unwrap();
-    assert_eq!(all.len(), 3);
+    // A widget, two activities and the watch entry (LLP 1126.002 D4).
+    assert_eq!(all.len(), 4);
     for a in manifest.live_activities().unwrap() {
         let plan = &all[&a.kind].plan;
         assert_eq!(plan.activity_slots.len(), 8);

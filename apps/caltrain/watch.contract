@@ -73,8 +73,8 @@ component CaltrainWatch
                 if e.name == "stations"
                   input value=query input=setQuery placeholder="Search" aria-label="Search stations" testId="station-search" padding=8 border-radius=10 background-color="#333333" color="#ffffff"
                   for s in (query == "" ? allStations : matches) key=s.id
-                    button press=selectStation(s.id) aria-label=s.name testId=`station-${s.id}` padding-top=6 padding-bottom=6 width="100%" text-align="start"
-                      text s.name font-size="0.9375em" color="#ffffff"
+                    button press=selectStation(s.id) aria-label=s.name testId=`station-${s.id}`
+                      text s.name
 
 component WatchBoard
   inject
