@@ -647,3 +647,27 @@ test('round 15: a parked mode no longer the default stays parked, its values kep
   expect(col.modes.some((m: any) => m.modeId === first && m.name === 'unused: dark-style=black, light')).toBe(true);
   expect(fill.valuesByMode[first]).toEqual({ r: 1, g: 0, b: 0, a: 1 });
 });
+
+test('round 16: two parked modes whose cut names would be one get names of their own', async () => {
+  await load(10);
+  const axis = 'appearance-of-the-darker-scheme';
+  const three = (keep: string[], def: string) => variant(doc => {
+    const contexts = doc.modifiers.mode.contexts, all: Record<string, any> = {};
+    for (const c of Object.keys(contexts)) { all[c.replace('dark-style', axis)] = contexts[c]; delete contexts[c]; }
+    for (const s of ['light', 'dark']) all[`${axis}=grey, ${s}`] = structuredClone(all[`${axis}=dim, ${s}`]);
+    for (const k of keep) contexts[k] = all[k];
+    doc.modifiers.mode.default = def;
+  });
+  const ctx = (t: string, s: string) => `${axis}=${t}, ${s}`;
+  const all = ['black', 'dim', 'grey'].flatMap(t => ['light', 'dark'].map(s => ctx(t, s)));
+  await send({ type: 'apply', text: three(all, ctx('black', 'light')) }, 'applied');
+  const col = f.collections[0];
+  // Black's light (the default) parked; then dim's light made the default and dropped too.
+  await send({ type: 'apply', text: three(all.filter(c => c !== ctx('black', 'light')), ctx('dim', 'light')) }, 'applied');
+  const dimLight = col.modes.find((m: any) => m.name === ctx('dim', 'light').slice(0, 39) + '…' || m.name === ctx('dim', 'light'));
+  col.modes.splice(col.modes.indexOf(dimLight), 1); col.modes.unshift(dimLight);
+  await send({ type: 'apply', text: three(all.filter(c => ![ctx('black', 'light'), ctx('dim', 'light')].includes(c)), ctx('grey', 'light')) }, 'applied');
+  const names = col.modes.map((m: any) => m.name);
+  expect(new Set(names).size).toBe(names.length);
+  expect(names.filter((n: string) => n.startsWith('unused: ')).length).toBe(2);
+});

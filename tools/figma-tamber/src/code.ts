@@ -153,7 +153,13 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     for (const m of [...col.modes]) if (!used.has(m.modeId) && !parked.some(([, p]) => p === m.modeId) && ours.has(m.modeId)) did(col.removeMode(m.modeId));
     // Names in two steps, each first to a name no mode has or will have, so
     // two modes trading names never ask for one another still has.
-    const unused = parked.map(([ctx]) => `unused: ${ctx}`.slice(0, 40));
+    // (each parked name its own, within Figma's 40 characters, told apart from the others and the plan's)
+    const taken = new Set(c.modes), unused = parked.map(([ctx]) => {
+      let name = `unused: ${ctx}`.slice(0, 40);
+      for (let i = 2; taken.has(name); i++) name = `${`unused: ${ctx}`.slice(0, 40 - String(i).length - 2)}… ${i}`;
+      taken.add(name);
+      return name;
+    });
     const names = new Set([...col.modes.map((x: any) => x.name), ...c.modes, ...unused]);
     let n = 0;
     const temp = () => { while (names.has(`~tamber ${n}`)) n++; names.add(`~tamber ${n}`); return `~tamber ${n}`; };
