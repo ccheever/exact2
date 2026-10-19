@@ -857,7 +857,7 @@ says. Every roster function has a row and an example, and each example written
 | `replace(router, location)` | Router; the top visit takes the location and keeps its id. A stack's first visit keeps its root route: a location matching another route is refused and the router is unchanged (a first-launch screen: docs/recipes/first-launch.md) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
-| `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
+| `go(router, location)` | Router; the top, a pop to it on the selected stack, another tab whose top it is, or else a push onto the selected stack, whatever tab declares its route (into its own tab: `go(select(nav, "tab"), location)` or `open`) | `top(go(nav, "/item/7")).name` is `"item"` |
 | `stack(router)` | `Entry[]` | `stack(push(nav, "/item/7")).length` is `2` |
 | `top(router)` | `Entry` | `top(nav).name` is `"home"` |
 | `depth(router)` | Number | `depth(nav)` is `1` |
@@ -1012,10 +1012,12 @@ CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), a
 top-right, bottom-right, bottom-left; no `/` elliptical radii), as a literal or a
 literal arm; `gap` takes its row and column gaps, and `overflow` and
 `overscroll-behavior` their x and y values, the same way (`gap="8px 16px"`,
-`overflow="hidden auto"`). A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
-`` `${r}px ${r}px 0 0` ``) is refused (`lower-css-shorthand`): write the longhands,
-`` padding-top=`${pad}px` padding-right=0 … ``, each of which may be computed. A
-computed single value (`padding=pad`) is every side's.
+`overflow="hidden auto"`). A template is split the same way at its own text's white space,
+each interpolation part of one value that also holds text, outside parentheses
+(`` border-radius=`${r}px ${r}px 0 0` ``: the top corners `r`). Another list (`` `${a} ${b}` ``,
+a concatenation, a `fn` that returns one) is refused
+(`lower-css-shorthand`): write the longhands, each of which may be computed. A computed
+single value (`padding=pad`) is every side's.
 An empty string on any style row declares nothing, as CSSOM's `setProperty(p, "")`:
 the row is unset (`background-color=dot` with `dot` `""`).
 `border-style` and each `border-<side>-style` accept `none`, `hidden`, `solid`,

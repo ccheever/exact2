@@ -328,6 +328,11 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
              (and `-exact-press-haptic`), which the host shows while a pointer holds the node"
                 .into()
         }
+        // Every host ends a hold the system took (a scroll, an alert, the
+        // window losing focus) with the hold's `pointerup`.
+        None if matches!(a.name.as_str(), "pointercancel" | "touchcancel" | "lostpointercapture") => {
+            "; a cancelled pointer ends with `pointerup` (its `buttons` 0), so the `pointerup` handler that ends a hold covers it".into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }
