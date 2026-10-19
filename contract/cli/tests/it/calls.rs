@@ -875,12 +875,12 @@ fn a_read_another_frame_made_stale_is_refused_in_each_of_d3s_cases() {
         "analyze-call-stale-read",
         "`follow` (called at line 8) reads `sel`, which `go` assigns at line 7; `follow` sees the value `sel` had when the action started. Pass the value it should see: a `let` bound before line 7 keeps the starting value, and the value assigned at line 7 gives the new one",
     );
-    // The argument is read in the callee's frame.
+    // The argument is read in the callee's frame, and named as the argument.
     let argument = "component App\n  state sel = 0\n  state seen = 0\n  action follow(v: number)\n    seen = v\n  action go\n    sel = 3\n    follow(sel)\n";
     says(
         &format!("{argument}{BUTTON}"),
         "analyze-call-stale-read",
-        "`follow` (called at line 8) reads `sel`, which `go` assigns at line 7; `follow` sees the value `sel` had when the action started. Pass the value it should see: a `let` bound before line 7 keeps the starting value, and the value assigned at line 7 gives the new one",
+        "an argument of `follow(…)` at line 8 reads `sel`, which `go` assigns at line 7; the argument of `follow` sees the value `sel` had when the action started. Pass the value it should see: a `let` bound before line 7 keeps the starting value, and the value assigned at line 7 gives the new one",
     );
     let reset = "component App\n  state count = 0\n  action reset\n    count = 0\n  action go\n    reset()\n    count = count + 1\n";
     says(

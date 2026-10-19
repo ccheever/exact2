@@ -1820,3 +1820,29 @@ component A
   view
     text m.state
 ---
+== syntax-expected-statement
+# Another action is called with its parentheses: `play()`.
+component A
+  state on = false
+  action play
+    on = true
+  action toggle
+    play
+  view
+    button "t" press=toggle
+---
+== type-action-hidden-by-fn
+# `pick(…)` in B would call the fn, never the prop.
+fn pick(xs: string[], i: number): string = match xs.at(i) { case some(s) => s, case none => "" }
+component A
+  state chosen = ""
+  action go(s: string)
+    chosen = s
+  view
+    B(pick=go)
+component B
+  props
+    pick: action
+  view
+    text "b"
+---

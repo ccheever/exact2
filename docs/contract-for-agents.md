@@ -471,7 +471,8 @@ infers effects from the body, through its calls; `writes` is a refusal, not an
 optional annotation. Use `symbols` when you need the inferred write set.
 
 An action calls an action of its own component, an `action` prop or an injected
-action by name, as a statement, anywhere a statement goes (LLP 1089). The call is
+action by name with its parentheses (`play()`, `arrive(path)`; a bare `play` is not a
+statement), anywhere a statement goes (LLP 1089). The call is
 the callee's statements run where it stands, in the same commit: one rollback,
 and the callee reads the state the action started with, as every statement does.
 A name that is a host command stays the command. Never give an action, an `action`
