@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { composerMarkdown } from '../../src/composer/composer-markdown';
+import { codeAt, composerMarkdown } from '../../src/composer/composer-markdown';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerKeyResult } from '../../src/composer/composer-markdown-edit';
 
 const key = (source: string, start: number, name: string, shift = false, end = start, command = false) => composerMarkdownKey(source, { start, end }, { name, shift, command });
@@ -8,12 +8,16 @@ function result(source: string, outcome: ComposerKeyResult): { source: string; s
   return { source: applyComposerEdit(source, outcome.edit), ...outcome.edit.selection };
 }
 describe('composer source edit rules', () => {
-  test('Enter creates the canonical empty fence and first insertion preserves its closing fence', () => {
+  test('Enter opens a fence with an empty body line, where typed text stays inside the fence', () => {
     const entered = result('```ts title=x', key('```ts title=x', 13, 'Enter'));
-    expect(entered).toEqual({ source: '```ts title=x\n```', start: 14, end: 14 });
-    const inserted = result(entered.source, composerCodeInput(entered.source, entered, 'const x = 1'));
-    expect(inserted).toEqual({ source: '```ts title=x\nconst x = 1\n```', start: 25, end: 25 });
-    expect(result('~~~py', key('~~~py', 5, 'Enter'))).toEqual({ source: '~~~py\n~~~', start: 6, end: 6 });
+    expect(entered).toEqual({ source: '```ts title=x\n\n```', start: 14, end: 14 });
+    // The field's own typing at the caret, without an app edit.
+    const typed = entered.source.slice(0, 14) + 'const x = 1' + entered.source.slice(14);
+    expect(codeAt(composerMarkdown(typed).blocks, { start: 25, end: 25 })?.close).toEqual({ start: 26, end: 29 });
+    // A canonical empty fence from elsewhere: a pasted first line still adds the closing line's own newline.
+    const canonical = '```ts title=x\n```';
+    expect(result(canonical, composerCodeInput(canonical, { start: 14, end: 14 }, 'const x = 1'))).toEqual({ source: '```ts title=x\nconst x = 1\n```', start: 25, end: 25 });
+    expect(result('~~~py', key('~~~py', 5, 'Enter'))).toEqual({ source: '~~~py\n\n~~~', start: 6, end: 6 });
     expect(key('- ```ts', 7, 'Enter')).toEqual({ kind: 'send' });
     expect(key('> ```ts', 7, 'Enter')).toEqual({ kind: 'send' });
   });

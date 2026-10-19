@@ -18,7 +18,7 @@ describe('guarded composer intents', () => {
     const client = { snapshotOwner: 'snapshot' }, intent = key('```ts');
     composerSourceSession(client).observe(intent.owner, intent.value);
     expect(composerIntentSource(client, intent)).toEqual({ owner: 'draft', value: '```ts', serial: 3, kind: 'edit', mode: 'rich',
-      start: 0, end: 5, text: '```ts\n```', selectionStart: 6, selectionEnd: 6, preserveSelection: false });
+      start: 0, end: 5, text: '```ts\n\n```', selectionStart: 6, selectionEnd: 6, preserveSelection: false });
   });
   test('refuses composition, invalid ranges, or a source/owner no longer observed', () => {
     const client = { snapshotOwner: 'snapshot' }, intent = key('text');

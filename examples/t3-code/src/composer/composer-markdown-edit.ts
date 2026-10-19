@@ -111,8 +111,9 @@ export function composerMarkdownKey(source: string, selection: ComposerRange, ke
     const closing = parsed.blocks.find(block => block.kind === 'code' && block.close?.end === selection.start);
     if (collapsed && closing) return edit(selection.start, selection.end, '\n');
     const opening = collapsed && selection.start === line.end ? parseOpeningFence(line.text) : null;
+    // The body line is empty, not absent, so text typed there is the field's own and stays inside the fence.
     if (opening) {
-      const text = `${opening.fence}${opening.info}\n${opening.fence}`, caret = line.start + opening.fence.length + opening.info.length + 1;
+      const text = `${opening.fence}${opening.info}\n\n${opening.fence}`, caret = line.start + opening.fence.length + opening.info.length + 1;
       return edit(line.start, line.end, text, { start: caret, end: caret });
     }
     if (!key.shift) return { kind: 'send' };

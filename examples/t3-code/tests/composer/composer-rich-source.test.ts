@@ -166,7 +166,7 @@ describe('root composer projection source', () => {
     expect(preview.chips).toHaveLength(1);
     expect(composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner, value, serial: 1,
       start: value.length, end: value.length, composing: false, mode: 'rich', kind: 'key', key: 'Enter', shift: false, command: false }))
-      .toMatchObject({ kind: 'edit', text: '```ts\n```' });
+      .toMatchObject({ kind: 'edit', text: '```ts\n\n```' });
   });
   test('product faces own the same label and state on composer and preview', () => {
     const client = new T3Client(), value = '$frontend-design ';
