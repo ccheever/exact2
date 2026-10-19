@@ -276,7 +276,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir: SCALE ? { ...ir, tokens: [...ir.tokens, ...SCALE_TOKENS] } : ir, ...(SCALE ? { base: BASE_ROWS, targets: ['ios', 'macos', 'web'] } : {}), files: FILES } }); }
+      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir: SCALE ? { ...ir, tokens: [...ir.tokens, ...SCALE_TOKENS] } : ir, ...(SCALE ? { base: BASE_ROWS, targets: [{ target: 'ios', column: 'ios' }, { target: 'macos', column: 'mac' }, { target: 'web', column: 'neutral' }, { target: 'linux', column: 'neutral' }] } : {}), files: FILES } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));

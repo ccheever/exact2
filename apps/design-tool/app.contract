@@ -399,8 +399,10 @@ shape TokenRow
   kind: string
   follows: string
   cells: Cell[]
-  // The value "Set for this app" starts from: a base row's first column's (the app ships it first), else its first cell's.
+  // The value "Set for this app" starts from: a base row's first column's (the app ships it first), else its first cell's;
+  // and, for a base row, that column in words ("iOS's 16px").
   start: string
+  startFrom: string
   // Where its value comes from (stage 11 D): "app", "base" (Exact's scale)
   // or "package" (read-only; the app overrides it in its own file); for an
   // app line over a base or package name, what it replaces and the way back.
@@ -723,8 +725,10 @@ component DesignTool
   // and the two tokens whose contrast is shown.
   state file = ""
   state opened: string[] = []
-  // Base rows whose other platforms are shown.
+  // Base rows whose other platforms are shown; what a base value set for this app starts from, and its name.
   state openedBase: string[] = []
+  state setForAppNote = ""
+  state setForAppName = ""
   state pickA = ""
   state pickB = ""
   resource design = loadDesign(file, filesAt, epoch) as shape Design else empty(ok=true)
@@ -1161,9 +1165,12 @@ component DesignTool
       editValue = newValue.trim()
   // Stage 11: a base or package value set for this app (its override line, add-token), or the app's line
   // over one of theirs taken away (remove-token), each reviewed and applied as any edit.
-  action setForApp(name: string, value: string)
+  action setForApp(name: string, value: string, from: string)
     newName = name
     newValue = value
+    // (One platform's value becomes the app's on every platform: said beside the proposal.)
+    setForAppNote = from != "" ? `${name} for this app starts from ${from}, and the app's value is every platform's.` : ""
+    setForAppName = name
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1723,7 +1730,7 @@ component DesignTool
                               button press=openBase(t.name) testId=`token-base-more-${t.name}`
                                 text "Other platforms"
                             if t.source != "app"
-                              button press=setForApp(t.name, t.start) disabled=(not canPropose) testId=`set-for-app-${t.name}`
+                              button press=setForApp(t.name, t.start, t.startFrom) disabled=(not canPropose) testId=`set-for-app-${t.name}`
                                 text "Set for this app"
                             if t.over != ""
                               text t.over font="-exact-caption1" color="-exact-secondary-label" testId=`token-over-${t.name}`
@@ -1863,6 +1870,8 @@ component DesignTool
                   input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
+                  if editKind == "add-token" and editTarget == setForAppName and setForAppNote != ""
+                    text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
                   if draftStale or partsStale
                     text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
                   if not proposal.ok

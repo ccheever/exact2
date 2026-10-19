@@ -11,7 +11,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
-import { groupOf, sourceOf, targetsOf } from './base';
+import { groupOf, shippedOf, sourceOf } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { GONE, wire, type Reply } from './wire';
@@ -641,7 +641,7 @@ const sources: Sources = {
       // Each token's stored value per tuple and scheme, a residual as its
       // fallback (no running app reports it until T2).
       const stored = new Map<string, Stored[][]>();
-      const baseRows = new Map<string, any>((read.base ?? []).map((r: any) => [String(r.name), r])), targets = targetsOf(ir, read.targets);
+      const baseRows = new Map<string, any>((read.base ?? []).map((r: any) => [String(r.name), r])), targets = shippedOf(read.targets);
       const tokens = ir.tokens.map((t: { name: string; kind: string; dials: string[]; role: string | null }, i: number) => {
         const tuples = (resolved[i].tuples ?? []) as any[];
         const sides = tuples.map(r => [false, true].map(dark => {
