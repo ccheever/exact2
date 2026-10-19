@@ -12,3 +12,4 @@ mod import;
 mod import_kinds;
 mod pair;
 mod parity;
+mod scale;

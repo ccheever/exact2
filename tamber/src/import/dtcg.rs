@@ -42,6 +42,7 @@ use super::{counted, reconcile, Import, Mapped, Unmapped};
 use crate::import::kinds as other;
 use crate::{Design, Diagnostic};
 use serde_json::{Map, Value};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 mod kinds;
@@ -925,23 +926,6 @@ type Colour = (String, String, Option<String>);
 /// A path's colour in one tuple, or why not.
 type Seen = Result<Colour, String>;
 
-/// A path's type in a tuple: its own, else the type of what it aliases,
-/// however long the chain (a cycle has none).
-fn type_of(defs: &[Def], w: &BTreeMap<&str, usize>, path: &str) -> Option<String> {
-    let mut seen = BTreeSet::new();
-    let mut at = path.to_string();
-    loop {
-        let d = &defs[*w.get(at.as_str())?];
-        if d.ty.is_some() {
-            return d.ty.clone();
-        }
-        match alias(&d.value) {
-            Some(Ok(target)) if seen.insert(target.clone()) => at = target,
-            _ => return None,
-        }
-    }
-}
-
 /// A tuple's resolution: its winners, the token names, and each path's
 /// colour once found.
 struct Resolve<'a> {
@@ -949,6 +933,8 @@ struct Resolve<'a> {
     w: &'a BTreeMap<&'a str, usize>,
     names: &'a BTreeMap<String, String>,
     memo: HashMap<String, Seen>,
+    /// Each path's type, once found (`type_of`).
+    types: RefCell<HashMap<String, Option<String>>>,
 }
 
 impl Resolve<'_> {
@@ -1217,6 +1203,7 @@ pub fn import_with(
             w,
             names: &names,
             memo: HashMap::new(),
+            types: RefCell::new(HashMap::new()),
         })
         .collect();
     for &path in &paths {
@@ -1231,7 +1218,7 @@ pub fn import_with(
                 ));
                 continue;
             }
-            let ty = type_of(defs, w, path);
+            let ty = r.type_of(path);
             let k = match kind(ty.as_deref()) {
                 Kind::Colour => "colour",
                 Kind::Other(k) => k,
@@ -1454,7 +1441,7 @@ pub fn import_with(
         let token = names.get(&d.path).cloned();
         let ty =
             d.ty.clone()
-                .or_else(|| winners.iter().find_map(|w| type_of(defs, w, &d.path)));
+                .or_else(|| resolvers.iter().find_map(|r| r.type_of(&d.path)));
         let why = match (&d.refused, kind(ty.as_deref())) {
             (Some(why), _) => why.clone(),
             (None, Kind::Reported(why)) => {

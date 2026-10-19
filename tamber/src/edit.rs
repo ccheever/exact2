@@ -459,6 +459,40 @@ fn run(
     Ok(Edited { text, inverse })
 }
 
+/// [`apply_all`] in two halves, for a caller that tries operations one group
+/// at a time on what it has accepted (re-import's transaction): `ops` applied
+/// to `src` with no check (a refused operation is `Err`, as [`apply_all`]
+/// says it), then [`accepts`] the text. `stepped(stepped(src, a), b)` then
+/// `accepts` is `apply_all(src, a ++ b)`: each operation reads only the text
+/// before it.
+pub(crate) fn stepped(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    let mut text = src.to_string();
+    for op in ops {
+        text = step(&text, op, vocab, &crate::params::NONE)?.0;
+    }
+    Ok(text)
+}
+
+/// [`apply_all`] and the folding of the text it made, checked once: what a
+/// caller that reads the result's folding would otherwise check twice.
+pub(crate) fn applied(
+    src: &str,
+    ops: &[Op],
+    vocab: &Vocab,
+) -> Result<(String, crate::Folding), Vec<Diagnostic>> {
+    let text = stepped(src, ops, vocab)?;
+    let folding = crate::check(&text, vocab)?;
+    Ok((text, folding))
+}
+
+/// [`apply_all`]'s check of the text its operations made.
+pub(crate) fn accepts(text: &str, vocab: &Vocab) -> Result<(), Vec<Diagnostic>> {
+    crate::check(text, vocab).map(drop)
+}
+
 /// A refusal with nowhere in the design to point (a name it lacks).
 fn refuse(message: impl Into<String>) -> Vec<Diagnostic> {
     refuse_at(1, message)

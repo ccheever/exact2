@@ -492,14 +492,8 @@ pub(crate) fn reimport_ops(
     // has it (by its text, so `0.2s` is `200ms`); one the file left alone
     // keeps what the design has now. Already the design's: nothing to do.
     let refused = |m: String| (String::new(), m);
-    let edited = crate::apply_all(current, &ops, vocab).map_err(|all| {
-        refused(format!(
-            "the design would refuse it ({})",
-            all.first()
-                .map_or(String::new(), |d| format!("{}: {}", d.id, d.message))
-        ))
-    })?;
-    let folding = crate::check(&edited.text, vocab).map_err(|all| {
+    // (Applied and folded with one check of the text.)
+    let (edited, folding) = crate::edit::applied(current, &ops, vocab).map_err(|all| {
         refused(format!(
             "the design would refuse it ({})",
             all.first()
@@ -513,7 +507,7 @@ pub(crate) fn reimport_ops(
         .find(|(_, t)| t.name.value == written)
         .map(|(c, _)| c)
         .ok_or_else(|| refused("the token is not in the design any more".into()))?;
-    if edited.text == current {
+    if edited == current {
         return Ok(Vec::new());
     }
     // A tuple the file left alone keeps the design's value: a line the

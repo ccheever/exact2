@@ -15,12 +15,13 @@
 //! expression or a role included, and a changed one is proposed as a
 //! `set-token` for its tuple.
 
-use crate::export_dials::{alike, read_css};
+use crate::export_dials::{alike, last_by_name, read_css, Lasts};
 use crate::import::{counted, dtcg::colour, Import, Unmapped};
 use crate::syntax::Token;
 use crate::{fallback, Diagnostic, Folded, Folding, Half, Host, Op, Vocab};
 use exact_color::{Parsed, Space, Wide};
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 
 /// The header's `export`: what the document is, for the importer.
 pub const MARK: &str = "tamber-dtcg/1";
@@ -572,7 +573,8 @@ fn source_tokens(
 
 /// Each context's tokens by name, from a document's `mode` modifier, a
 /// later source after an earlier.
-type ByContext = std::collections::BTreeMap<String, Vec<(String, Value)>>;
+pub(crate) type ByContext = std::collections::BTreeMap<String, Vec<(String, Value)>>;
+
 fn tokens_by_context(doc: &Value) -> Result<ByContext, String> {
     let mut out = ByContext::new();
     for (context, srcs) in doc["modifiers"]["mode"]["contexts"]
@@ -763,12 +765,14 @@ pub fn reimport_against(
         .collect();
     let theirs = tokens_by_context(&doc).map_err(refuse)?;
     let ours = tokens_by_context(&base).map_err(refuse)?;
-    let value = |tokens: &ByContext, context: &str, name: &str| {
+    // Each context's tokens by name, read once: the last source that
+    // declares one wins, as the resolver says.
+    let (their, our) = (last_by_name(&theirs), last_by_name(&ours));
+    let value = |tokens: &Lasts, context: &str, name: &str| {
         tokens
             .get(context)
-            // The last source that declares it wins, as the resolver says.
-            .and_then(|all| all.iter().rev().find(|(n, _)| n == name))
-            .map(|(_, t)| t["$value"].clone())
+            .and_then(|all| all.get(name))
+            .map(|t| t["$value"].clone())
     };
     // The tuples, each its light and dark context; and a tuple's base, with
     // every axis under scheme=dark at its default, whose light side it shows.
@@ -819,9 +823,22 @@ pub fn reimport_against(
         .map(|(n, ..)| n.clone())
         .unwrap_or_default();
     let in_base = |n: &str| {
-        ours.get(&first)
-            .is_some_and(|all| all.iter().any(|(m, _)| m == n))
+        our.get(first.as_str())
+            .is_some_and(|all| all.contains_key(n))
     };
+    // The first context's first token of each name, and the design's own
+    // tokens by name and by a role's spelling in any case, each the first.
+    let mut first_of: HashMap<&str, &Value> = HashMap::new();
+    for (n, t) in ours.get(&first).into_iter().flatten() {
+        first_of.entry(n.as_str()).or_insert(t);
+    }
+    let (mut declared_as, mut declared_any) = (HashMap::new(), HashMap::new());
+    for (i, t) in cur.design.tokens.iter().enumerate().take(cur.tokens.len()) {
+        declared_as.entry(t.name.value.as_str()).or_insert(i);
+        declared_any
+            .entry(t.name.value.to_ascii_lowercase())
+            .or_insert(i);
+    }
     let report = |unmapped: &mut Vec<Unmapped>, name: &str, block: &str, why: String| {
         unmapped.push(Unmapped {
             block: block.to_string(),
@@ -858,7 +875,7 @@ pub fn reimport_against(
         }
         let missing: Vec<&str> = contexts
             .iter()
-            .filter(|(c, ..)| value(&theirs, c, name).is_none())
+            .filter(|(c, ..)| value(&their, c, name).is_none())
             .map(|(c, ..)| c.as_str())
             .collect();
         if missing.len() == contexts.len() {
@@ -880,31 +897,23 @@ pub fn reimport_against(
             );
             continue;
         }
-        let changed = |context: &str| !matches!((value(&theirs, context, name), value(&ours, context, name)), (Some(a), Some(b)) if same(&a, &b));
+        let changed = |context: &str| !matches!((value(&their, context, name), value(&our, context, name)), (Some(a), Some(b)) if same(&a, &b));
         if !contexts.iter().any(|(c, ..)| changed(c)) {
             mapped_unchanged(&mut accepted, name);
             continue;
         }
         // The design's own spelling: exactly, or a role's row in any case.
-        let overrides = ours[&first]
-            .iter()
-            .find(|(n, _)| n == name)
-            .is_some_and(|(_, t)| t["$extensions"]["exact"]["overrides"].is_string());
-        let declared = cur
-            .tokens
-            .iter()
-            .zip(&cur.design.tokens)
-            .find(|(_, t)| t.name.value == *name)
+        let overrides = first_of
+            .get(name.as_str())
+            .is_some_and(|t| t["$extensions"]["exact"]["overrides"].is_string());
+        let declared = declared_as
+            .get(name.as_str())
             .or_else(|| {
                 overrides
-                    .then(|| {
-                        cur.tokens
-                            .iter()
-                            .zip(&cur.design.tokens)
-                            .find(|(_, t)| t.name.value.eq_ignore_ascii_case(name))
-                    })
+                    .then(|| declared_any.get(&name.to_ascii_lowercase()))
                     .flatten()
-            });
+            })
+            .map(|&i| (&cur.tokens[i], &cur.design.tokens[i]));
         let Some((now, decl)) = declared else {
             report(
                 &mut unmapped,
@@ -919,19 +928,14 @@ pub fn reimport_against(
         // Every other kind: one value a tuple, whatever the scheme (stage 6 G).
         if now.kind != crate::Kind::Color {
             let baseline = |context: &str| {
-                ours.get(context)
-                    .and_then(|all| all.iter().rev().find(|(n, _)| n == name))
-                    .map_or((Value::Null, Value::Null), |(_, t)| {
+                our.get(context)
+                    .and_then(|all| all.get(name.as_str()))
+                    .map_or((Value::Null, Value::Null), |t| {
                         (t["$value"].clone(), t["$extensions"]["exact"].clone())
                     })
             };
             let incoming = |context: &str| {
-                let t = theirs
-                    .get(context)?
-                    .iter()
-                    .rev()
-                    .find(|(n, _)| n == name)
-                    .map(|(_, t)| t.clone())?;
+                let t = (*their.get(context)?.get(name.as_str())?).clone();
                 Some((
                     t["$type"].as_str()?.to_string(),
                     t["$value"].clone(),
@@ -980,7 +984,7 @@ pub fn reimport_against(
         };
         let want = |context: &str| -> Option<(String, Option<Wide>)> {
             if changed(context) {
-                let v = value(&theirs, context, name)?;
+                let v = value(&their, context, name)?;
                 Some((written_colour(&v)?, read(&v)))
             } else {
                 now_side(context)
@@ -1294,20 +1298,14 @@ pub fn reimport_against(
                     format!("the design would refuse it ({first})"),
                 ))
             };
-            let edited = match crate::apply_all(current, &token_ops, vocab) {
+            // (Applied and folded with one check of the text.)
+            let folding = match crate::edit::applied(current, &token_ops, vocab) {
                 // The design has it already (this file accepted before).
-                Ok(edited) if edited.text == current => {
+                Ok((edited, _)) if edited == current => {
                     token_ops.clear();
                     break;
                 }
-                Ok(edited) => edited.text,
-                Err(all) => {
-                    why = refused(all);
-                    break;
-                }
-            };
-            let folding = match crate::check(&edited, vocab) {
-                Ok(f) => f,
+                Ok((_, folding)) => folding,
                 Err(all) => {
                     why = refused(all);
                     break;
@@ -1380,11 +1378,17 @@ pub fn reimport_against(
     let mut mapped = dialed.kept + dials.iter().map(|d| d.from.len()).sum::<usize>();
     // Together, as one transaction: a token whose operations the design
     // refuses beside the others' (a dial nothing uses any more) is reported.
+    // Each is tried on the text the operations accepted before it made, once
+    // (`apply_all` of them all, then its own, is that text stepped by its
+    // own, then checked), so a token costs its own operations and one check.
+    let mut made = crate::edit::stepped(current, &ops, vocab);
     for (name, token_ops) in accepted {
         if !token_ops.is_empty() {
-            let mut trial = ops.clone();
-            trial.extend(token_ops.iter().cloned());
-            if let Err(all) = crate::apply_all(current, &trial, vocab) {
+            let trial = made.as_ref().map_err(Clone::clone).and_then(|text| {
+                let next = crate::edit::stepped(text, &token_ops, vocab)?;
+                crate::edit::accepts(&next, vocab).map(|()| next)
+            });
+            if let Err(all) = &trial {
                 let first = all
                     .first()
                     .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
@@ -1396,7 +1400,8 @@ pub fn reimport_against(
                 );
                 continue;
             }
-            ops = trial;
+            made = trial;
+            ops.extend(token_ops);
         }
         mapped += 1;
     }
