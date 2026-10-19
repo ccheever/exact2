@@ -97,7 +97,7 @@ test('a replaced permission keeps its outside focus lineage until the final conf
   const state = { documentPermissionFocusOwner: '', documentPermissionReturnKey: '', documentPermissionReturnSource: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: 'guest-frame', dialogFocusPopup: '', dialogFocusInvoker: '' };
   let owner = 'doc-a:1', live = [owner];
   const focused: string[] = [];
-  const scope = () => ({ ...helpers, activeDocumentPermissions: [], data: { messages: [] }, documentPermissionOwner: owner, stopPropagation() {}, focus: (id: string) => focused.push(id),
+  const scope = () => ({ ...helpers, activeDocumentPermissions: [], data: { messages: [] }, documentPermissionOwner: owner, stopPropagation() {}, chipFocusChanged() {}, focus: (id: string) => focused.push(id),
     frame: (id: string) => ({ unavailable: !live.includes(id), width: live.includes(id) ? 300 : 0, height: live.includes(id) ? 160 : 0 }),
     querySelectorAll: () => live,
     documentPermissionOpened: (id: string) => window.call('documentPermissionOpened', state, scope(), [id]),
@@ -124,7 +124,7 @@ function nativeFocusFixture(prior = '') {
   const nodes = new Set(['inline-frame-a', 'inline-frame-b', ...(prior ? [prior] : [])]);
   const live = new Set<string>(), focused: string[] = [];
   let owner = '', active: typeof documents = [];
-  const scope = () => ({ ...helpers, documentPermissionOwner: owner, activeDocumentPermissions: active, data: { messages: [{ inlineDocuments: documents }] }, stopPropagation() {}, focus: (id: string) => focused.push(id),
+  const scope = () => ({ ...helpers, documentPermissionOwner: owner, activeDocumentPermissions: active, data: { messages: [{ inlineDocuments: documents }] }, stopPropagation() {}, chipFocusChanged() {}, focus: (id: string) => focused.push(id),
     frame: (id: string) => ({ unavailable: !nodes.has(id) && !live.has(id), width: nodes.has(id) || live.has(id) ? 300 : 0, height: nodes.has(id) || live.has(id) ? 160 : 0 }),
     querySelectorAll: () => [...live],
     documentPermissionOpened: (id: string) => window.call('documentPermissionOpened', state, scope(), [id]),

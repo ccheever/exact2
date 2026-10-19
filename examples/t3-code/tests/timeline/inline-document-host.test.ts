@@ -87,3 +87,40 @@ test('losing ownership during a read cancels later jobs and an existing approval
   expect(runtime.closed).toBe(true);
   expect(sent).toEqual([]);
 });
+
+test('an inline app asking to close is torn down first; full screen only steps back inline', async () => {
+  const initialize = (runtime: ReturnType<typeof fixture>['runtime']) => {
+    runtime.host.receive({ jsonrpc: '2.0', id: 'init', method: 'ui/initialize', params: { appCapabilities: {} } });
+    runtime.host.receive({ jsonrpc: '2.0', method: 'ui/notifications/initialized' });
+  };
+  const request = { jsonrpc: '2.0', method: 'ui/notifications/request-teardown' };
+  const teardowns = (sent: unknown[]) => sent.filter(value => (value as { method?: string }).method === 'ui/resource-teardown') as { id: string }[];
+
+  const expanded = fixture(true);
+  initialize(expanded.runtime);
+  expanded.runtime.fullscreen = true;
+  expanded.runtime.host.receive(request);
+  expect(expanded.runtime.fullscreen).toBe(false);
+  expect(expanded.runtime.closed).toBe(false);
+  expect(teardowns(expanded.sent)).toEqual([]);
+
+  const answered = fixture(true);
+  initialize(answered.runtime);
+  answered.runtime.host.receive(request);
+  const [teardown] = teardowns(answered.sent);
+  expect(teardown).toBeDefined();
+  expect(answered.runtime.closed).toBe(false);
+  answered.runtime.host.receive({ jsonrpc: '2.0', id: teardown!.id, result: {} });
+  await Promise.resolve();
+  expect(answered.runtime.closed).toBe(true);
+
+  const silent = fixture(true);
+  initialize(silent.runtime);
+  silent.runtime.host.receive(request);
+  expect(teardowns(silent.sent)).toHaveLength(1);
+  await drainDocumentRuntime(silent.runtime, ticket('early'), 1999);
+  expect(silent.runtime.closed).toBe(false);
+  await drainDocumentRuntime(silent.runtime, ticket('late'), 2000);
+  await Promise.resolve();
+  expect(silent.runtime.closed).toBe(true);
+});

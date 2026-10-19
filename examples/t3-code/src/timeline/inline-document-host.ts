@@ -74,7 +74,12 @@ export function makeDocumentRuntime(client: T3Client, input: {
         await saveBytes(client, bytes, file.name);
       });
     },
-    onRequestTeardown: () => { if (runtime.fullscreen) runtime.fullscreen = false; else runtime.closed = true; client.revision++; },
+    // McpAppFrame: full screen steps back inline; inline, the app is asked to wrap up (`ui/resource-teardown`) and the
+    // frame closes once it answers or the host's timeout passes.
+    onRequestTeardown: () => {
+      if (runtime.fullscreen) { runtime.fullscreen = false; client.revision++; return; }
+      void runtime.host.teardown().then(() => { runtime.closed = true; client.revision++; });
+    },
     onSizeChanged: size => { if (!runtime.fullscreen && size.height !== undefined) input.height(size.height); },
   });
   return runtime;
