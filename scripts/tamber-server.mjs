@@ -608,9 +608,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     delete request.id;
     let reply;
+    // An import stops with its request (the client gone) or its client (revoked, expired).
+    const gone = new AbortController();
+    let unend = () => {};
+    if (request.method === 'import') {
+      res.on('close', () => { if (!res.writableEnded) gone.abort(); });
+      if (who.client) unend = pairs.onEnd(who.client, () => gone.abort());
+    }
     // A request the server can't take (one too deeply nested to send on,
     // say) is refused, never an uncaught failure.
-    try { reply = await dispatch(request, scope, who.local, who.token); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
+    try { reply = await dispatch(request, scope, who.local, who.token, gone.signal); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
+    unend();
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
     json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
     return true;
@@ -662,7 +670,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
-  async function dispatch(request, scope, local = false, paired = null) {
+  async function dispatch(request, scope, local = false, paired = null, signal = undefined) {
     // Every method's scope, in one place, before any handler: none is no
     // method this wire serves (fail closed; scripts/tamber-pairing.mjs).
     const need = needs(request, id => proposals.get(id)?.client ?? null);
@@ -722,7 +730,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'hold') return needsClient(request) ?? holdState(request);
     if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request);
     if (request.method === 'revert') return needsClient(request) ?? revert(request, scope);
-    if (request.method === 'import') return needsClient(request) ?? importHeld(request, scope);
+    if (request.method === 'import') return needsClient(request) ?? importHeld(request, scope, signal);
     if (request.method === 'drop') {
       const refused = needsClient(request);
       if (refused) return refused;
@@ -1114,13 +1122,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
-  async function importHeld(request, scope = 'write') {
+  async function importHeld(request, scope = 'write', signal = undefined) {
     if (typeof request.kind !== 'string') return { status: 400, error: { message: '`kind` is a string' } };
     for (const k of ['source', 'name', 'prefix', 'baseline']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
     // One file (`source`, `name`), or several (`sources`). A `baseline` (the export the client pulled) is taken when this run gave it
     // out, is kept, or is the design's own (stage 10b). Planned in a process of its own, watched (scripts/tamber-isolate.mjs); held on the design text it was planned and marked on, else planned again.
     for (let tries = 0, target = designPath(appDir) ?? resolve(appDir, design); ; tries++) {
-      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, target, importLimits, appDir, request.client);
+      const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, target, { ...importLimits, signal }, appDir, request.client);
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
       if (!planned.ok.digest) return { status: 409, error: { message: 'the design file is not there: create it, then import' } }; // (no digest, no guard)
       const { ops, review } = importReview(planned.ok);
