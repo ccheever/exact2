@@ -11,6 +11,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, pin, pi
   const shop = async w => (await w.resources()).Shop;
   const input = async s => (await s.state()).world[0].input;
   const settled = (i) => ['held', 'forwarded', 'controls', 'forwardedControls', 'controlContacts'].every(k => i[k].length === 0);
+  // A new session starts from the launch pointer and hover, not the last session's `prefer`
+  // (the web reuses its browser between sessions).
+  const first = await open();
+  const launch = (await first.prefer({})).media;
+  await first.prefer({pointer: launch.pointer === 'coarse' ? 'fine' : 'coarse'});
+  await first.close();
+  const second = await open();
+  const next = (await second.prefer({})).media;
+  check('a new session starts with the launch pointer and hover', next.pointer === launch.pointer && next.hover === launch.hover, {launch, next});
+  await second.close();
   const s = await open(), w = s.world('world');
   await w.run(100);
   await w.tap('Digit1');
@@ -46,9 +56,10 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, pin, pi
   check('with W held, Digit1 buys once more', got.buys === 3 && got.ones === 0, got);
   check('the world still holds W after the shortcut', held.held.includes('KeyW'), held);
   const after = await focused();
-  check('the shortcut moves no focus', after === before && after !== 'buy', {before, after});
+  check('the world keeps the focus through the shortcut', before === 'world' && after === 'world', {before, after});
   await w.key_up('KeyW');
-  await w.tap('Space');
+  // Space at whatever has the focus now: the world's jump if it kept it, Buy's press if not.
+  await s.type(after ?? 'world', {key:'Space'});
   await w.run(100);
   got = await shop(w);
   check('Space after the shortcut is the world\'s jump, not Buy', got.jumps === 1 && got.buys === 3, got);

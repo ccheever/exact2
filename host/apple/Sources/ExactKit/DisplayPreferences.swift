@@ -97,14 +97,15 @@ enum DisplayPreferences {
     static var input: Preferences {
         if let agentInput { return agentInput }
         #if os(iOS)
-        return touchInput(pointingDevice: GCMouse.current != nil)
+        return touchScreenInput(mouse: GCMouse.current)
         #else
         return .platformInput
         #endif
     }
-    /// A touch screen's input, a trackpad or mouse attached or not.
-    static func touchInput(pointingDevice: Bool) -> Preferences {
-        .primaryInput(touchScreen: true, pointingDevice: pointingDevice)
+    /// A touch screen's input given the mouse GameController reports
+    /// attached (`GCMouse.current`, a trackpad too), or none.
+    static func touchScreenInput(mouse: AnyObject?) -> Preferences {
+        .primaryInput(touchScreen: true, pointingDevice: mouse != nil)
     }
     /// `color-gamut` (LLP 1100 D9). Neither platform reports a rec2020 panel.
     static var gamut: String {

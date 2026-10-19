@@ -569,10 +569,13 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
         .map(|(plan, _)| plan)
 }
 
-/// The buttons whose `aria-keyshortcuts` name a key the game's `Actions`
-/// also bind (LLP 1132 D11), as warnings: the shortcut takes the key first
-/// on every host, so the world never hears it while the button shows.
-/// Empty for an app without a game, or before its first GPU build.
+/// The buttons whose `aria-keyshortcuts` chord types a key the game's
+/// `Actions` also bind (LLP 1132 D11), as warnings: on every host the
+/// shortcut takes that press, the key with exactly the chord's modifiers,
+/// first, so the world does not hear it while the button shows; the key
+/// with other modifiers still reaches the world. With a stale or missing
+/// `.shells/keys.json`, a warning saying so. Empty for an app that declares
+/// no shortcut.
 pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
     let src = read_source(path).map_err(|e| vec![e])?;
     let app_root = app_root(path)?;

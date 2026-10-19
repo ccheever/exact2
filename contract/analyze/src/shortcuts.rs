@@ -1,17 +1,19 @@
 //! A button's `aria-keyshortcuts` against the keys a game's `Actions` bind
-//! (LLP 1132 D11). A shown button's shortcut takes its chord before the
-//! focused world hears it, on every host, so a key both declare reaches the
-//! world with the chord's modifiers held only while no such button shows.
+//! (LLP 1132 D11). A shown button's shortcut takes its chord, its key with
+//! exactly its modifiers, before the focused world hears it, on every host,
+//! so that press of a key both declare reaches the world only while no such
+//! button shows; the key with other modifiers reaches it either way.
 
 use crate::{AnalyzeError, Related};
 use contract_syntax::{Attr, Expr, File, Node, Span};
 use std::collections::BTreeMap;
 
 /// The modifiers a chord as ARIA spells it holds (`Shift` in `Shift+J`)
-/// and the `KeyboardEvent.code`s its key can arrive as: the physical keys
-/// that type it on a US layout, and the keypad's. The hosts match a chord
-/// only with exactly its modifiers held, so the same key without them still
-/// reaches the world. No codes for a chord no host matches.
+/// and the `KeyboardEvent.code`s that type its key with exactly those held,
+/// on a US layout: a host matches the chord's key (`KeyboardEvent.key`)
+/// with exactly its modifiers, so `*` is the keypad's alone (Digit8 types
+/// it only with Shift) and `Control+Plus` likewise. No codes for a chord no
+/// host matches.
 pub fn chord_codes(chord: &str) -> (Vec<&str>, Vec<String>) {
     let (modifiers, key) = if chord == "+" {
         ("", "+")
@@ -27,10 +29,11 @@ pub fn chord_codes(chord: &str) -> (Vec<&str>, Vec<String>) {
     {
         return (modifiers, Vec::new());
     }
-    (modifiers, key_codes(key))
+    let shift = modifiers.contains(&"Shift");
+    (modifiers, key_codes(key, shift))
 }
 
-fn key_codes(key: &str) -> Vec<String> {
+fn key_codes(key: &str, shift: bool) -> Vec<String> {
     let key = match key {
         "Plus" => "+",
         "Space" => " ",
@@ -52,37 +55,56 @@ fn key_codes(key: &str) -> Vec<String> {
             _ => Vec::new(),
         };
     };
-    let shifted = ")!@#$%^&*(";
-    match c {
-        'a'..='z' | 'A'..='Z' => vec![format!("Key{}", c.to_ascii_uppercase())],
-        '0'..='9' => vec![format!("Digit{c}"), format!("Numpad{c}")],
-        ' ' => vec!["Space".into()],
-        _ if c != '*' && shifted.contains(c) => {
-            vec![format!("Digit{}", shifted.find(c).unwrap_or_default())]
+    // Each printable key's main-row code with the Shift state that types
+    // it, and the keypad's, which types it either way.
+    let (main, shifted, numpad) = match c {
+        'a'..='z' | 'A'..='Z' => {
+            return vec![format!("Key{}", c.to_ascii_uppercase())];
         }
-        _ => {
-            let (code, numpad) = match c {
-                '-' | '_' => ("Minus", Some("NumpadSubtract")),
-                '=' => ("Equal", None),
-                '+' => ("Equal", Some("NumpadAdd")),
-                '[' | '{' => ("BracketLeft", None),
-                ']' | '}' => ("BracketRight", None),
-                '\\' | '|' => ("Backslash", None),
-                ';' | ':' => ("Semicolon", None),
-                '\'' | '"' => ("Quote", None),
-                '`' | '~' => ("Backquote", None),
-                ',' | '<' => ("Comma", None),
-                '.' | '>' => ("Period", Some("NumpadDecimal")),
-                '/' | '?' => ("Slash", Some("NumpadDivide")),
-                '*' => ("Digit8", Some("NumpadMultiply")),
-                _ => return Vec::new(),
-            };
-            std::iter::once(code)
-                .chain(numpad)
-                .map(str::to_owned)
-                .collect()
+        ' ' => return vec!["Space".into()],
+        '0'..='9' if shift => return Vec::new(),
+        '0'..='9' => {
+            return vec![format!("Digit{c}"), format!("Numpad{c}")];
         }
-    }
+        ')' | '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' => {
+            let digit = ")!@#$%^&*(".find(c).unwrap_or_default();
+            let code = format!("Digit{digit}");
+            let numpad = (c == '*').then_some("NumpadMultiply");
+            return (shift.then_some(code))
+                .into_iter()
+                .chain(numpad.map(str::to_owned))
+                .collect();
+        }
+        '-' => ("Minus", false, Some("NumpadSubtract")),
+        '_' => ("Minus", true, None),
+        '=' => ("Equal", false, None),
+        '+' => ("Equal", true, Some("NumpadAdd")),
+        '[' => ("BracketLeft", false, None),
+        '{' => ("BracketLeft", true, None),
+        ']' => ("BracketRight", false, None),
+        '}' => ("BracketRight", true, None),
+        '\\' => ("Backslash", false, None),
+        '|' => ("Backslash", true, None),
+        ';' => ("Semicolon", false, None),
+        ':' => ("Semicolon", true, None),
+        '\'' => ("Quote", false, None),
+        '"' => ("Quote", true, None),
+        '`' => ("Backquote", false, None),
+        '~' => ("Backquote", true, None),
+        ',' => ("Comma", false, None),
+        '<' => ("Comma", true, None),
+        '.' => ("Period", false, Some("NumpadDecimal")),
+        '>' => ("Period", true, None),
+        '/' => ("Slash", false, Some("NumpadDivide")),
+        '?' => ("Slash", true, None),
+        _ => return Vec::new(),
+    };
+    (shifted == shift)
+        .then_some(main)
+        .into_iter()
+        .chain(numpad)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether any button in `file` declares `aria-keyshortcuts`: only then
@@ -251,11 +273,12 @@ pub fn check_shortcut_keys(
                                     };
                                     out.push(AnalyzeError {
                                         id: "analyze-shortcut-world-key",
-                                        message: if modifiers.is_empty() {
-                                            format!("`aria-keyshortcuts` \"{chord}\" takes {code}, so while this button shows, surface `{surface}` never hears {code} as {names}: the shortcut presses the button first on every host (LLP 1132 D11); {fix}")
-                                        } else {
-                                            let held = modifiers.join("+");
-                                            format!("`aria-keyshortcuts` \"{chord}\" takes {code} with {held} held, so while this button shows, surface `{surface}` hears {code} as {names} only without {held}: the shortcut presses the button first on every host (LLP 1132 D11); {fix}")
+                                        message: {
+                                            let held = match modifiers.is_empty() {
+                                                true => "no modifier".to_owned(),
+                                                false => format!("exactly {}", modifiers.join("+")),
+                                            };
+                                            format!("`aria-keyshortcuts` \"{chord}\" takes {code} pressed with {held} held: while this button shows, surface `{surface}` does not hear that press as {names}, though {code} with other modifiers still reaches it; the shortcut presses the button first on every host (LLP 1132 D11); {fix}")
                                         },
                                         span: shortcut.span,
                                         related: match shortcut.value {

@@ -527,17 +527,25 @@ fn a_shortcut_on_a_key_the_game_binds_warns() {
         ],
         "{found:?}"
     );
-    // `Shift+J` takes KeyJ with Shift held: the world still hears a plain J.
+    // `Shift+J` takes Shift+KeyJ alone: the world still hears J pressed otherwise.
     assert!(
-        found[0].message.contains("takes KeyJ with Shift held")
-            && found[0].message.contains("only without Shift")
+        found[0]
+            .message
+            .contains("takes KeyJ pressed with exactly Shift held")
+            && found[0]
+                .message
+                .contains("with other modifiers still reaches it")
             && found[0].message.contains("button's own `action`"),
         "{}",
         found[0]
     );
     assert!(
-        found[1].message.contains("\"1\" takes Digit1")
-            && found[1].message.contains("never hears Digit1 as `one`"),
+        found[1]
+            .message
+            .contains("\"1\" takes Digit1 pressed with no modifier held")
+            && found[1]
+                .message
+                .contains("does not hear that press as `one`"),
         "{}",
         found[1]
     );
@@ -582,31 +590,44 @@ fn a_shortcut_on_a_key_the_game_binds_warns() {
 }
 
 /// The modifiers a chord as ARIA spells it holds and the physical keys
-/// its key arrives as, which the shortcut warning compares with the codes
-/// `Actions` bind.
+/// that type its key with exactly those held, which the shortcut warning
+/// compares with the codes `Actions` bind.
 #[test]
 fn a_chord_names_its_modifiers_and_the_physical_keys_that_type_it() {
     let codes = contract_analyze::chord_codes;
     let none: Vec<&str> = Vec::new();
+    let names = |chord| codes(chord).1;
     assert_eq!(
         codes("1"),
         (none.clone(), vec!["Digit1".into(), "Numpad1".into()])
     );
     assert_eq!(codes("Shift+a"), (vec!["Shift"], vec!["KeyA".into()]));
     assert_eq!(codes("Space"), (none.clone(), vec!["Space".into()]));
-    assert_eq!(codes("Enter").1, ["Enter", "NumpadEnter"]);
+    assert_eq!(names("Enter"), ["Enter", "NumpadEnter"]);
+    assert_eq!(names("F13"), ["F13"]);
+    // A key Shift types is its main-row key only with Shift held; the keypad's either way.
+    assert_eq!(names("*"), ["NumpadMultiply"]);
+    assert_eq!(names("Shift+*"), ["Digit8", "NumpadMultiply"]);
     assert_eq!(
         codes("Control+Plus"),
-        (vec!["Control"], vec!["Equal".into(), "NumpadAdd".into()])
+        (vec!["Control"], vec!["NumpadAdd".into()])
     );
-    assert_eq!(
-        codes("Meta++"),
-        (vec!["Meta"], vec!["Equal".into(), "NumpadAdd".into()])
-    );
-    assert_eq!(codes("Shift+!").1, ["Digit1"]);
-    assert_eq!(codes("*").1, ["Digit8", "NumpadMultiply"]);
-    assert_eq!(codes("F13").1, ["F13"]);
-    assert!(codes("F36").1.is_empty());
-    assert!(codes("Volume").1.is_empty());
-    assert!(codes("Hyper+K").1.is_empty(), "a modifier no host matches");
+    assert_eq!(codes("Meta++"), (vec!["Meta"], vec!["NumpadAdd".into()]));
+    assert_eq!(names("Control+Shift+Plus"), ["Equal", "NumpadAdd"]);
+    assert_eq!(names("Shift+!"), ["Digit1"]);
+    assert_eq!(names("-"), ["Minus", "NumpadSubtract"]);
+    assert_eq!(names("Shift+_"), ["Minus"]);
+    assert_eq!(names("Shift+-"), ["NumpadSubtract"]);
+    // Chords no key types with exactly their modifiers on a US layout.
+    for chord in [
+        "!",
+        "_",
+        "Shift+1",
+        "Control+Shift+1",
+        "F36",
+        "Volume",
+        "Hyper+K",
+    ] {
+        assert!(names(chord).is_empty(), "{chord}: {:?}", names(chord));
+    }
 }
