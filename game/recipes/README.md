@@ -17,6 +17,12 @@ They are compiled directly from these pages by `engine/src/recipes.rs`.
 | Answer a command | [Door message](door-message.md) | Engine HUD and events |
 | Draw a ring and a translucent halo | [Halo](halo.md) | Beacons |
 | Save a slot | [Save slot](save-slot.md) | Starter restore tests |
+| Bubbles, a wake, a splash | [Emitter](emitter.md) | Particles fixture |
+| Make sounds without files | [Synthesized sounds](synthesized-sounds.md) | Audio fixture |
+| Orbit a third-person camera | [Orbit camera](orbit-camera.md) | Engine look tests |
+| Flash what was hit | [Hit flash](hit-flash.md) | Engine presentation tests |
+| Catch a tap inside one tick | [Same-tick press](same-tick-press.md) | Engine input tests |
+| Export models from Blender | [Blender export](blender-export.md) | Asset fixture |
 | Light a tank or a sea from inside | [Underwater](underwater.md) | Underwater GPU test |
 
 Use the [engine reference](../engine/README.md) for borrowing and registration.

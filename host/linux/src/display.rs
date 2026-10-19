@@ -300,8 +300,10 @@ pub fn copy_xrgb(frame: &Pixmap, dst: &mut [u8], pitch: usize, width: u32, heigh
     }
 }
 
-fn mtime(path: &Path) -> Option<Vec<(std::path::PathBuf, SystemTime, u64)>> {
-    fn collect(path: &Path, rows: &mut Vec<(std::path::PathBuf, SystemTime, u64)>) {
+type ReloadStamp = Vec<(std::path::PathBuf, SystemTime, u64)>;
+
+fn mtime(path: &Path) -> Option<ReloadStamp> {
+    fn collect(path: &Path, rows: &mut ReloadStamp) {
         let Ok(metadata) = std::fs::metadata(path) else {
             return;
         };
@@ -383,7 +385,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     }
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
     // The dev plan's modification time and since when it has waited on requests in flight.
-    let mut held: Option<(Option<Vec<(std::path::PathBuf, SystemTime, u64)>>, Instant)> = None;
+    let mut held: Option<(Option<ReloadStamp>, Instant)> = None;
     // First pixel is the first frame presented (LLP 1026 D11); the update
     // check follows two seconds after it, off the boot path.
     let mut first_pixel: Option<Instant> = None;

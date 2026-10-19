@@ -1495,77 +1495,9 @@ screen, 2026-10-16.)
 
 ## Games
 
-- **A HUD shortcut's chord does not reach the focused world.** On every host a shown
-  button's `aria-keyshortcuts` takes its chord (the key with exactly those modifiers)
-  before the canvas hears it; a button with `action=` presses that action once, a
-  disabled one nothing. While the button shows, an `Actions` binding of the same key
-  does not fire for that chord; the key with other modifiers still reaches the world.
-  The bake warns (`analyze-shortcut-world-key`); drop the key from `Actions` or the
-  shortcut. [Touch controls](../game/recipes/touch-controls.md).
-- **Show on-screen controls by `exactViewport().pointer`, never always.** A stick on a
-  desktop is a tell. The starter shows its stick and buttons under `coarse` only;
-  `prefer pointer coarse` shows them on a desktop drive.
-- **A continued proof uses its saved source copy.** Keep the SDK unchanged until
-  it finishes. Edit the original game freely during a new run; `--continue` refuses
-  if its authored inputs differ from the snapshot, naming the file. Start a new
-  proof to verify the edit. `tools/` probes and `.exact/status.json` are not game inputs.
-  A fresh snapshot has no generated `.shells/surfaces.json`. Cache that declaration
-  with the GPU receipt and restore it before checking the host receipt. Restore
-  Git-ignored baked assets too: a Cargo cache hit does not rerun `bake_art`.
-  Shared Cargo targets are compilation caches; copy validated native products
-  into the run before driving them, so another proof cannot replace them.
-  Declare proof-only JSON or other files with `export const proofData = ["relative/path"];`
-  so the snapshot copies them and continuation checks them. Resolve SDK files from
-  the shared runner’s `proofSDK`, not by walking up from a relocated proof.
+A game's pitfalls (the world and its saves, game input, its tests, proof and setup)
+are in [game-pitfalls.md](game-pitfalls.md).
 
-- **A first native proof can require a rerun after generated directories appear.**
-  If it says `app or asset directories changed during build`, rerun the same
-  command after generation finishes. The first receipt is refused deliberately;
-  the fresh/stable/cached proof test covers this path.
-- **Stopping `game/dev.mjs` during a build can leave its build child running.**
-  A terminated server does not prove its Cargo/build descendants exited. Record
-  the process tree before stopping it, then check those PIDs; terminate only
-  processes belonging to that invocation before starting another build.
-- **`exact.mjs linux` builds the host, not the game's GPU module.** For the
-  `gpu-dev` host/module pair, use `bun proof.mjs linux --build-only` from the
-  game directory. See [game build profiles](../game/README.md#exact2-integration).
-- **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
-  is the fallback when the socket cannot resolve; rotating that fallback does not
-  rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
-  rotation on a working socket.
-- **Entity verbs require an entity handle.** Use `World::get_mut`, `require_mut` or
-  `nearest_xz_mut`. Consuming query rows and resource guards have no entity identity;
-  their verbs report `entity-handle-required`. Borrowed query iteration yields plain
-  references, which do not expose these verbs.
-- **Append new `Data` enum variants when existing values must keep their hashes.**
-  Saves name variants, but the simulation hash includes their declaration ordinals.
-  Keep existing ordinals, including `Mesh::Asset` at five, to preserve model-world
-  pins when adding primitives.
-- **A handle's `tint` and `offset` change simulation state.** They write the entity's
-  `Material` and local `Transform`; they save and hash. For a cosmetic flash or bob,
-  derive `Tint` or `Offset` in `Game::present` instead. `glow_to` retargets the saved
-  `Glow`; keep authored material emission constant or the intensity is applied twice.
-  [Game pickup recipe](../game/recipes/pickup.md).
-- **Builder hex colours are sRGB; `Material::rgb` is linear.**
-  `prop(...).color("#808080")` converts the channels to about 0.216, not 0.502.
-  [Literal builders](../game/recipes/literal-builders.md) and the builder hash test
-  use the same conversion as the CSS colour library.
-
-- **Older saves refuse to restore after adding a generated model.** `restore` names it:
-  ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
-  at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
-  assets"), even one that only changes how a unit looks. Fix: a model that is only
-  appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
-  for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
-  1046.012 F5, 2026-10-07.)
-
-- **`exact setup` keeps reporting `MISSING wasm-bindgen` after installing it, and `test web`
-  fails with "wasm-bindgen not on PATH".** Cause: setup installs it with `cargo install`,
-  whose binaries land in `~/.cargo/bin`, and then looks for it on PATH; a rustup from
-  Homebrew puts only `/opt/homebrew/opt/rustup/bin` there, so the install succeeds and the
-  check never sees it. Fix: put `~/.cargo/bin` on PATH (`.zprofile`), or symlink
-  `~/.cargo/bin/wasm-bindgen` beside `cargo`. **Candidate diagnostic:** setup could check
-  `~/.cargo/bin` and say the PATH is the problem. (Fishslop bench setup, 2026-10-17.)
 
 ## Access hatches
 

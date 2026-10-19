@@ -5,14 +5,16 @@ export {proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render, lookPicture } from '../scripts/agent.mjs';
 import { cdpFailureContext } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
+import { prepareProofTree } from './app/shells.mjs';
 import { closeFilesystemReader, filesystemLock } from '../scripts/filesystem.mjs';
+import { decodePng } from '../scripts/png.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
 export function formatProofError(error) {
@@ -574,7 +576,7 @@ export function proofInputs(root, app, cachePath) {
     state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
   }
   groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
+  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads,assetRows:assetState};
 }
 // One reader per proof. Directory changes require a rerun, even for baked assets.
 export function proofInputReader(root, app, cachePath) {
@@ -584,8 +586,11 @@ export function proofInputReader(root, app, cachePath) {
     // Content identity alone misses an edit that is reverted while the build reads it.
     if (previous && previous.authoredState !== inputs.authoredState)
       throw new Error('authored proof inputs changed during build; rerun the proof');
-    if (previous && previous.assetState !== inputs.assetState)
-      throw new Error('app or asset directories changed during build; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)');
+    if (previous && previous.assetState !== inputs.assetState) {
+      const before = new Map(previous.assetRows), after = new Map(inputs.assetRows);
+      const changed = [...new Set([...before.keys(), ...after.keys()])].filter(dir => before.get(dir) !== after.get(dir));
+      throw new Error(`app or asset directories changed during build: ${changed.join(', ')}; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)`);
+    }
     previous = inputs;
     return inputs;
   };
@@ -821,7 +826,9 @@ export const lookOnlyFailure = summary => summary?.look?.status === 'FAIL'
   && summary.simulation !== 'FAIL' && !(summary.failures ?? []).length;
 
 export function proofCommand(script, ...args) {
-  return ['bun', relative(process.cwd(), script), ...args]
+  // From the filesystem root a relative path would read as a bare name (`Users/…`).
+  const cwd = process.cwd(), path = dirname(cwd) === cwd ? script : relative(cwd, script);
+  return ['bun', path, ...args]
     .map(value => /^[a-zA-Z0-9_./-]+$/.test(value) ? value : "'"+value.replaceAll("'", "'\\''")+"'").join(' ');
 }
 // Both whole-app state and targeted world snapshots are observations.
@@ -833,6 +840,69 @@ export function worldObservations(observations, session) {
   };
 }
 
+/** What a screenshot shows of a world canvas: the canvas's box from `layout()`, less
+ * the boxes of every node inside the canvas's subtree in `tree()` (its HUD, masked
+ * whatever its size or overflow; a sibling or ancestor is not masked), and the share of
+ * the rest further than `tolerance` (per channel, 0–255) from its most common colour,
+ * which a cleared canvas is everywhere. `shot` is the screenshot's reply, whose `w`
+ * scales points to pixels. `pixels` is 0 when the HUD covers the whole canvas. */
+export function worldPixels(png, shot, layout, tree, canvas = 'world', tolerance = 8) {
+  const {width, height, data} = decodePng(png), scale = width / (shot?.w || layout.viewport.w);
+  const owner = tree.nodes.find(n => n.props?.testId === canvas);
+  const world = owner && layout.nodes.find(n => n.id === owner.id);
+  if (!world) throw new Error(`no canvas ${canvas} in tree and layout`);
+  const parents = new Map(tree.nodes.map(n => [n.id, n.parent]));
+  const inside = id => { for (let p = parents.get(id); p != null; p = parents.get(p)) if (p === owner.id) return true; return false; };
+  const hud = layout.nodes.filter(n => inside(n.id) && n.w > 0 && n.h > 0);
+  const covered = (b, x, y) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
+  const pixels = [];
+  for (let py = Math.max(0, Math.floor(world.y * scale)); py < Math.min(height, Math.ceil((world.y + world.h) * scale)); py++) {
+    for (let px = Math.max(0, Math.floor(world.x * scale)); px < Math.min(width, Math.ceil((world.x + world.w) * scale)); px++) {
+      const [x, y] = [(px + 0.5) / scale, (py + 0.5) / scale];
+      if (hud.some(b => covered(b, x, y))) continue;
+      pixels.push((py * width + px) * 4);
+    }
+  }
+  const counts = new Map();
+  for (const i of pixels) {
+    const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let clear = 0, most = -1;
+  for (const [key, n] of counts) if (n > most) { most = n; clear = key; }
+  const [r, g, b] = [clear >> 16, (clear >> 8) & 255, clear & 255];
+  const drawn = pixels.filter(i => Math.max(Math.abs(data[i] - r), Math.abs(data[i + 1] - g), Math.abs(data[i + 2] - b)) > tolerance).length;
+  return {pixels:pixels.length, drawn, share:pixels.length ? drawn / pixels.length : 0, hud:hud.length};
+}
+
+/** The engine fact a proof checks on a GPU host: the renderer reports itself `ready`
+ * and the canvas, outside its HUD, is not one cleared colour. When the HUD covers the
+ * whole canvas no pixel can speak, so it rests on `ready` and the host's first-draw
+ * report (`perf.firstFrameMs`, where the host gives one) and says so. */
+export function completedWorldFrame(shown, world) {
+  const ready = world?.ready === true, firstDraw = world?.perf?.firstFrameMs;
+  if (shown.pixels > 0) return {ok:ready && shown.drawn > 0, fallback:false, ready, ...shown};
+  return {ok:ready && (firstDraw === undefined || Number.isFinite(firstDraw)), fallback:true, ready, firstDraw, ...shown};
+}
+
+/** The game a proof script checks: `--app <dir>`, else the nearest directory at or
+ * above the script's own that holds `app.json` or `logic/src/lib.rs`, so a script
+ * under `tools/` proves the game around it. */
+export function proofGame(scriptDir, args) {
+  const isGame = dir => existsSync(resolve(dir, 'app.json')) || existsSync(resolve(dir, 'logic/src/lib.rs'));
+  const at = args.indexOf('--app');
+  if (at >= 0) {
+    const named = args[at + 1];
+    if (!named || named.startsWith('--')) throw new Error('--app requires the game\'s directory');
+    if (!isGame(resolve(named))) throw new Error(`--app ${named}: not a game (no app.json or logic/src/lib.rs there)`);
+    return resolve(named);
+  }
+  for (let dir = resolve(scriptDir);; dir = dirname(dir)) {
+    if (isGame(dir)) return dir;
+    if (dirname(dir) === dir) throw new Error(`${resolve(scriptDir)}: no game at or above this script (no app.json or logic/src/lib.rs); pass --app <game directory>`);
+  }
+}
+
 export async function proof(meta, script) {
   try { await runProof(meta, script); }
   catch (error) {
@@ -841,11 +911,13 @@ export async function proof(meta, script) {
   }
 }
 async function runProof(meta, script) {
-  const app = fileURLToPath(new URL('.', meta.url)), name = process.env.EXACT_PROOF_NAME ?? basename(app);
-  const root = fileURLToPath(new URL('..', import.meta.url));
   const args = process.argv.slice(2), device = args.includes('--device');
+  const named = args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined;
+  const app = proofGame(fileURLToPath(new URL('.', meta.url)), args) + sep, name = process.env.EXACT_PROOF_NAME ?? basename(app);
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const phone = args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined;
-  const host = args.find(arg => !arg.startsWith('--') && arg !== phone) ?? 'linux';
+  const host = args.find(arg => !arg.startsWith('--') && arg !== phone && arg !== named) ?? 'linux';
+  const appFlag = named === undefined ? [] : ['--app', app];
   if (device && host !== 'ios') throw new Error('--device requires the ios proof host');
   if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) throw new Error('--phone requires --device and a device name or identifier');
   const destination = device ? 'ios-device' : host;
@@ -862,7 +934,7 @@ async function runProof(meta, script) {
     let unverified = false;
     const failed = await paranoidRuns(async mode => {
       const started = performance.now();
-      const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, ...appFlag], {
         env:{...process.env, EXACT_GAME_PARANOID:mode, EXACT_GAME_PARANOID_COMPARE:'1'}, stdio:'inherit',
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
@@ -870,7 +942,7 @@ async function runProof(meta, script) {
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
       return code === 3 ? 0 : code;
     }, async () => {
-      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, '--build-only'], {
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, ...appFlag, '--build-only'], {
         env:{...process.env, EXACT_GAME_PARANOID:'0'}, stdio:'inherit',
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
@@ -1017,6 +1089,11 @@ async function runProof(meta, script) {
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
+    // Make what the build would create in the game's directory before the first input
+    // inventory (its Cargo target, .shells/, the baked assets/): the build then rewrites
+    // the same files and creates no entry, so a fresh game's first proof completes.
+    mkdirSync(appInfo.target, {recursive:true});
+    if (prepareProofTree(app, {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')})) say(`BAKE ${name} art/ into assets/`);
     let inputs;
     const scanInputs = proofInputReader(root, app, resolve(buildOut, 'input-digests.json'));
     const readInputs = () => inputs = scanInputs();

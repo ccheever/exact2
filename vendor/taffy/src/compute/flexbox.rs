@@ -411,8 +411,10 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
     // If container size is undefined, determine the container's main size
     // and then re-resolve gaps based on newly determined size
     debug_log!("determine_container_main_size");
-    if let Some(inner_main_size) = constants.node_inner_size.main(constants.dir) {
-        let outer_main_size = inner_main_size + constants.content_box_inset.main_axis_sum(constants.dir);
+    // EXACT PATCH 59: a ratio height in node_inner_size is a percentage
+    // basis, not a used automatic height; content can exceed its floor.
+    if let Some(outer_main_size) = constants.node_outer_size.main(constants.dir) {
+        let inner_main_size = f32_max(outer_main_size - constants.content_box_inset.main_axis_sum(constants.dir), 0.0);
         constants.inner_container_size.set_main(constants.dir, inner_main_size);
         constants.container_size.set_main(constants.dir, outer_main_size);
     } else {
@@ -1357,9 +1359,17 @@ fn determine_flex_base_size(
             // https://www.w3.org/TR/css-flexbox-1/#min-size-auto
             // EXACT PATCH 57: Chrome 151 lets a non-replaced row item's wider
             // content minimum exceed the converted max-height when its height
-            // is definite. Columns, replaced items and auto-height rows keep
-            // the transferred cap. This follows the measured browser behavior.
-            let content_max = if dir.is_row() && replaced_ratio.is_none() && child_cross_size_is_definite {
+            // is definite. Other rows retain the transferred cap; columns
+            // use the cross-axis bounds below.
+            let content_max = if dir.is_column() {
+                // EXACT PATCH 59: a column's content size suggestion is
+                // capped by max-width through the ratio, floored by min-width
+                // before transfer. Authored max-height still caps the result
+                // (CSS Flexbox §4.5).
+                ratio.zip(child.max_size.width)
+                    .map(|(ratio, width)| ratio.height(width.maybe_max(child.min_size.width)).maybe_min(child.max_size.height))
+                    .or(child.max_size.height)
+            } else if replaced_ratio.is_none() && child_cross_size_is_definite {
                 child.max_size.main(dir)
             } else {
                 transferred_max_size.main(dir)

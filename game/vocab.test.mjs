@@ -15,6 +15,8 @@ test('rustdoc vocabulary evaluates defaults and keeps public World and handle ve
   expect(find('Transform').default.scale).toEqual([1, 1, 1]);
   expect(find('Follow').fields.map(f => f.name)).toContain('target');
   expect(find('Follow').recipes).toContain('game/recipes/follow-camera.md');
+  expect(find('Emitter').recipes).toContain('game/recipes/emitter.md');
+  expect(find('Tint').recipes).toContain('game/recipes/hit-flash.md');
   expect(find('World::nearest_xz_mut').arguments.map(a => a.name)).toEqual(['self', 'origin', 'radius', 'predicate']);
   expect(find('World::save').docs).toContain('save');
   expect(find('RefMut::glow_to').arguments.map(a => a.name)).toEqual(['self', 'intensity', 'seconds']);

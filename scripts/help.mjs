@@ -304,7 +304,7 @@ Ports    none. Runs to completion: exit 0 when it compiled.`,
     usage: 'bun exact.mjs docs <heading words>',
     flags: [],
     body: `Prints the section of start-here, contract-for-agents, contract-grammar, agent-pitfalls,
-reference or a recipe that holds every word, as a whole word, most densely (in code and in
+game-pitfalls, reference or a recipe that holds every word, as a whole word, most densely (in code and in
 a recipe they weigh more), after its path and line, then the next matches. A section whose
 heading is on the words prints from its heading, any other from the paragraph that
 mentions them; up to 120 lines. A word may be a CSS name (-exact-exit-animation).

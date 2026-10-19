@@ -56,6 +56,7 @@ const { chromium } = await import('./agent-launch.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
 const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
+const { generate: gameVocabulary } = await import('../game/vocab.mjs');
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -370,6 +371,7 @@ export function binaryenArchive(version, os = process.platform, cpu = process.ar
 
 /** Install the versions declared by the SDK, once per machine. */
 export function setup({check = false} = {}) {
+  let vocabFailure = null;
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const version = BINARYEN.replace(' ', '_');
@@ -425,11 +427,16 @@ export function setup({check = false} = {}) {
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
     if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
+    // `game vocab` reads the engine's rustdoc; built here, a first lookup skips the cold build.
+    console.log('cargo rustdoc -p exact-game (for exact game vocab)');
+    try { gameVocabulary(); }
+    catch (error) { vocabFailure = error.message.trim().split('\n').slice(-3).join('\n'); }
   }
   const report = sdkReport();
   printReport(report);
   const missing = report.filter(row => row.required && !row.ok);
   if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
+  if (vocabFailure) throw new Error(`the engine rustdoc for game vocab did not build:\n${vocabFailure}`);
   // "Ready" is said only of what is: a row some apps need is named with the apps it holds back.
   const needed = report.filter(row => !row.ok);
   console.log(needed.length
@@ -652,7 +659,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact uninstall <app>        take both away
   exact setup [--check]       install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
-                               fetch the crates every bake reads offline
+                               fetch the crates every bake reads offline;
+                               build the engine rustdoc that game vocab reads
   exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds (Kotlin for android/)
                                (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
@@ -1022,7 +1030,7 @@ export function pattern(args, say = console.log) {
 }
 
 /** The guides `docs` reads, in the order a tie is settled: what a builder looks a section up in. */
-const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/reference.md'];
+const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/game-pitfalls.md', 'docs/reference.md'];
 const SECTION_LINES = 120;
 
 /** Whether a line opens or closes a code fence (CommonMark: an opening fence's info string has no backtick). */

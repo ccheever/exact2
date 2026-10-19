@@ -172,6 +172,70 @@ test('generated entry changes refuse a receipt until a stable rerun; in-place re
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+// A fresh game with art/: the proof generates its shells and bakes before its first
+// inventory, so the build's own shells and bake rewrite the same files and create no
+// entry under the watch. Without that the build's .shells/ and assets/ are new entries.
+test('an absent assets tree the build would create does not throw once the proof has baked', async () => {
+  const {createGame} = await import('./new.mjs');
+  const {gameDefaults, gameShells, prepareProofTree} = await import('./app/shells.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-prebake-'))), bin = resolve(dir, 'bin');
+  const baked = 'crate model bytes';
+  // Cargo is substituted: `cargo run … --art <game>` writes what bake_art would.
+  mkdirSync(bin);
+  writeFileSync(resolve(bin, 'cargo'), `#!${process.execPath}
+import {mkdirSync, writeFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {createHash} from 'node:crypto';
+const game = process.argv.at(-1);
+mkdirSync(resolve(game, 'assets'), {recursive:true});
+writeFileSync(resolve(game, 'assets/crate.model'), ${JSON.stringify(baked)});
+writeFileSync(resolve(game, '.baked-assets.json'), JSON.stringify({'crate.model':createHash('sha256').update(${JSON.stringify(baked)}).digest('hex')}));\n`, {mode:0o755});
+  const env = {...process.env, PATH:`${bin}:${process.env.PATH}`};
+  const proveOnce = async (name, prepare) => {
+    const app = resolve(dir, name);
+    createGame(app, undefined, {assets:true});
+    if (prepare) expect(prepareProofTree(app, env)).toBe(true);
+    const read = proofInputReader(dir, app), receipt = resolve(dir, `${name}.sha256`);
+    // The build: its shells and its bake, the same bytes whether or not they exist.
+    return ensureBuildReceipt({receipt, inputs:() => read().all, artifact:() => 'product', build:async () => {
+      gameShells(app, gameDefaults(app).game, import.meta.dir);
+      spawnSync('cargo', ['run', '--', '--art', app], {env});
+    }});
+  };
+  try {
+    expect(await proveOnce('prepared', true)).toBe(true);
+    await expect(proveOnce('unprepared', false)).rejects.toThrow(/asset directories changed during build: \S*unprepared\//);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+// The --assets scaffold ignores /assets/ and /.baked-assets.json, so Git sees neither;
+// the execution digest still reads the baked bytes, and the authored digest does not.
+test('a Git-ignored baked asset of a new --assets game still moves the execution digest', async () => {
+  const {createGame} = await import('./new.mjs');
+  const {bakeGameArt} = await import('./app/shells.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'ignored-bake-'))), app = resolve(dir, 'reef'), bin = resolve(dir, 'bin');
+  mkdirSync(bin);
+  // Cargo is substituted: `cargo run … --art <game>` writes what bake_art would.
+  writeFileSync(resolve(bin, 'cargo'), `#!${process.execPath}
+import {mkdirSync, writeFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {createHash} from 'node:crypto';
+const game = process.argv.at(-1), bytes = 'baked crate';
+mkdirSync(resolve(game, 'assets'), {recursive:true});
+writeFileSync(resolve(game, 'assets/crate.model'), bytes);
+writeFileSync(resolve(game, '.baked-assets.json'), JSON.stringify({'crate.model':createHash('sha256').update(bytes).digest('hex')}));\n`, {mode:0o755});
+  const git = args => spawnSync('git', args, {cwd:app, encoding:'utf8'});
+  try {
+    createGame(app, undefined, {assets:true});
+    expect(git(['init', '-q']).status).toBe(0);
+    expect(bakeGameArt(app, {...process.env, PATH:`${bin}:${process.env.PATH}`})).toBe(true);
+    expect(git(['check-ignore', 'assets/crate.model', '.baked-assets.json']).stdout.trim().split('\n')).toEqual(['assets/crate.model', '.baked-assets.json']);
+    const root = resolve(import.meta.dir, '..'), before = proofInputs(root, app);
+    // One baked byte changed in place, the manifest left as it was.
+    writeFileSync(resolve(app, 'assets/crate.model'), 'baked crabe');
+    const after = proofInputs(root, app);
+    expect(after.all).not.toBe(before.all);
+    expect(after.gpu).not.toBe(before.gpu);
+    expect(after.authored).toBe(before.authored);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+}, 120000);
+
 test('an initially absent assets tree cannot appear, feed a build and disappear without invalidating its receipt', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'proof-absent-assets-')), app = resolve(dir, 'game/games/sample');
   const receipt = resolve(dir, 'artifacts/build.sha256');
@@ -416,6 +480,10 @@ test('proof summaries record both identities from the completed bake', async () 
           writeFileSync(resolve(app, '.baked-assets.json'), JSON.stringify(manifest));
         },
       }));
+      // The fixture's art is not a model: the bake is the mocked build's alone.
+      const shells = ${JSON.stringify(resolve(import.meta.dir, 'app/shells.mjs'))};
+      const unmocked = await import(shells);
+      mock.module(shells, () => ({...unmocked, prepareProofTree:() => false}));
       const {proof} = await import(${JSON.stringify(resolve(import.meta.dir, 'proof.mjs'))});
       await proof(import.meta, async () => {});
     `);

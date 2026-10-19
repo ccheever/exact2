@@ -14,7 +14,13 @@
 // picture to open once before reporting, which the tells cannot replace.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
-import { proof, axNames } from '../../proof.mjs';
+import { proof, axNames, completedWorldFrame, worldPixels } from '../../proof.mjs';
+
+// How a fresh session reaches the running world: change it with the title screen.
+const play = async session => {
+  await session.tap('play');
+  return session.world('world');
+};
 
 // Constant acceleration, semi-implicit integration: v_k=min(k*a/h,v).
 // Sum the accelerating ticks, then add the constant-speed tail.
@@ -23,20 +29,58 @@ const distance = (n, h, a=12, v=4) => {
   return a*m*(m+1)/(2*h*h)+(n-m)*v/h;
 };
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, look, say}) => {
-  const movement = await open();
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
-    await movement.tap('play');
-    await movement.screenshot(resolve(out, 'game.png'));
-    await movement.close();
+    const shot = await open();
+    await play(shot);
+    await shot.screenshot(resolve(out, 'game.png'));
+    await shot.close();
     return;
   }
-  await movement.type('play',{key:'Enter'});
-  await movement.world('world').hold('KeyW',1500);
-  const walked = await movement.world('world').local_position('player');
+
+  // Engine facts: they hold for any game, so keep them as they are.
+  const first = await open();
+  const world = await play(first);
+  pin(0, await world.snapshot());
+  await world.run(500);
+  // The GPU-less Linux host draws no world; every other host's renderer must report
+  // itself ready and its canvas, outside the HUD, must not be one cleared colour.
+  let shown;
+  if (host !== 'linux') {
+    const shot = await first.screenshot(resolve(out, 'game.png'));
+    shown = worldPixels(readFileSync(resolve(out, 'game.png')), shot, await first.layout(), await first.tree());
+    const frame = completedWorldFrame(shown, (await first.state()).world?.[0]);
+    if (frame.fallback) say('NOTE the HUD covers the whole canvas: the frame fact rests on ready and the first-draw report');
+    check('the GPU host presents a completed frame of the world', frame.ok, frame);
+  }
+  await world.save(resolve(out, 'checkpoint.world'));
+  const checkpoint = await world.snapshot();
+  await world.run(500);
+  const continued = await world.snapshot();
+  await world.save(resolve(out, 'continued.world'));
+  pinSave('continuation', resolve(out, 'continued.world'));
+  await first.close();
+  const restored = await open({fresh:true, world:resolve(out, 'checkpoint.world')});
+  const loaded = await play(restored);
+  check('a fresh process restores the save', JSON.stringify(await loaded.snapshot()) === JSON.stringify(checkpoint));
+  await loaded.run(500);
+  check('a fresh process continues identically', JSON.stringify(await loaded.snapshot()) === JSON.stringify(continued));
+  await loaded.save(resolve(out, 'restored.world'));
+  check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
+  await restored.close();
+
+  // starter: replace these with your game's checks
+  // The starter's scene fills most of its canvas; retune the band to your own scene.
+  if (shown) check('the starter scene covers most of the canvas', shown.share > 0.1, shown);
+  const movement = await open();
+  const walking = await play(movement);
+  await walking.hold('KeyW',1500);
+  const walked = await walking.local_position('player');
   check('W for 1.5 s matches the closed-form acceleration series', Math.abs(walked[2]+distance(180,120)) < 0.001, walked);
   await movement.close();
   const s = await open();
+  // Launch work lands first: an Apple host autofocuses the turn after activation.
+  await s.clock('settle');
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const title = await s.tree();
   const titleAx = await axNames(s);
@@ -58,7 +102,6 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const mouse = await s.tree();
   check('a mouse again hides them', ['move', 'jump', 'light'].every(id => !node(mouse, id)));
   const game = s.world('world');
-  pin(0, await game.snapshot());
   check('no prompt outside range', !node(await s.tree(), 'near-prompt'));
   await game.tap('KeyE');
   await game.run(100);
@@ -73,8 +116,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('movement and light', position[0] > 0.5 && beacon.lit);
   check('publication reaches HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 1');
   check('lit beacon hides prompt', !node(await s.tree(), 'near-prompt'));
-  await game.run(500);
-  if (host === 'web') await s.screenshot(resolve(out, 'game.png'));
+  await game.save(resolve(out, 'lit.world'));
   await s.tap('pause');
   check('pointer Pause releases focus', node(await s.tree(),'pause')?.focused !== true);
   await s.type('pause',{key:'Space'});
@@ -90,24 +132,11 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.hold('KeyW', 1000);
   await game.settle();
   check('prompt disappears outside range', !node(await s.tree(), 'near-prompt'));
-  await game.save(resolve(out, 'final.world'));
-  const checkpoint = await game.snapshot();
-  await game.hold('KeyA', 250);
-  await game.settle();
-  const continued = await game.snapshot();
-  await game.save(resolve(out, 'continued.world'));
-  pinSave('continuation', resolve(out, 'continued.world'));
   await s.close();
-  const restored = await open({fresh:true, world:resolve(out, 'final.world')});
-  await restored.tap('play');
-  const loaded = restored.world('world');
-  check('fresh process restores snapshot', JSON.stringify(await loaded.snapshot()) === JSON.stringify(checkpoint));
-  await loaded.hold('KeyA', 250);
-  await loaded.settle();
-  check('fresh process continues identically', JSON.stringify(await loaded.snapshot()) === JSON.stringify(continued));
-  await loaded.save(resolve(out, 'restored.world'));
-  check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
-  await restored.close();
+  const relit = await open({fresh:true, world:resolve(out, 'lit.world')});
+  const relitGame = await play(relit);
+  check('a fresh process restores the lit beacon and its HUD', (await relitGame.get('beacon-1', 'Beacon')).lit && node(await relit.tree(), 'hud-lit')?.props.text === 'Lit 1');
+  await relit.close();
   const pointerSession = await open({fresh:true});
   await pointerSession.tap('play');
   await pointerSession.tap('pause'); await pointerSession.tap('pause');

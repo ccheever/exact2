@@ -37,7 +37,7 @@ impl<G: Game> Sim<G> {
                 })
                 .collect();
             (self.is_loading() || !pending.is_empty()).then(|| format!(
-                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
+                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again (a hostless test loads its game's art with `exact_game::sim_with_art!`)",
                 pending,
                 assets.state_json()
             ))

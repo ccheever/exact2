@@ -2,6 +2,19 @@
 
 `bun proof.mjs` verifies gameplay, Contract text/accessibility and saves on the GPU-less Linux host. `bun proof.mjs web` adds pixels. First run `bun /path/to/exact2/game/prove.mjs .` to fill empty pins after every mode and host agrees; accept later intentional changes with `--repin`.
 
+`proof.mjs` opens with engine facts that hold for any game, then one block headed
+`// starter: replace these with your game's checks`. The facts: on every GPU host the
+renderer reports itself ready and the canvas, less what its own subtree draws over it
+(the HUD), is not one cleared colour; when the HUD covers the whole canvas the fact rests
+on the renderer's reports alone and the proof says so. And a save restored in a fresh
+process continues identically, byte for byte. Keep the facts, replace the starter
+block (its "covers most of the canvas" band is the starter scene's own number), and
+change `play` if your title screen differs. A proof script
+elsewhere in the game, such as `tools/playtest.mjs`, proves the game around it (the
+nearest directory above it with `app.json` or `logic/src/lib.rs`), or the one
+`--app <dir>` names; it imports `proof.mjs` from the SDK with one more `../` than this
+file does.
+
 Rust hostless tests read simulation time with `sim.world().now()` and save with
 `sim.save()`. JavaScript app proofs inspect the running host with
 `await session.world('world').snapshot()`.
@@ -53,10 +66,13 @@ profiles. `EXACT_GAME_PROOF_PROFILE=release bun proof.mjs` checks Linux against
 release without changing the game.
 
 Run the Rust tests, from a fresh clone too, with
-`bun /path/to/exact2/game/app/shells.mjs . --test`: it generates `.shells/`,
+`bun /path/to/exact2/game/app/shells.mjs . --test`: it generates `.shells/`
+(so a new `logic/tests/*.rs` is a test target at once),
 resolves against the SDK's lock offline and locked, and checks the SDK's
 determinism lints (exact2's `game/README.md`, "Determinism — the contract").
 To depend on another crate, write `logic/Cargo.toml` (`package.workspace =
-"../.shells"`, SDK crates as `exact-game.workspace = true`), then capture
+"../.shells"`, SDK crates as `exact-game.workspace = true`; a game with `art/`
+also needs `[dev-dependencies]` `exact-game-bake.workspace = true` for
+`sim_with_art!`), then capture
 this game's own lock with `bun /path/to/exact2/game/app/shells.mjs . --update-lock`
 and commit `Cargo.lock`.

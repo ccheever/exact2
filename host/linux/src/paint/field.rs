@@ -33,6 +33,10 @@ impl PaintedField {
             .map(|decorations| decorations.state(&self.value))
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "The paragraph supplies geometry; the other arguments initialize retained field state."
+    )]
     fn new(
         paragraph: &Paragraph,
         value: &str,

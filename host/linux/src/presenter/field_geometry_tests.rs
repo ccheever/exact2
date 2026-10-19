@@ -178,8 +178,7 @@ fn second_character(p: &mut Presenter<()>, id: ViewId, multiline: bool) -> (f32,
         .layout_runs()
         .next()
         .unwrap()
-        .glyphs[1]
-        .clone();
+        .glyphs[1];
     (ox + glyph.x + glyph.w * 0.1, oy + 12.)
 }
 

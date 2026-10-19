@@ -82,7 +82,11 @@ impl Ratio {
             if let Some(w) = min.width {
                 min_out.height = Some(f32_max(min.height.unwrap_or(0.0), self.height(w)));
             }
-            if let Some(w) = max.width {
+            // EXACT PATCH 59: an automatic content-based height can exceed
+            // max-width's transfer (CSS Sizing 4 §4.3). Its ratio floor is
+            // derived from the capped width below; only authored max-height
+            // caps the content. Flex item bounds transfer separately.
+            if let Some(w) = max.width.filter(|_| !floor_height) {
                 max_out.height = Some(max.height.map_or(self.height(w), |h| f32_min(h, self.height(w))));
             }
         }
