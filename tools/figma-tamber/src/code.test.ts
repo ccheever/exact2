@@ -673,3 +673,16 @@ test('round 16: two parked modes whose cut names would be one get names of their
   expect(new Set(names).size).toBe(names.length);
   expect(names.filter((n: string) => n.startsWith('unused: ')).length).toBe(3); // two parked, and the person's
 });
+
+test('round 18: a mode of the person\'s named as a context the pull needs is refused before anything is touched, named', async () => {
+  await load(10);
+  const three = variant(doc => { const c = doc.modifiers.mode.contexts; delete c['dark-style=dim, light']; });
+  await send({ type: 'apply', text: three }, 'applied');
+  const col = f.collections[0];
+  col.addMode('dark-style=dim, light'); // the person's own, named as the context coming back
+  let undos = 0;
+  const trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { undos++; trigger(); };
+  await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow(/rename that mode/);
+  expect(undos).toBe(0);
+});

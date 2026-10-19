@@ -113,6 +113,10 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     // (a variable of a token's name this plugin did not make: refused, not taken over)
     const stranger = col && c.variables.find(v => !variableOf(variables, col, v) && variables.some((x: any) => x.variableCollectionId === col.id && x.name === v.name && !x.getSharedPluginData?.(KEY, 'token')));
     if (stranger) throw new Error(`the collection \`${col.name}\` has a variable \`${stranger.name}\` that Tamber did not make: rename it, then pull`);
+    // (a mode of the person's already named as a context Tamber needs: refused, named, before anything is touched)
+    const tracked = new Set([...Object.values(was?.contextIds ?? {}), ...Object.values(was?.parked ?? {})]);
+    const clash = col?.modes.find((m: any) => !tracked.has(m.modeId) && m.modeId !== col.defaultModeId && c.modes.includes(m.name));
+    if (clash) throw new Error(`the collection \`${col.name}\` has a mode \`${clash.name}\` that Tamber did not make, named as a context it needs: rename that mode, then pull`);
     if (col) taken.add(col.id);
     return { c, was, col };
   });
