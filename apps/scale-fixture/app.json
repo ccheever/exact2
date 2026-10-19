@@ -1,0 +1,12 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Scale Fixture",
+  "short_name": "Scale",
+  "id": "com.exact.scalefixture",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.scalefixture",
+    "name": "Scale Fixture"
+  }
+}

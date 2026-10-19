@@ -11,7 +11,7 @@
 // taken for a pass. The box's top-left corner must show its fill over the
 // background alone (no border, shadow or neighbour there).
 //
-// usage: bun scripts/scale-check.mjs <plan.contract> <expect.json> [--host <h> …] [--out <dir>] [--json]
+// usage: bun scripts/scale-check.mjs <plan.contract> <expect.json> [--host <h> …] [--app <name>] [--out <dir>] [--json]
 //   <expect.json>: {"background": "#ffffff", "boxes": [{"testId": "pill", "radius": 9999, "fill": "#0000ff"},
 //                   {"testId": "padded", "child": "inner", "padding": 16}]} — a value per box, or per host:
 //                   {"padding": {"ios": 16, "macos": 10, "default": 16}}. A box may also expect a `gap`
@@ -19,7 +19,9 @@
 //                   (`"radius": "radius.full"`): a base name from kernel/tables/schema.json's scale in the host's
 //                   column, or the plan's own design's token (`contract tamber ir`), which wins. `"then": [{"steps":
 //                   ["tap flip"], "boxes": […]}]` checks boxes again after steps, each from a fresh launch.
-//   --host: web, linux, macos, ios (as scripts/agent.mjs names them); default linux.
+//   --host: web, linux, macos, ios, android (as scripts/agent.mjs names them); default linux. The Android
+//   reader boots the plan its APK bakes, so `--app` names the app that bakes this plan (apps/scale-fixture
+//   for the scale's), built with `bun scripts/agent-android.mjs build <app> --apk`.
 //   Each drive starts from a fresh scratch store (`--storage scale-check --reset-storage`).
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -155,11 +157,37 @@ export function overridesOf(ir, names) {
  * names hosts and not this one. */
 const pick = (v, host) => (v && typeof v === 'object' ? (host in v ? v[host] : 'default' in v ? v.default : 'missing') : v);
 
+/** Where the page's top is in a screenshot taller than the page (the whole
+ * screen, its bars too: the Android reader's): found down the middle of the
+ * topmost box expected to show a fill (of `boxes`, every phase's first
+ * frame's), where a run of it as tall as the box first begins (no fill box is
+ * above it), less that box's top. 0 when the screenshot is the page. */
+export function pageTop(image, layout, expect, scale, boxes = expect.boxes) {
+  if (image.height <= layout.viewport.h * scale + 2) return 0;
+  const ground = rgb(expect.background ?? '#ffffff');
+  const filled = boxes
+    .map(want => [want, want.fill && layout.nodes.find(n => n.testId === want.testId)])
+    .filter(([, box]) => box)
+    .sort(([, a], [, b]) => a.y - b.y);
+  for (const [want, box] of filled.slice(0, 1)) {
+    // Where a run of fill as long as the box is tall begins (not a stroke
+    // above it in that colour, a focus ring, say).
+    const x = Math.round((box.x + box.w / 2) * scale), fill = rgb(want.fill), tall = Math.floor(box.h * scale * 0.9);
+    const inked = y => { const i = (y * image.width + x) * 4; return (coverage([image.data[i], image.data[i + 1], image.data[i + 2]], fill, ground) ?? 0) >= 0.5; };
+    for (let y = 0, run = 0; y < image.height; y++) {
+      run = inked(y) ? run + 1 : 0;
+      if (run >= tall) return y - run + 1 - box.y * scale;
+    }
+  }
+  return 0;
+}
+
 /** Each box's padding and radius on `host`, against what `expect` says: a
  * number, or a base name (`space.md`), which `base(name, host)` gives. */
 export function check(host, layout, image, expect, base = () => undefined) {
   const named = v => (typeof v === 'string' ? (base(v, host) ?? v) : v);
   const scale = image.width / layout.viewport.w;
+  const top = pageTop(image, layout, expect, scale, expect.calibrate);
   const ground = rgb(expect.background ?? '#ffffff');
   const nodes = layout.nodes;
   return expect.boxes.map(want => {
@@ -207,7 +235,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
     if (radius === 'missing') fail(`no radius expected for ${host}`);
     else if (radius !== undefined && !Number.isFinite(radius)) fail(`radius ${JSON.stringify(radius)} is no number`);
     else if (radius !== undefined) {
-      const px = { x: box.x * scale, y: box.y * scale, w: box.w * scale, h: box.h * scale };
+      const px = { x: box.x * scale, y: box.y * scale + top, w: box.w * scale, h: box.h * scale };
       const starts = edges(image, px, rgb(want.fill ?? '#000000'), ground);
       row.expected = reduced(radius, box.w, box.h);
       if (!starts) fail('its corner could not be read (off the image, too small, no fill there, or another colour in it)');
@@ -225,8 +253,11 @@ export function check(host, layout, image, expect, base = () => undefined) {
   });
 }
 
+/** One drive of `plan` on `host` (an app's name for the Android reader, which
+ * boots the plan its APK bakes): `steps`, then its layout and screenshot. */
 function drive(host, plan, png, steps = []) {
-  const run = spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, '--plan', plan, '--storage', 'scale-check', '--reset-storage', '--json', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
+  const launch = host === 'android' ? ['--reader', '--app', plan] : ['--plan', plan];
+  const run = spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
   // The last layout: the one after the steps.
   const line = (run.stdout ?? '').split('\n').findLast(l => l.startsWith('{') && l.includes('"nodes"'));
   if (run.error || run.status !== 0 || !line) throw new Error(`the drive failed${run.error ? ` (${run.error.message})` : run.signal ? ` (${run.signal})` : ''}\n${run.stdout ?? ''}${run.stderr ?? ''}`);
@@ -235,13 +266,13 @@ function drive(host, plan, png, steps = []) {
 
 /** The command line: {source, expect, hosts, out, json}, or a reason it is not one. */
 export function parse(argv) {
-  const opts = { hosts: [], out: '/tmp/exact-scale-check', json: false, files: [] };
+  const opts = { hosts: [], out: '/tmp/exact-scale-check', json: false, files: [], app: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--host' || a === '--out') {
+    if (a === '--host' || a === '--out' || a === '--app') {
       const v = argv[++i];
       if (v === undefined || v.startsWith('--')) return `${a} needs a value`;
-      if (a === '--host') opts.hosts.push(v); else opts.out = v;
+      if (a === '--host') opts.hosts.push(v); else if (a === '--app') opts.app = v; else opts.out = v;
     } else if (a === '--json') opts.json = true;
     else if (a.startsWith('--')) return `unknown flag ${a}`;
     else opts.files.push(a);
@@ -250,12 +281,15 @@ export function parse(argv) {
   opts.out = resolve(opts.out);
   // The agent's `screenshot <png>` is one word.
   if (/\s/.test(opts.out)) return `--out ${opts.out}: a path with no spaces`;
-  return { source: resolve(opts.files[0]), expect: resolve(opts.files[1]), hosts: opts.hosts.length ? opts.hosts : ['linux'], out: opts.out, json: opts.json };
+  const hosts = opts.hosts.length ? opts.hosts : ['linux'];
+  // The reader boots the plan its APK bakes: the app that bakes this one.
+  if (hosts.includes('android') && !opts.app) return '--host android needs --app <the app whose APK bakes this plan>';
+  return { source: resolve(opts.files[0]), expect: resolve(opts.files[1]), hosts, out: opts.out, json: opts.json, app: opts.app };
 }
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/scale-check.mjs <plan.contract> <expect.json> [--host <h> …] [--out <dir>] [--json]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/scale-check.mjs <plan.contract> <expect.json> [--host <h> …] [--app <name>] [--out <dir>] [--json]`); process.exit(2); }
   mkdirSync(opts.out, { recursive: true });
   const plan = join(opts.out, 'scale.plan');
   const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', opts.source, '-o', plan, '--errors-only'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
@@ -278,7 +312,7 @@ if (import.meta.main) {
   for (const host of opts.hosts) {
     for (const [k, phase] of phases.entries()) {
       const png = join(opts.out, `${host}${k ? `-${k}` : ''}.png`);
-      try { rows.push(...check(host, drive(host, plan, png, phase.steps ?? []), decodePng(readFileSync(png)), { ...expect, boxes: phase.boxes }, base).map(r => (k ? { ...r, testId: `${r.testId} (after ${phase.steps.join(', ')})` } : r))); }
+      try { rows.push(...check(host, drive(host, host === 'android' ? opts.app : plan, png, phase.steps ?? []), decodePng(readFileSync(png)), { ...expect, boxes: phase.boxes, calibrate: expect.boxes }, base).map(r => (k ? { ...r, testId: `${r.testId} (after ${phase.steps.join(', ')})` } : r))); }
       catch (e) { rows.push({ host, testId: '*', ok: false, why: e.message }); }
     }
   }

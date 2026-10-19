@@ -165,3 +165,20 @@ test('a box\'s gap, height and named lengths are checked through the names given
   expect(rows[2].why).toContain('is no number');
   expect(rows[3].why).toContain('aligned on neither axis');
 });
+
+test('a screenshot taller than the page (the reader\'s, with its bars) is read from where the page begins', async () => {
+  const { pageTop } = await import('./scale-check.mjs');
+  // The page at 2x under a 30 px bar; a fill-coloured stroke (a focus ring)
+  // above the topmost box, and a second box below it in the same column.
+  const layout = { viewport: { w: 100, h: 100 }, nodes: [
+    { id: 1, x: 10, y: 20, w: 60, h: 24, testId: 'a' }, { id: 2, x: 10, y: 60, w: 60, h: 24, testId: 'b' },
+  ] };
+  const image = drawn(200, 260, { x: 20, y: 70, w: 120, h: 48 }, 0, red);
+  const second = drawn(200, 260, { x: 20, y: 150, w: 120, h: 48 }, 0, red);
+  for (let i = 150 * 200 * 4; i < 200 * 200 * 4; i++) image.data[i] = second.data[i];
+  for (let x = 0; x < 200; x++) { const i = (40 * 200 + x) * 4; image.data[i] = 255; image.data[i + 1] = image.data[i + 2] = 0; }
+  const boxes = [{ testId: 'b', fill: '#ff0000' }, { testId: 'a', fill: '#ff0000' }];
+  expect(pageTop(image, layout, { boxes }, 2)).toBe(30);
+  // A screenshot that is the page: no offset.
+  expect(pageTop(drawn(200, 200, { x: 0, y: 0, w: 1, h: 1 }, 0, red), layout, { boxes }, 2)).toBe(0);
+});
