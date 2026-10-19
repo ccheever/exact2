@@ -10,7 +10,7 @@
 // clock: advance deterministic ticks; settle reports what keeps moving.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
-import { proof, axNames, worldPixels } from '../../proof.mjs';
+import { proof, axNames, completedWorldFrame, worldPixels } from '../../proof.mjs';
 
 // How a fresh session reaches the running world: change it with the title screen.
 const play = async session => {
@@ -24,7 +24,7 @@ const distance = (n, h, a=12, v=4) => {
   const m=Math.min(n,Math.floor(v*h/a));
   return a*m*(m+1)/(2*h*h)+(n-m)*v/h;
 };
-if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
+if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
     const shot = await open();
@@ -44,9 +44,10 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   let shown;
   if (host !== 'linux') {
     const shot = await first.screenshot(resolve(out, 'game.png'));
-    shown = worldPixels(readFileSync(resolve(out, 'game.png')), shot, await first.layout());
-    const ready = (await first.state()).world?.[0]?.ready;
-    check('the GPU host presents a completed frame of the world', ready === true && shown.drawn > 0, {ready, ...shown});
+    shown = worldPixels(readFileSync(resolve(out, 'game.png')), shot, await first.layout(), await first.tree());
+    const frame = completedWorldFrame(shown, (await first.state()).world?.[0]);
+    if (frame.fallback) say('NOTE the HUD covers the whole canvas: the frame fact rests on ready and the first-draw report');
+    check('the GPU host presents a completed frame of the world', frame.ok, frame);
   }
   await world.save(resolve(out, 'checkpoint.world'));
   const checkpoint = await world.snapshot();

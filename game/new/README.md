@@ -2,10 +2,14 @@
 
 `bun proof.mjs` verifies gameplay, Contract text/accessibility and saves on the GPU-less Linux host. `bun proof.mjs web` adds pixels. First run `bun /path/to/exact2/game/prove.mjs .` to fill empty pins after every mode and host agrees; accept later intentional changes with `--repin`.
 
-`proof.mjs` opens with engine facts that hold for any game (a first frame on the GPU
-host; a save restored in a fresh process continues identically, byte for byte), then
-one block headed `// starter: replace these with your game's checks`. Keep the first,
-replace the second, and change `play` if your title screen differs. A proof script
+`proof.mjs` opens with engine facts that hold for any game, then one block headed
+`// starter: replace these with your game's checks`. The facts: on every GPU host the
+renderer reports itself ready and the canvas, less what its own subtree draws over it
+(the HUD), is not one cleared colour; when the HUD covers the whole canvas the fact rests
+on the renderer's reports alone and the proof says so. And a save restored in a fresh
+process continues identically, byte for byte. Keep the facts, replace the starter
+block (its "covers most of the canvas" band is the starter scene's own number), and
+change `play` if your title screen differs. A proof script
 elsewhere in the game, such as `tools/playtest.mjs`, proves the game around it (the
 nearest directory above it with `app.json` or `logic/src/lib.rs`), or the one
 `--app <dir>` names; it imports `proof.mjs` from the SDK with one more `../` than this

@@ -719,25 +719,25 @@ export function worldObservations(observations, session) {
 }
 
 /** What a screenshot shows of a world canvas: the canvas's box from `layout()`, less
- * every other box drawn over it (the HUD), and the share of those pixels further than
- * `tolerance` (per channel, 0–255) from their most common colour, which a cleared
- * canvas is everywhere. `shot` is the screenshot's reply, whose `w` scales points to
- * pixels. A world that drew anything at all has a share above zero; how much of the
- * frame a game fills is the game's own number. */
-export function worldPixels(png, shot, layout, canvas = 'world', tolerance = 8) {
+ * the boxes of every node inside the canvas's subtree in `tree()` (its HUD, masked
+ * whatever its size or overflow; a sibling or ancestor is not masked), and the share of
+ * the rest further than `tolerance` (per channel, 0–255) from its most common colour,
+ * which a cleared canvas is everywhere. `shot` is the screenshot's reply, whose `w`
+ * scales points to pixels. `pixels` is 0 when the HUD covers the whole canvas. */
+export function worldPixels(png, shot, layout, tree, canvas = 'world', tolerance = 8) {
   const {width, height, data} = decodePng(png), scale = width / (shot?.w || layout.viewport.w);
-  const world = layout.nodes.find(n => n.testId === canvas);
-  if (!world) throw new Error(`no canvas ${canvas} in layout`);
-  const inside = (b, x, y) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
-  const contains = (a, b) => a.x <= b.x && a.y <= b.y && a.x + a.w >= b.x + b.w && a.y + a.h >= b.y + b.h;
-  // Boxes over the canvas: anything but the canvas itself and what encloses it.
-  const over = layout.nodes.filter(n => n !== world && !contains(n, world) && n.w > 0 && n.h > 0
-    && n.x < world.x + world.w && n.x + n.w > world.x && n.y < world.y + world.h && n.y + n.h > world.y);
+  const owner = tree.nodes.find(n => n.props?.testId === canvas);
+  const world = owner && layout.nodes.find(n => n.id === owner.id);
+  if (!world) throw new Error(`no canvas ${canvas} in tree and layout`);
+  const parents = new Map(tree.nodes.map(n => [n.id, n.parent]));
+  const inside = id => { for (let p = parents.get(id); p != null; p = parents.get(p)) if (p === owner.id) return true; return false; };
+  const hud = layout.nodes.filter(n => inside(n.id) && n.w > 0 && n.h > 0);
+  const covered = (b, x, y) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
   const pixels = [];
   for (let py = Math.max(0, Math.floor(world.y * scale)); py < Math.min(height, Math.ceil((world.y + world.h) * scale)); py++) {
     for (let px = Math.max(0, Math.floor(world.x * scale)); px < Math.min(width, Math.ceil((world.x + world.w) * scale)); px++) {
       const [x, y] = [(px + 0.5) / scale, (py + 0.5) / scale];
-      if (over.some(b => inside(b, x, y))) continue;
+      if (hud.some(b => covered(b, x, y))) continue;
       pixels.push((py * width + px) * 4);
     }
   }
@@ -750,7 +750,17 @@ export function worldPixels(png, shot, layout, canvas = 'world', tolerance = 8) 
   for (const [key, n] of counts) if (n > most) { most = n; clear = key; }
   const [r, g, b] = [clear >> 16, (clear >> 8) & 255, clear & 255];
   const drawn = pixels.filter(i => Math.max(Math.abs(data[i] - r), Math.abs(data[i + 1] - g), Math.abs(data[i + 2] - b)) > tolerance).length;
-  return {pixels:pixels.length, drawn, share:pixels.length ? drawn / pixels.length : 0, hud:over.length};
+  return {pixels:pixels.length, drawn, share:pixels.length ? drawn / pixels.length : 0, hud:hud.length};
+}
+
+/** The engine fact a proof checks on a GPU host: the renderer reports itself `ready`
+ * and the canvas, outside its HUD, is not one cleared colour. When the HUD covers the
+ * whole canvas no pixel can speak, so it rests on `ready` and the host's first-draw
+ * report (`perf.firstFrameMs`, where the host gives one) and says so. */
+export function completedWorldFrame(shown, world) {
+  const ready = world?.ready === true, firstDraw = world?.perf?.firstFrameMs;
+  if (shown.pixels > 0) return {ok:ready && shown.drawn > 0, fallback:false, ready, ...shown};
+  return {ok:ready && (firstDraw === undefined || Number.isFinite(firstDraw)), fallback:true, ready, firstDraw, ...shown};
 }
 
 /** The game a proof script checks: `--app <dir>`, else the nearest directory at or

@@ -206,6 +206,36 @@ writeFileSync(resolve(game, '.baked-assets.json'), JSON.stringify({'crate.model'
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
+// The --assets scaffold ignores /assets/ and /.baked-assets.json, so Git sees neither;
+// the execution digest still reads the baked bytes, and the authored digest does not.
+test('a Git-ignored baked asset of a new --assets game still moves the execution digest', async () => {
+  const {createGame} = await import('./new.mjs');
+  const {bakeGameArt} = await import('./app/shells.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'ignored-bake-'))), app = resolve(dir, 'reef'), bin = resolve(dir, 'bin');
+  mkdirSync(bin);
+  // Cargo is substituted: `cargo run … --art <game>` writes what bake_art would.
+  writeFileSync(resolve(bin, 'cargo'), `#!${process.execPath}
+import {mkdirSync, writeFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {createHash} from 'node:crypto';
+const game = process.argv.at(-1), bytes = 'baked crate';
+mkdirSync(resolve(game, 'assets'), {recursive:true});
+writeFileSync(resolve(game, 'assets/crate.model'), bytes);
+writeFileSync(resolve(game, '.baked-assets.json'), JSON.stringify({'crate.model':createHash('sha256').update(bytes).digest('hex')}));\n`, {mode:0o755});
+  const git = args => spawnSync('git', args, {cwd:app, encoding:'utf8'});
+  try {
+    createGame(app, undefined, {assets:true});
+    expect(git(['init', '-q']).status).toBe(0);
+    expect(bakeGameArt(app, {...process.env, PATH:`${bin}:${process.env.PATH}`})).toBe(true);
+    expect(git(['check-ignore', 'assets/crate.model', '.baked-assets.json']).stdout.trim().split('\n')).toEqual(['assets/crate.model', '.baked-assets.json']);
+    const root = resolve(import.meta.dir, '..'), before = proofInputs(root, app);
+    // One baked byte changed in place, the manifest left as it was.
+    writeFileSync(resolve(app, 'assets/crate.model'), 'baked crabe');
+    const after = proofInputs(root, app);
+    expect(after.all).not.toBe(before.all);
+    expect(after.gpu).not.toBe(before.gpu);
+    expect(after.authored).toBe(before.authored);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+}, 120000);
+
 test('an initially absent assets tree cannot appear, feed a build and disappear without invalidating its receipt', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'proof-absent-assets-')), app = resolve(dir, 'game/games/sample');
   const receipt = resolve(dir, 'artifacts/build.sha256');

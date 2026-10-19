@@ -3,7 +3,7 @@ import {spawnSync} from 'node:child_process';
 import {existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {proofGame, worldPixels} from './proof.mjs';
+import {completedWorldFrame, proofGame, worldPixels} from './proof.mjs';
 import {encodePng} from '../scripts/png.mjs';
 
 // LLP 1132 D7: a proof script need not sit at the game's root.
@@ -50,31 +50,45 @@ await proof(import.meta, async () => { throw new Error('the script never runs fo
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-// The template's completed-frame fact: a blank world under a large HUD fails, a sparse
-// scene passes, and the screenshot's scale maps layout points to pixels.
-test('worldPixels tells a drawn world from a cleared canvas, whatever covers it', () => {
-  const [width, height, scale] = [640, 360, 2];
-  const clear = [126, 171, 163], hudColour = [32, 39, 49];
-  // A fifth of the canvas under HUD panels, in layout points.
-  const hud = [{x:0, y:0, w:320, h:20}, {x:0, y:160, w:320, h:20}, {x:0, y:20, w:32, h:140}];
-  const layout = {viewport:{w:320, h:180}, nodes:[{id:1, x:0, y:0, w:320, h:180, type:'View'},
-    {id:2, x:0, y:0, w:320, h:180, type:'Canvas', testId:'world'}, ...hud.map((b, i) => ({id:3 + i, ...b, type:'View'}))]};
-  const covered = (x, y) => hud.some(b => x / scale >= b.x && x / scale < b.x + b.w && y / scale >= b.y && y / scale < b.y + b.h);
-  const image = paint => {
+// The template's completed-frame fact. The HUD is what the canvas's subtree draws, by
+// ancestry in the tree, whatever its size; a sibling or ancestor is not HUD.
+test('worldPixels masks the canvas subtree, so a cleared world fails and a sparse one passes', () => {
+  const [width, height, scale] = [640, 360, 2], shot = {w:320, h:180};
+  const clear = [126, 171, 163], ink = [32, 39, 49];
+  // Nodes: 1 root; 2 the canvas; 3–5 its HUD children; 6 a sibling of the canvas.
+  const scene = ({hud = [], sibling = null, paint}) => {
+    const boxes = [{id:1, x:0, y:0, w:320, h:180, type:'View'}, {id:2, x:0, y:0, w:320, h:180, type:'Canvas', testId:'world'},
+      ...hud.map((b, i) => ({id:3 + i, ...b, type:'View'})), ...(sibling ? [{id:6, ...sibling, type:'View'}] : [])];
+    const tree = {nodes:[{id:1, parent:null, props:{}}, {id:2, parent:1, props:{testId:'world'}},
+      ...hud.map((_, i) => ({id:3 + i, parent:2, props:{}})), ...(sibling ? [{id:6, parent:1, props:{}}] : [])]};
+    const onHud = (x, y) => hud.some(b => x / scale >= b.x && x / scale < b.x + b.w && y / scale >= b.y && y / scale < b.y + b.h);
     const data = new Uint8Array(width * height * 4);
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data.set([...(covered(x, y) ? hudColour : paint(x, y)), 255], (y * width + x) * 4);
-    return encodePng({width, height, data});
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data.set([...(onHud(x, y) ? ink : paint(x, y)), 255], (y * width + x) * 4);
+    return worldPixels(encodePng({width, height, data}), shot, {viewport:{w:320, h:180}, nodes:boxes}, tree);
   };
-  const shot = {w:320, h:180};
-  const blank = worldPixels(image(() => clear), shot, layout);
-  expect(blank.hud).toBe(3);
-  expect(blank.drawn).toBe(0);
-  // One small object: a hundredth of the open canvas.
-  const sparse = worldPixels(image((x, y) => x >= 300 && x < 340 && y >= 160 && y < 200 ? [200, 90, 40] : clear), shot, layout);
-  expect(sparse.drawn).toBe(1600);
-  expect(sparse.share).toBeGreaterThan(0.005);
-  expect(sparse.share).toBeLessThan(0.02);
-  expect(() => worldPixels(image(() => clear), shot, {...layout, nodes:layout.nodes.slice(0, 1)})).toThrow('no canvas world');
+  const cleared = () => clear;
+  const sparse = (x, y) => x >= 300 && x < 340 && y >= 160 && y < 200 ? [200, 90, 40] : clear;
+  const bars = [{x:0, y:0, w:320, h:20}, {x:0, y:160, w:320, h:20}, {x:0, y:20, w:32, h:140}];
+  const ready = {ready:true, perf:{firstFrameMs:12}};
+  // A fifth of the canvas under HUD bars: cleared fails, a hundredth drawn passes.
+  expect(completedWorldFrame(scene({hud:bars, paint:cleared}), ready).ok).toBe(false);
+  const few = scene({hud:bars, paint:sparse});
+  expect([few.drawn, completedWorldFrame(few, ready).ok]).toEqual([1600, true]);
+  // HUD that overflows the canvas is masked inside it, and only there.
+  const overflow = [{x:-40, y:-40, w:120, h:80}, {x:280, y:140, w:200, h:200}];
+  expect(scene({hud:overflow, paint:cleared}).drawn).toBe(0);
+  expect(completedWorldFrame(scene({hud:overflow, paint:sparse}), ready).ok).toBe(true);
+  // A painted panel over the whole canvas leaves no world pixel: the fact rests on the
+  // renderer's reports and says so, so a world that never drew fails it.
+  const covered = scene({hud:[{x:0, y:0, w:320, h:180}], paint:cleared});
+  expect(covered.pixels).toBe(0);
+  expect(completedWorldFrame(covered, {ready:false})).toMatchObject({ok:false, fallback:true});
+  expect(completedWorldFrame(covered, {ready:true, perf:{firstFrameMs:null}}).ok).toBe(false);
+  expect(completedWorldFrame(covered, ready)).toMatchObject({ok:true, fallback:true});
+  // A sibling under the canvas's box is not HUD: a valid world shows through and passes.
+  const behind = scene({sibling:{x:0, y:0, w:160, h:180}, paint:sparse});
+  expect([behind.hud, behind.pixels, completedWorldFrame(behind, ready).ok]).toEqual([0, width * height, true]);
+  expect(() => scene({paint:cleared, hud:[]}) && worldPixels(encodePng({width:2, height:2, data:new Uint8Array(16)}), shot, {viewport:{w:320, h:180}, nodes:[]}, {nodes:[]})).toThrow('no canvas world');
 });
 
 test('a proof script run from / names its commands by absolute path', () => {
