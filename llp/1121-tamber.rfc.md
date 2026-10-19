@@ -4900,7 +4900,10 @@ draws nothing new: stage 11 C draws and conforms on top.
   - A bound row whose value may name a base name maps it to that property's `var()` (`measures::map`). An SVG
     attribute row, which reads no property, maps it to the length.
   - A design that defines a base name makes it its own token, which the token path writes, and no base property is
-    declared for it.
+    declared for it. theme2 accepted `--exact-<name>` on two conditions, each tested:
+    - the app's override wins: its own value is what the page shows, inline in a release build;
+    - it follows a live edit: in a development build the row reads the design's property (`--x-space-md`), which an
+      edit's batch (`modes::design`) sets to the new value.
   - The web has no iOS or Mac look class to declare a second column under; one would add its rules in the same place.
     `emit.rs` stays at its cap: its one change joins the base sheet to the theme's.
 - **The wasm web** reads the kernel's column, which its boot already sets to the neutral look's (`host.rs`). A test
@@ -4922,6 +4925,8 @@ draws nothing new: stage 11 C draws and conforms on top.
     - a static row is the column's length, and the sheet declares only the named bases, once, from the table;
     - a bound row's values map to their properties;
     - with no base named, nothing is declared; a design's own `space.md` is its token, and the others stay base.
+    - an app's own `space.md` wins and follows a live edit (40 px to 48 px on the same property), and no base property
+      is declared for it.
   - `host/web/tests/base_scale.rs`: a web boot reads the neutral column.
   - `host/terminal/src/host_scale_tests.rs`: the terminal's column; space.lg is two cells (16 px inline, 16 px on top)
     and radius.md and radius.full are 0.
