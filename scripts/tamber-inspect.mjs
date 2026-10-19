@@ -285,7 +285,8 @@ export function editable(row, origin, params = new Map(), unread = false, state 
   const one = names.length === 1 && declared(names[0]) && (text === names[0] || text.replace(/^-exact-/, '') === names[0]);
   // A component's param, its whole value (exact1's default rung, D6).
   const param = names.length === 1 && text === names[0] ? [...params.values()].find(p => p.param === names[0]) : null;
-  if (param) return { rung: 'param', param: param.param, short: param.short, ...(param.token ? { token: param.token } : {}), modes: row.token.modes ?? '' };
+  // (Its template's address too, where the map places the row: a detach writes there, T5.)
+  if (param) return { rung: 'param', param: param.param, short: param.short, ...(param.token ? { token: param.token } : {}), modes: row.token.modes ?? '', ...(written?.rung === 'template' ? { template: written } : {}) };
   // Else the template or style rung, where the map places the row (T5): the
   // default (D6), the token its whole value is offered beside it.
   if (written?.rung) return one ? { ...written, token: names[0], modes: row.token.modes ?? '' } : written;

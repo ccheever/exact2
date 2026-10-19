@@ -13,6 +13,7 @@ import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
+import { moveLabel, moveOps, NUMBER, unread } from './moves';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
 export { joined, missing, partsOf } from './parts';
@@ -146,7 +147,7 @@ const whenOf = (text: string): When[] => text.split(' ').filter(Boolean).map(w =
 // param answers it (else the full one), from the newest design read.
 let paramNames = new Map<string, string>();
 // The params as the newest settled read of the app's design has them.
-let appParams = new Map<string, ParamInfo>(), appParamsKey = '';
+let appParams = new Map<string, ParamInfo>(), appParamsKey = '', appKinds = new Map<string, string>();
 const lineName = (param: string) => paramNames.get(param) ?? param;
 const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join(' ');
 
@@ -216,6 +217,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
  * the app has no line for the param, that line (its default as written),
  * which a `when` line needs first (LLP 1121 D15). */
 function opsOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown>[] {
+  if (kind === 'promote-param' || kind === 'promote-token' || kind === 'detach-param') return moveOps(file, kind, JSON.parse(target), value.trim(), appParams, appKinds);
   const op = opOf(file, kind, target, when, value);
   const p = kind === 'set-param' && when ? appParams.get(target) : undefined;
   // A default that reads another param (named in full) is no value a line can
@@ -243,10 +245,8 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
     default: return { op: 'remove-token', name: target, ...on };
   }
 }
-const NUMBER = /^-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
-const rowAt = (target: string) => { const a = JSON.parse(target); return a.style ? `${a.style} ${a.row}` : `${a.row} at ${a.file}:${a.at?.line}`; };
 const label = (kind: string, target: string, when: string, value: string) =>
-  kind === 'set-row' ? `${rowAt(target)} = ${value}` : kind === 'set-state' ? `${target.split('|').slice(0, 3).join(' ')} = ${value}` : kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : kind === 'unset-param' ? `reset ${target}${when ? ` when ${when}` : ''}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
+  moveLabel(kind, target, value) ?? (kind === 'set-state' ? `${target.split('|').slice(0, 3).join(' ')} = ${value}` : kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : kind === 'unset-param' ? `reset ${target}${when ? ` when ${when}` : ''}` : `${target}${when ? ` when ${when}` : ''} = ${value}`);
 // The scrub (LLP 1122 D6), one session at a time, from Scrub live to Keep,
 // Cancel or an end: the edit it is of (file, kind, target, branch), the
 // digests and server run it opened on, its id once the server answers, the
@@ -765,7 +765,7 @@ const sources: Sources = {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir) });
-        if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
+        if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; appKinds = snapshots.get(number)!.kinds; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -818,10 +818,13 @@ const sources: Sources = {
     const key = keyOf(file, kind, target, when, value);
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, scrubbable: false, review: '' };
     if (!kind || !target) return idle;
-    if (kind !== 'remove-token' && kind !== 'unset-param' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
-    const ops = opsOf(file, kind, target, when, value);
+    if (kind !== 'remove-token' && kind !== 'unset-param' && kind !== 'detach-param' && !value) return { ...idle, ok: false, error: kind.startsWith('promote') ? 'Give it a name.' : 'Give it a value.' };
+    let ops = opsOf(file, kind, target, when, value);
+    if (!ops.length && kind === 'detach-param') return { ...idle, ok: false, error: 'This param is set by the app\'s design, or its default reads another param: unset it, or give it a value of its own, before detaching it.' };
     if (!ops.length) return { ...idle, ok: false, error: `${lineName(target)}'s default reads another param, which its line can't: give it a value of its own first, then Only this mode.` };
-    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
+    let { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
+    for (let n = 0, t: any = null, more: string[]; kind === 'detach-param' && error && n < 4 && (more = unread(error, target, ops)).length; n++)
+      ({ error, reply, used } = await call('/__tamber', { method: 'propose', ops: ops = moveOps(file, kind, (t = { ...(t ?? JSON.parse(target)), extra: [...(t?.extra ?? []), ...more] }), '', appParams, appKinds) })); // (a detach's closure, as the server names it, D6)
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // A param's first `when` line was planned from the params of another

@@ -1080,7 +1080,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   event: `source` `{file, line, col, end_col, component, chain}` (the component call sites above
   it), and each row with its map `origin` (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
-  value is one token; `{rung: "param", param, short, token?, modes}` (*1.11*, LLP 1122 T3) for
+  value is one token; `{rung: "param", param, short, token?, modes, template?}` (*1.11*, LLP 1122 T3; `template` *1.12*, T5: the template rung's fields where the map places the row, which a detach writes at) for
   such a row whose whole value is one component param: `param` its full name, `short` its short
   one (null where two components share it), `token` the token it aliases directly (its value as
   the app has it, the line's or the default, when that names one declared token, a role override

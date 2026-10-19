@@ -51,11 +51,14 @@ export const placeOf = (axes: Axis[], col: Column) => `${col.dark ? 'dark' : 'li
 
 const noHold = { can: false, state: '', held: false, status: '' };
 /** A state rung as the inspector offers it: `set-state`'s target, `style|state|row|file`, and its words. */
-// The template or style rung's (T5): `set-row`'s address, as the join gave it, its words and the value as written.
-const rowOf = (x: any) => x?.rung === 'template' || x?.rung === 'style'
-  ? { edit: JSON.stringify(x.rung === 'style' ? { style: x.style, row: x.row, file: x.file } : { file: x.file, at: x.at, sha256: x.sha256, row: x.row, ...(x.state ? { state: x.state } : {}) }),
-      editLabel: x.rung === 'style' ? `Edit style ${x.style}` : `Edit this template · ${x.instances === 1 ? '1 instance' : `${x.instances} instances`}`, editText: String(x.text ?? '') }
-  : { edit: '', editLabel: '', editText: '' };
+// The template or style rung's (T5): `set-row`'s address, as the join gave it, its words and the value as
+// written; a template row's promotion to a param or token (`component` the one whose view it is in; a token
+// only for an unconditional value, D6), and a param row's detach to its template.
+const at = (x: any) => (x.rung === 'style' ? { style: x.style, row: x.row, file: x.file } : { file: x.file, at: x.at, sha256: x.sha256, row: x.row, ...(x.state ? { state: x.state } : {}) });
+const rowOf = (x: any, component: string) => x?.rung === 'template' || x?.rung === 'style'
+  ? { edit: JSON.stringify(at(x)), editLabel: x.rung === 'style' ? `Edit style ${x.style}` : `Edit this template · ${x.instances === 1 ? '1 instance' : `${x.instances} instances`}`, editText: String(x.text ?? ''),
+      promote: x.rung === 'template' && x.text ? JSON.stringify({ addr: at(x), component, text: x.text }) : '', tokenize: x.rung === 'template' && x.text && !x.state, detach: '' }
+  : { edit: '', editLabel: '', editText: '', promote: '', tokenize: false, detach: x?.rung === 'param' && x.template ? JSON.stringify({ addr: at(x.template), param: x.param }) : '' };
 const stateOf = (x: any) => x?.style ? { state: [x.style, x.state, x.row, x.file].join('|'), stateLabel: `Edit ${x.style} :${x.state} ${x.row}`, stateText: String(x.text ?? '') } : { state: '', stateLabel: '', stateText: '' };
 const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '' };
 /** The selection as the inspector shows it: each row's source, and its edit
@@ -82,7 +85,7 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     param: usable ? String(r.editable?.param ?? '') : '', short: usable ? String(r.editable?.short ?? r.editable?.param ?? '') : '',
     // The state rung, or beneath a token rung (T4): `set-state`'s target.
     ...stateOf(usable && r.editable?.rung === 'state' ? r.editable : null),
-    ...rowOf(usable ? r.editable : null),
+    ...rowOf(usable ? r.editable : null, String(e.source?.component ?? '')),
     reason: String(r.editable?.reason ?? ''), column: col?.id ?? '',
   });
   return {

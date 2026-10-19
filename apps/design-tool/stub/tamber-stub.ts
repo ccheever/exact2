@@ -43,7 +43,14 @@ const INLINE = new Set(['opacity.muted']);
 // A state part's edit (`set-state`) rebuilds, as the server says.
 // Why the server would refuse a `set-row` (LLP 1121 stage 9 D2), for the tests that ask.
 const rowRefusal = (o: Record<string, unknown>) => o.op !== 'set-row' ? '' : o.sha256 === 'stale' ? `card.contract changed since it was compiled (sha256): select the view again` : o.value === 'not-a-colour' ? 'the app does not build with that: card.contract:3:9: `not-a-colour` is not a colour' : '';
-const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op === 'set-state' || o.op === 'set-row' || REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';
+// A move the server refuses (T5): a new param a component has already ("taken"), or a detach of
+// Card.fill that leaves Card.fade unread, said by its diagnostic, as the compile says it.
+const moveRefusal = (ops: Record<string, unknown>[]) => {
+  if (ops.some(o => o.op === 'add-param' && o.name === 'taken')) return 'a param `taken` exists on `Card` already: give it another name';
+  const gone = ops.filter(o => o.op === 'remove-param' && o.component === 'Card').map(o => o.name);
+  return gone.includes('fill') && !gone.includes('fade') ? { message: 'refused', diagnostics: [{ file: 'app.contract', line: 12, id: 'tamber-param-unused', message: 'the param `fade` of `Card` is read by nothing' }] } : null;
+};
+const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op === 'set-state' || o.op === 'set-row' || o.op === 'add-param' || o.op === 'remove-param' || REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';
 // The design's axes in the other order, as a test reorders them
 // (`/__stub/reverse-axes`): describe says so from then on. `describe`
 // refused (an event's `refuseDescribe`), so a test sees whether the tool
@@ -202,8 +209,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       }
       // A `set-row` the server refuses (T5), as a test names it: a file moved since the selection
       // (`sha256` "stale"), or a value the app does not build with ("not-a-colour").
-      const refusedRow = ['propose', 'transaction'].includes(request.method) && (request.ops ?? []).map(rowRefusal).find(Boolean);
-      if (refusedRow) return send({ error: { message: refusedRow } }, 409);
+      const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
+      if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);

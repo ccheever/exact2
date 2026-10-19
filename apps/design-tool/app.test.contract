@@ -1455,6 +1455,58 @@ test "a row its author wrote is edited by set-row, the default: this template (e
   expect disabled "apply"
   request POST "/__stub/restart" {} as ada
 
+test "a template row moves to a new param or token, and a param row detaches to its template: each one transaction, one undo; a name the component has is refused; a detach removes the params it alone left read"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "editable": {"rung": "template", "file": "app.contract", "at": {"line": 9, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 1, "text": "#1e2732"}}, {"name": "border_color", "value": "#0f73ffff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 10, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "border-color", "instances": 1, "text": "Card.fill"}}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-param-background-color" == "Make it a param"
+  expect text "selrow-tokenize-background-color" == "Make it a token"
+  expect text "selrow-detach-border-color" == "Detach to this template"
+  tap "selrow-param-background-color"
+  expect state editKind == "promote-param"
+  expect text "row-label" == "background-color, as a new param"
+  type "move-name" "taken"
+  clock data
+  expect text "proposal-error" == "a param `taken` exists on `Card` already: give it another name"
+  type "move-name" "ground"
+  clock data
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "editable": {"rung": "template", "file": "app.contract", "at": {"line": 9, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 1, "text": "#1e2732"}}, {"name": "border_color", "value": "#0f73ffff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 10, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "border-color", "instances": 1, "text": "Card.fill"}}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-tokenize-background-color"
+  type "move-name" "surface.ground"
+  clock data
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "editable": {"rung": "template", "file": "app.contract", "at": {"line": 9, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 1, "text": "#1e2732"}}, {"name": "border_color", "value": "#0f73ffff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 10, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "border-color", "instances": 1, "text": "Card.fill"}}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-detach-border-color"
+  expect state editKind == "detach-param"
+  clock data
+  expect tree missing "proposal-error"
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (3)"
+  request POST "/__stub/restart" {} as ada
+
 test "the inspector places a light copy on the light column, and a build whose scheme is not known, or that went, offers no edit"
   type "name" "Ada"
   tap "save-name"

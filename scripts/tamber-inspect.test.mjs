@@ -365,6 +365,10 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     expect(s.rows[8].editable).toEqual({ rung: 'token', token: 'space.md', modes: '' });
     // A file the server does not count as the app's own: a package's.
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir, own: new Set(['other.contract']) }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('package') });
+    // A row that reads a param keeps the param rung, the default (T3), with its template's address for a detach.
+    const params = new Map([['f1', { param: 'card.contract#Card.fill', short: 'Card.fill', token: null }]]);
+    const tpl = { rung: 'template', file: 'card.contract', at: { line: 3, col: 9 }, sha256: 'x', row: 'background-color', instances: 1, text: 'Card.fill' };
+    expect(editable({ source: 'authored', token: { names: ['card.contract#Card.fill'], text: 'card.contract#Card.fill', modes: '', implied: false } }, 'own', params, false, null, tpl)).toEqual({ rung: 'param', param: 'card.contract#Card.fill', short: 'Card.fill', modes: '', template: tpl });
     // Moved since: read-only, its token still linked.
     writeFileSync(card, `${text}// edited\n`);
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir }).rows[0].editable).toMatchObject({ rung: null, link: 'surface.card' });

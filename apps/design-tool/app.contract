@@ -157,6 +157,11 @@ shape SelRow
   edit: string
   editLabel: string
   editText: string
+  // A template row's promotion (D6: to a new param; to a token where `tokenize`, an unconditional value),
+  // and a param row's detach to its template: each move's address and value as written (JSON), or "".
+  promote: string
+  tokenize: bool
+  detach: string
   reason: string
   column: string
 
@@ -696,7 +701,7 @@ component DesignTool
   // under: a write since either, anyone's, leaves it stale until selected and opened again; a
   // re-read that moves nothing does not.)
   derive filesNow = changes.files.split(" ").slice(1).join(" ")
-  derive stateStale = (editKind == "set-state" or editKind == "set-row") and (inspected.stale != "" or inspected.readOnly != "" or inspected.files != filesNow or `${inspected.key}␟${filesNow}` != stateFor)
+  derive stateStale = (editKind == "set-state" or editKind == "set-row" or editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param") and (inspected.stale != "" or inspected.readOnly != "" or inspected.files != filesNow or `${inspected.key}␟${filesNow}` != stateFor)
   // (A panel edit of a param is no branch editor draft: `draftFor` is the branch editor's.)
   derive draftStale = editKind == branchOp and draftFor != "" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
   // The branch's value as the draft has it, and its typed fields.
@@ -874,6 +879,24 @@ component DesignTool
     rowWords = words
     editWhen = ""
     editValue = value
+    stateFor = `${inspected.key}␟${filesNow}`
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+  action moveRow(kind: string, target: string, words: string)
+    // A row moved between rungs (T5, D6's set): promoted to a new param or token (its name typed), or a param
+    // detached to its template; one transaction, rebuilt.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    selToken = ""
+    editKind = kind
+    editTarget = target
+    rowWords = words
+    editWhen = ""
+    editValue = ""
     stateFor = `${inspected.key}␟${filesNow}`
     draftFor = ""
     rawFor = ""
@@ -1298,6 +1321,15 @@ component DesignTool
                       if r.edit != ""
                         button press=editRow(r.edit, r.editLabel, r.editText) buttonStyle="bordered" testId=`selrow-row-${r.name}`
                           text r.editLabel
+                      if r.promote != ""
+                        button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) testId=`selrow-param-${r.name}`
+                          text "Make it a param"
+                      if r.promote != "" and r.tokenize
+                        button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) testId=`selrow-tokenize-${r.name}`
+                          text "Make it a token"
+                      if r.detach != ""
+                        button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) testId=`selrow-detach-${r.name}`
+                          text "Detach to this template"
                       if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
               if impactToken != ""
@@ -1541,6 +1573,14 @@ component DesignTool
                   input value=newValue input=editNewValue submit=addToken placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
                   button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
                     text "Add"
+              if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
+                column gap=4 testId="move-editor"
+                  text rowWords role="heading" aria-level=3 testId="row-label"
+                  text (editKind == "detach-param" ? "One transaction: the param's default written at this row, and the param removed, with any param it alone left read (listed below); refused where the app's design sets it." : "One transaction: the new one, its default the value as written, and this row reading it.") color="-exact-secondary-label" font="-exact-footnote"
+                  if stateStale
+                    text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
+                  if editKind != "detach-param"
+                    input value=editValue input=stateValue aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
               if editKind == "set-state" or editKind == "set-row"
                 column gap=4 testId="state-editor"
                   if editKind == "set-row"
