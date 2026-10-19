@@ -110,6 +110,7 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
         module: Ok(None),
         updates: None,
         hatches: None,
+        clock_started: None,
     };
     config.use_updates(Box::new(Updates::from_client(client).unwrap()), baked);
     config
@@ -172,6 +173,7 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
         module: Ok(None),
         updates: None,
         hatches: None,
+        clock_started: None,
     };
     let size = config.size;
     let (presenter, error) = boot_presenter::<Named>(&mut config, size).unwrap();
@@ -242,6 +244,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
         module: Ok(None),
         updates: None,
         hatches: None,
+        clock_started: None,
     };
     config.use_updates(Box::new(updates), &baked);
     assert_eq!(&*config.plan, b"EXPL");
