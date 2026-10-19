@@ -83,6 +83,7 @@ mod menus;
 mod midi;
 mod migrate;
 mod miswiring;
+mod modules;
 mod motion_feel;
 mod mutation;
 mod names;

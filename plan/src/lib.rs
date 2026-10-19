@@ -851,6 +851,14 @@ impl Plan {
         });
     }
 
+    /// The native module row of source `name`, when a module answers it
+    /// rather than the app's data (LLP 1133.002 D13).
+    pub fn module_named(&self, name: &str) -> Option<&ModulesRow> {
+        self.modules
+            .iter()
+            .find(|m| self.str(self.sources[m.source.0 as usize].name) == name)
+    }
+
     /// Whether `platform`'s module handles `word`, as the plan says it: true
     /// for a plan that lists no words at all (one baked before the row, or an
     /// app that declares none), since then only the module can say.

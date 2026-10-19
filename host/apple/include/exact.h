@@ -610,6 +610,9 @@ uint32_t exact_activities(ExactRuntime rt, size_t len);
  * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
  * `tap midi`. Returns the batch length. */
 uint32_t exact_midi(ExactRuntime rt, size_t len);
+/* @ref LLP 1124 D7: the agent's `prefer extension`, JSON in the input buffer:
+ * a native module source's preferred value. Returns the batch length. */
+uint32_t exact_extension(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev

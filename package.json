@@ -16,6 +16,7 @@
     "exact": "scripts/exact.mjs"
   },
   "dependencies": {
+    "@exact/geolocation": "workspace:*",
     "@exact/reading": "workspace:*"
   }
 }

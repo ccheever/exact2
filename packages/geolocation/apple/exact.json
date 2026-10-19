@@ -1,0 +1,38 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/geolocation@^1.0",
+  "platform": "apple",
+  "targets": ["ios", "macos"],
+  "shapes": {
+    "AppleLocation": {
+      "altitude": "option<number>",
+      "floor": "option<number>",
+      "sourceInformation": "option<AppleSourceInformation>"
+    },
+    "AppleSourceInformation": {
+      "isSimulatedBySoftware": "bool",
+      "isProducedByAccessory": "bool"
+    },
+    "AppleStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|authorizedWhenInUse|authorizedAlways>",
+      "accuracyAuthorization": "enum<fullAccuracy|reducedAccuracy>"
+    }
+  },
+  "options": {
+    "getCurrentPosition": {
+      "desiredAccuracy": "enum<bestForNavigation|best|nearestTenMeters|hundredMeters|kilometer|threeKilometers|reduced>",
+      "activityType": "enum<other|automotiveNavigation|fitness|otherNavigation|airborne>"
+    },
+    "watchPosition": {
+      "desiredAccuracy": "enum<bestForNavigation|best|nearestTenMeters|hundredMeters|kilometer|threeKilometers|reduced>",
+      "activityType": "enum<other|automotiveNavigation|fitness|otherNavigation|airborne>",
+      "distanceFilter": "number",
+      "pausesLocationUpdatesAutomatically": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": ["locationManager"],
+  "sources": { "swift": ["."] },
+  "artifacts": []
+}

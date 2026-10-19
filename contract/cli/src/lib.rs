@@ -21,6 +21,7 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
     let rows = contract_lower::tags::rows(a);
     !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
 }
+mod declaration;
 pub mod functions;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
@@ -30,6 +31,7 @@ mod logic;
 mod manifest;
 mod map;
 mod midi;
+mod modules;
 pub mod native;
 pub mod picker;
 mod resolve;

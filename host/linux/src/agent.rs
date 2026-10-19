@@ -580,6 +580,15 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 None => malformed("midi: prefer midi.* or tap midi \"<input>\" <hex…>"),
             }
         }
+        // @ref LLP 1124 D7 — a native module's source, as the agent prefers
+        // it, and a module's permission (LLP 1133.002 §6).
+        Some("prefer") if top_level(line, "extension") || top_level(line, "permission") => {
+            match p.extension_agent(line) {
+                Some(Ok(reply)) => reply,
+                Some(Err(e)) => error(&e),
+                None => malformed("prefer extension or permission"),
+            }
+        }
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),

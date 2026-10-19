@@ -1304,7 +1304,9 @@ impl Parser {
     fn call_args(&mut self) -> R<Vec<Expr>> {
         let (mut out, mut deepest) = (Vec::new(), 0);
         while !self.at_punct(")") {
-            let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
+            let arg = if let Some(words) = self.dotted_name_ahead() {
+                self.dotted_arg(words)?
+            } else if matches!(self.peek_kind(), TokenKind::Ident(_))
                 && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
             {
                 let (name, span) = self.field_name()?;

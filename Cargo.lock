@@ -1593,6 +1593,7 @@ dependencies = [
  "contract",
  "exact-canvas",
  "exact-grants",
+ "exact-js-value",
  "exact-kernel",
  "exact-motion",
  "exact-num",
