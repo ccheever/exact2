@@ -575,11 +575,10 @@ final class AgentCheckIOSTests: XCTestCase {
     }
 
     /// A row under iOS 26's floating bar (a bottom search field) is covered by the bar's glass, not by the container
-    /// UIKit hangs it in, which is as large as the window and sits in the app's root node. Judged on the root node, the
-    /// last row of a mail list that a drag scrolls clear was "under app at rest, and nothing scrolls it clear" (the
-    /// guard-rail evaluation's inbox, 2026-10-17). Left, a scroller that can still move: scrolling clears its row from
-    /// under the glass. Right, a scroller at its end: nothing clears its last row, which the bar covers. Beside the
-    /// glass, a text is neither covered nor cut.
+    /// UIKit hangs it in, which is as large as the window and sits in the app's root node: judged on the root node, a
+    /// row a short scroll clears from under the glass would need its middle carried past the screen's top. Left, a
+    /// scroller that can still move: scrolling clears its row from under the glass. Right, a scroller at its end:
+    /// nothing clears its last row, which the bar covers. Beside the glass, a text is neither covered nor cut.
     func testARowUnderTheFloatingBarIsCoveredByItsGlassAndScrollingClearsIt() throws {
         let scrolls: [String: Any] = ["overflow_y": "scroll"]
         let agent = mounted([
@@ -619,12 +618,54 @@ final class AgentCheckIOSTests: XCTestCase {
         func cover(_ id: Int) -> [String: Any]? { items.first { $0["id"] as? Int == id }?["cover"] as? [String: Any] }
         // 400 points of room: enough to carry the row's middle past the glass's top, 30 points up, and not past the
         // root node's, 750 up
+        XCTAssertNotNil(items.first { $0["id"] as? Int == 3 }, "\(items)")
         XCTAssertNil(cover(3), "the row's middle is 30 points under the glass's top, and its scroller moves it clear: \(items)")
         let last = try XCTUnwrap(cover(8), "at the scroller's end nothing clears the last row: \(items)")
         XCTAssertEqual(last["kind"] as? String, "bar")
         XCTAssertEqual(last["name"] as? String, "UIKit's floating bar")
         let beside = try XCTUnwrap(items.first { $0["id"] as? Int == 9 }, "\(items)")
         XCTAssertNil(beside["vis"], "a text beside the glass, below its top, is presented whole: \(beside)")
+        XCTAssertNil(beside["cover"], "\(beside)")
+    }
+
+    /// A touch the floating bar takes away from its glass (a toolbar it holds) is judged by what it met, not by glass
+    /// elsewhere: measured from glass below the row, any scroll would have seemed to clear it. A bar inside a floating
+    /// bar whose glass is found cuts nothing beside the glass.
+    func testAFloatingBarsGlassCoversOnlyWhereItLies() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["press"], "props": ["testId": "row"]],
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "A"], "style": ["font_size": 12]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3, 9]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "content", "id": 2, "w": 400.0, "h": 820.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 640.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 9, "x": 2.0, "y": 740.0, "w": 16.0, "h": 16.0],
+        ])
+        let p = try XCTUnwrap(session).presenter
+        p.settlePump()
+        p.viewport.layoutIfNeeded()
+        let container = _UIFloatingBarContainerView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let host = FloatingBarHostingView(frame: container.bounds)
+        host.addSubview(UIPlatformGlassInteractionView(frame: CGRect(x: 20, y: 720, width: 360, height: 60)))
+        let toolbar = UIToolbar(frame: CGRect(x: 0, y: 640, width: 400, height: 60))
+        container.addSubview(host)
+        container.addSubview(toolbar)
+        try XCTUnwrap(p.views[1]).addSubview(container)
+        let hit = try XCTUnwrap(window?.hitTest(CGPoint(x: 200, y: 670), with: nil))
+        XCTAssertTrue(hit.isDescendant(of: toolbar), "the row's middle meets the toolbar: \(hit)")
+        let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+        // 20 points of room, short of the 30 that carry the row's middle past the toolbar's top
+        let row = try XCTUnwrap(items.first { $0["id"] as? Int == 3 }, "\(items)")
+        let cover = try XCTUnwrap(row["cover"] as? [String: Any], "\(row)")
+        XCTAssertEqual(cover["kind"] as? String, "bar")
+        XCTAssertEqual(cover["name"] as? String, "UIToolbar")
+        let beside = try XCTUnwrap(items.first { $0["id"] as? Int == 9 }, "\(items)")
+        XCTAssertNil(beside["vis"], "a text below the toolbar, beside the glass, is presented whole: \(beside)")
         XCTAssertNil(beside["cover"], "\(beside)")
     }
 
