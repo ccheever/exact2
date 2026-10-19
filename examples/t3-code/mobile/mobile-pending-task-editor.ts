@@ -12,7 +12,7 @@ import { mobilePendingTaskEditorKey, mobilePendingTaskEditorsSnapshot, mobilePen
   mobilePendingTaskEditorsReplace, mobilePendingTaskEditorsRemove, mobilePendingTaskEditorHoldOwner,
   type MobilePendingTaskMarker, type MobilePendingTaskExpected } from './mobile-pending-task-state';
 import { mobilePendingTaskDraftAdopt, mobilePendingTaskDraftBuildRecord, mobilePendingTaskDraftFingerprint,
-  mobilePendingTaskDraftCleanup } from './mobile-pending-task-draft';
+  mobilePendingTaskDraftCleanup, type MobilePendingTaskModePolicy } from './mobile-pending-task-draft';
 import { mobileNewTaskDraftBoundKey, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
 import { mobileOutboxDeliveryStatus, mobileOutboxDeliveryRecover } from './mobile-outbox-delivery';
 import { mobileOutboxDraftHandoffStatus, mobileOutboxDraftHandoffComplete, type MobileOutboxDraftHandoff } from './mobile-outbox-draft-handoff';
@@ -174,17 +174,19 @@ export function mobilePendingTaskEditorOpen(client: MobileDraftClient, native: N
 }
 /** Save retains draft/marker/hold. The caller unbinds the editor before explicit Finish. */
 export function mobilePendingTaskEditorSave(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
-  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected }): Promise<MobilePendingTaskEditorResult> {
-  return saveEditor(client, native, storage, input, false);
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; policy: MobilePendingTaskModePolicy }): Promise<MobilePendingTaskEditorResult> {
+  return saveEditor(client, native, storage, input, false, input.policy);
 }
 /** Stage the latest retained editor in the local queue for a separate draft handoff.
  * Terminal receipts remain immutable. This result never authorizes Send or Finish. */
 export function mobilePendingTaskEditorSaveForRecovery(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
   input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected }): Promise<MobilePendingTaskEditorResult> {
-  return saveEditor(client, native, storage, input, true);
+  return saveEditor(client, native, storage, input, true, { kind: 'preserve-captured' });
 }
 function saveEditor(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
-  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected }, terminalRecovery: boolean): Promise<MobilePendingTaskEditorResult> {
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected }, terminalRecovery: boolean,
+  modePolicy: MobilePendingTaskModePolicy): Promise<MobilePendingTaskEditorResult> {
+  const policy = clone(modePolicy);
   return run(client, native, storage, input, async ctx => {
     if (terminalRecovery && client.local.pending[input.owner.environmentId])
       throw new ClientError('Resolve the active send before preparing this editor for recovery.');
@@ -195,7 +197,7 @@ function saveEditor(client: MobileDraftClient, native: Native | null | undefined
     if (!await hold(client, ctx, marker)) return result('retained', marker, 'The queued task is unavailable. Keep the saved editor.');
     marker = await resume(client, ctx, marker);
     const reason = await receipts(client, ctx, marker, terminalRecovery); if (reason) return result('retained', marker, reason);
-    const captured = mobilePendingTaskDraftBuildRecord(client, marker);
+    const captured = mobilePendingTaskDraftBuildRecord(client, marker, policy);
     if (captured.status !== 'ready') { await ctx.persist(); return result('retained', marker, captured.reason); }
     if (canonical(captured.record) === canonical(marker.baseline.record)) {
       await ctx.persist(); return result(terminalRecovery ? 'recovery-saved' : 'saved', marker, '', captured.fingerprint);
@@ -213,16 +215,18 @@ function saveEditor(client: MobileDraftClient, native: Native | null | undefined
  * A failed write leaves both live draft and gate intact; native bytes release later
  * through the existing persisted release queues and ownership filters. */
 export function mobilePendingTaskEditorFinish(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
-  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string }): Promise<MobilePendingTaskEditorResult> {
-  return finishEditor(client, native, storage, input);
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string; policy: MobilePendingTaskModePolicy }): Promise<MobilePendingTaskEditorResult> {
+  return finishEditor(client, native, storage, input, input.policy);
 }
 /** Completion, not queue absence, authorizes retirement of the transferred editor. */
 export function mobilePendingTaskEditorFinishRecovery(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
   input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string; handoff: MobileOutboxDraftHandoff }): Promise<MobilePendingTaskEditorResult> {
-  return finishEditor(client, native, storage, input, input.handoff);
+  return finishEditor(client, native, storage, input, { kind: 'preserve-captured' }, input.handoff);
 }
 function finishEditor(client: MobileDraftClient, native: Native | null | undefined, storage: Files,
-  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string }, handoff?: MobileOutboxDraftHandoff): Promise<MobilePendingTaskEditorResult> {
+  input: MobilePendingTaskEditorInput & { expected: MobilePendingTaskExpected; fingerprint: string },
+  modePolicy: MobilePendingTaskModePolicy, handoff?: MobileOutboxDraftHandoff): Promise<MobilePendingTaskEditorResult> {
+  const policy = clone(modePolicy);
   return run(client, native, storage, input, async ctx => {
     const marker = lookup(client, input.owner);
     if (!marker || mobilePendingTaskEditorKey(input.expected.owner) !== mobilePendingTaskEditorKey(input.owner)
@@ -250,7 +254,7 @@ function finishEditor(client: MobileDraftClient, native: Native | null | undefin
       const reason = await receipts(client, ctx, marker); if (reason) return result('retained', marker, reason);
     }
     if (!unchanged()) throw changed();
-    const captured = mobilePendingTaskDraftBuildRecord(client, marker);
+    const captured = mobilePendingTaskDraftBuildRecord(client, marker, policy);
     if (captured.status !== 'ready' || canonical(captured.record) !== canonical(marker.baseline.record))
       return result('retained', marker, 'Save the current edits before releasing this task.');
     if (client.pendingTaskCleanup) return result('retained', marker, 'Another pending editor is finishing.');

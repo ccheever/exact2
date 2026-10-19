@@ -8,13 +8,18 @@ import { expect, test } from 'bun:test';
 import { mobilePendingTaskRecover } from './mobile-pending-task-recovery';
 import { mobileOutboxDeliveryDecode } from './mobile-outbox-delivery';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
-import { mobilePendingTaskEditorOpen as open, mobilePendingTaskEditorSave as save, mobilePendingTaskEditorFinish as finish, mobilePendingTaskEditorSaveForRecovery as saveForRecovery } from './mobile-pending-task-editor';
+import { mobilePendingTaskEditorOpen as open, mobilePendingTaskEditorSave as saveEditor, mobilePendingTaskEditorFinish as finishEditor, mobilePendingTaskEditorSaveForRecovery as saveForRecovery } from './mobile-pending-task-editor';
 import { mobilePendingTaskEditorKey, mobilePendingTaskEditorsSnapshot } from './mobile-pending-task-state';
 import { mobileNewTaskDraftBind as bind, mobileNewTaskDraftUnbind as unbind, mobileNewTaskDraftStore as drafts } from './mobile-new-task-drafts';
 import { mobilePendingTaskDraftFingerprint } from './mobile-pending-task-draft';
 import { mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';
 import { obj, str, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
+import { mobilePreferencesResource } from './settings-preferences';
+const save = (client: MobileDraftClient, native: Native, storage: Files, input: Omit<Parameters<typeof saveEditor>[3], 'policy'>) =>
+  saveEditor(client, native, storage, { ...input, policy: { kind: 'preserve-captured' } });
+const finish = (client: MobileDraftClient, native: Native, storage: Files, input: Omit<Parameters<typeof finishEditor>[3], 'policy'>) =>
+  finishEditor(client, native, storage, { ...input, policy: { kind: 'preserve-captured' } });
 const owner = { origin: 'https://editor.test', environmentId: 'env', threadId: 'thread', messageId: 'message', commandId: 'command' };
 const key = 'new-task:pending-message', markerKey = mobilePendingTaskEditorKey(owner);
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -28,11 +33,13 @@ function backend() {
     proof: Obj | null; removal: boolean; terminal: Obj | null; terminalDurable: boolean; held: Set<string>; outcomes: Map<string, Obj>; requests: Map<string, Obj>; unknown: boolean; releaseFalse: boolean } = { record: original(), epoch: 'epoch', token: 'epoch:1', revision: 1, floor: 1,
     proof: null, removal: false, terminal: null, terminalDurable: true, held: new Set<string>(), outcomes: new Map<string, Obj>(), requests: new Map<string, Obj>(), unknown: false, releaseFalse: false };
   const calls: Obj[] = [], hooks = new Map<string, (request: Obj) => void | Promise<void>>();
+  const preferences = { planModeEnabled: true };
   const current = () => ({ record: copy(state.record), revision: state.revision, token: state.token, pending: false });
   const native: Native = { available: true, watch() {}, async later(raw) {
     const request = obj(raw); calls.push(copy(request)); await hooks.get(`${request.op}:${request.action ?? ''}`)?.(request);
     let value: unknown;
     if (request.op === 'status') value = { phase: 'disconnected' };
+    else if (request.op === 'mobilePreferences') value = preferences;
     else if (request.op === 'devicePresentation') value = {};
     else if (request.op === 'environments') value = { saved: [] };
     else if (request.op === 'ids') value = ['aaaaaaaa-1111-4111-8111-111111111111'];
@@ -85,7 +92,7 @@ function backend() {
     } else throw Error('No network fallback allowed: ' + JSON.stringify(request));
     return { ok: true, generation: 1, value: copy(value) };
   } };
-  return { state, native, calls, hooks, writes: () => calls.filter(call => call.action === 'resumeUpdate'),
+  return { state, native, calls, hooks, preferences, writes: () => calls.filter(call => call.action === 'resumeUpdate'),
     remove() { state.record = null; state.revision++; state.floor++; state.token = `${state.epoch}:${state.floor}`; },
     replace(text = 'external winner') { state.record = { ...original(), text }; state.revision++; state.floor++; state.token = `${state.epoch}:${state.floor}`; } };
 }
@@ -272,10 +279,10 @@ test('release refusal, failure or admitted release with lost reply preserves pre
 
 
 const pendingRoute = { environmentId: 'env', projectId: 'project', pendingTaskId: 'message' };
-async function pendingFlow() {
-  const f = await fixture();
+async function pendingFlow(host = backend()) {
+  const f = await fixture({ version: 1 }, host);
   f.client.local.drafts['env:new:project'] = 'ordinary project draft';
-  const input = { flowOwner: 'flow-one', current: f.input.current };
+  const input = { flowOwner: 'flow-one', current: f.input.current, preferences: await mobilePreferencesResource(f.host.native) };
   const result = await mobileNewTaskPendingOpen(f.client, f.host.native, f.storage, pendingRoute, input);
   expect(result.status).toBe('ready');
   return { ...f, flowInput: input };
@@ -315,6 +322,74 @@ test('pending save and close commits original IDs, unbinds, finishes ownership a
   expect(f.client.local.drafts[key]).toBeUndefined(); expect(f.client.local.drafts['env:new:project']).toBe('ordinary project draft');
   expect(f.client.draftKey).not.toBe(key); expect(f.host.writes()).toHaveLength(1);
 });
+for (const entry of [
+  { ready: true, enabled: false, toggle: true, draftMode: 'plan', expected: 'default' },
+  { ready: true, enabled: false, toggle: undefined, draftMode: 'plan', expected: 'default' },
+  { ready: true, enabled: true, toggle: true, draftMode: 'plan', expected: 'plan' },
+  { ready: true, enabled: true, toggle: false, draftMode: 'plan', expected: 'default' },
+  { ready: false, enabled: false, toggle: true, draftMode: 'default', expected: 'plan' },
+  { ready: false, enabled: false, toggle: false, draftMode: 'plan', expected: 'default' },
+]) test(`pending Close uses native preference readiness=${entry.ready} enabled=${entry.enabled}, draft=${entry.draftMode}, provider toggle=${entry.toggle}`, async () => {
+  const host = backend(); host.preferences.planModeEnabled = entry.enabled;
+  host.state.record!.interactionMode = 'plan'; host.state.record!.modelSelection!.options = [{ id: 'effort', value: 'high' }];
+  const baseline = copy(host.state.record!), f = await pendingFlow(host);
+  f.client.config = { environment: { environmentId: 'env' }, providers: [
+    { instanceId: 'unrelated', showInteractionModeToggle: false },
+    { instanceId: 'provider', ...(entry.toggle === undefined ? {} : { showInteractionModeToggle: entry.toggle }) }] };
+  f.client.providerId = 'unrelated'; f.client.local.deviceSettings.planModeEnabled = !entry.enabled;
+  drafts(f.client).records[key].choices!.interactionMode = entry.draftMode;
+  if (!entry.ready) f.flowInput.preferences = await mobilePreferencesResource(null);
+  edit(f, 'edited pending task');
+  host.hooks.set('mobileOutbox:resumeUpdate', request => {
+    expect(host.state.held.size).toBe(1); expect(obj(obj(request.request).record).interactionMode).toBe(entry.expected);
+  });
+  const before = host.calls.length;
+  const result = await mobileNewTaskPendingClose(f.client, host.native, f.storage, live(f), f.flowInput);
+  expect(result.status).toBe('finished');
+  expect(host.state.record).toEqual({ ...baseline, text: 'edited pending task', interactionMode: entry.expected });
+  expect(host.state.held.size).toBe(0); expect(mobilePendingTaskEditorsSnapshot(f.client).markers).toEqual([]);
+  expect(f.client.local.drafts[key]).toBeUndefined();
+  expect(host.calls.slice(before).every(call => ['mobileOutbox', 'mobileOutboxDelivery', 'mobileOutboxInline', 'ids'].includes(str(call.op)))).toBe(true);
+});
+test('pending Close keeps one preference/provider capture through Save and Finish', async () => {
+  const host = backend(); host.state.record!.interactionMode = 'plan'; host.preferences.planModeEnabled = false;
+  const f = await pendingFlow(host); f.client.config = { providers: [{ instanceId: 'provider', showInteractionModeToggle: true }] };
+  edit(f, 'captured before queue read');
+  host.hooks.set('mobileOutbox:read', () => {
+    f.flowInput.preferences.serialized = JSON.stringify({ ready: true, planModeEnabled: true });
+    host.preferences.planModeEnabled = true;
+  });
+  expect((await mobileNewTaskPendingClose(f.client, host.native, f.storage, live(f), f.flowInput)).status).toBe('finished');
+  expect(host.state.record?.interactionMode).toBe('default'); expect(host.writes()).toHaveLength(1);
+});
+test('pending Close refuses foreign provider facts and malformed loaded preferences before changing the queue', async () => {
+  for (const invalid of ['environment', 'preferences'] as const) {
+    const host = backend(); host.state.record!.interactionMode = 'plan';
+    const f = await pendingFlow(host); edit(f, 'keep held');
+    if (invalid === 'environment') f.client.config = { environment: { environmentId: 'another' }, providers: [{ instanceId: 'provider', showInteractionModeToggle: false }] };
+    else f.flowInput.preferences.serialized = JSON.stringify({ ready: true, planModeEnabled: 'false' });
+    await expect(mobileNewTaskPendingClose(f.client, host.native, f.storage, live(f), f.flowInput)).rejects.toBeDefined();
+    expect(host.writes()).toHaveLength(0); expect(host.state.record?.interactionMode).toBe('plan');
+    expect(host.state.held.size).toBe(1); expect(f.client.draftKey).toBe(key); expect(f.client.draft).toBe('keep held');
+  }
+});
+test('pending Close retains a new model or mode pick and refuses an environment replacement during queue reads', async () => {
+  for (const replacement of ['model', 'mode', 'environment'] as const) {
+    const f = await pendingFlow(); edit(f, 'keep newer settings');
+    f.host.hooks.set('mobileOutbox:read', () => {
+      if (replacement === 'model') drafts(f.client).records[key].choices = { providerId: 'successor', modelId: 'new-model', modelOptions: [] };
+      else if (replacement === 'mode') drafts(f.client).records[key].choices!.interactionMode = 'plan';
+      else f.client.environmentId = 'successor';
+    });
+    if (replacement !== 'environment') {
+      const result = await mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput);
+      expect(result.status).toBe('retained'); expect(result.reason).toContain('settings changed');
+      expect(replacement === 'model' ? drafts(f.client).records[key].choices?.providerId : drafts(f.client).records[key].choices?.interactionMode).toBe(replacement === 'model' ? 'successor' : 'plan');
+    } else await expect(mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput)).rejects.toBeDefined();
+    expect(f.host.writes()).toHaveLength(0); expect(f.host.state.held.size).toBe(1);
+    expect(f.client.local.drafts[key]).toBe('keep newer settings');
+  }
+});
 test('empty edits stay bound and held; failed Finish rebinds exact current flow and retries the same identity', async () => {
   const f = await pendingFlow(); edit(f, '');
   expect((await mobileNewTaskPendingClose(f.client, f.host.native, f.storage, live(f), f.flowInput)).status).toBe('retained');
@@ -350,7 +425,7 @@ test('pending close rejects a different binding owner before saving edited bytes
 test('captured project display fallbacks are not persisted as creation metadata', async () => {
   const host = backend(); delete host.state.record!.creation!.projectTitle; delete host.state.record!.creation!.projectCwd;
   const f = await fixture({ version: 1 }, host);
-  const input = { flowOwner: 'one', current: f.input.current };
+  const input = { flowOwner: 'one', current: f.input.current, preferences: await mobilePreferencesResource(host.native) };
   expect((await mobileNewTaskPendingOpen(f.client, host.native, f.storage, pendingRoute, input)).status).toBe('ready');
   expect(mobileNewTaskPendingContext(f.client)).toMatchObject({ title: 'Unknown project', cwd: '' });
   edit(f, 'new content');
@@ -492,12 +567,16 @@ function terminalRecord(state: 'acknowledged' | 'rejected' | 'issued' | 'reserve
 }
 for (const outcome of ['acknowledged', 'rejected'] as const) test(`terminal ${outcome} recovery save preserves current editor and immutable command, without authorizing ordinary Finish`, async () => {
   const f = await opened(); edit(f, 'latest retained edits'); f.host.state.terminal = terminalRecord(outcome);
+  f.host.preferences.planModeEnabled = false;
+  f.client.config = { providers: [{ instanceId: 'provider', showInteractionModeToggle: false }] };
+  drafts(f.client).records[key].choices!.interactionMode = 'plan';
   const terminal = copy(f.host.state.terminal); expect(mobileOutboxDeliveryDecode(terminal, 'command').state).toBe(outcome);
   expect((await save(f.client, f.host.native, f.storage, { ...f.input, expected: live(f) })).status).toBe('retained');
   expect(f.host.writes()).toHaveLength(0);
   const saved = await saveForRecovery(f.client, f.host.native, f.storage, { ...f.input, expected: live(f) });
   expect(saved.status).toBe('recovery-saved'); expect(saved.fingerprint).toBe(mobilePendingTaskDraftFingerprint(f.client, key));
   expect(f.host.state.record).toMatchObject({ ...owner, text: 'latest retained edits', createdAt: original().createdAt });
+  expect(f.host.state.record?.interactionMode).toBe('plan');
   expect(f.host.state.terminal).toEqual(terminal); expect(f.host.state.held.size).toBe(1);
   expect(f.client.local.drafts[key]).toBe('latest retained edits'); expect(savedMarker(f.disk()).session).toBe(live(f).session);
   expect((await finish(f.client, f.host.native, f.storage, { ...f.input, expected: live(f), fingerprint: saved.fingerprint! })).status).toBe('retained');
