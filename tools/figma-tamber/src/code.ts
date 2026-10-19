@@ -228,15 +228,16 @@ figma.ui.onmessage = async (msg: any) => {
             }
           }
         }
-        // And whatever is on a mode Tamber kept unused (a parked default) whose context comes back: the pull writes over it.
+        // And whatever is on a mode Tamber kept unused (a parked default) whose context comes back, or on any parked
+        // mode when the contexts move (the collection may be replaced): the pull writes over it, or it goes.
         const revived: { collection: string; variable: string; mode: string }[] = [];
         if (plan) {
-          const back = new Set(Object.keys(tokensOf(doc))), collections = await figma.variables.getLocalVariableCollectionsAsync(), variables = await figma.variables.getLocalVariablesAsync();
+          const back = new Set(Object.keys(tokensOf(doc))), moving = (m => m.added.length + m.removed.length > 0)(contextsMoved(plan, doc)), collections = await figma.variables.getLocalVariableCollectionsAsync(), variables = await figma.variables.getLocalVariablesAsync();
           for (const c of plan.collections) {
             const col = collectionIn(collections, c);
             for (const [ctx, id] of Object.entries(c.parked ?? {})) {
               const m = col?.modes.find((x: any) => x.modeId === id);
-              if (!m || !back.has(ctx)) continue;
+              if (!m || !(back.has(ctx) || moving)) continue;
               for (const fv of variables.filter((x: any) => x.variableCollectionId === col.id && x.getSharedPluginData?.(KEY, 'token'))) if (fv.valuesByMode[id] !== undefined) revived.push({ collection: col.name, variable: fv.name, mode: m.name });
             }
           }

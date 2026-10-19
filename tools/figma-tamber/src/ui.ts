@@ -62,7 +62,7 @@ async function pullDesign() {
   // Aliases of the person's the pull writes the design's value over.
   if (aliases.length && !confirm(`${aliases.length} alias(es) in Figma will be replaced by the design's values:\n${aliases.map((a: any) => `${a.collection}: ${a.variable} (${a.mode})`).join('\n')}\n\nOK pulls.`)) { show('not pulled: aliases would be replaced'); return; }
   // Values on a mode Tamber kept unused whose context comes back: written over.
-  if (revived.length && !confirm(`${revived.length} value(s) on a mode Tamber kept unused come back to their context and are replaced by the design's:\n${revived.map((r: any) => `${r.collection}: ${r.variable} (${r.mode})`).join('\n')}\n\nOK pulls.`)) { show('not pulled: values on an unused mode would be replaced'); return; }
+  if (revived.length && !confirm(`${revived.length} value(s) on a mode Tamber kept unused are replaced by the design's (their context comes back) or may go (the collection is rewritten):\n${revived.map((r: any) => `${r.collection}: ${r.variable} (${r.mode})`).join('\n')}\n\nOK pulls.`)) { show('not pulled: values on an unused mode would be replaced'); return; }
   // Variables a pull removes or makes again: what is bound to them in this file loses them.
   if (drops.length && !confirm(`${drops.length} variable(s) go or are made again with this pull, and what is bound to them loses them:\n${drops.map((d: any) => `${d.variable}: ${d.why}`).join('\n')}\n\nOK pulls.`)) { show('not pulled: variables would go'); return; }
   const done = await ask({ type: 'apply', text }, 'applied');

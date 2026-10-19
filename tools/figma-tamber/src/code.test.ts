@@ -615,3 +615,20 @@ test('round 13: values on a parked mode whose context comes back are listed befo
   const checked = await send({ type: 'check', text: back }, 'checked');
   expect(checked.revived.map((r: any) => [r.variable, r.mode])).toContainEqual(['accent/fill', 'unused: dark-style=black, light']);
 });
+
+test('round 14: values on a parked mode are listed when the contexts move, the collection perhaps replaced', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], first = col.modes[0].modeId;
+  const gone = variant(doc => { delete doc.modifiers.mode.contexts['dark-style=black, light']; doc.modifiers.mode.default = 'dark-style=dim, light'; });
+  await send({ type: 'apply', text: gone }, 'applied');
+  f.variables.find(v => v.name === 'accent/fill').valuesByMode[first] = { r: 1, g: 0, b: 0, a: 1 };
+  const grey = variant(doc => {
+    const contexts = doc.modifiers.mode.contexts;
+    delete contexts['dark-style=black, light'];
+    doc.modifiers.mode.default = 'dark-style=dim, light';
+    for (const s of ['light', 'dark']) contexts[`dark-style=grey, ${s}`] = structuredClone(contexts[`dark-style=dim, ${s}`]);
+  });
+  const checked = await send({ type: 'check', text: grey }, 'checked');
+  expect(checked.revived.map((r: any) => r.variable)).toContain('accent/fill');
+});
