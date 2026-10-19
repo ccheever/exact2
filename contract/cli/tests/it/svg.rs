@@ -849,19 +849,27 @@ component App
 
 #[test]
 fn box_transforms_report_independent_attribute_refusals() {
+    let app = super::diagnostics::App::new("box-transform-refusals");
+    app.write(
+        "app.json",
+        r#"{"name":"Transform diagnostics","app":{"id":"com.exact.transformdiagnostics","name":"Transform diagnostics"},"modules":["step-strip"]}"#,
+    );
+    let path = app.0.canonicalize().unwrap().join("app.contract");
     let errors = |source: &str| {
-        let Err(errors) = contract::compile_path_source_all(
-            std::path::Path::new("box-transform-diagnostics.contract"),
-            source,
-            false,
-        ) else {
+        app.write("app.contract", source);
+        let Err(errors) = contract::compile_path_all(&path, false) else {
             panic!("compiled an invalid transform fixture: {source}");
         };
         errors
     };
     let mut failures = Vec::new();
     let width = "transition=\"width 260ms ease\"";
-    for tag in ["column", "text \"probe\"", "step-strip"] {
+    for tag in [
+        "column",
+        "text \"probe\"",
+        "step-strip",
+        "button appearance=\"none\" aria-label=\"probe\" width=20 height=20",
+    ] {
         for transform in [
             "transform=\"translateX(24px)\"",
             "transform=(small ? \"translateX(0px)\" : \"translateX(24px)\")",
@@ -894,8 +902,8 @@ fn box_transforms_report_independent_attribute_refusals() {
                 (
                     format!("{tag} {width} {transform}"),
                     [
-                        ("transition", width_error, 4),
                         ("transform", transform_error, 4),
+                        ("transition", width_error, 4),
                     ],
                 ),
                 (
@@ -932,6 +940,7 @@ fn box_transforms_report_independent_attribute_refusals() {
                     if actual.id != reference.id
                         || actual.message != reference.message
                         || actual.file != reference.file
+                        || actual.file.as_deref() != Some(path.as_path())
                         || actual.span.source_id != reference.span.source_id
                         || actual.span.line != line
                         || actual.span.col != col

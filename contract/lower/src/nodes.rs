@@ -121,10 +121,24 @@ impl Lowerer<'_> {
         let expanded = timed.as_deref().unwrap_or(expanded);
         let composed = self.compose_animation(expanded)?;
         let expanded = composed.as_deref().unwrap_or(expanded);
-        let lengths =
-            svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
+        let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
+        let lengths = svg::coerce_lengths(tag, in_svg, expanded);
         let expanded = lengths.as_deref().unwrap_or(expanded);
         self.check_svg(tag, parent_tag, expanded, *span)?;
+        let box_transform = tag != "svg" && !(svg::is_element(tag) || (tag == "text" && in_svg));
+        let refused_transform =
+            |a: &Attr| box_transform && a.name == "transform" && !native::leftover(tag, a);
+        // Keep the refusal's phase without hiding the box's independent rows.
+        for a in expanded.iter().filter(|a| refused_transform(a)) {
+            self.errors.push(native::name_the_fix(
+                n,
+                LowerError {
+                    id: "lower-attr-tag",
+                    message: crate::vocab::BOX_TRANSFORM_REFUSAL.into(),
+                    span: a.span,
+                },
+            ));
+        }
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
         // scheme: no host gives a run an appearance of its own.
@@ -220,7 +234,6 @@ impl Lowerer<'_> {
         let expanded = audio.as_deref().unwrap_or(expanded);
         // @ref LLP 1074 T1 — a box that contains its absolutely positioned
         // descendants on every host is lowered `position: relative`.
-        let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
         let relative = contain::positioned(
             &t,
             expanded,
@@ -487,32 +500,21 @@ impl Lowerer<'_> {
             if native::leftover(tag, a)
                 || refused.contains(&a.name.as_str())
                 || dataset::word(&a.name).is_some()
+                || refused_transform(a)
             {
                 continue;
             }
-            let result = if a.name == "transform"
-                && tag != "svg"
-                && !(svg::is_element(tag) || (tag == "text" && in_svg))
-            {
-                Err(LowerError {
-                    id: "lower-attr-tag",
-                    message: crate::vocab::BOX_TRANSFORM_REFUSAL.into(),
-                    span: a.span,
-                })
-            } else {
-                self.attr(
-                    tag,
-                    contract_syntax::payload_control(tag, attrs),
-                    a,
-                    scope,
-                    locals,
-                    &mut bindings,
-                    &mut handlers,
-                    &mut surface,
-                    &font,
-                )
-            };
-            if let Err(e) = result {
+            if let Err(e) = self.attr(
+                tag,
+                contract_syntax::payload_control(tag, attrs),
+                a,
+                scope,
+                locals,
+                &mut bindings,
+                &mut handlers,
+                &mut surface,
+                &font,
+            ) {
                 self.errors.push(native::name_the_fix(n, e));
             }
             if let Some(origins) = &mut origins {
