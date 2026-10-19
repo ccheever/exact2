@@ -82,6 +82,50 @@ enum LaunchPhases {
     }
 }
 
+/// The watch entry booted while SwiftUI sets up its scene (the startup budget,
+/// LLP 1126.002 §4): `App.init` starts it at the screen's size on a background
+/// queue (the session's work runs on Exact's owner thread); the root view takes
+/// it at its first layout and resizes it to the size it was given.
+final class EarlyBoot: @unchecked Sendable {
+    private static let shared = EarlyBoot()
+    private let done = DispatchSemaphore(value: 0)
+    private var result: Result<(HeadlessSession, TimeInterval), Error>?
+    private var taken = false
+
+    /// The app's watch entry (`ExactWatchPlan`, LLP 1126.002 D4): its own live plan, booted
+    /// from its bytes, which opens no update store.
+    static func session(size: CGSize, facts: SessionFacts) throws -> HeadlessSession {
+        guard let name = Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") as? String else {
+            throw HeadlessSession.Failure(description: "this app declares no watch entry (app.json `watch`)")
+        }
+        let plan = try Data(contentsOf: Bundle.main.bundleURL.appendingPathComponent(name))
+        return try HeadlessSession(plan: plan, size: size, facts: facts, assetRoot: Bundle.main.bundleURL)
+    }
+
+    static func start() {
+        let device = WKInterfaceDevice.current()
+        let size = device.screenBounds.size, scale = Double(device.screenScale)
+        DispatchQueue.global(qos: .userInteractive).async {
+            LaunchPhases.mark("session")
+            let start = liveUptime()
+            // The watch draws dark; the reader's text size arrives with the first layout, which resizes.
+            let facts = SessionFacts(displayScale: scale, preferences: [.dark],
+                                     rootFontSize: Double(SnapshotDriver.rootFontSize(for: .large)), date: Date(), clock: 0)
+            shared.result = Result { (try session(size: size, facts: facts), start) }
+            LaunchPhases.mark("booted")
+            shared.done.signal()
+        }
+    }
+
+    /// The early session, waiting for it if it is still booting; nil after a failure or once taken.
+    static func take() throws -> (HeadlessSession, TimeInterval)? {
+        guard !shared.taken, Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil else { return nil }
+        shared.taken = true
+        shared.done.wait()
+        return try? shared.result?.get()
+    }
+}
+
 /// The app itself, live (LLP 1126 D10): the linked plan booted at the
 /// screen's safe size, drawn by the live driver.
 private struct LiveRoot: View {
@@ -120,20 +164,21 @@ private struct LiveRoot: View {
 
     private func boot(size: CGSize) {
         guard model == nil, failure == nil else { return }
-        LaunchPhases.mark("session")
-        let start = liveUptime()
-        let rootFontSize = SnapshotDriver.rootFontSize(for: textSize)
-        let facts = SessionFacts(displayScale: scale, preferences: scheme == .dark ? [.dark] : [],
-                                 rootFontSize: Double(rootFontSize), date: Date(), clock: 0)
         do {
-            // The app's watch entry (`ExactWatchPlan`, LLP 1126.002 D4): its own live plan, booted
-            // from its bytes, which opens no update store.
-            guard let name = Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") as? String else {
-                throw HeadlessSession.Failure(description: "this app declares no watch entry (app.json `watch`)")
+            // The session `App.init` booted while SwiftUI set up its scene, else one booted now.
+            let session: HeadlessSession, start: TimeInterval
+            if let early = try EarlyBoot.take() {
+                (session, start) = early
+            } else {
+                LaunchPhases.mark("session")
+                start = liveUptime()
+                let facts = SessionFacts(displayScale: scale, preferences: scheme == .dark ? [.dark] : [],
+                                         rootFontSize: Double(SnapshotDriver.rootFontSize(for: textSize)), date: Date(), clock: 0)
+                session = try EarlyBoot.session(size: size, facts: facts)
+                LaunchPhases.mark("booted")
             }
-            let plan = try Data(contentsOf: Bundle.main.bundleURL.appendingPathComponent(name))
-            let session = try HeadlessSession(plan: plan, size: size, facts: facts, assetRoot: Bundle.main.bundleURL)
-            LaunchPhases.mark("booted")
+            if try session.snapshot().size != size { try session.resize(to: size) }
+            LaunchPhases.mark("sized")
             let live = try LiveModel(session: session, zero: start)
             LaunchPhases.mark("first batch")
             live.onCommand = { command in
@@ -184,6 +229,7 @@ private struct LiveRoot: View {
 @main struct ExactWatch: App {
     init() {
         LaunchPhases.mark("main")
+        if Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil { EarlyBoot.start() }
         WidgetContainer.configure()
         setvbuf(stdout, nil, _IOLBF, 0) // the measurement lines reach `devicectl --console` as they are written
     }
