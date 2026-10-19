@@ -5113,14 +5113,17 @@ Built to theme2's 15:32 approval, on B1 and B2.
 - **The terminal** (theme2's 17:39 ruling): `exact-terminal` gains two headless verbs, the terminal carrier's own
   (not the agent protocol):
   - `layout`: one JSON line with the viewport, the cell (8×16 px), and each node's kernel frame in px, its cells as the
-    painter rounds them, its `testId` and its corners' resolved radii;
+    painter rounds them, its `testId` and its corners' radii, sized against the box as a host sizes them (a
+    percentage across and down, a pair where the two differ);
   - `plan`: the runner's digest of the running plan.
 
   `scale-check --host terminal` drives it on the compiled plan:
   - it reads the table's terminal cells by the reply's cell width (a `ch` is 8 px);
   - it checks paddings, gaps and the header in px, and every corner at 0 from the reply (radius.full included);
   - it checks the bound corner after taps, from a fresh run;
-  - it writes each padded box's cells (top/right/bottom/left) into its output for E's gate.
+  - it writes every box's cells, and each padded box's padding in cells (top/right/bottom/left), into its output
+    for E's gate;
+  - a step's text stays one argument (`type <id> <text…>`).
 
   On 2026-10-19 it passed 20 of 21. The one failure is the assertion theme2 asked for: a box padded `space.sm` whose
   child fills it paints 1 row above and 0 below. `1ch` down is half a row, so the painter's rounding drifts between

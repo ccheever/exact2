@@ -217,7 +217,24 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
     { testId: 'round', radius: 'radius.md' },
   ] }, base);
   expect(rows.map(r => r.ok)).toEqual([true, false, true, false]);
-  expect(rows[0].cells).toEqual({ top: 1, bottom: 0, left: 1, right: 1 });
+  expect(rows[0].margins).toEqual({ top: 1, bottom: 0, left: 1, right: 1 });
+  expect(rows[0].box.cells).toEqual({ x: 0, y: 0, w: 22, h: 3 });
   expect(rows[1].why).toContain('not the same on each edge');
   expect(rows[3].why).toContain('radii 8, 8, 8, 8, expected 0');
+  // A reply missing what is measured fails: no cells for an even box, radii not four lengths (an elliptical corner's pair).
+  const thin = { ...layout, nodes: layout.nodes.map(n => ({ ...n, cells: undefined, radius: n.testId === 'round' ? [[8, 4], 8, 8, 8] : n.radius })) };
+  const missing = check('terminal', thin, null, { boxes: [
+    { testId: 'box', child: 'inner', padding: 'space.sm', even: true },
+    { testId: 'round', radius: 'radius.md' },
+  ] }, base);
+  expect(missing.map(r => r.ok)).toEqual([false, false]);
+  expect(missing[1].why).toContain('not four lengths');
+});
+
+test('a terminal step keeps its text whole', async () => {
+  const { terminalVerb } = await import('./scale-check.mjs');
+  expect(terminalVerb('tap flip')).toEqual(['tap', 'flip']);
+  expect(terminalVerb('type field hello  world')).toEqual(['type', 'field', 'hello  world']);
+  expect(terminalVerb('paste a b')).toEqual(['paste', 'a b']);
+  expect(terminalVerb('wheel list 3')).toEqual(['wheel', 'list', '3']);
 });

@@ -981,7 +981,7 @@ fn layout_and_plan_answer_as_json() {
     let path = entry("layout");
     std::fs::write(
         &path,
-        "component App\n  view\n    column testId=\"box\" padding=\"1ch\" border-radius=8 width=\"20ch\"\n      view testId=\"inner\" height=\"2lh\"\n",
+        "component App\n  view\n    column\n      column testId=\"box\" padding=\"1ch\" border-radius=8 width=\"20ch\"\n        view testId=\"inner\" height=\"2lh\"\n      view testId=\"half\" width=\"4ch\" height=\"2lh\" border-radius=\"50%\"\n",
     )
     .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
@@ -1027,6 +1027,11 @@ fn layout_and_plan_answer_as_json() {
     );
     assert!(
         layout.contains("\"radius\":[0,0,0,0],\"testId\":\"inner\""),
+        "{layout}"
+    );
+    // A percentage of the box, as a host sizes it: half its 32 px.
+    assert!(
+        layout.contains("\"radius\":[16,16,16,16],\"testId\":\"half\""),
         "{layout}"
     );
 }

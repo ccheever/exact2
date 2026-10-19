@@ -230,7 +230,8 @@ export function check(host, layout, image, expect, base = () => undefined) {
   return expect.boxes.map(want => {
     const box = typeof want.testId === 'string' && want.testId ? nodes.find(n => n.testId === want.testId) : null;
     if (!box) return { host, testId: want.testId, ok: false, why: 'not in the layout' };
-    const row = { host, testId: want.testId, ok: true, why: [] };
+    // Its box as the host laid it out (and the cells it paints, in a grid).
+    const row = { host, testId: want.testId, ok: true, why: [], box: { x: box.x, y: box.y, w: box.w, h: box.h, ...(box.cells ? { cells: box.cells } : {}) } };
     const fail = why => { row.ok = false; row.why.push(why); };
     const padding = named(pick(want.padding, host));
     if (padding === 'missing') fail(`no padding expected for ${host}`);
@@ -246,10 +247,12 @@ export function check(host, layout, image, expect, base = () => undefined) {
         // rounds it; for a box `even` (a child filling it, but for its
         // padding), the same whole number of rows above and below, of
         // columns left and right (no half-row drift between edges).
-        if (box.cells && child.cells) {
+        const whole = r => r && ['x', 'y', 'w', 'h'].every(k => Number.isInteger(r[k]));
+        if (want.even && !(whole(box.cells) && whole(child.cells))) fail('its cells and its child\'s are not in the reply: the rows it paints cannot be read');
+        else if (box.cells && child.cells) {
           const [b, c] = [box.cells, child.cells];
-          row.cells = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
-          if (want.even && (row.cells.top !== row.cells.bottom || row.cells.left !== row.cells.right)) fail(`its padding paints ${row.cells.top}/${row.cells.right}/${row.cells.bottom}/${row.cells.left} cells (top/right/bottom/left): not the same on each edge`);
+          row.margins = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
+          if (want.even && (row.margins.top !== row.margins.bottom || row.margins.left !== row.margins.right)) fail(`its padding paints ${row.margins.top}/${row.margins.right}/${row.margins.bottom}/${row.margins.left} cells (top/right/bottom/left): not the same on each edge`);
         }
       }
     }
@@ -284,7 +287,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
       // No picture (the terminal, which draws no corner a picture could be
       // measured by): the corners its reply resolves.
       row.expected = reduced(radius, box.w, box.h);
-      if (!Array.isArray(box.radius)) fail('its reply has no corner radii, and there is no picture');
+      if (!Array.isArray(box.radius) || box.radius.length !== 4 || !box.radius.every(Number.isFinite)) fail(`its reply's corner radii are not four lengths (${JSON.stringify(box.radius)}), and there is no picture`);
       else {
         row.radius = Math.max(...box.radius);
         if (box.radius.some(r => Math.abs(r - row.expected) > 0.5)) fail(`radii ${box.radius.join(', ')}, expected ${row.expected}`);
@@ -319,7 +322,7 @@ function drive(host, plan, png, steps = [], app = null) {
   // SHA-256), the steps, then `layout` (its reply carries each corner's
   // radius: it draws none a picture could be measured by, so there is none).
   const run = host === 'terminal'
-    ? spawnSync('cargo', ['run', '-q', '-p', 'exact-terminal', '--', plan, '--size', '64x64', 'plan', ...steps.flatMap(s => s.split(/\s+/)), 'layout'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 })
+    ? spawnSync('cargo', ['run', '-q', '-p', 'exact-terminal', '--', plan, '--size', '64x64', 'plan', ...steps.flatMap(terminalVerb), 'layout'], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 })
     : spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', 'perf', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
   const ran = (run.stdout ?? '').split('\n').map(l => /"plan":"([0-9a-f]{64})"/.exec(l)?.[1]).find(Boolean);
   const want = createHash('sha256').update(readFileSync(plan)).digest('hex');
@@ -328,6 +331,18 @@ function drive(host, plan, png, steps = [], app = null) {
   const line = (run.stdout ?? '').split('\n').findLast(l => l.startsWith('{') && l.includes('"nodes"'));
   if (run.error || run.status !== 0 || !line) throw new Error(`the drive failed${run.error ? ` (${run.error.message})` : run.signal ? ` (${run.signal})` : ''}\n${run.stdout ?? ''}${run.stderr ?? ''}`);
   return JSON.parse(line);
+}
+
+/** An agent step as the terminal's verbs take it: a verb's text tail (`type
+ * <id> <text…>`, `paste <text…>`, `until <text…>`) one argument, spaces and
+ * all; the rest a word each. */
+export function terminalVerb(step) {
+  const text = step.trim(), words = text.split(/\s+/);
+  const tail = { type: 2, paste: 1, until: 1 }[words[0]];
+  if (tail === undefined || words.length <= tail) return words;
+  let rest = text;
+  for (let k = 0; k < tail; k++) rest = rest.replace(/^\S+\s+/, '');
+  return [...words.slice(0, tail), rest];
 }
 
 /** The command line: {source, expect, hosts, out, json}, or a reason it is not one. */
@@ -387,6 +402,6 @@ if (import.meta.main) {
     }
   }
   if (opts.json) console.log(JSON.stringify(rows));
-  else for (const r of rows) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.testId}${r.padding ? ` padding ${r.padding.join(', ')}` : ''}${r.cells ? ` (cells ${r.cells.top}/${r.cells.right}/${r.cells.bottom}/${r.cells.left})` : ''}${r.gap !== undefined ? ` gap ${r.gap}` : ''}${r.height !== undefined ? ` height ${r.height}` : ''}${r.radius !== undefined ? ` radius ${r.radius} (expected ${r.expected})` : ''}${r.why ? `: ${r.why}` : ''}`);
+  else for (const r of rows) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.testId}${r.padding ? ` padding ${r.padding.join(', ')}` : ''}${r.box?.cells ? ` [cells ${r.box.cells.x},${r.box.cells.y} ${r.box.cells.w}x${r.box.cells.h}${r.margins ? `, padding ${r.margins.top}/${r.margins.right}/${r.margins.bottom}/${r.margins.left}` : ''}]` : ''}${r.gap !== undefined ? ` gap ${r.gap}` : ''}${r.height !== undefined ? ` height ${r.height}` : ''}${r.radius !== undefined ? ` radius ${r.radius} (expected ${r.expected})` : ''}${r.why ? `: ${r.why}` : ''}`);
   process.exit(rows.every(r => r.ok) ? 0 : 1);
 }

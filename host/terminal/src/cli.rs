@@ -150,7 +150,8 @@ fn tree<D: DataSource>(host: &Host<D>) -> String {
 /// scripts/scale-check.mjs): the viewport and each node's frame in the
 /// kernel's px, the cell (`COLUMN`×`ROW` px), each node's cells as the
 /// painter rounds them, its `testId`, and its corners' resolved radii in px
-/// (the terminal draws no corner a picture could be measured by).
+/// (the terminal draws no corner a picture could be measured by), as a host
+/// sizes one against the box.
 fn layout<D: DataSource>(host: &Host<D>) -> String {
     use exact_kernel::style::cells::{COLUMN, ROW};
     use std::fmt::Write;
@@ -173,9 +174,15 @@ fn layout<D: DataSource>(host: &Host<D>) -> String {
             n.style.border_radius_bottom_right,
             n.style.border_radius_bottom_left,
         ]
-        .map(|d| match d.resolve(&env) {
-            exact_kernel::Dimension::Points(p) => num(f64::from(p)),
-            _ => "0".to_string(),
+        // As a host sizes a corner: a percentage of the box's width across
+        // and of its height down (`at_basis`), one length where the two agree,
+        // else the pair `[across, down]`.
+        .map(|d| {
+            let (across, down) = (d.at_basis(&env, f.width), d.at_basis(&env, f.height));
+            match across == down {
+                true => num(f64::from(across)),
+                false => format!("[{},{}]", num(f64::from(across)), num(f64::from(down))),
+            }
         });
         let mut node = format!(
             "{{\"id\":{},\"x\":{},\"y\":{},\"w\":{},\"h\":{},\"cells\":{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}},\"radius\":[{}]",
