@@ -172,6 +172,9 @@ function targetOf(req, scheme, host) {
 
 export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false }) {
   return async (req, res) => {
+    // A connection 8 MiB behind on what it was sent asks nothing more, the
+    // tool's files included: answers queue only while they are read.
+    if ((req.socket?.writableLength || 0) > 8 << 20) { req.socket.destroy(); return; }
     res.setHeader('cache-control', 'no-store');
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('referrer-policy', 'no-referrer');

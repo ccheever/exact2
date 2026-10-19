@@ -96,6 +96,7 @@ import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
 import { planAlone, sourcesOf, stopImports } from './tamber-isolate.mjs';
+import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
@@ -120,20 +121,6 @@ const json = (res, status, body) => {
   res.end(JSON.stringify(body));
 };
 const notFound = res => json(res, 404, { message: 'Not found.' });
-
-/** `app.json`'s `"tamber"`, read only as a regular file of at most 1 MiB (a
- * FIFO or a giant there never stalls the server); null without one. */
-function manifestTamber(appDir) {
-  try { const m = resolve(appDir, 'app.json'), st = statSync(m); return st.isFile() && st.size <= 1 << 20 ? JSON.parse(readFileSync(m, 'utf8')).tamber ?? null : null; } catch { return null; }
-}
-
-/** The app's design, as the compiler finds it: the file `app.json`'s
- * `"tamber"` names, else `app.tamber`; null when there is none. */
-export function designPath(appDir) {
-  const named = manifestTamber(appDir);
-  const path = resolve(appDir, typeof named === 'string' ? named : 'app.tamber');
-  return existsSync(path) ? path : null;
-}
 
 /** `contract tamber serve --stdio <app>`, through cargo as the dev loops run
  * the compiler, in a process group of its own so stopping it stops the
@@ -1131,9 +1118,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (typeof request.kind !== 'string') return { status: 400, error: { message: '`kind` is a string' } };
     for (const k of ['source', 'name', 'prefix', 'baseline']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
     // One file (`source`, `name`), or several (`sources`). A `baseline` (the export the client pulled) is taken when this run gave it
-    // out, is kept, or is the design's own (stage 10b). Held on the design text it was planned and marked on, else planned again.
+    // out, is kept, or is the design's own (stage 10b). Planned in a process of its own, watched (scripts/tamber-isolate.mjs); held on the design text it was planned and marked on, else planned again.
     for (let tries = 0, target = designPath(appDir) ?? resolve(appDir, design); ; tries++) {
-      // (planned in a process of its own, watched: scripts/tamber-isolate.mjs)
       const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, target, importLimits, appDir, request.client);
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
       if (!planned.ok.digest) return { status: 409, error: { message: 'the design file is not there: create it, then import' } }; // (no digest, no guard)

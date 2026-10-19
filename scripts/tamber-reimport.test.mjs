@@ -61,7 +61,7 @@ const post = async (request, token = local, path = '/__tamber') => {
 /** A paired client at `scope`, as a remote tool pairs. */
 const paired = async scope => {
   const { code } = (await post({ method: 'pair-code', scope, name: 'figma' })).ok;
-  flags = { local: false, peer: `203.0.113.${++peers}` };
+  flags = { allowed: true, local: false, remote: true, peer: `203.0.113.${++peers}` }; // (through a remote door, as pairing must be)
   try { return (await post({ code }, null, '/__tamber/pair')).ok.token; } finally { flags = null; }
 };
 /** The export's tree for each context, edited by `f`, as text. */
