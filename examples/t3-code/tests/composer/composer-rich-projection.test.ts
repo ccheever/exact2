@@ -44,4 +44,18 @@ describe('composer decoration producer', () => {
     expect(literal.decorations).toEqual({ value: source, spans: [], blocks: [], hidden: [], atoms: [] });
     expect(literal.chips).toEqual([]);
   });
+  test('reference inventory preserves inline and escaped source semantics independently of paint', () => {
+    const context = '[Thread](t3-context://v1/thread/one)';
+    const value = '` $inside `\n`' + context + '`\n\\' + context + '\n> - ' + context + '\n- > ' + context;
+    const input = { owner: 'thread-one', value, styling: true, literal: false, skills: {}, literalRanges: [{ start: 0, end: value.length }] };
+    const view = composerRichProjection(input);
+    // Inline literal ranges protect formatting; whole-answer literal mode excludes references.
+    expect(view.chips.map(chip => chip.source)).toEqual(['$inside', context, context, context, context]);
+    expect(view.owner).toBe(input.owner);
+    expect(view.value).toBe(value);
+    expect(composerRichProjection({ ...input, literal: true }).chips).toEqual([]);
+    const candidate = view.chips[0];
+    if (!candidate) throw new Error('source reference must exist');
+    expect(composerRichProjection({ ...input, chips: [{ ...candidate, source: '$stale' }] }).chips).toEqual([]);
+  });
 });

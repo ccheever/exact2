@@ -34,8 +34,7 @@ use SbPicker from "./src/settings/settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
 use ComposerEditorView from "./src/composer/composer-editor.contract"
 use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement from "./src/composer/composer-rich.contract"
-use ComposerCodeAnchor, ComposerCodeLayout from "./src/composer/composer-code-headers.contract"
-use ComposerChipAnchor, ComposerChipLayout, ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
+use ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
 use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
 use ChipPopover, ComposerChipFinish from "./src/composer/composer-chip-popover.contract"
 use ShellView, ShellDetails from "./src/shell/shell-shapes.contract"
@@ -265,8 +264,6 @@ component T3Code
     promptPreviewOwner
     promptPreviewSnapshotOwner
     promptPreviewSerial
-    promptPreviewChipLayout
-    composerChipLayout
     composerChipPress
     composerFieldInputSerial
     richComposer
@@ -276,7 +273,6 @@ component T3Code
     composerIntentNotice
     composerTaskToggle
     composerLanguage
-    composerCodeLayout
     composerKeyEvent
     composerKeyReleased
     threadFind
@@ -1187,36 +1183,11 @@ component T3Code
   state composerIntentInputEnd = 0
   state composerIntentPreserves = false
   state composerIntentCaretSeen = false
-  state composerCodeLayout = ComposerCodeLayout(owner="", value="", x=0, y=0, width=0, anchors=[])
-  task composerCodeLayoutNeeded when composerRichCurrent and richComposer.headers.length > 0 key=`${richComposerOwner}|${composerText}|${richComposer.mode}|${conversationWidth}|${data.look.fontSize}|${data.look.promptFont}|${data.look.promptSize}|${composerSelectionStart}:${composerSelectionEnd}|${restResting}`
-    after(1, measureComposerCode)
-  action measureComposerCode
-    if composerRichCurrent
-      let fieldWrap = frame("composer-field-wrap")
-      let field = frame("composer")
-      if not fieldWrap.unavailable and not field.unavailable and field.width > 0
-        composerCodeLayout = ComposerCodeLayout(owner=richComposerOwner, value=composerText, x=(field.x - fieldWrap.x), y=fieldWrap.y, width=field.width, anchors=richComposer.headers.map((header) => ComposerCodeAnchor(start=header.start, end=header.end, label=header.label, language=header.language, frame=rangeFrame("composer", header.end, min(composerText.length, header.end + 1)))).filter((header) => not header.frame.unavailable and header.frame.height > 0))
-  state composerChipLayout = ComposerChipLayout(owner="", value="", serial=0, x=0, y=0, anchors=[])
-  state promptPreviewChipLayout = ComposerChipLayout(owner="", value="", serial=0, x=0, y=0, anchors=[])
-  task composerChipLayoutNeeded when composerRichCurrent and richComposer.chips.length > 0 key=`${richComposerOwner}|${composerText}|${composerFieldInputSerial}|${conversationWidth}|${data.look.fontSize}|${data.look.promptFont}|${data.look.promptSize}|${composerSelectionStart}:${composerSelectionEnd}|${restResting}`
-    after(1, measureComposerChips)
-  action measureComposerChips
-    if composerRichCurrent
-      let wrap = frame("composer-field-wrap")
-      if not wrap.unavailable and wrap.width > 0
-        composerChipLayout = ComposerChipLayout(owner=richComposerOwner, value=composerText, serial=composerFieldInputSerial, x=wrap.x, y=wrap.y, anchors=richComposer.chips.map((chip) => ComposerChipAnchor(chip=chip, frame=rangeFrame("composer", chip.start, chip.end))).filter((anchor) => not anchor.frame.unavailable and anchor.frame.width > 0 and anchor.frame.height > 0))
-  task promptChipLayoutNeeded when promptPreviewVisible and richPromptPreview.owner == promptPreviewOwner and richPromptPreview.value == promptPreviewText key=`${promptPreviewOwner}|${promptPreviewText}|${promptPreviewSerial}|${data.look.fontSize}|${data.look.promptFont}|${data.look.promptSize}|${viewport.width}`
-    after(1, measurePromptChips)
-  action measurePromptChips
-    if promptPreviewVisible and richPromptPreview.owner == promptPreviewOwner and richPromptPreview.value == promptPreviewText
-      let wrap = frame("prompt-preview-field-wrap")
-      if not wrap.unavailable and wrap.width > 0
-        promptPreviewChipLayout = ComposerChipLayout(owner=promptPreviewOwner, value=promptPreviewText, serial=promptPreviewSerial, x=wrap.x, y=wrap.y, anchors=richPromptPreview.chips.map((chip) => ComposerChipAnchor(chip=chip, frame=rangeFrame("prompt-font-preview", chip.start, chip.end))).filter((anchor) => not anchor.frame.unavailable and anchor.frame.width > 0 and anchor.frame.height > 0))
-  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
+  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool, anchorId: string)
     let preview = surface == "preview"
     let current = preview ? richPromptPreview : richComposer
     if (preview ? promptPreviewVisible and serial == promptPreviewSerial and owner == promptPreviewOwner and value == promptPreviewText : composerFieldLive and serial == composerFieldInputSerial and owner == richComposerOwner and value == composerText and not composerComposing) and current.owner == owner and current.value == value and current.chips.filter((chip) => chip.start == start and chip.end == end and chip.source == source).length == 1
-      let bounds = rangeFrame(preview ? "prompt-font-preview" : "composer", start, end)
+      let bounds = frame(anchorId)
       if not bounds.unavailable and bounds.width > 0 and bounds.height > 0
         send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment, frame=bounds))
   mutation composerEdited as shape ComposerIntentReply queue then composerEditDone
