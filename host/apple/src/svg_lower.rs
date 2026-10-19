@@ -69,19 +69,19 @@ fn forward(frames: &[Keyframe], default: &Easing, property: Property, underlying
         // not CSS's sRGB: a colour interval is sampled every sixteenth, so
         // its own interpolation only bridges near neighbours.
         let curve = bezier(easing).filter(|_| !property.is_color());
-        match curve {
-            Some(c) => {
+        match (curve, easing) {
+            (Some(c), _) => {
                 t.times.push(b.0);
                 t.values.push(b.2);
                 t.curves.push(c);
             }
-            None if matches!(easing, Easing::PiecewiseLinear(_)) && !property.is_color() => {
-                let Easing::PiecewiseLinear(stops) = easing else {
-                    unreachable!()
-                };
-                linear_keys(&mut t, a.0, b.0, stops, |p| a.2.lerp(b.2, p));
+            (None, Easing::PiecewiseLinear(stops)) => {
+                let colour = property.is_color();
+                linear_keys(&mut t, a.0, b.0, easing, stops, colour, |p| {
+                    a.2.lerp(b.2, p)
+                });
             }
-            None => {
+            (None, _) => {
                 let span = b.0 - a.0;
                 let mut xs: Vec<f64> = match easing {
                     Easing::Steps { count, .. } => (1..*count)
@@ -89,7 +89,6 @@ fn forward(frames: &[Keyframe], default: &Easing, property: Property, underlying
                         .flat_map(|x| [x - 1e-4, x])
                         .chain([1e-4, 1.0 - 1e-4])
                         .collect(),
-                    Easing::PiecewiseLinear(stops) => stops.iter().map(|s| s.input).collect(),
                     _ => Vec::new(),
                 };
                 if property.is_color() {
@@ -110,40 +109,62 @@ fn forward(frames: &[Keyframe], default: &Easing, property: Property, underlying
     t
 }
 
-/// A `linear()` interval from `from` to `to` as keys at its own stops. Two
-/// stops at one input are a jump: the earlier output is held to a hair before
-/// it, as a step's is, so the later output holds at the input (CSS Easing 2
-/// §2.4). The track's first key takes the curve's output at its start, which
-/// need not be the keyframe's value.
+/// A `linear()` interval from `from` to `to` as keys: the curve's output
+/// (`Easing::progress`, as the engine samples it) at both ends and at each
+/// stop's input. The curve is straight between those, so Core Animation's
+/// linear interpolation plays it exactly. Where it jumps at an input (stops
+/// sharing it), the value it approaches is held to a hair before, as a step's
+/// is. The interval's first key replaces the track's first, which holds the
+/// keyframe's value; at a later keyframe a changed start is a hair after it.
+/// A colour has a key every sixteenth between those too, as a colour's
+/// interval elsewhere does.
 fn linear_keys(
     t: &mut Track,
     from: f64,
     to: f64,
+    easing: &Easing,
     stops: &[LinearStop],
+    colour: bool,
     value: impl Fn(f64) -> Value,
 ) {
+    const HAIR: f64 = 1e-4;
     let span = to - from;
-    let last = stops.len() - 1;
-    for (i, s) in stops.iter().enumerate() {
-        let jump = i < last && stops[i + 1].input == s.input;
-        let x = if jump { s.input - 1e-4 } else { s.input };
-        let at = from + span * x.clamp(0.0, 1.0);
-        let v = value(s.output);
-        match t.times.last() {
-            Some(prev) if at <= *prev && t.times.len() == 1 => {
-                t.values[0] = v;
-            }
-            // A jump at the interval's start: the new output a hair after it.
-            Some(prev) if at <= *prev => {
-                t.times.push(prev + span * 1e-4);
-                t.values.push(v);
-                t.curves.push(LINEAR);
-            }
-            _ => {
-                t.times.push(at);
-                t.values.push(v);
-                t.curves.push(LINEAR);
-            }
+    let start = value(easing.progress(0.0));
+    if t.times.len() == 1 {
+        t.values[0] = start;
+    } else if t.values.last() != Some(&start) {
+        key(t, from + span * HAIR, start);
+    }
+    let sixteenths = (1..16).filter(|_| colour).map(|j| j as f64 / 16.0);
+    let mut inputs: Vec<f64> = stops
+        .iter()
+        .map(|s| s.input)
+        .chain(sixteenths)
+        .filter(|x| *x > 0.0 && *x < 1.0)
+        .chain([1.0])
+        .collect();
+    inputs.sort_by(f64::total_cmp);
+    inputs.dedup();
+    for x in inputs {
+        let at = easing.progress(x);
+        let before = easing.progress(x - 1e-9);
+        if (at - before).abs() > 1e-9 {
+            key(t, from + span * (x - HAIR), value(before));
+        }
+        key(t, from + span * x, value(at));
+    }
+}
+
+/// A linear key at `time`, or, where stops closer than a hair would put it
+/// at or before the last key, that key's value replaced: key times stay
+/// non-decreasing, as Core Animation requires.
+fn key(t: &mut Track, time: f64, v: Value) {
+    match t.times.last() {
+        Some(last) if time <= *last => *t.values.last_mut().expect("a key per time") = v,
+        _ => {
+            t.times.push(time);
+            t.values.push(v);
+            t.curves.push(LINEAR);
         }
     }
 }

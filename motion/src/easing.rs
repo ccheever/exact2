@@ -323,22 +323,37 @@ fn steps(count: u16, position: StepPosition, x: f64) -> f64 {
     current / jumps
 }
 
-/// CSS Easing 2 §2.4's `linear()`: interpolate between the last stop at or
-/// before `x` and the one after it, so at a jump (two stops at one input) the
-/// later stop's output holds.
+/// CSS Easing 2 §2.1.2's `linear()` output (Editor's Draft, 2026-02-23): at
+/// a stop's input, the last stop there; before the first stop or past the
+/// last, the line through the two outermost stops, extrapolated; between,
+/// the last stop below `x` to the first above it.
+///
+/// One case follows Chrome (155) instead of the draft, because the web host
+/// plays the browser's: before the first stop, when the first two share an
+/// input, Chrome holds the second's output where the draft says the first's.
 fn piecewise(stops: &[LinearStop], x: f64) -> f64 {
-    if stops.len() < 2 {
-        return stops.first().map_or(x, |s| s.output);
+    let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
+        return x;
+    };
+    if stops.len() == 1 {
+        return first.output;
     }
-    let a = stops
-        .iter()
-        .rposition(|s| s.input <= x)
-        .unwrap_or(0)
-        .min(stops.len() - 2);
-    let (a, b) = (stops[a], stops[a + 1]);
+    if let Some(at) = stops.iter().rev().find(|s| s.input == x) {
+        return at.output;
+    }
+    let (a, b) = if x < first.input {
+        (stops[0], stops[1])
+    } else if x > last.input {
+        (stops[stops.len() - 2], stops[stops.len() - 1])
+    } else {
+        let b = stops
+            .iter()
+            .position(|s| s.input > x)
+            .expect("x is below the last stop");
+        (stops[b - 1], stops[b])
+    };
     if a.input == b.input {
         return b.output;
     }
-    let p = ((x - a.input) / (b.input - a.input)).clamp(0.0, 1.0);
-    a.output + (b.output - a.output) * p
+    a.output + (b.output - a.output) * (x - a.input) / (b.input - a.input)
 }
