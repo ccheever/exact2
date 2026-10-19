@@ -849,6 +849,7 @@ async function main(args, lockHeld = false) {
     try { was = JSON.parse(readFileSync(resolve(bin, `${sole}.linked`), 'utf8')); } catch { return null; }
     if (was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || typeof was.link !== 'string' || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
     if (ios && !device && !existsSync(resolve(expected.scratch, `${sole}-entitlements.plist`))) return null;
+    if (was.plan && !existsSync(resolve(expected.scratch, 'plan/app.hbc'))) return null;
     let claim;
     try { claim = claimBuildOutput(app, expected.swiftLock); } catch { return null; }
     const step = startApple('swift', [...swiftArgs, ...entitledArgs(expected.scratch, sole), ...linkedPlanArgs(was.plan && resolve(expected.scratch, 'plan')), '--product', sole], resolve(webBuildDir, 'swift-compile.log'),
@@ -1180,8 +1181,8 @@ async function main(args, lockHeld = false) {
       writeFileSync(answer, swiftBinDir);
     }
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
-    // The linked plan and compat.json, as the bake verified them, where this app alone links from (and its next early build).
-    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id) : null;
+    // The linked plan, compat.json and bytecode, as the bake verified them, where this app alone links from (and its next early build).
+    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id, readFileSync(resolve(buildReceipt.linkedPlan, 'app.hbc'))) : null;
     for (const p of products) {
       const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
       let entitled = null;

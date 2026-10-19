@@ -1573,8 +1573,9 @@ For a module client's `build.rs`, depend on `exact-js-bake` and call
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
 `REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
 names, which includes `baked.rs`: `exact_plan()` and `exact_compat()`. An Apple build
-(`host/apple/build.mjs`) bakes before Cargo and links the plan and `compat.json` into
-the executable, so an edit that changes only the plan compiles no Rust. With a store (`"A"`), a signed update carries the module pair under
+(`host/apple/build.mjs`) bakes before Cargo and links the plan, `compat.json` and the
+module's bytecode into the executable, so an edit to the Contract or the TypeScript alone
+compiles no Rust; there `module.rs` has no `REVISION`. With a store (`"A"`), a signed update carries the module pair under
 `typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
 and exactly its grants. An app with both a TypeScript and a Rust module still sets its
 `deploy.store` entries to `"0"`: signed delivery of both is not implemented.
