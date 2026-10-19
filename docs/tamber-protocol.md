@@ -375,12 +375,13 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     docs/scale-measured.md), `{kind: "full"}` or `{kind: "terminal"}` (`stretch`, a metric borrowed
     for another role, is reserved: emitted once the table carries it). Every cell is the kernel's
     table's (`style::scale`), never a copy;
-  - `override` is the app's own line for the name, `{file, line, col, text}`, or null. When it is
-    set, the name is the app's token: its folded value is what `resolve` answers.
+  - `override` is the line of the design file the request names (the app's, by default) that sets
+    the name, `{file, line, col, text}`, or null. When it is set, the name is the app's token: its
+    folded value is what `resolve` answers.
 - `targets` (*1.14*): `[{target, column}]`, the targets the app ships (the set an icon's `draws` is
   keyed by), each with the scale column it reads (`ios`, `tvos`, `visionos`, `watchos`: `ios`;
   `macos`: `mac`; `web`, `linux`, `windows`: `neutral`; `android`: `material`), from the kernel, so
-  a client keeps no map of its own.
+  a client keeps no map of its own; `column` is null for a target the kernel names none for.
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:
@@ -435,9 +436,11 @@ tuple:
 - **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
   sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
   tool reads and edits its `when` lines.
-- **A token whose values name base names** (*1.14*) adds `bases`, each base name its default or
-  `when` values name, set by the app or not, as strings in the order written (parallel to `names`;
-  a client looks each up in `describe`'s `base`).
+- **A token whose values name base names** (*1.14*), an overridden base name's own line included,
+  adds `bases`: each base name its values reach as the checker folds them (an unset one bare, a set
+  one as the token it names; never a word in a string), as strings (parallel to `names`; a client
+  looks each up in `describe`'s `base`). A base name read from a file that is not the design's, or
+  a design that is refused, is refused as any token is.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its

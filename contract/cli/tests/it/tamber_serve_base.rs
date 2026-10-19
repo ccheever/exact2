@@ -19,7 +19,20 @@ theme
     when density=tight: space.sm
   radius.lg = 20px
     when density=tight: 14px
+  space.xl = space.lg
+  body.face: family = \"space.md\", serif
 ";
+
+/// A cell's source as the shape writes it (theme2's base-row shape).
+fn source(s: scale::ScaleSource) -> Value {
+    match s {
+        scale::ScaleSource::Metric(m) => json!({"kind": "metric", "ref": m}),
+        scale::ScaleSource::Measured(id) => json!({"kind": "measured", "id": id}),
+        scale::ScaleSource::Guideline(id) => json!({"kind": "guideline", "cite": id}),
+        scale::ScaleSource::Full => json!({"kind": "full"}),
+        scale::ScaleSource::Terminal => json!({"kind": "terminal"}),
+    }
+}
 
 /// The column `key` of the kernel's row for `name`, as the wire writes it.
 fn cell(name: &str, key: &str) -> String {
@@ -37,7 +50,7 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
     let dir = app("base", DESIGN);
     std::fs::write(
         dir.join("app.json"),
-        r#"{"app": {"id": "com.x.base", "name": "Base"}, "host": {"ios": {}, "macos": {}}}"#,
+        r#"{"app": {"id": "com.x.base", "name": "Base"}, "host": {"ios": {}, "macos": {}}, "deploy": {"store": {"steam": "0"}}}"#,
     )
     .unwrap();
     let mut s = Serve::start(&dir, &[]);
@@ -50,16 +63,21 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
             .collect::<Vec<_>>(),
         scale::names().collect::<Vec<_>>()
     );
+    // Every cell of every row: the kernel's value and its source, exactly.
+    for r in base {
+        let name = r["name"].as_str().unwrap();
+        for (key, column) in scale::COLUMNS {
+            let row = scale::row(name).unwrap();
+            assert_eq!(r["columns"][key]["value"], cell(name, key), "{name} {key}");
+            assert_eq!(
+                r["columns"][key]["source"],
+                source(scale::cell(row, column).source),
+                "{name} {key}"
+            );
+        }
+    }
     let md = base.iter().find(|r| r["name"] == "space.md").unwrap();
     assert_eq!(md["kind"], "length");
-    for (key, _) in scale::COLUMNS {
-        assert_eq!(
-            md["columns"][key]["value"],
-            cell("space.md", key),
-            "{key}: {md}"
-        );
-        assert!(md["columns"][key]["source"]["kind"].is_string(), "{md}");
-    }
     assert_eq!(md["override"], Value::Null);
     // radius.lg is the app's: its line, its text.
     let lg = base.iter().find(|r| r["name"] == "radius.lg").unwrap();
@@ -71,9 +89,10 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
     let full = base.iter().find(|r| r["name"] == "radius.full").unwrap();
     assert_eq!(full["columns"]["ios"]["value"], "full");
     // targets: what the app ships, each with the column it reads.
+    // (a target the kernel names no column for stays, its column null: the set is draws')
     assert_eq!(
         describe["ok"]["targets"],
-        json!([{"target": "ios", "column": "ios"}, {"target": "macos", "column": "mac"}])
+        json!([{"target": "ios", "column": "ios"}, {"target": "macos", "column": "mac"}, {"target": "steam", "column": null}])
     );
     // resolve: an unset base name has no per-tuple fold, only its row.
     let (unset, _) = s.ask(json!({"method": "resolve", "token": "space.md"}));
@@ -93,9 +112,22 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
     assert_eq!(why["ok"]["kind"], "base");
     assert_eq!(why["ok"]["value"], "20px", "{why}");
     assert_eq!(why["ok"]["whens"][0]["value"], "14px");
-    // A token that reaches base names says which.
+    // A token that reaches base names says which; a quoted family naming one does not.
     let (pad, _) = s.ask(json!({"method": "explain", "token": "card.pad"}));
     assert_eq!(pad["ok"]["bases"], json!(["space.md", "space.sm"]), "{pad}");
+    let (face, _) = s.ask(json!({"method": "explain", "token": "body.face"}));
+    assert!(face["ok"]["bases"].is_null(), "{face}");
+    // An overridden base that names another base says so too.
+    let (xl, _) = s.ask(json!({"method": "explain", "token": "space.xl"}));
+    assert_eq!(xl["ok"]["kind"], "base");
+    assert_eq!(xl["ok"]["bases"], json!(["space.lg"]), "{xl}");
+    // A base name read from a file that is not the design's: refused, as any token is.
+    let (missing, _) =
+        s.ask(json!({"method": "resolve", "token": "space.md", "file": "none.tamber"}));
+    assert!(missing["error"].is_object(), "{missing}");
+    let (missing, _) =
+        s.ask(json!({"method": "explain", "token": "space.md", "file": "none.tamber"}));
+    assert!(missing["error"].is_object(), "{missing}");
     // The neutral column is the web's (the kernel's own rule).
     assert_eq!(
         scale::of("space.md", Column::Web),
@@ -116,13 +148,22 @@ fn each_targets_column_is_the_one_its_host_reads() {
         let text = std::fs::read_to_string(root.join(file)).unwrap();
         assert!(text.contains(needle), "{file} no longer says `{needle}`");
     };
-    has("host/apple/src/scale.rs", "Column::Mac");
-    has("host/apple/src/scale.rs", "Column::Ios");
+    // (macOS's branch the Mac's, the other iOS's: the order matters)
+    let apple = std::fs::read_to_string(root.join("host/apple/src/scale.rs")).unwrap();
+    let (mac, ios) = (
+        apple.find("Column::Mac").unwrap(),
+        apple.find("Column::Ios").unwrap(),
+    );
+    assert!(
+        apple[..mac].contains("cfg!(target_os = \"macos\")") && mac < ios,
+        "host/apple/src/scale.rs"
+    );
     assert_eq!(scale::column_for("macos"), Some("mac"));
     assert_eq!(scale::column_for("ios"), Some("ios"));
     has("host/web/src/host.rs", "roles::Column::Neutral");
     has("host/web-js/src/main.rs", "roles::Column::Neutral");
     assert_eq!(scale::column_for("web"), Some("neutral"));
+    assert_eq!(scale::column_for("windows"), Some("neutral"));
     has("host/linux/src/app.rs", "show_neutral_look();");
     assert_eq!(scale::column_for("linux"), Some("neutral"));
     has("host/linux/src/canvas/jni.rs", "show_material_look();");
