@@ -40,31 +40,38 @@ package enum PageFacts {
     /// One path monitor for the process, started at the first read of
     /// `onLine`: by a session whose plan reads it, or by a native module's
     /// `app.onLine`. It loads Network and keeps a queue, which an app that
-    /// never asks should not pay. The first read waits for the monitor's
-    /// first path, about a millisecond (`currentPath` is unsatisfied until
-    /// then), so it answers as `navigator.onLine` does: at once, and the
-    /// device's answer.
+    /// never asks should not pay. Until its first path, about a millisecond
+    /// after it starts, the device is taken to be online, as a browser
+    /// starts; a first path that says otherwise is a change, which the plan
+    /// and the hatches hear, as `navigator.onLine` corrects itself after
+    /// load. Nothing waits for it: the first read is on main, before first
+    /// pixel when the plan reads it.
     nonisolated(unsafe) private static var monitor: NWPathMonitor?
     /// Online as main last heard it; online until the monitor's first path.
     nonisolated(unsafe) private static var satisfied = true
     private static func startMonitor() {
         guard monitor == nil else { return }
-        let m = NWPathMonitor(), first = DispatchSemaphore(value: 0)
+        let m = NWPathMonitor()
         m.pathUpdateHandler = { path in
-            first.signal()
             let online = path.status == .satisfied
-            DispatchQueue.main.async {
-                guard online != satisfied else { return }
-                satisfied = online
-                changed()
-            }
+            DispatchQueue.main.async { heard(online: online) }
         }
         m.start(queue: DispatchQueue(label: "exact.page.path"))
         monitor = m
-        guard first.wait(timeout: .now() + .milliseconds(100)) == .success, m.currentPath.status != .satisfied else { return }
-        // What a hatch was told before anything asked (online) is now wrong.
-        satisfied = false
-        DispatchQueue.main.async { changed() }
+    }
+    /// A path the monitor reported, on main.
+    static func heard(online: Bool) {
+        guard online != satisfied else { return }
+        satisfied = online
+        changed()
+    }
+    /// Whether the path monitor runs.
+    static var watchesPath: Bool { monitor != nil }
+    /// Stops the monitor and forgets what it heard: a test's fresh start.
+    static func stopWatchingPath() {
+        monitor?.cancel()
+        monitor = nil
+        satisfied = true
     }
 
     /// Nothing of the app can be seen: iOS in the background; macOS hidden,
