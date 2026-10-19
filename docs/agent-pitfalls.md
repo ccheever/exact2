@@ -1003,8 +1003,9 @@ screen, 2026-10-16.)
   asks "Open in …?" only sometimes (the first link after the simulator boots, in
   one run); otherwise the app opens the link at once. A drive that then taps where
   the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
-  taps the dimmed screen just above a 45 % sheet the link presented, and UIKit
-  dismisses it, as it would for a person. Fix: check for the confirmation with
+  taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
+  the link presented, and UIKit dismisses that sheet and pops the route, as it would
+  for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
   `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
   "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
