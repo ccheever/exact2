@@ -16,6 +16,10 @@ impl Parser {
             methods: Vec::new(),
             retired: Vec::new(),
             edits: Vec::new(),
+            recover: false,
+            recovered: Vec::new(),
+            hidden: Vec::new(),
+            first_refused: false,
         }
     }
 
@@ -76,7 +80,7 @@ impl Parser {
 pub(crate) fn parsed_with_edits(
     src: &str,
     source_id: u32,
-) -> (Result<File, Vec<SyntaxError>>, Vec<crate::migrate::Edit>) {
+) -> (Result<File, Partial>, Vec<crate::migrate::Edit>) {
     let (tokens, lexed) = Lexer::tokenize_recovering(
         src,
         Span {
@@ -92,16 +96,19 @@ pub(crate) fn parsed_with_edits(
     // A line the lexer refused parses as whatever it managed: not news.
     let bad: Vec<u32> = lexed.iter().map(|e| e.span.line).collect();
     let mut all: Vec<SyntaxError> = lexed.into_iter().map(SyntaxError::from).collect();
-    all.extend(
-        parsed
-            .err()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|e| !bad.contains(&e.span.line)),
-    );
+    let (parsed, hidden) = match parsed {
+        Ok(_) => (Vec::new(), Vec::new()),
+        Err(partial) => (partial.errors, partial.hidden),
+    };
+    all.extend(parsed.into_iter().filter(|e| !bad.contains(&e.span.line)));
     all.sort_by_key(|e| (e.span.line, e.span.col));
     if !all.iter().any(|e| crate::migrate::is_retired(e.id)) {
         all.truncate(MAX_REFUSALS);
     }
-    (Err(all), p.edits)
+    let partial = Partial {
+        file: None,
+        errors: all,
+        hidden,
+    };
+    (Err(partial), p.edits)
 }

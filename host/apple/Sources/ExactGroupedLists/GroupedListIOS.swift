@@ -146,7 +146,8 @@ struct GroupedListModel: Equatable {
             guard let view = id(s["view"]) else { return nil }
             let rows: [Row] = (s["rows"] as? [[String: Any]] ?? []).compactMap { r in
                 guard let view = id(r["view"]) else { return nil }
-                return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: r["symbol"] as? String,
+                // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
+                return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: FaceSymbol.of(r),
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
                            target: id(r["target"]), checked: r["checked"] as? Bool ?? false, pressable: r["pressable"] as? Bool ?? false,
@@ -594,7 +595,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // Changed native parts configure the cell again. A custom row keeps
         // its own live views; mount carries their current box into the cell.
-        // A standard row whose symbol's authored tint changed is too (D7).
+        // A standard row whose symbol's authored tint or written colour
+        // changed is too (D7).
         let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
         // A row whose card changed (its section gained or lost one, or the
         // row moved between sections) is configured again.
@@ -885,14 +887,34 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let carried as NodeView in cell.contentView.subviews { carried.removeFromSuperview() }
         cell.height = nil
         var c: UIListContentConfiguration = row.subtitle ? .subtitleCell() : row.secondary != nil ? .valueCell() : .cell()
-        c.image = row.symbol.flatMap { UIImage(systemName: $0) }
+        c.image = row.symbol.flatMap { FaceSymbol.image($0, points: GroupedCell.pathPoints(cell.traitCollection)) }
+        // An svg-only icon's path (stage 9 A2): the layout space UIKit gives
+        // an SF Symbol here (an image is laid out at its own size, a symbol
+        // in the standard space, so titles stay aligned), its size the
+        // cell's Dynamic Type size, drawn again as that changes.
+        let path = row.symbol.flatMap { FaceSymbol.isPath($0) ? $0 : nil }
+        cell.pathSymbol = path
+        if path != nil {
+            c.imageProperties.reservedLayoutSize = CGSize(width: UIListContentConfiguration.ImageProperties.standardDimension,
+                                                          height: UIListContentConfiguration.ImageProperties.standardDimension)
+        }
         // The symbol's tint as the sheet draws it (D7): the author's over the
         // sheet's own, each side of a light-dark() pair for its appearance.
         // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
         // tint, which an authored accent-color sets (LLP 1116.004 D2).
-        if let symbol = symbolView(of: id), let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
-            c.imageProperties.tintColor = UIColor { traits in
-                value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
+        let symbolNode = symbolView(of: id)
+        // The row the image is drawn in: its tint; untinted, a colour its
+        // author wrote, on it or above (LLP 1121 stage 9 B, `symbolInk`), as
+        // the row is a page image on the web and the Mac.
+        let key = symbolNode.map { $0.style["tint_color"] == nil && $0.props["symbolColorWritten"] == "1" } == true ? "text_color" : "tint_color"
+        // One that follows the accent leaves the image the cell's tint (nil here, on purpose).
+        let followsAccent = symbolNode.map { $0.style[key] != nil && $0.followsTint(key) } ?? false
+        // A destructive or disabled row's colour still goes over it (below).
+        if let symbol = symbolNode {
+            if let value = symbol.style[key], !symbol.followsTint(key) {
+                c.imageProperties.tintColor = UIColor { traits in
+                    value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
+                }
             }
         }
         c.text = row.title
@@ -919,6 +941,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.textProperties.color = gray
             c.secondaryTextProperties.color = gray
             c.imageProperties.tintColor = gray
+        }
+        // An untinted symbol is the label colour; a path image takes it as
+        // set, as the title takes it where its author gave none (not an
+        // action row's accent title). One that follows the accent keeps the
+        // cell's tint, which an image with no tint of its own is drawn in.
+        if path != nil, c.imageProperties.tintColor == nil, !followsAccent {
+            c.imageProperties.tintColor = ThemeRoles.color("label", in: host.presenter.root, or: .label)
         }
         cell.contentConfiguration = c
         cell.marginsIgnoreSafeArea()
@@ -1029,8 +1058,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let name = source.dropFirst("symbol:".count)
         return name.hasPrefix("sf/") && name.dropFirst(3) != symbol ? nil : image
     }
+    /// What the standard row's symbol is drawn in: its tint, and its
+    /// written colour (LLP 1121 stage 9 B), for the reconfigure key.
     private func tint(of id: UInt32) -> BatchValue? {
-        symbolView(of: id)?.style["tint_color"]
+        guard let symbol = symbolView(of: id) else { return nil }
+        let ink = symbol.props["symbolColorWritten"] == "1" ? symbol.style["text_color"] ?? .null : .null
+        return .array([symbol.style["tint_color"] ?? .null, ink])
     }
 
     /// A custom row's own views in its cell, at the row's place in its
@@ -1241,6 +1274,26 @@ final class GroupedCell: UICollectionViewListCell {
     /// The node of its row's switch or detail button.
     var target: UInt32?
     var height: CGFloat?
+    /// Its standard row's svg-only icon path token, drawn again at a new
+    /// Dynamic Type size (stage 9 A2); nil for an SF Symbol or none.
+    var pathSymbol: String? {
+        didSet {
+            guard pathSymbol != nil, !watchesSize else { return }
+            watchesSize = true
+            registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (cell: GroupedCell, _: UITraitCollection) in cell.redrawPath() }
+        }
+    }
+    private var watchesSize = false
+    /// A path's side: the body text's size under these traits, as a symbol
+    /// with no configuration in a list cell takes.
+    static func pathPoints(_ traits: UITraitCollection) -> CGFloat {
+        UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize
+    }
+    func redrawPath() {
+        guard let pathSymbol, var c = contentConfiguration as? UIListContentConfiguration else { return }
+        c.image = FaceSymbol.image(pathSymbol, points: Self.pathPoints(traitCollection))
+        contentConfiguration = c
+    }
     #if os(iOS)
     /// A touch its row leaves to no control goes to the row's one field: the
     /// cell is the field (LLP 1116.005 D2).

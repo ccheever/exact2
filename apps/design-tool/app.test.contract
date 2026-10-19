@@ -1206,6 +1206,198 @@ test "Only this mode on a param with no line: its line is written first, in the 
   expect disabled "scrub-start"
   request POST "/__stub/restart" {} as ada
 
+test "holding a state on the selected copy: one a build, held once its build says so, why it went, the held look's rows at their part asked of its page, or provenance incomplete"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": null, "held": null}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}]} as ada
+  clock +1
+  clock data
+  expect tree has "hold-active"
+  expect disabled "hold-release"
+  // What its page reports once asked again (an inspect refresh) while it is held.
+  request POST "/__stub/held-answer" {"held": {"state": "active", "rows": [{"name": "press_background_color", "value": "#0f73ffff", "state": "active", "source": {"file": "/stub/post.contract", "line": 20, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-active"
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Holding pressed."
+  // The build's own report, as the server publishes it (no new listing).
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "active"} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "Held pressed."
+  expect text "held-note" == "Its page is asked for the held look's rows."
+  // Its rows, as its page reports them again: each at its part's place, with its state.
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-:active background-color" == ":active background-color#0f73ffff:active part at post.contract:20"
+  expect tree missing "held-note"
+  // Another state held in its place: the pressed rows are not the hovered look's.
+  request POST "/__stub/held-answer" {"held": {"state": "hover", "rows": [{"name": "background_color", "value": "#222222ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-hover"
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Holding hovered."
+  expect tree missing "heldrow-:active background-color"
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "hover"} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Held hovered."
+  expect text "heldrow-:hover background-color" == ":hover background-color#222222ff:hover part at post.contract:24"
+  // Another node of that build selected: one hold a build, so a hold there replaces this one.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 6, "site": 5, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}]} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "Held hovered on another node of this build: a hold here replaces it."
+  // Held, but this host reports no rows for it: read-only, said so.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}], "held": {"state": "hover", "rows": []}} as ada
+  clock +1
+  clock data
+  expect text "held-note" == "Provenance incomplete: this host reports no rows (or not their tokens) for the held look, so it is read-only here."
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}], "held": {"state": "hover", "rows": [{"name": "background_color", "value": "#222222ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  clock +1
+  clock data
+  expect tree has "heldrow-:hover background-color"
+  // Real input lets it go; the rows it showed go with it.
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": null, "reason": "input"} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "The hold was let go: real input on the node let it go."
+  expect tree missing "held-note"
+  expect tree missing "heldrow-:hover background-color"
+  // Held again in the same state: that report was the last hold's, so its page is asked again.
+  request POST "/__stub/held-answer" {"held": {"state": "hover", "rows": [{"name": "background_color", "value": "#333333ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-hover"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "hover"} as ada
+  clock +1
+  clock data
+  expect text "held-note" == "Its page is asked for the held look's rows."
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-:hover background-color" == ":hover background-color#333333ff:hover part at post.contract:24"
+  // Another client holds another node, then this one is held again: its page is asked again.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": {"site": 9, "instance": [], "state": "hover"}, "held": {"state": "hover"}}]} as ada
+  clock +1
+  clock data
+  expect tree missing "heldrow-:hover background-color"
+  request POST "/__stub/held-answer" {"held": {"state": "hover", "rows": [{"name": "background_color", "value": "#444444ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-hover"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "hover"} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-:hover background-color" == ":hover background-color#444444ff:hover part at post.contract:24"
+  // Then let go from here: said, not as an empty reason.
+  tap "hold-release"
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Let go."
+  // A host that cannot hold that state says so by name.
+  request POST "/__stub/event" {"event": "unsupported", "build": "web-1", "what": "hold", "detail": "hover: iOS has no pointer"} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "This build cannot hold that state: hover: iOS has no pointer."
+  // Another client's hold ends that word; a let-go only a listing says (its event missed) says why.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": {"site": 3, "instance": [], "state": "active"}, "held": null}]} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "Holding pressed."
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": null, "held": {"state": null, "reason": "disabled"}}]} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "The hold was let go: the node is disabled, which refuses a hold."
+  request POST "/__stub/restart" {} as ada
+
+test "a style's state part row is edited by set-state, the default, from its value as written: a field, Rebuilds, Apply; a token it reads offered beside; a held one too; a stale copy's edit is not applied"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": {"site": 3, "instance": [], "state": "active"}, "held": {"state": "active"}}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  // The held look as its page reports it when asked (its first report, unasked, is asked again).
+  request POST "/__stub/held-answer" {"held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "press_opacity_to", "value": "0.8", "source": "authored", "origin": "class:PostButton", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract", "text": "0.8"}}, {"name": "press_background_color", "value": "#0f73ffff", "source": "authored", "origin": "class:PostButton", "state": "active", "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "background-color", "file": "post.contract", "text": "accent.fill", "token": "accent.fill"}}], "held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  clock +1
+  clock data
+  expect text "selrow-state-:active opacity" == "Edit PostButton :active opacity"
+  expect text "selrow-token-:active background-color" == "Edit the token accent.fill instead"
+  expect text "selrow-state-:active background-color" == "Edit PostButton :active background-color"
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-state-:active opacity" == "Edit PostButton :active opacity"
+  tap "selrow-state-:active opacity"
+  expect state editKind == "set-state"
+  expect state editTarget == "PostButton|active|opacity|post.contract"
+  expect state editValue == "0.8"
+  type "state-value" "0.7"
+  expect state editValue == "0.7"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect tree missing "scrub-start"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // The write moved the files: the copy is reported again (a rebuild would), and is current.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "press_opacity_to", "value": "0.8", "source": "authored", "origin": "class:PostButton", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract", "text": "0.8"}}, {"name": "press_background_color", "value": "#0f73ffff", "source": "authored", "origin": "class:PostButton", "state": "active", "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "background-color", "file": "post.contract", "text": "accent.fill", "token": "accent.fill"}}], "held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  clock +1
+  clock data
+  // An edit opened on that copy, then the selection goes stale (its page left inspect mode): not applied.
+  tap "selrow-state-:active background-color"
+  expect state editValue == "accent.fill"
+  expect tree missing "state-stale"
+  // Another client writes the file meanwhile: stale, and the same copy reported afresh does not revive it.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["post.contract"], "changed": [], "files": {"post.contract": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}} as ada
+  clock +1
+  clock data
+  expect tree has "state-stale"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "press_opacity_to", "value": "0.8", "source": "authored", "origin": "class:PostButton", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract", "text": "0.8"}}, {"name": "press_background_color", "value": "#0f73ffff", "source": "authored", "origin": "class:PostButton", "state": "active", "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "background-color", "file": "post.contract", "text": "accent.fill", "token": "accent.fill"}}], "held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  clock +1
+  clock data
+  expect tree has "state-stale"
+  expect disabled "apply"
+  tap "selrow-state-:active background-color"
+  expect tree missing "state-stale"
+  request POST "/__stub/event" {"events": [{"event": "inspect", "client": "design-tool:Ada", "on": false, "builds": ["web-1"]}, {"event": "selected", "build": "web-1", "selected": null}]} as ada
+  clock +1
+  clock data
+  expect tree has "state-stale"
+  expect disabled "apply"
+  request POST "/__stub/restart" {} as ada
+
 test "the inspector places a light copy on the light column, and a build whose scheme is not known, or that went, offers no edit"
   type "name" "Ada"
   tap "save-name"

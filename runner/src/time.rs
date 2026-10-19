@@ -51,6 +51,11 @@ pub struct Launch {
     pub time: Option<WallTime>,
     /// Where the viewer is (`set_place`'s fact, its seed included).
     pub place: Option<Place>,
+    /// Where a live clock reads as the boot starts. A fresh runner's clock
+    /// starts there, not at zero, so what its boot arms (`after(ms)`) is
+    /// due `ms` from now however long the host ran before it (the timers
+    /// RFC, D1). `None`: a seek clock's boot, at zero.
+    pub clock: Option<f64>,
 }
 
 impl Launch {
@@ -58,6 +63,7 @@ impl Launch {
     pub const NONE: Launch = Launch {
         time: None,
         place: None,
+        clock: None,
     };
 }
 
@@ -67,7 +73,13 @@ impl Launch {
 /// with the real one, not with zero until the host's first `set_time`.
 /// `None`, or a fact that does not validate, boots on zero as before.
 pub fn launching<T>(time: Option<WallTime>, boot: impl FnOnce() -> T) -> T {
-    launching_with(Launch { time, place: None }, boot)
+    launching_with(
+        Launch {
+            time,
+            ..Launch::NONE
+        },
+        boot,
+    )
 }
 
 /// Boot under what the host knows at launch ([`Launch`]): a fact that does
@@ -85,6 +97,9 @@ pub fn launching_with<T>(launch: Launch, boot: impl FnOnce() -> T) -> T {
     let launch = Launch {
         time: launch.time.filter(|t| t.validate().is_ok()),
         place: launch.place.filter(|p| p.validate().is_ok()),
+        clock: launch
+            .clock
+            .filter(|t| (0.0..=crate::MAX_CLOCK_MS).contains(t)),
     };
     let _restore = Restore(Some(LAUNCH.with(|l| l.replace(launch))));
     boot()
@@ -96,8 +111,8 @@ pub fn launching_with<T>(launch: Launch, boot: impl FnOnce() -> T) -> T {
 pub fn without_launch_time<T>(boot: impl FnOnce() -> T) -> T {
     launching_with(
         Launch {
-            time: None,
             place: launch_place(),
+            ..Launch::NONE
         },
         boot,
     )
@@ -106,6 +121,12 @@ pub fn without_launch_time<T>(boot: impl FnOnce() -> T) -> T {
 /// The date a boot under [`launching`] reads first.
 pub(crate) fn launch_time() -> WallTime {
     LAUNCH.with(|l| l.borrow().time).unwrap_or_default()
+}
+
+/// Where a fresh runner's clock starts: the live clock's reading a boot under
+/// [`launching_with`] was told, else zero.
+pub(crate) fn launch_clock() -> f64 {
+    LAUNCH.with(|l| l.borrow().clock).unwrap_or(0.0)
 }
 
 /// Where the viewer is, when a boot under [`launching_with`] was told.

@@ -33,7 +33,7 @@ use handles::calc_handle;
 pub(crate) use handles::{calc_handle_in, resolve_calc, tree_handle, LayoutEnv};
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Region, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Region, SegmentVar, TitleBarVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
@@ -177,7 +177,8 @@ impl Dimension {
         }
     }
 
-    /// Whether this is a segment length `env` does not define (LLP 1078 D3).
+    /// Whether this is a segment length `env` does not define (LLP 1078 D3),
+    /// or a calculation that reads one or an undefined title-bar area.
     fn undefined_segment(self, env: &Env) -> bool {
         match self {
             Dimension::Segment(_, x, y, _) => env.segment(x, y).is_none(),

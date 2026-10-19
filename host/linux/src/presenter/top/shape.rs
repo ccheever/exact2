@@ -4,7 +4,7 @@
 //! **An alert** (LLP 1115 D6) is an `alertdialog`, a `dialog` or a popover,
 //! whose rows are explanatory text, actions (a `button` with a `press` that
 //! also closes it) and one cancel (a closing `button` with no `press`), with
-//! at most three buttons: the rule the Apple hosts follow
+//! at most three buttons (the cancel alone is the one-button alert): the rule the Apple hosts follow
 //! (`ConfirmationShape.swift`, `AlertsMac.swift`'s `plan`). Its title is the
 //! `aria-label`, else its first line; its message is the rest.
 //!
@@ -168,9 +168,11 @@ pub fn alert(
         .filter(|n| n.node_type == NodeType::Text)
         .collect();
     let enabled = |n: &&NodeRef<'_>| n.props.bool(PropId::Disabled) != Some(true);
+    // With no action it is the one-button alert, which tells; with actions,
+    // one must be choosable.
     if children.len() != actions.len() + cancels.len() + texts.len()
         || !actions.iter().all(|n| closes(kernel, n, &pop, modal))
-        || !actions.iter().any(enabled)
+        || !(actions.is_empty() || actions.iter().any(enabled))
     {
         return None;
     }

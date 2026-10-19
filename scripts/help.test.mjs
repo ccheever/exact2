@@ -11,7 +11,7 @@ import { createApp } from '../game/new.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
+const APP_VERBS = ['status', 'web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -108,9 +108,11 @@ function parsed(...sources) {
 test('each verb\'s help names exactly the flags its script parses, in a short text', () => {
   const read = (file) => readFileSync(resolve(ROOT, file), 'utf8');
   const exact = read('scripts/exact.mjs'), between = (from, to) => exact.slice(exact.indexOf(from), exact.indexOf(to, exact.indexOf(from)));
+  const appCLI = read('scripts/app-cli.mjs');
+  const readiness = appCLI.slice(appCLI.indexOf("if (verb === 'status'"), appCLI.indexOf('if (!verbs[verb]'));
   const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'), read('host/apple/bundle.mjs'));
   for (const [verb, flags] of [
-    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'))],
+    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'), readiness)],
     ['web-build', parsed(read('host/web/build.mjs'))],
     ['agent', parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'))], ['verify', parsed(read('scripts/verify.mjs'))],
     ['ios', apple], ['mac', apple],
@@ -153,6 +155,7 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
 // The index is the one read: each verb, then the forms a build uses, in one screen, and every flag a form names is one its
 // verb's script parses (a form never names a flag that does not exist).
 test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
+  assert.doesNotMatch(helpText('status'), /undefined/);
   const text = indexText({ verbs: Object.keys(HELP).filter((v) => v !== 'new') });
   assert.ok(text.split('\n').length <= 36, `the index is ${text.split('\n').length} lines`);
   assert.ok(Buffer.byteLength(text) <= 2800, `the index is ${Buffer.byteLength(text)} bytes`);

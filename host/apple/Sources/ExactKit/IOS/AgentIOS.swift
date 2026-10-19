@@ -141,10 +141,10 @@ extension Agent {
     func nativeInFlight() -> Bool {
         if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
         // A smooth correction (a list following its end, a smooth
-        // `scrollIntoView`) is UIKit's scroll animation under platform timing
-        // (LLP 1070.000 §11): the fixed point is where it lands, within
-        // settle's bound (LLP 1035.003 D5).
-        if !presenter.collections.animating.isEmpty || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
+        // `scrollIntoView`) and an element reveal are UIKit's scroll
+        // animation under platform timing (LLP 1070.000 §11, §14): the fixed
+        // point is where it lands, within settle's bound (LLP 1035.003 D5).
+        if !presenter.collections.animating.isEmpty || presenter.elementScrolls.revealsInFlight || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
               node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),
@@ -492,7 +492,7 @@ extension Agent {
             let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
-            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
+            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" || source == "symbol:" ? "empty" : name.isEmpty ? "role" : "os" }
             native["symbol"] = symbol
         }
         node["native"] = native

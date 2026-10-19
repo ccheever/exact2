@@ -76,12 +76,15 @@ export const HELP = {
       ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
   },
+  status: {line:'web/prove status', usage:'bun exact.mjs status', flags:[], body:'Lists web/prove invocations with their phase, elapsed time, previous duration and exit status.', example:'bun exact.mjs status'},
   web: {
     line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
     common: ['web [--port <n>]    for a person watching: its URL, rebuilt on save'],
     flags: [
       ['--port <n>', 'listen on <n>, refused if taken (default 8765, else the first free port to 8864)'],
+      ['--ready', 'wait for the current game web invocation to serve its current build; start web separately'],
+      ['--timeout <s>', 'limit the --ready wait (default 600 seconds)'],
       ['--lan', 'bind every interface, so a phone on this network opens the printed LAN URL'],
     ],
     more: [
@@ -426,6 +429,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
       ['--repeat <n>', 'runs per host (default 1)'],
       ['--compare-saves', 'also require identical saves across hosts'],
       ['--repin', 'accept new pins once every host and mode agrees'],
+      ['--continue <run>', 'reuse the snapshot and completed legs of artifacts/prove/<run>'],
       ['--device', 'ios on a connected phone'],
       ['--phone <udid|name>', 'which phone, with --device'],
       ['--report', 'print the facilities a failed host lacks'],
@@ -480,10 +484,10 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
   const line = (verb) => HELP[verb]?.line ?? (own[verb] ? `app.json commands: ${own[verb].join(' ')}` : '');
   const forms = verbs.flatMap((verb) => HELP[verb]?.common ?? []);
   return [
-    'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
+    'bun exact.mjs <verb> [arguments]    in the app directory (EXACT2=<path> selects the SDK)',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
-    ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
-    'bun exact.mjs <verb> --help: flags and an example; bun exact.mjs <verb> --help all: every flag and port.',
+    ...forms.map((form) => `  ${form}`),
+    'bun exact.mjs <verb> --help: flags and example; bun exact.mjs <verb> --help all: every flag and port.',
   ].join('\n');
 }
 

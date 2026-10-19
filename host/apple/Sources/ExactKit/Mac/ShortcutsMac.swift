@@ -280,7 +280,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             (item as? AccessibleMenuItem)?.owner = view
             item.title = title(view)
             // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
-            item.image = view.isButton ? view.face?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } : nil
+            item.image = view.isButton ? view.face?.symbol.flatMap { FaceSymbol.image($0) } : nil
             chords.append((item, shortcut))
             item.target = self
             item.representedObject = NSNumber(value: view.id)

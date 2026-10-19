@@ -173,8 +173,13 @@ fn a_tap_that_drifts_inside_the_systems_slop_still_presses() {
         p.pointer_move(x + by, y, at + 1.).unwrap();
         p.pointer_up(x + by, y, at + 2.).unwrap();
     };
-    // The shared slop is 4 points: a contact that moves 6 is no tap.
+    // A mouse can move within the button and still click it.
     let mut p = boot(BUTTONS);
+    drift(&mut p, 6., 1.);
+    assert_eq!(log(&p), "1");
+    // Direct touch's default slop is 4 points: 6 is no tap.
+    let mut p = boot(BUTTONS);
+    p.set_pointer_kind(PointerKind::Touch);
     drift(&mut p, 6., 1.);
     assert_eq!(log(&p), "0");
     drift(&mut p, 3., 5.);
@@ -194,6 +199,7 @@ fn a_tap_that_drifts_inside_the_systems_slop_still_presses() {
         ..phone
     };
     assert!(p.set_device(&desk).is_none());
+    p.set_pointer_kind(PointerKind::Touch);
     drift(&mut p, 6., 1.);
     assert_eq!(log(&p), "0");
 }
@@ -324,12 +330,15 @@ fn pointerdown_defaults_decide_focus_for_mouse_taps_and_held_contacts() {
             if held {
                 let before = p.focus;
                 p.pointer_down(x, y, 0.).unwrap();
-                let after_down = if name == "field" {
+                let after_down = if matches!(name, "plain" | "field") {
                     Some(id(&p, name))
                 } else {
                     before
                 };
-                assert_eq!(p.focus, after_down, "{name}: down focuses only fields");
+                assert_eq!(
+                    p.focus, after_down,
+                    "{name}: ordinary mouse focus is decided on down"
+                );
                 p.pointer_up(x, y, 0.).unwrap();
             } else {
                 p.press_at(x, y, 0.);
@@ -399,7 +408,7 @@ fn a_pan_does_not_focus_its_inner_button_even_with_the_default_mouse_kind() {
 }
 
 #[test]
-fn agent_contacts_focus_at_lift_and_use_the_mouse_flag_for_the_ring() {
+fn agent_contacts_use_the_mouse_flag_for_focus_timing_and_the_ring() {
     for mouse in [false, true] {
         let mut p = boot(PRESS_FOCUS);
         let scale = id(&p, "scale");
@@ -408,7 +417,7 @@ fn agent_contacts_focus_at_lift_and_use_the_mouse_flag_for_the_ring() {
             &format!(r#"{{"op":"tap","phase":"down","id":{scale},"mouse":{mouse}}}"#),
         );
         assert!(!down.contains("error"), "{down}");
-        assert_eq!(p.focus, None);
+        assert_eq!(p.focus, mouse.then_some(scale));
         let up = crate::agent::handle(
             &mut p,
             &format!(r#"{{"op":"tap","phase":"up","mouse":{mouse}}}"#),
@@ -502,7 +511,8 @@ fn drag_bindings_prevent_focus_but_their_inner_buttons_and_a_swipe_do_not() {
         let (x, y) = middle(&p, name);
         let prevented = matches!(name, "height" | "transform");
         p.pointer_down(x, y, 0.).unwrap();
-        assert_eq!(p.focus, None, "{name}: down");
+        let ordinary_button = matches!(name, "height-button" | "transform-button");
+        assert_eq!(p.focus, ordinary_button.then_some(target), "{name}: down");
         p.pointer_up(x, y, 0.).unwrap();
         assert_eq!(p.focus, (!prevented).then_some(target), "{name}: up");
     }
@@ -536,7 +546,14 @@ fn a_focus_handler_moving_a_sibling_under_the_pointer_does_not_press_it() {
                 p.press_at(x, y, 0.);
             }
             assert_eq!(p.focus, Some(a), "{held:?}, {scale}");
-            assert_eq!(log(&p), "A", "{held:?}, {scale}: only the touched button");
+            // Chrome focuses on down, so a mouse releases over B and clicks
+            // the common parent, which has no press handler here.
+            let pressed = if held == Some(PointerKind::Mouse) {
+                ""
+            } else {
+                "A"
+            };
+            assert_eq!(log(&p), pressed, "{held:?}, {scale}");
             assert_eq!(p.hit(x, y), Some(id(&p, "b")), "B moved under the pointer");
         }
     }
@@ -580,4 +597,53 @@ fn choosing_a_select_item_does_not_focus_or_press_the_button_under_it() {
     assert_eq!(p.focus, Some(select));
     assert_eq!(log(&p), "b:");
     assert!(p.menu_paint().is_none());
+}
+
+#[test]
+fn direct_control_contacts_keep_their_original_activation_policy() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for pointer in [PointerKind::Touch, PointerKind::Pen] {
+        for kind in ["range", "radio", "checkbox"] {
+            for own in [false, true] {
+                for feedback in ["", "-exact-press-opacity=0.5"] {
+                    let value_type = match kind {
+                        "range" => "number",
+                        "checkbox" => "bool",
+                        _ => "string",
+                    };
+                    let handler = if own { "press=pressed" } else { "" };
+                    let mut p = boot(&format!(
+                        r#"component App
+  state seen = ""
+  action pressed
+    seen = `${{seen}}press `
+  action changed(v: {value_type})
+    seen = `${{seen}}change `
+  view
+    column width=400 height=400
+      box press=pressed width=300 height=80 {feedback}
+        input type="{kind}" testId="control" width=200 height=40 {handler} {feedback} change=changed
+      text seen testId="log"
+"#
+                    ));
+                    p.set_pointer_kind(pointer);
+                    let (x, y) = middle(&p, "control");
+                    p.pointer_down(x, y, 0.).unwrap();
+                    let down = p.focus;
+                    p.pointer_up(x, y, 1.).unwrap();
+                    actual.push((pointer, kind, own, feedback, down, log(&p)));
+                    let heard = if !feedback.is_empty() {
+                        "press "
+                    } else if kind == "checkbox" && own {
+                        "press change "
+                    } else {
+                        "change "
+                    };
+                    expected.push((pointer, kind, own, feedback, None, heard.to_string()));
+                }
+            }
+        }
+    }
+    assert_eq!(actual, expected);
 }

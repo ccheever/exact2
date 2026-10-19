@@ -52,10 +52,17 @@ impl<D: DataSource> Host<D> {
     /// the host's clock, which inputs and the engine's input clock follow,
     /// takes the wall (D5).
     pub fn frame_at(&mut self, frame_ms: f64, wall_ms: f64) -> String {
-        if self.engine.starts_on_frame() {
-            self.now_ms = wall_ms.max(self.now_ms);
+        if !self.engine.starts_on_frame() {
+            return self.frame(frame_ms);
         }
-        self.frame(frame_ms)
+        self.now_ms = wall_ms.max(self.now_ms);
+        // What the frame's commits begin starts at this frame, as the same
+        // callback's tick would start it (D5), so a curve a frame task
+        // begins, and Core Animation's play of it, cost one batch, not two.
+        self.presence.frame = Some(frame_ms / 1000.0);
+        let out = self.frame(frame_ms);
+        self.presence.frame = None;
+        out
     }
 
     /// Turn the first-frame rule on or off (D7). Off, at the agent's

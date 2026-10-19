@@ -873,7 +873,7 @@ impl Feed {
             }
             if !initial {
                 for &e in w.fresh() {
-                    if let Some(t) = world_pose(e) {
+                    if let Some(t) = scene::interpolation_origin(w, e).or_else(|| world_pose(e)) {
                         self.previous.push((e.index(), floats(t)));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
@@ -895,7 +895,8 @@ impl Feed {
                             scene::snap(w, e, false)
                         }
                     {
-                        self.previous.push((e.index(), t));
+                        let previous = scene::interpolation_origin(w, e).map(floats).unwrap_or(t);
+                        self.previous.push((e.index(), previous));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }

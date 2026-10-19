@@ -294,7 +294,7 @@ impl<D: DataSource> Host<D> {
             props.insert("faceBoxSize".into(), size);
         }
         let env = self.runner.kernel().env();
-        let (style, _skipped) = style::style_json_for(&node, &env);
+        let (mut style, _skipped) = style::style_json_for(&node, &env);
         let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
         if handlers.contains(&"heightrelease") {
             self.track_height_handle(id);
@@ -310,13 +310,15 @@ impl<D: DataSource> Host<D> {
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
         batch.create(id, kind, &pairs, &style, &handlers);
+        // Kept to compare with the next update, as `update` keeps it.
+        style.shrink_to_fit();
         self.mirror.insert(
             id,
-            Mirror {
+            Box::new(Mirror {
                 props,
                 style,
                 ..Mirror::default()
-            },
+            }),
         );
         self.keys.insert(key, id);
     }
@@ -594,6 +596,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
             if let Some((d, view_box)) = crate::icon_path::commands(role) {
                 out.insert("symbolPath".into(), d);
                 out.insert("symbolViewBox".into(), view_box.into());
+            }
+            // Untinted, it draws in its `color` (LLP 1121 stage 9 B).
+            if node.symbol_color_said() {
+                out.insert("symbolColorWritten".into(), "1".into());
             }
         }
     }

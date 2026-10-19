@@ -52,19 +52,33 @@ Run these commands from the Exact2 repository root. With the pinned Bun and rust
 installed, `bun scripts/exact.mjs setup` installs the SDK's Rust toolchains,
 wasm-bindgen, Binaryen and Bun dependencies. `setup --check` diagnoses missing or
 mismatched tools. See [offline setup](#offline-setup) for populating Cargo's cache.
+Cargo installs wasm-bindgen into `$CARGO_HOME/bin` (normally `~/.cargo/bin`);
+include that directory in `PATH` for web builds and the dev loop.
+Setup provisions source dependencies; it does not compile the optional engine.
 
 ```sh
 bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. It serves on 8765, or on the next free port when
+Open the dev server's printed URL. It answers with a building page before compiling.
+`bun exact.mjs status` lists each web/prove invocation, its phase and elapsed time.
+Start `web` in one terminal, then `bun exact.mjs web --ready --timeout 600` in another
+to wait for that invocation's current build. It refuses a failed rebuild even when
+the server still shows the previous game. A dead process is reported as `unknown`;
+`running` means the process exists, not that the compiler is making progress.
+
+The dev loop serves on 8765, or on the next free port when
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
 app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
+The first web build uses the size-tuned `web` profile and `wasm-opt`. After a
+Rust edit, the dev loop builds only the affected GPU module under `gpu-dev`,
+then runs wasm-bindgen and swaps it into the page without `wasm-opt`. The first
+such edit compiles that profile's dependencies; later edits reuse them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
 `game/dev.mjs` passes the dev server's flags through (`--port`, `--lan`, and
 `--allow-host <name>`, repeatable, to serve the game through a tunnel such as
@@ -276,6 +290,7 @@ The dev compiler retains its last good plan on an error.
 | Count for the HUD | `w.count::<Beacon>(\|b\| b.lit)` |
 | Ring, torus, cone and halo | `Mesh::ring(inner, outer)`, `Mesh::torus(radius, tube)`, `Mesh::cone(radius, height)`, `Material::alpha(a)`; [halo recipe](recipes/halo.md). |
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
+| An underwater scene | `w.insert_resource(Environment::underwater())`, a sun from above and no opaque surface over the floor; [underwater recipe](recipes/underwater.md) |
 | Fade a glowing mesh | Attach `Glow` to `Material::glow`; call `beacon.glow_to(1.0, 0.5)` once. The renderer samples at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
@@ -396,8 +411,9 @@ observations, and includes a Linux release check. It refuses failures or a missi
 requested browser, leaving the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
-execution-input tree, including baked assets and `.baked-assets.json`;
-`sourceInputs` identifies portable authored sources. The latter omits the bake's
+execution-input tree, including runtime files under `assets/` and `.baked-assets.json`,
+even when Git ignores those generated products;
+`sourceInputs` identifies portable authored sources. The latter follows authored-input tracking and omits the bake's
 manifest-owned outputs and the manifest itself, and names app and SDK files
 relative to their own roots. Rust crate `tests/` and `examples/` directories are
 excluded only when their parent contains `Cargo.toml`, inside or outside the SDK.
@@ -421,8 +437,30 @@ seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
-screenshot alone is not a verified simulation. `prove.mjs` prints its unique
-`ARTIFACTS` directory; direct `proof.mjs` runs use `artifacts/<host>/`.
+screenshot alone is not a verified simulation. Proof exits are **0 PASS**, **1 FAIL**
+and **3 UNVERIFIED**, including build-only, pixel-only and baseline-collection legs.
+Each verdict names its reason. `prove` accepts exit 3 from a collecting leg; it writes
+pins only after the complete matrix agrees. Callers that treated UNVERIFIED as exit 1,
+or build/collection runs as exit 0, must handle 3 explicitly. `diff` retains exit 2
+for a refused capture. `prove.mjs` prints its unique
+`ARTIFACTS` directory. Its `src/` copy supplies the game inputs and proof program;
+edits to the original game do not change a running proof. `legs.json` records each
+host/mode/profile result. Resume with `bun game/prove.mjs <game> --continue <run-directory>`;
+completed legs are reused and failed or interrupted legs rerun. Continuation refuses
+changed game/SDK inputs, changed proof helpers, a changed matrix (including
+`--compare-saves`) or damaged receipts. Keep the original comparison flags when resuming.
+The SDK stays in its checkout and must remain unchanged throughout the run.
+Proof imports and declared `export const proofData = ["relative/file.json"];` data
+are checked separately from bake inputs; game-local dependencies are copied into
+`src/`. SDK helpers remain live and are checked before and after every leg.
+Snapshots share the original game’s `target/` for compilation and validated receipts
+under `artifacts/build/`. A target lock covers proof build validation and copying;
+each Linux proof then executes private products under its source copy's
+`artifacts/build/`, checked against their input and product digests by the driver.
+Linux GPU receipt hits restore the surface declaration and generated runtime assets.
+Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
+`proofData` declaration is refused by name.
+Direct `proof.mjs` runs use `artifacts/<host>/`.
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an
 accessible development signing key. Direct proofs accept `ios --device --phone
@@ -511,6 +549,12 @@ milliseconds; `perf world:world during "clock +1000"` measures that drive.
 In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
+
+Linux GPU loading and surface/asset refusals, and web GPU/surface refusals, carry
+`{refused:{host,subsystem,message}}`. The driver prints the host and subsystem first;
+`EXACT_AGENT_DEBUG=1` or `--json` includes its stack. Browser console diagnostics
+remain available through `logs --all` after a wasm trap, including the panic hook's
+message. This does not make a trapped world usable again; reload it before driving.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
 `layout`, `snapshot` and `save`. A held key is released on the same carrier even
@@ -639,9 +683,22 @@ the core’s vendored patches and `host-dev` profile; the existing SDK test chec
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 
-Linux development uses `gpu-dev` with separate completed host and GPU receipts;
+Linux proofs use `gpu-dev` with separate completed host and GPU receipts;
 a logic-only edit can rebuild the GPU alone. Completed development receipts bind
-the whole file. Release/production bakes bind the product digest: a signed 64-bit
+the whole file. `bun proof.mjs linux --build-only` builds this host/module pair.
+The generic `bun exact.mjs linux` verb builds only the host, under `host-dev`.
+The registry cache in `game/app/crates.mjs` is built but not enabled. D2 requires
+three cold `gpu-dev` runs under load 5 with an eligible registry dependency
+chain over a quarter of the total before wiring it into `buildBake` or setup.
+See `game/bench/cold-build/README.md` for the measurement commands.
+The cache separates channel, profile, target triple, rustc, toolchain overrides
+and compiler/profile flags. It keeps two coherent registry generations,
+excluding path/git crates and their dependants, and uses Cargo metadata's
+resolved build and product directories. A build with any private profile does
+not publish a generation. Cargo validates copied fingerprints;
+a rebuilt copied unit means the warm failed. Cache files are not game inputs.
+Web and release builds do not use it.
+Release/production bakes bind the product digest: a signed 64-bit
 Mach-O leaves out its signature and normalizes the signature and `__LINKEDIT` size
 fields; other files hash whole. Generated profiles disable floating-point contraction; `gpu-dev` disables
 debug assertions and overflow checks as release does. These profiles come from `game/Cargo.toml`, not authored per-game host code.

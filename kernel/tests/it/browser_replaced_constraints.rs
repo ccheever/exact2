@@ -8,6 +8,58 @@ use super::{lay_out_held, Frames};
 use crate::browser_cases::mismatches;
 use exact_kernel::NodeType;
 
+// Chrome 151.0.7922.34, 2026-10-19: replaced ratio items retain the
+// cross-axis cap in their automatic minimum, in both rows and columns.
+#[test]
+fn ratio_cross_maximum_still_caps_replaced_minima() {
+    use crate::browser_cases::{css_rows, lay_out_as, props};
+    let cases = [
+        (
+            "display:flex;width:50px",
+            "height:80px;aspect-ratio:1;max-height:60px",
+            [60.0, 60.0],
+        ),
+        (
+            "display:flex;width:50px",
+            "height:80px;aspect-ratio:1;max-height:60px;max-width:90px",
+            [60.0, 60.0],
+        ),
+        (
+            "display:flex;width:50px",
+            "height:80px;aspect-ratio:1;max-height:60px;min-width:0",
+            [50.0, 60.0],
+        ),
+        (
+            "display:flex;flex-direction:column;height:50px;width:200px",
+            "width:80px;aspect-ratio:1;max-width:60px",
+            [60.0, 60.0],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for kind in [NodeType::Canvas, NodeType::Image] {
+        for (root, item, [width, height]) in cases {
+            let images = if kind == NodeType::Image {
+                vec![(2, Some((300.0, 150.0)))]
+            } else {
+                vec![]
+            };
+            let k = lay_out_as(
+                props(&css_rows(root)),
+                vec![(2, 1, css_rows(item))],
+                &[],
+                &images,
+                kind,
+            );
+            failures.extend(mismatches(
+                &format!("{kind:?} {root} {item}"),
+                &k,
+                &[(2, [0.0, 0.0, width, height])],
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[test]
 fn flexing_and_constraints_preserve_the_replaced_ratio_box() {
     let cases: &[(&str, &str, [Frames; 2])] = &[

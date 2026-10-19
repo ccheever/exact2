@@ -105,6 +105,11 @@ component App
           text "Archive"
         button commandfor="light" command="close" testId="light-cancel"
           text "Cancel"
+      dialog id="notice" role="alertdialog"
+        text "Couldn't save."
+        text "The disk is full."
+        button commandfor="notice" command="close"
+          text "OK"
       dialog id="chooser" role="alertdialog"
         button press=keep commandfor="chooser" command="close"
           text "One"
@@ -315,6 +320,24 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
     );
     let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
     assert_eq!(titles, ["Cancel", "Save", "Not now"]);
+    // Text and its one closing button: the one-button alert, which tells.
+    let Some(Plan::Alert {
+        title,
+        message,
+        rows,
+        cancellable,
+        outside,
+    }) = plan("notice")
+    else {
+        panic!("notice is an alert");
+    };
+    assert_eq!(
+        (title.as_deref(), message.as_deref()),
+        (Some("Couldn't save."), Some("The disk is full."))
+    );
+    let titles: Vec<_> = rows.iter().map(|r| (r.title.as_str(), r.cancel)).collect();
+    assert_eq!(titles, [("OK", true)]);
+    assert!(cancellable && !outside);
     assert_eq!(
         plan("chooser"),
         None,
@@ -1357,4 +1380,56 @@ fn shell_surface_geometry_tracks_insets_cutouts_and_scale() {
         );
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn mouse_invocation_keeps_the_nearest_press_handler() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for handler in ["child", "invoker", "parent"] {
+        for feedback in ["", "-exact-press-opacity=0.5"] {
+            let at = |name| if handler == name { "press=record" } else { "" };
+            let source = format!(
+                r#"component App
+  state seen = ""
+  action record
+    seen = `${{seen}}press `
+  view
+    column width=300 height=200
+      box width=200 height=80 {parent} {feedback}
+        button testId="invoker" popovertarget="menu" width=160 height=60 {invoker} {feedback}
+          box testId="child" width=100 height=40 {child} {feedback}
+      column id="menu" popover="auto" role="menu"
+        button press=record
+          text "First"
+"#,
+                parent = at("parent"),
+                invoker = at("invoker"),
+                child = at("child"),
+            );
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(&source),
+                (),
+                (300., 200.),
+                1.,
+                PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            p.serve_requests();
+            p.serve_windows(Box::new(Pixels(Rc::new(RefCell::new(Vec::new())))));
+            let (x, y, w, h) = p.rect_of(id(&p, "child")).unwrap();
+            p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap();
+            p.pointer_up(x + w / 2., y + h / 2., 2.).unwrap();
+            actual.push((
+                handler,
+                feedback,
+                p.host.runner().slot("seen").cloned(),
+                p.surface().is_some(),
+            ));
+            expected.push((handler, feedback, Some(Value::str("press ")), true));
+        }
+    }
+    assert_eq!(actual, expected);
 }

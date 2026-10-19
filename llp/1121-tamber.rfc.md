@@ -1460,10 +1460,17 @@ Android's reader and the terminal.
    node names its rows' tokens; an authored transition does not time a look on the web; an
    iPad pointer shows a `:hover` look; no regressions (release unchanged where unused, conform
    clean, LLP 1061's press corpus unchanged).
-10. **External clients and remote authentication** (D13, D14). A Figma plugin bridge, a Paper
-    or Pencil client, pairing. Waits on §9 Q4. **Gate:** a changed accent in Figma Variables
-    is proposed as a dial change and a changed folded value as a pinned override; a paired
-    client with `propose` scope cannot write; revoking a client cuts it off at once.
+10. **Remote authentication: pairing** (D13; with LLP 1122 T6, D12). Split 2026-10-19 (the
+    lead's acceptance of theme2's stage 10 brief): pairing codes and scoped, in-memory tokens
+    (12 h, revocable at once; `inspect` needs `read`, `hold`/`pin`/`outline` need `write`), a
+    TLS-only remote listener with a per-run self-signed certificate whose fingerprint the paired
+    client pins (or an explicit `--trust-tunnel`), and the canvas gateway; local and LAN only, no
+    hosted relay (§9 Q4's default). Wire: `tamber/1.13`. **Gate:** a paired `propose` client
+    cannot write or send commands; revocation cuts off its socket and, separately, its canvas
+    through the gateway; an unencrypted remote connection is refused.
+    **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
+    clients of stage 10. **Gate:** a changed accent in Figma Variables is proposed as a dial
+    change and a changed folded value as a pinned override.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.
@@ -3895,3 +3902,180 @@ Built to the approved plan (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 ruling 
   - Tests: an asymmetric bar's pixels (right side up), two opposite-winding paths solid, an accent tint; docs (D10, the known-limits line, stage 6 F3's Apple bullet).
 - **After review round 2 (Astra, Grok):** the image helper is left out of watchOS (it has no image renderer); a centred path icon on iOS shows its em square again whatever the box was before; the widget snapshot places the em square by `object-fit` and meets the viewBox in it, as the page hosts do, and its tint shows through one mask (overlapping paths don't compound a translucent tint); a watch target names its missing `sf` (`tamber-icon-missing`) instead of calling a template no one-colour shape.
 
+
+### Stage 9, commit G1: a look snaps on the web (draft for theme2)
+
+D8 says a look snaps; on both web targets a look is a page rule (`looks::rules`), so a node's own
+`transition` on a property its look sets timed the look both ways.
+- **The input glue** (`host/web/input-glue.js`, both targets): the browser has already moved
+  `:hover` and `:focus-visible` when `pointerover`/`pointerout` (and `mouseover`/`mouseout`, which
+  Firefox sends alone for a scroll under a still pointer; one after its pointer event is the same
+  edge) and `focusin`/`focusout` come. An enabled node with a look for the state whose edge it is
+  (the pointer entering or leaving it, not moving within it, where the pointer can hover; a focus
+  look's node's own `:focus-visible` turning on or off, inside a shadow root too, not a pointer's
+  focus) takes that one style change with its transitions off (`data-exact-snap`, set before any
+  style is read, which the press paint's observer doesn't watch; one forced style for every such
+  node). Focusing reads style before its focus events come, so a focus look's transition can start
+  there and is ended at once by the same still change: what shows is the look, with no frame of the
+  transition. A key that turns `:focus-visible` on for
+  the node already focused (a click, then a key) is held still too, at the window's capture before a
+  shortcut can take the key: Blink and WebKit move it before the key comes, others in its default
+  action. A base change eases as authored. The JS target loads
+  the input piece for a node with a look, as for a key shortcut (after first paint).
+- **Deviation (theme2's 19:55 (b)):** a transition of that node's running across the edge, on any
+  property, ends there (CSS can't hold one property still). QUEUE only if seen in practice.
+- **Not heard:** hover that moves with no event (a node laid out or inserted under a still pointer;
+  WebKit's hover timer), a touch screen's hover that sticks after its up, and an edge before the
+  JS target's input piece has loaded; the look then eases as before.
+- **Tests:** `host/web/tests/looks.test.mjs`: a wasm view and a JS-target node with transitions on
+  what their looks set show the look and the base right after the edge with no transition started;
+  moving onto a child touches nothing; a delay alone snaps; a focus look comes and goes at once, a
+  click then a key included, and a pointer's focus or a hover over a focus-only look touches
+  nothing; a base change still starts its transition.
+
+### Stage 9, commit A2: Apple's control faces draw icon paths (draft for theme2)
+
+Built to the approved plan's point 5 (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 and 17:32 rulings). No plan, schema or wire change: the press face's and a grouped row's JSON gain `symbolPath`/`symbolViewBox` beside a "" `symbol`, as page images carry them since A1.
+
+- **Where a face's symbol travels**: a button face (`button.rs` `face_json`, the kernel's `PressFace.symbol` already the full source) and a grouped row (the kernel's `GroupedRow.icon`, the token form of an svg-only icon, which now makes a standard cell where it made a custom row; `abi/commands.rs`) write the path through one helper (`icon_path::push_json`). Bar, toolbar, tab, segment and title-line faces read the image node, which carries `symbolPath` since A1. An `sf` wins: no path is sent.
+- **Swift** (`FaceSymbol.swift`): an svg-only icon's path travels as a token where a face carries a symbol's name (its equality, caches and drawn source unchanged) and draws as ExactCore's `IconPath` template image, an em square at the point size the site gives an SF Symbol (the configuration's, else the body's; a tab bar's 25, a Mac toolbar's 17). On a face the control tints it as it tints a symbol (D9; LLP 1115 D4); a symbol tint its author wrote on a Mac button face draws it in that colour, as a palette colour draws a symbol. A1's page-image tint-else-colour rule is not applied to faces. Sites: iOS bar items, badge items, readouts and bar faces, the navigation title's glyph line (seated on the cap height), root tabs, segments and their tab bar, button configurations, menu rows, swipe actions, grouped rows; the Mac's toolbar, segments, sidebar rows, button configurations, chooser and shortcut menu items. Snapshot leaves were A1's. A multicolour SVG still needs an `sf` on Apple.
+- **Tests**: `icon_path.rs` and `button.rs` (the JSON carries the path for an svg-only icon, none for an `sf` icon or a role); `tamber_icons.rs` (a grouped row led by an svg-only icon is a standard cell with its icon, an `sf` icon's row its name and no icon); `FaceSymbolTests` (Mac and iOS: a bar or toolbar item, a tab, a segment, a button face, and on iOS a grouped row show a template image for an svg-only icon; an `sf` icon unchanged).
+- **After review round 1 (Astra, Grok):**
+  - An unsaid path on an iOS button takes the title's foreground as an untinted symbol does (UIKit gives a configuration's foreground to symbol images only): the colour UIKit proposes, white on a filled style, greyed when disabled or dimmed; on glass it is drawn in the glass's ink (white on a prominent glass, else the label, grey when disabled) through the button's ink, never the accent. Pixels match an SF Symbol's in the same button, light and dark, enabled and disabled.
+  - A symbol alone on an iOS button: the path takes the size UIKit resolves for a symbol in that configuration (its `buttonSize` too), not the body's.
+  - The Mac's symbol tint on a path keeps the tint's alpha (`sourceIn`): a translucent tint stays translucent, a transparent one draws nothing.
+  - A grouped standard cell gives the path the standard symbol space (`reservedLayoutSize`), so its title aligns with an SF Symbol row's; untinted, the path is the label colour as a symbol is (a destructive row's red, a disabled row's grey as before); its size is the cell's Dynamic Type size, drawn again when that changes.
+  - The agent names a path by the icon token its author wrote (`icon.reply`) in a native button's `symbol` (iOS and Mac) and a sidebar row's: the press face's JSON carries it as `symbolIcon`, which the Apple host reads from the plan's icons table by the icon's source form (no plan or format change); "" where no row names it. Caches keep the token.
+  - Theme2's ruling: where a site gives a symbol no configuration, the path's size is measured, not guessed. An SF Symbol ("square") and the path were drawn side by side at each site and their inked boxes compared, the symbol's point size read against the same symbol drawn at 100 points. iOS 27 simulator (in a scene's window): a tab bar's symbol is 23.3 points at a compact width and 17.2 at a regular width (inline items), so the tab bar's path is 23 or 17 by the size class; a navigation bar item's 21.7 (22); a segment's 16.7 (the body's 17); a symbol-only button's what UIKit resolves (22 regular and large, 19 small). macOS 27: the toolbar's 16.7 (17), measured from a screen capture since AppKit draws a toolbar button through SwiftUI, which no in-process capture reaches; a segment's 13.3 (the system font's 13). The tests keep each measure, the toolbar's by hand (`EXACT_MEASURE_FACE_SYMBOLS=1`).
+  - Tests mount the real faces: the native fixture's bar item and root tab with a path written on their image, native tabs' tab bar and segments, the Mac's toolbar and segments, and the Mac's sidebar over a compiled app with an svg-only icon token (the plan's path and the token's name through the Rust side); a button's pixels beside an SF Symbol's; the Mac's opaque, translucent and transparent tints; the grouped cell's alignment, tint and Dynamic Type; the agent's output.
+- **After review round 2 (Astra, Grok):**
+  - A grouped path whose tint follows the accent (`AccentColor`) keeps the cell's tint, as a symbol's does, not the label colour: an absent tint and one that follows the accent are told apart. Tested with an accent that changes (FaceSymbolGroupedTests; GroupedListIOSTests is at its cap).
+  - Tab bars draw a path again when the size class changes: the in-page bar's items are keyed on the glyph's size and the bar watches the size class; the root tab bar watches it too and reads its own traits once in its window. Tested compact, regular, compact with the faces unchanged, in both.
+  - A symbol segment's path is drawn at the control's body size and again as the text size changes (keyed on that size; the control watches the content size).
+  - The agent's icon name: the source form carries none (the compiler and the runner's bridge expand the name away), so two tokens on one SVG (`icon.reply`, `icon.respond`) give one form and one plan string, and the host reports the first declared, the best it knows. theme2 ruled (21:49) to keep that and QUEUE it, with a build lint for two icon tokens with identical sources as the cheaper real fix.
+
+### Stage 9, commit C1: `explain` answers an icon and a param (draft for theme2)
+
+QUEUE (stage 7 B, round 2): an icon and a param were read through `describe` and `resolve` only.
+Under `tamber/1.12`, optional fields (theme2's 19:25 ruling (a): one computation, two readers).
+- **`describe`'s icon entry** gains `draws`, `{target: source}` for each target the app ships: the
+  source that target draws, by D10's rule (`contract_lower::icons::draws`, the same function
+  `tamber-icon-missing` now checks with), or null. It reads stage 9 A's rule: Apple draws an
+  icon's SF Symbol, else a template SVG's path (not yet on a watch).
+- **`explain` of an icon** answers `kind: "icon"`, its value as its design writes it, its chain
+  (the icon an alias, `icon.alias = icon.home`, names; empty for an `icon(…)`), and its `describe`
+  entry. The server folds a design as the build does with or without params, so an alias reads in
+  an app that has none. An icon param (it was
+  refused, "an icon") answers the same by its full name, its chain the icon or param its default
+  names, with its `param`.
+- **`explain` of a param** adds `param`: its component and identity, kind, the place of its line,
+  its default as written, and `set`, the design's line that sets the app's value, or null.
+- **Tests** (`tamber_serve_explain.rs`): an sf-only, an svg-only and a three-source icon's `draws`
+  in `explain` and `describe`; a param before and after the app sets its value.
+
+### Stage 9, commit C2: `uses` of an icon; a motion token's sites by instance (draft for theme2)
+
+The rest of the QUEUE entry C1 began, under `tamber/1.12` (theme2 19:25 (b)). Both join the app's
+elements (every source it loads, walked from each view) to the source map's nodes by span, so a
+site is located as the map has it (`sitesAt` outlines by it) and a component used twice is two.
+- **An icon** (`contract::tamber_uses::icon_sites`, `tamber_explain::icon_uses`): each plan node
+  of an `image` whose source names it (its string, either arm of a condition, or `src`), directly
+  or through an icon param of its component, by identity, whose value (the design's, else its
+  default as decoded) resolves to it, to a fixed point (`via: {token: <param>}`); `row` is `symbol`.
+  A text, another attribute or a comment that spells `symbol:…` is no site. Asked about an icon
+  param, `uses` answers by its full name with the images that read it.
+- **A motion token by instance** (`motion_instances`): each plan node declared at the element
+  whose attribute holds a literal is a site, the literal kept as `literal` (an animation's
+  longhands, which the compiler composes, included). A literal in no element of the views (an
+  unused component, a component argument's) keeps `site: null`. `site` was always null before
+  1.12; the answer's `plan` is the digest.
+- The QUEUE entry closes but for the motion rebuild class (a motion value's change stays
+  `rebuild`), kept as its own entry.
+- **Tests** (`tamber_serve_explain.rs`): an icon drawn directly and through a param in a component
+  used twice; a text, an attribute and a comment spelling it are no sites, a parenthesized source
+  over two lines is; an icon param asked about; a motion literal in a component used twice (two
+  sites, the literal kept), an animation longhand's instance at its node, one in an unused
+  component (`site: null`); a design the app doesn't build has no sites.
+
+### Stage 9, commit B: symbol images take their written colour (draft for theme2)
+
+theme2's ruling (2026-10-18 17:32) on every host but Linux and the reader, which keep their own
+rule (the tint, else the text colour). An untinted symbol **image** draws in:
+
+1. its `-exact-tint-color`, where written;
+2. else a `color` its author wrote on it, or on the nearest ancestor that sets one. A token or a role counts. The inherited default label colour and a sheet's colour don't.
+3. else the platform's unsaid symbol colour: the accent on the web and iOS, `secondaryLabelColor` on the Mac.
+
+This is D10's "colour from `-exact-tint-color` and `color`". It applies to page images only: a symbol
+on a native control's face (a bar item, a tab, a segment, a button) keeps the control's tint (D9,
+LLP 1115 D4).
+
+- **The kernel** (`NodeRef::symbol_color_said`, kernel/src/node.rs). An image with a `symbol:`
+  source, not a native button's face (a `Control`'s child), for which `says(TextColor)` is true.
+  `says` walks up to the first node that sets `color`: true where its author wrote it, false where only
+  a sheet did. A platform start (the neutral sheet's route header) stops the walk. A change of an
+  ancestor's colour, or of whether it was written, already touches every descendant that inherits it
+  (`propagate_inherited`), so each host re-sends the image. `NodeFacts` carries the answer
+  (`symbol_color`, false for any other node), so `props_of` writes it for live batches and server
+  documents alike. `DocTree::facts` computes it the same way for a document written without a kernel,
+  and also stops at the neutral route header.
+- **The web.** The image is marked `data-symbol-color` (element.rs). The glue's symbol sheet adds
+  `:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}`. That rule has zero
+  specificity, so an authored tint still wins. In Chrome, the registered `<color>` `--exact-tint`
+  resolves `currentcolor` on the image to the image's own `color`: a `light-dark()` colour by its
+  scheme, and a later colour at once.
+- **The JS target.** The same mark and the same sheet (symbols.js). `style::symbol_marks` marks what
+  the static tree can't decide alone:
+  - any bound source, whatever names its role (a state's, a data's): the sheet asks for a symbol's path, so a photo's mark draws nothing;
+  - under a bound `color` or a mode boundary, the image carries `data-symbol-ink` (how many such nodes are above it, and the decision past them), and each such node `data-exact-ink` (a bound colour written or not, `b` a boundary). After each commit symbols.js (`inked`) takes the nearest that sets the row: a boundary's implied row (modes.js `$xs`), no author's, which stands where the boundary's own binding clears or is refused, as the runner installs it; else a bound colour while its binding has a value, a clear included (`$ink`, which rows.rs records from the binding itself, not from what a boundary leaves inline). A `none` takes a bound colour away, as the runner clears the written bit, and the next one up decides.
+
+  Not marked: a colour that only a state look sets (`:hover`).
+- **Apple.** `props_for` sends `symbolColorWritten: "1"`, priced in `content_region.rs` as
+  `symbolName` is. `NodeView.symbolInk` (Affordances.swift) is the node's `text_color` where nobody
+  tinted it and the prop is set:
+  - on iOS, `tintColor = symbolTint ?? symbolInk`. A colour that names the accent is `nil`, so UIKit's live tint is inherited as before;
+  - on the Mac, `contentTintColor = symbolTint ?? symbolInk ?? unsaidSymbolTint`. The accent is `inheritedTint`;
+  - a hierarchical configuration takes the same colour, and `symbolLookKey` holds it when the glyph bakes it.
+
+  Only the page image's `updateSymbol` reads it; bar items, tab faces, segments and button faces
+  don't. Where iOS or the Mac shows a tab's or a radio's one image as a segment, the segment's
+  image is made at that point in the control's tint (`NodeView.faceImage`), never in the page's ink. A props change of the word re-runs `updateSymbol`. An unwritten symbol is unchanged, and
+  `PlatformDefaultsMacTests` is unchanged.
+- **Movers** (condition 1). Each app's static tree (the JS target's, every site with its arms
+  flattened, a component per use) was walked for symbol images with no tint and a written colour:
+  - **Shelf: none.** Its stars write no colour ("in the tint"), so they stay the accent on the web and iOS and `secondaryLabelColor` on the Mac. Its tab and header symbols are control faces.
+  - **The clone (`95d7d41`): 8 sites** of 1,968 symbol and photo images (683 symbols):
+    - the chat message menu's Translate, Copy, Delete and Report (chat.contract:1272, 1287, 1302, 1318);
+    - the lightbox's Share (viewer.contract:453, used 4 times).
+
+    Their colour and their accent both come from the root's `color="text"` and `accent-color="text"`. So on the web and iOS they look the same as before (the accent, now the colour: both `text`). On the Mac they move from `secondaryLabelColor` to `text`, the colour of the menu's labels. Every other clone symbol writes its own tint or is a control face.
+- **Tests:**
+  - the kernel's `symbol_color.rs`:
+    - no colour;
+    - an ancestor's written colour, its token form, and its clear touching the image;
+    - a nearer colour no author wrote;
+    - a nearer tint not deciding it;
+    - its own colour;
+    - not on a native button's face;
+  - the web's `tint.rs`: batch, server document and kernel-free document agree;
+  - Chrome's `a symbol draws in its written colour` (`document.test.mjs`, both sheets): the written colour, `light-dark()`, a live change, an authored tint winning, an unmarked symbol staying the accent;
+  - the JS target's `a_symbol_under_a_written_colour_is_marked`;
+  - Apple's `inherited.rs` (the prop, the colour beside it);
+  - `SymbolColorMacTests`: Shelf's star under `color="AccentColor"` is the accent, a token colour, unwritten unchanged, a written tint wins, the word and the colour followed live, a hierarchical glyph remade;
+  - `SymbolColorIOSTests`: the same on iOS.
+- **After review round 1 (Astra, Grok):**
+  - The JS target marks a symbol under a written colour whatever names its source, and decides a bound `color` after each commit (`data-symbol-ink`, `data-exact-ink`, symbols.js `inked`): a conditional colour that goes gives the symbol back to what is past it, and one that comes back takes it again (Astra 1, 2; `emit_tests.rs`, `js-symbols.test.mjs` in Chrome).
+  - A document written without a kernel keeps an authored CSS-wide clear's written bit (`color="inherit"`), `none` unwritten, as a kernel's `ClearStyle` does (Astra 3).
+  - Its walk stops where `says` does: at the neutral route header, a neutral alert and its children but its buttons; a field holds no image (Grok 1; `tint.rs` adds the clear and an alert, and fails without either).
+  - A tab's whole face takes no page ink on Apple, so a projected segment's image keeps the control's tint (Astra 4; `inherited.rs`). Replaced in round 2.
+  - A move that changes whether the colour is said, or takes an image off a native button's face, with the colour equal, sends the moved subtree's symbol images again (`DefaultContext.ink_said`; Astra 5, Grok 4; `symbol_color.rs`, both ways).
+  - A standard grouped row on iOS tints its symbol with a written colour where nobody tinted it, destructive and disabled still over it, and reconfigures when it changes (Grok 2; `SymbolColorGroupedIOSTests`).
+  - The Mac's emphasized table row keeps a fixed written colour, as it keeps a fixed tint (Grok 3; `SymbolColorMacTests`).
+- **After review round 2 (Astra, Grok):**
+  - The kernel's tab-face guess is gone (`is_tab_face`, its props gate and what it would have needed invalidated): it missed tabs kept as authored (`appearance="none"`, one tab, a face a segment can't show), radio segments and sibling changes. A segment's image is made where iOS and the Mac project it, in the control's tint (`faceImage`); the page image keeps the written colour wherever it is shown as one, an `aria-hidden` tab's glyph included (Astra 1, 4; Grok 1, 2, 4; `SymbolColorIOSTests`, `SymbolColorMacTests`: two image tabs and two image radios as segments with no written ink, a one-tab tablist and a page symbol beside them in it).
+  - The JS target reads a bound colour's provenance from its binding (`$ink`), not from the inline colour, and a mode boundary as an implied setter, as the runner's (`theme.rs`): a symbol under a written token and a boundary is the accent, as on the kernel (Astra 2, 3; Grok 3; `modes_tests.rs` against the kernel, and `js-symbols.test.mjs` in Chrome with `Sx` on `data-x-b`: a clear said, `none`, a value).
+  - The Mac's symbol cell is drawn `.normal` whenever a fixed tint or written colour keeps its ink, set again with each look, so a fixed colour that comes while the row is selected keeps its ink at once (Astra 5).
+  - A document written without a kernel keeps a refused bound colour's written bit, as the runner's `ClearStyle` does (Astra 6; `tint.rs`, which fails without it).
+  - After the re-check: on a boundary under a token colour, an implied row the boundary writes because its own bound colour clears or is refused stands over that binding, as the kernel's unwritten implied row does (`inked` reads `$xs` first; `modes_tests.rs` against the kernel, a clear and then a written value; `js-symbols.test.mjs`, a clear and a refused value).
+  - After re-check 2: a boundary's bound colour that clears or is refused again, with nothing implied changed (`inherit` then `unset`), had its implied row cleared and not set back, so the kernel said written where the JS target did not; the runner now sets it again, unwritten, after each such clear (`NodeInst::unimply`, theme.rs). `modes_tests.rs` steps the kernel through inherit, unset, currentcolor, two refused values, a value, inherit, a value and unset against symbols.js's rule, and `js-symbols.test.mjs` the same in Chrome; iOS's segment test reads the image the installed segment was drawn from (`SegmentHost.drawn`).
+  - On main with stage 9 A (the rebase): a path icon keeps A's rule (its tint, else its colour) and an SF Symbol takes B's; a path icon never takes the hierarchical face image (`faceImage`). So an untinted path icon with no written colour draws in its inherited colour where an untinted SF Symbol takes the platform's unsaid colour: both rulings, not a defect (theme2).

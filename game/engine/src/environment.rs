@@ -41,6 +41,41 @@ impl Default for Environment {
         }
     }
 }
+impl Environment {
+    /// Clear water seen from inside it: a tank or a shallow sea. The whole frame
+    /// sits in one medium, so the sky is the water's colour and fog is uniform.
+    /// Pair it with a sun of about 6,000 lux from above and no opaque surface
+    /// between the sun and the floor; [the underwater recipe](crate::recipes::underwater)
+    /// has the scene, its camera framing and the mean luminance it was measured at.
+    pub fn underwater() -> Self {
+        Self {
+            // The fog hides the whole sky, so a flat background would never show.
+            background: None,
+            // Light through the surface overhead: brighter, green-blue.
+            zenith: [0.3, 0.62, 0.7],
+            // The water's own colour, which the fog fades everything towards.
+            horizon: [0.03, 0.16, 0.2],
+            // Little light comes back up from below.
+            ground: [0.02, 0.05, 0.05],
+            ambient: 0.6,
+            // The sun is not seen as a disc through water.
+            sun_disc: 0.,
+            exposure: 0.9,
+            tone_mapping: ToneMapping::Aces,
+            // Uniform extinction (no height falloff): a surface 32.9 m away keeps
+            // 10% of its colour, ln 10 / 0.07.
+            fog: Some(Fog::new(0.07, 0.)),
+            // The default threshold on HDR brightness (the brightest channel,
+            // before exposure) at a weaker glow than the default 0.16.
+            bloom: Some(Bloom {
+                threshold: 1.,
+                intensity: 0.1,
+                radius: 1.5,
+            }),
+        }
+    }
+}
+
 /// An authored environment for image-based lighting: it replaces the procedural
 /// sky (`Environment`'s zenith, horizon and ground) as the source of ambient
 /// diffuse and specular light; the visible sky and background are unchanged.

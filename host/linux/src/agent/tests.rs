@@ -1366,3 +1366,27 @@ fn a_date_picker_is_held_for_the_agent_and_answered_by_kind() {
         "{state}"
     );
 }
+
+#[test]
+fn surface_refusals_keep_the_host_and_subsystem_on_the_wire() {
+    let plan = contract::compile("component App\n  view\n    text \"ready\"\n").unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        Echo,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    p.surfaces.error = Some("GPU module test: digest mismatch".into());
+    let reply: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(
+        reply["refused"],
+        serde_json::json!({"host":if cfg!(windows) { "windows" } else if cfg!(target_os = "android") { "android" } else { "linux" }, "subsystem":"gpu", "message":"GPU module test: digest mismatch"})
+    );
+    let clean: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert!(clean["refused"].is_null());
+}

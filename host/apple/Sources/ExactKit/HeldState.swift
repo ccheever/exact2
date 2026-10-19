@@ -67,6 +67,9 @@ enum HeldState {
         dropped = nil
         if let held {
             if state == "active" { if !(held.pressed && !held.pressPaint.outside) { held.showPress(false) }; held.heldHighlight() } else { held.relook() }
+            #if os(iOS)
+            if state == "hover" { held.lookHover(NodeView.look("hover", in: held.pressPaint.lookBase ?? [:]) != nil) } // the hold's recognizer off again
+            #endif
         }
         if let reason { told?(reason) }
     }
@@ -109,6 +112,13 @@ enum HeldState {
         if path.contains(where: { $0 === held }) != over { letGo("input") }
     }
 
+    /// A pointer came over `node` or left it (iOS, its look recognizer): a
+    /// hover held there lets go, as on the Mac.
+    static func lookHovered(_ node: NodeView, _ over: Bool) {
+        guard !swapping, state == "hover", let held = view, held === node, over != self.over else { return }
+        letGo("input")
+    }
+
     /// The focus moved to `focus` (nil: none): a focus held lets go when the
     /// focus comes into its node or leaves it.
     static func focusMoved(to focus: PlatformView?) {
@@ -131,13 +141,13 @@ enum HeldState {
     /// on the node its press resolves to through the logical tree (a flat
     /// leaf or an inline run, which have no view, included), `hover` and
     /// `focus-visible` on the node's own view. The state held, or why not:
-    /// `gone`, `disabled`, or unsupported here (iOS's hover, or a state no
+    /// `gone`, `disabled`, or unsupported here (tvOS's hover, or a state no
     /// host knows).
     static func hold(_ state: String?, on id: UInt32, in presenter: Presenter, dropped: ((String) -> Void)?) -> (held: String?, reason: String?, unsupported: Bool) {
         letGo("replaced")
         guard let state else { return (nil, nil, false) }
         guard states.contains(state) else { return (nil, nil, true) }
-        #if os(iOS) || os(tvOS)
+        #if os(tvOS)
         if state == "hover" { return (nil, nil, true) }
         #endif
         var at: UInt32? = id, found: NodeView?
@@ -158,6 +168,12 @@ enum HeldState {
         // Over it now: a live hit test of the resting pointer (a new generation's tree included), else the path last seen.
         #if os(macOS)
         over = presenter.pointerOver(node) ?? pointerPath.contains { $0.view === node }
+        #elseif os(iOS)
+        // As its look recognizer last said (one put on for the hold has said
+        // nothing: the pointer is taken to be elsewhere, so it coming over the
+        // node lets the hold go).
+        over = node.pressPaint.hovered
+        if state == "hover" { node.lookHover(true) }
         #else
         over = false
         #endif

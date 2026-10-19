@@ -513,6 +513,369 @@ pub fn motion_sites(
     Ok(out)
 }
 
+/// The elements of the app at `app` (every source it loads, a package's
+/// too), each with its component's identity, by walking each view: what
+/// `uses` joins to the map's nodes by span (LLP 1121 stage 9 C2).
+fn elements(
+    app: &std::path::Path,
+    map: &Value,
+) -> Result<(contract_syntax::File, crate::sources::Sources), String> {
+    let first = |all: Vec<crate::CompileError>| {
+        all.into_iter()
+            .next()
+            .map_or_else(|| "the app does not load".into(), |e| e.message)
+    };
+    let src = std::fs::read_to_string(app).map_err(|e| format!("{}: {e}", app.display()))?;
+    let root = crate::app_root(app).map_err(first)?;
+    let (file, sources) = crate::sources::load(app, &src, &root).map_err(first)?;
+    // The sources as the map's plan was compiled from them: a save between
+    // the two reads would join one revision's elements to another's nodes.
+    let compiled: std::collections::HashMap<&str, &str> = map["sources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| Some((s["file"].as_str()?, s["sha256"].as_str()?)))
+        .collect();
+    for (path, digest) in sources.digested() {
+        if compiled
+            .get(path.to_string_lossy().as_ref())
+            .is_some_and(|d| *d != digest)
+        {
+            return Err(format!(
+                "{} changed while it was read: ask again",
+                path.display()
+            ));
+        }
+    }
+    Ok((file, sources))
+}
+
+/// Each element of `nodes` (recursively), with `f`.
+fn walk<'a>(nodes: &'a [contract_syntax::Node], f: &mut dyn FnMut(&'a contract_syntax::Node)) {
+    use contract_syntax::Node;
+    for n in nodes {
+        f(n);
+        match n {
+            Node::Element { children, .. } | Node::Use { children, .. } => walk(children, f),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                walk(then, f);
+                walk(otherwise, f);
+            }
+            Node::Each { body, .. } => walk(body, f),
+            Node::Match { some, none, .. } => {
+                walk(&some.1, f);
+                walk(none, f);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+/// The strings an expression may take as an image's source: a literal, a
+/// template with no `${}`, either arm of a condition or a `match`, a list's
+/// items; never its condition or subject.
+fn strings(e: &contract_syntax::Expr, out: &mut Vec<String>) {
+    use contract_syntax::{Expr, TemplatePart};
+    match e {
+        Expr::Str(s, _) => out.push(s.clone()),
+        Expr::Template(parts, _) if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) => out
+            .push(
+                parts
+                    .iter()
+                    .map(|p| match p {
+                        TemplatePart::Text(t) => t.as_str(),
+                        TemplatePart::Expr(_) => "",
+                    })
+                    .collect(),
+            ),
+        Expr::Ternary(_, a, b, _) => {
+            strings(a, out);
+            strings(b, out);
+        }
+        Expr::Match { some, none, .. } => {
+            strings(some, out);
+            strings(none, out);
+        }
+        Expr::List(items, _) => items.iter().for_each(|i| strings(i, out)),
+        _ => {}
+    }
+}
+
+/// The places of every string literal inside an expression (a motion
+/// literal may sit in a condition's arm, a `+`'s right side, a `match`'s).
+fn literal_spans(e: &contract_syntax::Expr, out: &mut Vec<contract_syntax::Span>) {
+    use contract_syntax::{Expr, TemplatePart};
+    match e {
+        Expr::Str(_, s) | Expr::Template(_, s) => {
+            out.push(*s);
+            if let Expr::Template(parts, _) = e {
+                for p in parts {
+                    if let TemplatePart::Expr(x) = p {
+                        literal_spans(x, out);
+                    }
+                }
+            }
+        }
+        Expr::List(items, _) | Expr::Call(_, items, _) => {
+            items.iter().for_each(|i| literal_spans(i, out))
+        }
+        Expr::Some(x, _)
+        | Expr::Unary(_, x, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Member(x, _, _)
+        | Expr::Typed(x, _, _) => literal_spans(x, out),
+        Expr::Binary(_, a, b, _) => {
+            literal_spans(a, out);
+            literal_spans(b, out);
+        }
+        Expr::Ternary(c, a, b, _) => {
+            literal_spans(c, out);
+            literal_spans(a, out);
+            literal_spans(b, out);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            literal_spans(subject, out);
+            literal_spans(some, out);
+            literal_spans(none, out);
+        }
+        Expr::Arrow { body, .. } => literal_spans(body, out),
+        Expr::Let { value, body, .. } => {
+            literal_spans(value, out);
+            literal_spans(body, out);
+        }
+        _ => {}
+    }
+}
+
+/// The map's nodes by where they are declared (`file`, `line`, `col`):
+/// every instance of an element, indexed once.
+fn by_span(map: &Value) -> std::collections::HashMap<(String, u64, u64), Vec<usize>> {
+    let mut out: std::collections::HashMap<(String, u64, u64), Vec<usize>> = Default::default();
+    for (i, n) in map["nodes"].as_array().into_iter().flatten().enumerate() {
+        if let (Some(f), Some(l), Some(c)) =
+            (n["file"].as_str(), n["line"].as_u64(), n["col"].as_u64())
+        {
+            out.entry((f.to_string(), l, c)).or_default().push(i);
+        }
+    }
+    out
+}
+
+/// The map's nodes declared at `span` (every instance of that element).
+fn nodes_at(
+    index: &std::collections::HashMap<(String, u64, u64), Vec<usize>>,
+    sources: &crate::sources::Sources,
+    span: contract_syntax::Span,
+) -> Vec<usize> {
+    let file = sources.path(span).to_string_lossy().to_string();
+    index
+        .get(&(file, u64::from(span.line), u64::from(span.col)))
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// A node's site, located as the map has it (`sitesAt` outlines by it).
+fn site_of(site: usize, node: &Value, row: &str) -> Value {
+    json!({"site": site, "row": row, "file": node["file"], "line": node["line"], "col": node["col"], "end_col": node["end_col"], "component": node["component"], "chain": node["chain"]})
+}
+
+/// Where the app draws an icon (LLP 1121 stage 9 C2): each plan node of
+/// an `image` whose source ([`strings`]) is one of `reads`, each a source
+/// (`symbol:icon.reply`) with the reference it reads through (`via`), or a
+/// component's param, by identity, read as `param.<name>` or as the loader
+/// rewrote it (`params`: each `(identity, name, token, via)`). A source
+/// that is the thing asked about has no `via`. `row` is `symbol`: the
+/// image's source, not a style row.
+pub fn icon_sites(
+    app: &std::path::Path,
+    map: &Value,
+    reads: &[(String, Option<String>)],
+    params: &[(String, String, String, Option<String>)],
+) -> Result<Vec<Value>, String> {
+    let (file, sources) = elements(app, map)?;
+    let index = by_span(map);
+    let nodes = map["nodes"].as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for c in &file.components {
+        let identity = c.params.identity.clone().unwrap_or_else(|| c.name.clone());
+        walk(&c.view, &mut |n| {
+            let contract_syntax::Node::Element {
+                tag,
+                positional,
+                span,
+                ..
+            } = n
+            else {
+                return;
+            };
+            if tag != "image" {
+                return;
+            }
+            let mut said = Vec::new();
+            for e in positional {
+                strings(e, &mut said);
+            }
+            let read = reads
+                .iter()
+                .find(|(source, _)| said.contains(source))
+                .map(|(_, via)| via.clone())
+                .or_else(|| {
+                    params
+                        .iter()
+                        .find(|(id, name, token, _)| {
+                            *id == identity
+                                && said.iter().any(|s| {
+                                    *s == format!("symbol:param.{name}")
+                                        || *s == format!("symbol:{token}")
+                                })
+                        })
+                        .map(|(.., via)| via.clone())
+                });
+            let Some(via) = read else {
+                return;
+            };
+            for site in nodes_at(&index, &sources, *span) {
+                let mut v = site_of(site, &nodes[site], "symbol");
+                if let Some(via) = &via {
+                    v["via"] = json!({"token": via});
+                }
+                out.push(v);
+            }
+        });
+    }
+    out.sort_by_key(|v| v["site"].as_u64());
+    Ok(out)
+}
+
+/// A motion token's literal sites ([`motion_sites`]) by instance (LLP 1121
+/// stage 9 C2): each plan node declared at the element whose attribute's
+/// value holds the literal (in any part of it: a condition's arm, a `+`'s
+/// side), or, for a literal on a `style`'s row, each node whose row the map
+/// says is written at that attribute (D1's `at`), is a site, located as
+/// the map has it, the literal kept as `literal`. A literal no node is
+/// declared or written at (a component no one uses, a component
+/// argument's, which its expansion writes into its component's row) keeps
+/// `site: null`.
+pub fn motion_instances(
+    app: &std::path::Path,
+    literals: Vec<Value>,
+    map: &Value,
+) -> Result<Vec<Value>, String> {
+    let (file, sources) = elements(app, map)?;
+    let index = by_span(map);
+    let nodes = map["nodes"].as_array().cloned().unwrap_or_default();
+    let dir = app.parent().unwrap_or(app);
+    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    // Each literal inside an element's attribute: its place, and the
+    // element's span.
+    // Each literal inside an element's attribute, by its file and line.
+    let mut held: std::collections::HashMap<
+        (String, u32),
+        Vec<(contract_syntax::Span, contract_syntax::Span)>,
+    > = Default::default();
+    for c in &file.components {
+        walk(&c.view, &mut |n| {
+            if let contract_syntax::Node::Element { attrs, span, .. } = n {
+                for a in attrs {
+                    let mut spans = Vec::new();
+                    literal_spans(&a.value, &mut spans);
+                    for v in spans {
+                        let key = (sources.path(v).to_string_lossy().to_string(), v.line);
+                        held.entry(key).or_default().push((v, *span));
+                    }
+                }
+            }
+        });
+    }
+    let mut out = Vec::new();
+    for lit in literals {
+        let file = lit["file"].as_str().unwrap_or("");
+        let paths = [
+            dir.join(file).to_string_lossy().to_string(),
+            canonical.join(file).to_string_lossy().to_string(),
+            file.to_string(),
+        ];
+        let (line, col) = (
+            lit["line"].as_u64().unwrap_or(0),
+            lit["col"].as_u64().unwrap_or(0),
+        );
+        let element = paths.iter().find_map(|p| {
+            held.get(&(p.clone(), line as u32))?
+                .iter()
+                .find(|(v, _)| u64::from(v.col) <= col && col < u64::from(v.end_col))
+                .map(|(_, span)| *span)
+        });
+        // A node declared there that binds the row's kind (a button's text
+        // child shares its span and binds none).
+        let family = lit["row"]
+            .as_str()
+            .unwrap_or("")
+            .split('_')
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let binds = |site: &usize| {
+            nodes[*site]["bindings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|b| {
+                    b["row"]
+                        .as_str()
+                        .is_some_and(|r| r.split('_').next() == Some(family.as_str()))
+                })
+        };
+        let mut found: Vec<usize> = Vec::new();
+        if lit["row"].is_string() {
+            if let Some(span) = element {
+                found = nodes_at(&index, &sources, span)
+                    .into_iter()
+                    .filter(binds)
+                    .collect();
+            } else {
+                // A style's row: the nodes whose binding is written at its
+                // attribute, on the literal's line, before it, by its name.
+                let attr = lit["row"].as_str().unwrap_or("").replace('_', "-");
+                for (site, node) in nodes.iter().enumerate() {
+                    let hit = node["bindings"].as_array().into_iter().flatten().any(|b| {
+                        let at = &b["at"];
+                        b["attr"].as_str() == Some(attr.as_str())
+                            && at["line"].as_u64() == Some(line)
+                            && at["col"].as_u64().is_some_and(|c| c <= col)
+                            && at["file"]
+                                .as_str()
+                                .is_some_and(|f| paths.iter().any(|p| p == f))
+                    });
+                    if hit {
+                        found.push(site);
+                    }
+                }
+            }
+        }
+        if found.is_empty() {
+            out.push(lit);
+            continue;
+        }
+        let literal = json!({"file": lit["file"], "line": lit["line"], "col": lit["col"], "end_col": lit["end_col"]});
+        for site in found {
+            let mut v = site_of(site, &nodes[site], lit["row"].as_str().unwrap_or(""));
+            v["literal"] = literal.clone();
+            if lit.get("via").is_some() {
+                v["via"] = lit["via"].clone();
+            }
+            out.push(v);
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

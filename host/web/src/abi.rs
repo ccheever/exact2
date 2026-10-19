@@ -292,7 +292,7 @@ impl<D: DataSource> Bridge<D> {
             preferences: self.preferences,
             fold: self.fold,
         };
-        let (checkpoint, launch_facts) = (self.checkpoint.take(), self.launch_facts.clone());
+        let (checkpoint, launch_facts) = (self.checkpoint.take(), self.launch());
         let booted = exact_runner::time::launching_with(launch_facts, || match checkpoint {
             Some((digest, page)) => Host::boot_checkpoint_linked(
                 self.links,
@@ -339,7 +339,7 @@ impl<D: DataSource> Bridge<D> {
             preferences: self.preferences,
             fold: self.fold,
         };
-        let booted = exact_runner::time::launching_with(self.launch_facts.clone(), || {
+        let booted = exact_runner::time::launching_with(self.launch(), || {
             Host::boot_linked(
                 self.links,
                 &plan,

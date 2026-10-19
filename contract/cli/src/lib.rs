@@ -11,6 +11,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 mod activities;
+mod excerpt;
+pub use excerpt::excerpt;
 pub mod functions;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
@@ -715,7 +717,37 @@ fn compile_path_warned(
     warned: Option<&mut Vec<CompileError>>,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let app_root = app_root(path)?;
-    let (file, sources) = sources::load(path, src, &app_root)?;
+    // A file's syntax refusals do not stop the passes after it: they check
+    // what parsed, and the refusals lead what they report (`Refused::join`).
+    let mut refused = sources::Refused::default();
+    let loaded = sources::load_partial(path, src, &app_root, &mut refused);
+    let mut own = Vec::new();
+    let compiled = loaded.and_then(|(file, sources)| {
+        let warned = warned.is_some().then_some(&mut own);
+        compile_loaded(
+            path, &app_root, file, sources, mapped, surfaces, profile, warned,
+        )
+    });
+    // A warning about a program some of which was refused may be about what
+    // is missing: none is said until the syntax is whole.
+    if let Some(warned) = warned.filter(|_| refused.errors.is_empty()) {
+        warned.extend(own);
+    }
+    refused.join(compiled)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_loaded(
+    path: &Path,
+    app_root: &Path,
+    file: File,
+    sources: sources::Sources,
+    mapped: bool,
+    surfaces: bool,
+    profile: contract_lower::Profile,
+    warned: Option<&mut Vec<CompileError>>,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    let app_root = app_root.to_path_buf();
     native::check(&file, &app_root).map_err(|all| {
         all.into_iter()
             .map(|e| sources.resolve(e))

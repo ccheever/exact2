@@ -1,6 +1,13 @@
 use super::*;
 
 impl World {
+    /// A supplied local interpolation start for this tick; renderer history only.
+    /// Cleared with freshness, excluded from saves, and keyed by incarnation.
+    pub fn interpolation_origin(&self, e: Entity) -> Option<crate::Transform> {
+        self.contains(e)
+            .then(|| self.interpolation_origins.get(&e).copied())
+            .flatten()
+    }
     /// Declare a cosmetic/derived resource excluded from rest observation only.
     /// Call in setup/register, like type registration; save and hash are unchanged.
     pub fn ambient_resource<R: Resource>(&mut self) -> &mut Self {
@@ -173,6 +180,7 @@ impl World {
         self.followed.set(false);
         self.emitted.set(false);
         self.state.busy.get_mut().clear();
+        self.interpolation_origins.clear();
         for e in self.fresh.drain(..) {
             self.state.slots[e.index as usize].fresh = false;
         }
