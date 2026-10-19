@@ -5096,13 +5096,15 @@ Built to theme2's 15:32 approval, on B1 and B2.
     | Linux | 4/8/12/24/32 | 4.1/8.1/12.2 | 16.1 and 20 | 8.1, 20 |
     | macOS 27 | 6/8/12/20/30 | 5.1/6.1/10.2 | 16 and 20.1 | 6.1, 20 |
     | iOS 27 simulator | 5/8/12/20/35 | 5.6/17/26 | 16 and 20 | 17, 20 |
-    | the Android reader (x2-android emulator) | 4/8/12/24/32 | 3.7/7.6/11.5 | 15.5 and 19.4 | 7.6, 19.4 |
+    | the Android reader (x2-android emulator) | 4/8/12/24/32 | 4/8/12 | 16 and 20 | 8, 20 |
 
     md is the design's 12 on every host, and the header is 44.
   - The neutral and Material columns have the same px for every name. The Material column is held by the Android
-    reader's run. The reader boots the plan its APK bakes, so `apps/scale-fixture` bakes the conform target
-    (symlinks to it, and an android crate as `apps/unsaid`'s, on Hello's data), and scale-check drives it with
-    `--app scale-fixture`. The reader's screenshot is the whole screen, so the page's top is found in it (the
-    topmost box's fill). Its corners read about 0.5 pt under the column, within the 1 pt held.
+    reader's run (theme2's ruling: the scale's own boxes, not E's fixture):
+    - scale-check gives the reader the compiled plan, pushed in place of the one an app's APK bakes
+      (`--app unsaid`, an app that asks nothing of its data), so the reader runs exactly what the other hosts run;
+    - the reader's screenshot is the whole screen, so the page's top is found in it, to the fraction of a pixel,
+      from the topmost box's fill;
+    - a page offset across the screen (side bars, a cutout) is refused rather than misread.
 - **Still to come, before E's gate:** the terminal (cells, square corners), which has a column but no agent host
   yet.

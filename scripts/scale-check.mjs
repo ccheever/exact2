@@ -20,8 +20,8 @@
 //                   column, or the plan's own design's token (`contract tamber ir`), which wins. `"then": [{"steps":
 //                   ["tap flip"], "boxes": […]}]` checks boxes again after steps, each from a fresh launch.
 //   --host: web, linux, macos, ios, android (as scripts/agent.mjs names them); default linux. The Android
-//   reader boots the plan its APK bakes, so `--app` names the app that bakes this plan (apps/scale-fixture
-//   for the scale's), built with `bun scripts/agent-android.mjs build <app> --apk`.
+//   reader runs an app's APK with the plan pushed to it: `--app` names one whose data the plan does not ask
+//   (unsaid), built with `bun scripts/agent-android.mjs build <app> --apk`.
 //   Each drive starts from a fresh scratch store (`--storage scale-check --reset-storage`).
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -158,28 +158,47 @@ export function overridesOf(ir, names) {
 const pick = (v, host) => (v && typeof v === 'object' ? (host in v ? v[host] : 'default' in v ? v.default : 'missing') : v);
 
 /** Where the page's top is in a screenshot taller than the page (the whole
- * screen, its bars too: the Android reader's): found down the middle of the
- * topmost box expected to show a fill (of `boxes`, every phase's first
- * frame's), where a run of it as tall as the box first begins (no fill box is
- * above it), less that box's top. 0 when the screenshot is the page. */
+ * screen, its bars too: the Android reader's), in its pixels: found down the
+ * middle of the topmost box expected to show a fill (of `boxes`, every
+ * phase's first frame's), where a run of fill as tall as the box first
+ * begins (no fill box is above it), its edge to the fraction of a pixel, less
+ * that box's top. 0 when the screenshot is the page. A page offset across
+ * (side bars, a cutout) is refused: its pixels a point are not the
+ * screenshot's width over the page's. */
 export function pageTop(image, layout, expect, scale, boxes = expect.boxes) {
   if (image.height <= layout.viewport.h * scale + 2) return 0;
   const ground = rgb(expect.background ?? '#ffffff');
-  const filled = boxes
-    .map(want => [want, want.fill && layout.nodes.find(n => n.testId === want.testId)])
-    .filter(([, box]) => box)
-    .sort(([, a], [, b]) => a.y - b.y);
-  for (const [want, box] of filled.slice(0, 1)) {
-    // Where a run of fill as long as the box is tall begins (not a stroke
-    // above it in that colour, a focus ring, say).
-    const x = Math.round((box.x + box.w / 2) * scale), fill = rgb(want.fill), tall = Math.floor(box.h * scale * 0.9);
-    const inked = y => { const i = (y * image.width + x) * 4; return (coverage([image.data[i], image.data[i + 1], image.data[i + 2]], fill, ground) ?? 0) >= 0.5; };
-    for (let y = 0, run = 0; y < image.height; y++) {
-      run = inked(y) ? run + 1 : 0;
-      if (run >= tall) return y - run + 1 - box.y * scale;
+  const [want, box] = boxes
+    .map(w => [w, w.fill && layout.nodes.find(n => n.testId === w.testId)])
+    .filter(([, b]) => b)
+    .sort(([, a], [, b]) => a.y - b.y)[0] ?? [];
+  if (!box) return 0;
+  const fill = rgb(want.fill);
+  const ink = (x, y) => {
+    if (x < 0 || y < 0 || x >= image.width || y >= image.height) return 0;
+    const i = (y * image.width + x) * 4;
+    return coverage([image.data[i], image.data[i + 1], image.data[i + 2]], fill, ground) ?? 0;
+  };
+  // An edge where a run of `length` inked pixels begins, along `at(k)`: the
+  // run's first pixel, less the fraction the pixel before it is inked, plus
+  // the fraction its own is not.
+  const edge = (count, at, length) => {
+    for (let k = 0, run = 0; k < count; k++) {
+      run = at(k) >= 0.5 ? run + 1 : 0;
+      if (run >= length) {
+        const first = k - run + 1;
+        return first + (1 - at(first)) - at(first - 1);
+      }
     }
-  }
-  return 0;
+    return null;
+  };
+  const x = Math.round((box.x + box.w / 2) * scale);
+  const top = edge(image.height, y => ink(x, y), Math.floor(box.h * scale * 0.9));
+  if (top === null) return 0;
+  const y = Math.round(top + (box.h / 2) * scale);
+  const left = edge(image.width, k => ink(k, y), Math.floor(box.w * scale * 0.9));
+  if (left !== null && Math.abs(left - box.x * scale) > 1) throw new Error(`the page is offset across the screenshot (${(left - box.x * scale).toFixed(1)} px: side bars, a cutout): not read`);
+  return top - box.y * scale;
 }
 
 /** Each box's padding and radius on `host`, against what `expect` says: a
@@ -253,10 +272,11 @@ export function check(host, layout, image, expect, base = () => undefined) {
   });
 }
 
-/** One drive of `plan` on `host` (an app's name for the Android reader, which
- * boots the plan its APK bakes): `steps`, then its layout and screenshot. */
-function drive(host, plan, png, steps = []) {
-  const launch = host === 'android' ? ['--reader', '--app', plan] : ['--plan', plan];
+/** One drive of `plan` on `host`: `steps`, then its layout and screenshot. The
+ * Android reader runs an app's APK (`app`), which the drive gives the plan to
+ * (pushed, in place of the one it bakes). */
+function drive(host, plan, png, steps = [], app = null) {
+  const launch = host === 'android' ? ['--reader', '--app', app, '--plan', plan] : ['--plan', plan];
   const run = spawnSync(process.execPath, [join(ROOT, 'scripts/agent.mjs'), host, ...launch, '--storage', 'scale-check', '--reset-storage', '--json', ...steps, 'layout', `screenshot ${png}`], { cwd: ROOT, encoding: 'utf8', timeout: 900_000 });
   // The last layout: the one after the steps.
   const line = (run.stdout ?? '').split('\n').findLast(l => l.startsWith('{') && l.includes('"nodes"'));
@@ -282,8 +302,8 @@ export function parse(argv) {
   // The agent's `screenshot <png>` is one word.
   if (/\s/.test(opts.out)) return `--out ${opts.out}: a path with no spaces`;
   const hosts = opts.hosts.length ? opts.hosts : ['linux'];
-  // The reader boots the plan its APK bakes: the app that bakes this one.
-  if (hosts.includes('android') && !opts.app) return '--host android needs --app <the app whose APK bakes this plan>';
+  // The reader runs an app's APK, the plan given to it.
+  if (hosts.includes('android') && !opts.app) return '--host android needs --app <an app whose APK the reader runs: one with no data, as unsaid>';
   return { source: resolve(opts.files[0]), expect: resolve(opts.files[1]), hosts, out: opts.out, json: opts.json, app: opts.app };
 }
 
@@ -312,7 +332,7 @@ if (import.meta.main) {
   for (const host of opts.hosts) {
     for (const [k, phase] of phases.entries()) {
       const png = join(opts.out, `${host}${k ? `-${k}` : ''}.png`);
-      try { rows.push(...check(host, drive(host, host === 'android' ? opts.app : plan, png, phase.steps ?? []), decodePng(readFileSync(png)), { ...expect, boxes: phase.boxes, calibrate: expect.boxes }, base).map(r => (k ? { ...r, testId: `${r.testId} (after ${phase.steps.join(', ')})` } : r))); }
+      try { rows.push(...check(host, drive(host, plan, png, phase.steps ?? [], opts.app), decodePng(readFileSync(png)), { ...expect, boxes: phase.boxes, calibrate: expect.boxes }, base).map(r => (k ? { ...r, testId: `${r.testId} (after ${phase.steps.join(', ')})` } : r))); }
       catch (e) { rows.push({ host, testId: '*', ok: false, why: e.message }); }
     }
   }

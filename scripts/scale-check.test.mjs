@@ -83,6 +83,9 @@ test('the command line is refused when malformed', () => {
   expect(parse(['a.contract'])).toContain('a plan and an expectation file');
   expect(parse(['a.contract', 'e.json', '--out', '/tmp/a b'])).toContain('no spaces');
   expect(parse(['a.contract', 'e.json', '--host', 'web', '--host', 'macos']).hosts).toEqual(['web', 'macos']);
+  // The reader runs an app's APK, the plan pushed to it: the app is named.
+  expect(parse(['a.contract', 'e.json', '--host', 'android'])).toContain('needs --app');
+  expect(parse(['a.contract', 'e.json', '--host', 'android', '--app', 'unsaid']).app).toBe('unsaid');
 });
 
 test('a corner with another colour in it (a shadow, a border) is not read', () => {
@@ -178,7 +181,13 @@ test('a screenshot taller than the page (the reader\'s, with its bars) is read f
   for (let i = 150 * 200 * 4; i < 200 * 200 * 4; i++) image.data[i] = second.data[i];
   for (let x = 0; x < 200; x++) { const i = (40 * 200 + x) * 4; image.data[i] = 255; image.data[i + 1] = image.data[i + 2] = 0; }
   const boxes = [{ testId: 'b', fill: '#ff0000' }, { testId: 'a', fill: '#ff0000' }];
-  expect(pageTop(image, layout, { boxes }, 2)).toBe(30);
+  expect(Math.abs(pageTop(image, layout, { boxes }, 2) - 30)).toBeLessThan(0.05);
+  // A page whose top falls inside a pixel: read to the fraction.
+  const frac = drawn(200, 260, { x: 20, y: 70.4, w: 120, h: 48 }, 0, red);
+  expect(Math.abs(pageTop(frac, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2) - 30.4)).toBeLessThan(0.05);
+  // A page offset across (a side bar): refused.
+  const side = drawn(200, 260, { x: 26, y: 70, w: 120, h: 48 }, 0, red);
+  expect(() => pageTop(side, layout, { boxes: [{ testId: 'a', fill: '#ff0000' }] }, 2)).toThrow('offset across');
   // A screenshot that is the page: no offset.
   expect(pageTop(drawn(200, 200, { x: 0, y: 0, w: 1, h: 1 }, 0, red), layout, { boxes }, 2)).toBe(0);
 });
