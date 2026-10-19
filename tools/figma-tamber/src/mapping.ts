@@ -379,6 +379,6 @@ export function newEnough(protocol: unknown): boolean {
 export function plainWhy(why: string): string {
   const light = /tamber-under-light: the light side `([^`]+)` is not the default's `([^`]+)`/.exec(why);
   // (a dark style's branch whose Light side is not the default's: only the Dark side varies by dark style)
-  if (light) return `its Light value here, ${light[1]}, is not the one the design keeps for every dark style, ${light[2]}: only the Dark side varies by dark style, so put the Light value back to ${light[2]}, or change it for every dark style at once (the same in every Light mode), then push`;
+  if (light) return `its Light value here, ${light[1]}, is not the one the design keeps for every dark style, ${light[2]}: only the Dark side varies by dark style, so put the Light value back to ${light[2]}, or change it for every dark style at once (the same in every Light mode), then push (if every Light mode already agrees, the value comes from a token this one names: change it there)`;
   return why;
 }

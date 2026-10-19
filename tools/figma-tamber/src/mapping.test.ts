@@ -189,6 +189,6 @@ test('one choice a token and light side: two light sides of one token are asked 
 
 test('a value not proposed for a dark style\'s Light value says which differs from the one kept and what to do, never the rule\'s id', () => {
   const why = "the design would refuse it (tamber-under-light: the light side `#1df032ff` is not the default's `#1d9bf0ff`: an axis `under scheme=dark` varies the dark side only)";
-  expect(plainWhy(why)).toBe('its Light value here, #1df032ff, is not the one the design keeps for every dark style, #1d9bf0ff: only the Dark side varies by dark style, so put the Light value back to #1d9bf0ff, or change it for every dark style at once (the same in every Light mode), then push');
+  expect(plainWhy(why)).toBe('its Light value here, #1df032ff, is not the one the design keeps for every dark style, #1d9bf0ff: only the Dark side varies by dark style, so put the Light value back to #1d9bf0ff, or change it for every dark style at once (the same in every Light mode), then push (if every Light mode already agrees, the value comes from a token this one names: change it there)');
   expect(plainWhy('no token of that name')).toBe('no token of that name');
 });

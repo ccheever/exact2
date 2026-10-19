@@ -343,7 +343,7 @@ figma.ui.onmessage = async (msg: any) => {
             const ours = new Set([...Object.values(c.contextIds ?? {}), ...Object.values(c.parked ?? {})]);
             const modes = old.modes.filter((m: any) => !ours.has(m.modeId)), def = modes.length < old.modes.length && modes.find((m: any) => m.modeId === old.defaultModeId);
             // (a variable moves to another collection; a mode can't, so it is deleted, and its values with it; the default after another is dragged above it)
-            const what = [...(theirs.length ? [`variables Tamber did not make (${theirs.join(', ')}): move them to another collection`] : []), ...(modes.length ? [`modes Tamber did not make (${modes.map((m: any) => m.name).join(', ')}): delete them, and the values on them go${def ? ` (\`${def.name}\` is the default mode, which Figma won't remove: drag another mode above it first)` : ''}`] : [])];
+            const what = [...(theirs.length ? [`variables Tamber did not make (${theirs.join(', ')}): move them to another collection`] : []), ...(modes.length ? [(modes.length === old.modes.length ? `only modes Tamber did not make (${modes.map((m: any) => m.name).join(', ')}), and Figma keeps one: move what you need from it, then delete the collection` : `modes Tamber did not make (${modes.map((m: any) => m.name).join(', ')}): delete them, and the values on them go${def ? ` (\`${def.name}\` is the default mode, which Figma won't remove: drag another mode above it first)` : ''}`)] : [])];
             if (what.length) throw new Error(`the collection \`${old.name}\` this pull would replace has ${what.join('; and ')}; then pull`);
             old.remove();
             dirty = true;
