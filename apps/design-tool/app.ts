@@ -234,15 +234,19 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
     case 'set-param': return { op: kind, name: lineName(target), when: whenOf(when), value };
     case 'unset-param': return { op: kind, name: lineName(target), when: whenOf(when) };
     // A style's state part row (T4): its value a number where it is one, else a Contract string.
-    case 'set-state': { const [style, state, row, f] = target.split('|'); return { op: kind, style, state, row, value: /^-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(value) ? Number(value) : value, ...(f ? { file: f } : {}) }; }
+    case 'set-state': { const [style, state, row, f] = target.split('|'); return { op: kind, style, state, row, value: NUMBER.test(value) ? Number(value) : value, ...(f ? { file: f } : {}) }; }
+    // A row as its author wrote it (T5): `set-row` at its place or on its style, the address the join gave.
+    case 'set-row': return { op: kind, ...JSON.parse(target), value: NUMBER.test(value) ? Number(value) : value };
     case 'set-token': return { op: kind, name: target, when: whenOf(when), value, ...on };
     case 'add-token': return { op: kind, name: target, value, ...on };
     case 'rename-token': return { op: kind, from: target, to: value, ...on };
     default: return { op: 'remove-token', name: target, ...on };
   }
 }
+const NUMBER = /^-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
+const rowAt = (target: string) => { const a = JSON.parse(target); return a.style ? `${a.style} ${a.row}` : `${a.row} at ${a.file}:${a.at?.line}`; };
 const label = (kind: string, target: string, when: string, value: string) =>
-  kind === 'set-state' ? `${target.split('|').slice(0, 3).join(' ')} = ${value}` : kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : kind === 'unset-param' ? `reset ${target}${when ? ` when ${when}` : ''}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
+  kind === 'set-row' ? `${rowAt(target)} = ${value}` : kind === 'set-state' ? `${target.split('|').slice(0, 3).join(' ')} = ${value}` : kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : kind === 'unset-param' ? `reset ${target}${when ? ` when ${when}` : ''}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
 // The scrub (LLP 1122 D6), one session at a time, from Scrub live to Keep,
 // Cancel or an end: the edit it is of (file, kind, target, branch), the
 // digests and server run it opened on, its id once the server answers, the
@@ -577,6 +581,7 @@ const opText = (o: any): string => {
     : o?.op === 'add-axis-value' ? `add ${o.value} to axis ${o.axis ?? o.name}`
     : o?.op === 'remove-axis-value' ? `remove ${o.value} from axis ${o.axis ?? o.name}`
     : o?.op === 'set-state' ? `set ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row} = ${typeof o.value === 'string' ? JSON.stringify(o.value) : o.value}`
+    : o?.op === 'set-row' ? `set ${o.style ? `${o.style} ` : ''}${o.state ? `:${o.state} ` : ''}${o.row}${o.style ? '' : ` at ${o.file}:${o.at?.line}`} = ${typeof o.value === 'string' ? JSON.stringify(o.value) : o.value}`
     : o?.op === 'unset-state' ? `unset ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row}`
     : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.value ? ` ${o.value}` : ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
     : JSON.stringify(o);

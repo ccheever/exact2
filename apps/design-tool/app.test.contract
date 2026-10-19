@@ -1398,6 +1398,63 @@ test "a style's state part row is edited by set-state, the default, from its val
   expect disabled "apply"
   request POST "/__stub/restart" {} as ada
 
+test "a row its author wrote is edited by set-row, the default: this template (every copy) at its place, or its style in its own file; the token beside; a refusal (a moved file, a value the app does not build with) writes nothing"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 3, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "template", "file": "card.contract", "at": {"line": 3, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 2, "text": "surface.card", "token": "surface.card", "modes": ""}}, {"name": "padding_top", "value": "12", "source": "authored", "origin": "class:Panel", "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "card.contract", "text": "12"}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-row-background-color" == "Edit this template · 2 instances"
+  expect text "selrow-token-background-color" == "Edit the token surface.card instead"
+  expect text "selrow-row-padding-top" == "Edit style Panel"
+  tap "selrow-row-background-color"
+  expect state editKind == "set-row"
+  expect state editValue == "surface.card"
+  expect text "row-label" == "Edit this template · 2 instances"
+  // A value the app does not build with: the server's refusal, nothing written.
+  type "state-value" "not-a-colour"
+  clock data
+  expect text "proposal-error" == "the app does not build with that: card.contract:3:9: `not-a-colour` is not a colour"
+  expect disabled "apply"
+  type "state-value" "#ff0000"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect tree missing "scrub-start"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // The style's row, in its own file.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 3, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "template", "file": "card.contract", "at": {"line": 3, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 2, "text": "surface.card", "token": "surface.card", "modes": ""}}, {"name": "padding_top", "value": "12", "source": "authored", "origin": "class:Panel", "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "card.contract", "text": "12"}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-row-padding-top"
+  expect state editValue == "12"
+  expect text "row-label" == "Edit style Panel"
+  type "state-value" "16"
+  clock data
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  // A file moved since it was compiled: refused, said so.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 3, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "template", "file": "card.contract", "at": {"line": 3, "col": 9}, "sha256": "stale", "row": "background-color", "instances": 2, "text": "surface.card", "token": "surface.card", "modes": ""}}, {"name": "padding_top", "value": "12", "source": "authored", "origin": "class:Panel", "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "card.contract", "text": "12"}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-row-background-color"
+  type "state-value" "#00ff00"
+  clock data
+  expect text "proposal-error" == "card.contract changed since it was compiled (sha256): select the view again"
+  expect disabled "apply"
+  request POST "/__stub/restart" {} as ada
+
 test "the inspector places a light copy on the light column, and a build whose scheme is not known, or that went, offers no edit"
   type "name" "Ada"
   tap "save-name"
