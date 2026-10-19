@@ -141,10 +141,10 @@ extension Agent {
     func nativeInFlight() -> Bool {
         if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
         // A smooth correction (a list following its end, a smooth
-        // `scrollIntoView`) is UIKit's scroll animation under platform timing
-        // (LLP 1070.000 §11): the fixed point is where it lands, within
-        // settle's bound (LLP 1035.003 D5).
-        if !presenter.collections.animating.isEmpty || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
+        // `scrollIntoView`) and an element reveal are UIKit's scroll
+        // animation under platform timing (LLP 1070.000 §11, §14): the fixed
+        // point is where it lands, within settle's bound (LLP 1035.003 D5).
+        if !presenter.collections.animating.isEmpty || presenter.elementScrolls.revealsInFlight || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
               node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),
@@ -234,7 +234,7 @@ extension Agent {
         var keyboard: [String: Any] = ["visible": keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
                                        "policy": presenter.keyboardPolicy, "interactive": presenter.interactiveKeyboardDrag]
         if let top = keyboardTop, let container = keyboardContainer {
-            keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
+            keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.pageOrigin.y)
         }
         #if !os(tvOS)
         if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
@@ -269,7 +269,7 @@ extension Agent {
     static func box(_ bounds: CGRect, of v: UIView, viewport: UIScrollView) -> CGRect {
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = viewport
-        let o = vp.contentOffset
+        let o = vp.pageOrigin
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box
         // where it is seen, through the placement, not the kernel's frame,
         // each corner carried out on its own (`drawnRect`).
@@ -322,7 +322,7 @@ extension Agent {
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
             .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
-        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
+        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.pageSize.width), "h": Agent.r2(vp.pageSize.height)], "env": env, "nodes": nodes]
         // A presentation the platform draws scaled (a floating sheet): its
         // boxes above are the authored frames times `scale`, not the app's doing.
         let scaled = presenter.modals.drawnScales.map { ["route": $0.route.props["navigationKey"] ?? "", "presentation": $0.kind, "scale": (Double($0.scale) * 1000).rounded() / 1000] as [String: Any] }
@@ -338,7 +338,7 @@ extension Agent {
         // real touch's aim is checked against (LLP 1080.000 D4).
         if let w = vp.window, let container = vp.superview {
             let screen = w.screen
-            let origin = container.convert(vp.frame.origin, to: screen.coordinateSpace)
+            let origin = container.convert(presenter.pageFrame.origin, to: screen.coordinateSpace) // the page's area (LLP 1130)
             reply["screen"] = ["w": Agent.r2(screen.bounds.width), "h": Agent.r2(screen.bounds.height), "scale": Agent.r2(screen.scale),
                                "x": Agent.r2(origin.x), "y": Agent.r2(origin.y), "orientation": Agent.orientation(w.windowScene)]
         }
@@ -354,7 +354,7 @@ extension Agent {
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
-        // A flat leaf (FlatLeavesIOS) is a layer in its parent's view: answered as one, its own id kept.
+        // A flat leaf (FlatLeavesIOS) is a layer in the view it is drawn in: answered as one, its own id kept.
         let leaf = presenter.textHost(UInt32(id)) == nil ? presenter.flats.leaves[UInt32(id)] : nil
         guard presenter.textHost(UInt32(id)) != nil || leaf != nil else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
@@ -362,8 +362,8 @@ extension Agent {
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
-        if let leaf, let parent = leaf.parent.flatMap({ presenter.views[$0] }) {
-            let b = box(parent, region: leaf.frame)
+        if let leaf, let parent = presenter.flats.host(of: leaf.id), let frame = presenter.flats.frameInHost(leaf.id) {
+            let b = box(parent, region: frame)
             node["space"] = ["viewport": ["x": Agent.r2(b.minX), "y": Agent.r2(b.minY), "w": Agent.r2(b.width), "h": Agent.r2(b.height)],
                              "local": ["w": Agent.r2(leaf.frame.width), "h": Agent.r2(leaf.frame.height)]]
             node["visible"] = ["hidden": leaf.layer.isHidden || leaf.opacity == 0, "inert": false, "inViewport": b.intersects(presenter.reach(of: parent)), "clipped": b.isEmpty]
@@ -492,7 +492,7 @@ extension Agent {
             let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
-            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
+            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" || source == "symbol:" ? "empty" : name.isEmpty ? "role" : "os" }
             native["symbol"] = symbol
         }
         node["native"] = native
@@ -662,7 +662,7 @@ extension Agent {
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let vp = presenter.viewport
-        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }
         var p = window(CGPoint(x: b.midX, y: b.midY))
         var at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         if req["wheel"] == nil, req["hover"] == nil { awaitAppOverlay(at: p, in: win) }
@@ -869,7 +869,7 @@ extension Agent {
     func addressedPoint(_ v: NodeView, box b: CGRect, in win: UIWindow) -> AddressedAim {
         let vp = presenter.viewport
         let seen = b.intersection(presenter.reach(of: v))
-        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil) }
         return Agent.addressedAim(v, middle: CGPoint(x: b.midX, y: b.midY), area: seen) { q in
             pressReach(v, at: window(q), in: win)
         }
@@ -880,7 +880,7 @@ extension Agent {
     func offscreen(_ v: NodeView, box b: CGRect, hit: UIView?) -> String? {
         let vp = presenter.viewport
         if presenter.mounts(v), !presenter.reach(of: v).contains(CGPoint(x: b.midX, y: b.midY)) {
-            return "its middle is outside the \(Agent.r2(vp.bounds.width))×\(Agent.r2(vp.bounds.height)) viewport; a finger would scroll it into view first"
+            return "its middle is outside the \(Agent.r2(vp.pageSize.width))×\(Agent.r2(vp.pageSize.height)) viewport; a finger would scroll it into view first"
         }
         return hit == nil ? "its middle is off the window" : nil
     }
@@ -997,7 +997,8 @@ extension Agent {
         }
         #if os(iOS)
         if let node = presenter.shortcut(key: device.key, held: held, focus: v) {
-            presenter.press(node.id)
+            // A repeat is not a press, as on every host.
+            if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
             reply["shortcut"] = Int(node.id)
             return taken()
         }
@@ -1113,7 +1114,7 @@ extension Agent {
             #if os(iOS)
             if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
                 presenter.supersedePress() // a key, as `keyDown` and `performShortcut` take it
-                presenter.press(node.id)
+                if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
@@ -1218,7 +1219,9 @@ extension Agent {
         let presented = req["film"] as? Bool == true ? nil : presentedOverApp()
         let wholeWindow = req["window"] as? Bool == true || presented != nil
         let captureView: UIView = wholeWindow ? (vp.window ?? vp) : vp
-        let size = captureView.bounds.size
+        // The page's picture is its area, whose top-left is a box's (0, 0), not the bands it is drawn past (LLP 1130).
+        let margins = wholeWindow ? .zero : presenter.pageMargins
+        let size = captureView.bounds.inset(by: margins).size
         #if targetEnvironment(simulator)
         // The simulator needs both paths: takeSnapshot alone omits guest
         // text, and drawHierarchy alone rasterizes a blank remote layer —
@@ -1246,10 +1249,10 @@ extension Agent {
             $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
         }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
-            captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            captureView.drawHierarchy(in: CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size), afterScreenUpdates: true)
             UIColor.systemRed.setStroke()
             for node in unshown {
-                let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1)
+                let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1).offsetBy(dx: -captureView.bounds.minX - margins.left, dy: -captureView.bounds.minY - margins.top)
                 let outline = UIBezierPath(rect: r)
                 outline.lineWidth = 2
                 outline.setLineDash([4, 3], count: 2, phase: 0)
@@ -1293,7 +1296,7 @@ extension Agent {
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
         if !painted.isEmpty, ExactEnv.agentPaints {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; to picture UIKit's menu, drive with --touch platform, where a screenshot with a menu up is the window's, the menu in it"
+            r["paintedNote"] = "the agent, not the app, painted the open popover in this picture, in the page (LLP 1021 D4): the app shows a menu as UIKit's menu at its button (a context menu's with its preview). To see the real one, drive with --touch platform: a screenshot with the menu up is then the window's, the menu in it"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {

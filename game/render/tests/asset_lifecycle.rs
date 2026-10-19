@@ -358,3 +358,46 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     let (recovered, _) = module.readback(id, &frame).unwrap();
     assert_eq!(before.data, recovered.data, "textureless module recovery");
 }
+
+#[test]
+fn a_live_table_update_crosses_the_module_asset_gate_and_invalid_data_is_refused() {
+    #[derive(Default, exact_game::Data)]
+    struct Movement {
+        speed: f32,
+    }
+    struct Tuning;
+    impl Game for Tuning {
+        const ID: &'static str = "module-tables";
+        const TABLES: &'static [exact_game::asset::Table] =
+            &[exact_game::asset::Table::of::<Movement>("movement.json")];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    static TABLES: exact_gpu::Registry = exact_gpu::Registry {
+        surfaces: &[("tables", 0, || Box::<WorldSurface<Tuning>>::default())],
+        shaders: &[],
+    };
+    let mut module = exact_gpu::Module::new(&TABLES);
+    let id = module.create_headless("tables").unwrap();
+    assert!(module.bind(id, &[], None));
+    assert_eq!(
+        module.take_assets(id).requests,
+        [exact_game::asset::TABLE_ASSET]
+    );
+    let deliver = |module: &mut exact_gpu::Module, text: &str| {
+        let rows =
+            std::collections::BTreeMap::from([("movement.json".to_owned(), text.to_owned())]);
+        let bytes = exact_game::json::to_string(&rows).unwrap();
+        module.asset(id, exact_game::asset::TABLE_ASSET, Ok(bytes.as_bytes()))
+    };
+    assert!(deliver(&mut module, r#"{"speed":4}"#));
+    assert!(deliver(&mut module, r#"{"speed":8}"#));
+    assert!(!deliver(&mut module, "{}"));
+    assert!(module.take_error().contains("movement.json.Movement.speed"));
+    assert!(module
+        .agent(id, r#"{"op":"state"}"#)
+        .unwrap()
+        .contains("\"tableEdits\":1"));
+    assert!(deliver(&mut module, r#"{"speed":6}"#));
+}

@@ -1261,6 +1261,12 @@ iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any
 of its rows. A section's own `margin-top` or `margin-bottom` is the space iOS
 leaves there too, collapsed with its neighbour's as on the web (LLP 1084 §6.4).
+A row is as wide as its card, `border-box`, with the cell's insets as its
+padding, so `width="100%"` keeps it in the card. The separator under it is the
+platform's, in the platform's colour: `border-bottom-color` alone does not
+recolour it; a bottom border you write (or `border-bottom-style="none"`) takes
+its place under that row (LLP 1084 D7), except on iOS under a row UIKit draws as
+a standard cell, which keeps UIKit's line and draws no border of yours.
 See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
 and LLP 1084.
 

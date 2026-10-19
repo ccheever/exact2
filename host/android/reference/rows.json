@@ -14,6 +14,26 @@
     "field-indicator": { "token": "FilledTextFieldTokens.ActiveIndicatorHeight" },
     "field-indicator-focused": { "token": "FilledTextFieldTokens.FocusActiveIndicatorHeight" },
     "state-hover-opacity": { "token": "StateTokens.HoverStateLayerOpacity" },
-    "state-pressed-opacity": { "token": "StateTokens.PressedStateLayerOpacity" }
+    "state-pressed-opacity": { "token": "StateTokens.PressedStateLayerOpacity" },
+    "nav-height": { "token": "NavigationBarTokens.TallContainerHeight" },
+    "nav-icon": { "token": "NavigationBarVerticalItemTokens.IconSize" },
+    "nav-indicator-width": { "token": "NavigationBarVerticalItemTokens.ActiveIndicatorWidth" },
+    "nav-indicator-height": { "token": "NavigationBarVerticalItemTokens.ActiveIndicatorHeight" },
+    "nav-label-gap": { "source": "NavigationBar.kt", "name": "NavigationBarIndicatorToLabelPadding" },
+    "nav-item-gap": { "source": "NavigationBar.kt", "name": "NavigationBarItemHorizontalPadding" },
+    "top-height": { "token": "AppBarSmallTokens.ContainerHeight" },
+    "top-edge": { "source": "AppBar.kt", "name": "TopAppBarHorizontalPadding" },
+    "top-title-inset": { "source": "AppBar.kt", "name": "TopAppBarTitleInset" },
+    "top-icon": { "token": "AppBarTokens.IconSize" },
+    "mark-size": { "source": "Checkbox.kt", "name": "CheckboxSize" },
+    "filled-button-height": { "defaults": "ButtonDefaults.MinHeight" },
+    "filled-button-min-width": { "defaults": "ButtonDefaults.MinWidth" },
+    "filled-button-padding-inline": { "defaults": "ButtonDefaults.ContentPadding.start" },
+    "filled-button-padding-block": { "defaults": "ButtonDefaults.ContentPadding.top" },
+    "filled-button-disabled-container": { "token": "FilledButtonTokens.DisabledContainerOpacity" },
+    "filled-button-disabled-label": { "token": "FilledButtonTokens.DisabledLabelTextOpacity" },
+    "checkbox-corner": { "source": "Checkbox.kt", "name": "RadiusSize" },
+    "checkbox-stroke": { "defaults": "CheckboxDefaults.StrokeWidth" },
+    "checkbox-disabled-opacity": { "token": "CheckboxTokens.SelectedDisabledContainerOpacity" }
   }
 }

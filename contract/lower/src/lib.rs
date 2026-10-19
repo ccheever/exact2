@@ -39,7 +39,7 @@ mod grouped;
 mod handlers;
 mod headings;
 mod icon_svg;
-mod icons;
+pub mod icons;
 mod identity;
 mod intersect;
 mod keyframes;
@@ -81,7 +81,7 @@ pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
-pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
@@ -286,7 +286,6 @@ fn lower_with_sites(
         expanded: ex,
     } = checked;
     let root = &ex.root;
-    let root_types = &types.components[0];
     let is_fn = |name: &str| file.fns.iter().any(|f| f.name == name);
     let shared: Vec<Expr> = file
         .fns
@@ -342,6 +341,49 @@ fn lower_with_sites(
         texts_used: Default::default(),
         profile,
     };
+    // A refusal that stops lowering is said after those collected before it
+    // (a refused token, then a statement no plan can hold), never in their
+    // place.
+    match lower_body(&mut l, checked, asset_root) {
+        Ok(()) => {
+            let plan = l.b.finish().map_err(|e| LowerError {
+                id: "lower-invalid-plan",
+                message: format!("{e:?}"),
+                span: root.span,
+            })?;
+            Ok((plan, l.sites))
+        }
+        Err(fatal) => {
+            let mut all = std::mem::take(&mut l.errors);
+            for e in fatal {
+                if !all
+                    .iter()
+                    .any(|o| o.id == e.id && o.span == e.span && o.message == e.message)
+                {
+                    all.push(e);
+                }
+            }
+            all.truncate(MAX_REFUSALS);
+            Err(all)
+        }
+    }
+}
+
+/// [`lower_with_sites`]'s declarations, bodies and view into `l`, for its
+/// plan: a refusal of its own as `Err`, those collected left in `l.errors`
+/// (an empty `Err` when only those stop it).
+fn lower_body(
+    l: &mut Lowerer<'_>,
+    checked: &Checked<'_>,
+    asset_root: Option<&Path>,
+) -> Result<(), Vec<LowerError>> {
+    let Checked {
+        file,
+        types,
+        expanded: ex,
+    } = checked;
+    let root = &ex.root;
+    let root_types = &types.components[0];
     l.declare_fonts(file, asset_root)?;
     l.declare_sounds(file, asset_root)?;
     // Bound before any style is parsed, the profiles first: an entry may be
@@ -427,14 +469,48 @@ fn lower_with_sites(
         let id = l.b.resource(&r.name, &r.source, &[], ty, None);
         l.resources.push(id);
     }
-    // The seam's signatures (LLP 1027 D2), in name order.
-    for (name, (params, ty)) in &root_types.sources {
+    // The seam's signatures (LLP 1027 D2), in name order; a native module's
+    // names among them are routed to the native slot (LLP 1133.002 D13).
+    // A used module's other names are there too, unread: its substitute reads
+    // them (its status, the source a send answers from).
+    let mut sources = root_types.sources.clone();
+    let used: Vec<&str> = (file.modules.iter())
+        .filter(|m| sources.contains_key(&m.name))
+        .map(|m| m.extension.as_str())
+        .collect();
+    for m in file
+        .modules
+        .iter()
+        .filter(|m| used.contains(&m.extension.as_str()))
+    {
+        let options = format!("{}__options", m.name);
+        let params = match l.types.shapes.map.contains_key(&options) {
+            true => vec![Ty::Record(options)],
+            false => Vec::new(),
+        };
+        if let Ok(ty) = l.types.shapes.resolve(&m.answers) {
+            sources.entry(m.name.clone()).or_insert((params, ty));
+        }
+    }
+    for (name, (params, ty)) in &sources {
         let mut ids = Vec::with_capacity(params.len());
         for p in params {
             ids.push(l.ty_id(p)?);
         }
         let ty = l.ty_id(ty)?;
-        l.b.source(name, &ids, ty);
+        let id = l.b.source(name, &ids, ty);
+        if let Some(m) = file.modules.iter().find(|m| m.name == *name) {
+            l.b.module(
+                id,
+                &m.extension,
+                &m.declared,
+                m.kind == contract_syntax::ModuleKind::Send,
+                m.live,
+                &m.request,
+                m.sync.as_deref().unwrap_or(""),
+                &m.substitute,
+            );
+        }
     }
     // A mutation is a slot of `option<T>`, `none` at boot, plus its row.
     for (i, m) in root.mutations.iter().enumerate() {
@@ -605,12 +681,11 @@ fn lower_with_sites(
             view[0].span(),
         ));
     }
-    l.host_transforms = tags::host_transform_recipients(&l, view);
+    l.host_transforms = tags::host_transform_recipients(l, view);
     l.nodes(view, None, None, &scope, 0, None)?;
     if !l.errors.is_empty() {
         // Row slots name regions a refused element may not have lowered.
-        l.errors.truncate(MAX_REFUSALS);
-        return Err(l.errors);
+        return Err(Vec::new());
     }
     // Child state (LLP 1017 P4c): each lifted state is initialized where its
     // instance is created — in its owning arm's scope, now that the arms
@@ -644,16 +719,15 @@ fn lower_with_sites(
         }
     }
     l.bake_texts()?;
+    // A refusal said after the elements' (none yet): never a plan beside it.
+    if !l.errors.is_empty() {
+        return Err(Vec::new());
+    }
     // @ref LLP 1121 D10 — the icons a computed source may name.
     for icon in icons::kept() {
         l.b.icon(&icon.name, &icon.sf, &icon.view_box, &icon.path, &icon.svg);
     }
-    let plan = l.b.finish().map_err(|e| LowerError {
-        id: "lower-invalid-plan",
-        message: format!("{e:?}"),
-        span: root.span,
-    })?;
-    Ok((plan, l.sites))
+    Ok(())
 }
 
 impl<'a> Lowerer<'a> {

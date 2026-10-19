@@ -24,7 +24,11 @@ extension Agent {
         #else
         guard let layer = view.layer else { return ["error": "the session's view has no layer"] }
         #endif
+        #if os(iOS) || os(tvOS)
+        let size = view.pageSize // the page's area, a box's space (LLP 1130)
+        #else
         let size = view.bounds.size
+        #endif
         let (w, h) = (Int(size.width.rounded(.up)), Int(size.height.rounded(.up)))
         guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB),
               let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 32, bytesPerRow: w * 16, space: space,
@@ -40,11 +44,12 @@ extension Agent {
         if presenter.surfaces(includingRetiring: true).contains(where: { $0.kind != .document }), let window = view.window {
             // The viewport's area in the window, which the agent's window
             // size can scale (as `screenshot` maps it)
-            let area = view.convert(view.bounds, to: window)
+            let area = view.convert(view.pageBounds, to: window)
             if area.width > 0, area.height > 0 { ctx.scaleBy(x: size.width / area.width, y: size.height / area.height) }
             ctx.translateBy(x: -area.minX, y: -area.minY)
             window.layer.render(in: ctx)
         } else {
+            ctx.translateBy(x: view.bounds.minX - view.pageBounds.minX, y: view.bounds.minY - view.pageBounds.minY)
             layer.render(in: ctx)
         }
         #else

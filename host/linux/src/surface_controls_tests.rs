@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_controls_tests/logs.rs"]
+mod logs;
 #[path = "surface_controls_tests/wheel.rs"]
 mod wheel;
 fn find(p: &Presenter<()>, name: &str) -> u32 {
@@ -160,6 +162,16 @@ fn passive_control_descendant_taps_and_editor_keeps_focus() {
     p.focus = Some(editor);
     assert!(p.tap(label).is_ok());
     assert_eq!(p.focus(), Some(editor));
+    let mut actual = Vec::new();
+    for name in ["a-jump", "label", "b-jump"] {
+        p.focus = Some(editor);
+        let (x, y, w, h) = p.rect_of(find(&p, name)).unwrap();
+        p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+        let down = p.focus();
+        p.pointer_up(x + w / 2., y + h / 2., 0.).unwrap();
+        actual.push((down, p.focus()));
+    }
+    assert_eq!(actual, vec![(Some(editor), Some(editor)); 3]);
     done(p, path);
 }
 #[test]
@@ -496,6 +508,45 @@ fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
         "its up reaches the world too"
     );
     assert_eq!(text(&p, "heard"), "Escape");
+    done(p, path);
+}
+
+/// LLP 1132 D11: a held Control chord's auto-repeats reach the shortcut as
+/// repeats, so its button is pressed once, as a browser's `keydown` repeat
+/// is not a click.
+#[test]
+fn a_held_control_shortcut_presses_once_through_its_repeats() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column
+      button aria-keyshortcuts="Control+1" press=bump testId="buy" height=24
+        text `${n}` testId="n"
+"#,
+        &[],
+    );
+    p.focus = Some(find(&p, "buy"));
+    p.hardware_key("ControlLeft", "Control", true, false);
+    p.hardware_key("Digit1", "1", true, false);
+    for at in [520.0, 603.0, 686.0] {
+        let _ = p.advance(at);
+        p.hardware_key("Digit1", "1", true, true);
+    }
+    p.hardware_key("Digit1", "1", false, false);
+    p.hardware_key("ControlLeft", "Control", false, false);
+    let n = p
+        .host
+        .kernel()
+        .node(find(&p, "n"))
+        .and_then(|n| n.props.str(exact_kernel::PropId::Text).map(str::to_owned));
+    assert_eq!(
+        n.as_deref(),
+        Some("1"),
+        "one press for the down, none for its repeats"
+    );
     done(p, path);
 }
 
@@ -1259,4 +1310,182 @@ fn a_finger_drag_focuses_its_input_canvas_at_down() {
     assert!(p.pointer_up(50., 20., 2.).unwrap());
     assert_eq!(p.focus(), Some(world));
     done(p, path);
+}
+
+#[test]
+fn baked_gpu_code_and_development_receipts_keep_distinct_digest_policies() {
+    let signed = |signature: &[u8], code: u8| {
+        let mut bytes = vec![0u8; 160];
+        bytes[..4].copy_from_slice(&0xfeed_facfu32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        bytes[32..36].copy_from_slice(&0x1du32.to_le_bytes());
+        bytes[36..40].copy_from_slice(&16u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&160u32.to_le_bytes());
+        bytes[44..48].copy_from_slice(&(signature.len() as u32).to_le_bytes());
+        bytes[150] = code;
+        bytes.extend_from_slice(signature);
+        bytes
+    };
+    let dir = std::env::temp_dir().join(format!("gpu-digest-policy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.dylib");
+    let resigned = dir.join("resigned.dylib");
+    let edited = dir.join("edited.dylib");
+    let bytes = signed(b"ad-hoc", 1);
+    std::fs::write(&original, &bytes).unwrap();
+    std::fs::write(&resigned, signed(b"another signature", 1)).unwrap();
+    std::fs::write(&edited, signed(b"ad-hoc", 2)).unwrap();
+    let mut compat = json!({"id":"cohort","inputs":{"app":"app"},"embedded":{"gpu":{
+        "app":"app","cohort":"cohort","trust":"development",
+        "sha256":exact_update::gpu_code_digest(&bytes)}}});
+    verify_module(&original, &compat, "").unwrap();
+    verify_module(&resigned, &compat, "").unwrap();
+    assert!(verify_module(&edited, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    compat["embedded"]["gpu"] =
+        json!({"app":"app","cohort":"cohort","trust":"development","receipt":true});
+    let receipt = json!({"inputs":"0".repeat(64),"artifact":exact_update::sha256_hex(&bytes)});
+    for path in [&original, &resigned] {
+        std::fs::write(
+            format!("{}.proof.json", path.display()),
+            receipt.to_string(),
+        )
+        .unwrap();
+    }
+    // The first read cached the code digest; a receipt still checks the raw file.
+    verify_module(&original, &compat, "").unwrap();
+    assert!(verify_module(&resigned, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn mouse_canvas_action_keeps_its_press_handler_and_editor_focus() {
+    let mut actual = Vec::new();
+    for feedback in ["", "-exact-press-opacity=0.5"] {
+        let source = format!(
+            r#"component Controls
+  state seen = ""
+  state ready = false
+  action pressed
+    seen = `${{seen}}press `
+    ready = true
+  view
+    column
+      input testId="editor" width=100 height=30
+      canvas testId="a" width=100 height=100
+        button action="jump" testId="button" width=100 height=100 press=pressed {feedback}
+          box testId="label" width=100 height=100
+      input testId="next" autofocus=ready width=100 height=30
+      text seen testId="seen"
+"#
+        );
+        let (mut p, path) = boot(&source, &["a"]);
+        let editor = find(&p, "editor");
+        p.focus = Some(editor);
+        let (x, y, w, h) = p.rect_of(find(&p, "label")).unwrap();
+        p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+        let down = p.focus();
+        p.pointer_up(x + w / 2., y + h / 2., 0.).unwrap();
+        let text = p
+            .host
+            .kernel()
+            .node(find(&p, "seen"))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string();
+        let (_, count, event) = last_input(&p);
+        actual.push((
+            down == Some(editor),
+            p.focus() == Some(editor),
+            text,
+            count,
+            event["phase"].clone(),
+        ));
+        done(p, path);
+    }
+    assert_eq!(
+        actual,
+        vec![(true, true, "press ".to_string(), 2, json!("up")); 2]
+    );
+}
+
+#[test]
+fn mouse_canvas_action_focus_emits_events_unless_an_editor_keeps_focus() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for initial in ["none", "old", "editor"] {
+        for target in ["button", "label"] {
+            for feedback in ["", "-exact-press-opacity=0.5"] {
+                let source = format!(
+                    r#"component Controls
+  state seen = ""
+  action record(name: string)
+    seen = `${{seen}}${{name}} `
+  action entered(e: FocusEvent)
+    seen = `${{seen}}in `
+  action left(e: FocusEvent)
+    seen = `${{seen}}out `
+  action clear
+    seen = ""
+  view
+    column focusin=entered focusout=left
+      button testId="old" width=100 height=30 blur=record("blur")
+      input testId="editor" width=100 height=30 blur=record("blur")
+      canvas testId="a" width=100 height=100
+        button action="jump" testId="button" width=100 height=100 focus=record("focus") {feedback}
+          box testId="label" width=60 height=60
+"#
+                );
+                let (mut p, path) = boot(&source, &["a"]);
+                let old = (initial != "none").then(|| find(&p, initial));
+                assert!(p.set_focus(old, 0.).is_none());
+                p.brush.ringless = old;
+                p.host.runner_mut().act("clear", vec![]).unwrap();
+                assert!(p.after_commit().is_none());
+                let (x, y, w, h) = p.rect_of(find(&p, target)).unwrap();
+                p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap();
+                let down = (p.focus(), p.host.runner().slot("seen").cloned());
+                p.pointer_up(x + w / 2., y + h / 2., 2.).unwrap();
+                actual.push((
+                    initial,
+                    target,
+                    feedback,
+                    down,
+                    p.focus(),
+                    p.host.runner().slot("seen").cloned(),
+                    p.brush.ringless,
+                ));
+                let (focus, events, ringless) = if initial == "editor" {
+                    (old, "", old)
+                } else {
+                    (
+                        Some(find(&p, "button")),
+                        if old.is_some() {
+                            "blur out focus in "
+                        } else {
+                            "focus in "
+                        },
+                        None,
+                    )
+                };
+                let seen = Some(exact_runner::Value::str(events));
+                expected.push((
+                    initial,
+                    target,
+                    feedback,
+                    (focus, seen.clone()),
+                    focus,
+                    seen,
+                    ringless,
+                ));
+                done(p, path);
+            }
+        }
+    }
+    assert_eq!(actual, expected);
 }

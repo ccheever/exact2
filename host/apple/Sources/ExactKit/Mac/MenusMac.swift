@@ -408,7 +408,7 @@ final class MenuHost: NSObject {
     func popUpPoint(_ menu: NSMenu, _ pop: NodeView, in source: NodeView) -> NSPoint {
         let bounds = presenter.map { source.convert($0.viewport.bounds, from: $0.viewport) } ?? .infinite
         return PositionArea.origin(PositionArea.of(pop), anchor: anchor(source, in: source), size: menu.size,
-                                   margins: PositionArea.margins(of: pop), in: bounds)
+                                   margins: PositionArea.margins(of: pop), overflow: .platform, in: bounds)
     }
     func close(_ pop: NodeView, restoreFocus: Bool = true, cancelling: Bool = true) {
         presenter?.mouseChain.bubbledPress?.cancel(in: pop)
@@ -517,9 +517,14 @@ final class MenuHost: NSObject {
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
+            // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
+            let document = presenter.viewport.documentView.flatMap { $0.window != nil && $0.window === entry.layer.window ? $0 : nil }
+            let page = document.map { $0.convert($0.bounds, to: entry.layer) } ?? entry.layer.bounds
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover),
                                              fallbacks: entry.popover.style["position_try_fallbacks"]?.string ?? "none",
+                                             overflow: PositionArea.overflow(of: entry.popover, page: page),
+                                             rtl: presenter.documentDirection == "rtl",
                                              history: &entry.placement, in: entry.layer.bounds)
             if !entry.sourced { box.origin = NSPoint(x: (entry.layer.bounds.width - box.width) / 2, y: (entry.layer.bounds.height - box.height) / 2) }
             if entry.popover.frame != box { entry.popover.frame = box }

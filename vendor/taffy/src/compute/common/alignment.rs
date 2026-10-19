@@ -16,11 +16,12 @@ pub(crate) fn resolve_self_alignment_safety(alignment: AlignItems, overflows: bo
     }
 }
 
-/// Resolve any spec-defined fallbacks for the given [`AlignContent`] value, returning the
+/// Resolve distribution and overflow fallbacks for the given [`AlignContent`] value, returning the
 /// bare position keyword the alignment math should use.
 ///
-/// In addition to the spec at <https://www.w3.org/TR/css-align-3/> this implementation follows
-/// the resolution of <https://github.com/w3c/csswg-drafts/issues/10154>.
+/// Follows <https://www.w3.org/TR/css-align-3/> and
+/// <https://github.com/w3c/csswg-drafts/issues/10154>, except for the Chrome-measured
+/// `space-between` fallback described below.
 pub(crate) fn apply_alignment_fallback(
     free_space: f32,
     num_items: usize,
@@ -30,12 +31,15 @@ pub(crate) fn apply_alignment_fallback(
     let mut is_safe = matches!(alignment_mode.safety, AlignmentSafety::Safe);
 
     // 1. If there is only a single item being aligned or the items overflow the container, the
-    //    distributed alignment keywords (`stretch`, `space-*`) fall back to a positional keyword
-    //    and gain implicit `safe` semantics so step 2 can flip them to `Start` on overflow.
+    //    distributed alignment keywords (`stretch`, `space-*`) fall back to a positional keyword.
+    //    EXACT PATCH 53: Chrome 151 uses unsafe flex-start for stretch and space-between,
+    //    preserving the flex-start edge under wrap-reverse and reversed main axes. CSS Align
+    //    §4.3 specifies flex-start for stretch, but safe flex-start for space-between.
+    //    Space-around and space-evenly retain their safe-center fallback.
     //    https://www.w3.org/TR/css-align-3/#distribution-values
     if num_items <= 1 || free_space <= 0.0 {
         (keyword, is_safe) = match keyword {
-            AlignContentKeyword::Stretch | AlignContentKeyword::SpaceBetween => (AlignContentKeyword::FlexStart, true),
+            AlignContentKeyword::Stretch | AlignContentKeyword::SpaceBetween => (AlignContentKeyword::FlexStart, false),
             AlignContentKeyword::SpaceAround | AlignContentKeyword::SpaceEvenly => (AlignContentKeyword::Center, true),
             other => (other, is_safe),
         };
@@ -112,6 +116,65 @@ pub(crate) fn compute_alignment_offset(
             AlignContentKeyword::SpaceBetween => free_space / (num_items - 1) as f32,
             AlignContentKeyword::SpaceAround => free_space / num_items as f32,
             AlignContentKeyword::SpaceEvenly => free_space / (num_items + 1) as f32,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distribution_fallback_preserves_flex_start_edge() {
+        let mut wrong = Vec::new();
+        for alignment in [AlignContent::STRETCH, AlignContent::SPACE_BETWEEN] {
+            for num_items in [1, 2] {
+                for free_space in [-10.0, 0.0, 10.0] {
+                    if num_items > 1 && free_space > 0.0 {
+                        continue;
+                    }
+                    let keyword = apply_alignment_fallback(free_space, num_items, alignment);
+                    for reversed in [false, true] {
+                        let offset = compute_alignment_offset(free_space, num_items, 0.0, keyword, reversed, true);
+                        let want = if reversed { free_space } else { 0.0 };
+                        if offset != want {
+                            wrong.push((alignment, num_items, free_space, reversed, offset, want));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:?}");
+    }
+
+    #[test]
+    fn distribution_fallback_keeps_safety_and_positive_spacing() {
+        for alignment in [AlignContent::SPACE_AROUND, AlignContent::SPACE_EVENLY] {
+            assert_eq!(apply_alignment_fallback(-10.0, 2, alignment), AlignContentKeyword::Start);
+            assert_eq!(apply_alignment_fallback(10.0, 1, alignment), AlignContentKeyword::Center);
+        }
+        for alignment in [
+            AlignContent::SAFE_FLEX_START,
+            AlignContent::SAFE_FLEX_END,
+            AlignContent::SAFE_CENTER,
+        ] {
+            assert_eq!(apply_alignment_fallback(-10.0, 2, alignment), AlignContentKeyword::Start);
+            assert_eq!(apply_alignment_fallback(10.0, 2, alignment), alignment.keyword);
+        }
+        for alignment in [
+            AlignContent::FLEX_START,
+            AlignContent::FLEX_END,
+            AlignContent::CENTER,
+        ] {
+            assert_eq!(apply_alignment_fallback(-10.0, 2, alignment), alignment.keyword);
+        }
+        for alignment in [
+            AlignContent::STRETCH,
+            AlignContent::SPACE_BETWEEN,
+            AlignContent::SPACE_AROUND,
+            AlignContent::SPACE_EVENLY,
+        ] {
+            assert_eq!(apply_alignment_fallback(10.0, 2, alignment), alignment.keyword);
         }
     }
 }

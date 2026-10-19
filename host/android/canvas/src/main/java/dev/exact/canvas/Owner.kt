@@ -367,6 +367,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** exact2's next stream, if it has one: copied, queued, and the main thread told. */
     private fun produce() {
+        // This frame does what a queued `again` was for.
+        handler.removeCallbacks(again)
         if (!running) { requests(); return }
         android.os.Trace.beginSection("exact native frame")
         val started = System.nanoTime()
@@ -405,17 +407,23 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         schedule()
     }
 
-    private val turn = Choreographer.FrameCallback { t ->
+    private val turn: Choreographer.FrameCallback = Choreographer.FrameCallback { t ->
         // The display's frame: the shortest gap between consecutive vsyncs seen.
         if (vsync > 0 && t - vsync > 2_000_000) frameNanos = minOf(frameNanos, t - vsync)
         vsync = t
-        turnPosted = false; Native.displayFrame(); produce()
+        turnPosted = false
+        // The next vsync is asked for while this one is current. Android 10's SurfaceFlinger turns the app's vsync
+        // off between requests, and a request made within a few milliseconds of the next vsync waits for the one
+        // after: asked for after the frame, a Note 9 frame that ended 2.8 ms before the vsync lost it.
+        if (running && Native.animating()) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        Native.displayFrame(); produce()
     }
     private var vsync = 0L
     private var frameNanos = 1_000_000_000L / 60
-    /** A turn that overran its display frame (a GPU canvas whose world ran two ticks in it, 256,000 cubes on a
-     * Pixel 5) waits for no vsync: Choreographer would skip the one it missed, and every frame after would take
-     * two. The canvas's buffers hold at most three frames on the GPU, and while they do a turn only runs its ticks. */
+    /** A frame that overran its display frame (a GPU canvas whose world ran two ticks in it, 256,000 cubes on a
+     * Pixel 5) with no turn asked for waits for no vsync: Choreographer would skip the one it missed, and every
+     * frame after would take two. The canvas's buffers hold at most three frames on the GPU, and while they do a
+     * turn only runs its ticks. */
     private val again = Runnable { produce() }
     /** Timers, and the paint a scroll owes once it pauses (only then the collection pass it left behind). */
     private val timer = Runnable {
@@ -426,8 +434,15 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     private fun schedule() {
         if (!running) return
         wakes?.sync()
-        if (Native.animating() && late) { late = false; handler.post(again) }
-        else if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        // One producer at a time. A turn asked for when an overrunning turn began is for the vsync that passed
+        // during it, and runs as soon as this returns: that is the retry, and `again` only stands in where no turn
+        // is asked for. With nothing animating, none is left asked for.
+        val animating = Native.animating()
+        if (animating && late) {
+            late = false
+            if (!turnPosted) { handler.removeCallbacks(again); handler.post(again) }
+        } else if (animating && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        else if (!animating && turnPosted) { choreographer?.removeFrameCallback(turn); turnPosted = false }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.
         if (Native.owed() && (due < 0 || due > 16)) due = 16.0
@@ -496,6 +511,9 @@ internal object Exact {
         val o = owner
         if (o != null) { o.input(); o.call(f) } else { f(); turned() }
     }
+
+    fun moduleEvent(id: Int, slot: Int, generation: Int, kind: String, payload: String) =
+        field { Native.moduleEvent(id, slot, generation, kind, payload) }
 
     fun fieldFocused(id: Int, generation: Int, focused: Boolean) = field { Native.fieldFocused(id, generation, focused) }
     fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int) =

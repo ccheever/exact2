@@ -10,6 +10,9 @@ use std::ops::Range;
 
 pub(super) struct FlowLayout {
     pub fragments: Vec<Fragment>,
+    pub text: Arc<str>,
+    /// Consumed source ends, excluding characters removed by line-clamp.
+    pub paint_ends: Vec<usize>,
     pub line_height: f32,
     width: f32,
     shapes: Vec<FlowShape>,
@@ -18,6 +21,7 @@ pub(super) struct FlowLayout {
 impl FlowLayout {
     pub fn capacity_bytes(&self) -> usize {
         self.fragments.capacity() * std::mem::size_of::<Fragment>()
+            + self.paint_ends.capacity() * std::mem::size_of::<usize>()
             + self.shapes.capacity() * std::mem::size_of::<FlowShape>()
     }
 }
@@ -28,7 +32,8 @@ struct Cluster {
     width: f32,
 }
 pub(super) struct FlowSource {
-    text: String,
+    text: Arc<str>,
+    run_ends: Vec<usize>,
     clusters: Vec<Cluster>,
     prepared: Prepared,
     baseline: f32,
@@ -48,7 +53,8 @@ impl FlowSource {
                 .map(|g| g.capacity() * std::mem::size_of::<LayoutGlyph>())
                 .sum::<usize>()
             + self.ellipses.capacity() * std::mem::size_of::<Vec<LayoutGlyph>>()
-            + self.text.capacity()
+            + self.text.len()
+            + self.run_ends.capacity() * std::mem::size_of::<usize>()
             + self.prepared.capacity_bytes()
             + self.clusters.capacity() * std::mem::size_of::<Cluster>()
             + self
@@ -74,9 +80,13 @@ impl FlowSource {
         for line in layout.lines() {
             super::lines::extract(&line, layout.styles(), 0.0, &mut ink);
         }
+        // Source-backed symbols receive their ranges when placed in the flow.
+        // Truncation tokens keep an empty range.
         ink.glyphs
             .iter()
             .map(|g| LayoutGlyph {
+                start: 0,
+                end: 0,
                 metadata: run as u32,
                 face: faces.face(ink.faces[g.face as usize].clone()),
                 ..*g
@@ -92,7 +102,22 @@ impl FlowSource {
             faces: plain.layouts().faces.clone(),
             ..Lines::default()
         };
-        let text: String = source.spec.runs.iter().map(|r| r.text.as_str()).collect();
+        let text: Arc<str> = source
+            .spec
+            .runs
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<String>()
+            .into();
+        let run_ends: Vec<_> = source
+            .spec
+            .runs
+            .iter()
+            .scan(0, |end, r| {
+                *end += r.text.len();
+                Some(*end)
+            })
+            .collect();
         let mut clusters: Vec<Cluster> = Vec::new();
         let mut offset = 0;
         let (baseline, height) = source.flow_box(
@@ -105,8 +130,10 @@ impl FlowSource {
             // Logical clusters: a stable sort keeps the shaper's order inside
             // multi-glyph clusters.
             glyphs.sort_by_key(|g| g.start);
-            for glyph in glyphs {
+            for mut glyph in glyphs {
                 let range = start + glyph.start as usize..start + glyph.end as usize;
+                glyph.start = range.start as u32;
+                glyph.end = range.end as u32;
                 if let Some(last) = clusters.last_mut().filter(|c| c.range == range) {
                     last.width += glyph.w;
                     last.glyphs.push(glyph);
@@ -149,7 +176,15 @@ impl FlowSource {
                     Cluster {
                         range: at..at + ch.len_utf8(),
                         line,
-                        glyphs: template.clone(),
+                        glyphs: template
+                            .iter()
+                            .map(|g| LayoutGlyph {
+                                start: at as u32,
+                                end: (at + ch.len_utf8()) as u32,
+                                metadata: run_ends.partition_point(|end| *end <= at) as u32,
+                                ..*g
+                            })
+                            .collect(),
                         width,
                     }
                 })
@@ -204,6 +239,7 @@ impl FlowSource {
             hyphen,
             ellipses,
             text,
+            run_ends,
             clusters,
             prepared,
             baseline,
@@ -309,6 +345,8 @@ impl TextEngine {
             let mut ordinary = source.layout(Some(width));
             ordinary.flow = Some(FlowLayout {
                 fragments: Vec::new(),
+                text: data.text.clone(),
+                paint_ends: Vec::new(),
                 line_height: data.height,
                 width,
                 shapes: shapes.to_vec(),
@@ -327,6 +365,7 @@ impl TextEngine {
         let mut slots = Vec::new();
         let mut band = u32::MAX;
         let fragment_count = fragments.len();
+        let mut paint_ends = Vec::with_capacity(fragment_count);
         for (fragment_index, f) in fragments.iter_mut().enumerate() {
             if band != f.line {
                 exact_textflow::intervals(
@@ -384,13 +423,14 @@ impl TextEngine {
             }
             // @ref LLP 1043.000 §3 D7 — reserve the run's real ellipsis ink.
             let mut suffix: Option<&[LayoutGlyph]> = f.hyphenated.then_some(&data.hyphen);
+            let mut paint_end = f.end;
             if result.clamped && fragment_index + 1 == fragment_count {
                 f.hyphenated = false;
                 while visible
                     .last()
                     .is_some_and(|c| data.text[c.range.clone()].chars().all(char::is_whitespace))
                 {
-                    visible.pop();
+                    paint_end = paint_end.min(visible.pop().unwrap().range.start);
                 }
                 let mut total: f32 = visible.iter().map(|c| c.width).sum();
                 loop {
@@ -405,9 +445,12 @@ impl TextEngine {
                         f.width = total + if suffix.is_some() { advance } else { 0.0 };
                         break;
                     }
-                    total -= visible.pop().unwrap().width;
+                    let removed = visible.pop().unwrap();
+                    total -= removed.width;
+                    paint_end = paint_end.min(removed.range.start);
                 }
             }
+            paint_ends.push(paint_end);
             // UAX #9 L2 on whole clusters, preserving glyph order inside a cluster.
             let max = visible.iter().map(|c| c.glyphs[0].level).max().unwrap_or(0);
             let min_odd = visible
@@ -440,15 +483,26 @@ impl TextEngine {
             let mut x = f.x;
             let first = layouts.glyphs.len() as u32;
             let glyphs = &mut layouts.glyphs;
-            if source.spec.direction == exact_kernel::Direction::Rtl {
+            let append_suffix = |glyphs: &mut Vec<LayoutGlyph>, x: &mut f32| {
                 if let Some(ink) = suffix {
                     for g in ink {
                         let mut g = *g;
-                        g.x += x;
-                        x += g.w;
+                        if f.hyphenated {
+                            g.start = (f.end - '\u{ad}'.len_utf8()) as u32;
+                            g.end = f.end as u32;
+                            g.metadata = data
+                                .run_ends
+                                .partition_point(|end| *end <= g.start as usize)
+                                as u32;
+                        }
+                        g.x += *x;
+                        *x += g.w;
                         glyphs.push(g);
                     }
                 }
+            };
+            if source.spec.direction == exact_kernel::Direction::Rtl {
+                append_suffix(glyphs, &mut x);
             }
             for c in visible {
                 glyphs.extend(c.glyphs.iter().copied().map(|mut g| {
@@ -458,14 +512,7 @@ impl TextEngine {
                 x += c.width;
             }
             if source.spec.direction != exact_kernel::Direction::Rtl {
-                if let Some(ink) = suffix {
-                    for g in ink {
-                        let mut g = *g;
-                        g.x += x;
-                        x += g.w;
-                        glyphs.push(g);
-                    }
-                }
+                append_suffix(glyphs, &mut x);
             }
             // Trailing hard breaks have no next cluster. Keep their empty
             // layouts after the final source line, never back in line zero.
@@ -513,6 +560,8 @@ impl TextEngine {
             measured: RefCell::new(None),
             flow: Some(FlowLayout {
                 fragments,
+                text: data.text.clone(),
+                paint_ends,
                 line_height: data.height,
                 width,
                 shapes: shapes.to_vec(),

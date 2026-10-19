@@ -2,7 +2,6 @@
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 include!(concat!(env!("OUT_DIR"), "/baked.rs"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = update_lab_data::Probe;
 fn embedded_data() -> ExactEmbeddedData {
@@ -18,7 +17,7 @@ fn placed_rust() -> update_lab_data::Placed<AppData> {
 }
 fn lab_data() -> HostData {
     update_lab_data::compose(
-        exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(TYPESCRIPT_PLACEMENT),
+        exact_js::Module::new(APP_BYTECODE, APP, GRANTS).placed(TYPESCRIPT_PLACEMENT),
         placed_rust(),
         RUST_UPDATES,
         |_| Ok(placed_rust()),

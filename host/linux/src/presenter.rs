@@ -73,7 +73,7 @@ mod content_region_tests;
 #[cfg(test)]
 #[path = "content_region/wide_tests.rs"]
 mod content_region_wide_tests;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 mod feed;
 mod height;
 mod height_drag;
@@ -87,8 +87,11 @@ pub mod preferences;
 mod requests;
 mod retained_action;
 mod reveal;
+#[cfg(test)]
+mod scroll_anchor_tests;
 mod scroll_end;
 mod scrollers;
+mod wheel;
 use scroll_end::Completion;
 #[cfg(all(test, not(windows)))]
 mod scroll_end_tests;
@@ -116,7 +119,7 @@ mod swipe_tests;
 mod visibility_tests;
 
 pub use clock::{wall_since, Wall};
-pub use device::Device;
+pub use device::{touch_only, Device, Pointing};
 pub use hosted::action as field_action;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
@@ -737,6 +740,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        self.restore_scroll_anchors();
         self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
@@ -881,6 +885,7 @@ impl<D: DataSource> Presenter<D> {
             self.scroll_end.forget(*id);
             self.dirty |= self.scroll.remove(id).is_some();
         }
+        self.renew_scroll_anchors(&renewed);
         self.hosted_renewed(&renewed);
         self.hatches.renewed.extend(&renewed);
         let reports = self.images.renew(self.host.kernel(), &renewed);
@@ -892,10 +897,12 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn clamp_scroll(&mut self) -> bool {
+        self.restore_scroll_anchors();
         let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
         let region = self.host.content_region();
         let mut gone = Vec::new();
+        let mut clamped = Vec::new();
         let mut changed = false;
         for (id, off) in self.scroll.iter_mut() {
             match kernel.node(*id) {
@@ -912,11 +919,17 @@ impl<D: DataSource> Presenter<D> {
                             )
                         })
                         .clamp(*off);
-                    changed |= *off != next;
+                    if *off != next {
+                        clamped.push((*id, *off, next));
+                        changed = true;
+                    }
                     *off = next;
                 }
                 None => gone.push(*id),
             }
+        }
+        for (id, before, after) in clamped {
+            self.rebase_clamped_anchor(id, before, after);
         }
         changed |= !gone.is_empty();
         for id in gone {
@@ -927,19 +940,9 @@ impl<D: DataSource> Presenter<D> {
         let page = self.page;
         self.page.0 = self.page.0.clamp(0.0, (doc.0 - viewport.0).max(0.0));
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
+        self.rebase_clamped_anchor(PAGE, page, self.page);
         self.publish_scroll();
         changed || self.page != page
-    }
-
-    /// Tell the runner where every scroller and the page stand, for
-    /// `frame()` (LLP 1051.000 D1): after a clamp, and wherever a scroll
-    /// moves geometry (`refresh_transform_geometry`).
-    pub(crate) fn publish_scroll(&mut self) {
-        let runner = self.host.runner_mut();
-        runner.scrolled(None, f64::from(self.page.0), f64::from(self.page.1));
-        for (id, (left, top)) in &self.scroll {
-            runner.scrolled(Some(*id), f64::from(*left), f64::from(*top));
-        }
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).
@@ -1076,7 +1079,7 @@ impl<D: DataSource> Presenter<D> {
                 .filter(|s| s.starts_with("symbol:"))
             {
                 let name = &source[7..];
-                let reason = if name == "sf/" {
+                let reason = if name == "sf/" || name.is_empty() {
                     "empty"
                 } else if !name.starts_with("sf/") && exact_kernel::symbol_path(name).is_none() {
                     "role"
@@ -1113,6 +1116,16 @@ impl<D: DataSource> Presenter<D> {
 
     /// The deepest painted box under a point (viewport points), through every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        self.hit_with_visibility(x, y, false)
+    }
+
+    /// Ordinary mouse releases use current CSS eligibility even before the
+    /// next display flip. Retained regions keep their picture's hit policy.
+    pub(super) fn hit_after_pointerdown(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        self.hit_with_visibility(x, y, true)
+    }
+
+    fn hit_with_visibility(&mut self, x: f32, y: f32, current: bool) -> Option<ViewId> {
         // Under an open surface of the top layer the page is inert.
         if !self.display.contains(x, y) || (self.top_open() && self.alert.is_none()) {
             return None;
@@ -1128,142 +1141,17 @@ impl<D: DataSource> Presenter<D> {
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
-            .find_map(|b| self.svg_hit(b, x, y))
-    }
-
-    /// A wheel at a point (the web's sign: a positive `dy` scrolls down).
-    /// A phase-less tick is its own gesture and is not split (LLP 1070 G2,
-    /// Chrome's measured tick): the innermost scroll container under the point
-    /// that can take ANY of its components takes those it can, clamped, and
-    /// the rest is dropped. One that can take none chains to the next scroller
-    /// up, then the page, unless its `overscroll-behavior` is `contain` or
-    /// `none` on an axis the tick moves along: it keeps (drops) the tick.
-    pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
-        if ![x, y, dx, dy].iter().all(|v| v.is_finite())
-            || (dx == 0.0 && dy == 0.0)
-            || !self.display.contains(x, y)
-        {
-            return;
-        }
-        if self.alert.is_some() && self.hit(x, y).is_none() {
-            return;
-        }
-        // A canvas that wants input takes the wheel, and the nodes' own
-        // `wheel` is still heard (review b5-b 2), as the web's element hears it.
-        let canvas = self.surface_wheel(x, y, dx, dy, self.pointer_now());
-        if self.wheel_event(x, y, dx, dy) || canvas {
-            return;
-        }
-        // A UI wheel can take over a UI gesture, but does not release a game's
-        // captured pointer. Browser wheel events do not end pointer capture.
-        if self.contact_canvas().is_none() {
-            if let Err(error) = self.pointer_cancel(self.pointer_now()) {
-                self.host.log(error);
-            }
-        }
-        let mut at = self.hit(x, y);
-        // Only a node the display has no bounds for needs the collections'.
-        let mut collection_limits = None;
-        let kernel = self.host.kernel();
-        while let Some(id) = at {
-            let Some(node) = kernel.node(id) else { break };
-            let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
-                let limits =
-                    collection_limits.get_or_insert_with(|| self.collection_scroll_limits());
-                self.brush.scroll_bounds(
-                    kernel,
-                    self.host.content_region(),
-                    &node,
-                    limits.get(&id).copied(),
-                )
-            });
-            let (ox, oy) = bounds.axes;
-            if matches!(ox, Overflow::Scroll | Overflow::Auto)
-                || matches!(oy, Overflow::Scroll | Overflow::Auto)
-            {
-                let max = bounds.max;
-                let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
-                let takes = |scrolls: bool, d: f32, off: f32, max: f32| {
-                    scrolls
-                        && d != 0.0
-                        && max > 0.0
-                        && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
-                };
-                let take_x = takes(
-                    matches!(ox, Overflow::Scroll | Overflow::Auto),
-                    dx,
-                    off.0,
-                    max.0,
-                );
-                let take_y = takes(
-                    matches!(oy, Overflow::Scroll | Overflow::Auto),
-                    dy,
-                    off.1,
-                    max.1,
-                );
-                if take_x || take_y {
-                    let nx = if take_x {
-                        (off.0 + dx).clamp(0.0, max.0)
-                    } else {
-                        off.0
-                    };
-                    let ny = if take_y {
-                        (off.1 + dy).clamp(0.0, max.1)
-                    } else {
-                        off.1
-                    };
-                    self.scroll.insert(id, (nx, ny));
-                    if (nx, ny) != off {
-                        self.scroll_end_moved(id, Completion::Instant);
-                    }
-                    self.last_wheel = Some(id);
-                    self.dirty = true;
-                    self.collection_scrolled_or_deferred(id);
-                    if let Some(error) = self.refresh_transform_geometry() {
-                        self.host.log(error);
-                    }
-                    return;
+            .find_map(|b| {
+                let mut hit = *b;
+                if current && !self.brush.region_blocks_action(b.id) {
+                    let node = self.host.kernel().node(b.id)?;
+                    hit.pointer_hit = node
+                        .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                        != exact_kernel::PointerEvents::None
+                        && crate::paint::paints(self.host.kernel(), b.id, None);
                 }
-                // At its edge (or with no travel) along every component the
-                // tick has: a contained axis ends the chain here.
-                let contained = |b: exact_kernel::OverscrollBehavior| {
-                    b != exact_kernel::OverscrollBehavior::Auto
-                };
-                if (dx != 0.0 && contained(node.style.overscroll_behavior_x))
-                    || (dy != 0.0 && contained(node.style.overscroll_behavior_y))
-                {
-                    return;
-                }
-            }
-            // An SVG element (what a hit on a shape names, LLP 1055.000 D8)
-            // has no display box: it scrolls with its `svg`'s ancestors.
-            if self.alert_root() == Some(id) {
-                return;
-            }
-            at = self.display.parent(kernel, id).or_else(|| {
-                node.node_type
-                    .is_svg_element()
-                    .then_some(node.parent)
-                    .flatten()
-            });
-        }
-        if self.alert.is_some() {
-            return;
-        }
-        let doc = self.document();
-        let viewport = self.display.viewport().unwrap_or(self.viewport);
-        let max = ((doc.0 - viewport.0).max(0.0), (doc.1 - viewport.1).max(0.0));
-        let next = (
-            (self.page.0 + dx).clamp(0.0, max.0),
-            (self.page.1 + dy).clamp(0.0, max.1),
-        );
-        if next != self.page {
-            self.page = next;
-            self.dirty = true;
-            if let Some(error) = self.refresh_transform_geometry() {
-                self.host.log(error);
-            }
-        }
+                self.svg_hit(&hit, x, y)
+            })
     }
 
     /// The agent's wheel: over the node's center.

@@ -527,3 +527,19 @@ final class WebViews {
         return text
     }
 }
+
+extension ExactSession {
+    /// `postMessage(text, target)`: the compiler marks an iframe target; a name that is both a
+    /// live frame's id and a canvas surface, or a canvas post to a frame's id, is refused.
+    func post(_ text: String, to target: String, iframe: Bool) {
+        if webviews.hasFrame(target) && canvases.hasSurface(target) {
+            fputs("exact: postMessage: ambiguous iframe id and canvas surface \(target)\n", stderr)
+        } else if iframe {
+            webviews.postMessage(target, text)
+        } else if webviews.hasFrame(target) {
+            fputs("exact: postMessage: canvas name collides with an iframe id \(target)\n", stderr)
+        } else {
+            canvases.post(target, text)
+        }
+    }
+}

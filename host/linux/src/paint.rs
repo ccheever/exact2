@@ -38,6 +38,7 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub(crate) mod dates;
 pub mod gradient;
+mod grouped;
 pub use gradient::GradientPaint;
 pub(crate) mod field;
 mod fragments;
@@ -62,7 +63,7 @@ mod presented;
 mod region;
 pub mod rows;
 mod shadow;
-mod space;
+pub(crate) mod space;
 mod svg;
 pub(crate) use svg::{fitted, view_box};
 mod text_clip;
@@ -258,14 +259,8 @@ impl BoxPaint {
         let pad = self.padding;
         BoxGeometry {
             inset: (pad[3] + widths[3], pad[0] + widths[0]),
-            outer: Shape::elliptical(
-                rect,
-                self.radii.map(|d| {
-                    let resolve = |basis| d.at_basis(&self.env, basis);
-                    (resolve(w).max(0.0), resolve(h).max(0.0))
-                }),
-            )
-            .with_corners(self.corners),
+            outer: Shape::elliptical(rect, border::resolve_radii(self.radii, &self.env, w, h))
+                .with_corners(self.corners),
             content: (
                 x + widths[3] + pad[3],
                 y + widths[0] + pad[0],
@@ -1211,6 +1206,7 @@ impl Painter {
                 self.dark,
                 walk.scene.controls.get(&node.id).copied(),
                 self.feedback.0 == Some(node.id),
+                self.scale,
             ),
             _ => {}
         }

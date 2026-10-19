@@ -149,6 +149,10 @@ fn main() {
         "exact-js: rolldown not found at {} (run `bun install`, or set EXACT_ROLLDOWN)",
         rolldown.display()
     );
+    // The fixtures bundle as an app's data module does: `async` lowered and
+    // stepped by the answer-context helper (LLP 1133.002 D14).
+    let bake = manifest.join("bake/src/typescript.mjs");
+    println!("cargo:rerun-if-changed={}", bake.display());
     for name in [
         "caltrain",
         "castle",
@@ -164,10 +168,24 @@ fn main() {
         "socket",
         "heap",
         "snapshot",
+        "context",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());
         let script = out.join(format!("{name}.js"));
+        let config = out.join(format!("{name}.bundle.mjs"));
+        std::fs::write(
+            &config,
+            format!(
+                "import {{ asyncContext, bundleOptions, lowered }} from {:?};\n\
+                 export default {{ input: {:?}, output: {{ format: 'iife', file: {:?} }},\n\
+                 transform: {{ ...bundleOptions.transform, ...lowered }}, plugins: [asyncContext()] }};\n",
+                bake.to_str().expect("a UTF-8 path"),
+                source.to_str().expect("a UTF-8 path"),
+                script.to_str().expect("a UTF-8 path"),
+            ),
+        )
+        .expect("write the fixture bundle config");
         let mut header = [0; 128];
         let len = std::fs::File::open(&rolldown)
             .and_then(|mut file| file.read(&mut header))
@@ -187,9 +205,9 @@ fn main() {
             Command::new(&rolldown)
         };
         let status = bundler
-            .arg(&source)
-            .args(["--format", "iife", "--file"])
-            .arg(&script)
+            .arg("--config")
+            .arg(&config)
+            .args(["--configLoader", "native"])
             .status()
             .unwrap_or_else(|error| panic!("exact-js: cannot run {}: {error}", rolldown.display()));
         assert!(

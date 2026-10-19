@@ -79,7 +79,8 @@ pub use error::{
 };
 pub use generated::*;
 pub use grouped::{
-    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, TextFont, TextLook,
+    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, GroupedSeparator, TextFont,
+    TextLook,
 };
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
@@ -97,7 +98,7 @@ pub use style::{
     link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, Region, RowValue,
-    SegmentVar, StyleValue, Transitions, Vec2, ViewportUnit,
+    SegmentVar, StyleValue, TitleBarVar, Transitions, Vec2, ViewportUnit,
 };
 pub use text::case::link as link_text_transform;
 pub use text::case::{

@@ -227,7 +227,8 @@ mod tests {
     fn the_columns_hold_each_platforms_grouped_form() {
         use MetricValue::{Number, Text};
         for (name, ios, mac) in [
-            ("grouped-row-min-height", Number(52.0), Number(16.0)),
+            ("grouped-row-min-height", Number(52.0), Number(36.0)),
+            ("grouped-separator-end", Number(0.0), Number(10.0)),
             ("grouped-row-padding-block", Text("unset"), Number(10.0)),
             ("grouped-card-radius", Number(26.0), Number(10.0)),
             ("grouped-card-inset", Number(16.0), Number(20.0)),
@@ -372,6 +373,7 @@ mod tests {
                 "grouped-switch-size" => &[ControlSize],
                 "grouped-field-align" | "grouped-title-button-align" => &[TextAlign],
                 "grouped-button-appearance" => &[Appearance],
+                "grouped-button-box-sizing" => &[BoxSizing],
                 "grouped-button-title-grow" => &[FlexGrow],
                 "grouped-button-align" => &[AlignSelf],
                 n if n.contains("padding") => &[PaddingTop, PaddingLeft],

@@ -131,6 +131,11 @@ pub struct Config {
     /// The app's hatches (LLP 1075.003.000.001 §5): only their type, until
     /// the presenter makes the value after first pixel.
     pub hatches: Option<crate::hatches::Install>,
+    /// Where the display's live clock reads zero, when one will own time:
+    /// a fresh boot starts the runner's clock at its reading then, so a
+    /// slow start (a plan fetched from a URL) does not fire the boot's
+    /// timers at the first frame. `None`: a driver's clock, from zero.
+    pub clock_started: Option<std::time::Instant>,
 }
 
 impl Config {
@@ -257,6 +262,7 @@ impl Config {
                 }),
             updates: None,
             hatches: None,
+            clock_started: None,
         }
     }
 
@@ -316,12 +322,17 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     let place = crate::zone::launch_place(|key| std::env::var(key).ok())?;
     let agent_time = crate::zone::agent_time(|key| std::env::var(key).ok(), &place.time_zone)?;
     // What the host knows at launch, read from the first settle. The date is
-    // sampled once, here, as the runner's clock zero (it starts at the boot):
-    // `delivered` tells the same fact after, which commits nothing.
+    // sampled once, here, at the runner's clock zero: the display's clock's
+    // start, where each boot attempt's clock begins at its reading then,
+    // else the boot: a driver's launch (the Android reader's `--agent`
+    // included) runs on the runner's clock from zero, as the stdio agent
+    // does. `delivered` tells the same fact after, which commits nothing.
+    let clock_started = config.clock_started.filter(|_| !config.agent);
+    let clock = move || clock_started.map(|started| started.elapsed().as_secs_f64() * 1000.0);
     let (epoch_at_zero, utc_offset) = agent_time.unwrap_or_else(|| {
         let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
         (
-            wall.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
+            wall.map_or(0.0, |d| d.as_secs_f64() * 1000.0) - clock().unwrap_or(0.0),
             crate::zone::local_offset_minutes(),
         )
     });
@@ -331,6 +342,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             utc_offset,
         }),
         place: Some(place.clone()),
+        clock: None,
     };
     let dev_url = config.dev_url.clone();
     let hatches = config.hatches;
@@ -390,7 +402,11 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     let booted = source
         .map_err(crate::host::HostError::Asset)
         .and_then(|data| {
-            exact_runner::time::launching_with(launch_facts.clone(), || {
+            let launch = exact_runner::time::Launch {
+                clock: clock(),
+                ..launch_facts.clone()
+            };
+            exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
                     match &config.plan {
                         std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
@@ -432,7 +448,11 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             }
             config.entry = None;
             config.selected_assets = None;
-            exact_runner::time::launching_with(launch_facts, || {
+            let launch = exact_runner::time::Launch {
+                clock: clock(),
+                ..launch_facts
+            };
+            exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
                     PlanBytes::Copied(baked),
                     D::default(),

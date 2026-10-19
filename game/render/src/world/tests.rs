@@ -178,6 +178,7 @@ impl Game for Moving {
         w.spawn((Transform::default(), Mesh::cube(1.0), Material::default()));
     }
     fn tick(w: &mut World, _: &Input, _: &Self::Args) {
+        let _spans = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].map(|name| w.span(name));
         for (_, t) in w.query::<&mut Transform>().iter() {
             t.position.x += 1.0;
         }
@@ -1486,3 +1487,6 @@ fn a_static_offset_writes_no_pages_per_tick() {
 
 #[path = "../pose_cycle_tests.rs"]
 mod pose_cycle_tests;
+
+#[path = "../teleport_tests.rs"]
+mod teleport_tests;

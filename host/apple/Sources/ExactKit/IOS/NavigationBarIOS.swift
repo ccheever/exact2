@@ -75,7 +75,7 @@ struct HeaderShape: Equatable {
             var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
                 for case let child as NodeView in node.container.subviews {
-                    if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
+                    if child.kind == "image", let name = child.faceSymbol {
                         if symbol == nil { symbol = name; ink = (child, "tint_color") }
                     } else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? (child, "text_color") }
                     else { walk(child) }
@@ -266,7 +266,7 @@ struct BadgeFace: Equatable {
         var text = "", symbol: String?, ink: NodeView?
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
-                if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = symbol ?? name; ink = ink ?? child }
+                if child.kind == "image", let name = child.faceSymbol { symbol = symbol ?? name; ink = ink ?? child }
                 else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
                 else { walk(child) }
             }
@@ -304,7 +304,7 @@ struct BadgeFace: Equatable {
             TextEngine.color(c[0]).setFill()
             UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
             let ink = TextEngine.color(c[1])
-            if let symbol, let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
+            if let symbol, let glyph = FaceSymbol.image(symbol, points: size * 0.42, configuration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
                 glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
             } else {
                 let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: size * 0.42, weight: .medium), .foregroundColor: ink]
@@ -328,6 +328,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // The bar as the route coming into view wants it, alongside UIKit's
         // transition: a cancelled pop calls this again for the source (§9.10).
         host?.showBar(nav, for: controller as? RouteController, animated: animated)
+        host?.followFloatingBar(nav, for: controller, animated: animated)
         host?.navigationController(nav, willShow: controller, animated: animated)
         app?.navigationController?(nav, willShow: controller, animated: animated)
     }
@@ -336,7 +337,21 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // Restoring a hidden bar changes the route's safe area. Lay out its
         // container before reporting that cover to the kernel.
         nav.view.setNeedsLayout()
-        if nav.viewIfLoaded?.window != nil { nav.view.layoutIfNeeded() }
+        if nav.viewIfLoaded?.window != nil {
+            // That layout can start the bar's own update UIKit deferred to
+            // the transition's end (iPadOS applies a push's items only then):
+            // started inside the end, it takes the bar's touches and never
+            // gives them back (UIKit gives them back when a transition ends,
+            // and this one already has), so Back and a drawn title take no
+            // taps. What this layout took is given back at once, before the
+            // host and the app hear of the route: a bar either of them turns
+            // off stays off. (An update UIKit animates takes taps a moment
+            // early; one it leaves to a later turn is not this layout's.)
+            let bar = nav.navigationBar, touches = bar.isUserInteractionEnabled
+            nav.view.layoutIfNeeded()
+            if touches, !bar.isUserInteractionEnabled { bar.isUserInteractionEnabled = true }
+        }
+        host?.followFloatingBar(nav, for: controller, animated: false) // (where it settled: a cancelled pop's source included)
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }
@@ -958,12 +973,15 @@ extension NavigationHost {
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
     /// scroll edge appearance follows it; its inset does not change. A
     /// scroller with something above it in the route keeps its place and the
-    /// title keeps still: what is above it would sit under the bar.
+    /// title keeps still: what is above it would sit under the bar. A route
+    /// with no bar in containers that take the whole view puts its first
+    /// scroller under the status bar the same way (LLP 1130 D3).
     private func collapse(_ c: RouteController, shape: HeaderShape?, shows: Bool, scroller: NodeView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
         let flowing = { (v: NodeView) in !v.isHidden && Self.inFlow(v) }
+        let whole = wantsWholeView && presenter.viewportFit != "cover"
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
-            ?? (shows ? kids.first(where: flowing) : nil)
+            ?? (shows || whole ? kids.first(where: flowing) : nil)
         let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let physical = target?.scrollView
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
@@ -1133,7 +1151,7 @@ extension NavigationHost {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
-        let image = i.badge?.image ?? i.chip?.image(tint: presenter.viewport.tintColor) ?? i.symbol.flatMap { UIImage(systemName: $0) }
+        let image = i.badge?.image ?? i.chip?.image(tint: presenter.viewport.tintColor) ?? i.symbol.flatMap { FaceSymbol.image($0, points: FaceSymbol.barItemPoints) }
         let item: UIBarButtonItem
         if i.menu, let button = presenter.views[i.id] {
             // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
@@ -1291,13 +1309,16 @@ extension NavigationHost {
             // UIKit's own does, but a title's insets are not sampled.
             let search = searching(c)
             let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
-            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 {
+            // A route showing no bar has no title: its inset is the status bar's, none in landscape (LLP 1130 D3).
+            let barless = !routeShowsBar(c, in: nav)
+            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
                 let inset = sv.adjustedContentInset.top
+                if c.insetsBarless != barless { c.insetsBarless = barless; node.scrollCollapsed = 0 }
                 // tvOS has no large titles: every title is inline.
                 #if os(tvOS)
                 let inline = true
                 #else
-                let inline = c.navigationItem.largeTitleDisplayMode != .always
+                let inline = c.navigationItem.largeTitleDisplayMode != .always || barless
                 #endif
                 if inline {
                     // An inline title does not collapse: its inset is the one it has.

@@ -167,24 +167,7 @@ impl<'a> NodeRef<'a> {
     /// `style.written` is this node's declarations alone; an inherited row
     /// can also be chosen by an ancestor. A platform start stops that walk.
     pub fn says(&self, id: StyleId) -> bool {
-        let mut current = Some(self.slot);
-        while let Some(slot) = current {
-            let own = self.arena.style(slot);
-            if own.written.has(id) {
-                return true;
-            }
-            if own.mask.has(id)
-                || !id.inherited()
-                || self
-                    .arena
-                    .style_starts(slot)
-                    .any(|start| start.mask.has(id))
-            {
-                return false;
-            }
-            current = self.arena.parent(slot);
-        }
-        false
+        self.arena.says(self.slot, id)
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited

@@ -241,6 +241,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
  "exact-tamber",
  "icu_locale",
  "serde_json",
@@ -515,6 +516,7 @@ dependencies = [
 name = "exact-game"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-game-derive",
  "exact-motion",
  "exact-plan",

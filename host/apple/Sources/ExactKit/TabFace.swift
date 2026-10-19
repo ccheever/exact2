@@ -12,28 +12,35 @@ import UIKit
 
 struct TabFace: Equatable {
     /// The symbol without a `.fill` ending: a bar chooses the variant it
-    /// draws (UIKit's the filled one for the selected tab).
+    /// draws (UIKit's the filled one for the selected tab). An svg-only
+    /// icon's path token (`FaceSymbol`, stage 9 A2) has no variant.
     /// `accessibilityDisabled`: `aria-disabled`, which reads as disabled
     /// and still presses.
     let base: String?, title: String, disabled: Bool, accessibilityDisabled: Bool
     /// A filled box holding a text among the tab's children: the item's
     /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
     let badge: String?
+    /// An svg-only icon's token name (`icon.reply`) where the face says it:
+    /// the agent's name for a path `base`.
+    let icon: String?
     init(_ tab: NodeView) {
+        var icon: String?
         var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
         if tab.isNativeButton, let face = tab.face {
             // A native button's children are its face (LLP 1069.011.000 D1).
             symbol = face.symbol
+            icon = face.symbolIcon
             if let title = face.title, !title.isEmpty { label = title }
         }
         for case let child as NodeView in tab.container.subviews {
-            if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
+            if child.kind == "image", let name = child.faceSymbol { symbol = name }
             else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
             else if let text = Self.badgeText(child) { badges.append(text) }
         }
         // One badge box, or none: two are not a badge.
         self.badge = badges.count == 1 ? badges[0] : nil
-        base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
+        self.icon = icon
+        base = symbol.map { $0.hasSuffix(".fill") && !FaceSymbol.isPath($0) ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled
         accessibilityDisabled = tab.ariaUnavailable

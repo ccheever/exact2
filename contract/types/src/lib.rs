@@ -18,6 +18,8 @@
 #![deny(missing_docs)]
 
 mod actions;
+mod activities;
+pub use activities::option_type as activity_option_type;
 mod bounds;
 mod calls;
 mod checks;
@@ -386,9 +388,17 @@ pub struct Scope {
     frames: Vec<Arc<Frame>>,
     // Inside an action's body, where geometry reads are allowed (LLP 1051.000 D2).
     action: bool,
+    // The component whose declarations are the bottom frame; empty for a
+    // scope of values alone.
+    component: Arc<str>,
 }
 
 impl Scope {
+    /// The component this scope belongs to, for a refusal that names it.
+    pub fn component(&self) -> &str {
+        &self.component
+    }
+
     /// Mark this scope as an action's body: geometry reads are allowed here
     /// and nowhere else (LLP 1051.000 D2).
     pub fn enter_action(&mut self) {
@@ -622,7 +632,10 @@ impl Types {
                 Ty::Action(ct.actions[i].clone()),
             ));
         }
-        let mut scope = Scope::default();
+        let mut scope = Scope {
+            component: Arc::from(c.name.as_str()),
+            ..Scope::default()
+        };
         scope.push(names);
         scope
     }
@@ -855,29 +868,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 .lookup(name)
                 .filter(|_| !routes::value_call(name, args, scope, shapes))
             {
-                // A curried action reference: `action(args)` binds the leading parameters.
-                if args.len() > params.len() && !params.is_empty() {
-                    return err(
-                        "type-arity",
-                        format!(
-                            "`{name}` takes at most {} argument(s), given {}",
-                            params.len(),
-                            args.len()
-                        ),
-                        *span,
-                    );
-                }
-                for (arg, pt) in args.iter().zip(params.iter()) {
-                    let t = infer(arg, scope, shapes)?;
-                    if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
-                        return err(
-                            "type-argument",
-                            format!("`{name}` expects `{pt}`, given `{t}`"),
-                            arg.span(),
-                        );
-                    }
-                }
-                Ty::Action(params.iter().skip(args.len()).cloned().collect())
+                component::action_call(name, params, args, *span, scope, shapes)?
             } else if let Some(f) = Stdlib::from_name(name).filter(|f| lists::is_list_op(*f)) {
                 return lists::infer_call(f, args, *span, scope, shapes);
             } else if let Some(f) = Stdlib::from_name(name) {

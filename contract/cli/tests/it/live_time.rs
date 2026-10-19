@@ -266,3 +266,45 @@ fn a_runtime_inverted_interval_has_no_range_and_can_recover() {
         assert_eq!(props.get(PropId::Value).is_some(), valid);
     }
 }
+
+/// docs/reference.md (Live time): a time's children are fallback text for a
+/// host that cannot format the instant. Formatted, the kernel lays out the
+/// formatted text alone: a long fallback does not widen the box (as a native
+/// host draws it; the web pages hide the fallback the same way).
+#[test]
+fn a_formatted_live_time_is_as_wide_without_its_fallback() {
+    let source = r#"component App
+  view
+    column align-items="flex-start"
+      time datetime=-120000 format="relative" testId="with"
+        text "A fallback far longer than the formatted text"
+      time datetime=-120000 format="relative" testId="without"
+"#;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r, "with"), "2 min. ago");
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(390.0, 844.0))
+        .unwrap();
+    let k = r.kernel();
+    let width = |id: &str| {
+        k.node(k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id)
+            .unwrap()
+            .frame
+            .width
+    };
+    assert!(width("without") > 0.0);
+    assert_eq!(
+        width("with"),
+        width("without"),
+        "the fallback is not laid out beside the formatted text"
+    );
+}

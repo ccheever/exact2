@@ -1,0 +1,23 @@
+// LLP 1130: a page with no routes and no `viewport-fit="cover"`, a scroller
+// filling it. Its document is drawn past its area, and the scroller reaches
+// into the status bar's and the home indicator's bands (PageEdgesIOSTests).
+// `short` leaves it less than its height to scroll; `head` puts a line above
+// it, which takes it off the top edge.
+component PageEdges
+  state short = false
+  state head = false
+  action shorten
+    short = true
+  action toggleHead
+    head = not head
+  view
+    main testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      if head
+        text "Header" testId="header" padding=12
+      scroll testId="list" flex=1 min-height=0
+        text "list top" testId="list-top"
+        column height=(short ? 40 : 1600) testId="filler"
+      button press=shorten testId="shorten" position="absolute" top=200 left=0
+        text "Shorten"
+      button press=toggleHead testId="head" position="absolute" top=260 left=0
+        text "Head"

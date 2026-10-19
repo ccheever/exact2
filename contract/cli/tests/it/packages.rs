@@ -409,6 +409,65 @@ component App
     );
 }
 
+/// `SummaryCard`'s symbol grows with Dynamic Type beside its label, as an SF
+/// Symbol configured with the label's text style does: round 23's checkmark
+/// and star stayed in a 20-point box beside a label at the largest size. An
+/// unsized symbol is a square of its font size, which the host measures.
+#[test]
+fn summary_card_symbol_follows_its_label_through_dynamic_type() {
+    use exact_kernel::{Dimension, NodeType, RowValue, StyleId};
+    let dir = Dir::new("summary-symbol");
+    let root = dir.write(
+        "app.contract",
+        r#"use SummaryCard from "exact:content"
+component App
+  view
+    column testId="root" width=400
+      SummaryCard(label="Done", value="3", detail="today", progress=none, symbol=some("symbol:checkmark"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let size = |n: &exact_kernel::NodeRef<'_>| match n.computed(StyleId::FontSize) {
+        RowValue::Number(n) => n,
+        other => panic!("{other:?}"),
+    };
+    let mut sizes = Vec::new();
+    // iOS's body at the default size, then at the largest accessibility size.
+    for body in [17.0, 53.0] {
+        r.set_root_font_size(body).unwrap();
+        let k = r.kernel();
+        let nodes = under(k, k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id);
+        let image = nodes
+            .iter()
+            .find(|n| n.node_type == NodeType::Image)
+            .unwrap();
+        let label = nodes
+            .iter()
+            .find(|n| n.props.str(exact_kernel::PropId::Text) == Some("Done"))
+            .unwrap();
+        assert_eq!(
+            size(image),
+            size(label),
+            "{body}: the symbol is the label's size"
+        );
+        assert_eq!(image.style.width, Dimension::Auto, "no fixed box");
+        assert_eq!(image.style.height, Dimension::Auto, "no fixed box");
+        sizes.push(size(image));
+    }
+    assert!(
+        sizes[1] > sizes[0] * 2.0,
+        "it grows with the root: {sizes:?}"
+    );
+}
+
 /// LLP 1116.020 D5: `RowText` straight in a grouped section is the row: its
 /// value at the far edge (round 18's workout-log drew it mid-row) and the
 /// row as tall as the same part in a `row`.

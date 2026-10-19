@@ -28,7 +28,7 @@ impl Lowerer<'_> {
                 let Expr::Number(ms, _) = &t.timer.0 else {
                     return Err(err_one(
                         "lower-timer-literal",
-                        format!("`{word}` needs a literal number of milliseconds"),
+                        format!("`{word}` needs a literal number of milliseconds (`{word}(1000, …)`). For a computed wait, gate an `every(frame, check)` task on waiting and have `check` compare `performanceNow()` with the wait; one that follows the tempo follows the transport (docs/contract-for-agents.md, \"Following the transport\")"),
                         t.timer.2,
                     ));
                 };

@@ -1084,7 +1084,9 @@ export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
 export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
   try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); } }
 
-// The authored document owns the channel. A later load revokes it until the app commits a new source.
+// An iframe guest's origin as authored when its `src` or `sandbox` was committed (an opaque
+// sandbox posts as "null"), which a `message` from it must match. The authored document owns
+// the channel: a later load revokes it until the app commits a new source.
 const iframeOrigins = new WeakMap();
 export function commitGuestOrigin(el) {
   const src = el.getAttribute("src"), sandbox = el.getAttribute("sandbox"), previous = iframeOrigins.get(el);
@@ -1101,7 +1103,10 @@ export function guestMessageAuthorized(el, eventOrigin) {
   return Boolean(state && !state.revoked && (state.opaque ? eventOrigin === "null" : eventOrigin === state.origin));
 }
 
-// Controlled values restore after options change or refused type; a person's action keeps their choice, including a cleared date (LLP1069.001 D4, kanban2 #5).
+// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
+// `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
+// that heard the person (`acted`) it keeps their choice, as the web build's does (x2apps kanban2 #5: a date cleared
+// while a `send` was in flight).
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
 export function settleValue(el, acted = false) {
@@ -1109,14 +1114,17 @@ export function settleValue(el, acted = false) {
   if (acted) return;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
-// `type` sets valued controls and toggles checkboxes/switches; a radio takes only true (D9, x2apps survey #2).
+// What `type <id> <value>` sets rather than types into (D9): the valued controls, a checkbox (or `switch`), which a
+// value turns on or off, and a radio, which `true` checks (x2apps survey #2).
 export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"));
-// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's.
-export const textField = (el) => !!el.exactDecorations || (el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file");
+// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's. A `sourceField` adds the Markdown editor, whose `input`, `selectionchange` and `beforeinput` carry its source selection (LLP 1045 D6) and whose `select` is its own.
+export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file", sourceField = (el) => !!el?.exactMarkup || el instanceof HTMLTextAreaElement || textField(el);
 export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
 // Host kinds 40–42 carry UTF-16 start,end,direction before the field’s text.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
-// A refused radio action restores committed checked values: uncheck first so only the committed radio remains checked (x2apps survey #2).
+// A radio's group as committed again (x2apps survey #2): the browser checked the radio and unchecked its group at once;
+// the action decides, and one that refuses snaps the group back. `bound` reads a radio's committed `checked` (undefined
+// when it has none); the unchecks go first, so the radio left checked is the committed one.
 export function settleRadios(el, bound) {
   const group = el.name ? [...document.querySelectorAll('input[type="radio"]')].filter((r) => r.name === el.name) : [el];
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
@@ -1131,35 +1139,22 @@ export function setFieldSelection(el, args, log) {
     getSelection().setBaseAndExtent(...(direction === "backward" ? [bn, bo, an, ao] : [an, ao, bn, bo])); return;
   }
   if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field or text`);
-  try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
+  try { el.setSelectionRange(start, end, direction); } catch (error) { log(`setSelectionRange "${id}" refused: ${el.exactMarkup ? error.message : `an input type=${el.type} has no text selection`}`); }
 }
-// HTML range replacement emits one input; the optional undo flag adds a browser undo transaction (LLP 1114.007).
+// @ref LLP 1069.001, 2026-10-12 — HTML's range edit, plus one input to synchronize the app's value; no undo step (the Markdown editor's makes one and its own input, LLP 1045 D1).
 export function setFieldRangeText(el, args, log) {
   const [id, text, ...range] = args;
   if (!el) return log(`setRangeText "${id}" refused: no live node with that id`);
-  if (typeof el.setRangeText !== "function" || el.exactMarkup || el.getAttribute("markup") === "markdown") return log(`setRangeText "${id}" refused: not a plain text field`);
-  const undo = range.at(-1) === 'undo'; if (undo) range.pop();
-  if (el.exactDecorations && !el.exactDecorations.painted) { try { return void el.exactDecorations.replace(text, range[0] ?? el.selectionStart, range[1] ?? el.selectionEnd, range[2] ?? 'preserve', undo); } catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); } }
-  if (undo) {
-    const size = el.value.length, a = Math.min(size, Number(range[0] ?? el.selectionStart) >>> 0), b = Math.min(size, Number(range[1] ?? el.selectionEnd) >>> 0), mode = range[2] ?? 'preserve';
-    if (a > b || !['preserve', 'select', 'start', 'end'].includes(mode)) return log(`setRangeText "${id}" refused: IndexSizeError`);
-    const oldStart = el.selectionStart, oldEnd = el.selectionEnd, focused = document.activeElement, delta = text.length - (b - a);
-    const carry = (p, finish) => p <= a ? p : p >= b ? p + delta : finish ? a + text.length : a;
-    const selection = mode === 'select' ? [a, a + text.length] : mode === 'start' ? [a, a] : mode === 'end' ? [a + text.length, a + text.length] : [carry(oldStart, false), carry(oldEnd, true)];
-    const hush = event => event.stopImmediatePropagation(); el.focus(); el.setSelectionRange(a, b); el.addEventListener('input', hush, true);
-    let applied; try { applied = document.execCommand('insertText', false, text); } finally { el.removeEventListener('input', hush, true); }
-    if (!applied) return log(`setRangeText "${id}" refused: browser undoable replacement unavailable`);
-    el.setSelectionRange(...selection); if (focused && focused !== el) focused.focus();
-    return void el.dispatchEvent(new InputEvent('input', { inputType: 'insertReplacementText', data: text, bubbles: true }));
-  }
-  try { el.setRangeText(text, ...range); } catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
-  el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
+  if (typeof el.setRangeText !== "function") return log(`setRangeText "${id}" refused: not a text field`); // a Markdown textarea before its editor loads is a plain source editor
+  try { el.setRangeText(text, ...range); }
+  catch (error) { return log(`setRangeText "${id}" refused: ${el.exactMarkup ? error.message : error.name}`); }
+  if (!el.exactMarkup) el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
 }
 // Edit data is length-prefixed in UTF-8; commas and newlines are valid text.
 function inputPayload(el, e) { return `${e.inputType ?? ""},${+e.cancelable},${+!!e.isComposing},${e.data == null ? -1 : new TextEncoder().encode(e.data).length},${e.data ?? ""}${fieldSelection(el)}${el.value}`; }
 export function controlEvent(el, kind, on, dispatch) {
-  if (kind === "select" || kind === "selectionchange") return void (textField(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
-  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e), true);
+  if (kind === "select" || kind === "selectionchange") return void ((kind === "select" ? textField : sourceField)(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
+  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
   if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
   if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });
@@ -1172,15 +1167,19 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? 54 : 23, textField(el) ? inputPayload(el, e) : value); settleValue(el, true);
+    dispatch(sourceField(el) ? 54 : 23, sourceField(el) ? inputPayload(el, e) : value); settleValue(el, true);
   });
 }
-// D9: typeControl emits input then change. Select by enabled value or unique label; click checkboxes only when their value differs (kanban F17, shop F10).
+// D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
+// `change`. A select takes one of its enabled options by value, else by its one label (Playwright's `selectOption`, the
+// diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that differs, as a person
+// would.
 export function typeControl(el, request) {
   let text = String(request.text ?? "");
   const id = request.id;
   if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
-  // HTML readonly applies to textareas and text-like/date-time inputs; other controls ignore it.
+  // A read-only field takes no value a person could enter. HTML's `readonly` applies to a textarea and the
+  // text-like and date/time inputs only; a checkbox, range, color or select ignores it.
   if (el.readOnly && (el instanceof HTMLTextAreaElement || /^(text|search|url|tel|email|password|date|month|week|time|datetime-local|number)$/.test(el.type))) return { handled: true, error: `view ${id} is read-only` };
   if (el.type === "checkbox") {
     if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
@@ -1206,7 +1205,9 @@ export function typeControl(el, request) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
-// WHATWG URL normalization through browser tables for the wasm grant parser; parsing grants no host I/O.
+
+// WHATWG URL normalization for the wasm grant parser, using the browser's
+// existing tables. This is pure parsing: it grants no host I/O to the app.
 export function grantOrigins(memory) {
   return { origin(ptr, len, wildcard, out, capacity) {
     try {
@@ -1222,6 +1223,7 @@ export function grantOrigins(memory) {
     } catch { return -1; }
   } };
 }
+
 // grant admission: begin — self-contained; the JS target's build (host/web-js/build.mjs) moves these lines into a module of
 // their own, so a page that admits nothing before a lazy chunk does not carry them; the wasm host keeps them here (boot.mjs).
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
@@ -1336,7 +1338,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.)/.test(source);
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|doc\.keep$)/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);

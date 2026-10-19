@@ -73,6 +73,17 @@ pub fn bake_outside(app: &Path, platform: &str) -> Result<(), BakeError> {
 /// receipts, which the link carries.
 const COMPILED: [&str; 5] = ["module.rs", "logic.rs", "linked.rs", "host.rs", "app.hbc"];
 
+/// The module's bytecode for `exact_js::Module::new`, aligned so Hermes reads
+/// it where it is linked instead of a copy (an `include_bytes!` is not).
+const APP_BYTECODE: &str = r#"#[allow(dead_code)]
+pub const APP_BYTECODE: &[u8] = {
+    #[repr(C, align(16))]
+    struct Aligned<B: ?Sized>(B);
+    static BYTES: &Aligned<[u8]> = &Aligned(*include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc")));
+    &BYTES.0
+};
+"#;
+
 /// The entry's plan and compatibility document, embedded from OUT_DIR.
 const EMBEDDED: &str = r#"#[allow(dead_code)]
 fn exact_plan() -> &'static [u8] {
@@ -476,6 +487,9 @@ fn build_sources(
             .as_str()
             .is_some_and(|module| !module.is_empty());
     let mut metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\npub const RUST_UPDATES: bool = {rust_updates};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
+    if platform != "web" {
+        metadata.push_str(APP_BYTECODE);
+    }
     // The module's Canvas 2D roster (LLP 1056 D1), known before it loads.
     metadata.push_str("#[allow(dead_code)]\npub const CANVAS_SURFACES: &[(&str, usize)] = &[");
     for (name, arity) in meta["surfaces"].as_object().into_iter().flatten() {
@@ -1134,7 +1148,7 @@ fn bake_in(
     let (plan, source_map) = compiled.map_err(|errors| {
         errors
             .into_iter()
-            .map(|e| e.to_string())
+            .map(|e| format!("{e}{}", contract::excerpt(&e)))
             .collect::<Vec<_>>()
             .join("\n")
     })?;
@@ -1411,12 +1425,11 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
-import { bundleOptions, capturedSources } from './__exact_config.mjs';
+import { dataBundle } from './__exact_config.mjs';
 export default {
-  ...bundleOptions,
+  ...dataBundle(process.cwd()),
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
-  plugins: [capturedSources(process.cwd())],
 };
 "#,
     )

@@ -98,6 +98,7 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 test-wait = []
 
 [dev-dependencies]
+exact-update = { path = "../../update" }
 exact-linux = { path = ".", features = ["test-wait"] }
 cc = "1"
 caltrain = { path = "../../apps/caltrain" }

@@ -10,8 +10,9 @@
 //!
 //! Only what is certain is named. The scroller is a `scroll`, or a box with
 //! `overflow` or `overflow-y` of `auto` or `scroll`, that grows (`flex` or
-//! `flex-grow` above zero) from a basis that is not a length, with no
-//! `height` or `max-height`. Its wrappers are the unbroken run of flex
+//! `flex-grow` above zero) and shrinks (`flex-shrink` above zero: one that
+//! cannot is content-tall whatever its wrapper's minimum) from a basis that
+//! is not a length, with no `height` or `max-height`. Its wrappers are the unbroken run of flex
 //! columns above it that pass their content's height up: neither a scroll
 //! container, and none writes `height`, `max-height`, `aspect-ratio`,
 //! `overflow`, `position` or `navigationKey` (a host sizes a route), nor caps
@@ -21,7 +22,9 @@
 //! minimum), so a run needs the repair on each.
 //!
 //! A wrapper that cannot shrink also ends the run: it keeps its content's
-//! height, so the repair above it would free nothing.
+//! height, so the repair above it would free nothing. So does one whose
+//! `min-height` is computed: whether its content's height passes through it
+//! is unknown, and a wrapper above it would be named for a fix it may block.
 //!
 //! A wrapper is named when its parent is a flex column and it writes no
 //! `min-height`, and only when the box above the run is proven to bound its
@@ -124,9 +127,10 @@ fn walk<'a>(
                     }
                 }
                 let flex = flex_of(&all);
-                let min_auto = min_auto(&all);
+                let min = min_height(&all);
+                let min_auto = min == Some(true);
                 let column = scrolls == Some(false) && flex_column(tag, &all);
-                let zero_min = !min_auto || scrolls == Some(true);
+                let zero_min = min == Some(false) || scrolls == Some(true);
                 // A route of a navigation root: iOS lays it out in its
                 // controller's view (OwnersIOS.swift, `OwnerBlocks`), and the
                 // web in the root. Its block is proven definite when it is a
@@ -147,25 +151,26 @@ fn walk<'a>(
                 // A basis it cannot grow from, under a zero minimum, caps
                 // what it passes up (CSS Flexbox §9.9.3); a box that cannot
                 // shrink keeps its content's height whatever its minimum.
-                let caps =
-                    !min_auto && !flex.grow.is_some_and(|g| g > 0.0) && flex.content != Some(true);
+                let caps = min == Some(false)
+                    && !flex.grow.is_some_and(|g| g > 0.0)
+                    && flex.content != Some(true);
                 let shrinks = flex.shrink.is_some_and(|s| s > 0.0);
-                let (wrappers, run_bounded) = if column && passes_content(&all) && !caps && shrinks
-                {
-                    let mut run = parent.wrappers.clone();
-                    let named = parent.column && min_auto;
-                    run.push((*span, tag.as_str(), named));
-                    // A run's first wrapper is bounded only as a flex item:
-                    // in a block it is as tall as its content.
-                    let above = if parent.wrappers.is_empty() {
-                        parent.column && parent.bounded
+                let (wrappers, run_bounded) =
+                    if column && passes_content(&all) && !caps && shrinks && min.is_some() {
+                        let mut run = parent.wrappers.clone();
+                        let named = parent.column && min_auto;
+                        run.push((*span, tag.as_str(), named));
+                        // A run's first wrapper is bounded only as a flex item:
+                        // in a block it is as tall as its content.
+                        let above = if parent.wrappers.is_empty() {
+                            parent.column && parent.bounded
+                        } else {
+                            parent.run_bounded
+                        };
+                        (run, above)
                     } else {
-                        parent.run_bounded
+                        (Vec::new(), false)
                     };
-                    (run, above)
-                } else {
-                    (Vec::new(), false)
-                };
                 let next = Parent {
                     column,
                     definite,
@@ -388,18 +393,28 @@ fn passes_content(rows: &[&Attr]) -> bool {
     !bounds
 }
 
-/// Whether a flex item's minimum height is certainly its content's: it
-/// writes no `min-height`, or `auto`.
-fn min_auto(rows: &[&Attr]) -> bool {
+/// Whether a flex item's minimum height is its content's: `Some(true)` when
+/// it writes no `min-height`, or `auto`; `Some(false)` when it writes another
+/// literal; `None` when the value is computed.
+fn min_height(rows: &[&Attr]) -> Option<bool> {
     match last(rows, "min-height") {
-        None => true,
-        Some(a) => matches!(&a.value, Expr::Str(v, _) if v.trim() == "auto"),
+        None => Some(true),
+        Some(Attr {
+            value: Expr::Str(v, _),
+            ..
+        }) => Some(v.trim() == "auto"),
+        Some(Attr {
+            value: Expr::Number(..),
+            ..
+        }) => Some(false),
+        Some(_) => None,
     }
 }
 
 /// Whether a scroller grows into its parent's free space from a basis that
 /// is its content (`auto`, `content`, or a percentage of a height its parent
-/// does not have), with nothing else bounding its height.
+/// does not have), shrinks from it (a scroller that cannot is content-tall
+/// whatever its wrapper's minimum), and has nothing else bounding its height.
 fn grows_unbounded(rows: &[&Attr]) -> bool {
     let bounded = rows.iter().any(|a| match a.name.as_str() {
         "height" => !matches!(&a.value, Expr::Str(v, _) if v.trim() == "auto"),
@@ -410,7 +425,10 @@ fn grows_unbounded(rows: &[&Attr]) -> bool {
         _ => false,
     });
     let flex = flex_of(rows);
-    !bounded && flex.grow.is_some_and(|g| g > 0.0) && flex.content == Some(true)
+    !bounded
+        && flex.grow.is_some_and(|g| g > 0.0)
+        && flex.shrink.is_some_and(|s| s > 0.0)
+        && flex.content == Some(true)
 }
 
 /// A flex item's factors, each `None` when computed.

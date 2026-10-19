@@ -228,7 +228,7 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
 
 #[test]
 fn popover_flip_fallbacks_compile_in_authored_order() {
-    let source = "component App\n  view\n    column popover=\"auto\" position-area=\"bottom span-right\" position-try-fallbacks=\"flip-block, flip-inline, flip-block flip-inline\"\n";
+    let source = "component App\n  view\n    column popover=\"auto\" position-area=\"bottom span-right\" position-try-fallbacks=\"flip-block, flip-inline, flip-start flip-block\"\n";
     let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
     let runner = Runner::boot(
         plan,
@@ -241,19 +241,19 @@ fn popover_flip_fallbacks_compile_in_authored_order() {
     let node = runner.kernel().node(runner.roots()[0]).unwrap();
     assert_eq!(
         node.style.position_try_fallbacks.css(),
-        "flip-block, flip-inline, flip-block flip-inline"
+        "flip-block, flip-inline, flip-start flip-block"
     );
     for invalid in [
-        "flip-start",
+        "flip-x",
         "flip-block flip-block",
         "flip-inline,",
         "none, flip-block",
         "--custom",
     ] {
-        let bad = source.replace("flip-block, flip-inline, flip-block flip-inline", invalid);
+        let bad = source.replace("flip-block, flip-inline, flip-start flip-block", invalid);
         let error = contract::compile(&bad).unwrap_err().to_string();
         assert!(
-            error.contains("flip-block/flip-inline"),
+            error.contains("flip-block, flip-inline and flip-start"),
             "{invalid}: {error}"
         );
     }

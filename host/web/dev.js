@@ -63,6 +63,11 @@ const sameOrigin = (path, base) => {
   if (url.origin !== location.origin || !["http:", "https:"].includes(url.protocol)) throw new Error("the dev generation leaves the app origin");
   return url.href;
 };
+function sameModule(a, b) {
+  if (!a || !b) return a === b;
+  return Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(key =>
+    a[key].length === b[key]?.length && a[key].every((byte, index) => byte === b[key][index]));
+}
 async function readBounded(url, limit, signal) {
   const response = await fetch(url, { cache: "no-store", signal });
   sameOrigin(response.url || url, location.href);
@@ -140,7 +145,7 @@ async function fetchGeneration(message, signal, first = false) {
     plan: { bytes: plan.bytes.length, sha256: plan.sha256 },
     ...(rust ? { rust: Object.fromEntries(Object.keys(rust).sort().map(k => [k, { module: {bytes:rust[k].module.bytes,sha256:rust[k].module.sha256}, receipt:{bytes:rust[k].receipt.bytes,sha256:rust[k].receipt.sha256}, ...(k !== "wasm" ? {target:rust[k].target} : {}) }])) } : {}) };
   if (await digest(encoder.encode(JSON.stringify(canonical))) !== identity.generation) throw new Error("the generation digest does not bind its complete manifest");
-  return { ...identity, plan: plan.bytes, planSha256: plan.sha256, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
+  return { ...identity, surfaceAssets:message.surfaceAssets, plan: plan.bytes, planSha256: plan.sha256, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
 }
 
 // Fetches may finish in any order. Only the latest request can enter the
@@ -215,17 +220,26 @@ if (es) {
   }
   // The module loader uses this implementation on trusted LAN HTTP too.
   globalThis.exact.moduleDigest = digest;
-  let retry = null;
+  let retry = null, activeGeneration = null;
   // Inspect mode's outline, hidden on a new generation (set below).
   let outlineNone = () => {};
   const client = generationClient({ fetchGeneration, programChanged: () => { clearTimeout(retry); location.reload(); },
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
-      // (A hold command meanwhile is the new generation's: `rehold` or the server's replay has it.)
+      const names = candidate.surfaceAssets;
+      const liveAssets = Array.isArray(names) && names.length && activeGeneration && sameModule(candidate.module, activeGeneration.module) && sameModule(candidate.rust, activeGeneration.rust)
+        && candidate.planSha256 === activeGeneration.planSha256 && candidate.assets.size === activeGeneration.assets.size
+        && [...candidate.assets].every(([name, card]) => names.includes(name) || card.sha256 === activeGeneration.assets.get(name)?.sha256);
+      // Hold commands received during a swap belong to the new generation.
       swaps += 1;
       let accepted = false;
-      try { accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true); } finally { swaps -= 1; if (!accepted) rehold(); }
+      try {
+        accepted = liveAssets && globalThis.exact.gpu?.reloadAssets
+          ? await globalThis.exact.gpu.reloadAssets(candidate.assets, names, current)
+          : await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true);
+      } finally { swaps -= 1; if (!accepted) rehold(); }
+      if (accepted) activeGeneration = candidate;
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));
@@ -248,7 +262,7 @@ if (es) {
         if (!current()) return;
         try {
           const { envelope, url } = await readEnvelope("/exact.json", AbortSignal.timeout(15000));
-          if (current() && validIdentity(envelope.dev)) client.receive({ ...envelope.dev, envelope: new URL("exact.json", new URL(envelope.plan.url, url)).href });
+          if (current() && validIdentity(envelope.dev)) client.receive({ ...envelope.dev, surfaceAssets:activeGeneration?.surfaceAssets, envelope: new URL("exact.json", new URL(envelope.plan.url, url)).href });
         } catch { if (current()) retry = setTimeout(discover, 1000); }
       };
       retry = setTimeout(discover, 250);
@@ -262,7 +276,7 @@ if (es) {
     slot.provide = async () => {
       try {
         const candidate = await fetchGeneration(JSON.parse(firstMeta.content), AbortSignal.timeout(15000), true);
-        if (!candidate.rust) client.adopt(candidate.generation);
+        if (!candidate.rust) { client.adopt(candidate.generation); activeGeneration = candidate; }
         return candidate;
       } catch (error) { show(String(error)); console.error("exact dev:", String(error)); return null; }
     };
@@ -525,7 +539,7 @@ if (es) {
     // (Under the inspect command it was made in: one replaced since is refused.)
     // (And a click's token, which the outline answering it names.)
     const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
-    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id))?.held ?? null, trimmed: false };
+    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id), ask)?.held ?? null, trimmed: false };
     if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
     if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
@@ -734,13 +748,26 @@ if (es) {
     bindHold(kept.frame);
     command(kept.frame);
   };
+  // How long a hold waits for the input glue before saying it is not loaded; the glue's `hold` once it has loaded
+  // (it says so: `exact-hold`), or null after `ms` or once `stale()`.
+  const HOLD_WAIT = 60_000;
+  const glueHold = (ms, stale) => new Promise((ok) => {
+    if (globalThis.exact?.hold) return ok(globalThis.exact.hold);
+    const until = Date.now() + ms;
+    const end = () => { clearInterval(tick); globalThis.removeEventListener("exact-hold", end); ok(globalThis.exact?.hold ?? null); };
+    const tick = setInterval(() => { if (globalThis.exact?.hold || stale() || Date.now() > until) end(); }, 250);
+    globalThis.addEventListener("exact-hold", end);
+  });
   const hold = async (frame) => {
     const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null, epoch, stream: channel.nonce };
-    for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
     // Only the latest frame applies (a replay queued before a newer clear does not), and only on the stream it came
     // on (a new one's server knows nothing of it).
-    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
     const current = () => channel.holdLatest === frame && at.stream === channel.nonce && at.epoch === epoch;
+    // The input glue loads after paint: a hold waits for it (a page restarting after a rebuild, on a loaded machine,
+    // takes far longer than a fixed wait) while it is still the latest frame on its stream (as host/web-js/
+    // inspect-dev.js's `glueHold`); a let-go needs none.
+    if (frame.hold) await glueHold(HOLD_WAIT, () => !current());
+    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
     if (!current() || (h && ended.has(revision))) return;
     const digest = swaps ? null : await planDigest();
     if (!current()) return;
@@ -748,8 +775,9 @@ if (es) {
     const moved = addressed ? digest !== addressed : at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen;
     if (h && (swaps || moved)) { channel.hold = addressed ? { frame, digest: addressed } : null; return; }
     channel.hold = h ? { frame, digest } : null;
+    // (A let-go with no glue loaded: nothing was held.)
+    if (!h) { holds?.(null); report({ kind: "held", state: null, revision }); return; }
     if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
-    if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
     let found = null, two = false;
     for (const [id] of globalThis.exact.views ?? []) {
       const node = ask({ op: "node", id, plan: true });
@@ -812,7 +840,12 @@ if (es) {
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
-    if (message.error) { show(message.error, message.source); console.error("exact dev:", message.error); return; }
+    if (message.error) {
+      if (message.surfaceAttempt && globalThis.exact.gpu?.reloadAssets) {
+        const {name,text} = message.surfaceAttempt;
+        globalThis.exact.gpu.reloadAssets(new Map([[name,{bytes:new TextEncoder().encode(text)}]]),[name]).catch(error=>console.error(String(error)));
+      }
+      show(message.error, message.source); console.error("exact dev:", message.error); return; }
     if (message.fresh) { if (new URLSearchParams(location.search).get('agent') !== '1') location.reload(); return; }
     if (message.gpu !== undefined) {
       // A drive owns its clock and code. Do not change either behind the driver.

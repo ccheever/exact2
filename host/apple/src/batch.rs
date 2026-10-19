@@ -444,7 +444,14 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"auth","ticket":N,"cancel":true}`: the runner let go of it.
+    /// A reserved activity send, dispatched to the demand-loaded arm.
+    pub fn activity(&mut self, ticket: u64, request: &str) {
+        self.ops.push(format!(
+            "{{\"op\":\"activity\",\"ticket\":{ticket},\"request\":{request}}}"
+        ));
+    }
+
+    /// Cancel the authentication session whose ticket the runner let go.
     pub fn auth_cancel(&mut self, ticket: u64) {
         self.ops.push(format!(
             "{{\"op\":\"auth\",\"ticket\":{ticket},\"cancel\":true}}"
@@ -603,6 +610,10 @@ impl Batch {
         runner: &mut exact_runner::Runner<D>,
         boot: bool,
     ) {
+        if runner.take_activities_demand() {
+            self.ops
+                .push("{\"op\":\"activity\",\"demand\":true}".into());
+        }
         self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
         let uses = boot && exact_runner::uses::uses_midi(runner.plan());
         if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {

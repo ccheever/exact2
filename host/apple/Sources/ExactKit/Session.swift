@@ -59,6 +59,8 @@ public enum ExactEnv {
         return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
     }
     public static let agentMode = environment["EXACT_AGENT"] == "1"
+    /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
+    static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
     /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
     /// agent carrier, UIKit's own transitions, presentations and keyboard
     /// animations keep their natural timing — the ordinary app with a
@@ -175,7 +177,6 @@ public final class ExactApp {
         let inputs = json["inputs"] as? [String: Any] ?? [:]
         return (inputs["rustMode"] as? String ?? "off", json["target"] as? String ?? "")
     }
-
     /// Install a composition's launch generation before creating sessions.
     public func installInitial(_ generation: ExactGeneration) {
         precondition(sessions.isEmpty, "install the initial generation before creating sessions")
@@ -204,7 +205,6 @@ public final class ExactApp {
     public func refreshDelivery() {
         for session in sessions { session.apply(session.runtime.deliverySync()) }
     }
-
     func handleCommand(_ name: String) -> Bool { lifecycle?.handleCommand(name, app: self) ?? false }
 
     /// A session of this app: one runtime, unbooted until `boot` or its view's first layout.
@@ -388,6 +388,7 @@ public final class ExactSession {
     /// The voice table's output (LLP 1096 D8); settable for tests.
     lazy var sound = SoundOutput(self)
     lazy var midi = MIDIOutput(self)
+    private var activityOutput: ActivityOutput?
     package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
     var sampler: FrameSampler?
@@ -482,6 +483,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
+        if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
         core = SessionCore(runtime: runtime, text: TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
@@ -697,7 +699,8 @@ public final class ExactSession {
     }
     private func wire() {
         runtime.topLayer = { [weak self] in self?.presenter.openTopLayer ?? ([], nil) }
-        runtime.setInlineGeometry { [weak self] id in self?.presenter.inlineFrame(id) }
+        runtime.setInlineGeometry({ [weak self] id in self?.presenter.inlineFrame(id) },
+                                  range: { [weak self] id, start, end in self?.presenter.rangeFrame(id, start: start, end: end) })
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
             runtime.canvasDefer(true)
@@ -1062,6 +1065,10 @@ public final class ExactSession {
         #if os(macOS)
         regions.prepare(batch)
         #endif
+        for op in batch.ops where op.op == .activity {
+            if activityOutput == nil { activityOutput = ActivityOutput(self) }
+            activityOutput?.enqueue(op.payload)
+        }
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound || op.op == .midi { if op.op == .sound { sound.apply(op.payload) } else { midi.apply(op.payload) } } } // LLP 1096 D8, LLP 1125 D7: the voice table's and the MIDI queue's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
@@ -1144,14 +1151,7 @@ public final class ExactSession {
                 if name == "postMessage" {
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
                     let iframe = args.count > 2 && args[2] as? String == "iframe"
-                    app.deliver { [weak self] in guard let self else { return }
-                        if self.webviews.hasFrame(surface) && self.canvases.hasSurface(surface) {
-                            fputs("exact: postMessage: ambiguous iframe id and canvas surface \(surface)\n", stderr)
-                        } else if iframe { self.webviews.postMessage(surface, text)
-                        } else if self.webviews.hasFrame(surface) {
-                            fputs("exact: postMessage: canvas name collides with an iframe id \(surface)\n", stderr)
-                        } else { self.canvases.post(surface, text) }
-                    }
+                    app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
                     continue
                 }
                 if name == "focus" || name == "selectText" {
@@ -1242,6 +1242,7 @@ public final class ExactSession {
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             // Prepare before any source calls the module (LLP 1067.000 D8).
             natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
+            restoreKeptDocuments() // before any answer reads a kept document (LLP 1069.010.000 D4)
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
@@ -1250,6 +1251,7 @@ public final class ExactSession {
             appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
+            activityOutput?.drain()
             storeRefresh.activated = { [weak self] in
                 guard let self, state != .destroyed, generation == drawnGeneration else { return }
                 presenter.collections.dataReady(); app.firstPixel(token)
@@ -1261,16 +1263,15 @@ public final class ExactSession {
             drainSurfaceWork()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+            Owner.shared.releaseIdleStack() // after the data's batch: the deepest the boot goes
         }
     }
 
     /// Drawn once per launch; the same across a dev reload's new runner.
     let launchPlace: LaunchPlace
-    /// The machine zone's offset now, told when it is not the one last told:
-    /// at boot and before each advance, so a DST change or a new zone reaches
-    /// the timer that fires after it (habits F6). Under the agent, the
-    /// drive's zone moves it instead (`tellAgentOffset`).
-    var toldOffset: Double?
+    /// The zone's offset last told (`followOffset`, before each advance, so a
+    /// DST change reaches the timer after it, habits F6; `tellAgentOffset`).
+    var toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
     /// change: in the same main-thread turn as the boot batch, so the first
     /// frame on screen already reads the user's preferences.

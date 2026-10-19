@@ -1371,3 +1371,64 @@ fn field_sync_visits_only_fields_touched_by_commits() {
     assert!(!p.fields.contains_key(&mounted));
     assert_eq!(p.host.values.pending_fields(), 0);
 }
+
+#[test]
+fn mouse_control_click_keeps_own_and_ancestor_press_handlers() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for kind in ["radio", "checkbox"] {
+        for own in [true, false] {
+            for feedback in ["", "-exact-press-opacity=0.5"] {
+                let own_handler = if own { "press=record(\"own \")" } else { "" };
+                let value_type = if kind == "radio" { "string" } else { "bool" };
+                let source = format!(
+                    r#"component App
+  state seen = ""
+  action record(name: string)
+    seen = `${{seen}}${{name}}`
+  action changed(value: {value_type})
+    seen = `${{seen}}change `
+  view
+    column width=300 height=200
+      box width=100 height=60 press=record("parent ") {feedback}
+        input type="{kind}" value="value" testId="control" width=40 height=40 change=changed {own_handler} {feedback}
+      text seen testId="log"
+"#
+                );
+                let (mut p, error) = Presenter::boot_with(
+                    &crate::test_plan(&source),
+                    (),
+                    (300., 200.),
+                    1.,
+                    PathBuf::new(),
+                    PainterChoice::Cpu,
+                )
+                .unwrap();
+                assert!(error.is_none(), "{error:?}");
+                let control = id(&p, "control");
+                let (x, y, w, h) = p.rect_of(control).unwrap();
+                for time in [1., 3.] {
+                    p.pointer_down(x + w / 2., y + h / 2., time).unwrap();
+                    p.pointer_up(x + w / 2., y + h / 2., time + 1.).unwrap();
+                }
+                let handler = if own { "own " } else { "parent " };
+                let changes = if kind == "radio" { "" } else { "change " };
+                actual.push((
+                    kind,
+                    own,
+                    feedback,
+                    text(&p, "log"),
+                    p.radio_checked(control),
+                ));
+                expected.push((
+                    kind,
+                    own,
+                    feedback,
+                    format!("{handler}change {handler}{changes}"),
+                    kind == "radio",
+                ));
+            }
+        }
+    }
+    assert_eq!(actual, expected);
+}

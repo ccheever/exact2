@@ -180,3 +180,18 @@ export function panelOf(dials: Parameters<typeof controlOf>[0][], tokens: Readon
     return { name, dials: sorted.filter(c => c.priority < 3), more: sorted.filter(c => c.priority === 3) };
   });
 }
+
+/** A value's sides, light and dark, as swatches show them: `light-dark(a,
+ * b)` split at its top-level comma, else one value for both. */
+export function sides(v: string): [string, string] {
+  const m = /^light-dark\((.*)\)$/s.exec(v.trim());
+  if (!m) return [v.trim(), v.trim()];
+  let depth = 0;
+  for (let i = 0; i < m[1].length; i++) {
+    const c = m[1][i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === ',' && depth === 0) return [m[1].slice(0, i).trim(), m[1].slice(i + 1).trim()];
+  }
+  return [v.trim(), v.trim()];
+}

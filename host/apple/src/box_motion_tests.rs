@@ -430,3 +430,465 @@ component A
         assert!(!sampled("plain"), "ios: {ios_motion}");
     }
 }
+
+/// `linear()` lowers to keys Core Animation plays as Chrome 155 computes the
+/// curve (the engine's `piecewise_linear_matches_chrome_at_its_edges` has
+/// the same samples): key times from 0 to 1, never decreasing; a jump held
+/// to a hair before its input; extrapolation before the first stop and past
+/// the last. `translate` is read because, unlike opacity, it does not clamp.
+#[test]
+fn linear_easings_lower_to_what_chrome_plays() {
+    let cases: &[(&str, &[(f64, f64)])] = &[
+        (
+            "linear(1 0% 25%, 0 25% 100%)",
+            &[(0.0, 1.0), (0.2, 1.0), (0.25, 0.0), (1.0, 0.0)],
+        ),
+        (
+            "linear(0 0% 25%, 1 50% 75%)",
+            &[
+                (0.0, 0.0),
+                (0.25, 0.0),
+                (0.375, 0.5),
+                (0.9, 1.0),
+                (1.0, 1.0),
+            ],
+        ),
+        (
+            "linear(0, 0.2 100%, 0.5 100%, 1 100%)",
+            &[(0.5, 0.1), (0.9998, 0.2), (1.0, 1.0)],
+        ),
+        (
+            "linear(0 25%, 1 25%, 1)",
+            &[(0.0, 1.0), (0.1, 1.0), (0.25, 1.0), (1.0, 1.0)],
+        ),
+        (
+            "linear(0 25%, 1 25%, 0.5 25%, 1)",
+            &[(0.1, 1.0), (0.25, 0.5), (0.5, 0.6667)],
+        ),
+        (
+            "linear(0 25%, 1 75%)",
+            &[(0.0, -0.5), (0.1, -0.3), (0.5, 0.5), (0.9, 1.3), (1.0, 1.5)],
+        ),
+        ("linear(0, 1 0%, 0)", &[(0.0, 1.0), (0.5, 0.5), (1.0, 0.0)]),
+        (
+            "linear(0, 0.5 50%, 1 50%, 0.2 50%)",
+            &[(0.25, 0.25), (0.5, 0.2), (0.9, 0.2)],
+        ),
+    ];
+    let mut app = String::from(
+        "keyframes slide\n  from translate=\"0px 0px\"\n  to translate=\"100px 0px\"\ncomponent A\n  state on = false\n  action go\n    on = not on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n",
+    );
+    for (i, (easing, _)) in cases.iter().enumerate() {
+        app.push_str(&format!(
+            "      box testId=\"l{i}\" width=8 height=8 animation=(on ? \"slide 1s {easing} infinite\" : \"none\")\n"
+        ));
+    }
+    let plan = contract::compile(&app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    ios(&mut host);
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    for (i, (easing, samples)) in cases.iter().enumerate() {
+        let specs = specs(&on, id(&host, &format!("l{i}"))).expect("lowered");
+        let x = specs
+            .iter()
+            .find(|s| s["k"] == "transform.translation.x")
+            .expect("an x track");
+        let nums = |k: &str| -> Vec<f64> {
+            x[k].as_array()
+                .unwrap()
+                .iter()
+                .map(|n| n.as_f64().unwrap())
+                .collect()
+        };
+        let (t, v) = (nums("t"), nums("v"));
+        assert_eq!(t.first(), Some(&0.0), "{easing}: {t:?}");
+        assert_eq!(t.last(), Some(&1.0), "{easing}: {t:?}");
+        assert!(t.windows(2).all(|w| w[0] <= w[1]), "{easing}: {t:?}");
+        // Core Animation's linear calculation mode, between the keys.
+        let play = |at: f64| -> f64 {
+            let k = t.iter().rposition(|x| *x <= at).unwrap();
+            if k + 1 == t.len() || t[k + 1] == t[k] {
+                return v[k];
+            }
+            v[k] + (v[k + 1] - v[k]) * (at - t[k]) / (t[k + 1] - t[k])
+        };
+        for &(at, chrome) in *samples {
+            let got = play(at) / 100.0;
+            assert!(
+                (got - chrome).abs() < 1e-3,
+                "{easing} at {at}: Chrome {chrome}, lowered {got} ({t:?} {v:?})"
+            );
+        }
+    }
+}
+
+/// A colour's `linear()` lowers as a length's does, its jump held and its
+/// start the curve's, with a key every sixteenth between: the red channel
+/// Chrome 155 computes for a paused CSS animation from rgb(0, 0, 0) to
+/// rgb(200, 0, 0), extrapolation clamped to the channel's range.
+#[test]
+fn a_colours_linear_easing_lowers_to_what_chrome_plays() {
+    let cases: &[(&str, &[(f64, f64)])] = &[
+        (
+            "linear(1 0% 25%, 0 25% 100%)",
+            &[(0.0, 200.0), (0.2, 200.0), (0.25, 0.0), (0.5, 0.0)],
+        ),
+        (
+            "linear(0 25%, 1 25%, 1)",
+            &[(0.0, 200.0), (0.1, 200.0), (0.25, 200.0)],
+        ),
+        (
+            "linear(0, 1 50%)",
+            &[(0.25, 100.0), (0.75, 255.0), (1.0, 255.0)],
+        ),
+    ];
+    let mut app = String::from(
+        "keyframes paint\n  from background-color=\"rgb(0, 0, 0)\"\n  to background-color=\"rgb(200, 0, 0)\"\ncomponent A\n  state on = false\n  action go\n    on = not on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n",
+    );
+    for (i, (easing, _)) in cases.iter().enumerate() {
+        app.push_str(&format!(
+            "      box testId=\"c{i}\" width=8 height=8 animation=(on ? \"paint 1s {easing} infinite\" : \"none\")\n"
+        ));
+    }
+    let plan = contract::compile(&app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    ios(&mut host);
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    for (i, (easing, samples)) in cases.iter().enumerate() {
+        let specs = specs(&on, id(&host, &format!("c{i}"))).expect("lowered");
+        assert_eq!(specs[0]["k"], "backgroundColor", "{easing}");
+        let t: Vec<f64> = specs[0]["t"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_f64().unwrap())
+            .collect();
+        let red: Vec<f64> = specs[0]["v"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c[0].as_f64().unwrap())
+            .collect();
+        assert_eq!(t.first(), Some(&0.0), "{easing}: {t:?}");
+        assert_eq!(t.last(), Some(&1.0), "{easing}: {t:?}");
+        assert!(t.windows(2).all(|w| w[0] <= w[1]), "{easing}: {t:?}");
+        assert!(t.len() >= 17, "{easing}: a key every sixteenth, {t:?}");
+        let play = |at: f64| -> f64 {
+            let k = t.iter().rposition(|x| *x <= at).unwrap();
+            if k + 1 == t.len() || t[k + 1] == t[k] {
+                return red[k];
+            }
+            red[k] + (red[k + 1] - red[k]) * (at - t[k]) / (t[k + 1] - t[k])
+        };
+        for &(at, chrome) in *samples {
+            let got = play(at);
+            assert!(
+                (got - chrome).abs() <= 1.0,
+                "{easing} at {at}: Chrome red {chrome}, lowered {got} ({t:?} {red:?})"
+            );
+        }
+    }
+}
+
+/// A small deterministic generator for the property tests below.
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+    fn unit(&mut self) -> f64 {
+        (self.next() % 1_000_000) as f64 / 1_000_000.0
+    }
+}
+
+/// A random easing for one interval: `linear()` with two to six stops on a
+/// coarse grid, so stops often share an input and often leave the ends to
+/// extrapolation; `steps()`; or a cubic.
+fn random_easing(r: &mut Rng) -> String {
+    match r.below(6) {
+        0..=2 => {
+            let n = 2 + r.below(5) as usize;
+            let mut inputs: Vec<u64> = (0..n).map(|_| r.below(11) * 10).collect();
+            inputs.sort();
+            let stops: Vec<String> = inputs
+                .iter()
+                .map(|i| format!("{} {i}%", (r.below(21) as f64 - 5.0) / 10.0))
+                .collect();
+            format!("linear({})", stops.join(", "))
+        }
+        3 => {
+            let at = ["jump-start", "jump-end", "jump-none", "jump-both"][r.below(4) as usize];
+            format!("steps({}, {at})", 2 + r.below(5))
+        }
+        4 => "ease-in-out".into(),
+        _ => "cubic-bezier(0.3, 0.1, 0.6, 1.2)".into(),
+    }
+}
+
+/// Core Animation's linear calculation mode over a spec's keys, each
+/// segment under its own cubic (`c`, empty when every one is linear).
+fn play_spec(t: &[f64], v: &[f64], c: &[[f64; 4]], at: f64) -> f64 {
+    let k = t.iter().rposition(|x| *x <= at).unwrap_or(0);
+    if k + 1 >= t.len() || t[k + 1] <= t[k] {
+        return v[k];
+    }
+    let u = (at - t[k]) / (t[k + 1] - t[k]);
+    let eased = match c.get(k) {
+        Some(&[x1, y1, x2, y2]) => {
+            let bez = |a: f64, b: f64, s: f64| {
+                3.0 * (1.0 - s) * (1.0 - s) * s * a + 3.0 * (1.0 - s) * s * s * b + s * s * s
+            };
+            let (mut lo, mut hi) = (0.0, 1.0);
+            for _ in 0..60 {
+                let mid = (lo + hi) / 2.0;
+                if bez(x1, x2, mid) < u {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            bez(y1, y2, (lo + hi) / 2.0)
+        }
+        None => u,
+    };
+    v[k] + (v[k + 1] - v[k]) * eased
+}
+
+/// One random keyframes track per box, lowered, played back and compared
+/// with the engine's own value (`Animation::value_at`) at many points.
+/// Points within 2e-3 of a keyframe or of a stop's input are left out: a
+/// jump there is held to a hair before it, which the engine is not; so are
+/// a colour's clamped spans. The reviews' cases lead the translate set: a
+/// steep ramp beside a held stop, an extrapolated end before a plain
+/// interval, and a ramp a hundredth of a percent long.
+fn lowered_matches_engine(colour: bool, seed: u64, boxes: usize) {
+    let mut r = Rng(seed);
+    let property = if colour {
+        "background-color"
+    } else {
+        "translate"
+    };
+    let literal = |v: f64| {
+        if colour {
+            format!("rgb({}, 0, 0)", v.round())
+        } else {
+            format!("{v}px 0px")
+        }
+    };
+    let mut app = String::new();
+    let mut cases = Vec::new();
+    for i in 0..boxes {
+        // Keyframe offsets: 0, up to two inside, 1; the two review cases first.
+        let (offsets, values, easings): (Vec<f64>, Vec<f64>, Vec<Option<String>>) =
+            match (colour, i) {
+                (false, 0) => (
+                    vec![0.0, 1.0],
+                    vec![0.0, 100.0],
+                    vec![Some("linear(0 0% 50%, 1 50.005% 100%)".into())],
+                ),
+                (false, 1) => (
+                    vec![0.0, 0.5, 1.0],
+                    vec![0.0, 100.0, 200.0],
+                    vec![Some("linear(0 25%, 1 75%)".into()), Some("linear".into())],
+                ),
+                (false, 2) => (
+                    vec![0.0, 1.0],
+                    vec![0.0, 100.0],
+                    vec![Some("linear(0, 1 0.01%)".into())],
+                ),
+                _ => {
+                    let mut offsets = vec![0.0];
+                    for _ in 0..r.below(3) {
+                        offsets.push((1 + r.below(19)) as f64 * 5.0 / 100.0);
+                    }
+                    offsets.push(1.0);
+                    offsets.sort_by(f64::total_cmp);
+                    offsets.dedup();
+                    let values = offsets.iter().map(|_| (r.below(201)) as f64).collect();
+                    let easings = (1..offsets.len())
+                        .map(|_| (r.below(4) > 0).then(|| random_easing(&mut r)))
+                        .collect();
+                    (offsets, values, easings)
+                }
+            };
+        let default = random_easing(&mut r);
+        let name = format!("k{i}");
+        let mut contract = format!("keyframes {name}\n");
+        let mut css = String::new();
+        let mut breaks: Vec<f64> = offsets.clone();
+        for (k, off) in offsets.iter().enumerate() {
+            let easing = easings.get(k).cloned().flatten();
+            contract.push_str(&format!(
+                "  {}% {property}=\"{}\"",
+                off * 100.0,
+                literal(values[k])
+            ));
+            css.push_str(&format!(
+                "{}%{{{property}:{}",
+                off * 100.0,
+                literal(values[k])
+            ));
+            if let Some(e) = &easing {
+                contract.push_str(&format!(" animation-timing-function=\"{e}\""));
+                css.push_str(&format!(";animation-timing-function:{e}"));
+            }
+            contract.push('\n');
+            css.push('}');
+            if let (Some(next), Some(e)) = (offsets.get(k + 1), easing.as_ref().or(Some(&default)))
+            {
+                let span = next - off;
+                for stop in e
+                    .split(['(', ',', ')'])
+                    .filter_map(|f| f.split_whitespace().nth(1))
+                {
+                    if let Some(pct) = stop.strip_suffix('%').and_then(|n| n.parse::<f64>().ok()) {
+                        breaks.push(off + span * pct / 100.0);
+                    }
+                }
+                if let Some(rest) = e.strip_prefix("steps(") {
+                    let n: f64 = rest.split(',').next().unwrap().trim().parse().unwrap();
+                    breaks.extend((1..n as usize).map(|j| off + span * j as f64 / n));
+                }
+            }
+        }
+        app.push_str(&contract);
+        cases.push((name, default, css, breaks));
+    }
+    app.push_str("component A\n  state on = false\n  action go\n    on = not on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n");
+    for (name, default, _, _) in &cases {
+        app.push_str(&format!(
+            "      box testId=\"{name}\" width=8 height=8 animation=(on ? \"{name} 1s {default} infinite\" : \"none\")\n"
+        ));
+    }
+    let plan = contract::compile(&app)
+        .unwrap_or_else(|e| panic!("{e:?}\n{app}"))
+        .encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    ios(&mut host);
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let prop = exact_motion::Property::from_name(property).unwrap();
+    let mut checked = 0;
+    for (name, default, css, breaks) in &cases {
+        let mut anim = exact_motion::Animations::parse(&format!("{name} 1s {default} infinite"))
+            .unwrap()
+            .0
+            .remove(0);
+        anim.keyframes = exact_motion::Keyframes::parse(css).unwrap();
+        let engine = |at: f64| {
+            let v = anim.value_at(at, prop, exact_motion::Value::ZERO, false);
+            if colour {
+                v.to_rgba8()[0] as f64
+            } else {
+                v.x
+            }
+        };
+        let specs = specs(&on, id(&host, name)).unwrap_or_else(|| panic!("{name} lowered: {css}"));
+        let spec = specs
+            .iter()
+            .find(|s| {
+                s["k"]
+                    == if colour {
+                        "backgroundColor"
+                    } else {
+                        "transform.translation.x"
+                    }
+            })
+            .unwrap();
+        let t: Vec<f64> = spec["t"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_f64().unwrap())
+            .collect();
+        let v: Vec<f64> = spec["v"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| {
+                if colour {
+                    n[0].as_f64().unwrap()
+                } else {
+                    n.as_f64().unwrap()
+                }
+            })
+            .collect();
+        let c: Vec<[f64; 4]> = spec["c"]
+            .as_array()
+            .map(|cs| {
+                cs.iter()
+                    .map(|q| std::array::from_fn(|j| q[j].as_f64().unwrap()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert_eq!(t.first(), Some(&0.0), "{name} {default} {css}: {t:?}");
+        assert_eq!(t.last(), Some(&1.0), "{name} {default} {css}: {t:?}");
+        assert!(
+            t.windows(2).all(|w| w[0] <= w[1]),
+            "{name} {default} {css}: {t:?}"
+        );
+        for j in 0..400 {
+            let at = (j as f64 + r.unit()) / 400.0;
+            if breaks.iter().any(|b| (at - b).abs() < 2e-3) {
+                continue;
+            }
+            let (want, got) = (engine(at), play_spec(&t, &v, &c, at));
+            // A colour extrapolated out of gamut clamps between its keys,
+            // where Core Animation draws straight (`stepped_keys`).
+            let k = t.iter().rposition(|x| *x <= at).unwrap_or(0);
+            if colour
+                && v[k..(k + 2).min(v.len())]
+                    .iter()
+                    .any(|c| *c <= 0.0 || *c >= 255.0)
+            {
+                continue;
+            }
+            let tolerance = if colour { 2.0 } else { 0.05 };
+            assert!(
+                (want - got).abs() <= tolerance,
+                "{name} at {at}: engine {want}, Core Animation {got}\n  {default} | {css}\n  t {t:?}\n  v {v:?}"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > boxes * 300, "too few points checked: {checked}");
+}
+
+/// Translate tracks: lengths do not clamp, so a `linear()`'s extrapolated
+/// ends show.
+#[test]
+fn random_lowered_translate_tracks_play_as_the_engine_samples() {
+    lowered_matches_engine(false, 0x9e37_79b9_7f4a_7c15, 80);
+}
+
+/// Colour tracks, sampled every sixteenth between their keys.
+#[test]
+fn random_lowered_colour_tracks_play_as_the_engine_samples() {
+    lowered_matches_engine(true, 0x2545_f491_4f6c_dd1d, 60);
+}

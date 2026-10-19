@@ -32,6 +32,8 @@ final class RouteController: UIViewController {
     weak var collapseScroll: NodeView?
     /// The physical scroller bound to UIKit; a node can replace its backend.
     var collapseScrollView: UIScrollView?
+    /// Its insets were last taken with no bar shown (LLP 1130 D3), so a title's are measured afresh.
+    var insetsBarless = false
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
@@ -214,6 +216,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     weak var tablistRoot: RouteController?
     var tablistHidBar = false
     var tabItems: [String] = []
+    /// The tabs and stacks the items were last made from, made again when
+    /// the size class (a path glyph's size) changes.
+    var tabItemsSource: (NavigationTabs, [UINavigationController])?
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()

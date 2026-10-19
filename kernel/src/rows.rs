@@ -28,6 +28,26 @@ fn wrote(node: &NodeRef<'_>, width: StyleId, line: StyleId) -> bool {
     node.style.written.has(width) || node.style.written.has(line)
 }
 
+/// Whether the platform's line between a row and the row after it gives
+/// way to their author: `row` (the box that draws it, a windowed list's
+/// wrapper included) is hidden from assistive technology or wrote
+/// `channel`, the row the web's sheet draws the line with; or the author's
+/// box for it (`own`) wrote its bottom edge, or the next row's (`next`) its
+/// top edge: a width or a style, `none` included. The author's separator
+/// wins, and so does the author's "no separator here". A list's rows and a
+/// grouped list's (`Kernel::grouped_separator`) are told by this one rule.
+pub(crate) fn yields(
+    row: &NodeRef<'_>,
+    own: Option<&NodeRef<'_>>,
+    next: Option<&NodeRef<'_>>,
+    channel: StyleId,
+) -> bool {
+    row.props.bool(PropId::AccessibilityElementsHidden) == Some(true)
+        || row.style.written.has(channel)
+        || own.is_some_and(|n| wrote(n, StyleId::BorderWidthBottom, StyleId::BorderStyleBottom))
+        || next.is_some_and(|n| wrote(n, StyleId::BorderWidthTop, StyleId::BorderStyleTop))
+}
+
 impl Kernel {
     /// The list `id` is a row of: its parent, when that is a `list` whose
     /// rows are cells.
@@ -71,15 +91,11 @@ impl Kernel {
         else {
             return false;
         };
-        if row.props.bool(PropId::AccessibilityElementsHidden) == Some(true)
-            || row.style.written.has(StyleId::BoxShadow)
-        {
-            return false;
-        }
-        let own = authored(self, &row)
-            .is_some_and(|n| wrote(&n, StyleId::BorderWidthBottom, StyleId::BorderStyleBottom));
-        let after = authored(self, &next)
-            .is_some_and(|n| wrote(&n, StyleId::BorderWidthTop, StyleId::BorderStyleTop));
-        !own && !after
+        !yields(
+            &row,
+            authored(self, &row).as_ref(),
+            authored(self, &next).as_ref(),
+            StyleId::BoxShadow,
+        )
     }
 }

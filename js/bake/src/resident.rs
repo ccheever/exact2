@@ -147,13 +147,13 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const { configure, check, bundleOptions, capturedSources } = await import(resolve(stage,'__exact_config.mjs'));
+  const { configure, check, dataBundle } = await import(resolve(stage,'__exact_config.mjs'));
   configure(stage, true, parseSync);
   const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {
-  const bundle=await rolldown({...bundleOptions,cwd:stage,input:resolve(stage,'__exact_entry.ts'),
-    tsconfig:config,plugins:[capturedSources(stage)]});
+  const bundle=await rolldown({...dataBundle(stage),cwd:stage,input:resolve(stage,'__exact_entry.ts'),
+    tsconfig:config});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
   process.stdout.write('{"phase":"bundled"}\n');

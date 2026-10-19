@@ -3,15 +3,15 @@
 // colour at probes, text's appearance, and pixels. Then the detection test (§3 O1): each specimen against itself
 // passes, and each planted defect fails.
 //
-//   bun host/android/reference/oracle.mjs [--out <dir>] [--compare]
+//   bun host/android/reference/oracle.mjs [--out <dir>] [--compare] [--phone <serial>]
 //
 // Without --compare it draws both sides first: the reference through Gradle (JAVA_HOME a JDK 21, ANDROID_HOME the
 // SDK) and Exact through Cargo, given the reference's own fonts (Robolectric's, from Gradle's cache). It writes
 // report.json and report.html into the out directory (default: host/android/reference/build/oracle) and exits 1
 // when the detection test fails. The comparison of the two sides reports and does not fail: no component is matched
-// yet (D7).
+// yet (D7). With --phone it then calibrates on the adb device of that serial (D4; `phone` below).
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { crop, decodePng, encodePng } from '../../../scripts/png.mjs';
@@ -70,6 +70,7 @@ function main() {
   console.log(`Compose against Exact: ${failing.length} of ${report.comparisons.length} specimens differ`);
   for (const c of failing) console.log(`  ${c.name}: ${summary(c)}`);
   console.log(`report: ${relative(process.cwd(), join(out, 'report.html'))}`);
+  if (option('--phone')) phone(option('--phone'));
   process.exit(missed.length ? 1 : 0);
 }
 
@@ -163,11 +164,12 @@ function findJar(dir) {
 
 // ---------------------------------------------------------------------------------------------------- one comparison
 
-function compare(name, specimen, scheme, [refSide, candSide], candName = name) {
-  const ref = load(refSide, name);
-  const cand = load(candSide, candName);
+/** `in_` is where the two sides' pictures are and the colours they were drawn in: the build box's, or a phone pair's. */
+function compare(name, specimen, scheme, [refSide, candSide], candName = name, in_ = { dir: out, schemes }) {
+  const ref = load(in_.dir, refSide, name);
+  const cand = load(in_.dir, candSide, candName);
   const density = manifest.density;
-  const ground = argb(schemes[scheme].surface);
+  const ground = argb(in_.schemes[scheme].surface);
   const layers = {};
   const rv = visual(ref, ground, density);
   const cv = visual(cand, ground, density);
@@ -220,7 +222,7 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name) {
   });
   layers.text = { ok: inks.every((t) => t.ok), items: inks };
   // Pixels, over each side's crop round its layout box, text masked.
-  const px = pixels(ref, cand, texts, density, `${refSide}-${candSide}.${candName}`);
+  const px = pixels(ref, cand, texts, density, `${refSide}-${candSide}.${candName}`, in_.dir);
   layers.pixels = { ok: px.share <= LIMIT.pixels, share: round(px.share, 4), heat: px.heat, crops: px.crops };
   return { name: candName === name ? name : `${name} ← ${candName}`, sides: [refSide, candSide], layers };
 }
@@ -239,9 +241,9 @@ function summary(c) {
   return bad.join('; ');
 }
 
-function load(side, name) {
-  const png = decodePng(readFileSync(join(out, side, `${name}.png`)));
-  const facts = JSON.parse(readFileSync(join(out, side, `${name}.json`), 'utf8'));
+function load(dir, side, name) {
+  const png = decodePng(readFileSync(join(dir, side, `${name}.png`)));
+  const facts = JSON.parse(readFileSync(join(dir, side, `${name}.json`), 'utf8'));
   return { png, facts };
 }
 
@@ -335,11 +337,17 @@ function ink(png, box, density) {
 
 // ----------------------------------------------------------------------------------------------------------- pixels
 
-function pixels(ref, cand, texts, density, file) {
-  const region = (side) => pxRect(grow(side.facts.layout, MARGIN), density, side.png);
-  const [ax, ay, ax1, ay1] = region(ref);
-  const [bx, by, bx1, by1] = region(cand);
-  const w = Math.min(ax1 - ax, bx1 - bx), h = Math.min(ay1 - ay, by1 - by);
+function pixels(ref, cand, texts, density, file, dir) {
+  // Each side's crop starts at its own layout box less the margin, and both keep only what is inside both pictures,
+  // so that a box near one picture's edge (a top bar under a status bar on one side only) is cut alike on both.
+  const start = (side) => [Math.round((side.facts.layout.x - MARGIN) * density), Math.round((side.facts.layout.y - MARGIN) * density)];
+  const size = (side) => [Math.round((side.facts.layout.w + 2 * MARGIN) * density), Math.round((side.facts.layout.h + 2 * MARGIN) * density)];
+  const [[ax0, ay0], [bx0, by0]] = [start(ref), start(cand)];
+  const [[aw, ah], [bw, bh]] = [size(ref), size(cand)];
+  const x0 = Math.max(0, -ax0, -bx0), y0 = Math.max(0, -ay0, -by0);
+  const x1 = Math.min(aw, bw, ref.png.width - ax0, cand.png.width - bx0);
+  const y1 = Math.min(ah, bh, ref.png.height - ay0, cand.png.height - by0);
+  const [ax, ay, bx, by, w, h] = [ax0 + x0, ay0 + y0, bx0 + x0, by0 + y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0)];
   const a = crop(ref.png, ax, ay, w, h), b = crop(cand.png, bx, by, w, h);
   const masked = new Uint8Array(w * h);
   for (const t of texts) for (const [box, ox, oy] of [[t.ref, ax, ay], [t.cand, bx, by]]) {
@@ -356,12 +364,222 @@ function pixels(ref, cand, texts, density, file) {
     const d = de2000(lab(ca), lab(cb));
     if (d > 5) { over++; heat.set([255, Math.max(0, 200 - d * 4), 0, 255], i * 4); } else heat.set([grey, grey, grey, 255], i * 4);
   }
-  mkdirSync(join(out, 'crops'), { recursive: true });
+  mkdirSync(join(dir, 'crops'), { recursive: true });
   const names = ['a', 'b', 'heat'].map((k) => `crops/${file}.${k}.png`);
-  writeFileSync(join(out, names[0]), encodePng(a));
-  writeFileSync(join(out, names[1]), encodePng(b));
-  writeFileSync(join(out, names[2]), encodePng({ width: w, height: h, data: heat }));
+  writeFileSync(join(dir, names[0]), encodePng(a));
+  writeFileSync(join(dir, names[1]), encodePng(b));
+  writeFileSync(join(dir, names[2]), encodePng({ width: w, height: h, data: heat }));
   return { share: counted ? over / counted : 0, heat: names[2], crops: names.slice(0, 2) };
+}
+
+// ------------------------------------------------------------------------------------------------------------ phone
+
+/**
+ * D4's calibration on a phone, after the build box's run: each specimen drawn by the catalogue (`:reference`'s debug
+ * APK) in Material's baseline scheme, twice, and in the phone's dynamic one; and by the specimen app on the reader
+ * (`agent-android.mjs --reader`, the specimen's plan pushed), twice, in the phone's colours, which the door is then
+ * told for a headless drawing of its own. Light and dark, by the phone's night mode, which is put back. Five pairs
+ * are compared, each layer's largest difference over them written to phone/floors.json and printed: Compose on the
+ * JVM against the phone, and its repeat; Exact headless against the reader, and its repeat; and Compose against
+ * Exact, both on the phone. The phone renders name no text boxes: each is compared at its side's headless ones,
+ * placed where the phone put the specimen (the catalogue's whole screen; the reader's page, below the status bar the
+ * phone reports, its bars where its state has them).
+ */
+function phone(serial) {
+  const dir = join(out, 'phone');
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(join(dir, 'plans'), { recursive: true });
+  const env = { ...process.env, ANDROID_SERIAL: serial };
+  const sdk = env.ANDROID_HOME ?? join(homedir(), 'Android/Sdk');
+  const tool = existsSync(join(sdk, 'platform-tools/adb')) ? join(sdk, 'platform-tools/adb') : 'adb';
+  const adb = (...a) => {
+    const r = spawnSync(tool, ['-s', serial, ...a], { maxBuffer: 1 << 28 });
+    if (r.status !== 0) throw new Error(`adb ${a.join(' ')}: ${r.stderr}`);
+    return r.stdout;
+  };
+  const text = (...a) => adb(...a).toString('utf8');
+  run('./gradlew', [':reference:assembleDebug', '-q'], join(root, 'host/android'));
+  adb('install', '-r', join(root, 'host/android/reference/build/outputs/apk/debug/reference-debug.apk'));
+  run('bun', ['scripts/agent-android.mjs', 'build', 'material-specimens', '--apk'], root, env);
+  const specimens = join(root, 'apps/material-specimens/specimens');
+  for (const s of manifest.specimens) {
+    run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(specimens, `${s.id}.contract`), '-o', join(dir, 'plans', `${s.id}.plan`)], root);
+  }
+  // Where the reader's page is: below the status bar and above the navigation bar, as the phone reports them.
+  const windows = text('shell', 'dumpsys', 'window');
+  const bar = (type) => windows.match(new RegExp(String.raw`type=${type} frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]`))?.slice(1).map(Number);
+  const [status, navigation] = [bar('statusBars'), bar('navigationBars')];
+  if (!status || !navigation) throw new Error('dumpsys window names no status or navigation bar');
+  const night = text('shell', 'cmd', 'uimode', 'night').match(/Night mode: (\w+)/)?.[1] ?? 'no';
+  const dynamic = {};
+  const wait = (done, what) => {
+    for (const end = Date.now() + 30000; Date.now() < end; Bun.sleepSync(100)) if (done()) return;
+    throw new Error(`${what}: not in 30 s`);
+  };
+  // The catalogue: one specimen, `variant` the scheme it is told, a picture once it says it has settled.
+  const catalogue = (id, variant, file) => {
+    const nonce = `${id}.${variant}.${Date.now()}`;
+    adb('logcat', '-c');
+    adb('shell', 'am', 'force-stop', 'dev.exact.reference');
+    adb('shell', 'am', 'start', '-W', '-n', 'dev.exact.reference/.Catalogue', '--es', 'id', id, '--es', 'scheme', variant, '--es', 'nonce', nonce);
+    let log = '';
+    wait(() => (log = text('logcat', '-d', '-s', 'reference:I')).includes(`drawn ${nonce}`), `the catalogue's ${id}`);
+    writeFileSync(file, adb('exec-out', 'screencap', '-p'));
+    // The phone's dynamic schemes, which each launch logs, for the door.
+    for (const [, which, roles] of log.matchAll(/dynamic (light|dark) (\S+)/g)) {
+      dynamic[which] = Object.fromEntries(roles.split(',').map((kv) => kv.split('=')).map(([k, v]) => [k, Number(v)]));
+    }
+  };
+  // The reader: the specimen's plan, pushed it if pushes, focused if focused, settled, its boxes and a picture.
+  const reader = (s, file) => {
+    const source = readFileSync(join(specimens, `${s.id}.contract`), 'utf8');
+    const ops = [...(source.includes('testId="push"') ? ['tap push'] : []), ...(s.id.endsWith('-focused') ? ['tap specimen'] : []),
+      'clock settle', 'tree', 'layout', 'state', `screenshot ${file}`];
+    // A drive whose app never answered is tried once more: the reader is sometimes slow to open its socket.
+    let r, replies;
+    for (let tries = 0; tries < 2; tries++) {
+      r = spawnSync('bun', ['scripts/agent.mjs', 'android', '--reader', '--app', 'material-specimens', '--plan',
+        join(dir, 'plans', `${s.id}.plan`), '--json', ...ops], { cwd: root, env, encoding: 'utf8', maxBuffer: 1 << 28 });
+      replies = r.stdout.split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
+      if (r.status === 0 && !replies.some((x) => x.error)) break;
+    }
+    if (r.status !== 0 || replies.some((x) => x.error)) throw new Error(`the reader's ${s.id}: ${r.stderr.slice(-800)}`);
+    const tree = replies.find((x) => x.nodes && x.roots), layout = replies.find((x) => x.viewport), state = replies.find((x) => x.bars);
+    const node = tree.nodes.find((n) => n.props?.testId === 'specimen');
+    return { box: node && layout.nodes.find((n) => n.id === node.id), bars: state.bars };
+  };
+  const captured = {};
+  try {
+    adb('logcat', '-c');
+    for (const scheme of manifest.schemes) {
+      adb('shell', 'cmd', 'uimode', 'night', scheme === 'dark' ? 'yes' : 'no');
+      adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
+      adb('shell', 'wm', 'dismiss-keyguard');
+      for (const s of manifest.specimens) {
+        const name = `${s.id}.${scheme}`;
+        console.log(`phone: ${name}`);
+        for (const [side, variant] of [['compose', scheme], ['compose-again', scheme], ['compose-dynamic', `dynamic-${scheme}`]]) {
+          mkdirSync(join(dir, side), { recursive: true });
+          catalogue(s.id, variant, join(dir, side, `${name}.png`));
+        }
+        for (const side of ['reader', 'reader-again']) {
+          mkdirSync(join(dir, side), { recursive: true });
+          captured[`${side}/${name}`] = reader(s, join(dir, side, `${name}.png`));
+        }
+      }
+    }
+  } finally {
+    adb('shell', 'cmd', 'uimode', 'night', night);
+    adb('shell', 'am', 'force-stop', 'dev.exact.reference');
+  }
+  // What the reader reported of each capture: the specimen's box in its page, and its bars.
+  writeFileSync(join(dir, 'captured.json'), JSON.stringify(captured, null, 1));
+  // Exact headless in the phone's dynamic schemes, at the phone's window.
+  const headless = join(dir, 'headless');
+  mkdirSync(join(headless, 'compose'), { recursive: true });
+  writeFileSync(join(headless, 'schemes.json'), JSON.stringify(dynamic, null, 2));
+  for (const f of readdirSync(join(dir, 'reader'))) cpSync(join(dir, 'reader', f), join(headless, 'compose', f));
+  run('cargo', ['run', '-q', '-p', 'material-specimens-linux', '--', join(here, 'specimens.json'), specimens, headless,
+    join(headless, 'exact')], root, { EXACT_FONTS: join(out, 'fonts'), EXACT_FONT: 'Roboto' });
+  // Each side's facts on the phone. The catalogue's are the JVM's, a bar at the window's foot moved by what the JVM's
+  // window lacks of the phone's; the reader's are its headless ones, moved to where it drew the specimen.
+  const density = manifest.density;
+  const facts = (side, name) => JSON.parse(readFileSync(join(side, `${name}.json`), 'utf8'));
+  const moved = (f, dx, dy) => {
+    const g = structuredClone(f);
+    g.layout.x += dx; g.layout.y += dy;
+    for (const t of g.texts ?? []) { t.box.x += dx; t.box.y += dy; for (const l of t.lines ?? []) { l.top += dy; l.bottom += dy; l.baseline += dy; } }
+    return g;
+  };
+  const height = (file) => decodePng(readFileSync(file)).height / density;
+  const composeFacts = (name) => {
+    const f = facts(join(out, 'compose'), name);
+    const jvm = height(join(out, 'compose', `${name}.png`)), screen = height(join(dir, 'compose', `${name}.png`));
+    return Math.abs(f.layout.y + f.layout.h - jvm) < 1 ? moved(f, 0, screen - jvm) : f;
+  };
+  const readerFacts = (side, s, scheme) => {
+    const name = `${s.id}.${scheme}`, f = facts(join(headless, 'exact'), name), at = captured[`${side}/${name}`];
+    if (s.id.startsWith('top-app-bar')) return moved(f, 0, status[3] / density);
+    if (s.id === 'navigation-bar') return moved(f, 0, at.bars.bottom.frame.y - f.layout.y);
+    // Its box as the phone laid it out: where, and its size.
+    const g = moved(f, at.box.x - f.layout.x, at.box.y + status[3] / density - f.layout.y);
+    return { ...g, layout: { x: at.box.x, y: at.box.y + status[3] / density, w: at.box.w, h: at.box.h } };
+  };
+  const pairs = {
+    'compose-jvm-phone': { schemes: JSON.parse(readFileSync(join(out, 'schemes.json'), 'utf8')),
+      ref: (n) => [join(out, 'compose', `${n}.png`), facts(join(out, 'compose'), n)], cand: (n) => [join(dir, 'compose', `${n}.png`), composeFacts(n)] },
+    'compose-phone-phone': { schemes: JSON.parse(readFileSync(join(out, 'schemes.json'), 'utf8')),
+      ref: (n) => [join(dir, 'compose', `${n}.png`), composeFacts(n)], cand: (n) => [join(dir, 'compose-again', `${n}.png`), composeFacts(n)] },
+    'exact-headless-reader': { schemes: dynamic,
+      ref: (n) => [join(headless, 'exact', `${n}.png`), facts(join(headless, 'exact'), n)], cand: (n, s, sc) => [join(dir, 'reader', `${n}.png`), readerFacts('reader', s, sc)] },
+    'exact-reader-reader': { schemes: dynamic,
+      ref: (n, s, sc) => [join(dir, 'reader', `${n}.png`), readerFacts('reader', s, sc)], cand: (n, s, sc) => [join(dir, 'reader-again', `${n}.png`), readerFacts('reader-again', s, sc)] },
+    'compose-exact-phone': { schemes: dynamic,
+      ref: (n) => [join(dir, 'compose-dynamic', `${n}.png`), composeFacts(n)], cand: (n, s, sc) => [join(dir, 'reader', `${n}.png`), readerFacts('reader', s, sc)] },
+  };
+  const floors = {}, differ = {};
+  for (const [pair, p] of Object.entries(pairs)) {
+    const at = join(dir, 'pairs', pair);
+    for (const side of ['compose', 'exact']) mkdirSync(join(at, side), { recursive: true });
+    const comparisons = [];
+    for (const s of manifest.specimens) for (const scheme of manifest.schemes) {
+      const name = `${s.id}.${scheme}`;
+      const [[refPng, refFacts], [candPng, candFacts]] = [p.ref(name, s, scheme), p.cand(name, s, scheme)];
+      // Where each side's window put the component is no tell (a page under a status bar, or the whole screen): the
+      // candidate is moved so that its layout box starts where the reference's does, and the rest is compared.
+      const [dx, dy] = ['x', 'y'].map((k) => Math.round((refFacts.layout[k] - candFacts.layout[k]) * density));
+      cpSync(refPng, join(at, 'compose', `${name}.png`));
+      writeFileSync(join(at, 'compose', `${name}.json`), JSON.stringify(refFacts, null, 2));
+      writeFileSync(join(at, 'exact', `${name}.png`), encodePng(shifted(decodePng(readFileSync(candPng)), dx, dy)));
+      writeFileSync(join(at, 'exact', `${name}.json`), JSON.stringify(moved(candFacts, dx / density, dy / density), null, 2));
+      comparisons.push(compare(name, s, scheme, ['compose', 'exact'], name, { dir: at, schemes: p.schemes }));
+    }
+    floors[pair] = largest(comparisons);
+    differ[pair] = comparisons.filter(failed).map((c) => `${c.name}: ${summary(c)}`);
+  }
+  writeFileSync(join(dir, 'floors.json'), JSON.stringify({ serial, limits: LIMIT, floors, differ }, null, 2));
+  const layers = [...new Set(Object.values(floors).flatMap(Object.keys))].sort();
+  console.log(`\nphone ${serial}: each layer's largest difference (phone/floors.json)`);
+  console.log(['layer'.padEnd(22), ...Object.keys(pairs).map((k) => k.padStart(22))].join(''));
+  for (const l of layers) console.log([l.padEnd(22), ...Object.keys(pairs).map((k) => String(floors[k][l]?.value ?? '').padStart(22))].join(''));
+  for (const [pair, list] of Object.entries(differ)) {
+    console.log(`${pair}: ${list.length} of ${manifest.specimens.length * manifest.schemes.length} differ`);
+    for (const d of list) console.log(`  ${d}`);
+  }
+}
+
+/** `png` moved by whole pixels, what comes in from its edge its edge's colour. */
+function shifted(png, dx, dy) {
+  const { width: w, height: h } = png, data = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const sy = Math.max(0, Math.min(h - 1, y - dy));
+    for (let x = 0; x < w; x++) {
+      const sx = Math.max(0, Math.min(w - 1, x - dx));
+      data.set(png.data.subarray((sy * w + sx) * 4, (sy * w + sx) * 4 + 4), (y * w + x) * 4);
+    }
+  }
+  return { width: w, height: h, data };
+}
+
+/** Each layer's largest difference over `comparisons`, and where: D4's floor of a pair of renders. */
+function largest(comparisons) {
+  const kind = (what) => (/^(layout|visual|corner)/.test(what) ? what.split(' ')[0] : / baseline /.test(what) ? 'baseline'
+    : / lines$/.test(what) ? 'lines' : what.startsWith('text') ? 'text box' : what);
+  const out = {};
+  const put = (k, v, where) => { if (v != null && !Number.isNaN(v) && !(v <= out[k]?.value)) out[k] = { value: round(v, 3), where }; };
+  for (const c of comparisons) {
+    for (const g of c.layers.geometry.items) {
+      if (typeof g.reference === 'number' && typeof g.candidate === 'number') put(`geometry ${kind(g.what)}`, Math.abs(g.reference - g.candidate), `${c.name} ${g.what}`);
+      else if (g.note) put('missing', 1, `${c.name} ${g.what}`);
+    }
+    for (const p of c.layers.probes.items) put('probe ΔE', p.deltaE, `${c.name} ${p.what}`);
+    for (const t of c.layers.text.items) {
+      put('ink ΔE', t.deltaE, `${c.name} ${t.what}`);
+      put('coverage', Math.abs(t.coverageReference - t.coverageCandidate) / Math.max(t.coverageReference, t.coverageCandidate, 1e-6), `${c.name} ${t.what}`);
+    }
+    put('pixels', c.layers.pixels.share, c.name);
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------------------------------------------------ colour

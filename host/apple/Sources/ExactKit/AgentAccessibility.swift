@@ -458,7 +458,7 @@ extension Presenter {
             let vp = viewport
             if let window = vp.window {
                 let r = vp.convert(frame, from: window.screen.coordinateSpace)
-                e["frame"] = ["x": round2(r.minX - vp.contentOffset.x), "y": round2(r.minY - vp.contentOffset.y), "w": round2(r.width), "h": round2(r.height), "source": "element"]
+                e["frame"] = ["x": round2(r.minX - vp.pageOrigin.x), "y": round2(r.minY - vp.pageOrigin.y), "w": round2(r.width), "h": round2(r.height), "source": "element"]
             }
         }
         #else

@@ -264,6 +264,12 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
                     continue;
                 }
+                if r.request.url == "exact-activity:" {
+                    if let Ok(request) = std::str::from_utf8(&r.request.body) {
+                        presenter.activity(r.ticket, request);
+                    }
+                    continue;
+                }
                 if r.request.is_auth() {
                     Self::auth_arm(h, x, &mut presenter, &r);
                     continue;
@@ -514,7 +520,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 plan,
@@ -825,7 +831,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 PlanBytes::input(&plan, entry),
@@ -1250,6 +1256,18 @@ impl<D: DataSource> Bridge<D> {
             .as_mut()
             .map_or_else(not_booted, |h| h.resize(width, height));
         self.emit(out)
+    }
+
+    /// A placement root's margins and its width's authorship (LLP 1126.001
+    /// WP10): a measurement, written to the output as it is, with no batch
+    /// around it (`emit` prepends the presenter's pending ops to a batch).
+    pub fn placement_box(&mut self, view: u32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.placement_box(view));
+        self.output = out.into_bytes();
+        self.output.len() as u32
     }
 
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0

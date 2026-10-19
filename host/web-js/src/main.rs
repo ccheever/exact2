@@ -390,7 +390,7 @@ fn main() -> ExitCode {
             }
             Err(errors) => {
                 for e in errors {
-                    eprintln!("{e}");
+                    eprintln!("{e}{}", contract::excerpt(&e));
                 }
                 return ExitCode::from(1);
             }
@@ -513,6 +513,16 @@ fn main() -> ExitCode {
                         serde_json::json!(table).to_string(),
                     );
                 }
+            }
+            // A native module's names and extensions (modules.js): the build
+            // writes each extension's web implementation beside the app.
+            let _ = std::fs::remove_file(dir.join("modules.flag"));
+            if !plan.modules.is_empty() {
+                let sources: Vec<&str> = (plan.modules.iter())
+                    .map(|m| plan.str(plan.sources[m.source.0 as usize].name))
+                    .collect();
+                let flag = serde_json::json!({ "extensions": facts::extensions(&plan), "sources": sources });
+                let _ = std::fs::write(dir.join("modules.flag"), flag.to_string());
             }
             // `wakelock` (wakelock.js, LLP 1125 D11).
             let _ = std::fs::remove_file(dir.join("wakelock.flag"));

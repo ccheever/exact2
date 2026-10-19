@@ -42,7 +42,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/linked-plan.mjs']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -681,3 +681,29 @@ test('app update reports lock drift without changing it, and the app lock verb r
     assert.match(again.stdout, /current; no changes/);
   } finally { rmSync(scratch, {recursive:true,force:true}); }
 }, 60_000);
+
+// LLP 1133.001 D9: what is installed is what bun.lock says. A registry package installed at another
+// version, or missing, is named; a workspace's, a platform's own, and a nested install are not compared.
+test('a node_modules that differs from bun.lock is named by package', async () => {
+  const { lockMismatches } = await import('./filesystem.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-lock-'));
+  try {
+    writeFileSync(resolve(dir, 'bun.lock'), `{
+  "lockfileVersion": 1,
+  "packages": {
+    "@exact/reading": ["@exact/reading@workspace:packages/reading"],
+    "left": ["left@1.2.3", "", {}, "sha512-x"],
+    "gone": ["gone@2.0.0", "", {}, "sha512-y"],
+    "same": ["same@1.0.0", "", {}, "sha512-z"],
+    "tool-linux-x64": ["tool-linux-x64@1.0.0", "", { "os": "linux", "cpu": "x64" }, "sha512-w"],
+    "same/nested": ["nested@9.9.9", "", {}, "sha512-v"],
+  },
+}
+`);
+    for (const [name, version] of [['left', '1.0.0'], ['same', '1.0.0']]) {
+      mkdirSync(resolve(dir, 'node_modules', name), { recursive: true });
+      writeFileSync(resolve(dir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version }));
+    }
+    assert.deepEqual(lockMismatches(dir), ['left 1.0.0, bun.lock 1.2.3', 'gone missing, bun.lock 2.0.0']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

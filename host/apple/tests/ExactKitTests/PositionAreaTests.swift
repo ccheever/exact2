@@ -33,11 +33,12 @@ final class PositionAreaTests: XCTestCase {
         XCTAssertEqual(at("center", .init(top: 10)), CGPoint(x: 80, y: 190), "the taller margin box centred")
     }
 
-    /// CSS shifts an anchor-centred axis; the native default retains its clamp.
-    func testCentredAxesShiftButAnAuthoredEdgeCanOverflow() {
+    /// CSS shifts an anchor-centred axis, and an overflowing edge back over
+    /// the top and left edges; the native default retains its clamp.
+    func testCentredAxesAndStartEdgesShift() {
         let high = CGRect(x: 0, y: 20, width: 40, height: 30)
-        XCTAssertEqual(PositionArea.origin("top", anchor: high, size: size, margins: .init(bottom: 12, left: 6), in: layer),
-                       CGPoint(x: 6, y: -52), "only the centred horizontal axis shifts into the viewport")
+        XCTAssertEqual(PositionArea.origin("top", anchor: high, size: size, margins: .init(bottom: 12, left: 6), overflow: .absolute(page: layer), in: layer),
+                       CGPoint(x: 6, y: 0), "no option fits: the margin box is shifted down to the top edge")
         let low = CGRect(x: 380, y: 570, width: 20, height: 30)
         XCTAssertEqual(PositionArea.origin("none", anchor: low, size: size, margins: .init(right: 5, bottom: 5), in: layer),
                        CGPoint(x: 275, y: 535), "held at the bottom and right edges, its margins inside them")
@@ -47,7 +48,7 @@ final class PositionAreaTests: XCTestCase {
         let box = CGSize(width: 322, height: 122)
         let tries = "flip-block, flip-inline, flip-block flip-inline"
         func at(_ area: String, _ anchor: CGRect, _ fallback: String = "none", _ bounds: CGRect? = nil) -> CGPoint {
-            PositionArea.origin(area, anchor: anchor, size: box, fallbacks: fallback, in: bounds ?? viewport)
+            PositionArea.origin(area, anchor: anchor, size: box, fallbacks: fallback, overflow: .absolute(page: bounds ?? viewport), in: bounds ?? viewport)
         }
         let low = CGRect(x: 332, y: 560, width: 80, height: 32)
         XCTAssertEqual(at("bottom span-right", low), CGPoint(x: 332, y: 592))
@@ -71,7 +72,7 @@ final class PositionAreaTests: XCTestCase {
                                      fallbacks: "flip-block, flip-inline, flip-block flip-inline", in: viewport)
         XCTAssertEqual(at, CGPoint(x: 85, y: 428))
         let tooWide = PositionArea.origin("bottom span-right", anchor: low, size: box,
-                                          margins: .init(left: 110), fallbacks: "flip-block flip-inline", in: viewport)
+                                          margins: .init(left: 110), fallbacks: "flip-block flip-inline", overflow: .absolute(page: viewport), in: viewport)
         XCTAssertEqual(tooWide, CGPoint(x: 442, y: 592), "the border box alone fitting is insufficient")
     }
 
@@ -81,7 +82,7 @@ final class PositionAreaTests: XCTestCase {
         let size = CGSize(width: 322, height: 122)
         let tries = "flip-block, flip-inline, flip-block flip-inline"
         func at(_ width: CGFloat, _ height: CGFloat, _ list: String) -> CGPoint {
-            PositionArea.origin("bottom span-right", anchor: low, size: size, fallbacks: list, history: &history,
+            PositionArea.origin("bottom span-right", anchor: low, size: size, fallbacks: list, overflow: .absolute(page: CGRect(x: 0, y: 0, width: width, height: height)), history: &history,
                                 in: CGRect(x: 0, y: 0, width: width, height: height))
         }
         XCTAssertEqual(at(420, 600, tries), CGPoint(x: 90, y: 438))
@@ -90,4 +91,80 @@ final class PositionAreaTests: XCTestCase {
         XCTAssertEqual(at(800, 800, "none"), CGPoint(x: 332, y: 592), "a changed list clears the remembered option")
     }
 
+    /// `flip-start` mirrors across the top-left/bottom-right diagonal, and an
+    /// attempt's flips apply in the order written. Chrome 155's rectangles.
+    func testFlipStartComposesInOrder() {
+        let viewport = CGRect(x: 0, y: 0, width: 420, height: 600)
+        let box = CGSize(width: 122, height: 122)
+        func at(_ area: String, _ x: CGFloat, _ y: CGFloat, _ fallback: String, _ m: PositionArea.Margins = .init()) -> CGPoint {
+            PositionArea.origin(area, anchor: CGRect(x: x, y: y, width: 80, height: 32), size: box, margins: m,
+                                fallbacks: fallback, overflow: .absolute(page: viewport), in: viewport)
+        }
+        XCTAssertEqual(at("bottom span-right", 8, 500, "flip-start flip-block"), CGPoint(x: 88, y: 410), "right span-top")
+        XCTAssertEqual(at("bottom span-right", 8, 500, "flip-block flip-start"), CGPoint(x: 8, y: 532), "left span-bottom does not fit")
+        XCTAssertEqual(at("bottom span-right", 8, 500, "flip-start flip-block", .init(top: 1, right: 2, bottom: 3, left: 4)),
+                       CGPoint(x: 89, y: 406), "top and left margins exchange, then top and bottom")
+        XCTAssertEqual(at("bottom", 8, 540, "flip-start"), CGPoint(x: 88, y: 478), "right, its centred axis shifted")
+        XCTAssertEqual(at("top", 8, 8, "flip-start, flip-block"), CGPoint(x: 0, y: 40))
+        XCTAssertEqual(at("bottom span-right", 332, 500, "flip-inline flip-start flip-block, flip-start flip-inline flip-block"),
+                       CGPoint(x: 210, y: 410), "the second order fits")
+    }
+
+    /// No option fits: a fixed box is shifted inside every edge, an absolute
+    /// one inside the top and left edges only (Chrome 155).
+    func testNoFittingOptionShiftsIntoTheContainingBlock() {
+        let viewport = CGRect(x: 0, y: 0, width: 420, height: 600)
+        let square = CGSize(width: 122, height: 122), wide = CGSize(width: 322, height: 122)
+        let low = CGRect(x: 332, y: 560, width: 80, height: 32)
+        XCTAssertEqual(PositionArea.origin("top span-left", anchor: CGRect(x: 200, y: 8, width: 80, height: 32), size: square,
+                                           margins: .init(top: 3, left: 5), fallbacks: "flip-start", overflow: .absolute(page: viewport), in: viewport),
+                       CGPoint(x: 158, y: 3))
+        XCTAssertEqual(PositionArea.origin("left", anchor: CGRect(x: 8, y: 300, width: 80, height: 32), size: square,
+                                           fallbacks: "flip-start", overflow: .absolute(page: viewport), in: viewport), CGPoint(x: 0, y: 178))
+        XCTAssertEqual(PositionArea.origin("bottom span-right", anchor: low, size: wide, overflow: .absolute(page: viewport), in: viewport), CGPoint(x: 332, y: 592))
+        XCTAssertEqual(PositionArea.origin("bottom span-right", anchor: low, size: wide, in: viewport), CGPoint(x: 98, y: 478))
+        XCTAssertEqual(PositionArea.origin("right", anchor: low, size: square, in: viewport), CGPoint(x: 298, y: 478))
+        XCTAssertEqual(PositionArea.origin("bottom span-right", anchor: CGRect(x: -10, y: 200, width: 80, height: 32), size: square, in: viewport),
+                       CGPoint(x: -10, y: 232), "the limit holds the area an invoker past the edge gives")
+        XCTAssertEqual(PositionArea.origin("left", anchor: CGRect(x: -60, y: 300, width: 80, height: 32), size: square, in: viewport),
+                       CGPoint(x: -60, y: 255), "the grid's outer line reaches the invoker")
+        XCTAssertEqual(PositionArea.origin("top", anchor: CGRect(x: 200, y: -10, width: 80, height: 32), size: square, in: viewport),
+                       CGPoint(x: 179, y: -10))
+        let scrolled = CGRect(x: 0, y: -100, width: 420, height: 1200), high = CGRect(x: 200, y: 8, width: 80, height: 32)
+        XCTAssertEqual(PositionArea.origin("top", anchor: high, size: square, overflow: .absolute(page: scrolled), in: viewport),
+                       CGPoint(x: 179, y: -100), "an absolute box is held at the page's top, not the window's")
+        XCTAssertEqual(PositionArea.origin("top", anchor: high, size: square, in: viewport), CGPoint(x: 179, y: 0))
+        XCTAssertEqual(PositionArea.origin("bottom span-right", anchor: low, size: wide, overflow: .platform, in: viewport),
+                       CGPoint(x: 332, y: 592), "a native menu's launch point is left to AppKit to fit")
+    }
+
+    /// A right-to-left document: `flip-start` mirrors across the diagonal from
+    /// the top-right corner, and the right edge holds an absolute box (Chrome 155).
+    func testRightToLeftFlipStartAndStartEdge() {
+        let viewport = CGRect(x: 0, y: 0, width: 420, height: 600), square = CGSize(width: 122, height: 122)
+        func at(_ area: String, _ x: CGFloat, _ y: CGFloat, _ fallback: String = "none", _ m: PositionArea.Margins = .init()) -> CGPoint {
+            PositionArea.origin(area, anchor: CGRect(x: x, y: y, width: 80, height: 32), size: square, margins: m, fallbacks: fallback,
+                                overflow: .absolute(page: viewport), rtl: true, in: viewport)
+        }
+        XCTAssertEqual(at("bottom span-left", 332, 500, "flip-start flip-block"), CGPoint(x: 210, y: 410), "left span-top")
+        XCTAssertEqual(at("bottom span-left", 332, 500, "flip-start flip-block", .init(top: 1, right: 2, bottom: 3, left: 4)),
+                       CGPoint(x: 209, y: 408), "top and right margins exchange, then top and bottom")
+        XCTAssertEqual(at("right", 332, 300), CGPoint(x: 298, y: 255))
+        XCTAssertEqual(at("left", 8, 300), CGPoint(x: -114, y: 255))
+    }
+
+    /// Changing `position` clears the remembered option (§6.5.1).
+    func testAPositionChangeClearsTheRememberedOption() {
+        var history = PositionArea.History()
+        let low = CGRect(x: 332, y: 560, width: 80, height: 32), size = CGSize(width: 322, height: 122)
+        let tries = "flip-block, flip-inline, flip-block flip-inline"
+        func at(_ side: CGFloat, _ overflow: PositionArea.Overflow) -> CGPoint {
+            let bounds = CGRect(x: 0, y: 0, width: side == 0 ? 420 : side, height: side == 0 ? 600 : side)
+            return PositionArea.origin("bottom span-right", anchor: low, size: size, fallbacks: tries, overflow: overflow,
+                                       history: &history, in: bounds)
+        }
+        XCTAssertEqual(at(0, .fixed), CGPoint(x: 90, y: 438))
+        XCTAssertEqual(at(800, .fixed), CGPoint(x: 90, y: 438), "kept while it fits")
+        XCTAssertEqual(at(800, .absolute(page: CGRect(x: 0, y: 0, width: 800, height: 800))), CGPoint(x: 332, y: 592), "the base fits again")
+    }
 }

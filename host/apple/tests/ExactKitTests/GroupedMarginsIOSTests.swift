@@ -6,9 +6,10 @@ import XCTest
 
 /// A grouped list's custom row starts where a standard row's text does: at
 /// its cell's layout margin, which UIKit widens from 16 to 20 points on a
-/// wide screen (the iPhone Duo's inner panel, an iPhone in landscape). The
-/// host tells the kernel the margins UIKit chose, again when they change,
-/// and the kernel lays the custom row out by them.
+/// wide screen (the iPhone Duo's inner panel, an iPhone in landscape); on
+/// the Duo's simulator it is 20 at both widths used here. The host tells
+/// the kernel the margins UIKit chose, again when they change, and the
+/// kernel lays the custom row out by them.
 final class GroupedMarginsIOSTests: XCTestCase {
     func testACustomRowStartsAtItsCellsMarginAsTheWidthChanges() throws {
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_GROUPED_REVEAL_PLAN"])
@@ -84,9 +85,12 @@ final class GroupedMarginsIOSTests: XCTestCase {
         XCTAssertNil(agent.reveal(["id": Int(button.id)])["error"])
         settle()
         let narrow = try starts()
-        XCTAssertEqual(narrow.margin, 16, "UIKit's cell margin at an iPhone's width")
         XCTAssertEqual(host.told[list.owner.id]?[2], narrow.margin)
         XCTAssertEqual(narrow.row, narrow.margin, accuracy: 0.5, "the custom row follows the margin that shows")
+        guard narrow.margin != wide.margin else {
+            throw XCTSkip("UIKit's list margin is \(narrow.margin) at both widths on this device (the iPhone Duo's), so a report sampled when it was owed would pass too")
+        }
+        XCTAssertEqual(narrow.margin, 16, "UIKit's cell margin at an iPhone's width")
     }
 }
 #endif

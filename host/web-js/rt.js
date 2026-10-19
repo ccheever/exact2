@@ -1,12 +1,11 @@
 export { liveTime } from "./live-time.js";
-import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
-// The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
-// by name, so an app's bundle carries only what its generated module uses.
+// The JS runtime is imported by name, so a bundle carries only what its generated plan uses.
 // Semantics kept from the runner (LLP 1005 §6):
 // - an action's writes land together at its commit (the VM collects
 //   `StoreSlot`s), then one synchronous flush updates the DOM, then its
@@ -143,7 +142,7 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
-class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
+export class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Why = "", Sched = null; // `Why`: the step the last commit was refused in and the exception's own words, cut (`why`): a boot refusal's reason (`mount`); the journal keeps them whole
 const why = (step, m, c = [...m]) => `while ${step}: ${c.length > WHY_MAX ? `${c.slice(0, WHY_MAX).join("")}… (${c.length - WHY_MAX} more characters in the journal)` : m}`, WHY_MAX = 300; // by code point; a write's value or a source's error may be long, or private
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
@@ -431,7 +430,8 @@ function closeLetGo() {
   }
 }
 function ask(source, args, name, mutation = false) {
-  let a; try { a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
+  if (["startActivity", "updateActivity", "endActivity"].includes(source)) throw new Refusal(`${source} is not linked into this artifact`);
+  let a; try { a = data.reserved?.[source] ? (v => v?.then ? v : { v })(data.reserved[source](source, args, name)) : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
   return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
@@ -616,7 +616,7 @@ let Release;
 const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
-  if (attrs?.["aria-keyshortcuts"] != null) input();
+  if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input(); // (a look snaps by its edges too, LLP 1121 D8)
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
@@ -653,8 +653,8 @@ function adopt(p, tag, cls, attrs) {
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
   p.$n = e.nextSibling; e.$exactTree = true;
   e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
-  // The renderer's inline style stays: it is the class's declarations and
-  // the live rows, which the node's style bindings rewrite as they change.
+  // Inline rows stay, except spinner alignment: its class follows the live parent.
+  if (attrs?.["data-exact-progress"] !== undefined) e.style.removeProperty("justify-self");
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
   if (attrs?.["data-exact-own-isolation"] === undefined && !e.hasAttribute("data-exact-own-isolation") && !e.hasAttribute("data-exact-policy") && e.style.isolation) e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
@@ -677,7 +677,7 @@ export function adoptRow(w, f) {
 const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback|autofocus)$/; // present means true: a bound `autofocus` false is no attribute (rows.rs writes the static one so)
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
-const Composing = new WeakSet(), Held = new WeakMap(), HeldTask = new WeakMap(); function writeValue(e, v) { if (!HeldTask.has(e) && (e.localName === "input" || e.localName === "textarea")) { HeldTask.set(e, 0); e.addEventListener("compositionstart", () => { clearTimeout(HeldTask.get(e)); Composing.add(e); }); e.addEventListener("compositionend", () => HeldTask.set(e, setTimeout(() => { Composing.delete(e); if (Held.has(e)) writeValue(e, Held.get(e)); }, 0))); } if (e.value !== v && Composing.has(e)) return Held.set(e, v); Held.delete(e); if (e.value !== v) e.value = v; } // the app's `value` never ends a composition (LLP 1115.000 §5, ruling 6; the wasm host's `writeValue`, glue.js): another value written while a field's text composes is held, the last one, and written when the composition has ended and its last `input` was heard.
+if (typeof addEventListener === "function") for (const [type, on] of [["compositionstart", true], ["compositionend", false]]) addEventListener(type, ev => { ev.target.exactComposing = on; }, true); /* which field composes, for a piece loaded later (LLP 1114.007) */ const Composing = new WeakSet(), Held = new WeakMap(), HeldTask = new WeakMap(); function writeValue(e, v) { if (!HeldTask.has(e) && (e.localName === "input" || e.localName === "textarea")) { HeldTask.set(e, 0); e.addEventListener("compositionstart", () => { clearTimeout(HeldTask.get(e)); Composing.add(e); }); e.addEventListener("compositionend", () => { HeldTask.set(e, setTimeout(() => { Composing.delete(e); if (Held.has(e)) writeValue(e, Held.get(e)); e.exactDecorations?.sync(); }, 0)); }); } if (e.value !== v && Composing.has(e)) return Held.set(e, v); Held.delete(e); if (e.value !== v) e.value = v; } // the app's `value` never ends a composition (LLP 1115.000 §5, ruling 6; the wasm host's `writeValue`, glue.js): another value written while a field's text composes is held, the last one, and written when the composition has ended and its last `input` was heard.
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 const navigable = (v, e) => { try { const p = new URL(v, document.baseURI).protocol; return ["http:", "https:", "mailto:", "tel:"].includes(p) || p === "data:" && e?.localName === "iframe" && opaque(e); } catch { return false; } }, opaque = e => e.hasAttribute("sandbox") && !e.getAttribute("sandbox").toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin"); // a frame also shows a `data:` document in an opaque sandbox (navigation.js `frameURL`)
 function frame(e, v) {
@@ -701,7 +701,7 @@ export function P(e, name, f) {
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
-    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); if (e.exactDecorations?.painted) e.exactDecorations.sync(); }
+    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); e.exactDecorations?.sync(); }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; if (name === "autofocus") { if (v === "true") e.removeAttribute("data-autofocus"); else e.setAttribute("data-autofocus", "false"); } }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
@@ -827,7 +827,7 @@ export function normal(prop, t) {
 }
 export { gridValue } from "./grid.js";
 // A row's CSS text; an empty string declares nothing (`blank`); `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11); a bound `-exact-hairline` is the sheet's one device pixel, as css.rs writes a literal one (LLP 1115.000 D10.3); a layout region is its safe area (LLP 1123 D10).
-import { regions } from "./regions.js"; const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : !String(v).trim() ? null : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : regions(String(v)); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
+import { regions } from "./regions.js"; import "./said.js"; const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : !String(v).trim() ? null : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : regions(String(v)); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
@@ -912,7 +912,7 @@ export function on(e, kind, f, bind) {
 // (emit.rs `binder`), so a plan carries only the families it hears; any other event is a plain listener.
 // A link with a press is the app's navigation: the browser's is prevented. A modified or other-button click, a `target` or `download`, is the browser's alone and the press does not run, with a router or without (`router`, input-glue.js).
 // a press action taking one more parameter hears the MouseEvent's modifiers (gallery F20)
-export const onPress = (e, kind, f, l) => { if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; if (e.localName === "a" && (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (e.target && e.target !== "_self") || e.hasAttribute("download"))) return; ev.stopPropagation(); if (e.localName === "a") ev.preventDefault(); const done = ev.detail > 0 ? press(e) : null; try { f([ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { done?.(); } }); };
+export const onPress = (e, kind, f, l) => { if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; for (let n = ev.target; n && n !== e.parentNode; n = n.parentNode) if (n.nodeType === 1 && n.hasAttribute("disabled")) { ev.stopPropagation(); return; } /* a disabled box on the way presses nothing, as on iOS (PointerIOS.swift `activationTarget`) */ if (e.localName === "a" && (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (e.target && e.target !== "_self") || e.hasAttribute("download"))) return; ev.stopPropagation(); if (e.localName === "a") ev.preventDefault(); const done = ev.detail > 0 ? press(e) : null; try { f([ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { done?.(); } }); };
 // A checkbox's value is whether it is checked, a radio's its `value`; the platform moves the control at once, and an action that refuses snaps the box or the radio group back (glue.js, navigation.js). A host's change carries its own text (files.js: a picker's lines, which an input's value would flatten). A range's is a number (the events table). An action taking one more parameter hears the `InputEvent` (x2apps codeedit #2, survey #2).
 export const onValue = (e, kind, f, l) => { return l(kind, ev => {
       if (ev instanceof CustomEvent) return f(ev.detail);
@@ -951,8 +951,8 @@ export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
 export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
-export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState, ev.start ?? -1, ev.end ?? -1]));
-export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
+export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
+export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
@@ -1088,10 +1088,10 @@ function geoRead(op, id) {
   return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
 }
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
-export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Number.isFinite(start) && Number.isFinite(end) && start >= 0 && start <= end && Geo ? Geo.range(document.getElementById(id), start, end, out) : 0;
+export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Geo ? Geo.range(document.getElementById(id), start, end, out) : 0;
   return bits & 1 ? [...out, !!(bits & 2), false] : [0, 0, 0, 0, false, true]; };
 export { decorationRecord } from './shape.js'; import { startDecoration } from './editor.js';
-export const decoratedEditor = e => startDecoration(e, {own:Owner, onEnd, inflight, viewId, Ids, Views, say});
+export const decorate = e => startDecoration(e, {own:Owner, onEnd, inflight, say});
 /** `elementFromPoint(x,y)` (LLP 1094 D10): nearest front-most untransformed id at a viewport point; none before loading. `elementsFromPoint` returns every one. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
 export const x_elementsFromPoint = (x, y) => Geo?.namedPoints(x, y) ?? [];
@@ -1113,8 +1113,8 @@ export function mde(e) {
       live: n => n.isConnected,
       replace(n) {
         Ids.set(n, id); Views.set(id, n);
-        Object.defineProperty(e, "value", { configurable: true, get: () => n.value, set: v => { n.value = v; } });
-        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
+        Object.defineProperties(e, { value: { configurable: true, get: () => n.value, set: v => { n.value = v; } }, ...Object.fromEntries(["selectionStart", "selectionEnd", "selectionDirection"].map(k => [k, { configurable: true, get: () => n[k] }])) });
+        for (const t of ["input", "beforeinput", "selectionchange", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
           const forwarded = new ev.constructor(t, ev); forwarded.$stopped = ev.$stopped; if (ev.defaultPrevented) forwarded.preventDefault();
           if (!e.dispatchEvent(forwarded)) ev.preventDefault(); if (forwarded.$stopped) ev.$stopped = true;
         }, t === "keydown"); // before the editor applies its own key default
@@ -1129,21 +1129,21 @@ export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () 
 /** The `InputEvent` record (contract/types selection.rs's order); a type
  * with none has its caret after its text, a control 0, 0, `none`. */
 function inputRecord(e, value, checked, event) {
-  const n = e.value?.length ?? 0, field = textField(e);
+  const n = e.value?.length ?? 0, field = sourceField(e);
   return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none", event?.inputType ?? "", event?.data ?? null, event?.cancelable ?? false, event?.isComposing ?? false];
 }
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
  * the node's own `--exact-press` (css.rs). */
-export const pressFeedback = () => input();
+export const pressFeedback = () => input(); if (DEVELOPMENT_STORE) globalThis.__exactPressFeedback = pressFeedback; // (a development build's only: the dev page's hold asks for it so, as a bundled page serves no rt.js; not on `exact`, which says the runtime is up)
 /** The web host's input piece (input-glue.js), after first paint: pans. */
 let Input = null, Inputs = null;
 function input() {
   if (Inputs || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
   // Its link handler asks the wasm's route table; this runtime routes its own.
-  const x = globalThis.exact ??= {}; (x.wasm ??= {}).exact_route_match ??= () => 0; x.writeIn ??= () => 0;
+  const x = globalThis.exact ??= {}; (x.wasm ??= {}).exact_route_match ??= () => 0;
   const to = (id, p, k) => Views.get(id)?.[k]?.(...p.split(",").map(Number));
-  Inputs = new Promise(r => requestAnimationFrame(() => setTimeout(r))).then(() => import("./input-glue.js")).then(m => {
+  Inputs = new Promise(r => { requestAnimationFrame(() => setTimeout(r)); setTimeout(r, 1000); }).then(() => import("./input-glue.js")).then(m => { // after paint, or a second on where frames are held (a frame scrolled out of view)
     Input = m.createInputHandlers({ root: document.getElementById("exact-root"), views: Views, retiredViews: new WeakSet(), ready: () => true,
       inertAncestor, agentMode: clock.agent, dispatch: (id, p) => to(id, p, "$pan"), release: (id, p) => to(id, p, "$panrelease"),
       velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) }, log: say }); Input.arrive(); // the stack as it stands, for the focus to follow (LLP 1115.000 D4.2)

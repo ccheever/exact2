@@ -28,13 +28,15 @@
 // Each of those screens is read again at the largest text size (iOS: the simulator's; the web: iOS's body as the root font
 // size, at the phone's width), and what spills there (past the screen's edge, squeezed to no width, overlapping) is reported
 // with a remedy that keeps the text's size, counted in the last line and never failing the run (LLP 1116.019 D2, LLP
-// 1116.020 D4, `largestText`).
+// 1116.020 D4, `largestText`); the web also runs the tests again at that size and reads screens they only pass through
+// (`largeTour`).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compilerWarnings } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
 
@@ -179,11 +181,12 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { 
 /** The app's server for one `agent` drive (LLP 1116.008 D1): null when the app has none, or the URL it calls already answers
  * (the builder's own, or another drive's: used, said nothing of); else started where app.ts calls it, on a database of the
  * drive's own, `.exact/agent/<storage>/db.sqlite` kept for the `--storage` name so a second drive on it sees the first's data
- * (without one, an empty database removed after), and one line says so. `{ stop() }` ends it. Drives that overlap share the
+ * (without one, an empty database removed after; `fresh`, a drive that starts its store empty, empties it first, and is
+ * refused while another drive or the builder's server is using the app server), and one line says so. `{ stop() }` ends it. Drives that overlap share the
  * server: each is a `drive-<pid>` file in `.exact/agent-server/`, the servers a drive started are `server-<pid>` (their
  * database as the file's text), and the last drive out stops them; one that did not start the server stops nothing, and the
  * builder's own is never in the list. An entry that does not read `DB` is refused (`appServer`'s `refusal`), as `test` refuses it. */
-export async function driveServer(dir, storage, say = (line) => console.error(line)) {
+export async function driveServer(dir, storage, say = (line) => console.error(line), { fresh = false } = {}) {
   const server = appServer(dir);
   if (!server?.url) return null;
   if (server.refusal) throw new Error(`agent: ${server.refusal}`);
@@ -219,13 +222,20 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     catch { const owner = Number(readIn(lease, 'starting')); if (owner && !alive(owner)) rmSync(starting, { force: true }); else await Bun.sleep(100); }
   }
   try {
+    // A store asked empty cannot be emptied under a server another drive (or the builder) is using: refused, and this
+    // drive's lease given up, never the database deleted or kept as it was.
+    const others = files('drive').filter(([file, pid]) => file !== mine && alive(pid)).map(([, pid]) => pid);
+    if (fresh && (others.length || await answering(server.url))) {
+      await stop();
+      throw new Error(`agent: --storage ${storage} is to start empty, but ${others.length ? `another drive (pid ${others.join(', ')}) is using` : 'something already answers at'} ${server.url}, the app server, on its database: let it end, or name another store`);
+    }
     if (await answering(server.url)) {
       const other = files('server').map(([file]) => readIn(lease, file)).find((was) => was && was !== db);
       if (other) say(`agent: ${server.entry} at ${server.url} is another drive's, on its database (${relative(dir, other)}); this drive uses it`);
       return { stop };
     }
     mkdirSync(dirname(db), { recursive: true });
-    if (!storage) for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true });
+    if (!storage || fresh) for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true });
     const log = openSync(resolve(lease, 'log'), 'a');
     const child = Bun.spawn([process.execPath, server.entry], { cwd: dir, env: { ...process.env, DB: db, PORT: String(server.port) }, stdin: 'ignore', stdout: 'ignore', stderr: log });
     closeSync(log);
@@ -281,19 +291,40 @@ async function iosBuild(app) {
   return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
 }
 
-/** The compiler's warnings for the app's sources, as `bun exact.mjs contract build app.contract` prints them,
- * whatever this run built (a fresh build said them when it was made): this checkout's compiler as built, or
- * through Cargo when its sources are newer. */
+/** The compiler's warnings for the app's sources, every one (`contract build --json`: its text form says the
+ * SF Symbols only the web draws blank in one line, and this report counts each), each in the line `contract build`
+ * prints it as; whatever this run built (a fresh build said them when it was made): this checkout's compiler as
+ * built, or through Cargo when its sources are newer. */
 async function compilerWarningsOf(app) {
-  const [{ fresh }, { compilerWarnings }, { cargoEnvironment }] = await Promise.all([import('../host/web-js/module.mjs'), import('./agent-launch.mjs'), import('./app.mjs')]);
+  const [{ fresh }, { cargoEnvironment }] = await Promise.all([import('../host/web-js/module.mjs'), import('./app.mjs')]);
   const env = cargoEnvironment(process.env), binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
   delete env.RUSTUP_TOOLCHAIN; delete env.CARGO_TARGET_DIR; // as `exact contract` runs it: exact2's toolchain and target
   const [command, ...pre] = fresh(binary, resolve(ROOT, 'target/debug/contract.d')) ? [binary] : ['cargo', 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--'];
-  const child = spawn(command, [...pre, 'build', resolve(app.dir, 'app.contract')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(command, [...pre, 'build', '--json', resolve(app.dir, 'app.contract')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
   await new Promise((done) => { child.on('close', done); child.on('error', done); });
-  return compilerWarnings(said);
+  return warningsOfBuild(said);
+}
+
+/** The warnings in what `contract build --json` wrote: its one JSON array's entries of severity `warning`, each as
+ * the line the text build prints (`file:line:col warning [id] message`, the file relative to `cwd` when under it,
+ * as `compilerWarnings` gives it). Output that holds no array (Cargo failing to build the compiler) gives the
+ * warning lines found in it, so a text build's are still read. */
+export function warningsOfBuild(text, cwd = process.cwd()) {
+  const array = String(text ?? '').split('\n').find((line) => line.startsWith('['));
+  let entries;
+  try { entries = JSON.parse(array); } catch { entries = null; }
+  if (!Array.isArray(entries)) return compilerWarnings(text, cwd);
+  const lines = new Set();
+  for (const e of entries) {
+    if (e?.severity !== 'warning' || typeof e.message !== 'string') continue;
+    const file = typeof e.file === 'string' ? e.file : '';
+    const near = file && relative(cwd, file);
+    const at = file ? `${isAbsolute(file) && !near.startsWith('..') ? near : file}:` : '';
+    lines.add(`${at}${e.line}:${e.col} warning [${e.id}] ${e.message}`);
+  }
+  return [...lines];
 }
 
 /** A test's capture, by its number and the start of its name: `web-t2-the-items-survive-a-relaunch.png`. */
@@ -490,7 +521,9 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
     const r = await checkOp(s, ['both'], { shots: shot, accept: ACCEPT });
     runs.push(...groups(r.text).map((g, i) => {
       const run = r.check[i] ?? {}, vp = run.viewport ?? { w: size?.[0], h: size?.[1] }, kept = shot?.(vp, run.asked ?? run.scheme);
-      return { screen, size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, ...(kept ? { shot: kept } : {}), findings: run.findings ?? [], accepted: run.accepted ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
+      // Every finding's line, which the check's text caps (`hidden`).
+      const all = run.findings?.length && run.findings.every((f) => f.line) ? run.findings.map((f) => f.line) : null;
+      return { screen, size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, ...(kept ? { shot: kept } : {}), findings: run.findings ?? [], accepted: run.accepted ?? [], lines: [...failed, ...(all ?? g.lines)], hidden: all ? 0 : g.hidden, advice: g.advice };
     }));
   }
   return runs;
@@ -506,11 +539,17 @@ export const LARGEST = 'accessibility-extra-extra-extra-large', LARGEST_PX = 53;
 const LARGE_KINDS = new Set(['overflow', 'clipped', 'overlap', 'squeezed']), PAGES = 6;
 const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
 /** The remedy for a finding at the largest size: never a smaller or fixed font. A text in a list's row (`inRow`) is cut by
- * the row, which wrapping does not change: UIKit's cells truncate a label or grow taller with it. */
+ * the row, which wrapping the row does not change: at the accessibility sizes UIKit's cells wrap a label, hyphenate a word
+ * longer than the line and grow taller, never truncating it (`UIListContentConfiguration`, iOS 27), so a `line-clamp`
+ * there reads as a tell (round 22's book-club and contacts took one from this remedy). */
 export function largeRemedy(f, { inRow = false } = {}) {
-  if (f.kind === 'clipped' && inRow && !f.detail?.edge) return 'ask for an ellipsis (`line-clamp="1"`, or more lines), as a cell truncates its label, or let the row grow taller with its text (no px height on the row or what it holds)';
+  if (f.kind === 'clipped' && inRow && !f.detail?.edge) {
+    const wide = (f.detail?.need ?? f.detail?.cut ?? [0])[0] > 0;
+    return `${wide ? 'let a word longer than its line break between syllables (`hyphens="auto"`) and ' : 'let '}the row grow taller with its text, as a cell does at this size (no px height on the row or what it holds; no \`line-clamp\`, which cuts what a cell shows whole)`;
+  }
   if (f.kind === 'clipped') return f.detail?.edge ? 'let the page scroll there (a scroll with flex=1 min-height=0)'
-    : f.detail?.need ? 'let its box grow with its text: no px width or height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
+    : f.detail?.need?.[0] > 0 ? `give it room (no px width on its box), or ${WRAP}; a word longer than any line breaks between syllables with \`hyphens="auto"\``
+    : f.detail?.need ? 'let its box grow with its text: no px height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
   if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
   return WRAP;
 }
@@ -635,6 +674,43 @@ async function tests(host, app, shots) {
     const r = await runTests({ host, file, app: app.name, atEnd: testEnd(host, shots, persisted), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
     return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures, end, store, shots }) => ({ name, failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })) };
   } catch (e) { return { error: e.message }; }
+}
+
+/** The web's tour of the screens the tests pass through, at the largest text size: the tests run again on the phone's
+ * width, and after an input that shows a testId no screen of the tour has shown yet (its digits aside: a row's id that
+ * holds a date or a count is the same row), the screen is read as `largestText` reads one. A screen only passed through
+ * (a flashcard's Again and Got it, shown once the card turns) is no test's end, and its overflow went unreported
+ * (flashcards, round 22). What the tests assert is not judged here. At most LARGE_TOUR_SCREENS screens, so a run
+ * reports the same ones each time, and no more than LARGE_TOUR_MS. The `largestText` results, each screen named by the
+ * line of the test it followed. On round 22's flashcards, notes and book-club (12 to 26 s without it) it added 1 to 11 s,
+ * 6 on average; most on an app with its own server, whose tour runs after the rest. */
+const LARGE_TOUR_SCREENS = 12, LARGE_TOUR_MS = 40_000;
+const kindOf = (id) => String(id).replace(/\d+/g, '#');
+async function largeTour(app) {
+  const file = resolve(app.dir, 'app.test.contract');
+  if (!existsSync(file)) return [];
+  const { runTests } = await import('./agent-test.mjs');
+  const shown = new Set(), read = [], started = Date.now();
+  const atStep = async (s, { name, line }) => {
+    if (read.length >= LARGE_TOUR_SCREENS || Date.now() - started > LARGE_TOUR_MS) return 'done';
+    const tree = await s.op({ op: 'tree' }).catch(() => null);
+    const ids = (tree?.nodes ?? []).filter((n) => !n.inactive && n.props?.testId != null).map((n) => kindOf(n.props.testId));
+    if (ids.every((id) => shown.has(id))) return;
+    for (const id of ids) shown.add(id);
+    const r = await largestText(s, `line ${line} of ${quoted(name, 24)}`);
+    if (r && !r.error) read.push(r);
+  };
+  try { await runTests({ host: 'web', file, app: app.name, size: WEB_SIZES[0], storage: 'verify-tour', atStep }); }
+  catch { /* the tests' own run says what does not compile */ }
+  return read;
+}
+
+/** The tour's screens with only what the screens verify visits did not say: a line is the same with its box and digits
+ * aside (another run's row ids hold another date). */
+export function tourNews(visited, toured) {
+  const key = (line) => line.replace(BOX, '').replace(/\d+/g, '#');
+  const said = new Set(visited.flatMap((l) => l.lines ?? []).map(key));
+  return toured.map((l) => ({ ...l, lines: l.lines.filter((line) => !said.has(key(line))) }));
 }
 
 /** One launch at `size` (null: the device's own) on a fresh scratch store: the app's data landed and its
@@ -770,7 +846,7 @@ export function groups(text) {
 
 const BOX = /\s*\[-?\d+,-?\d+ \d+×\d+\]/g;
 const sizeOf = (r) => r.size.join('x'), schemeOf = (r) => r.asked ?? r.scheme, screenOf = (r) => r.screen ?? FIRST;
-const screenName = (screen) => (screen === FIRST || screen === RELAUNCH ? screen : quoted(screen, 28));
+const screenName = (screen) => (screen === FIRST || screen === RELAUNCH || screen.startsWith('line ') ? screen : quoted(screen, 28));
 /** The findings of every screen, launch and scheme, each once: a line found at several (its box aside, which a width
  * moves) is shown once, tagged with the screens it was on unless it was on all, and with the widths and schemes of
  * those screens it was at unless it was at all. */
@@ -791,16 +867,47 @@ export function distinctFindings(runs) {
   });
 }
 
-/** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, shots, copied, own = [], accept = [], ms, cwd = process.cwd() }) {
-  const out = [];
+const PLACES = 4; // where a rule's findings are, named after its first in full
+
+/** A finding line's rule: a compiler warning's id, else its first word after any `(… only)` tag (`contrast`). */
+export function ruleOf(line) {
+  const t = line.trim(), id = /^\S+:\d+:\d+ warning \[([\w-]+)\]/.exec(t);
+  return id ? id[1] : t.replace(/^\([^)]*\) /, '').split(/\s+/)[0];
+}
+
+/** Where a finding line points: a compiler warning's `file:line:col`, else what follows its rule, up to its first `: `. */
+function placeOf(line) {
+  const t = line.trim(), id = /^(\S+:\d+:\d+) warning \[/.exec(t);
+  if (id) return id[1];
+  const body = t.replace(/^\([^)]*\) /, '').replace(/^\S+\s+/, ''), at = body.indexOf(': ');
+  return at < 0 ? body : body.slice(0, at);
+}
+
+/** `lines` (each indented two) by rule, the commonest first: a rule's one finding as it is; several as the rule and
+ *  their count, the first in full, then where the next PLACES are and how many more. */
+export function byRule(lines) {
+  const rules = new Map();
+  for (const l of lines) rules.set(ruleOf(l), [...(rules.get(ruleOf(l)) ?? []), l]);
+  return [...rules].sort((a, b) => b[1].length - a[1].length).flatMap(([rule, all]) => {
+    if (all.length === 1) return all;
+    const rest = all.slice(1), more = rest.length - PLACES;
+    return [`  ${rule} ×${all.length}`, `    ${all[0].trim()}`, `    also ${rest.slice(0, PLACES).map(placeOf).join('; ')}${more > 0 ? ` and ${more} more` : ''}`];
+  });
+}
+
+/** The report's lines and its problem count, from what each stage gave; `full`, every finding of each group, one a line,
+ *  which verify writes to `listed` (a path the report names when the groups leave any line out). */
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
+  const out = [], full = [];
+  const all = listed ? `${listed} lists them all` : 'verify --json lists them all';
   let failedTests = 0, findings = 0, broken = 0;
   // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
   if (refused.length) {
     const shownAt = (where) => where.length > 2 ? `${where.slice(0, 2).join(', ')} and ${where.length - 2} more` : where.join(', ');
-    out.push(`refused at run time: ${refused.length} (the host's journal, 'logs'; each is a call or a wiring the app got wrong)`,
-      ...refused.slice(0, SHOWN).map((r) => `  ${r.line.length > 260 ? `${r.line.slice(0, 259)}…` : r.line} (${shownAt(r.where)})`));
-    if (refused.length > SHOWN) out.push(`  … and ${refused.length - SHOWN} more (verify --json lists them all)`);
+    const head = `refused at run time: ${refused.length} (the host's journal, 'logs'; each is a call or a wiring the app got wrong)`;
+    out.push(head, ...refused.slice(0, SHOWN).map((r) => `  ${r.line.length > 260 ? `${r.line.slice(0, 259)}…` : r.line} (${shownAt(r.where)})`));
+    if (refused.length > SHOWN) out.push(`  … and ${refused.length - SHOWN} more (${all})`);
+    full.push(head, ...refused.map((r) => `  ${r.line} (${r.where.join(', ')})`));
     findings += refused.length;
   }
   // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
@@ -815,8 +922,9 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   }
   // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure.
   if (compiler.length) {
-    out.push(`compiler: ${plural(compiler.length, 'warning')}`, ...compiler.slice(0, SHOWN).map((w) => `  ${w}`));
-    if (compiler.length > SHOWN) out.push(`  … and ${compiler.length - SHOWN} more (bun exact.mjs contract build app.contract prints them all)`);
+    const lines = compiler.map((w) => `  ${w}`);
+    out.push(`compiler: ${plural(compiler.length, 'warning')}`, ...byRule(lines));
+    full.push(`compiler: ${plural(compiler.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
     findings += compiler.length;
   }
   if (tested?.none) out.push('tests: none (no app.test.contract)');
@@ -836,9 +944,10 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const kept = runs.some((r) => r.asked && r.asked !== r.scheme) ? '; the app keeps its own scheme' : '';
     const screens = [...new Set(runs.map(screenOf))], ends = screens.filter((sc) => sc !== FIRST && sc !== RELAUNCH).length;
     const where = [screens.includes(FIRST) && FIRST, ends && plural(ends, 'test end'), screens.includes(RELAUNCH) && RELAUNCH].filter(Boolean).join(', ');
-    out.push(`check ${where} · ${[...new Set(runs.map(sizeOf))].join(', ')} · ${[...new Set(runs.map(schemeOf))].join(', ')}${kept}: ${count ? plural(count, 'finding') : 'no findings'}`);
-    out.push(...shown.slice(0, SHOWN));
-    if (count > SHOWN) out.push(`  … and ${count - Math.min(SHOWN, shown.length)} more (verify --json lists them all)`);
+    const head = `check ${where} · ${[...new Set(runs.map(sizeOf))].join(', ')} · ${[...new Set(runs.map(schemeOf))].join(', ')}${kept}: ${count ? plural(count, 'finding') : 'no findings'}`;
+    out.push(head, ...byRule(shown));
+    if (count > shown.length) out.push(`  … and ${count - shown.length} more (verify --json lists them all)`);
+    if (shown.length) full.push(head, ...shown);
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
   }
@@ -847,8 +956,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   if (fixed.lines.length) {
     const said = (fixed.fonts ?? fixed.lines.length) === fixed.lines.length ? `${plural(fixed.lines.length, 'font size')} the reader's text size does not move`
       : `${plural(fixed.lines.length, 'finding')}: a size the reader's text size does not move, or a word broken inside`;
-    out.push(`fixed type: ${said}`, ...fixed.lines.slice(0, SHOWN));
-    if (fixed.lines.length > SHOWN) out.push(`  … and ${fixed.lines.length - SHOWN} more (verify --json lists them all)`);
+    out.push(`fixed type: ${said}`, ...byRule(fixed.lines));
+    full.push(`fixed type: ${said}`, ...fixed.lines);
     findings += fixed.lines.length;
   }
   // What app.json's `verify.accept` names as the app's design: said once each, not counted; an entry that took nothing is named.
@@ -857,7 +966,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   const idle = accept.filter((e) => !runs.some((r) => (r.accepted ?? []).some((f) => took(e, f))) && !fixed.accepted.some((f) => took(e, f)));
   if (accepted.length || idle.length) {
     out.push(`accepted (app.json verify.accept, not counted): ${plural(accepted.length, 'finding')}`, ...accepted.slice(0, SHOWN));
-    if (accepted.length > SHOWN) out.push(`  … and ${accepted.length - SHOWN} more (verify --json lists them all)`);
+    if (accepted.length > SHOWN) out.push(`  … and ${accepted.length - SHOWN} more (${all})`);
+    if (accepted.length) full.push(`accepted (app.json verify.accept, not counted): ${plural(accepted.length, 'finding')}`, ...accepted);
     for (const e of idle) out.push(`  accepts nothing: ${e.finding} ${e.node} (no such finding in this run)`);
   }
   // Each test's end screen reloaded where it stands (LLP 1116.010 D6): a saved value that came back different is a finding, one a
@@ -873,11 +983,13 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
       else if (r.note && once(JSON.stringify(['note', r.note.route, r.note.lost, r.note.gained]))) notes.push(reloadNote(r.note, r.test));
     }
     out.push(`reload ${plural(ran.length, 'test end')}: ${lines.length ? plural(lines.length, 'finding') : notes.length ? 'no findings' : 'the same screen after each'}`, ...lines.slice(0, SHOWN));
-    if (lines.length > SHOWN) out.push(`  … and ${lines.length - SHOWN} more (verify --json lists them all)`);
+    if (lines.length > SHOWN) out.push(`  … and ${lines.length - SHOWN} more (${all})`);
+    if (lines.length) full.push(`reload ${plural(ran.length, 'test end')}: ${plural(lines.length, 'finding')}`, ...lines);
     findings += lines.length;
     if (notes.length) {
       out.push(`reload note: ${plural(notes.length, 'screen')} ${notes.length === 1 ? 'reloads' : 'reload'} into another state (not counted)`, ...notes.slice(0, SHOWN));
-      if (notes.length > SHOWN) out.push(`  … and ${notes.length - SHOWN} more (verify --json lists them all)`);
+      if (notes.length > SHOWN) out.push(`  … and ${notes.length - SHOWN} more (${all})`);
+      full.push(`reload note: ${plural(notes.length, 'screen')} (not counted)`, ...notes);
       out.push(NOTE_ADVICE);
     }
   }
@@ -888,9 +1000,9 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const read = large.filter((l) => !l.error), shown = distinctFindings(read.map((l) => ({ ...l, scheme: 'light' })));
     const root = [...new Set(read.map((l) => l.rootFontSize).filter(Boolean))].join(', ');
     const size = host === 'ios' ? `${LARGEST}${root ? `, body ${root} pt` : ''}` : `root font size ${root || LARGEST_PX} px at ${WEB_SIZES[0].join('x')}, iOS's body at its largest`;
-    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...shown.slice(0, SHOWN));
+    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (the app's own layout: give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...byRule(shown));
     largeCount = shown.length;
-    if (shown.length > SHOWN) out.push(`  … and ${shown.length - SHOWN} more (verify --json lists them all)`);
+    if (shown.length) full.push(`largest text size (${size}): ${plural(shown.length, 'finding')}`, ...shown);
     for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
   }
   // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
@@ -908,10 +1020,13 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   }
   // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
   if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
+  // Every finding, one a line, where the groups above left any out.
+  const grouped = full.length && out.some((l) => /^ {4}also |^ {2}… and \d+ more/.test(l));
+  if (grouped && listed) out.push(`every finding, one a line: ${listed}`);
   const problems = failedTests + findings + largeCount + broken;
   const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding'), largeCount && `${largeCount} at the largest text size`].filter(Boolean);
   out.push(problems ? `verify: ${plural(problems, 'problem')} (${why.join(', ')}${failedTests || broken ? '' : '; the tests passed'}) in ${secs(ms)}` : `verify: clean in ${secs(ms)}`);
-  return { lines: out, problems, exit: failedTests || broken ? 1 : 0 };
+  return { lines: out, problems, exit: failedTests || broken ? 1 : 0, full: grouped ? full : [] };
 }
 
 async function main(argv) {
@@ -941,7 +1056,7 @@ async function main(argv) {
   console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
   const built = host === 'web' ? await webBuild(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
-  if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length); }
+  if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ warnings?[,;]/.test(line)); }
   if (built?.code) {
     const tail = host === 'web' ? built.output.split('\n').filter((l) => l.trim()).slice(-20) : built.said;
     if (json) console.log(JSON.stringify({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code }));
@@ -960,7 +1075,7 @@ async function main(argv) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, firsts, relaunched = null, results = [], running = null, serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
+  let tested, firsts, relaunched = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
   const compiling = compilerWarningsOf(app);
   if (owned) {
     try { running = await startServer(app.dir, server, 'verify'); }
@@ -970,7 +1085,7 @@ async function main(argv) {
   try {
     // An app with a server opens its first screen before the tests write to it: an empty database's.
     if (running) { firsts = host === 'web' ? await Promise.all(WEB_SIZES.map(launch)) : [await launch(null, 0)]; tested = await tests(host, app, shots); }
-    else if (host === 'web') [tested, ...firsts] = await Promise.all([tests(host, app, shots), ...WEB_SIZES.map(launch)]);
+    else if (host === 'web') [tested, toured, ...firsts] = await Promise.all([tests(host, app, shots), largeTour(app), ...WEB_SIZES.map(launch)]);
     else { tested = await tests(host, app, shots); firsts = [await launch(null, 0)]; }
     results = tested?.results ?? [];
     const fresh = firsts.find((runs) => runs.seen)?.seen ?? null;
@@ -989,6 +1104,8 @@ async function main(argv) {
         return relaunch(host, app, chosen, against, shots);
       })().catch((e) => ({ test: chosen.name, error: e.message }));
     }
+    // An app's own server holds what the tests wrote by now: the tour, which writes again, goes last.
+    if (running && host === 'web') toured = await largeTour(app);
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
@@ -1021,9 +1138,12 @@ async function main(argv) {
   refusedAt(RELAUNCH, relaunched?.refusals);
   const refusedList = [...refused].map(([line, where]) => ({ line, where }));
   const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
-  const large = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
+  const visited = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
+  const large = [...visited, ...tourNews(visited, toured)];
   const fixed = await fixedType(app.dir, host);
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
+  const findingsFile = resolve(shots, `${host}-findings.txt`), listed = relative(process.cwd(), findingsFile);
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
+  if (r.full.length) writeFileSync(findingsFile, r.full.join('\n') + '\n'); else rmSync(findingsFile, { force: true });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;

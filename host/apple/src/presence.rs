@@ -34,7 +34,7 @@ struct Leaving {
     parent: ViewId,
     animations: exact_motion::Animations,
     /// The style it last showed: its paint moves over it.
-    style: String,
+    style: std::rc::Rc<str>,
     /// The view and everything under it the presenter knew.
     members: Vec<ViewId>,
     /// Whether the engine has its exit, and the clock time that ends, once
@@ -99,7 +99,10 @@ impl<D: DataSource> Host<D> {
                 key: exit.key,
                 parent,
                 animations: exit.animations.clone(),
-                style: self.mirror.get(&view).map_or("{}", |m| &m.style).to_owned(),
+                style: self
+                    .mirror
+                    .get(&view)
+                    .map_or_else(|| "{}".into(), |m| m.style.clone()),
                 members,
                 played: false,
                 end: None,
@@ -333,6 +336,21 @@ impl<D: DataSource> Host<D> {
         }
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         let mut colored: Vec<(ViewId, bool)> = Vec::new();
+        // Before sampling: a transition handed over presents its target.
+        // Under the agent's clock (no first-frame rule) motion is sampled:
+        // nothing new is handed over, and what was comes back.
+        if self.svg.play_transitions {
+            let new = self.engine.starts_on_frame() && !self.native_mode();
+            let runs = &self.inline_runs;
+            for view in super::svg_lower::hand_over_transitions(
+                self.runner.kernel(),
+                &mut self.engine,
+                &|v| runs.contains_key(&v),
+                new,
+            ) {
+                self.svg.played(view);
+            }
+        }
         let frame = self.engine.frame();
 
         for p in frame {

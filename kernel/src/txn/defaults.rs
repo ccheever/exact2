@@ -75,7 +75,27 @@ pub(super) fn changed(
     receipt: &mut CommitReceipt,
 ) {
     let after = arena.default_context(slot);
-    if before == after {
+    // Whether a symbol image draws in its colour (LLP 1121 stage 9 B) can
+    // change with the colour equal: its images are sent again.
+    if before.ink_said != after.ink_said {
+        for s in arena.subtree(slot) {
+            let symbol = arena.node_type(s) == NodeType::Image
+                && arena
+                    .props(s)
+                    .str(PropId::ImageSource)
+                    .is_some_and(|v| v.starts_with("symbol:"));
+            if symbol {
+                arena.mark_export_dirty(s, NodeFlags::PAINT_DIRTY);
+                touched.push(arena.key(s));
+            }
+        }
+    }
+    if before
+        == (DefaultContext {
+            ink_said: before.ink_said,
+            ..after
+        })
+    {
         return;
     }
     let mut rows = StyleMask::EMPTY;

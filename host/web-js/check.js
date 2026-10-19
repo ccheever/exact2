@@ -221,8 +221,9 @@ export function observe(views, inactive = () => false) {
         if (!inked && e.hasAttribute('data-native')) item.platformInk = true;
         break;
       }
-      const clamp = cs.webkitLineClamp && cs.webkitLineClamp !== 'none' || cs.textOverflow === 'ellipsis' && cs.overflowX !== 'visible';
-      if (clamp) item.clamp = true;
+      const ellipsis = cs.textOverflow === 'ellipsis' && cs.overflowX !== 'visible';
+      if (ellipsis || cs.webkitLineClamp && cs.webkitLineClamp !== 'none') item.clamp = true;
+      if (ellipsis) item.ellipsis = true;
       let ink = b;
       if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
         const dx = el.scrollWidth - el.clientWidth, dy = el.scrollHeight - el.clientHeight;

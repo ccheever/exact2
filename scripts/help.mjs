@@ -35,7 +35,7 @@ const DRIVE = [
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
-  ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
+  ['--fail-fetch <prefix> · --permission <name>=<state>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted)'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
@@ -53,7 +53,7 @@ const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>', '--widget-gallery'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
@@ -76,17 +76,23 @@ export const HELP = {
       ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
   },
+  status: {line:'web/prove status', usage:'bun exact.mjs status', flags:[], body:'Lists web/prove invocations with their phase, elapsed time, previous duration and exit status.', example:'bun exact.mjs status'},
   web: {
-    line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
+    line: 'the web dev loop: serves the app, reloading the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
     common: ['web [--port <n>]    for a person watching: its URL, rebuilt on save'],
     flags: [
       ['--port <n>', 'listen on <n>, refused if taken (default 8765, else the first free port to 8864)'],
+      ['--ready', 'wait for the current game web invocation to serve its current build; start web separately'],
+      ['--timeout <s>', 'limit the --ready wait (default 600 seconds)'],
       ['--lan', 'bind every interface, so a phone on this network opens the printed LAN URL'],
     ],
     more: [
       ['--allow-host <name>', 'also answer to this host name (a tunnel\'s); repeatable'],
+      ['--remote <host:port>', 'with a design: a TLS-only listener for paired remote clients (a certificate made for this run; its fingerprint printed)'],
+      ['--trust-tunnel <port>', 'with a design: a loopback port for a tunnel you run; only paired tokens work through it'],
       ['--wasm', 'the resident wasm loop (a game\'s always): a plan restarts in place, state carried'],
+      ['--pair-ttl <duration>', 'a paired design client\'s token lifetime (90m, 12h, 2d; default 12h)'],
     ],
     internal: ['--app <name>', '--serve-as <port>'],
     body: `Runs     in the foreground until ^C, printing its URL. The dev loop is for a person watching
@@ -142,8 +148,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     line: 'drive an app: tree, tap, type, state, screenshot, clock …',
     usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
     common: ['agent [web|ios] [--storage <name>] [--size <w>x<h>] [--sim <name>] <op> …',
-      '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>"',
-      '  "state [<name>]" tree "check [both]" "screenshot <png>" "resize <w>x<h>" "prefer <feature> <value>" back'],
+      '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>" "state [<name>]" tree "check [both]" "screenshot <png>" "resize <w>x<h>" "prefer <feature> <value>" back'],
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
@@ -182,9 +187,10 @@ relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. 
 screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
 each test's named by the test, the relaunch's): look at them when the features work.
 Large    each of those screens again at the largest text size (ios: the simulator's, put back
-         after; web: a 53 px root, iOS's body there, at 390x844): what spills (past the edge,
-         squeezed, overlapping), each with a remedy that gives the text room; a smaller or
-         fixed font is the tell. Counted ("3 at the largest text size"), never failing.
+         after; web: a 53 px root, iOS's body there, at 390x844, and the tests run again there
+         to read up to 12 screens they pass through): what spills (past the edge, squeezed,
+         overlapping) in the app's own layout, each with a remedy that gives the text room; a
+         smaller or fixed font is the tell. Counted ("3 at the largest text size"), never failing.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
@@ -240,7 +246,7 @@ Ports    none. Runs to completion; with --run, until the app quits (^C ends it).
     example: 'bun exact.mjs mac --run',
   },
   linux: {
-    line: 'build the Linux host, which test linux and agent linux drive headless',
+    line: 'build the Linux host (test and agent linux drive it headless)',
     usage: 'bun exact.mjs linux',
     flags: [],
     body: `A development build (cargo profile host-dev); prints the binary's path. It runs headless
@@ -249,7 +255,7 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs linux && bun exact.mjs test linux',
   },
   android: {
-    line: 'build the Linux host for Android, which test android and agent android drive over adb',
+    line: 'build the Linux host for Android (test and agent android drive it over adb)',
     usage: 'bun exact.mjs android',
     flags: [],
     // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
@@ -263,6 +269,15 @@ rustup target add aarch64-linux-android. A TypeScript data module also needs the
 Android Hermes bundle (bun <exact2>/scripts/hermes-android.mjs build, once).
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs android && bun exact.mjs agent android tree',
+  },
+  game: {
+    line: 'game vocab: fields, defaults and recipes',
+    usage: 'bun exact.mjs game vocab [<name>] [--json]',
+    flags: [['--json', 'structured declarations, fields, defaults and recipe links']],
+    body: `No name lists components, resources and World verbs. A name also accepts Type::method.
+Requires the SDK Rust toolchain; Cargo reuses its compiled inputs. Writes generated
+artifacts under game/target only. Ports none. Runs to completion.`,
+    example: 'bun exact.mjs game vocab Follow',
   },
   contract: {
     line: 'the Contract compiler: build, types, vocab, fmt, symbols …',
@@ -286,6 +301,18 @@ The first call compiles the compiler (minutes on a cold checkout).
 Ports    none. Runs to completion: exit 0 when it compiled.`,
     example: 'bun exact.mjs contract build app.contract --json',
   },
+  docs: {
+    line: 'a guide section by heading',
+    usage: 'bun exact.mjs docs <heading words>',
+    flags: [],
+    body: `Prints the section of start-here, contract-for-agents, contract-grammar, agent-pitfalls,
+game-pitfalls, reference or a recipe that holds every word, as a whole word, most densely (in code and in
+a recipe they weigh more), after its path and line, then the next matches. A section whose
+heading is on the words prints from its heading, any other from the paragraph that
+mentions them; up to 120 lines. A word may be a CSS name (-exact-exit-animation).
+Ports    none. Runs to completion.`,
+    example: 'bun exact.mjs docs tabular numbers',
+  },
   pattern: {
     line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
     usage: 'bun exact.mjs pattern [<name>] [--force]',
@@ -301,13 +328,18 @@ Ports    none. Runs to completion.`,
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there; gen: the directory (else the app\'s .exact/tamber/)'],
       ['--check', 'fmt: write nothing; exit 1 where the layout would change'],
       ['--port <n>', 'serve: the port (else any free one)'],
       ['--lan', 'serve: bind every interface; a client there still cannot have the token'],
+      ['--remote <host:port>', 'serve: a TLS-only listener for paired remote clients (a certificate made for this run; its fingerprint printed)'],
+      ['--trust-tunnel <port>', 'serve: a loopback port for a tunnel you run; only paired tokens work through it'],
+      ['--pair-ttl <duration>', 'serve: a paired client\'s token lifetime (90m, 12h, 2d; default 12h)'],
+      ['--scope <s>', 'pair: the code\'s scope, read, propose or write'],
+      ['--name <name>', 'pair: the name the paired client is listed by'],
       ['--via <url>', 'tool: the app\'s dev loop, which holds its design; the tool reaches it through its own port'],
       ['--no-open', 'tool: print the URL; open no browser'],
     ],
@@ -325,11 +357,13 @@ one, each role override apart; every source value is mapped or reported, counted
 tool is the design tool (LLP 1122), built if stale, served by the design server at
 http://127.0.0.1:7740/__tamber/tool/ and opened. docs/recipes/tamber.md.
 Ports    serve: a loopback port (printed), until ctrl-c; tool: 127.0.0.1:7740, the one its
-grants name, until ctrl-c. The rest: none; they run to completion.`,
+grants name, until ctrl-c (EXACT_TOOL_PORT names another: the tool is built for it, and a dev
+loop must be started with the same to let it frame its pages). The rest: none; they run to
+completion.`,
     example: 'bun exact.mjs tamber eval . --mode dark-style=dim',
   },
   hatch: {
-    line: 'an access hatch: a stub for each target the app builds, and its app.json entry',
+    line: 'an access hatch: a stub per target the app builds, and its app.json entry',
     usage: 'bun exact.mjs hatch <word> | --app | --window',
     flags: [
       ['--app', 'the app-scope hatch, in place of a word'],
@@ -342,7 +376,7 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs hatch avatar',
   },
   update: {
-    line: 'after exact2 moves or changes: rewrite exact.mjs, patches, toolchain and exact2 paths',
+    line: 'after exact2 moves: rewrite exact.mjs, patches, toolchain and exact2 paths',
     usage: 'bun exact.mjs update [--without linux]',
     flags: [
       ['--without <platform>', 'stop building and shipping linux (which Android builds too) or android: removes its crate, workspace member and app.json keys, and re-resolves Cargo.lock'],
@@ -366,6 +400,13 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs feedback status',
   },
   // A game's own verbs (exact2's game/README.md).
+  check: {
+    line: 'check game logic types and determinism without linking',
+    usage: 'bun exact.mjs check',
+    flags: [], internal: ['--check'],
+    body: 'Checks the logic library only. Host, linker and target errors belong to the build.\nPorts    none. Runs to completion; exits 1 on failure.',
+    example: 'bun exact.mjs check',
+  },
   'test-rust': {
     line: 'the game\'s hostless Rust tests (logic/tests) and determinism lints',
     usage: 'bun exact.mjs test-rust',
@@ -390,7 +431,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs lock',
   },
   windows: {
-    line: 'build the standalone Windows game into dist-windows/ (on Windows)',
+    line: 'build the Windows game into dist-windows/ (on Windows)',
     usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
     flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
     body: 'Needs Windows and the MSVC Rust target.\nPorts    none. Runs to completion; with --run, until the game quits.',
@@ -404,6 +445,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
       ['--repeat <n>', 'runs per host (default 1)'],
       ['--compare-saves', 'also require identical saves across hosts'],
       ['--repin', 'accept new pins once every host and mode agrees'],
+      ['--continue <run>', 'reuse the snapshot and completed legs of artifacts/prove/<run>'],
       ['--device', 'ios on a connected phone'],
       ['--phone <udid|name>', 'which phone, with --device'],
       ['--report', 'print the facilities a failed host lacks'],
@@ -458,12 +500,10 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
   const line = (verb) => HELP[verb]?.line ?? (own[verb] ? `app.json commands: ${own[verb].join(' ')}` : '');
   const forms = verbs.flatMap((verb) => HELP[verb]?.common ?? []);
   return [
-    'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
+    'bun exact.mjs <verb> [arguments]    in the app directory (EXACT2=<path> selects the SDK)',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
-    ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
-    '',
-    'bun exact.mjs <verb> --help: flags and an example;',
-    'bun exact.mjs <verb> --help all: every other flag and the ports it opens. Read it only for a flag not above.',
+    ...forms.map((form) => `  ${form}`),
+    'bun exact.mjs <verb> --help: flags and example; bun exact.mjs <verb> --help all: every flag and port.',
   ].join('\n');
 }
 

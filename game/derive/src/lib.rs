@@ -30,6 +30,48 @@ pub fn resource(input: TokenStream) -> TokenStream {
     derive(input, Some("Resource"))
 }
 
+/// Implement a typed, next-tick event record. `#[event(capacity = N)]` sets its bound.
+#[proc_macro_derive(Event, attributes(data, event))]
+pub fn event(input: TokenStream) -> TokenStream {
+    let tokens: Vec<_> = input.clone().into_iter().collect();
+    let capacity = tokens.windows(2).find_map(|pair| {
+        if !punct(&pair[0], '#') {
+            return None;
+        }
+        let TokenTree::Group(g) = &pair[1] else {
+            return None;
+        };
+        let a: Vec<_> = g.stream().into_iter().collect();
+        if a.first().is_none_or(|t| t.to_string() != "event") {
+            return None;
+        }
+        Some(a.get(1).map(ToString::to_string).unwrap_or_default())
+    });
+    let bound = capacity
+        .map(|s| s.trim_matches(['(', ')']).replace(' ', ""))
+        .map(|s| {
+            s.strip_prefix("capacity=")
+                .and_then(|n| n.parse::<u32>().ok())
+                .filter(|&n| n > 0 && n <= 65536)
+                .ok_or_else(|| "event expects capacity = 1..65536".to_owned())
+        })
+        .unwrap_or(Ok(256));
+    let result = bound.and_then(|bound| {
+        let (ty, _) = strip(&tokens, false)?;
+        if ty.first().is_none_or(|t| t.to_string() != "struct") || !matches!(ty.get(2), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace) {
+            return Err("Event requires a named record".into());
+        }
+        let name = ty[1].to_string();
+        expand(input, Some("TypedEvent")).map(|mut s| {
+            s = s.replace(&format!("impl ::exact_game::TypedEvent for {name} {{"), &format!("impl ::exact_game::TypedEvent for {name} {{ const CAPACITY: ::core::primitive::usize = {bound}; const QUEUE_NAME: &'static ::core::primitive::str = ::core::concat!(\"events:\", ::core::stringify!({name}));")); s
+        })
+    });
+    match result {
+        Ok(s) => s.parse().expect("Event derive emitted Rust"),
+        Err(e) => format!("::core::compile_error!({e:?});").parse().unwrap(),
+    }
+}
+
 struct Field {
     name: String,
     skip: bool,
@@ -256,7 +298,29 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         settle += "}";
         (write, read, moving, settle)
     };
-    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let edit = if kind == "struct" {
+        let b = body(tokens.get(2))?;
+        if b.shape == Shape::Named {
+            let arms = b
+                .fields
+                .iter()
+                .filter(|f| !f.skip)
+                .map(|f| {
+                    format!(
+                        "{:?} => ::exact_game::data::edit_field(&mut self.{}, text),",
+                        clean(&f.name),
+                        f.name
+                    )
+                })
+                .collect::<String>();
+            format!("fn set_field(&mut self, field: &::core::primitive::str, text: &::core::primitive::str) -> ::core::result::Result<(), ::exact_game::DataError> {{ match field {{ {arms} _ => ::core::result::Result::Err(::exact_game::DataError::new(::std::format!(\"unknown field {{field}}\"))) }} }}")
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+    let mut out = format!("impl ::exact_game::Data for {name} {{ const TYPE_ID: &'static str = ::core::concat!(\"table:\", ::core::module_path!(), \"::\", ::core::stringify!({name})); {edit} fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         let (marker, extra) = if marker == "Presentation" {
             (
@@ -337,6 +401,12 @@ fn read_body(b: &Body, access: &[String]) -> String {
     {
         s += &format!("{a} = ::core::default::Default::default();");
     }
+    if named && b.fields.iter().any(|f| !f.skip) {
+        s += &format!(
+            "let mut seen = [false; {}];",
+            b.fields.iter().filter(|f| !f.skip).count()
+        );
+    }
     s += if named {
         "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field.as_str() {"
     } else {
@@ -354,9 +424,10 @@ fn read_body(b: &Body, access: &[String]) -> String {
         } else {
             index.to_string()
         };
-        s += &format!(
-            "{key} => ::exact_game::Data::read(&mut {a}, r).map_err(|e| e.at({:?}))?,",
-            clean(&f.name)
+        s +=
+            &format!(
+            "{key} => {{ {} ::exact_game::Data::read(&mut {a}, r).map_err(|e| e.at({:?}))?; }},",
+            if named { format!("seen[{index}] = true;") } else { String::new() }, clean(&f.name)
         );
     }
     s += if named {
@@ -368,6 +439,11 @@ fn read_body(b: &Body, access: &[String]) -> String {
         s += "index += 1;";
     }
     s += "}";
+    if named {
+        for (index, f) in b.fields.iter().filter(|f| !f.skip).enumerate() {
+            s += &format!("if r.complete() && !seen[{index}] {{ return ::core::result::Result::Err(::exact_game::DataError::new(\"missing field\").at({:?})); }}", clean(&f.name));
+        }
+    }
     s
 }
 

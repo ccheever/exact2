@@ -483,6 +483,12 @@ pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
     )
 }
 
+/// The accent the painting scope holds now ([`authored_accent`]): the
+/// nearest one the node being painted or an ancestor authored, or none.
+pub fn scoped_accent() -> Option<ColorValue> {
+    AUTHORED.with(|a| a.get())
+}
+
 /// What [`authored_accent`] restores; the thread's, so it stays on it.
 pub struct AccentScope(
     Option<ColorValue>,

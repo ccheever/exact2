@@ -227,6 +227,16 @@ impl Lowerer<'_> {
         let Some((mut design, origin)) = found else {
             return exact_kernel::style::theme::declarations([]);
         };
+        // The axes it declares, before its fold: a refused token leaves them
+        // for `setMode` and the pins, so the build says the design's refusal
+        // and not that the design declares no axes.
+        AXES.with(|axes| {
+            *axes.borrow_mut() = design
+                .axes
+                .iter()
+                .map(|a| (a.name.value.clone(), a.values.clone()))
+                .collect()
+        });
         for t in design.tokens.iter().chain(&design.icons) {
             if t.name.value.starts_with(crate::params::PREFIX) {
                 self.push(LowerError {

@@ -23,7 +23,7 @@ export function parseStep(line) {
       try { call('resize', ...resizeArguments(size)); } catch (e) { invalid(e.message); }
       break;
     }
-    case 'tap': call('tap', word()); break;
+    case 'tap': { const target = word(); if (words[0] !== 'at') { call('tap', target); break; } words.shift(); call('tap', target, { at: [Number(word()), Number(word())] }); break; } // a press at a point of the target, from its top left
     case 'menu': call('tap', word(), { contextmenu: true }); break;
     case 'type': { const target = word(), text = [word(), ...words.splice(0)].join(' '); call('type', target, text); break; }
     case 'key': {

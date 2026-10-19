@@ -102,7 +102,58 @@ impl DocTree {
             props: &node.props,
             is_root: node.is_root,
             inline_run,
+            symbol_color: self.symbol_color(node),
         })
+    }
+
+    /// [`exact_kernel::NodeRef::symbol_color_said`] over this tree: the
+    /// nearest node that sets `color` decides, said when its author wrote
+    /// it, and where its author wrote none a start of the neutral sheet's
+    /// that sets `color` (`says`'s) stops the walk: a route header's, a
+    /// neutral alert's and its children's but its buttons'. (A field's start
+    /// sets it too, and a field holds no image.)
+    fn symbol_color(&self, node: &DocNode) -> bool {
+        use exact_kernel::style::metrics::{column, Column};
+        use exact_kernel::PropId;
+        let symbol = node.node_type == NodeType::Image
+            && node
+                .props
+                .str(PropId::ImageSource)
+                .is_some_and(|s| s.starts_with("symbol:"));
+        let parent = |n: &DocNode| n.parent.and_then(|p| self.node(p));
+        if !symbol || parent(node).is_some_and(|p| p.node_type == NodeType::Control) {
+            return false;
+        }
+        let neutral = column() == Column::Neutral;
+        let alert = |n: &DocNode| {
+            neutral
+                && n.props.str(PropId::SemanticTag) == Some("dialog")
+                && n.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+        };
+        let button = |n: &DocNode| {
+            n.node_type == NodeType::Pressable && n.props.str(PropId::Href).is_none()
+                || exact_kernel::control::ControlKind::of(n.node_type, &n.props)
+                    == Some(exact_kernel::control::ControlKind::Button)
+        };
+        let starts = |n: &DocNode| {
+            let up = parent(n);
+            neutral
+                && n.props.str(PropId::SemanticTag) == Some("header")
+                && up.is_some_and(|p| p.props.get(PropId::NavigationKey).is_some())
+                || alert(n)
+                || up.is_some_and(&alert) && !button(n)
+        };
+        let mut at = Some(node);
+        while let Some(n) = at {
+            if n.style.written.has(StyleId::TextColor) {
+                return true;
+            }
+            if n.style.mask.has(StyleId::TextColor) || starts(n) {
+                return false;
+            }
+            at = parent(n);
+        }
+        false
     }
 
     /// The active head, as [`crate::Runner::head`] reads a kernel's tree.
@@ -358,10 +409,17 @@ impl Build<'_> {
                     Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
                 },
                 BindingKind::Style if shared.is_some() => {}
-                // `none` clears the row: unset in a fold from the default.
-                BindingKind::Style
-                    if matches!(value, Value::Option(None))
-                        || bridge::unsets(binding.id, value) => {}
+                // `none` clears the row: unset in a fold from the default. An
+                // authored CSS-wide clear keeps its declaration's intent, as a
+                // kernel's `ClearStyle` does (`NodeInst::emit_bindings`).
+                BindingKind::Style if matches!(value, Value::Option(None)) => {}
+                BindingKind::Style if bridge::unsets(binding.id, value) => {
+                    if let (true, Some(style)) =
+                        (binding.written, StyleId::from_bit(binding.id as u32))
+                    {
+                        patch.written.set(style);
+                    }
+                }
                 BindingKind::Style => {
                     let (family_value, family_id) =
                         bridge::family_binding(plan, Some(&*self.fonts), binding, value);
@@ -383,10 +441,17 @@ impl Build<'_> {
                             self.sites.keyframes.resolve(&mut patch.rare.exit_animation);
                         }
                         Ok(_) => {}
-                        // A value its row refuses is unset, as on a kernel.
+                        // A value its row refuses is unset, its declaration's
+                        // intent kept, as on a kernel (`ClearStyle`).
                         Err(
                             bridge::BridgeError::Style(_) | bridge::BridgeError::StyleKind { .. },
-                        ) => {}
+                        ) => {
+                            if let (true, Some(style)) =
+                                (binding.written, StyleId::from_bit(binding.id as u32))
+                            {
+                                patch.written.set(style);
+                            }
+                        }
                         Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
                     }
                 }

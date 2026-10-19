@@ -51,11 +51,15 @@ fn warnings_follow_the_refusals_and_never_fail_the_build() {
     let human = app.run(&["app.contract"]);
     assert_eq!(human.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&human.stderr);
+    // Each diagnostic, then its line and a caret under its columns.
     let lines: Vec<&str> = stderr.lines().collect();
     assert!(
-        lines.len() == 2
+        lines.len() == 6
             && lines[0].contains("[lower-unknown-attr]")
-            && lines[1].contains(" warning ["),
+            && lines[1] == " 8 |     button widht=3 \"save\" press=save"
+            && lines[2] == "   |            ^^^^^"
+            && lines[3].contains(" warning [")
+            && lines[4].starts_with(" 6 |     send wrote = keep(performanceNow())"),
         "{stderr}"
     );
 }
