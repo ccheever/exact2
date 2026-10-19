@@ -211,6 +211,11 @@ test('E11 receipts and proof provenance bind post-bake generated assets', async 
     write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/logic/src/lib.rs','surface with added argument');await run();expect(builds.splice(0)).toEqual(['gpu','host']);
     write('game/games/sample/app.contract','changed');await run();expect(builds.splice(0)).toEqual(['host']);gpu=null;await run();expect(builds.splice(0)).toEqual(['gpu']);
+    // An author's file where the cache would put a generated one is refused by name and left alone;
+    // a generated file the manifest owns is restored over.
+    rmSync(resolve(app,'art'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));write('game/games/sample/assets/textures/crate.astc.tex','authored replacement');spawnSync('git',['add','-f','game/games/sample/assets/textures/crate.astc.tex'],{cwd:dir});
+    await expect(run()).rejects.toThrow('would overwrite a file the bake does not own');
+    expect(readFileSync(resolve(app,'assets/textures/crate.astc.tex'),'utf8')).toBe('authored replacement');
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

@@ -591,7 +591,8 @@ export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostI
   if (surface) mkdirSync(dirname(surface),{recursive:true});
   const declaration = resolve(directory,'build-linux-surfaces.json'), assets = resolve(directory,'build-linux-assets');
   let cachedAssets = !app;
-  if (app) try { bakedAssetDigest(assets); restoreBakedAssets(assets, app); cachedAssets = true; } catch {}
+  // No cache is an ordinary miss; a cached file that would overwrite an authored one is a refusal.
+  if (app && existsSync(resolve(assets,'files.json'))) { restoreBakedAssets(assets, app); cachedAssets = true; }
   const artifact = () => {
     const product = gpuArtifact();
     if (!surface) return product;
@@ -628,14 +629,29 @@ function cacheBakedAssets(app, cache) {
   for (const name of files) { mkdirSync(dirname(resolve(cache,name)),{recursive:true}); copyFileSync(resolve(app,name),resolve(cache,name)); }
   writeFileSync(resolve(cache,'files.json'),JSON.stringify(files));
 }
+// A cached file lands only where the app's own bake manifest says a generated file of that
+// digest is (or where nothing is): a file the author put there is refused by name, as the baker
+// refuses the same collision (game/bake, "collides with an authored asset"). Every destination is
+// checked before any is written.
 function restoreBakedAssets(cache, app) {
   const files = JSON.parse(readFileSync(resolve(cache,'files.json')));
+  const manifest = resolve(app,'.baked-assets.json');
+  const generated = existsSync(manifest) ? JSON.parse(readFileSync(manifest)) : {};
+  const writes = [];
   for (const name of files) {
     if (name !== '.baked-assets.json' && (!name.startsWith('assets/') || !resolve(app,name).startsWith(resolve(app,'assets')+'/'))) throw new Error(`invalid baked asset path: ${name}`);
     const destination = resolve(app,name), bytes = readFileSync(resolve(cache,name));
-    if (existsSync(destination) && readFileSync(destination).equals(bytes)) continue;
-    mkdirSync(dirname(destination),{recursive:true}); writeFileSync(destination,bytes);
+    if (!existsSync(destination)) { writes.push([destination,bytes]); continue; }
+    const current = readFileSync(destination);
+    if (current.equals(bytes)) continue;
+    const recorded = name === '.baked-assets.json' ? undefined : generated[name.slice('assets/'.length)];
+    const ownedDigest = recorded && (typeof recorded === 'string' ? recorded : recorded.digest ?? recorded.sha256);
+    const currentDigest = createHash('sha256').update(current).digest('hex');
+    if (name !== '.baked-assets.json' && ownedDigest !== currentDigest)
+      throw new Error(`cached asset \`${name}\` would overwrite a file the bake does not own; move the authored file or delete the cached build (artifacts/build)`);
+    writes.push([destination,bytes]);
   }
+  for (const [destination,bytes] of writes) { mkdirSync(dirname(destination),{recursive:true}); writeFileSync(destination,bytes); }
 }
 export async function withProofBuild(target, build) {
   for (;;) {
