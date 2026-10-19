@@ -589,6 +589,32 @@ test('a screenshot with a system sheet held says it is not drawn, and where the 
   } finally { console.error = quiet; }
 });
 
+// The euxy port's pattern menu: painted in the page by the agent, it read as an app bug.
+test('a tap that opens a menu the agent paints says UIKit presents it, under --touch platform, once', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  const said = [], quiet = console.error;
+  const nodes = [
+    { id: 1, parent: null, props: {} },
+    { id: 2, parent: 1, props: { popovertarget: 'patmenu', testId: 'pattern-menu' } },
+    { id: 3, parent: 2, props: {} }, // the invoker's label, which the tap may land on
+    { id: 4, parent: 1, props: { id: 'patmenu', popover: 'auto', accessibilityRole: 'menu' } },
+    { id: 5, parent: 4, props: { popovertarget: 'patmenu', popovertargetaction: 'hide' } }, // a row that closes it
+    { id: 6, parent: 1, props: { commandfor: 'ask', command: 'show-modal' } },
+    { id: 7, parent: 1, props: { id: 'ask', popover: 'auto', semanticTag: 'dialog' } },
+  ];
+  const s = (touch) => ({ launchFacts: {}, carrier: { touch }, op: async () => ({ lines: [], next: 0 }), state: async () => ({}), tree: async () => ({ nodes }) });
+  console.error = (line) => said.push(line);
+  try {
+    const notes = driveNotes(s('agent'), { host: 'ios', storage: 's1' });
+    for (const tapped of [5, 6, 3, 2]) await notes('tap', { tapped });
+    assert.deepEqual(said, ["note: the tap opened the popover `patmenu` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform"]);
+    said.length = 0;
+    await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('tap', { tapped: 2 });
+    await driveNotes(s('agent'), { host: 'web', storage: 's1' })('tap', { tapped: 2 });
+    assert.deepEqual(said, []);
+  } finally { console.error = quiet; }
+});
+
 test('a native store is one drive\'s at a time: a second is refused until the first closes', async () => {
   const { exclusiveNativeStore } = await import('./agent-launch.mjs');
   const { mkdtempSync, rmSync } = await import('node:fs');
