@@ -32,8 +32,9 @@
 //  104  stack(host, controller) → navigation controller: the one of a tab
 //        Exact holds without one (HeldStackIOS.swift), built when
 //        `ExactTab.controller` is read (iOS, tvOS; nil elsewhere)
-//  112  on_line(host) → 1 online, 0 offline: `app.onLine`, read when the
-//        module asks, so the path monitor starts only then (PageFacts)
+//  112  on_line(host) → 1 online, 0 offline, 2 not answered (off main, or a
+//        destroyed session): `app.onLine`, read when the module asks, so
+//        the path monitor starts only then (PageFacts)
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
@@ -133,8 +134,11 @@ private let hatchStack: HatchStackFn = { host, controller in
     #endif
 }
 
-private typealias HatchOnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
-private let hatchOnLine: HatchOnLineFn = { _ in PageFacts.onLine ? 1 : 0 }
+typealias HatchOnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
+let hatchOnLine: HatchOnLineFn = { host in
+    guard hatchSession(host) != nil else { return 2 }
+    return PageFacts.onLine ? 1 : 0
+}
 
 private let hatchLog: HatchLogFn = { host, bytes, length in
     hatchSession(host)?.log("hatch \(hatchText(bytes, length))")

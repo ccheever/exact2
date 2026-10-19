@@ -340,8 +340,9 @@ public final class ExactApp {
     public internal(set) var processOwner = false
     /// `visible` or `hidden` (`document.visibilityState`).
     public internal(set) var visibilityState = "visible"
-    /// `navigator.onLine`, read from the host when asked: the host watches
-    /// the network only once something reads it.
+    /// `navigator.onLine`, asked of the host on main (else as last told).
+    /// Connectivity is watched from the first read: read it once, even in
+    /// the `isNew` call, to be told of its changes.
     public var onLine: Bool { hatches?.onLine() ?? toldOnLine }
     var toldOnLine = true
     /// `light` or `dark`.
@@ -555,7 +556,7 @@ final class ExactHatches {
             ? table.load(fromByteOffset: 112, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OnLineFn.self) } : nil
     }
 
-    func onLine() -> Bool? { onLineFn.map { $0(host) != 0 } }
+    func onLine() -> Bool? { onLineFn.flatMap { f in let answer = f(host); return answer > 1 ? nil : answer == 1 } }
 
     func log(_ line: String) {
         let bytes = Array(line.utf8)

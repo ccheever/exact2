@@ -61,10 +61,12 @@ export const answer: Answer = (source, args, store, storage, native) =>
 - **`context.changed("flags")`** asks again every answer that called `native.watch("flags")`.
   `context.now()` and `context.after(ms)` are the session's clock; `context.agent` is true
   under the agent.
-- **Launch arguments:** Exact passes none. Launched by hand, `xcrun simctl launch <udid>
-  <bundle id> -AutoPlay 1` puts each `-Name value` in `UserDefaults`, as read above.
-- **Printing:** `print` (stdout) appears in `agent ios logs` (under `host`) and in `xcrun
-  simctl launch --console`; `NSLog` does not.
+- **Launch arguments:** Exact passes none. `xcrun simctl launch <udid> <bundle id> -AutoPlay
+  1` puts each `-Name value` in `UserDefaults`, as read above.
+- **Printing:** `print` shows in `agent ios logs` and `xcrun simctl launch --console`;
+  `NSLog` not.
+- **`app.onLine`** (app hatch) is watched from its first read: read it once, even when
+  `isNew`, to hear changes.
 - **Exiting:** iOS has no quit. `exit(0)` ends the process without waiting for the app's
   writes: keep it to a measurement hook, after `fflush(stdout)`. Time launches on a simulator
   no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
