@@ -961,6 +961,24 @@ impl<D: DataSource> Presenter<D> {
             .copied()
     }
 
+    /// How far scroll container `id`'s offset travels on each axis (LLP 1012 `rx`/`ry`): the bounds its offset is
+    /// clamped to, as `clamp_scroll` reads them.
+    fn scroll_range(&self, id: ViewId, collection_limits: &BTreeMap<ViewId, f32>) -> (f32, f32) {
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node(id) else {
+            return (0., 0.);
+        };
+        let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+            self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                collection_limits.get(&id).copied(),
+            )
+        });
+        (bounds.max.0.max(0.), bounds.max.1.max(0.))
+    }
+
     /// The agent's `layout`: every node's box in the viewport (scroll
     /// folded in), scroll containers with their offsets, by id. With a
     /// `node`, the runner's explanation of that node (LLP 1035.002 D1) plus
@@ -1002,6 +1020,7 @@ impl<D: DataSource> Presenter<D> {
             );
         }
         s.push_str("]},\"nodes\":[");
+        let limits = self.collection_scroll_limits();
         for (i, b) in boxes.iter().enumerate() {
             if i > 0 {
                 s.push(',');
@@ -1016,7 +1035,15 @@ impl<D: DataSource> Presenter<D> {
                 num(r2(b.rect.3))
             );
             if let Some((sx, sy)) = b.scroll {
-                let _ = write!(s, ",\"sx\":{},\"sy\":{}", num(r2(sx)), num(r2(sy)));
+                let (rx, ry) = self.scroll_range(b.id, &limits);
+                let _ = write!(
+                    s,
+                    ",\"sx\":{},\"sy\":{},\"rx\":{},\"ry\":{}",
+                    num(r2(sx)),
+                    num(r2(sy)),
+                    num(r2(rx)),
+                    num(r2(ry))
+                );
             }
             s.push('}');
         }

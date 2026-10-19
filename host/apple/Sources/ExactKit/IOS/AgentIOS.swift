@@ -281,6 +281,15 @@ extension Agent {
         return CGRect(x: r.origin.x - o.x, y: r.origin.y - o.y, width: r.width, height: r.height)
     }
 
+    /// How far `sv`'s offset travels on each axis from one end to the other (LLP 1012 `rx`/`ry`): the ends the wheel
+    /// routes by and `ox`/`oy` measure from, its adjusted insets included, whether or not a wheel or a drag may move it
+    /// that way.
+    static func range(of sv: UIScrollView) -> [String: Any] {
+        let i = sv.adjustedContentInset
+        return ["rx": r2(max(0, sv.contentSize.width + i.left + i.right - sv.bounds.width)),
+                "ry": r2(max(0, sv.contentSize.height + i.top + i.bottom - sv.bounds.height))]
+    }
+
     func layout() -> [String: Any] {
         let vp = presenter.viewport
         var nodes: [[String: Any]] = []
@@ -294,11 +303,12 @@ extension Agent {
             let r = nativeAction ? actionView.map { box($0) } ?? .zero : box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
             if nativeAction { n["presentation"] = "native-swipe-action"; n["visible"] = actionView != nil }
-            // A waiting scroll (a closed swipe row's) is at its start.
-            if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0 }
+            // A waiting scroll (a closed swipe row's) is at its start, with no range until it scrolls.
+            if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0; n["rx"] = 0.0; n["ry"] = 0.0 }
             if let sv = v.scrollView {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
                 n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
+                n.merge(Agent.range(of: sv)) { _, new in new }
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
                 let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in
@@ -443,8 +453,8 @@ extension Agent {
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
-                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv))]) } // CSS scrollTop, as `tree` reads it
-                else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0]) }
+                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv))].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
+                else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]) }
                 if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
@@ -453,8 +463,8 @@ extension Agent {
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
         let popoverLayer = PopoverLayer.containing(host)
         let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
-        var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]
-                                                  : ["presentation": true, "sx": 0.0, "sy": 0.0]]
+        var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)].merging(Agent.range(of: vp)) { a, _ in a }
+                                                  : ["presentation": true, "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
         for (n, kind) in clippers.reversed() {
