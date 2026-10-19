@@ -19,6 +19,7 @@ use exact_kernel::StyleId;
 use exact_plan::Stdlib;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod container;
 mod counts;
 mod launch;
 pub(crate) mod line_height;
@@ -166,6 +167,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     scroll_bound::scroll_grows(&root.view, &checked.file.styles, &mut out);
+    container::flex_on_block(&root.view, &checked.file.styles, &mut out);
     width::text_px_width(&root.view, &checked.file.styles, lowered, &mut out);
     svg::use_foreign_object(&root.view, &mut out);
     out.extend(
@@ -211,8 +213,7 @@ struct Tokens {
     /// The tokens one colour in light and dark, not marked `scheme=fixed`,
     /// with that colour and whether in every tuple (`theme::one_scheme_tokens`).
     one: Vec<(String, String, bool)>,
-    /// The tokens are a design's (`app.tamber`), which can mark one, not an
-    /// inline `theme`'s.
+    /// The tokens are a design's (`app.tamber`), which can mark one, not an inline `theme`'s.
     design: bool,
 }
 
@@ -250,8 +251,7 @@ const BOXES: &[&str] = &[
 
 /// What the iOS bar makes of one node in a route's header.
 enum Part {
-    /// An `if`, `for`, `match`, use or slot, or a computed role or type:
-    /// the benefit of the doubt.
+    /// An `if`, `for`, `match`, use or slot, or a computed role or type: the benefit of the doubt.
     Doubt,
     /// Not shown in the header on any host: `display="none"`, or a popover
     /// or dialog, which shows over the page when it opens.

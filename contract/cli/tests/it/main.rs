@@ -48,6 +48,7 @@ mod document;
 mod entropy;
 mod fetch_faults;
 mod first;
+mod flex_on_block;
 mod flow;
 mod fmt;
 mod fns;

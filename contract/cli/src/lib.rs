@@ -715,6 +715,7 @@ pub fn warning_rank(warning: &CompileError) -> u8 {
         | "lower-dialog-role"
         | "lower-level-without-heading"
         | "lower-scroll-grows"
+        | "lower-flex-on-block"
         | "lower-width-padding"
         | "lower-swipe-wiring"
         | "lower-row-delete-button"
