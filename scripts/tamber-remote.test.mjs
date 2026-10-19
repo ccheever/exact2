@@ -548,12 +548,28 @@ test('the main loopback port answers a sandboxed page\'s wire request as a remot
     expect([paired.status, paired.headers['access-control-allow-origin']]).toEqual([200, 'null']);
     const hello = await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-exact-tamber-token': JSON.parse(paired.text).ok.token }, body: '{"method":"hello"}' });
     expect([hello.status, JSON.parse(hello.text).ok.scope]).toEqual([200, 'read']);
-    // Not the loop's otherwise: a rebound name, another path, another origin go to its gate.
-    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', host: 'evil.example:1' } })).status).toBe(421);
+    // At its scope only: a read token proposes nothing, and a local method is no one's from here.
+    const read = JSON.parse(paired.text).ok.token;
+    const call = async body => send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-exact-tamber-token': read }, body: JSON.stringify(body) });
+    expect((await call({ method: 'propose', client: 'figma', hold: true, ops: [] })).status).toBe(403);
+    expect((await call({ method: 'pair-code', scope: 'read' })).status).toBe(403);
+    expect((await call({ method: 'transaction', client: 'figma', ops: [] })).status).toBe(403);
+    // The event stream path takes it too, with CORS.
+    const events = await send(false, port, { method: 'POST', path: '/__tamber/events', headers: { origin: 'null', 'x-exact-tamber-token': read }, body: '{"after":0,"wait":false}' });
+    expect([events.status, events.headers['access-control-allow-origin']]).toEqual([200, 'null']);
+    // Wrong codes: refused, then limited, the wait readable through CORS.
+    let limited;
+    for (let i = 0; i < 8 && !limited; i++) {
+      const r = await send(false, port, { method: 'POST', path: '/__tamber/pair', headers: { origin: 'null' }, body: '{"code":"AAAA-AAAA-AAAA"}' });
+      if (r.status === 429) limited = r;
+    }
+    expect([limited?.headers['access-control-expose-headers'], typeof limited?.headers['retry-after']]).toEqual(['retry-after', 'string']);
+    // Not the loop's otherwise: a rebound name at this very port goes to its gate.
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', host: `evil.example:${port}` } })).status).toBe(421);
     // The token route is the gate's as ever, and carries no CORS: a sandboxed page cannot read it.
     const tokenRoute = await send(false, port, { path: '/__tamber/token', headers: { origin: 'null' } });
     expect(tokenRoute.headers['access-control-allow-origin']).toBeUndefined();
-    expect(reached.every(u => ['/__tamber', '/__tamber/pair'].includes(u))).toBe(true);
+    expect(reached.every(u => ['/__tamber', '/__tamber/pair', '/__tamber/events'].includes(u))).toBe(true);
   } finally { server.close(); await wire.close(); }
 });
 
@@ -621,4 +637,21 @@ test('round 2 of E1: each side\'s left-out port is its own scheme\'s default; a 
     for (const h of ['x-forwarded-proto', 'x-forwarded-port', 'forwarded'])
       expect([h, (await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', [h]: 'https' } })).status]).toEqual([h, 421]);
   } finally { server.close(); }
+});
+
+test('round 3 of E1: the real wire through the tunnel to a sandboxed page: the local token is no one; [::1] at its port is its own origin', async () => {
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const warned = [];
+  const doors = await openRemote(wire, { remote: null, tunnel: 0, plugin: true, hosts: [] }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    let token = null;
+    const res = { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } };
+    await wire.handle({ method: 'GET', headers: {} }, res, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const local = await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-exact-tamber-token': token }, body: '{"method":"hello"}' });
+    expect([local.status, local.headers['access-control-allow-origin']]).toEqual([404, 'null']);
+    expect(local.text).not.toContain(token);
+    const six = await send(false, port, { method: 'POST', path: '/__tamber', headers: { host: `[::1]:${port}`, origin: `http://[::1]:${port}` }, body: '{"method":"hello"}' });
+    expect(six.status).not.toBe(403);
+  } finally { await doors.close(); await wire.close(); }
 });

@@ -201,8 +201,8 @@ statuses:
   `/__tamber`, `/__tamber/subscribe`, `/__tamber/events` and `/__tamber/pair` gets CORS
   (`Access-Control-Allow-Origin: null`; a preflight `OPTIONS` answered 204, `POST` with
   `content-type` and `x-exact-tamber-token`); every such request is a remote one, so only a
-  paired token works, never the local one. Nothing else answers a sandboxed page, the token
-  route included.
+  paired token works, never the local one. No other path gives a sandboxed page CORS: the token
+  route keeps the dev gate's rule, so such a page cannot read it.
 
 ### Pairing (*1.13*)
 
