@@ -404,7 +404,10 @@ impl Kernel {
             (s.margin_bottom, ROW),
             (s.margin_left, COLUMN),
         ]
-        .map(|(d, cell)| d.spaced(env, cell).at_basis(env, 0.0));
+        .map(|(d, cell)| match d.spaced(env, cell) {
+            d if d.has_percent() => 0.0,
+            d => d.at_basis(env, 0.0),
+        });
         Some([t, r, b, l])
     }
 

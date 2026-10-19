@@ -140,6 +140,7 @@ mod tests {
             (0.0, 0.0),
             (4.0, 0.0),
             (8.0, 0.0),
+            (9.0, 1.0),
             (10.0, 1.0),
             (12.0, 1.0),
             (14.0, 1.0),
@@ -151,6 +152,7 @@ mod tests {
         }
         // Across, a column: a ch is one; a negative margin by its size.
         assert_eq!(space(8.0, COLUMN), 8.0);
+        assert_eq!(space(4.0, COLUMN), 0.0);
         assert_eq!(space(12.0, COLUMN), 8.0);
         assert_eq!(space(-24.0, ROW), -16.0);
         assert_eq!(space(-8.0, ROW).to_bits(), 0.0f32.to_bits());

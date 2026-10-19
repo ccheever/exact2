@@ -433,16 +433,31 @@ pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f6
     };
     let env = kernel.arena().env();
     let r = &node.style.rare;
-    [
+    let sides = [
         r.scroll_padding_top,
         r.scroll_padding_right,
         r.scroll_padding_bottom,
         r.scroll_padding_left,
-    ]
-    .map(|d| match d.resolve(env) {
-        exact_kernel::Dimension::Points(n) => n as f64,
+    ];
+    std::array::from_fn(|i| match sides[i].resolve(env) {
+        exact_kernel::Dimension::Points(n) => f64::from(on_grid(env, n, CELLS[i])),
         _ => 0.0,
     })
+}
+
+/// Each side's cell, top, right, bottom, left.
+const CELLS: [f32; 4] = {
+    use exact_kernel::style::cells::{COLUMN, ROW};
+    [ROW, COLUMN, ROW, COLUMN]
+};
+
+/// A scroll length as a terminal lays its spaces out: whole cells under its
+/// space rule (LLP 1121 stage 11 (c)), so a keyed jump stays on the rows.
+fn on_grid(env: &exact_kernel::Env, px: f32, cell: f32) -> f32 {
+    match env.cell_spaces {
+        true => exact_kernel::style::cells::space(px, cell),
+        false => px,
+    }
 }
 
 /// A row root's margins as the kernel laid them out (whole cells under a
@@ -458,12 +473,12 @@ pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64
     let Some(node) = kernel.node(view) else {
         return [0.0; 4];
     };
-    let r = &node.style.rare;
-    [
+    let (env, r) = (kernel.arena().env(), &node.style.rare);
+    let sides = [
         r.scroll_margin_top,
         r.scroll_margin_right,
         r.scroll_margin_bottom,
         r.scroll_margin_left,
-    ]
-    .map(|d| f64::from(d.at_basis(kernel.arena().env(), 0.0)))
+    ];
+    std::array::from_fn(|i| f64::from(on_grid(env, sides[i].at_basis(env, 0.0), CELLS[i])))
 }

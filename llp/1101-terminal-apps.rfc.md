@@ -455,7 +455,6 @@ the same data.
 |---|---|---|
 | `display` block / flex / grid / none / contents | Taffy, as everywhere | admit |
 | lengths, `gap`, `padding`, `margin`, `width`…, `inset` | D3 units only | cell |
-| `padding`, `margin`, `gap` in px (a base space such as `space.sm`, an app's own px) | whole cells on its axis, rows down and columns across, to the nearest with a tie toward zero, so half a cell of space is none: by magnitude, down, up to 8 px is 0 rows and above 8 through 24 px 1 row (a negative margin keeps its sign; none is +0); across, a `ch` is a column. Laid out by the kernel itself, beside the border rule below: under the terminal's space rule (`Env::cell_spaces`), which only the terminal host sets, a padding, margin or gap that resolves to points is rounded before layout, so px and the painted cells agree. A declared deviation (LLP 1121 stage 11 (c)); its limit: a percentage, or a `calc()` with one, is not rounded | cell |
 | `color`, `background-color`, `light-dark()`, `currentcolor` | SGR 38/48; truecolor → 256 → 16 → none by negotiation; alpha composited over the painted background in the host | quantize |
 | `font-weight` ≥ 600 / ≤ 300 | bold (SGR 1) / faint (SGR 2) | quantize |
 | `font-style: italic` | SGR 3 | admit |
@@ -464,6 +463,7 @@ the same data.
 | `font-size`, `font-family`, `letter-spacing`, `line-height` ≠ `1lh` | the terminal's face and grid are the user's | refuse |
 | `text-align`, `white-space`, `overflow-wrap`, `text-overflow: ellipsis`, `line-clamp` | on whole cells; `…` is one column | admit |
 | `border-style` solid / double / dashed / dotted; `border-width` thin / medium | one cell per side. Light `─│`, double `═║`, dashed `┄┆`, dotted `┈┊`; `medium` = heavy `━┃`. CSS's `thick` and px widths are refused. The cell is reserved by the kernel itself: under a process-wide terminal flag only the terminal host sets, a drawn side occupies a row (top, bottom) or a column (sides) in layout (r4, §11) | cell |
+| `padding`, `margin`, `gap` in px (a base space such as `space.sm`, an app's own px) | whole cells on its axis, rows down and columns across, to the nearest with a tie toward zero, so half a cell of space is none: by magnitude, down, up to 8 px is 0 rows and above 8 through 24 px 1 row (a negative margin keeps its sign; none is +0); across, a `ch` is a column. Laid out by the kernel itself, beside the border rule above: under the terminal's space rule (`Env::cell_spaces`), which only the terminal host sets, a padding, margin or gap that resolves to points is rounded before layout, so px and the painted cells agree. A declared deviation (LLP 1121 stage 11 (c)); its limit: a percentage, or a `calc()` with one, is not rounded | cell |
 | `border-radius` | > 0 draws rounded corners `╭╮╰╯` on a light solid border, and is refused otherwise | quantize |
 | adjacent borders | not joined in v1 (no `├┼┤`); `exact:terminal`'s table draws its own joins | — |
 | `overflow` hidden / auto / scroll | clips to cells; scrolls by whole rows and columns; a one-column indicator unless `scrollbar-width: none` | admit |

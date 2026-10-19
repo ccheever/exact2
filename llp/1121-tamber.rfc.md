@@ -5138,9 +5138,10 @@ Built to theme2's 15:32 approval, on B1 and B2.
   - The numbers: down, space.xs, sm and md (0, 8 and 8 px) are 0 rows and space.lg and xl (16 px) 1 row; the clone's
     14, 12 and 10 px are 1 row each; across, a `ch` is a column (12 px, a column and a half, is one).
   - px and cells agree by construction, so the painter, scroll, `scrollIntoView`, follow-end, the collections' windows
-    and the inline transcript need no change. One reader of a margin outside layout follows the rule too: a
-    virtualized list's keyed jump aligns a row by its root's margins (`runner/.../into_view.rs`), now read from the
-    kernel as laid out (`Kernel::laid_margins`) when the kernel's rule is on. Turning a cell rule (spaces or borders) on or off after a layout restyles every box. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
+    and the inline transcript need no change. The readers of a space outside layout follow the rule too: a
+    virtualized list's keyed jump aligns a row by its root's margins, now read from the kernel as laid out
+    (`Kernel::laid_margins`), and its `scroll-padding` and `scroll-margin` in whole cells when the rule is on
+    (`runner/src/runner/collection.rs`); a host's cover inset adds to the rounded padding. Turning a cell rule (spaces or borders) on or off after a layout restyles every box. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
     not landed); Astra's round 1 found it drifted from px cumulatively (item k of a gap-sm list at px 24k, painted on
     row k).
   - The visible change, accepted: a box padded `space.sm` shrinks to its content (the `even` box is its child's two
@@ -5154,7 +5155,8 @@ Built to theme2's 15:32 approval, on B1 and B2.
     `a_keyed_jump_aligns_rows_by_their_margins_in_whole_cells`, `kernel/tests/it/env.rs`
     `the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns`, `layout_and_plan_answer_as_json`
     (`1ch` of padding: a column across, none down) and `scale-check.test.mjs`.
-  - The run: terminal 21/21 (even 0/1/0/1 cells top/right/bottom/left; sm padding 8, 0 px; md 8, 16; lg and xl 16,
+  - The run: terminal 21/21 (even 0/1/0/1 cells top/right/bottom/left; sm padding 8, 0 px; md, the design's own 12
+    px, 8, 16; lg and xl 16,
     16; gaps 0, 8, 8, 16, 16 px across; the header 44; corners 0).
 - The other hosts run the same plan, now 21 checks with the `even` box: 21/21 each on web, Linux, macOS, iOS and the
   reader. conform: 5/5, and Linux 5/5.

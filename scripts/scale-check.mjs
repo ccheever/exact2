@@ -108,7 +108,7 @@ export function fitRadius(starts, limit) {
 export const reduced = (radius, w, h) => Math.min(radius, w / 2, h / 2);
 // A length in whole cells as the terminal paints it (LLP 1121 stage 11 (c)):
 // to the nearest cell, a tie toward zero.
-export const cellsOf = (px, cell) => Math.sign(px) * Math.max(0, Math.ceil(Math.abs(px / cell) - 0.5));
+export const cellsOf = (px, cell) => (Math.sign(px) * Math.max(0, Math.ceil(Math.abs(px / cell) - 0.5))) || 0;
 
 /** A host's column in the base scale's table (LLP 1121 stage 11 B): every
  * web build and the Linux desktop draw the neutral look; `terminal` is the

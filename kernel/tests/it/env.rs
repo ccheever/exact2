@@ -733,3 +733,35 @@ fn a_multicol_gap_is_whole_columns_under_the_terminal_space_rule() {
     assert_eq!(gap_of(false), Some(12.0));
     assert_eq!(gap_of(true), Some(8.0));
 }
+
+/// The margins a keyed jump reads (`Kernel::laid_margins`): as layout reads
+/// them, whole cells under the terminal's rule, a percentage none.
+#[test]
+fn laid_margins_are_whole_cells_and_a_percentage_none() {
+    let mut kernel = tree();
+    let mut child = StyleProps::default();
+    for (id, v) in [
+        (StyleId::MarginTop, StyleValue::Number(8.0)),
+        (StyleId::MarginBottom, StyleValue::Number(14.0)),
+        (
+            StyleId::MarginLeft,
+            StyleValue::Text("calc(10% + 14px)".into()),
+        ),
+        (StyleId::MarginRight, StyleValue::Number(12.0)),
+    ] {
+        child.set_dynamic(id, &v).unwrap();
+    }
+    kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            }],
+        )
+        .unwrap();
+    assert_eq!(kernel.laid_margins(2), Some([8.0, 12.0, 14.0, 0.0]));
+    kernel.set_cell_spaces(true);
+    assert_eq!(kernel.laid_margins(2), Some([0.0, 8.0, 16.0, 0.0]));
+}
