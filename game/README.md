@@ -406,7 +406,8 @@ tick the clock holds (a look frame, [render README](render/README.md#look-frames
 the page as composited where the canvas draws, and a contact sheet over 600 ms at
 half resolution, and prints each as a `LOOK` path. A tell fails the look: a
 near-black or near-white frame, more than 5% of pixels clipped, a particle draw that
-covered nothing, a shadowed sun whose shadow passes drew no caster. Tells are judged
+covered nothing (no fragment of it contributed in front of the scene), a shadowed
+sun whose maps hold no texel nearer than their clear depth. Tells are judged
 on whole frames from the game's camera: the close step's, the one a drawing host
 takes at every `clock settle` and pixel `screenshot` (their replies carry its
 `look` lines, `lookGaps`, `lookFailed` and the canvases looked at, `lookSeen`), and

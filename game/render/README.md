@@ -718,7 +718,9 @@ armed probe calls. A look frame whose encode fails disarms every instrument, and
 live frame clears any that are left. Hooks see the last live frame held, with no time passing, and
 the hook clock keeps that frame's time, so the next live frame's delta is the one
 it would have had. A look frame draws every sun caster itself and leaves the static
-shadow cache as the live frames left it. A canvas that draws (web, Apple, a Linux
+shadow cache as the live frames left it, and it chooses levels of detail from its
+own camera and then puts back the live frames' choice (`end_look`), so the
+selection's hysteresis never carries an inspection's level into a live frame. A canvas that draws (web, Apple, a Linux
 host under `EXACT_GPU_RENDER=1`) draws its look frame with its own renderer; a
 canvas that draws an extended-range (HDR) target gets no picture, as a look frame
 reads back 8-bit colour. A device-less one, the GPU-less proof host, makes a device
@@ -739,7 +741,9 @@ until it has, and the driver asks again.
   (`particles-uncovered`, one a draw, so one covered draw hides no other), and a
   shadowed sun whose shadow passes wrote no texel into its maps
   (`no-shadow-casters`). Each
-  writes a `look: …` line to the world's `logs` once per change; it stays out of
+  writes a `look: …` line to the world's `logs` when it appears or its line changes
+  between judged frames (a particle tell is told apart by its draw's batch), and a
+  tell that recovers is logged again when it returns; it stays out of
   the world's journal, which a save carries, so a tell never changes a save. A
   measurement a tell reads that the frame could not take is a gap, listed in
   `look.gaps` (`particles: not measured (…)`, `sun shadow maps: not measured (…)`,
