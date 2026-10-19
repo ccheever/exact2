@@ -47,7 +47,9 @@ const post = async (request, token = local, path = '/__tamber', more = {}) => {
 };
 // Each pairing from a peer of its own: a peer gets five attempts a minute.
 let peers = 0;
-const fromPeer = async fn => { flags = { local: false, peer: `203.0.113.${++peers}` }; try { return await fn(); } finally { flags = null; } };
+// Each from B's TLS door, as a remote peer comes (plain HTTP from off this
+// machine reaches nothing of the wire: the test below).
+const fromPeer = async fn => { flags = { local: false, remote: true, peer: `203.0.113.${++peers}` }; try { return await fn(); } finally { flags = null; } };
 const paired = async (scope, name) => {
   const { code } = (await post({ method: 'pair-code', scope, name })).ok;
   return (await fromPeer(() => post({ code }, null, '/__tamber/pair'))).ok;
@@ -198,6 +200,26 @@ test('a token\'s own timer ends it, past a timer\'s reach too', async () => {
   now = 30 * 864e5 + 1;
   expect(long.lookup(q.token)).toBe(null);
   long.close();
+});
+
+test('plain HTTP from off this machine (a --lan bind\'s peer) reaches nothing of the wire: no pairing, no paired token, the code not spent', async () => {
+  const { code } = (await post({ method: 'pair-code', scope: 'write', name: 'plain' })).ok;
+  const p = await paired('write', 'plain-held');
+  flags = { allowed: true, local: false, peer: '192.0.2.40' };
+  try {
+    expect((await post({ code }, null, '/__tamber/pair')).status).toBe(404);
+    // Six misses from it: past both the limiter's five and the burn's five, had they counted.
+    for (let i = 0; i < 6; i++) expect((await post({ code: 'x'.repeat(String(code).length) }, null, '/__tamber/pair')).status).toBe(404);
+    expect((await post({ method: 'hello' }, p.token)).status).toBe(404);
+    expect((await post({ after: 0, wait: false }, p.token, '/__tamber/events')).status).toBe(404);
+    const res = await fetch(`${origin}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': p.token }, body: '{}' });
+    expect(res.status).toBe(404);
+    await res.body?.cancel();
+  } finally { flags = null; }
+  // Nothing was spent: the same code pairs through the door from the same peer, and the token still works there.
+  flags = { allowed: true, local: false, remote: true, peer: '192.0.2.40' };
+  try { expect((await post({ code }, null, '/__tamber/pair')).ok.client).toBe('remote:plain#1'); } finally { flags = null; }
+  expect((await fromPeer(() => post({ method: 'hello' }, p.token))).ok.client).toBe(p.client);
 });
 
 test('a LAN peer holding the local token is no one; a token past its deadline mid-body is 401; a deeply nested request is 400', async () => {

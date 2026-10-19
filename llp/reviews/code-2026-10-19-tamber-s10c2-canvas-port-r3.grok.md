@@ -1,0 +1,19 @@
+# Review round 3, LLP 1121 stage 10 C2 (the canvas port), Grok (grok 4.7, xhigh, --max-turns 400)
+
+**RIGHT.** No findings.
+
+The plain-LAN rule is one helper, `viaDoor` in `scripts/tamber-request.mjs:43` (`local === true`, `remote === true`, or `tunnel === true`). The wire and the pair endpoint both use it (`scripts/tamber-server.mjs:503`), so `canvas` minting never runs for a plain-LAN peer. The canvas port uses the same helper (`scripts/tamber-canvas.mjs:450`) and otherwise answers not-found, without reading a grant. `scripts/tamber-remote.mjs` is unchanged. `addPort` still sets `{remote: true, tunnel: false}` and takes no extra origins.
+
+Security pass:
+
+- **(a)** The entry page is static. `ENTRY_SCRIPT` (`scripts/tamber-canvas.mjs:280`) reads `#g=`, then calls `history.replaceState` before any `fetch`. The CSP hash is SHA-256 of those exact bytes, and the page inlines that script with no `<`. No fragment: replaceState, the expiry message, no request. A bad grant: one same-origin JSON POST, then the same message. `location.replace('/')` and `fetch(location.pathname)` are fixed; `redirect: 'error'`; `base-uri 'none'`; `form-action 'none'`; `connect-src 'self'`. The document policy is `no-referrer`; the POST sets `referrerPolicy: 'same-origin'` so its `Origin` is the canvas origin. The grant is not in the mint URL, `say()`, or the not-found body. The Chrome gate (`/tmp/x2p4/s10c-gate/run.txt`) is 6 of 6, including fragment gone and `history.back` not restoring it.
+- **(b)** A grant is accepted only as JSON `{grant}` after `Origin` equals the canvas origin (`scripts/tamber-canvas.mjs:391-405`). Any query is refused before the body is read. The tool origin is refused there and again by `addPort`. A well-formed grant is deleted before the timing-safe compare, so replay, expiry, and another client's grant each fail once. Lifetime is 30 s. The cookie is `__Host-exact-canvas`; `Secure`; `HttpOnly`; `SameSite=Strict`; `Path=/`; no `Domain`.
+- **(c)** A plain-LAN peer (`developmentGate`: not a loopback peer) gets neither `local`, `remote`, nor `tunnel`, so wire, pair, and `canvas` are not-found. The canvas listener is TLS via `addPort`. The tunnel may mint (it is a door) and does not serve `/canvas/`; with no TLS certificate, `openCanvas` binds nothing. Both dev loops send canvas traffic only through that TLS port.
+- **(d)** Both loops call `openRemoteCanvas` only when a tamber server exists. No `--remote` and no tunnel returns null. Tunnel-only leaves `info()` null, so no canvas bind. A bind failure closes the doors inside `addPort` and again in `openRemoteCanvas`; `stop()` closes the loop. Until `serve`, mint and `handle` answer not-found.
+- **(e)** `watch` registers `pairing.onEnd`, and `end` kills that client's flights and drops its grants and sessions. The gate's line (c): revoke cuts the canvas stream and the wire stream; the next canvas GET is 404 and the next wire hello is 401.
+- **(f)** As ruled: proxied `frame-ancestors` keeps `'self'`, drops every other source, and adds the tool origin (`scripts/tamber-canvas.mjs:229-231`), after address rewriting. The entry page's `frame-ancestors` is the tool origin alone, or `'none'` (`scripts/tamber-canvas.mjs:427`).
+- **(g)** Startup prints the canvas origin only (`scripts/tamber-canvas.mjs:580`). Answers do not echo the grant, the fragment, or the loop URL.
+- **(h)** `scripts/tamber-server.mjs` is 1491 lines. The diff is the canvas import, the default dormant gateway, `viaDoor` on the wire and pair paths, and the one `canvas` dispatch. `tamber serve` still uses `openRemote`.
+
+`bun test scripts/tamber-canvas.test.mjs scripts/tamber-remote.test.mjs`: 50 pass, 0 fail, loopback port 0. `scripts/tamber-pairing.test.mjs` was not run: its `beforeAll` starts `tamberServer` with the default `spawnContract`, which runs cargo.
+EXIT 0

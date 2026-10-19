@@ -15,20 +15,22 @@ import AppKit
 extension NodeView {
     var backgroundClip: String { style["background_clip"]?.string ?? "border-box" }
 
-    /// The outline the background paints inside; nil for `text`, whose
-    /// background paints with the glyphs (`paintBackgroundThroughText`).
-    func backgroundOutline(_ border: CGPath) -> CGPath? {
+    /// The outline the background paints inside, in `box` (the view's
+    /// bounds, or a surface's box while its size moves, whose border and
+    /// padding stay the box's own); nil for `text`, whose background paints
+    /// with the glyphs (`paintBackgroundThroughText`).
+    func backgroundOutline(_ border: CGPath, in box: CGRect? = nil) -> CGPath? {
         let clip = backgroundClip
         if clip == "text" { return nil }
         guard clip == "padding-box" || clip == "content-box" else { return border }
         // Clips to the content box layout sent, as content is placed, or inside the border the style paints
-        let uniform = number("border_width"), content = contentBox()
+        let uniform = number("border_width"), content = contentBox(), area = box ?? CGRect(origin: .zero, size: bounds.size)
         let inset = clip == "content-box"
             ? [content.minY - bounds.minY, bounds.maxX - content.maxX, bounds.maxY - content.maxY, content.minX - bounds.minX]
             : ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
-        let inner = CGRect(x: inset[3], y: inset[0], width: max(0, bounds.width - inset[1] - inset[3]),
-                           height: max(0, bounds.height - inset[0] - inset[2]))
-        let outer = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
+        let inner = CGRect(x: area.minX + inset[3], y: area.minY + inset[0], width: max(0, area.width - inset[1] - inset[3]),
+                           height: max(0, area.height - inset[0] - inset[2]))
+        let outer = BorderPaint.reduced(BorderPaint.radii(style, in: area), in: area)
         let radii = [CGSize(width: outer[0].width - inset[3], height: outer[0].height - inset[0]),
                      CGSize(width: outer[1].width - inset[1], height: outer[1].height - inset[0]),
                      CGSize(width: outer[2].width - inset[1], height: outer[2].height - inset[2]),

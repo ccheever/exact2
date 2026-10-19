@@ -94,7 +94,7 @@ final class TextRasterizer {
     private func key(_ node: NodeView) -> TextRasterKey {
         let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
         var key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
-            box: node.contentBox(), scale: max(1, scale))
+            box: node.paragraphBox(), scale: max(1, scale))
         // Whole ordinary paragraphs, viewport bands for tall ones. Never allocate
         // to an unbreakable line's advance; the shared painter clips its ink.
         if node.bounds.height > 4096 || node.bounds.width * node.bounds.height * key.scale * key.scale * 4 > Self.maximumBytes {
@@ -267,7 +267,7 @@ extension NodeView {
             if textRaster != nil || textRasterLayer != nil { dropTextRaster() }
             return
         }
-        if let key = textRasterKey, key.size == bounds.size, key.box == contentBox() { return }
+        if let key = textRasterKey, key.size == bounds.size, key.box == paragraphBox() { return }
         textRasterKey = nil
         presenter?.requestTextPublication()
     }

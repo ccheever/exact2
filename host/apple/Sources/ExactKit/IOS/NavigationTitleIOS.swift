@@ -497,7 +497,7 @@ extension NavigationHost {
         // only `hidesBottomBarWhenPushed` would. The selected route wanting
         // it shown brings it back now, pushed or not yet.
         // (Not while a route above the root still hides it, on a phone by UIKit's flag, on an iPad by Exact's.)
-        if !hidden, !nav.viewControllers.dropFirst().contains(where: { $0.hidesBottomBarWhenPushed }),
+        if !hidden, !nav.viewControllers.dropFirst().contains(where: Self.hidesBar),
            tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
             if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: nav.view.window != nil) }
             tablistHidBar = false
@@ -590,7 +590,16 @@ extension NavigationHost {
     /// UIKit's flag, which keeps it hidden over `c` on a phone too.
     static func underHides(_ nav: UINavigationController, _ c: UIViewController) -> Bool {
         guard let at = nav.viewControllers.firstIndex(where: { $0 === c }), at > 1 else { return false }
-        return nav.viewControllers[1..<at].contains { $0.hidesBottomBarWhenPushed }
+        return nav.viewControllers[1..<at].contains(where: hidesBar)
+    }
+
+    /// UIKit's flag, which tvOS has none of: its tab bar is the top's, and a push never hides it.
+    static func hidesBar(_ c: UIViewController) -> Bool {
+        #if os(tvOS)
+        false
+        #else
+        c.hidesBottomBarWhenPushed
+        #endif
     }
 
     /// The selected stack's top takes its wish again where nothing pushed or

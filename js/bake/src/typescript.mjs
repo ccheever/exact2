@@ -955,6 +955,12 @@ export function implementationFor(app, iface, target) {
   return carried ? checked({name:iface.name,...carried}) : null;
 }
 
+/** The app's Rust data sources' text (`data/src`), where a generated binding's call writes its literal options. */
+function rustSources(app) {
+  const walk=(d)=>{ try { return readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory() ? walk(join(d,e.name)) : e.name.endsWith('.rs') ? [readFileSync(join(d,e.name),'utf8')] : []); } catch { return []; } };
+  return walk(join(app,'data','src')).join('\n');
+}
+
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
  * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
  * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
@@ -971,9 +977,23 @@ export function appleImplementations(app, target) {
       const [name,option]=at.split('.'), keys=new Set();
       for (const [,inside] of named.matchAll(new RegExp(`\\b${name}\\s*\\(([^)]*)\\)`,'g')))
         for (const [,,value] of inside.matchAll(new RegExp(`\\b${option}\\s*[=:]\\s*(["'])([^"']+)\\1`,'g'))) keys.add(value);
+      // A Rust data source's generated binding takes the option as a snake_case field (`purpose_key: "…"`).
+      const snake=option.replace(/[A-Z]/g,c=>'_'+c.toLowerCase());
+      for (const [,value] of rustSources(app).matchAll(new RegExp(`\\b${snake}\\s*:\\s*(?:Some\\()?"([^"]+)"`,'g'))) keys.add(value);
       return {key,keys:[...keys].sort()};
     }).filter(p=>p.keys.length);
     return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist}];
+  });
+}
+
+/** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the interfaces the app names: each extension,
+ * its class, and its source directories, which join the APK's Kotlin. */
+export function androidImplementations(app) {
+  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
+  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+    const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
+    if (!impl || !dirs?.length || !impl.json.class) return [];
+    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d))}];
   });
 }
 

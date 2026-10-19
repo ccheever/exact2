@@ -203,6 +203,7 @@ export function runCaps(root = process.cwd()) {
   }
 
   harnesses(root, files);
+  helps(root);
 
   return { problems, counted };
 }
@@ -257,6 +258,23 @@ function harnesses(root, files) {
     if (!tests && harnessed.length && !on.length) skipped += 1;
   }
   counted.push(`workspace packages without tests: ${skipped}, every library and binary test harness skipped`);
+}
+
+/**
+ * The helps against the scripts they describe, where a checkout has them (exact2's scripts/help-parity.mjs): a flag
+ * with no help row, a row naming a flag no script parses, or a help over its length fails here, before a push, as it
+ * would fail help.test after one. Read from source: no browser, no build.
+ */
+function helps(root) {
+  const parity = resolve(root, 'scripts/help-parity.mjs');
+  if (!existsSync(parity)) return;
+  let found;
+  try { found = require(parity).helpParity(root); } catch (e) {
+    fail('help:parity', `scripts/help-parity.mjs could not run, so no help was checked: ${e.message}`);
+    return;
+  }
+  for (const p of found) fail(p.code, p.message, p.detail);
+  counted.push(`helps: each verb's flags against its script's, its rows and lengths, ${found.length} problems`);
 }
 
 function main() {

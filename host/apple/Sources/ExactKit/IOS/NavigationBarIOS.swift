@@ -998,7 +998,7 @@ extension NavigationHost {
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
         if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
-        c.setContentScrollView(shown, for: .top)
+        c.setContentScrollView(shown ?? c.bandedTop, for: .top) // or the scroller its control bars are over (LLP 1131)
         // The scroller left behind gets the page's offsets back only once the
         // bar follows the new one: UIKit reads its inset taken away while the
         // bar still follows it as a scroll, and closes an open large title.
@@ -1043,7 +1043,7 @@ extension NavigationHost {
     /// whose own `env()` insets would be added to UIKit's.
     private func reachBottom(_ c: RouteController) {
         let target = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node) : nil
-        guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== target?.scrollView else { return }
+        guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
            previous !== c.collapseScrollView { previous.contentInsetAdjustmentBehavior = .never }
@@ -1052,7 +1052,7 @@ extension NavigationHost {
         shown?.contentInsetAdjustmentBehavior = .automatic
         // tvOS has no bottom bar whose edge follows a scroller.
         #if !os(tvOS)
-        c.setContentScrollView(shown, for: .bottom)
+        c.setContentScrollView(shown ?? c.bandedBottom, for: .bottom)
         #endif
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its content above the bottom edge" : "scrolls its content to the bottom edge")")
     }
@@ -1336,8 +1336,9 @@ extension NavigationHost {
             // widest, at rest (CSS scrollTop 0).
             for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
                 if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
-                    let top = max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0)
-                    if top > 0 || safe.bottom > 0 { wanted[node.id] = .inset(top: top, bottom: safe.bottom) }
+                    // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
+                    let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, safe.bottom - node.pageBand.bottom)
+                    if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
             if settled, c.viewIfLoaded?.window != nil {
@@ -1468,9 +1469,9 @@ extension NavigationHost {
         // refresh control and keyboard; zero is only the plain-scroll baseline.
         if s === node.scroll {
             #if os(tvOS)
-            if s.contentInset != .zero { out.append("contentInset") }
+            if s.contentInset != node.bandInset { out.append("contentInset") }
             #else
-            if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
+            if s.contentInset != node.bandInset, s.refreshControl?.isRefreshing != true { out.append("contentInset") } // a band's is the host's
             #endif
         }
         if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .automatic : .never) { out.append("contentInsetAdjustmentBehavior") }

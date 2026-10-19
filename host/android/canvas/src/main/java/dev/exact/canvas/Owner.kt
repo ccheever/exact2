@@ -566,6 +566,10 @@ internal object Exact {
         if (o != null) o.call { Native.answer(id, answer) } else Native.answer(id, answer)
     }
 
+    /** What the extensions tell exact2 ([Native.changed], [Native.bindExtensions]): on exact2's thread, in order. */
+    fun changed(topic: String) { val o = owner; if (o != null) o.call { Native.changed(topic) } else Native.changed(topic) }
+    fun bindExtensions(names: String) { val o = owner; if (o != null) o.call { Native.bindExtensions(names) } else Native.bindExtensions(names) }
+
     /** Give a GPU canvas its window: on the exact thread, without waiting for it; [done] there with the handle. */
     fun attachSurface(view: Int, surface: android.view.Surface, width: Int, height: Int, done: (Long) -> Unit) {
         val o = owner

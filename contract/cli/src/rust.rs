@@ -17,7 +17,7 @@ const KEYWORDS: &[&str] = &[
 
 /// `camelCase` or `kebab-case` as a snake_case field name, escaped where it
 /// is a Rust keyword.
-fn field_name(name: &str) -> String {
+pub(crate) fn field_name(name: &str) -> String {
     let mut out = String::new();
     for (i, c) in name.chars().enumerate() {
         if c.is_ascii_uppercase() {

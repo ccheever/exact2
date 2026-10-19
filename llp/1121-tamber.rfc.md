@@ -4399,3 +4399,120 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
   - After the re-check (Astra): an authority that doesn't parse is read up to its FIRST `;`, `,`, `)` or `}` and the scan goes on from there, so a compact CSP (`default-src http://127.0.0.1:9000;img-src 'self'`) and a list of sources (`a,b`) are each rewritten; a userinfo `;@` still parses whole and is never cut.
   - After re-check 2 (Astra): that cut is made only past any userinfo (after the last `@`), so `(http://127.0.0.1;@evil.test:9000)` stays evil.test's, untouched, and `(http://user;name@localhost:9000)` is the loop's.
   - After re-check 3 (Astra): the cut is the LONGEST prefix that parses (still past any userinfo), so a host WHATWG reads whole, such as `localhost;evil.test`, is never cut into a loopback one. Other missed loopback spellings stay the known limit above (the lead: only a changed non-loopback host blocks)..
+
+### Stage 10, commit C2: the canvas port (draft for theme2)
+
+C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
+
+- **The port:** with `--remote`, each dev loop (host/web/dev.mjs, host/web-js/dev.mjs) opens B's doors and then the canvas
+  port: `openRemoteCanvas(tamber, asked, loop)` (scripts/tamber-canvas.mjs).
+  - The port is another TLS listener from B's `addPort`, on the `--remote` host at a port the system picks. It uses the
+    same per-run certificate, so the fingerprint the client pinned at pairing covers it. B's Host check (the
+    certificate's names) and target check stand in front of it.
+  - Its origin is `https://<the name B shows>:<its port>`, the same site as the remote tool and a different origin.
+  - It is printed at start-up beneath B's lines. With no `--remote`, or with only `--trust-tunnel`, there is no canvas
+    port and nothing changes.
+  - A canvas port that cannot bind closes B's doors, and the loop says so and exits, as B's own failures do.
+- **The origin is known only after the bind.** The gateway is the design server's own (`tamberServer`'s default
+  `canvas`, made from the run's pairing), and it is dormant until `serve({loop, origin, toolOrigin})`. Of the three
+  ways x2-perf4 listed, this takes the settable origin before first use. The port is bound with a handler that defers
+  to the gateway, and the gateway answers nothing (not-found) and mints nothing (`canvas` answers 404, "this server has
+  no canvas port") until it is served. So no request can see a half-made gateway. `loop` is the dev loop's own
+  loopback origin, and `toolOrigin` is B's door (`info().origin`).
+- **The fragment entry** (theme2's approval of dtool2's entry, SIGNOFFS.md). It replaces C1's grant POST from the
+  tool's page.
+  - The tool sets the frame's src to `<canvas origin>/canvas/<client>/#g=<grant>`.
+  - `GET /canvas/<client>/` (no query) serves a static entry page: `no-store`, `referrer-policy: no-referrer`,
+    `nosniff`. Its CSP is `default-src 'none'; script-src '<its one inline script's sha256>'; connect-src 'self';
+    base-uri 'none'; form-action 'none'; frame-ancestors <the tool's origin>`. Nothing third-party, and no secret in
+    it: the same page for every client.
+  - Its script reads the grant from `location.hash`, then calls `history.replaceState(null, '', location.pathname)`
+    before any request, so neither the address nor its history entry keeps the fragment.
+  - It then POSTs `{grant}` as JSON, same-origin, with its own `referrerPolicy: 'same-origin'`. Under the page's
+    `no-referrer` a POST would otherwise say `Origin: null`. On 204 (the cookie set) it does `location.replace('/')`.
+  - Refused, it shows "This canvas link has expired; ask for a new one." and makes no further request; with no grant
+    in the fragment, it makes no request at all.
+  - Entered, and just before `location.replace('/')`, it tells the tool: `parent.postMessage({type:
+    'exact-canvas-entered'}, <the tool's origin>)`, to that origin alone, with no secret and no client name (review2's
+    T6 note, the lead). The origin rides in the page as `data-tool`, so the one script, and its CSP hash, stay the same
+    for every gateway and client; with no remote tool there is no `data-tool` and no message. Tested: the call order
+    (replaceState, fetch, postMessage to exactly the tool's origin, replace), no message on a refusal or without a
+    tool, and the hash of the served script.
+  - **A bounded exception to "no secrets in URLs":** the fragment carries only the grant: single use, 30 s, bound to
+    one client, burned on any try, and never the token. A fragment is never sent to a server, a Referer or a log
+    line, and the page removes it before its first request.
+  - **theme2's conditions, each tested:**
+    1. A grant is accepted only in that POST's JSON body, never from a query, a path or a form. A grant in any of
+       those is never read, so it is not burned.
+    2. Replay, expiry, another client's grant, and a POST from any Origin but the canvas's own (the tool's, none,
+       `null`, malformed, a lookalike) are each refused.
+    3. The real-Chrome gate shows that after entry the frame's `location.href` and `location.hash` carry no fragment,
+       and that going back in the frame never shows it (gate lines (a0) and (a0, history)).
+    4. The tool-origin POST path is gone: the entry admits only the canvas's own Origin. C2's draft `origins` on B's
+       `addPort` is reverted, so `scripts/tamber-remote.mjs` is as B landed it, and the port refuses every other
+       Origin, the tool's included.
+- **`toolOrigin` must be https:** C1 refused a loopback `toolOrigin`. With B bound on loopback (a test, or a developer
+  on one machine), the tool is `https://127.0.0.1:<port>`. The rule is now that `toolOrigin` is an https origin (B's
+  door), never a plain one such as the local tool's `http://127.0.0.1:7740`.
+- **Never plain HTTP from a LAN peer** (theme2's condition, with reload1's plain-LAN fix on the wire). A canvas session,
+  grant or entry page is honoured only through the canvas's TLS door (`access.remote`, which B's `addPort` gives) or
+  from this machine (`access.local`). The gateway's `handle` answers not-found to anything else, a plain request
+  through a `--lan` bind included, and reads no grant, so none is burned. `canvas` is not minted for a caller that is
+  neither local, remote nor tunnelled (404, the same as no gateway), whether or not reload1's earlier refusal on the
+  wire is there. Tested: a valid session, the entry page and a valid grant through a plain-LAN door are each
+  not-found and the grant then still enters through the TLS door; `canvas` from a plain-LAN peer is 404 and through
+  B's door 200.
+- **Revoke on both ports:** A's revoke ends the wire's streams and long polls, and through `onEnd` the canvas's
+  proxied streams. The next request on either port is refused: 401 on the wire, not-found on the canvas.
+- **Tests** (`tamber-canvas.test.mjs`, pinned TLS on loopback):
+  - The server's default gateway is dormant before its port opens.
+  - `openRemoteCanvas` on `127.0.0.1:0`: the canvas origin is printed, and a grant is minted over B's TLS wire door.
+    The tool's Origin is refused at the port (403). The entry page is framed by the tool alone, and its POST from the
+    canvas's own origin enters.
+  - The proxied page carries the canvas origin, and another Origin, the tool's too, is 403 at the port.
+  - The entry page: its headers and CSP, its one script by hash, no address in it. Its script, run in a stand-in
+    page, calls `replaceState`, then the POST (the address already clean), then `location.replace('/')`. Refused or
+    failing, it shows the message and makes no further request; with no grant, it makes no request.
+  - The grant only in the POST's JSON body: replay, expiry, wrong, another client's, a query, a path, a form, and
+    each foreign or missing Origin refused, none of them burning it.
+  - A's revoke: the canvas port's next request is not-found and the wire door's 401.
+  - No `--remote` gives no doors, and a tunnel alone gives no canvas port.
+- **The gate in a real Chrome** (`/tmp/x2p4/s10c-gate/gate.mjs`, its run in `run.txt`):
+  - A JS dev loop runs on apps/theme-fixture (by name; its design put back after) with `--remote 127.0.0.1:0`, loopback
+    only.
+  - A client is paired with a local code and then `/__tamber/pair` over TLS.
+  - Chrome gets a fresh profile per run and trusts this run's certificate only by its SPKI pin
+    (`--ignore-certificate-errors-spki-list`, read from the listener after its fingerprint is checked against the one
+    printed). Everything is torn down after, on failure too; only the processes it started are stopped.
+  - (a0) The frame's src is the entry with the grant in its fragment, as the tool will set it. After entry, the frame's
+    `location.href` and `location.hash` carry no fragment, and no request URL but the src as set holds the grant. The
+    joint session history has as many entries after entry as before the frame (2 and 2): the entry's address was
+    replaced, so no entry holds the fragment. At
+    the end, `history.back()` inside the frame never shows the fragment: the entry's history entry was replaced.
+  - (a) The `__Host-` cookie is set (Secure, HttpOnly,
+    SameSite=Strict, host-only) and sent to the framed canvas, same site and another port. The page loads, and a live
+    edit of the design reaches the frame's stream.
+  - (b) From inside the frame, `window.parent.document` and `window.parent.localStorage` throw, and fetches of the
+    tool's and the loop's `/__tamber/token` fail.
+  - (c) A's revoke ends the wire's subscription and the frame's EventSource, and the next request on both ports is
+    refused.
+  - (d) Page code's `document.cookie` cannot overwrite the HttpOnly `__Host-` cookie. After revoke, a request with only
+    a forged value, a session-shaped forgery or the old real value is not-found. The wire answers not-found to a valid
+    token or session carried only in a Cookie.
+- **What the gate found, and fixed or names:**
+  - **The tool's page sent `Origin: null`** (B's pages are `no-referrer`), which the port refused, as it should. The
+    fragment entry settles it: the grant is posted by the canvas's own entry page, whose fetch sets its own referrer
+    policy, and nothing depends on B's.
+  - **`frame-ancestors` with B on loopback:** the CSP was rewritten after the remote tool's origin was added, so a
+    loopback tool origin (`https://127.0.0.1:<port>`) became `loopback.invalid` and Chrome refused to frame the
+    canvas. Now the addresses are rewritten first and `frame-ancestors` is fixed after: other loopback sources (the
+    placeholder by then) go, and the tool's origin is added. Tested in `tamber-canvas.test.mjs`.
+  - **The live edit's evidence:** a design edit the JS loop rebuilds for reaches the frame as its reload, and the
+    framed page reloads through the gateway. That is what the gate records.
+  - **Two observations outside C.** `--app <a path>` makes the JS loop write its module's crate into the app's
+    directory (`buildModule`'s `out`); the harness passes the name. An edit of the fixture's `surface.page` (a
+    token with a `when`) made the JS rebuild fail with "this app's design declares no axes"; the gate edits
+    `accent.fill` instead. Both are QUEUE candidates, not C2's.
+- **After review round 1 (Astra, Grok):** Grok RIGHT, no findings; Astra's one should-fix (proxied pages keep `'self'` in `frame-ancestors`) answered by the lead: `'self'` stays, since code on the canvas origin already is that origin and can do anything a frame of its own page could, and apps frame their own routes. The gateway's `frame-ancestors` is now exactly `'self'` and the tool's remote origin: any other source a page names (a foreign origin, the local tool's) is dropped, so no other origin frames a canvas page (tested with a page naming `https://evil.test`).
+- **On main with the plain-LAN fix (81f2d32e8f):** the rule that a paired credential is taken only from this machine or through one of B's doors is one helper, `viaDoor(access)` in scripts/tamber-request.mjs, which the wire's check and the canvas gateway both call; dispatch's own `plain` flag is gone (the wire refuses such a request before dispatch).
+- **After the re-check (Astra):** the tool origin is written into the entry page as an escaped attribute value, and `serve()` refuses a `toolOrigin` that isn't a plain https origin (a host name or address and a port), so neither the attribute nor the CSP header can be misread.

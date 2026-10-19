@@ -1149,8 +1149,8 @@ public final class ExactSession {
                     continue
                 }
                 if name == "postMessage" {
-                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
-                    app.deliver { [weak self] in self?.canvases.post(surface, text) }
+                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : "", iframe = args.count > 2 && args[2] as? String == "iframe"
+                    app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
                     continue
                 }
                 if name == "focus" || name == "selectText" {

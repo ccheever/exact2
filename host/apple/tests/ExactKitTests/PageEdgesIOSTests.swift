@@ -127,6 +127,34 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertTrue(hit.isDescendant(of: cv), "a finger under the status bar reaches the list, not \(type(of: hit))")
     }
 
+    /// LLP 1131: a route's list under its control bars, drawn through them and the route's cover.
+    func testAListRunsUnderItsControlBarsAndKeepsItsPlace() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        let p = session.presenter, list = try node(session, "list"), filter = try node(session, "filter"), top = try node(session, "list-top")
+        until("the switcher is a bar over the list") { list.pageBand.top > 0 }
+        let sv = try XCTUnwrap(list.scrollView), box = list.convert(list.bounds, to: nil)
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).minY, 0, accuracy: 0.5, "its scroll view runs up under the switcher and the bar")
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, box.minY, accuracy: 0.5, "its content rests where it was laid out")
+        XCTAssertEqual(sv.contentOffset.y + list.scrollTopInset(sv), 0, accuracy: 0.5, "at scrollTop 0")
+        XCTAssertGreaterThan(filter.layer.zPosition, list.layer.zPosition, "the switcher draws over the list")
+        let hit = try XCTUnwrap(filter.window?.hitTest(filter.convert(CGPoint(x: filter.bounds.midX, y: filter.bounds.midY), to: nil), with: nil))
+        XCTAssertTrue(hit.isDescendant(of: filter), "a tap on the switcher is the switcher's, not \(type(of: hit))")
+        XCTAssertTrue(filter.interactions.contains { $0 is UIScrollEdgeElementContainerInteraction }, "UIKit's edge effect over the list")
+        sv.contentOffset.y = 100 - list.scrollTopInset(sv)
+        p.press(try node(session, "pick-chat").id)
+        until("the switcher goes and a composer comes") { list.pageBand.top == 0 && list.pageBand.bottom > 0 }
+        XCTAssertEqual(sv.contentOffset.y + list.scrollTopInset(sv), 100, accuracy: 1, "scrollTop is kept as the bands change")
+        XCTAssertNil(filter.window, "the switcher is gone")
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).maxY, try XCTUnwrap(list.window).bounds.maxY, accuracy: 0.5, "the transcript runs under the composer to the screen's foot")
+        XCTAssertGreaterThan(try node(session, "composer").layer.zPosition, list.layer.zPosition, "the composer draws over it")
+        for shape in ["caption", "painted", "large"] {
+            p.press(try node(session, "pick-\(shape)").id)
+            until("\(shape) is no bar over the list") { list.pageBand == .zero }
+        }
+    }
+
     func testScrollTopIsKeptWhenTheBandGoes() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
         let (session, _) = try fixture()

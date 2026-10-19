@@ -1072,7 +1072,8 @@ impl<D: DataSource> Presenter<D> {
                         self.retained_press_target(target, now_ms);
                     }
                 } else {
-                    self.press_at_after_down(x, y, now_ms, contact.focus_before_down);
+                    let finger = self.direct();
+                    self.press_at_after_down(x, y, now_ms, contact.focus_before_down, finger);
                 }
             }
             Ok(false)

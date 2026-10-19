@@ -25,7 +25,11 @@
     "top-edge": { "source": "AppBar.kt", "name": "TopAppBarHorizontalPadding" },
     "top-title-inset": { "source": "AppBar.kt", "name": "TopAppBarTitleInset" },
     "top-icon": { "token": "AppBarTokens.IconSize" },
-    "mark-size": { "source": "Checkbox.kt", "name": "CheckboxSize" },
+    "mark-size": {
+      "source": "Checkbox.kt",
+      "expr": "CheckboxSize + 2 * CheckboxDefaultPadding",
+      "in": "a checkbox's and a radio's box: the drawn control and its own padding, without the 48 dp floor (LLP 1115.001.001 §5 Q5); RadioButton.kt pads its 20 dp by RadioButtonPadding, 2 dp, alike"
+    },
     "filled-button-height": { "defaults": "ButtonDefaults.MinHeight" },
     "filled-button-min-width": { "defaults": "ButtonDefaults.MinWidth" },
     "filled-button-padding-inline": { "defaults": "ButtonDefaults.ContentPadding.start" },
@@ -34,6 +38,12 @@
     "filled-button-disabled-label": { "token": "FilledButtonTokens.DisabledLabelTextOpacity" },
     "checkbox-corner": { "source": "Checkbox.kt", "name": "RadiusSize" },
     "checkbox-stroke": { "defaults": "CheckboxDefaults.StrokeWidth" },
-    "checkbox-disabled-opacity": { "token": "CheckboxTokens.SelectedDisabledContainerOpacity" }
+    "checkbox-disabled-opacity": { "token": "CheckboxTokens.SelectedDisabledContainerOpacity" },
+    "checkbox-size": { "source": "Checkbox.kt", "name": "CheckboxSize" },
+    "radio-size": { "token": "RadioButtonTokens.IconSize" },
+    "radio-dot": { "source": "RadioButton.kt", "name": "RadioButtonDotSize" },
+    "radio-stroke": { "source": "RadioButton.kt", "name": "RadioStrokeWidth" },
+    "radio-disabled-opacity": { "token": "RadioButtonTokens.DisabledSelectedIconOpacity" },
+    "touch-target": { "defaults": "LocalMinimumInteractiveComponentSize" }
   }
 }

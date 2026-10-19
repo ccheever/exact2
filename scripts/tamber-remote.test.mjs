@@ -92,8 +92,8 @@ test('an IPv6 host is in the certificate', () => {
 });
 
 test('the flags: host:port and a tunnel port, refused when malformed', () => {
-  expect(remoteArgs([])).toEqual({ remote: null, tunnel: null });
-  expect(remoteArgs(['--remote', '0.0.0.0:7443', '--trust-tunnel', '7444'])).toEqual({ remote: { host: '0.0.0.0', port: 7443 }, tunnel: 7444 });
+  expect(remoteArgs([])).toEqual({ remote: null, tunnel: null, plugin: false, hosts: [] });
+  expect(remoteArgs(['--remote', '0.0.0.0:7443', '--trust-tunnel', '7444', '--allow-plugin-origin', '--allow-host', 'Tamber.Example.com'])).toEqual({ remote: { host: '0.0.0.0', port: 7443 }, tunnel: 7444, plugin: true, hosts: ['tamber.example.com'] });
   expect(() => remoteArgs(['--trust-tunnel', '70000'])).toThrow(/port/);
   expect(() => remoteArgs(['--remote', 'https://x:1'])).toThrow(/host:port/);
   expect(() => remoteArgs(['--remote', 'x:70000'])).toThrow(/port/);
@@ -483,4 +483,175 @@ test('with no door open, pair-code names none', async () => {
     expect(typeof ok.code).toBe('string');
     expect('remote' in ok).toBe(false);
   } finally { await wire.close(); }
+});
+
+test('--allow-plugin-origin: the tunnel answers a sandboxed page (Origin: null) on the wire\'s paths, with CORS; off, it does not', async () => {
+  for (const plugin of [false, true]) {
+    const wire = recordingWire(), warned = [];
+    const doors = await openRemote(wire, { remote: null, tunnel: 0, plugin }, { say: () => {}, warn: l => warned.push(l) });
+    try {
+      const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+      const pre = await send(false, port, { method: 'OPTIONS', path: '/__tamber', headers: { origin: 'null', 'access-control-request-method': 'POST', 'access-control-request-headers': 'x-exact-tamber-token' } });
+      const post = await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null' } });
+      const tool = await send(false, port, { path: '/__tamber/tool/', headers: { origin: 'null' } });
+      if (!plugin) {
+        expect([pre.status, post.status]).toEqual([403, 403]);
+        continue;
+      }
+      expect(pre.status).toBe(204);
+      expect([pre.headers['access-control-allow-origin'], pre.headers['access-control-allow-headers'], pre.headers['access-control-allow-methods']]).toEqual(['null', 'content-type, x-exact-tamber-token', 'POST']);
+      expect([post.status, post.headers['access-control-allow-origin']]).toEqual([200, 'null']);
+      expect(wire.seen.at(-1).access).toMatchObject({ remote: true, tunnel: true, local: false });
+      expect(tool.status).toBe(403); // the wire's paths only
+    } finally { await doors.close(); }
+  }
+});
+
+test('a tunnel\'s public name (--allow-host) is admitted, its https origin too; another name is not', async () => {
+  const warned = [];
+  const doors = await openRemote(recordingWire(), { remote: null, tunnel: 0, hosts: ['tamber.example.com'] }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { host: 'tamber.example.com', origin: 'https://tamber.example.com' } })).status).toBe(200);
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { host: 'tamber.example.com', origin: 'https://evil.example.com' } })).status).toBe(403);
+    expect((await send(false, port, { path: '/__tamber', headers: { host: 'other.example.com' } })).status).toBe(404);
+    // A loopback name is not a public one: its origin is http only.
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { host: `127.0.0.1:${port}`, origin: `https://127.0.0.1:${port}` } })).status).toBe(403);
+  } finally { await doors.close(); }
+});
+
+test('the main loopback port answers a sandboxed page\'s wire request as a remote one; the local token is no one there', async () => {
+  const { createServer } = await import('node:http');
+  const { pluginOnLoopback } = await import('./tamber-remote.mjs');
+  const { developmentGate } = await import('./install-page.mjs');
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const server = createServer();
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  const port = server.address().port, gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const reached = [];
+  server.on('request', async (req, res) => {
+    if (await pluginOnLoopback(wire, req, res)) return reached.push(req.url);
+    const access = gate.check(req);
+    if (!access.allowed) { res.writeHead(421); res.end(); return; }
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), access))) { res.writeHead(404); res.end(); }
+  });
+  try {
+    const token = (await (await fetch(`http://127.0.0.1:${port}/__tamber/token`)).json()).token;
+    const pre = await send(false, port, { method: 'OPTIONS', path: '/__tamber', headers: { origin: 'null' } });
+    expect([pre.status, pre.headers['access-control-allow-origin']]).toEqual([204, 'null']);
+    // The local token from a sandboxed page: no one.
+    const local = await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-exact-tamber-token': token }, body: '{"method":"hello"}' });
+    expect(local.status).toBe(404);
+    // A paired token from it: works, at its scope.
+    const minted = await fetch(`http://127.0.0.1:${port}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"pair-code","scope":"read"}' }).then(r => r.json());
+    const paired = await send(false, port, { method: 'POST', path: '/__tamber/pair', headers: { origin: 'null' }, body: JSON.stringify({ code: minted.ok.code }) });
+    expect([paired.status, paired.headers['access-control-allow-origin']]).toEqual([200, 'null']);
+    const hello = await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-exact-tamber-token': JSON.parse(paired.text).ok.token }, body: '{"method":"hello"}' });
+    expect([hello.status, JSON.parse(hello.text).ok.scope]).toEqual([200, 'read']);
+    // At its scope only: a read token proposes nothing, and a local method is no one's from here.
+    const read = JSON.parse(paired.text).ok.token;
+    const call = async body => send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-exact-tamber-token': read }, body: JSON.stringify(body) });
+    expect((await call({ method: 'propose', client: 'figma', hold: true, ops: [] })).status).toBe(403);
+    expect((await call({ method: 'pair-code', scope: 'read' })).status).toBe(403);
+    expect((await call({ method: 'transaction', client: 'figma', ops: [] })).status).toBe(403);
+    // The event stream path takes it too, with CORS.
+    const events = await send(false, port, { method: 'POST', path: '/__tamber/events', headers: { origin: 'null', 'x-exact-tamber-token': read }, body: '{"after":0,"wait":false}' });
+    expect([events.status, events.headers['access-control-allow-origin']]).toEqual([200, 'null']);
+    // Wrong codes: refused, then limited, the wait readable through CORS.
+    let limited;
+    for (let i = 0; i < 8 && !limited; i++) {
+      const r = await send(false, port, { method: 'POST', path: '/__tamber/pair', headers: { origin: 'null' }, body: '{"code":"AAAA-AAAA-AAAA"}' });
+      if (r.status === 429) limited = r;
+    }
+    expect([limited?.headers['access-control-expose-headers'], typeof limited?.headers['retry-after']]).toEqual(['retry-after', 'string']);
+    // Not the loop's otherwise: a rebound name at this very port goes to its gate.
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', host: `evil.example:${port}` } })).status).toBe(421);
+    // The token route is the gate's as ever, and carries no CORS: a sandboxed page cannot read it.
+    const tokenRoute = await send(false, port, { path: '/__tamber/token', headers: { origin: 'null' } });
+    expect(tokenRoute.headers['access-control-allow-origin']).toBeUndefined();
+    expect(reached.every(u => ['/__tamber', '/__tamber/pair', '/__tamber/events'].includes(u))).toBe(true);
+  } finally { server.close(); await wire.close(); }
+});
+
+test('round 1 of E1: a loopback --allow-host stays http; a default port written or not; Retry-After readable; the TLS door ignores the plugin flag', async () => {
+  const warned = [];
+  const doors = await openRemote(recordingWire(), { remote: { host: '127.0.0.1', port: 0 }, tunnel: 0, plugin: true, hosts: ['localhost', 'tamber.example.com:443'] }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]), tls = Number(new URL(doors.info().origin).port);
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { host: 'localhost:9000', origin: 'https://localhost:9000' } })).status).toBe(403);
+    for (const host of ['tamber.example.com', 'tamber.example.com:443'])
+      expect([host, (await send(false, port, { method: 'POST', path: '/__tamber', headers: { host, origin: 'https://tamber.example.com' } })).status]).toEqual([host, 200]);
+    expect((await send(false, port, { path: '/__tamber', headers: { host: 'tamber.example.com:8443' } })).status).toBe(404);
+    const pre = await send(false, port, { method: 'OPTIONS', path: '/__tamber/pair', headers: { origin: 'null' } });
+    expect(pre.headers['access-control-expose-headers']).toBe('retry-after');
+    // A sandboxed page's preflight for another path: refused.
+    expect((await send(false, port, { method: 'OPTIONS', path: '/__tamber/tool/', headers: { origin: 'null' } })).status).toBe(403);
+    // The TLS door: no sandboxed page, the flag or not.
+    expect((await send(true, tls, { method: 'POST', path: '/__tamber', headers: { origin: 'null' } })).status).toBe(403);
+  } finally { await doors.close(); }
+});
+
+test('round 1 of E1: a public name takes https only; the loopback hook takes this port and no forwarded request', async () => {
+  const warned = [];
+  const doors = await openRemote(recordingWire(), { remote: null, tunnel: 0, hosts: ['tamber.example.com'] }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { host: 'tamber.example.com', origin: 'http://tamber.example.com' } })).status).toBe(403);
+  } finally { await doors.close(); }
+  const { createServer } = await import('node:http');
+  const { pluginOnLoopback } = await import('./tamber-remote.mjs');
+  const wire = recordingWire(), server = createServer(async (req, res) => { if (!(await pluginOnLoopback(wire, req, res))) { res.writeHead(421); res.end(); } });
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  const port = server.address().port;
+  try {
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', cookie: 'a=b' } })).status).toBe(200);
+    expect(wire.seen.at(-1)).toMatchObject({ cookie: undefined, anyCookie: false, access: { remote: true, plugin: true, local: false } });
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', host: `127.0.0.1:${port + 1}` } })).status).toBe(421);
+    expect((await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-forwarded-for': '203.0.113.9' } })).status).toBe(421);
+  } finally { server.close(); }
+});
+
+test('round 2 of E1: each side\'s left-out port is its own scheme\'s default; a bare --allow-host is 443; any x-forwarded-* is a proxy', async () => {
+  const warned = [];
+  const doors = await openRemote(recordingWire(), { remote: null, tunnel: 0, plugin: true, hosts: ['tamber.example.com', 'alt.example.com:8443'] }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    const status = async (host, origin) => (await send(false, port, { method: 'POST', path: '/__tamber', headers: { host, ...(origin ? { origin } : {}) } })).status;
+    expect(await status('tamber.example.com', 'https://tamber.example.com:8443')).toBe(403);
+    expect(await status('tamber.example.com:443', 'https://tamber.example.com')).toBe(200);
+    expect(await status('tamber.example.com:8443')).toBe(404);
+    expect(await status('tamber.example.com:80', 'https://tamber.example.com')).toBe(404);
+    expect(await status('alt.example.com:8443', 'https://alt.example.com:8443')).toBe(200);
+    expect(await status('alt.example.com')).toBe(404);
+    // A loopback Host with no port is the door's default, never the origin's port.
+    expect(await status('127.0.0.1', 'http://127.0.0.1:9999')).toBe(403);
+    const pre = await send(false, port, { method: 'OPTIONS', path: '/__tamber', headers: { host: 'tamber.example.com', origin: 'null' } });
+    expect([pre.status, pre.headers.vary, pre.headers['access-control-max-age'], pre.headers['access-control-allow-credentials']]).toEqual([204, 'origin', '600', undefined]);
+  } finally { await doors.close(); }
+  const { createServer } = await import('node:http');
+  const { pluginOnLoopback } = await import('./tamber-remote.mjs');
+  const wire = recordingWire(), server = createServer(async (req, res) => { if (!(await pluginOnLoopback(wire, req, res))) { res.writeHead(421); res.end(); } });
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  const port = server.address().port;
+  try {
+    for (const h of ['x-forwarded-proto', 'x-forwarded-port', 'forwarded'])
+      expect([h, (await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', [h]: 'https' } })).status]).toEqual([h, 421]);
+  } finally { server.close(); }
+});
+
+test('round 3 of E1: the real wire through the tunnel to a sandboxed page: the local token is no one; [::1] at its port is its own origin', async () => {
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const warned = [];
+  const doors = await openRemote(wire, { remote: null, tunnel: 0, plugin: true, hosts: [] }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const port = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    let token = null;
+    const res = { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } };
+    await wire.handle({ method: 'GET', headers: {} }, res, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const local = await send(false, port, { method: 'POST', path: '/__tamber', headers: { origin: 'null', 'x-exact-tamber-token': token }, body: '{"method":"hello"}' });
+    expect([local.status, local.headers['access-control-allow-origin']]).toEqual([404, 'null']);
+    expect(local.text).not.toContain(token);
+    const six = await send(false, port, { method: 'POST', path: '/__tamber', headers: { host: `[::1]:${port}`, origin: `http://[::1]:${port}` }, body: '{"method":"hello"}' });
+    expect(six.status).not.toBe(403);
+  } finally { await doors.close(); await wire.close(); }
 });

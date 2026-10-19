@@ -22,6 +22,54 @@ shape Hello
   // A dev loop serves the wire: a value edit applies in place, and a
   // scrub previews on the running copies.
   live: bool
+  // The server's run: a restart is another.
+  epoch: string
+  // This tool's scope on the server, and whether its token is the local
+  // one, which pairs and revokes clients (tamber/1.13); a paired client's
+  // name, as the server gives it.
+  scope: string
+  local: bool
+  client: string
+
+// A remote door a paired client comes through (LLP 1121 stage 10 B): its
+// origin and its certificate's SHA-256, made for this run, which the other
+// machine checks; a tunnel the developer trusts has none.
+shape Door
+  origin: string
+  fingerprint: string
+  tunnel: bool
+
+// A pairing code (LLP 1122 D12, T6): good once, until `until`, for a
+// client's own token at `scope`.
+shape PairCode
+  ok: bool
+  error: string
+  code: string
+  scope: string
+  until: string
+  doors: Door[]
+
+// A paired tool's canvas through the server's gateway (stage 10 C): the
+// frame's URL, its single-use grant in the fragment; "" with none.
+shape Canvas
+  ok: bool
+  error: string
+  frame: string
+  // The gateway's own page, without the grant.
+  root: string
+
+shape Client
+  client: string
+  name: string
+  scope: string
+  peer: string
+  seen: string
+  until: string
+
+shape Clients
+  ok: bool
+  error: string
+  clients: Client[]
 
 shape Change
   seq: number
@@ -251,6 +299,8 @@ shape Changes
   // commit's dry run, a token's uses and a draft's proposal are read again
   // on, so a scrub's frames and its builds' statuses cost no reads.
   paced: string
+  // Each client paired or gone, and each start again: the clients read again on it.
+  clients: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -604,7 +654,28 @@ component DesignTool
   state proposeAt = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
-  derive client = `design-tool:${person}`
+  // Pairing (LLP 1122 D12, T6), the local tool's alone: the scope a code is
+  // minted at, the code, the paired clients, and a revoke.
+  state pairScope = "propose"
+  mutation paircode as shape PairCode
+  resource clients = loadClients(hello.local, changes.clients) as shape Clients else empty(ok=true)
+  mutation revoked as shape Pinned refreshes clients
+  state clientsTries = 0
+  // A paired client is the name the server gave it (T6), whatever it asks.
+  derive client = hello.client != "" ? hello.client : `design-tool:${person}`
+  // Its scope (T6): below write, what writes is greyed, said once why; the
+  // tool sends none of it (wire.ts), and the server refuses it too.
+  derive canWrite = hello.scope == "" or hello.scope == "write"
+  derive canPropose = canWrite or hello.scope == "propose"
+  // Pairing with another machine's server (remote mode): its address and the
+  // code it shows, typed here; the code is not kept once sent.
+  state remoteAt = ""
+  state remoteCode = ""
+  mutation pairedWith as shape Pinned refreshes hello
+  // Its canvas, read once a server run, and again when it is opened again
+  // or asked for again (a grant enters once).
+  state canvasTick = 0
+  resource canvasAt = loadCanvas(hello.local, hello.client, hello.epoch, canvasTick) as shape Canvas else empty(ok=true)
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
@@ -736,6 +807,10 @@ component DesignTool
     after(1, advance)
   task retry when not pending(changes) and not changes.ok key=changes.answer
     after(3000, advance)
+  // A clients read refused while the poll goes on is asked again, each 3 s
+  // (its own count: the poll's answers would put it off for ever).
+  task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
+    after(3000, reloadClients)
 
   action advance
     // A change (an answer, paced while a scrub is open), another run, more
@@ -751,6 +826,27 @@ component DesignTool
       proposeAt = changes.paced
     epoch = changes.epoch
     asks = asks + 1
+  action editRemoteAt(v: string)
+    remoteAt = v
+  action editRemoteCode(v: string)
+    remoteCode = v
+  action pairRemote
+    if not pending(pairedWith) and remoteAt.trim() != "" and remoteCode.trim() != ""
+      send pairedWith = pairRemote(remoteAt, remoteCode, person)
+      remoteCode = ""
+  action reloadCanvas
+    canvasTick = canvasTick + 1
+  action reloadClients
+    clientsTries = clientsTries + 1
+    refresh clients
+  action choosePairScope(v: string)
+    pairScope = v
+  action mintCode
+    if not pending(paircode)
+      send paircode = mintCode(pairScope)
+  action revokeClient(c: string)
+    if not pending(revoked)
+      send revoked = revokeClient(c)
   action reconnect
     refresh hello
     // A poll still held answers for itself; a second would race it. One
@@ -767,6 +863,7 @@ component DesignTool
   action editName(v: string)
     draftName = v
   action saveName
+    canvasTick = canvasTick + 1
     if draftName.trim() != ""
       person = draftName.trim()
       renaming = false
@@ -1063,7 +1160,7 @@ component DesignTool
     send written = cancelScrub(scrubAsk)
   action apply
     // Only the proposal shown, for the edit drafted, is written.
-    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not partsStale and not pending(written) and not scrubShown
+    if canPropose and proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not partsStale and not pending(written) and not scrubShown
       send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
   action afterWrite
     // The draft written is done with; one drafted since stays.
@@ -1197,20 +1294,86 @@ component DesignTool
               text "Continue"
         else if not hello.ok
           column gap=8 max-width=520 testId="no-server"
-            text "No design server" role="heading" aria-level=2
+            text (hello.error.startsWith("This client was revoked") ? "Revoked" : "No design server") role="heading" aria-level=2 testId="no-server-title"
             text hello.error color="-exact-secondary-label" testId="no-server-message"
             button press=reconnect buttonStyle="bordered" testId="reconnect"
               text "Try Again"
+            // Remote mode (T6): another machine's server, by the address and
+            // code its tool shows; an https door or a tunnel to this machine.
+            column gap=8 padding=12 border-radius=12 background-color="-exact-secondary-background" testId="pair-remote"
+              text "A design server on another machine" role="heading" aria-level=3
+              text "Its tool shows a code and an address. Pair from the tool that address serves (<address>/__tamber/tool/, its certificate accepted in this browser if its SHA-256 is the one shown): type the address and the code there. That server refuses a tool opened anywhere else." color="-exact-secondary-label" font="-exact-footnote" testId="pair-remote-how"
+              input value=remoteAt input=editRemoteAt placeholder="https://192.168.1.20:7743" aria-label="Design server address" testId="remote-at"
+              input value=remoteCode input=editRemoteCode submit=pairRemote placeholder="XXXXX-XXXXX" aria-label="Pairing code" testId="remote-code"
+              button press=pairRemote disabled=(pending(pairedWith) or remoteAt.trim() == "" or remoteCode.trim() == "") buttonStyle="bordered" testId="remote-pair"
+                text "Pair"
+              match pairedWith
+                case some(r)
+                  if not r.ok
+                    text r.error color="-exact-system-red" font="-exact-footnote" testId="remote-error"
+                case none
+                  text "" display="none"
         else
           column gap=16
             column gap=4 testId="hello"
               text hello.app role="heading" aria-level=2 testId="app"
               text `${hello.protocol} · IR format ${hello.format}` color="-exact-secondary-label" testId="protocol"
+              if not hello.local
+                text (canWrite ? `Paired with this design server as ${hello.client}, at write.` : canPropose ? `Paired as ${hello.client}, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed.` : `Paired as ${hello.client}, at read: you see the design, its history and the inspector's last selections; edits, pins, holds and the rest are greyed.`) color="-exact-system-orange" font="-exact-footnote" testId="paired-scope"
             column gap=4 testId="files"
               for f in hello.files key=f.path
                 row gap=12
                   text f.path flex=1 testId=`file-${f.path}`
                   text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
+            // Pairing (LLP 1122 D12, T6): a code for a client on another
+            // machine, at a scope, with each remote door to check it by; the
+            // clients paired, each revoked here. The local tool's alone.
+            if hello.local
+              column gap=8 testId="pairing"
+                row gap=8 align-items="center" flex-wrap="wrap"
+                  text "Clients" role="heading" aria-level=2 flex=1
+                  select value=pairScope change=choosePairScope aria-label="Pairing scope" testId="pair-scope"
+                    option "Read" value="read"
+                    option "Propose" value="propose"
+                    option "Write" value="write"
+                  button press=mintCode disabled=pending(paircode) buttonStyle="bordered" testId="pair-mint"
+                    text "Pair a client"
+                text (pairScope == "read" ? "Read: it sees the design and its history, and inspects without moving anyone's screens." : pairScope == "propose" ? "Propose: it reads, and offers changes for someone with write to accept." : "Write: it edits, commits, and pins, holds and outlines on the running copies.") color="-exact-secondary-label" font="-exact-footnote" testId="pair-scope-note"
+                match paircode
+                  case some(c)
+                    if c.ok
+                      column gap=4 padding=12 border-radius=12 background-color="-exact-secondary-background" testId="pair-code"
+                        text c.code font="-exact-title2" font-family="ui-monospace, monospace" testId="pair-code-text"
+                        text `Good once, until ${c.until}, for a client of its own at ${c.scope}. Type it on the other machine; nothing else is needed.` color="-exact-secondary-label" font="-exact-footnote" testId="pair-code-note"
+                        if c.doors.length == 0
+                          text "No remote door is open: start the dev loop or tamber serve with --remote <host:port> for a client on another machine." color="-exact-secondary-label" font="-exact-footnote" testId="pair-no-door"
+                        for d in c.doors key=d.origin
+                          if d.tunnel
+                            text `Through the tunnel you trusted, at ${d.origin}` font="-exact-footnote" testId=`pair-door-${d.origin}`
+                          else
+                            column gap=2 testId=`pair-door-${d.origin}`
+                              text `Open ${d.origin}/__tamber/tool/ there, and check its certificate's SHA-256 is` font="-exact-footnote"
+                              text d.fingerprint font="-exact-caption1" font-family="ui-monospace, monospace" testId=`pair-fingerprint-${d.origin}`
+                    else
+                      text c.error color="-exact-system-red" font="-exact-footnote" testId="pair-error"
+                  case none
+                    text "" display="none"
+                if not clients.ok
+                  text clients.error color="-exact-system-red" font="-exact-footnote" testId="clients-error"
+                else if clients.clients.length == 0
+                  text "No client is paired." color="-exact-secondary-label" font="-exact-footnote" testId="no-clients"
+                for k in clients.clients key=k.client
+                  row gap=8 align-items="center" flex-wrap="wrap" testId=`client-${k.client}`
+                    text k.client flex=1 min-width=0
+                    text k.scope font="-exact-footnote" testId=`client-scope-${k.client}`
+                    text `${k.peer}${k.seen != "" ? ` · seen ${k.seen}` : ""}` color="-exact-secondary-label" font="-exact-footnote"
+                    button press=revokeClient(k.client) disabled=pending(revoked) buttonStyle="bordered" testId=`revoke-${k.client}`
+                      text "Revoke"
+                match revoked
+                  case some(r)
+                    text (r.ok ? r.note : r.error) color=(r.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId="revoke-result"
+                  case none
+                    text "" display="none"
             // The canvas (LLP 1122 D3): the running app, at the dev loop's own
             // URL, in a frame the tool never scripts; every control goes
             // through the design server. Sandboxed short of navigating the tool.
@@ -1224,7 +1387,20 @@ component DesignTool
                 if hello.page != ""
                   link href=hello.page target="_blank" testId="canvas-open"
                     text "Open in a tab"
-              if hello.page != ""
+              if not hello.local
+                // (A grant spent, or an entry slower than its 30 s: a new one.)
+                if canvasAt.frame != ""
+                  button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-reload"
+                    text "Reload Canvas"
+                if canvasAt.frame != "" and not pending(canvasAt)
+                  iframe src=canvasAt.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                else
+                  row gap=8 align-items="center" flex-wrap="wrap"
+                    text (canvasAt.error != "" ? canvasAt.error : "The canvas comes through the design server's gateway.") color="-exact-secondary-label" flex=1 testId="canvas-remote-none"
+                    if canvasAt.error != ""
+                      button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-retry"
+                        text "Try Again"
+              else if hello.page != ""
                 iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
@@ -1239,7 +1415,7 @@ component DesignTool
             column gap=8 testId="inspector"
               row gap=8 align-items="center"
                 text "Inspector" role="heading" aria-level=2 flex=1
-                button press=toggleInspect disabled=pending(inspectSent) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
+                button press=toggleInspect disabled=(pending(inspectSent) or not canWrite) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
                   text (inspected.inspecting ? "Stop inspecting" : "Inspect")
               match inspectSent
                 case some(i)
@@ -1266,13 +1442,13 @@ component DesignTool
                     column gap=4 testId="hold"
                       row gap=8 align-items="center" flex-wrap="wrap"
                         text "Hold" font="-exact-footnote"
-                        button press=holdState("active") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "active" ? "filled" : "bordered") testId="hold-active"
+                        button press=holdState("active") disabled=(pending(holdSent) or not canWrite) buttonStyle=(inspected.hold.state == "active" ? "filled" : "bordered") testId="hold-active"
                           text "Pressed"
-                        button press=holdState("hover") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "hover" ? "filled" : "bordered") testId="hold-hover"
+                        button press=holdState("hover") disabled=(pending(holdSent) or not canWrite) buttonStyle=(inspected.hold.state == "hover" ? "filled" : "bordered") testId="hold-hover"
                           text "Hovered"
-                        button press=holdState("focus-visible") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "focus-visible" ? "filled" : "bordered") testId="hold-focus"
+                        button press=holdState("focus-visible") disabled=(pending(holdSent) or not canWrite) buttonStyle=(inspected.hold.state == "focus-visible" ? "filled" : "bordered") testId="hold-focus"
                           text "Focused"
-                        button press=holdState("") disabled=(pending(holdSent) or inspected.hold.state == "") testId="hold-release"
+                        button press=holdState("") disabled=(pending(holdSent) or inspected.hold.state == "" or not canWrite) testId="hold-release"
                           text "Let go"
                       if inspected.hold.status != ""
                         text inspected.hold.status color="-exact-secondary-label" font="-exact-footnote" testId="hold-status"
@@ -1293,10 +1469,10 @@ component DesignTool
                             button press=editFromSelection(r.token, r.column, inspected.place) testId=`heldrow-link-${r.name}`
                               text ((r.state != "" or r.edit != "") ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
                           if r.state != ""
-                            button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
+                            button press=editState(r.state, r.stateText) disabled=(not canPropose) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
                               text r.stateLabel
                           if r.edit != ""
-                            button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
+                            button press=editRow(r.edit, r.editWords, r.editText) disabled=(not canPropose) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
                               text r.editLabel
                           if r.reason != ""
                             text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
@@ -1321,19 +1497,19 @@ component DesignTool
                         button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-link-${r.name}`
                           text `Open ${r.token}`
                       if r.state != ""
-                        button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`selrow-state-${r.name}`
+                        button press=editState(r.state, r.stateText) disabled=(not canPropose) buttonStyle="bordered" testId=`selrow-state-${r.name}`
                           text r.stateLabel
                       if r.edit != ""
-                        button press=editRow(r.edit, r.editWords, r.editText) buttonStyle="bordered" testId=`selrow-row-${r.name}`
+                        button press=editRow(r.edit, r.editWords, r.editText) disabled=(not canPropose) buttonStyle="bordered" testId=`selrow-row-${r.name}`
                           text r.editLabel
                       if r.promote != ""
-                        button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) testId=`selrow-param-${r.name}`
+                        button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) disabled=(not canPropose) testId=`selrow-param-${r.name}`
                           text "Make it a param"
                       if r.promote != "" and r.tokenize
-                        button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) testId=`selrow-tokenize-${r.name}`
+                        button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) disabled=(not canPropose) testId=`selrow-tokenize-${r.name}`
                           text "Make it a token"
                       if r.detach != ""
-                        button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) testId=`selrow-detach-${r.name}`
+                        button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) disabled=(not canPropose) testId=`selrow-detach-${r.name}`
                           text "Detach to this template"
                       if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
@@ -1341,7 +1517,7 @@ component DesignTool
                 column gap=2 testId="impact"
                   row gap=8 align-items="center"
                     text (pending(uses) or uses.token != impactToken ? `${impactToken}: reading its uses…` : uses.ok ? `${impactToken}: read at ${uses.sites.length} source site(s), statically (not a count of mounted copies)` : uses.error) font="-exact-footnote" flex=1 testId="impact-count"
-                    button press=outlineImpact disabled=(pending(outlined) or not inspected.inspecting) testId="impact-outline"
+                    button press=outlineImpact disabled=(pending(outlined) or not inspected.inspecting or not canWrite) testId="impact-outline"
                       text "Outline"
                   match outlined
                     case some(o)
@@ -1369,31 +1545,31 @@ component DesignTool
                   if b.unsupported != ""
                     text `Not applied: ${b.unsupported}` color="-exact-system-orange" font="-exact-caption1" testId=`build-unsupported-${b.id}`
               row gap=8 align-items="center" flex-wrap="wrap" testId="pin-form"
-                select value=pinBuild change=choosePinBuild aria-label="Pin on" testId="pin-build"
+                select value=pinBuild change=choosePinBuild disabled=(not canWrite) aria-label="Pin on" testId="pin-build"
                   option "Every build" value=""
                   for b in changes.builds key=b.id
                     option `${b.host} · ${b.id}` value=b.id
-                select value=pinScheme change=choosePinScheme aria-label="Scheme" testId="pin-scheme"
+                select value=pinScheme change=choosePinScheme disabled=(not canWrite) aria-label="Scheme" testId="pin-scheme"
                   option "Scheme…" value=""
                   option "Light" value="light"
                   option "Dark" value="dark"
-                select value=pinContrast change=choosePinContrast aria-label="Contrast" testId="pin-contrast"
+                select value=pinContrast change=choosePinContrast disabled=(not canWrite) aria-label="Contrast" testId="pin-contrast"
                   option "Contrast…" value=""
                   option "More" value="more"
                   option "Less" value="less"
                   option "No preference" value="no-preference"
                 for a in pinAxes key=a.name
-                  select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) aria-label=a.name testId=`pin-mode-${a.name}`
+                  select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) disabled=(not canWrite) aria-label=a.name testId=`pin-mode-${a.name}`
                     option `${a.name}…` value=""
                     for v in a.values key=v
                       option v value=v
-                input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
-                button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk) buttonStyle="filled" testId="pin-apply"
+                input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") disabled=(not canWrite) placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
+                button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk or not canWrite) buttonStyle="filled" testId="pin-apply"
                   text "Pin"
                 // One axis on one build, alone: it replaces that build's pin.
-                button press=previewPin disabled=(pending(pinned) or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0) testId="pin-preview"
+                button press=previewPin disabled=(pending(pinned) or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0 or not canWrite) testId="pin-preview"
                   text "Preview this mode only"
-                button press=clearPins disabled=pending(pinned) testId="pin-clear"
+                button press=clearPins disabled=(pending(pinned) or not canWrite) testId="pin-clear"
                   text "Hand back"
               match pinned
                 case some(p)
@@ -1426,13 +1602,13 @@ component DesignTool
                   column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                     text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                     for c in g.dials key=c.name
-                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+                      DialControl(locked=(not canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
                     if g.more.length > 0
                       button press=toggleMore(g.name) testId=`more-${g.name}`
                         text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                       if opened.includes(g.name)
                         for c in g.more key=c.name
-                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+                          DialControl(locked=(not canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
               if design.components.length > 0
                 column gap=12 testId="components"
                   text "Components" role="heading" aria-level=2
@@ -1446,13 +1622,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                            ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                                ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -1516,7 +1692,7 @@ component DesignTool
                           text `${d.name} (dial)`
                     for r in branch.roles key=r
                       text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
-                    button press=pin buttonStyle="bordered" testId="pin"
+                    button press=pin disabled=(not canPropose) buttonStyle="bordered" testId="pin"
                       text "Pin a value"
                   else
                     if branch.expression and typed.ok
@@ -1536,36 +1712,36 @@ component DesignTool
                           row gap=8 align-items="center" testId=`part-${p.key}`
                             text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
                             if p.control == "number"
-                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                             else if p.control == "select"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 for o in p.options key=o
                                   option (o == "" ? "none" : o) value=o
                             else if p.control == "inset"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 option "outside" value=""
                                 option "inset" value="inset"
                             else if p.control == "style"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 option "unsaid" value=""
                                 option "italic" value="italic"
                             else
-                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose) placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                         if partMissing != ""
                           text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
-                    input value=shownValue change=cellText aria-label=`${branch.token} value` testId="branch-value"
+                    input value=shownValue change=cellText disabled=(not canPropose) aria-label=`${branch.token} value` testId="branch-value"
                   if not branch.exact
-                    button press=onlyThisMode testId="only-this-mode"
+                    button press=onlyThisMode disabled=(not canPropose) testId="only-this-mode"
                       text "Only this mode"
                   if not branch.param
                     row gap=8
-                      input value=renameTo input=editRename submit=renameToken placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
-                      button press=renameToken disabled=(renameTo.trim() == "") testId="rename"
+                      input value=renameTo input=editRename submit=renameToken disabled=(not canPropose) placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                      button press=renameToken disabled=(renameTo.trim() == "" or not canPropose) testId="rename"
                         text "Rename"
-                      button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
+                      button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose) destructive=true testId="remove"
                         text "Remove"
                   dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
-                    button press=removeToken destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                    button press=removeToken disabled=(not canPropose) destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
                       text "Remove"
                     button commandfor="confirm-remove" command="close"
                       text "Cancel"
@@ -1574,9 +1750,9 @@ component DesignTool
               column gap=8 testId="add"
                 text "Add a token" role="heading" aria-level=3
                 row gap=8
-                  input value=newName input=editNewName submit=addToken placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
-                  input value=newValue input=editNewValue submit=addToken placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
-                  button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
+                  input value=newName input=editNewName submit=addToken disabled=(not canPropose) placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
+                  input value=newValue input=editNewValue submit=addToken disabled=(not canPropose) placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
+                  button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "" or not canPropose) testId="add-token"
                     text "Add"
               if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
                 column gap=4 testId="move-editor"
@@ -1585,7 +1761,7 @@ component DesignTool
                   if stateStale
                     text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
                   if editKind != "detach-param"
-                    input value=editValue input=stateValue aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
+                    input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
               if editKind == "set-state" or editKind == "set-row"
                 column gap=4 testId="state-editor"
                   if editKind == "set-row"
@@ -1596,7 +1772,7 @@ component DesignTool
                     text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
                   if stateStale
                     text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
-                  input value=editValue input=stateValue aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
+                  input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
                   if draftStale or partsStale
@@ -1615,16 +1791,16 @@ component DesignTool
                       else if scrub.open != ""
                         text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
                       row gap=8
-                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written)) buttonStyle="filled" testId="scrub-keep"
+                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written) or not canWrite) buttonStyle="filled" testId="scrub-keep"
                           text "Keep"
-                        button press=cancelScrub aria-keyshortcuts="Escape" testId="scrub-cancel"
+                        button press=cancelScrub aria-keyshortcuts="Escape" disabled=(not canWrite) testId="scrub-cancel"
                           text "Cancel scrub"
                   else
                     row gap=8
-                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written)) buttonStyle="filled" testId="apply"
-                        text "Apply"
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose) buttonStyle="filled" testId="apply"
+                        text (canWrite ? "Apply" : "Propose for review")
                       if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
-                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written)) testId="scrub-start"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite) testId="scrub-start"
                           text "Scrub live"
                       button press=cancelEdit testId="cancel-edit"
                         text "Cancel"
@@ -1633,12 +1809,12 @@ component DesignTool
               if not scrubShown and scrub.ended != ""
                 text scrub.ended color="-exact-secondary-label" testId="scrub-note"
               row gap=8 align-items="center" testId="undo-bar"
-                button press=undo disabled=(stack.undo == 0 or pending(written)) testId="undo"
+                button press=undo disabled=(stack.undo == 0 or pending(written) or not canWrite) testId="undo"
                   text `Undo (${stack.undo})`
-                button press=redo disabled=(stack.redo == 0 or pending(written)) testId="redo"
+                button press=redo disabled=(stack.redo == 0 or pending(written) or not canWrite) testId="redo"
                   text `Redo (${stack.redo})`
                 if stack.rescope != ""
-                  button press=rescope disabled=pending(written) testId="rescope"
+                  button press=rescope disabled=(pending(written) or not canWrite) testId="rescope"
                     text stack.rescope
                 if not stack.ok
                   text stack.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="write-error"
@@ -1682,7 +1858,7 @@ component DesignTool
                     text `Tokens (${h.mapped.length})` role="heading" aria-level=3
                     for m in h.mapped key=`${m.index}`
                       row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
-                        input type="checkbox" disabled=pending(written) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                        input type="checkbox" disabled=(pending(written) or not canWrite) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
                         text m.name width=200 flex-shrink=0 font="-exact-footnote"
                         if m.kind != "token"
                           text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
@@ -1693,12 +1869,12 @@ component DesignTool
                             if md.dark != ""
                               view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
                             text md.label font="-exact-caption2" color="-exact-secondary-label"
-                            input value=md.value change=editImportValue(h.proposal, m.index, md.mode) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                            input value=md.value change=editImportValue(h.proposal, m.index, md.mode) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
                     text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
                     for o in h.offers key=o.role
                       row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
                         if o.items != ""
-                          input type="checkbox" disabled=pending(written) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
+                          input type="checkbox" disabled=(pending(written) or not canWrite) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
                         text `${o.role} = ${o.token}` font="-exact-footnote"
                         if o.note != ""
                           text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
@@ -1706,9 +1882,9 @@ component DesignTool
                     for u in h.unmapped key=u.key
                       text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
                     row gap=8
-                      button press=acceptImportNow(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                      button press=acceptImportNow(h.proposal) disabled=(pending(written) or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                         text "Accept"
-                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                      button press=dropProposal(h.proposal) disabled=(pending(written) or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
                         text "Drop"
                   else
                     text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
@@ -1717,26 +1893,26 @@ component DesignTool
                     text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
                     for it in h.items key=`${it.index}`
                       row gap=8 align-items="center"
-                        input type="checkbox" checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
+                        input type="checkbox" disabled=(not canWrite) checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
                         text it.text font="-exact-footnote"
                     row gap=8
-                      button press=acceptAll(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                      button press=acceptAll(h.proposal) disabled=(pending(written) or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                         text "Accept"
-                      button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(pending(written) or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true)) testId=`accept-picked-${h.proposal}`
+                      button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(pending(written) or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true) or not canWrite) testId=`accept-picked-${h.proposal}`
                         text "Accept picked"
-                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                      button press=dropProposal(h.proposal) disabled=(pending(written) or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
                         text "Drop"
             column gap=8 testId="import"
               text "Import a theme" role="heading" aria-level=2
               text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"
               row gap=8 align-items="center"
-                select value=importKind change=chooseKind aria-label="Kind" testId="import-kind"
+                select value=importKind change=chooseKind disabled=(not canPropose) aria-label="Kind" testId="import-kind"
                   option "shadcn (CSS)" value="shadcn"
                   option "Tailwind v4 (CSS)" value="tailwind"
                   option "DTCG (JSON, a file a mode)" value="dtcg"
-                button press=pickImport disabled=pending(imported) testId="import-choose"
+                button press=pickImport disabled=(pending(imported) or not canPropose) testId="import-choose"
                   text "Choose files…"
-                input type="file" multiple=(importKind == "dtcg") id="import-file" testId="import-file" display="none" change=importPicked
+                input type="file" multiple=(importKind == "dtcg") disabled=(not canPropose) id="import-file" testId="import-file" display="none" change=importPicked
               match imported
                 case some(i)
                   text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") white-space="pre-wrap" testId="import-result"
@@ -1758,7 +1934,7 @@ component DesignTool
                   if e.mine and e.diff != ""
                     text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
               row gap=8 align-items="center"
-                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused and not scope.unavailable)) buttonStyle="bordered" testId="commit"
+                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused and not scope.unavailable) or not canWrite) buttonStyle="bordered" testId="commit"
                   text "Commit"
                 text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
               match committed
@@ -1785,7 +1961,7 @@ component DesignTool
                   column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`commit-${c.short}`
                     row gap=8 align-items="center"
                       text `${c.short} · ${c.author} · ${c.date}` font="-exact-footnote" color="-exact-secondary-label" flex=1
-                      button press=revert(c.commit) disabled=pending(reverted) testId=`revert-${c.short}`
+                      button press=revert(c.commit) disabled=(pending(reverted) or not canPropose) testId=`revert-${c.short}`
                         text "Revert"
                     text c.subject testId=`subject-${c.short}`
                     for f in c.files key=f.file
@@ -1823,6 +1999,8 @@ component DialControl
   props
     c: Control
     focused: bool
+    // Below propose (a paired reader, T6): not editable.
+    locked: bool
     onNumber: action
     onText: action
     onStep: action
@@ -1835,19 +2013,19 @@ component DialControl
       if c.control == "color"
         row gap=8 align-items="center" testId=`dial-${c.name}-color`
           view width=28 height=28 border-radius=6 background-color=c.swatch border="1px solid -exact-separator"
-          input value=c.value change=onText aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
+          input value=c.value change=onText disabled=(locked) aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
       else if c.control == "slider"
         // Each value while it is dragged; let go, a scrub open on it is kept.
-        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease aria-label=c.label testId=`dial-${c.name}-slider`
+        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease disabled=(locked) aria-label=c.label testId=`dial-${c.name}-slider`
       else if c.control == "stepper"
-        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onStep aria-label=c.label testId=`dial-${c.name}-stepper`
+        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onStep disabled=(locked) aria-label=c.label testId=`dial-${c.name}-stepper`
       else if c.control == "select"
-        select value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-select`
+        select value=c.value change=onText disabled=(locked) aria-label=c.label testId=`dial-${c.name}-select`
           for o in c.options key=o
             option o value=o
       else if c.control == "token"
         // A param's own default: a token's name or a literal, typed.
-        input value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-field`
+        input value=c.value change=onText disabled=(locked) aria-label=c.label testId=`dial-${c.name}-field`
       if c.bounds != ""
         text c.bounds color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-bounds`
       if c.help != ""
@@ -1859,6 +2037,8 @@ component ParamControl
   props
     r: ParamRow
     focused: bool
+    // Below propose (a paired reader, T6): not editable.
+    locked: bool
     onNumber: action
     onText: action
     onStep: action
@@ -1866,11 +2046,11 @@ component ParamControl
     onReset: action
   view
     column gap=2 testId=`param-${r.short}`
-      DialControl(c=r.c, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
+      DialControl(c=r.c, locked=locked, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
       row gap=8 align-items="center" padding="0 4px"
         text (r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
         if r.set
-          button press=onReset testId=`param-${r.short}-reset`
+          button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
             text "Reset"
       if r.pinned.length > 0
         text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`

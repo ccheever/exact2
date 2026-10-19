@@ -3180,6 +3180,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "module-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "module-fixture-data",
+]
+
+[[package]]
+name = "module-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-data",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "module-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "module-fixture-data",
+]
+
+[[package]]
 name = "motion-gallery-apple"
 version = "0.1.0"
 dependencies = [
@@ -5741,6 +5772,18 @@ dependencies = [
  "log",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "weatherlight-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]

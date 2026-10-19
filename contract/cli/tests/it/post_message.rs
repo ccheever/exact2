@@ -69,3 +69,70 @@ fn the_command_is_checked_by_name() {
         assert!(error.contains("type-post-message"), "{statement}: {error}");
     }
 }
+
+#[test]
+fn iframe_posts_use_live_ids_without_entering_the_canvas_queue() {
+    let source = r#"component App
+  state target = "guest-a"
+  action reply(text: string)
+    postMessage(text, target)
+    postMessage(text, "guest-a")
+  view
+    iframe id="guest-a" src="https://example.test/a" sandbox="allow-scripts"
+"#;
+    let mut runner = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    runner.take_commands();
+    runner.act("reply", vec![Value::str("pong")]).unwrap();
+    let commands = runner.take_commands();
+    assert_eq!(commands.len(), 2);
+    for command in commands {
+        assert_eq!(command.name, "postMessage");
+        assert_eq!(
+            command.args,
+            vec![
+                Value::str("pong"),
+                Value::str("guest-a"),
+                Value::str("iframe")
+            ]
+        );
+    }
+}
+
+#[test]
+fn iframe_targets_are_checked_and_static_name_collisions_are_refused() {
+    for source in [
+        "component App\n  action reply\n    postMessage(\"x\", 4)\n  view\n    iframe id=\"guest\" src=\"https://example.test\"\n",
+        "component App\n  action reply\n    postMessage(\"x\", \"absent\")\n  view\n    iframe id=\"guest\" src=\"https://example.test\"\n",
+        "component App\n  action reply\n    postMessage(\"x\", \"world\")\n  view\n    column\n      canvas surface=world() width=200 height=200\n      iframe id=\"world\" src=\"https://example.test\"\n",
+    ] {
+        let error = contract::compile(source).unwrap_err().to_string();
+        assert!(error.contains("type-post-message"), "{error}");
+    }
+}
+
+#[test]
+fn an_unmounted_declared_canvas_keeps_the_existing_post_protocol() {
+    let source = APP.replace(
+        "canvas surface=world() width=200 height=200",
+        "text \"No world mounted\"",
+    )
+        + "\ncomponent Unused\n  view\n    canvas surface=world() width=200 height=200\n";
+    let mut runner = Runner::boot(
+        contract::compile(&source).unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    runner.take_commands();
+    runner.act("buy", vec![Value::str("carrot")]).unwrap();
+    assert_eq!(runner.take_commands()[0].args.len(), 2);
+}
