@@ -283,4 +283,19 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(node.inlineLink(at: hit), "https://example.com")
     }
     #endif
+
+    /// A clamp's last line wider than its box, one word longer than the
+    /// line, ends in "…" as UILabel's tail truncation does (notes at the
+    /// largest text size, round 22: "Packing" ran over the row's time);
+    /// layout keeps the word's width, as CSS measures it.
+    func testLineClampTruncatesAWordLongerThanItsLastLine() {
+        let clamped = Spec(runs: [run("Packing")], align: 0, lineClamp: 1, color: [0, 0, 0, 255])
+        let natural = engine.paragraph(clamped, width: .infinity).width
+        let p = engine.paragraph(clamped, width: natural / 2)
+        XCTAssertNotNil(p.clampedRange)
+        XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(p.lines[0], nil, nil, nil), Double(natural / 2) + 0.5)
+        XCTAssertEqual(p.width, natural, accuracy: 1.0 / 64)
+        // One that fits takes no ellipsis.
+        XCTAssertNil(engine.paragraph(clamped, width: natural + 1).clampedRange)
+    }
 }

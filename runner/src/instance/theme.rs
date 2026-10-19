@@ -250,6 +250,9 @@ impl super::NodeInst {
         };
         self.colour_moved |= INHERITED.contains(&style);
         self.themed.set(i, named, ok);
+        if !ok {
+            self.unimply(style);
+        }
         match named {
             true => u.ids.theme.put(
                 self.view,
@@ -271,6 +274,17 @@ impl super::NodeInst {
         self.colour_moved |= INHERITED.contains(&style);
         self.themed.set(i, false, false);
         u.ids.theme.drop_row(self.view, style);
+        self.unimply(style);
+    }
+
+    /// The binding's clear (or a value the row refused) cleared `style`'s
+    /// row, an implied one with it: a boundary sets it again (`boundary_rows`),
+    /// unwritten, though what it implies has not changed since.
+    fn unimply(&mut self, style: StyleId) {
+        let k = INHERITED.iter().position(|s| *s == style);
+        if let (Some(k), Some(implied)) = (k, self.implied.as_mut()) {
+            implied[k] = None;
+        }
     }
 
     /// A mode boundary's implied rows (D7): each inherited colour row it does

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { composerLanguageEdit, composerTaskEdit, type ComposerReplacement } from '../../src/composer/composer-block-actions';
+import { composerLanguageEdit, type ComposerReplacement } from '../../src/composer/composer-block-actions';
 
 function apply(source: string, replacement: ComposerReplacement | null): string {
   if (!replacement) throw new Error('expected a source replacement');
@@ -26,19 +26,5 @@ describe('composer source-backed block actions', () => {
     expect(composerLanguageEdit({ ...input, current: value + '!' })).toBeNull();
     expect(composerLanguageEdit({ ...input, header: { start: 1, end: 7 }, language: 'go' })).toBeNull();
     expect(composerLanguageEdit({ ...input, language: 'unknown' })).toBeNull();
-  });
-  test('task toggle changes exactly one source unit after indentation and tabs', () => {
-    const value = '😀\n  -\t[X]  task\n- [ ] next', start = value.indexOf('  -'), end = value.indexOf('\n-');
-    const input = { value, current: value, block: { start, end }, checked: false };
-    const replacement = composerTaskEdit(input);
-    expect(replacement).toEqual({ start: value.indexOf('X'), end: value.indexOf('X') + 1, text: ' ' });
-    expect(apply(value, replacement)).toBe('😀\n  -\t[ ]  task\n- [ ] next');
-    expect(composerTaskEdit({ ...input, checked: true })).toBeNull();
-    expect(composerTaskEdit({ ...input, current: value + '!' })).toBeNull();
-    expect(composerTaskEdit({ ...input, block: { start: start + 1, end } })).toBeNull();
-  });
-  test('literal task source in a code body cannot emit a checkbox edit', () => {
-    const value = '```\n- [ ] task\n```';
-    expect(composerTaskEdit({ value, current: value, block: { start: 4, end: 14 }, checked: true })).toBeNull();
   });
 });

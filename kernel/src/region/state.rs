@@ -592,15 +592,6 @@ impl TextMeasurer for Candidate<'_> {
         self.measurer.field_text(kind, request)
     }
 
-    fn decorated_field_text(
-        &mut self,
-        kind: crate::FieldKind,
-        request: &crate::TextMeasureRequest<'_>,
-        decorations: crate::text::DecoratedField<'_>,
-    ) -> Option<crate::TextMetrics> {
-        self.measurer
-            .decorated_field_text(kind, request, decorations)
-    }
     fn measure_revision(&self) -> u64 {
         self.measurer.measure_revision()
     }

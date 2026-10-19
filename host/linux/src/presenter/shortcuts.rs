@@ -1,8 +1,15 @@
-//! `aria-keyshortcuts` on Linux, by the rule the web host's input-glue.js
-//! keeps and the Apple hosts share (`Shortcuts.swift`): a key whose chord a
-//! shown, enabled button declares presses that button before the focus's
-//! `key` handlers hear it — the web's capture listener at the document — and
-//! goes no further, its default prevented. None behind the frontmost shown
+//! `aria-keyshortcuts`, the rule every host keeps (the web's input-glue.js,
+//! the Apple hosts' `Shortcuts.swift`): a key whose chord a shown button
+//! declares presses that button before the focus's `key` handlers
+//! hear it — the web's capture listener at the document — and goes no
+//! further, its default prevented. A focused world's canvas is such a
+//! focus: it never hears the chord. A button bound to a world's action
+//! (`action="buy"`) is pressed as the web's assistive click presses it, a
+//! down and an up of that action that moves no focus, then its authored
+//! `press` if it has one, as the web's click runs both, so a focused world
+//! keeps its held keys and a shortcut and the world's own binding of the
+//! same chord never both act (LLP 1132 D11). A disabled button still takes
+//! its key and presses nothing, as on the web. None behind the frontmost shown
 //! `aria-modal` view (gallery F22); never Enter or Space while the focus is
 //! a control those keys activate (onboarding F27); a text field keeps its
 //! typing, where only a Control or Meta chord, or Escape, is a shortcut.
@@ -153,7 +160,24 @@ impl<D: DataSource> Presenter<D> {
             .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true));
         if !repeat && !disabled {
             self.note_press(button, true);
-            self.activate_with(button, now_ms, false);
+            if self.control_target(button) == Some(button) {
+                let (x, y, _, _) = self.rect_of(button).unwrap_or_default();
+                for phase in ["down", "up"] {
+                    let contact = crate::surfaces::controls::ASSISTIVE_CONTACT;
+                    self.control_input(button, phase, x, y, contact, now_ms);
+                }
+                // Then its authored `press`, as the web's click runs both.
+                if self
+                    .host
+                    .runner()
+                    .handlers_of(button)
+                    .contains(&EventKind::Press)
+                {
+                    self.activate_with(button, now_ms, false);
+                }
+            } else {
+                self.activate_with(button, now_ms, false);
+            }
         }
         true
     }

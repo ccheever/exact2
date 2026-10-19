@@ -70,12 +70,16 @@ impl Prepared {
             }
             if value.is_str() {
                 let literal = u32::from_le_bytes([code[11], code[12], code[13], code[14]]);
-                if let Some(literal) = env.strings.get(literal as usize).filter(|v| v.is_str()) {
+                if let Some(literal) = env
+                    .strings
+                    .get(env.plan, literal as usize)
+                    .filter(|v| v.is_str())
+                {
                     if value != literal {
                         return Ok(value.clone());
                     }
                     let replacement = u32::from_le_bytes([code[22], code[23], code[24], code[25]]);
-                    if let Some(replacement) = env.strings.get(replacement as usize) {
+                    if let Some(replacement) = env.strings.get(env.plan, replacement as usize) {
                         return Ok(replacement.clone());
                     }
                 }

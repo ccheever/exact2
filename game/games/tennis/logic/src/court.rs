@@ -100,7 +100,7 @@ pub fn court(w: &mut World) {
         ground: [0.05, 0.08, 0.05],
         ambient: 0.65,
         fog: Some(Fog {
-            color: Some([0.68, 0.78, 0.88]),
+            color: Some(Color([0.68, 0.78, 0.88])),
             ..Fog::new(0.0025, 0.08)
         }),
         ..Environment::default()

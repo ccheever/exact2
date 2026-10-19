@@ -76,6 +76,7 @@ internal class FieldText(context: Context) : EditText(unadjusted(context)) {
             override fun commitText(text: CharSequence?, at: Int): Boolean { say("commitText \"$text\""); return done(super.commitText(text, at)) }
             override fun finishComposingText(): Boolean { say("finishComposingText"); return done(super.finishComposingText()) }
             override fun deleteSurroundingText(before: Int, after: Int): Boolean { say("deleteSurroundingText $before, $after"); return done(super.deleteSurroundingText(before, after)) }
+            override fun deleteSurroundingTextInCodePoints(before: Int, after: Int): Boolean { say("deleteSurroundingTextInCodePoints $before, $after"); return done(super.deleteSurroundingTextInCodePoints(before, after)) }
         }
     }
 }
@@ -330,7 +331,9 @@ internal class Fields(context: Context) : FrameLayout(context) {
             }
         })
         text.selected = { _, _ -> if (!quiet) { f.moved = true; later() } }
-        text.asked = { later() }
+        // Any IME call is real input (a backspace in an empty field included, which changes nothing it reports):
+        // a held state lets go (LLP 1122 D8).
+        text.asked = { Exact.fieldInput(f.id, f.generation); later() }
         text.setOnFocusChangeListener { _, has ->
             if (has) {
                 focused = f
@@ -367,6 +370,8 @@ internal class Fields(context: Context) : FrameLayout(context) {
             true
         }
         text.setOnKeyListener { _, code, event ->
+            // Any key down is real input, which lets a held state go (LLP 1122 D8).
+            if (event.action == KeyEvent.ACTION_DOWN) Exact.fieldInput(f.id, f.generation)
             if (code != KeyEvent.KEYCODE_TAB || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) return@setOnKeyListener false
             // Tab is the page's: exact2 moves the focus through its own order, which knows the painted controls.
             if (event.action == KeyEvent.ACTION_DOWN) {
@@ -686,6 +691,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
         held.clear()
         if (f != null && f.id == field && fields[field] === f) {
             state = OWNED
+            Exact.fieldInput(f.id, f.generation) // a finger down in it: real input, which lets a held state go
             for (e in events) {
                 send(e)
                 if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) { state = NONE; target = null }

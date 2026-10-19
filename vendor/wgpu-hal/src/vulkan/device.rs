@@ -1458,6 +1458,8 @@ impl crate::Device for super::Device {
     unsafe fn destroy_texture_view(&self, view: super::TextureView) {
         // EXACT (EXACT-PATCHES.md, 6): the device destroys its own.
         if !view.cached {
+            // EXACT (EXACT-PATCHES.md, 13).
+            self.shared.forget_view(view.view_identity);
             unsafe { self.shared.raw.destroy_image_view(view.raw, None) };
         }
 

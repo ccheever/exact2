@@ -53,12 +53,22 @@ impl Lowerer<'_> {
         // attribute of the same name replaces the style's (LLP 1017 P6).
         // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
         let button_context = grouped::button_context(attrs);
+        let separated = grouped::row_separator(attrs);
         let (mut sheet, unmarked) = grouped::split(attrs);
         let attrs = unmarked.as_ref().unwrap_or(attrs);
         // A `delete=` no list row expanded does nothing (`lower-delete-row`).
         let kept = swipe_rows::stray(attrs);
         let attrs = kept.as_ref().unwrap_or(attrs);
         let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
+        // The class's rows by their places: a rewrite below (an animation's
+        // longhands composed, a grouped list's rows inserted) moves rows
+        // across `class_len`, never their spans (LLP 1122 D6's address).
+        let class_spans: std::collections::BTreeSet<contract_syntax::Span> = expanded
+            .iter()
+            .flatten()
+            .filter(|a| a.written)
+            .map(|a| a.span)
+            .collect();
         let button = self.button_appearance(
             tag,
             expanded.as_deref().unwrap_or(&[]),
@@ -67,9 +77,15 @@ impl Lowerer<'_> {
             button_context,
             *span,
         )?;
-        if button.as_ref().is_some_and(|b| b.native) {
-            grouped::native_rows(&mut sheet);
+        let native_button = button.as_ref().is_some_and(|b| b.native);
+        if native_button {
+            let margins = grouped::margins_said(attrs)
+                || expanded.as_deref().is_some_and(grouped::margins_said);
+            grouped::native_rows(&mut sheet, margins);
         }
+        // @ref LLP 1084 D7 — the platform's separator under a grouped row; a
+        // native button row is the platform's control, under none.
+        let separated = separated && !native_button;
         let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
         let expanded = match &mut expanded {
             Some(rows) => {
@@ -96,6 +112,7 @@ impl Lowerer<'_> {
         decorations::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
+        menus::check_invoker(tag, expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
         // @ref LLP 1121 D3 — a motion token an expansion carried in (a
         // component's prop, a sheet) is written in before the longhands
@@ -333,6 +350,14 @@ impl Lowerer<'_> {
             let rows = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
         }
+        if separated {
+            let on = self.b.constant(&Value::Bool(true));
+            bindings.push(prop_row(
+                exact_kernel::PropId::GroupedRowSeparator,
+                on,
+                IMPLIED,
+            ));
+        }
         // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
         let styled = states
             .as_ref()
@@ -490,15 +515,35 @@ impl Lowerer<'_> {
                 };
                 let class = class_label.is_some();
                 let pressed = states.as_ref().is_some_and(|s| index >= s.pressed);
-                let origin = if class
+                // Where an author wrote it (LLP 1122 D6; the source map
+                // checks the name at the place against the source). A
+                // conditional class's row is either style's, and a folded
+                // `:disabled` or `:checked` row is a choice over the base
+                // and its part: both say nowhere.
+                // A written row's origin is its place's: a class's row is
+                // one of the class's attributes, whatever a rewrite (an
+                // animation composed, a grouped list's rows inserted) did
+                // to its position, a state part's row included. A row the
+                // compiler wrote goes by position as before.
+                let positioned = class
                     && (folded == Some(true)
-                        || folded.is_none() && index >= sheet.len() && index < class_len)
-                {
-                    Origin::Class(class_label.clone().expect("class attribute"))
-                } else if folded.is_none() && index < sheet.len() {
+                        || folded.is_none() && index >= sheet.len() && index < class_len);
+                let (in_class, sheet_row) = match a.written {
+                    true => (class && class_spans.contains(&a.span), false),
+                    false => (positioned, folded.is_none() && index < sheet.len()),
+                };
+                let written = (a.written && folded.is_none()).then(|| crate::Written {
+                    span: a.span,
+                    name: a.name.clone(),
+                });
+                let origin = if in_class {
+                    let label = class_label.clone().expect("class attribute");
+                    let written = written.filter(|_| !label.contains('/'));
+                    Origin::Class(label, written)
+                } else if sheet_row {
                     Origin::Tag
                 } else {
-                    Origin::Own
+                    Origin::Own(written)
                 };
                 // `:active`'s, lowered to the press paint: where it is written.
                 let origin = match pressed {
@@ -575,7 +620,7 @@ impl Lowerer<'_> {
         // @ref LLP 1069.001 D8 — rows a control derives.
         if control.is_some() && controls::derived_rows(&mut bindings) {
             if let Some(origins) = &mut origins {
-                origins.resize(bindings.len(), Origin::Own);
+                origins.resize(bindings.len(), Origin::Own(None));
             }
         }
         if t.node_type == NodeType::NativeView {
@@ -587,7 +632,7 @@ impl Lowerer<'_> {
                 self.errors.push(e);
             }
             if let Some(origins) = &mut origins {
-                origins.resize(bindings.len(), Origin::Own);
+                origins.resize(bindings.len(), Origin::Own(None));
             }
         }
         self.data_row(tag, expanded, scope, locals, &mut bindings, &mut origins);

@@ -33,7 +33,8 @@ describe('the editable sample', () => {
     const source = await Bun.file(appPath('settings-prompt-preview.contract')).text();
     expect(manifest.hatches).toContain('t3-prompt-preview');
     const field = source.split('\n').find(line => /^\s*textarea\b/.test(line))!;
-    for (const prop of ['value=promptPreviewText', 'input=write', 'decorations=richPromptPreview.decorations', 'hatch="t3-prompt-preview"', 'aria-label="Prompt font preview"']) expect(field).toContain(prop);
+    for (const prop of ['value=promptPreviewText', 'input=write', 'hatch="t3-prompt-preview"', 'aria-label="Prompt font preview"']) expect(field).toContain(prop);
+    expect(field).not.toContain('decorations='); // a plain field; references are controls beside it
     expect(source).toContain('appearance="none"'); // the bare box: no field look
     expect(source).toContain('fn promptPreviewSample(): string = "Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) before shipping."');
   });

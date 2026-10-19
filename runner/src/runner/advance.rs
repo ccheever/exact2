@@ -238,6 +238,8 @@ impl<D: DataSource> Runner<D> {
         }
         let mut landed = now_ms;
         self.queues.stopped_on_next = false;
+        // A module's value ticket that timed out by now (LLP 1133.002 §6).
+        self.module_deadlines(now_ms);
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self

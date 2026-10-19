@@ -6,35 +6,16 @@ import { composerSourceSession } from '../../src/composer/composer-rich-state';
 import { refreshFileMetadata } from '../../src/shared/file-metadata';
 
 describe('root composer projection source', () => {
-  test('live star/plus task toggles use projected policy and refuse stale owners, values and ranges', () => {
+  test('live star/plus task prefixes are task blocks for the typing field only', () => {
     for (const source of ['* [x] ', '+ [ ] ']) {
       const client = new T3Client(), owner = 'thread';
       const project = (value: string, inputType = '') => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
       project('');
       for (let end = 1; end <= source.length; end++) project(source.slice(0, end), 'insertText');
-      const view = project(source), block = view.blocks[0];
-      if (!block) throw new Error('expected projected task block');
-      const checked = source.includes('[ ]');
-      expect(view.decorations.blocks[0]?.marker).toBe(checked ? 'checkbox:off' : 'checkbox:on');
-      const intent = { snapshotOwner: client.snapshotOwner, owner, value: source, serial: 1,
-        start: block.start, end: block.end, composing: false, mode: 'rich' as const, kind: 'toggle' as const, checked };
-      for (const changed of [{ snapshotOwner: intent.snapshotOwner + '/old' }, { owner: 'other' }, { value: source + 'new' },
-        { start: block.start + 1 }, { end: block.end - 1 }, { composing: true }, { checked: !checked }]) {
-        expect(composerIntentSource(client, { ...intent, ...changed }).kind).toBe('stale');
-      }
-      const reply = composerIntentSource(client, intent);
-      expect(reply).toMatchObject({ kind: 'edit', start: 3, end: 4, text: checked ? 'x' : ' ', preserveSelection: true });
-      const next = source.slice(0, reply.start) + reply.text + source.slice(reply.end);
-      expect(next).toBe(source.replace(checked ? '[ ]' : '[x]', checked ? '[x]' : '[ ]'));
-      const toggled = project(next, 'insertReplacementText');
-      expect(toggled.decorations.blocks[0]?.marker).toBe(checked ? 'checkbox:on' : 'checkbox:off');
-      expect(composerIntentSource(client, { ...intent, serial: 2, value: next, checked: !checked }).kind).toBe('edit');
-      project(source, 'historyUndo');
-      expect(project(source).decorations.blocks[0]?.marker).toBe(checked ? 'checkbox:off' : 'checkbox:on');
+      expect(project(source).blocks[0]).toMatchObject({ kind: 'list', start: 0, end: source.length, contentStart: source.length });
       // A new mounted field restores */+ Markdown as bullets, without inheriting a task origin.
-      composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'replacement', value: source });
-      expect(composerIntentSource(client, intent).kind).toBe('stale');
-      expect(composerIntentSource(client, { ...intent, owner: 'replacement' }).kind).toBe('stale');
+      const replacement = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'replacement', value: source });
+      expect(replacement.blocks[0]).toMatchObject({ kind: 'list', contentStart: 2 });
     }
   });
   test('a language answer preserves logical fence identity through its accepted field observation', () => {
@@ -74,20 +55,15 @@ describe('root composer projection source', () => {
     expect(project(source, 'historyUndo').headers).toEqual([]);
     expect(project(next, 'historyRedo').headers).toHaveLength(1);
   });
-  test('path paste in an unadmitted fence paragraph protects its active literal path prefix', () => {
+  test('path paste in an unadmitted fence paragraph keeps its source and opens no code header', () => {
     const client = new T3Client(), owner = 'thread', source = '```\n@', text = '__name__.ts **body**';
     const project = (value: string, inputType = '') => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
     project('\n@');
     expect(project(source, 'insertText').headers).toEqual([]);
     const reply = composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner, value: source, serial: 1,
       start: source.length, end: source.length, composing: false, mode: 'rich', kind: 'paste', text });
-    expect(reply.kind).toBe('edit');
-    const value = source.slice(0, reply.start) + reply.text + source.slice(reply.end), view = project(value, 'insertReplacementText');
-    expect(view.headers).toEqual([]);
-    expect(view.decorations.spans.map(span => value.slice(span.start, span.end))).toEqual(['body']);
-    expect(composerSourceSession(client).literalRanges).toEqual([{ start: 5, end: 5 + '__name__.ts'.length }]);
-    project(source, 'historyUndo');
-    expect(project(value, 'historyRedo').decorations.spans.map(span => value.slice(span.start, span.end))).toEqual(['body']);
+    expect(reply).toMatchObject({ kind: 'edit', start: source.length, end: source.length, text });
+    expect(project(source + text, 'insertReplacementText').headers).toEqual([]);
   });
   test('actual insertText observations share live block admission with guarded key intents', () => {
     const client = new T3Client(), owner = 'thread';
@@ -95,18 +71,16 @@ describe('root composer projection source', () => {
     project('');
     for (const value of ['-', '- ', '- [', '- [ ', '- [ ]']) {
       const view = project(value, 'insertText');
-      expect(view.blocks[0]?.kind).toBe('paragraph');
-      expect(view.decorations.blocks).toEqual([]);
-      expect(view.decorations.hidden).toEqual([]);
+      expect(view.blocks.map(block => block.kind)).toEqual(['paragraph']);
     }
     const literal = '- [ ]';
     expect(composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner, value: literal, serial: 1,
       start: literal.length, end: literal.length, composing: false, mode: 'rich', kind: 'key', key: 'Tab', shift: false, command: false }).kind).toBe('default');
     const admitted = project('- [ ] ', 'insertText');
     expect(admitted.blocks[0]?.kind).toBe('list');
-    expect(admitted.decorations.blocks[0]?.marker).toBe('checkbox:off');
+    expect(admitted.blocks[0]?.contentStart).toBe(6);
     expect(project(literal, 'historyUndo').blocks[0]?.kind).toBe('paragraph');
-    expect(project('- [ ] ', 'historyRedo').decorations.blocks[0]?.marker).toBe('checkbox:off');
+    expect(project('- [ ] ', 'historyRedo').blocks[0]?.kind).toBe('list');
     expect(project('***', 'insertFromPaste').blocks[0]?.kind).toBe('rule');
     // A different mounted field restores Markdown rather than inheriting typing origins.
     expect(composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another', value: literal }).blocks[0]?.kind).toBe('list');
@@ -125,42 +99,13 @@ describe('root composer projection source', () => {
     expect(preview.chips[0]?.face.icon).toBe('at-sign');
     expect(preview.chips[0]?.face.fileToken).toBe('');
   });
-  test('actual path-query paste protects only its literal prefix and rebases with surrounding edits', () => {
+  test('a path pasted after @ keeps its underscores in the source', () => {
     const client = new T3Client(), owner = 'thread', text = 'src/__name__/file.ts **body**';
     composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value: '@' });
     const reply = composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner, value: '@', serial: 1,
       start: 1, end: 1, composing: false, mode: 'rich', kind: 'paste', text });
-    expect(reply.kind).toBe('edit');
-    const value = '@' + reply.text;
-    const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value });
-    expect(view.value).toBe('@' + text);
-    expect(view.decorations.spans.map(span => value.slice(span.start, span.end))).toEqual(['body']);
-    expect(composerSourceSession(client).literalRanges).toEqual([{ start: 1, end: 1 + 'src/__name__/file.ts'.length }]);
-    const shifted = '😀\n' + value;
-    composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value: shifted, inputType: 'insertText' });
-    expect(composerSourceSession(client).literalRanges).toEqual([{ start: 4, end: 4 + 'src/__name__/file.ts'.length }]);
-    composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another-thread', value: shifted });
-    expect(composerSourceSession(client).literalRanges).toEqual([]);
-  });
-  test('native undo and redo restore pasted literal origins through the actual producer without crossing owners', () => {
-    const client = new T3Client(), owner = 'thread', text = 'src/__name__/file.ts';
-    composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value: '@' });
-    const reply = composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner, value: '@', serial: 1,
-      start: 1, end: 1, composing: false, mode: 'rich', kind: 'paste', text });
-    expect(reply.kind).toBe('edit');
-    const value = '@' + reply.text;
-    const project = (value: string, inputType: string) => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
-    expect(project(value, 'insertReplacementText').decorations.spans).toEqual([]);
-    expect(project('@', 'historyUndo').decorations.spans).toEqual([]);
-    expect(composerSourceSession(client).literalRanges).toEqual([]);
-    expect(project(value, 'historyRedo').decorations.spans).toEqual([]);
-    expect(composerSourceSession(client).literalRanges).toEqual([{ start: 1, end: value.length }]);
-    project('😀\n' + value, 'insertText');
-    expect(composerSourceSession(client).literalRanges).toEqual([{ start: 4, end: value.length + 3 }]);
-    expect(project(value, 'historyUndo').decorations.spans).toEqual([]);
-    const changedOwner = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'other', value, inputType: 'historyRedo' });
-    expect(composerSourceSession(client).literalRanges).toEqual([]);
-    expect(changedOwner.decorations.spans.map(span => value.slice(span.start, span.end))).toEqual(['name']);
+    expect(reply).toMatchObject({ kind: 'edit', start: 1, end: 1, text, selectionStart: 1 + text.length });
+    expect(composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value: '@' + reply.text }).value).toBe('@' + text);
   });
   test('rich-off and literal answers retain ordinary Enter, newline and paste semantics without block grammar', () => {
     for (const literal of [false, true]) {
@@ -196,20 +141,20 @@ describe('root composer projection source', () => {
     const client = new T3Client(), owner = 'thread';
     const project = (value: string, inputType: string) => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
     project('', '');
-    expect(project('$dep', 'insertText').decorations.atoms).toEqual([]);
-    expect(project('$deploy ', 'insertText').decorations.atoms).toHaveLength(1);
+    expect(project('$dep', 'insertText').chips).toEqual([]);
+    expect(project('$deploy ', 'insertText').chips).toHaveLength(1);
     const completed = project('$deploy', 'deleteContentBackward');
     expect(completed.chips.map(chip => chip.source)).toEqual(['$deploy']);
     const preview = (value: string, inputType: string) => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, inputType, surface: 'preview' });
-    expect(preview('$frontend ', '').decorations.atoms).toHaveLength(1);
+    expect(preview('$frontend ', '').chips).toHaveLength(1);
     expect(preview('$frontend', 'deleteContentBackward').chips.map(chip => chip.source)).toEqual(['$frontend']);
     expect(composerSourceSession(client).matches(owner, '$deploy')).toBe(true);
-    expect(project('', 'deleteContentBackward').decorations.atoms).toEqual([]);
+    expect(project('', 'deleteContentBackward').chips).toEqual([]);
     expect(project('$deploy', 'historyUndo').chips.map(chip => chip.source)).toEqual(['$deploy']);
-    expect(project('', 'historyRedo').decorations.atoms).toEqual([]);
-    expect(project('$deploy', 'historyUndo').decorations.atoms).toHaveLength(1);
+    expect(project('', 'historyRedo').chips).toEqual([]);
+    expect(project('$deploy', 'historyUndo').chips).toHaveLength(1);
     const changed = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another', value: '$deploy' });
-    expect(changed.decorations.atoms).toEqual([]);
+    expect(changed.chips).toEqual([]);
   });
   test('Settings preview shares chip projection without rich syntax or changing the active composer session', () => {
     const client = new T3Client(), owner = 'thread', value = '```ts';
@@ -217,37 +162,31 @@ describe('root composer projection source', () => {
     const sample = '**sample** $frontend-design ';
     const preview = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value: sample, surface: 'preview' });
     expect(preview.mode).toBe('plain');
-    expect(preview.decorations.spans).toEqual([]);
-    expect(preview.decorations.atoms).toHaveLength(1);
+    expect(preview.blocks.every(block => block.kind === 'paragraph')).toBe(true);
+    expect(preview.chips).toHaveLength(1);
     expect(composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner, value, serial: 1,
       start: value.length, end: value.length, composing: false, mode: 'rich', kind: 'key', key: 'Enter', shift: false, command: false }))
-      .toMatchObject({ kind: 'edit', text: '```ts\n```' });
+      .toMatchObject({ kind: 'edit', text: '```ts\n\n```' });
   });
-  test('product faces own the same atom label and state palette on composer and preview', () => {
+  test('product faces own the same label and state on composer and preview', () => {
     const client = new T3Client(), value = '$frontend-design ';
     client.providerId = 'codex';
     client.config.providers = [{ instanceId: 'codex', skills: [{ name: 'frontend-design', displayName: 'Custom Workspace Skill' }] }];
     const active = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value });
     const preview = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, surface: 'preview' });
-    expect(active.decorations.atoms[0]?.label).toBe('\u2003Custom Workspace Skill');
     expect(active.chips[0]?.face.label).toBe('Custom Workspace Skill');
-    expect(preview.decorations.atoms[0]?.label).toBe('\u2003Frontend Design');
     expect(preview.chips[0]?.face.label).toBe('Frontend Design');
     const refs = '[PR #7](t3-context://v1/review-comment/review-comment_p) [gone](t3-context://v1/terminal/terminal_missing) [old](t3-context://v1/terminal/terminal_old)';
     client.local.reviewComments = { 'review-comment_p': { kind: 'review-comment', contextId: 'review-comment_p', pullRequest: { state: 'merged', number: 7 } } };
     client.local.terminalContexts = { terminal_old: { kind: 'terminal', contextId: 'terminal_old', text: '' } };
     const contexts = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value: refs });
     expect(contexts.chips.map(chip => chip.face.kind)).toEqual(['pr-merged', 'neutral', 'invalid']);
-    expect(contexts.decorations.atoms.map(atom => atom.name)).toEqual(['cmp-chip-review-comment', 'cmp-chip-neutral', 'cmp-chip-invalid']);
-    expect(contexts.decorations.atoms.map(atom => atom.label)).toEqual(contexts.chips.map(chip => chip.face.atomLabel));
   });
   test('projects the live controlled value independently of persisted draft timing', () => {
     const client = new T3Client(), value = '**live** $frontend-design ';
     const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread:question', value });
     expect(view.owner).toBe('thread:question');
     expect(view.value).toBe(value);
-    expect(view.decorations.value).toBe(value);
-    expect(view.decorations.spans.map(span => value.slice(span.start, span.end))).toEqual(['live']);
     expect(view.chips[0]).toMatchObject({
       kind: 'skill', start: 9, end: 25, source: '$frontend-design', label: 'frontend-design', name: 'frontend-design',
       path: '', contextKind: '', contextId: '', image: false, href: '', comment: '', quote: '',
@@ -257,7 +196,7 @@ describe('root composer projection source', () => {
     const client = new T3Client(), value = '# Heading\n$skill ';
     const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner + '/old', owner: 'old-thread', value });
     expect(view.owner).toBe('');
-    expect(view.decorations).toEqual({ value, spans: [], blocks: [], hidden: [], atoms: [] });
+    expect(view.mode).toBe('literal');
     expect(view.headers).toEqual([]);
     expect(view.chips).toEqual([]);
   });

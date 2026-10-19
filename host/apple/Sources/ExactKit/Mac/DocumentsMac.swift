@@ -42,19 +42,23 @@ public enum ExactDocuments {
 
     /// Files the person chose in the app's own picker (studio diary R18):
     /// each joins Open Recent — a save's once it is written, since AppKit
-    /// lists only files that exist — and the window shows the last.
+    /// lists only files that exist — and is kept for an app granted
+    /// `doc.keep` (LLP 1069.010.000 D3); the window shows the last.
     static func chosen(_ urls: [URL], in session: ExactSession) {
-        for url in urls { noteWhenWritten(url) }
+        // One that exists was noted and kept as it was chosen (`keptChoice`).
+        for url in urls where !FileManager.default.fileExists(atPath: url.path) {
+            noteWhenWritten(url) { [weak session] in session?.keepDocument(url) }
+        }
         if let url = urls.last { shown?(session, url) }
     }
 
     /// AppKit drops a recent file that does not exist yet, which a save's
-    /// is until the app writes it: it is noted once it does, looked for a
-    /// few times a second for two minutes.
-    static func noteWhenWritten(_ url: URL, tries: Int = 480) {
-        if FileManager.default.fileExists(atPath: url.path) { NSDocumentController.shared.noteNewRecentDocumentURL(url); return }
+    /// is until the app writes it: it is noted, then `noted`, once it does,
+    /// looked for a few times a second for two minutes.
+    static func noteWhenWritten(_ url: URL, tries: Int = 480, noted: @escaping () -> Void = {}) {
+        if FileManager.default.fileExists(atPath: url.path) { NSDocumentController.shared.noteNewRecentDocumentURL(url); noted(); return }
         guard tries > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { noteWhenWritten(url, tries: tries - 1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { noteWhenWritten(url, tries: tries - 1, noted: noted) }
     }
 
     /// Whether a file at `url` is of a type the app declares: its type
@@ -138,9 +142,11 @@ public enum ExactDocuments {
 
     /// Hand each path to the app, in order. Returns whether every one
     /// landed: `change` refuses a path when the app has no `open-file` node
-    /// mounted, which is the app saying it opens nothing.
+    /// mounted, which is the app saying it opens nothing. A route's file is
+    /// kept for an app granted `doc.keep`, the file alone (LLP 1069.010.000
+    /// D3); a followed link (`keep: false`) is not.
     @discardableResult
-    public static func deliver(_ paths: [String], to session: ExactSession) -> Bool {
+    public static func deliver(_ paths: [String], to session: ExactSession, keep: Bool = true) -> Bool {
         var delivered = true
         for path in paths where !path.isEmpty {
             if !session.change(testId: testId, value: path) {
@@ -150,6 +156,7 @@ public enum ExactDocuments {
                 delivered = false
             } else if FileManager.default.fileExists(atPath: path) {
                 noteRecent(path)
+                if keep { session.keepDocument(URL(fileURLWithPath: path)) }
             }
         }
         return delivered

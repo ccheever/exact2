@@ -193,8 +193,39 @@ Chrome accepts the CDP request but does not change this media feature.
 Linux currently reports its default and
 refuses a substitute. No new agent operation or plan format is added.
 
-This is the display-mode slice. `env(titlebar-area-x|y|width|height)` and
-manifest title-row configuration remain in the open issue.
+This is the display-mode slice; D8 is the title-bar area.
+
+### D8 — The title-bar area is AppKit's, beside the traffic lights
+
+Charlie's 2026-10-18 ruling in the same issue admits Window Controls Overlay's
+[`env(titlebar-area-x|y|width|height)`](https://wicg.github.io/window-controls-overlay/)
+and no manifest field. Implementer: Claude, 2026-10-18. The values are lengths
+in the kernel's environment (LLP 1001 §2), not a fact on `exactViewport()`:
+the spec's "available area of the title bar", which excludes the area under
+the window's controls.
+
+The AppKit host reports them for a page under `viewport-fit=cover`, whose
+window's content underlaps the title bar (LLP 1008 §9): the band of the
+title bar's own view where it covers the session's view, from the left of
+the band past the traffic lights and the margin AppKit keeps before the
+first of them, which is where macOS 26's horizontally corner-adapted safe
+area begins. A 900-point window on macOS 27 reports `78 0 822×32`. In full
+screen, and in a window with a toolbar (the one LLP 1115.002 D2 gives an
+app with routes), the title bar holds no page, and all four are zero. The host tells the
+kernel on every geometry pass, on entering and leaving full screen, and when
+the toolbar comes or goes. Nothing moves the traffic lights or sets the
+title bar's height: D2's toolbar is the platform's 52-point title row.
+
+Everywhere else they are undefined, as in a browser tab: a Mac window that
+does not cover its title bar, iOS, Linux, Windows, Android and the terminal.
+`env(titlebar-area-height, 0px)` takes its fallback, and a length without
+one is invalid at computed-value time, so its row takes its initial value
+(CSS Environment Variables 1 §3). The web targets write the names for the
+browser, which resolves them: Chrome defines them only in an installed app
+with `display_override: ["window-controls-overlay"]`. `state.device` and
+the viewport facts are unchanged; agent `layout` shows the Mac's area. Tests:
+`kernel/tests/it/titlebar.rs`, `exact-apple`'s calculation snapshot, and
+`TitleBarAreaMacTests`.
 
 ## 4. Interview, as it would read
 

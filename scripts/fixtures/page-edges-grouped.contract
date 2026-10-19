@@ -1,0 +1,11 @@
+// LLP 1130 D3: a page with no routes whose grouped list fills it. UIKit
+// draws the list, and its collection view reaches into the status bar's and
+// the home indicator's bands as an Exact scroller does (PageEdgesIOSTests).
+component PageEdgesGrouped
+  view
+    main testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      list testId="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+        for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24] key=i
+          section
+            row
+              text `Row ${i}`

@@ -16,7 +16,7 @@ const copy = (press: ComposerChipPress): ComposerChipPress => ({ ...press, frame
 const actions = new Set(['mention', 'thread', 'citation', 'pull-request', 'image', 'file', 'video', 'pr-open', 'pr-draft', 'pr-merged', 'pr-closed']);
 
 /** Product presses retain source identity and measured geometry. The shared
- *  field still owns selection, source edits, atom hit testing and undo. */
+ *  field still owns selection, source edits and undo. */
 export class ComposerChipPresses {
   private sequence = 0;
   private interaction = 0;

@@ -32,6 +32,11 @@ fn require_declaration(app_dir: &str) {
         .join(".shells/surfaces.json");
     println!("cargo:rerun-if-changed={}", path.display());
     fs::metadata(&path).expect("build the game's GPU shell before its host");
+    // The keys `Actions` bind, which the bake's shortcut warning reads.
+    let keys = path.with_file_name("keys.json");
+    if keys.exists() {
+        println!("cargo:rerun-if-changed={}", keys.display());
+    }
 }
 
 /// Bake the app named by the generated shell, with no JS or Rust module.
@@ -83,6 +88,10 @@ fn bake_source<D: contract::DataSource>(
         .unwrap_or_else(|e| panic!("resolved app.json: {e}"));
     let mut plan = contract::compile_path(&app.join("app.contract"))
         .unwrap_or_else(|e| panic!("app.contract: {e}"));
+    // A button shortcut on a key the game's `Actions` bind (LLP 1132 D11).
+    for warning in contract::shortcut_findings(&app.join("app.contract")).unwrap_or_default() {
+        println!("cargo:warning={}", warning.to_string().replace('\n', " "));
+    }
     if plan.app_id.is_empty() {
         plan.app_id = manifest.id.clone();
     }

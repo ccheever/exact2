@@ -34,8 +34,7 @@ use SbPicker from "./src/settings/settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
 use ComposerEditorView from "./src/composer/composer-editor.contract"
 use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement from "./src/composer/composer-rich.contract"
-use ComposerCodeAnchor, ComposerCodeLayout from "./src/composer/composer-code-headers.contract"
-use ComposerChipAnchor, ComposerChipLayout, ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
+use ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
 use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
 use ChipPopover, ComposerChipFinish from "./src/composer/composer-chip-popover.contract"
 use ShellView, ShellDetails from "./src/shell/shell-shapes.contract"
@@ -270,8 +269,6 @@ component T3Code
     promptPreviewOwner
     promptPreviewSnapshotOwner
     promptPreviewSerial
-    promptPreviewChipLayout
-    composerChipLayout
     composerChipPress
     composerFieldInputSerial
     richComposer
@@ -279,9 +276,7 @@ component T3Code
     composerMoved
     composerBeforeInput
     composerIntentNotice
-    composerTaskToggle
     composerLanguage
-    composerCodeLayout
     composerKeyEvent
     composerKeyReleased
     threadFind
@@ -1193,36 +1188,11 @@ component T3Code
   state composerIntentInputEnd = 0
   state composerIntentPreserves = false
   state composerIntentCaretSeen = false
-  state composerCodeLayout = ComposerCodeLayout(owner="", value="", x=0, y=0, width=0, anchors=[])
-  task composerCodeLayoutNeeded when composerRichCurrent and richComposer.headers.length > 0 key=`${richComposerOwner}|${composerText}|${richComposer.mode}|${conversationWidth}|${data.look.fontSize}|${data.look.promptFont}|${data.look.promptSize}|${composerSelectionStart}:${composerSelectionEnd}|${restResting}`
-    after(1, measureComposerCode)
-  action measureComposerCode
-    if composerRichCurrent
-      let fieldWrap = frame("composer-field-wrap")
-      let field = frame("composer")
-      if not fieldWrap.unavailable and not field.unavailable and field.width > 0
-        composerCodeLayout = ComposerCodeLayout(owner=richComposerOwner, value=composerText, x=(field.x - fieldWrap.x), y=fieldWrap.y, width=field.width, anchors=richComposer.headers.map((header) => ComposerCodeAnchor(start=header.start, end=header.end, label=header.label, language=header.language, frame=rangeFrame("composer", header.end, min(composerText.length, header.end + 1)))).filter((header) => not header.frame.unavailable and header.frame.height > 0))
-  state composerChipLayout = ComposerChipLayout(owner="", value="", serial=0, x=0, y=0, anchors=[])
-  state promptPreviewChipLayout = ComposerChipLayout(owner="", value="", serial=0, x=0, y=0, anchors=[])
-  task composerChipLayoutNeeded when composerRichCurrent and richComposer.chips.length > 0 key=`${richComposerOwner}|${composerText}|${composerFieldInputSerial}|${conversationWidth}|${data.look.fontSize}|${data.look.promptFont}|${data.look.promptSize}|${composerSelectionStart}:${composerSelectionEnd}|${restResting}`
-    after(1, measureComposerChips)
-  action measureComposerChips
-    if composerRichCurrent
-      let wrap = frame("composer-field-wrap")
-      if not wrap.unavailable and wrap.width > 0
-        composerChipLayout = ComposerChipLayout(owner=richComposerOwner, value=composerText, serial=composerFieldInputSerial, x=wrap.x, y=wrap.y, anchors=richComposer.chips.map((chip) => ComposerChipAnchor(chip=chip, frame=rangeFrame("composer", chip.start, chip.end))).filter((anchor) => not anchor.frame.unavailable and anchor.frame.width > 0 and anchor.frame.height > 0))
-  task promptChipLayoutNeeded when promptPreviewVisible and richPromptPreview.owner == promptPreviewOwner and richPromptPreview.value == promptPreviewText key=`${promptPreviewOwner}|${promptPreviewText}|${promptPreviewSerial}|${data.look.fontSize}|${data.look.promptFont}|${data.look.promptSize}|${viewport.width}`
-    after(1, measurePromptChips)
-  action measurePromptChips
-    if promptPreviewVisible and richPromptPreview.owner == promptPreviewOwner and richPromptPreview.value == promptPreviewText
-      let wrap = frame("prompt-preview-field-wrap")
-      if not wrap.unavailable and wrap.width > 0
-        promptPreviewChipLayout = ComposerChipLayout(owner=promptPreviewOwner, value=promptPreviewText, serial=promptPreviewSerial, x=wrap.x, y=wrap.y, anchors=richPromptPreview.chips.map((chip) => ComposerChipAnchor(chip=chip, frame=rangeFrame("prompt-font-preview", chip.start, chip.end))).filter((anchor) => not anchor.frame.unavailable and anchor.frame.width > 0 and anchor.frame.height > 0))
-  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
+  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool, anchorId: string)
     let preview = surface == "preview"
     let current = preview ? richPromptPreview : richComposer
     if (preview ? promptPreviewVisible and serial == promptPreviewSerial and owner == promptPreviewOwner and value == promptPreviewText : composerFieldLive and serial == composerFieldInputSerial and owner == richComposerOwner and value == composerText and not composerComposing) and current.owner == owner and current.value == value and current.chips.filter((chip) => chip.start == start and chip.end == end and chip.source == source).length == 1
-      let bounds = rangeFrame(preview ? "prompt-font-preview" : "composer", start, end)
+      let bounds = frame(anchorId)
       if not bounds.unavailable and bounds.width > 0 and bounds.height > 0
         send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment, frame=bounds))
   mutation composerEdited as shape ComposerIntentReply queue then composerEditDone
@@ -1250,7 +1220,7 @@ component T3Code
       composerFieldAdmitted = true
       if item.focus
         focus("composer")
-      setRangeText("composer", item.text, item.start, item.end, "preserve", "undo")
+      setRangeText("composer", item.text, item.start, item.end, "preserve")
       setSelectionRange("composer", item.selectionStart, item.selectionEnd)
   task composerFieldConfirm when composerFieldAfter > composerFieldAcked key=composerFieldAfter
     after(1, composerFieldConfirmRun)
@@ -1292,6 +1262,14 @@ component T3Code
     after(1, composerIntentPump)
   task composerIntentReceipt when composerIntentPhase == "projection" and composerIntentReceiptCurrent and composerRichCurrent key=`${composerIntentActive}|${composerFieldInputSerial}|${richComposer.value}|${composerSelectionStart}:${composerSelectionEnd}`
     after(1, composerIntentConfirmed)
+  // A format command that changed nothing reports no input: its turn ends here.
+  task composerIntentFormatQuiet when composerIntentPhase == "format" key=composerIntentActive
+    after(250, composerIntentFormatSettled)
+  action composerIntentFormatSettled
+    if composerIntentPhase == "format" and composerIntentBaseCurrent
+      composerIntentQueue = composerIntentQueue.slice(1)
+      composerIntentActive = 0
+      composerIntentPhase = ""
   task composerIntentInvalidated when composerIntentQueue.length > 0 and not composerIntentContextCurrent key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}|${richComposer.mode}|${composerComposing}|${composerFieldLive}`
     after(1, composerIntentCancelStale)
   task composerIntentOwnerNotice key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}`
@@ -1308,9 +1286,10 @@ component T3Code
     if not composerIntentContextCurrent
       composerIntentClear("The prompt changed. Please try that edit again.")
   action composerIntentRequest(kind: string, text: string, key: string, shift: bool, command: bool, start: number, end: number, composing: bool)
-    let explicit = kind == "language" or kind == "toggle"
+    let explicit = kind == "language"
     let current = composerIntentPhase == "projection" ? composerIntentReceiptCurrent : composerIntentBaseCurrent
-    if not composerRichCurrent or not composerFieldLive or composing or (composerIntentQueue.length > 0 and (not current or (not explicit and (start != composerSelectionStart or end != composerSelectionEnd))))
+    // A format command reads no projection, so one pressed while the last edit projects still waits its turn.
+    if (kind != "format" and not composerRichCurrent) or not composerFieldLive or composing or (composerIntentQueue.length > 0 and (not current or (not explicit and (start != composerSelectionStart or end != composerSelectionEnd))))
       composerIntentClear("The prompt changed. Please try that edit again.")
     else if composerIntentQueue.length >= 32
       composerIntentNotice = "Too many edits are waiting. Please try that edit again."
@@ -1327,9 +1306,14 @@ component T3Code
     if composerIntentPhase == "" and composerIntentBaseCurrent and composerRichCurrent
       match first(composerIntentQueue)
         case some(item)
-          let explicit = item.kind == "language" or item.kind == "toggle"
+          let explicit = item.kind == "language"
           if explicit and item.inputSerial != composerFieldInputSerial
             composerIntentClear("The prompt changed. Please try that edit again.")
+          else if item.kind == "format"
+            // The Markdown field's own command at its selection then; its input is the receipt.
+            composerIntentActive = item.serial
+            composerIntentPhase = "format"
+            format("composer", item.text)
           else
             composerIntentActive = item.serial
             composerIntentPhase = "request"
@@ -1350,7 +1334,7 @@ component T3Code
               composerIntentPreserves = result.preserveSelection
               composerIntentCaretSeen = false
               composerIntentPhase = "input"
-              setRangeText("composer", result.text, result.start, result.end, "preserve", "undo")
+              setRangeText("composer", result.text, result.start, result.end, "preserve")
               if not result.preserveSelection
                 setSelectionRange("composer", result.selectionStart, result.selectionEnd)
             else if result.kind == "handled"
@@ -1374,6 +1358,14 @@ component T3Code
         if composerIntentPreserves
           composerIntentStart = e.selectionStart
           composerIntentEnd = e.selectionEnd
+      else if composerIntentPhase == "format" and composerIntentContextCurrent and not e.isComposing and composerFieldInputSerial == composerIntentObserved.inputSerial
+        composerIntentPhase = "projection"
+        composerIntentExpected = value
+        composerIntentStart = e.selectionStart
+        composerIntentEnd = e.selectionEnd
+        composerIntentInputStart = e.selectionStart
+        composerIntentInputEnd = e.selectionEnd
+        composerIntentCaretSeen = true
       else
         composerIntentClear("The prompt changed. Please try that edit again.")
   action composerIntentConfirmed
@@ -1412,17 +1404,15 @@ component T3Code
       else
         match e.data
           case some(text)
-            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and e.selectionStart >= b.bodyStart and e.selectionEnd <= b.bodyEnd).length > 0)
+            // Typed at an empty fence's closing line, text opens the body line (composerCodeInput).
+            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0)
               preventDefault()
               composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
     composerSelectionObserved(e, e.isComposing)
     composerComposing = e.isComposing
-  action composerTaskToggle(e: ToggleEvent)
-    if composerRichCurrent and richComposer.mode == "rich" and not composerComposing and richComposer.blocks.filter((block) => block.kind == "list" and block.start == e.start and block.end == e.end).length > 0
-      composerIntentRequest("toggle", e.newState == "checked" ? "checked" : "unchecked", "", false, false, e.start, e.end, composerComposing)
-  action composerLanguage(start: number, end: number, language: string, owner: string, value: string)
-    if composerRichCurrent and richComposer.mode == "rich" and owner == richComposerOwner and value == composerText and not composerComposing
+  action composerLanguage(start: number, end: number, language: string)
+    if composerRichCurrent and richComposer.mode == "rich" and not composerComposing
       focus("composer")
       composerIntentRequest("language", language, "", false, false, start, end, composerComposing)
   action composerKeyEvent(k: string, e: KeyboardEvent)
@@ -1433,11 +1423,15 @@ component T3Code
     composerCommand = heldCommand
     if composerComposing and not composing and composerRichCurrent and composerSelectionCurrent
       send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=composerSelectionStart, end=composerSelectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
-    if composerRichCurrent and composerSelectionCurrent and not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
+    if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
       preventDefault()
       stopPropagation()
+      // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6), after any edit still waiting.
       if not e.repeat
-        composerIntentRequest("key", "", k == "b" or k == "B" or e.code == "KeyB" ? "Bold" : "Italic", false, true, composerSelectionStart, composerSelectionEnd, composing)
+        if composerIntentQueue.length > 0
+          composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
+        else
+          format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
     else
       composerGrammarKey(k, e, composing)
     composerComposing = composing

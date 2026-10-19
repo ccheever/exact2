@@ -239,8 +239,10 @@ crack narrower than a texel.
 
 `FrameInput::default()` supplies a shadowed sun, gradient sky, [environment
 light](#environment-lighting) and bloom. Supply matching view/projection/camera
-position. All colours are linear. `Bloom` and `Fog` are re-exports of the engine's
-saved types.
+position. The renderer works in linear light: a `Color` or `Material::hex` written as
+CSS is decoded once, when it is constructed, and arrays it is handed (`Material::rgb`,
+light colours, emission) are already linear. `Bloom` and `Fog` are re-exports of the
+engine's saved types.
 
 - Sun shadows default to 60 m, three 2048² Depth32Float cascades, practical splits
   (lambda 0.7), rotation-invariant fitting spheres and texel snapping. Casters up
@@ -566,7 +568,8 @@ are resolved to linear view depth with the split undone, so they are correct for
 both layers; SSAO skips viewmodel pixels and never samples them as occluders.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
-frame, back-to-front in camera depth, using retained tick poses and local centers.
+frame: world transparency first, view-model transparency last, each back-to-front
+in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
 own materials are multiplied by entity base colour and have entity emission added:
 one model serves every team colour or mutation look. `NodeMaterials` adds a tint and
@@ -671,7 +674,13 @@ Missing materials/environment use defaults.
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
 feed, encode (frame input through submit) and ticks/frame distributions. CPU sample
 rings retain 16,384 values. Seekable renders, agent advances and timed binds make
-no perf clock calls; samples do not enter hashes. Armed perf also reads back, a few
+no CPU frame perf clock calls unless tick spans are armed; samples do not enter hashes.
+`perf world:<surface>` arms exclusive tick spans, exposed in
+`state.world.perf.tickSpans`: name, source line, p50, p95, maximum and per-tick
+mean milliseconds. `tick.other` completes the tick. `tickSpans.tickMs` measures
+the same engine interval, before presentation; the exclusive per-tick means sum
+to its mean. Span distributions include zero for ticks before a name first appeared. These rings also retain
+16,384 ticks, including under the agent clock; `during` reads the added ticks. Armed perf also reads back, a few
 frames late and asynchronously, `perf.culled` (instances each view drew: `camera`,
 `shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
 pass by `GPU_PASS_NAMES`: forward, the cascades, local shadows, `cull`, skin palettes,
@@ -700,6 +709,170 @@ in the frame budget even though it is outside drawing.
 Capacity errors precede history swaps and propagate through the surface ABI;
 failed draws are not presented. Invalid viewports skip drawing and preserve the
 input viewport, while a finite seekable clock can still advance.
+
+Development trace exports include bounded Chrome `traceEvents` after `perf` arms
+measurement: CPU ticks and nested spans under their submitted frame, plus GPU pass
+intervals after asynchronous readback. Frame numbers join the two clocks; GPU timestamp
+values are a separate clock domain and are never placed on a fabricated CPU timeline.
+Restore and argument restart discard both CPU and GPU recordings, including
+in-flight GPU readbacks. A GPU-less host reports no GPU intervals. Each clock retains at most 65,536 intervals;
+CPU rows report the dropped count. `bun scripts/agent.mjs trace <file>` summarizes them;
+Perfetto reads the same file. Arm before the session being captured, then use Save Trace,
+⌥⇧T or `SIGUSR1` as supported by the host.
+
+## Look frames
+
+Under the agent's clock only, and only in a development build (one baked with
+`EXACT_UPDATE_TRUST=production` refuses every look request by name; build.rs
+passes the trust to rustc, unset as `development`, and `development_build()` reads
+it, so a rebake with another trust recompiles this crate; `tests/trust.rs` checks
+the rlib a game links against the trust of the run that built it), a canvas answers a few questions about its picture from a look
+frame: the tick the agent's clock has reached, drawn once offscreen at the canvas's
+size with the renderer's probe armed (`renderer/probe.rs`), and read back. A look
+frame runs no simulation tick and moves no hash. A live frame carries none of it:
+each probe hook is one `Option` check, and a record is built only by a closure an
+armed probe calls. A look frame whose encode fails disarms every instrument, and a
+live frame clears any that are left. Hooks see the last live frame held, with no time passing, and
+the hook clock keeps that frame's time, so the next live frame's delta is the one
+it would have had. A look frame draws every sun caster itself and leaves the static
+shadow cache as the live frames left it, and it chooses levels of detail from its
+own camera and then puts back the live frames' choice (`end_look`), so the
+selection's hysteresis never carries an inspection's level into a live frame. A canvas that draws (web, Apple, a Linux
+host under `EXACT_GPU_RENDER=1`) draws its look frame with its own renderer; a
+canvas that draws an extended-range (HDR) target gets no picture, as a look frame
+reads back 8-bit colour. A device-less one, the GPU-less proof host, makes a device
+on its first look frame where the machine has an adapter
+(`exact_gpu::fixture::device`) and keeps a renderer for it beside its headless
+state; without an adapter, or for a model-capable module (preparing models and
+textures would change the headless world's asset bookkeeping), it answers
+`unavailable: "no picture on this host: …"`, and asked as a canvas that draws
+(`drawing: true`, the driver's tells) it answers `drawing: false`. On the web the
+readback lands on the page's next turn: a request answers `pending: "readback"`
+until it has, and the driver asks again.
+
+- **Tells** (`tells.rs`): the frame's final target, as shown, gives a 64-bin
+  histogram of linear relative luminance, its mean and the fraction of pixels white
+  in every channel. A tell fires on a mean below 0.02 (`near-black`) or above 0.95
+  (`near-white`), more than 5% of pixels clipped (`clipped`), a particle draw
+  submitted to the camera of which no fragment is in front of the scene
+  (`particles-uncovered`, one a draw, so one covered draw hides no other), and a
+  shadowed sun whose shadow passes wrote no texel into its maps
+  (`no-shadow-casters`). Each
+  writes a `look: …` line to the world's `logs` when it appears or its line changes
+  between judged frames (a particle tell is told apart by its draw's batch and
+  its index among that batch's draws), and a
+  tell that recovers is logged again when it returns; it stays out of
+  the world's journal, which a save carries, so a tell never changes a save. A
+  measurement a tell reads that the frame could not take is a gap, listed in
+  `look.gaps` (`particles: not measured (…)`, `sun shadow maps: not measured (…)`,
+  an empty readback), and leaves a proof's look unverified, never passed. A reduced
+  frame (`resolution` below 1, a contact sheet's) and an orbit or plan view are
+  pictures: only a whole frame from the game's camera is judged, logged and
+  remembered for the next.
+  Tells see brightness and coverage, not colour or composition: a grey meadow, a
+  model facing backwards and an overflowing panel take a look at the picture.
+- **Particle coverage** (`quad_coverage.rs`): counted by the particle draws
+  themselves. While armed, each particle draw uses the probe variant of its own
+  pipeline (`shaders/count.wgsl`, `soft_count.wgsl`): the same vertex path, dot
+  shape, texture alpha and soft fade, blended into the frame as ever. A fragment
+  counts when its contribution is above zero (alpha, times the brightest channel
+  for an additive draw) and it is in front of the scene's depth at one of the
+  samples it covers. A draw that is not submitted, or whose fragments are all
+  transparent, counts nothing. The depth test is the shader's, on the scene's
+  depth, because a fragment's storage writes stand even when a depth test after
+  the shader drops it, and Metal runs that test after a shader that writes memory;
+  so a look frame with particles draws its translucency in a pass of its own, as
+  soft particles do, over the attachments the live frame draws into: the HDR
+  image, or a direct frame's target, with the direct frame's format, blending and
+  resolve (its colour and depth kept between the two passes in attachments of the
+  look frame's own, released at the next live frame, so the live frame's stay
+  transient). build.rs assembles every quad module, validates it with naga, and
+  reflects the probe variants' counter group, from which the renderer takes its
+  layout, binding numbers and entry points. Limits, each a gap or a stated
+  meaning, not an approximation: GL has no fragment storage writes, and a scene
+  copy draws translucency over depth it writes, so there the counts are
+  unmeasured; the fragment's depth is its pixel centre's, compared at each sample
+  it covers; and a contribution too small to change an 8-bit pixel still counts,
+  so `particles-uncovered` means a draw contributed nothing at all.
+- **Shadow casters**: what the sun's shadow passes drew, read from their output.
+  After the passes, a look frame counts on the GPU the texels each cascade's map
+  holds nearer than its clear depth (`shaders/shadow_count.wgsl`, reflected at
+  build) into a counter it zeroes first, and the tell reads those. The listing's caster instances come from the
+  shadow passes' draw records and the cull's counts for each cascade; a direct
+  frame (no GPU cull, the iOS simulator) draws casters unculled and lists them
+  as unknown.
+- **The cull's account** (cull.wgsl `probe`): after the passes, the cull's own
+  functions run once more over every item into a buffer of the look frame's own:
+  its world sphere (swept between ticks, attached, skinned; a kept-whole group's
+  items too), the views whose frustum holds it,
+  whether the camera's occlusion pyramid hides it, and whether it is a level of
+  detail the frame does not draw.
+- **Draws**: each draw in pass order (occluders, sun shadow cascades, local shadow
+  layers, the depth prepass, forward, translucent, post) with its batch (a
+  primitive shape, a model and material, a particle look or a sprite's texture),
+  winding (camera-facing for quads), pipeline variant (for a quad, the pipeline
+  bound at its draw), instances submitted and kept
+  after culling (from the camera's, cascades' and local shadow layers' indirect
+  arguments), a particle draw's counted fragments, whether it covered a sample and
+  the attachments it writes (blended draws and the split translucent pass, whose
+  depth is read-only, write colour alone). A hook's draws, the outline hulls,
+  bloom's passes and ambient occlusion are one entry each, marked `summary`.
+  Coverage there is an occlusion query around each draw of the forward and
+  translucent passes, sized after the frame's groups are prepared: whether any
+  sample passed the depth test, not how many (Metal's visibility results are
+  Boolean in wgpu, and WebGPU promises only zero or not). A draw past the queries'
+  capacity (4,096) lists `covered: null`; the web has no queries (wgpu 30's WebGPU
+  backend does not pass a render pass's occlusion query set to the browser, which
+  then refuses the frame), and lists every one so.
+- **Visible**: one word for an entity and its reason, in this order: `hidden`,
+  `hidden-ancestor <name>`, `opacity 0`, `asset-pending <model or texture>`,
+  `lod-hidden <d> m`, `not-drawn` (no draw held it), `custom-material` (never
+  culled), `frustum`, `occluded` (dropped by the depth pyramid this frame),
+  `outside-cascade <n>` (drawn, beyond every sun cascade), `no-particles` (an
+  emitter with none live) or `drawn`. The cull's camera and cascade lists answer
+  for meshes and its account says which test dropped one (`not-drawn` names a level
+  of detail not drawn when the account marks it, and `lod-hidden` comes from the
+  frame's level selection, its distance measured from where the frame drew the
+  entity, with the selection's hysteresis, wherever the draw path applies it: a
+  direct frame draws level 0 whole and answers `drawn`, or `custom-material` for a
+  kept-whole group); the CPU cull answers for blended models; for sprites and
+  emitters the quads' own decision this frame answers: a texture not resident,
+  outside the view by the quad's own extent about its anchor, or drawn. An
+  entity's word combines all of its drawables: when an opaque part drew, that
+  part's word (`drawn`, `custom-material`, `outside-cascade <n>`); when only a
+  blended part, a sprite or an emitter drew, `drawn`, the reason naming which;
+  when none drew, the first one's word (the mesh's, then the sprite's, then the
+  emitter's), the reason naming the others'.
+- **Views**: the game's camera; an orbit at a yaw, pitch and distance from the
+  centre of the scene; or an orthographic plan from above. An orbit or plan first
+  reads a camera frame for the scene's bounds: the cull's sphere of every item it
+  accounts for, and what else that frame drew, where it drew it (`look_bounds.rs`):
+  blended models by their boxes, and in a direct frame, which has no account,
+  every draw group's items, each at its two ticks' transform rows (read back) at
+  the frame's alpha or at its attachment matrix, as the shaders place it; sprites
+  and emitters at the matrix the quads used, by their quad about the anchor and
+  their particles' reach. A skinned model's box there is its joints' spheres in
+  the frame's skin palette, read back, as the cull bounds it. The reply's `bounds`
+  gives the centre and radius; that camera frame's readback counts in
+  `state.world.perf.look`. Presentation only.
+
+The readback is the colour target (its size is `look.readbackBytes`), the particle
+counts, the query results, the cull's account, each cascade's written texels, the
+skin palette where a record is skinned, the transform rows of a frame read for its
+bounds and, for a culled frame, the indirect arguments and the camera's compacted
+lists; `state.world.perf.look` counts the look frames and the bytes they read back.
+`tests/tells.rs` holds the negative controls: a near-black scene, a blown-out one,
+particles spawned under the ground, sparks whose fragments are all transparent and a
+shadowed sun with no caster in reach each trip their tell on both paths, and the
+same scenes corrected trip none; a lit look and then a casterless one on the same
+renderer count that frame's texels alone. `tests/look.rs` holds the coverage
+limits: a square seen only through either half of one pixel column, at four
+samples, and a 0.002-alpha dot added over black, each counted.
+`src/look_frame_tests.rs` draws particles over light above one and reads the live
+frame's bytes back from the look frame on the direct and HDR paths, and bounds a
+moving blended model at a fraction of its tick and an attached one where the frame
+drew them. `proof-look.test.mjs` fails a starter's web proof on buried sparks in
+the browser.
 
 ## Residency across restore
 
@@ -906,10 +1079,21 @@ agent geometry even at noninteger heights on a 2× display. Integer display scal
 keep texels on whole device pixels; fractional display scales can give uneven
 physical widths with nearest sampling.
 
-Opaque primitive/model rendering is unchanged. Opaque and masked sprites write
+Primitives with `Material.color[3]` in the half-open range `(0.0..1.0)` join this same sorted quad arena: each
+triangle is one instance (the quad's second triangle is degenerate), compatible
+with untextured straight-alpha particles. One halo and a hundred share one draw;
+triangles still cost derivation, upload and sorting. Their look is flat
+hemisphere/directional diffuse light plus emission and fog; PBR, local-light
+shadows and procedural grids stay on opaque primitives. They depth-test without
+depth writes or refraction and cast no shadows. `Material::alpha(a)` takes [0, 1].
+Ring, torus and cone geometry also works on the opaque path. See the
+[halo recipe](../recipes/halo.md).
+
+Opaque and masked sprites write
 depth; the ordered translucent pass follows the sky, depth-tests and does not
-write depth. Ordering is descending view depth, ascending layer and entity slot,
-then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
+write depth. World transparency draws first and view-model transparency last.
+Within each group, ordering is descending view depth, ascending layer and entity
+slot, then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
 shadows. Soft circular particles choose additive or straight-alpha blending;
 sprites share `.tex` samplers and choose opaque, mask or straight-alpha blend.
 Billboard extents use scale magnitudes to preserve front-facing winding; texture
@@ -952,7 +1136,7 @@ geometry/material/winding batches. Repeated handles share one CPU model, one GPU
 upload and one draw group; preparation reuses its content digest across frames.
 `MeshData.colors` is optional linear RGBA. Both model and primitive vertex paths
 multiply the material base colour; model alpha also multiplies vertex alpha,
-including masked shadows. Primitive materials remain opaque. The packed public
+including masked shadows. Primitive materials outside that alpha range remain opaque, including the negative-alpha grid sentinel. The packed public
 `Vertex` is 48 bytes including colour, with white in built-in shapes; skin weights
 retain their separate 32-byte stride. The asset fixture constructs a seeded coloured
 heightfield and three shared rocks in setup, with no runtime texture generator.

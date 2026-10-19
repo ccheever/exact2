@@ -113,6 +113,7 @@ extension Presenter {
 
 extension NodeView {
     package override func mouseDown(with event: NSEvent) {
+        HeldState.input(at: self) // a press on a held node lets its hold go (HeldState.swift; the window's monitor, ExactViewMac)
         let chain = holdPresenter?.mouseChain
         chain?.receivedDown(self, event: event)
         if let contact = chain?.bubbledPress {
@@ -462,7 +463,9 @@ extension NodeView {
     /// this session and delivered with the `DragEvent`'s line.
     func drop(_ urls: [URL], at windowPoint: NSPoint) -> Bool {
         guard let presenter, let session = presenter.session else { return false }
-        let docs = urls.filter(ExactDocuments.accepts).compactMap { session.mintDocument($0) }
+        // A dropped file is one the person chose (LLP 1069.010.000 D3): kept,
+        // it arrives as the path it is kept by.
+        let docs = urls.filter(ExactDocuments.accepts).compactMap { session.keepDocument($0, noting: true) ?? session.mintDocument($0) }
         guard !docs.isEmpty else {
             session.log("drop: refused: no file of a type this app declares")
             return false

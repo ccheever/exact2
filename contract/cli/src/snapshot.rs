@@ -1,7 +1,9 @@
 //! Snapshot admission (LLP 1126 D2–D7). Only the compiler reads the schema's
 //! column; absence refuses a row before an archive can silently omit it.
 
+mod activities;
 mod entry;
+mod inline;
 mod paragraphs;
 mod refresh;
 mod values;
@@ -9,9 +11,19 @@ pub use refresh::{bake_app, check_refreshes, entries, source_plan};
 
 /// Find the props slot by this name; a route URL may add a preceding router slot.
 pub const PROPS_SLOT: &str = "snapshot_props";
+/// Find an activity's typed state slot by this name.
+pub const STATE_SLOT: &str = "snapshot_state";
+pub use activities::{compile_activity, payload_bytes, shape_digest, state_schema};
+#[cfg(test)]
+mod activity_tests;
 #[cfg(test)]
 mod tests;
-pub use entry::{compile, compile_widgets, write_entries, Entry};
+
+/// The reserved inject a component reads the family's size from
+/// (`inject` with `snapshot_viewport: <shape>`): the entry's wrapper answers
+/// it with `exactViewport()`, so the render stays pure (LLP 1126 D3).
+pub const VIEWPORT_SLOT: &str = "snapshot_viewport";
+pub use entry::{compile, compile_entries, write_entries, Declaration, Entry};
 
 use crate::CompileError;
 use contract_lower::tags::{attr_valued, AttrTarget};
@@ -173,14 +185,27 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
             errors.push(refusal("snapshot-timer", "a snapshot has no timer or `every`; return dated entries from the refresh function and use `time` for ticking text", t.span));
         }
         for r in &c.resources {
+            // The family's size is the one fact a render reads (LLP 1126 D3):
+            // the entry's wrapper declares it and the component injects it.
+            if r.source == exact_runner::viewport::SOURCE {
+                errors.push(refusal("snapshot-request", format!("`{}`: a snapshot declares no resource; write `inject` with `{}: <shape>` and read the family's width and height from it", r.name, VIEWPORT_SLOT), r.span));
+                continue;
+            }
             errors.push(refusal("snapshot-request", format!("`{}` requests data during render; move it into the refresh function and pass its answer as props", r.name), r.span));
         }
         if !c.mutations.is_empty() || !c.sequences.is_empty() || !c.persist.is_empty() {
             errors.push(refusal("snapshot-effect", "a snapshot render is read-only; move mutations, sequences and persisted writes into the refresh function", c.span));
         }
         for b in c.states.iter().chain(&c.derives).chain(&c.provides) {
-            if b.name == PROPS_SLOT {
-                errors.push(refusal("snapshot-props-name", "rename `snapshot_props`; the snapshot reader reserves that binding for the entry props", b.span));
+            if b.name == PROPS_SLOT || b.name == STATE_SLOT {
+                errors.push(refusal(
+                    "snapshot-props-name",
+                    format!(
+                        "rename `{}`; the snapshot reader reserves that binding for entry data",
+                        b.name
+                    ),
+                    b.span,
+                ));
             }
             expression(&b.expr, file, 0, &mut errors);
         }
@@ -269,8 +294,10 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
 
 fn local_image(e: &Expr) -> bool {
     fn path(s: &str) -> bool {
-        if let Some(symbol) = s.strip_prefix("symbol:") {
-            return !symbol.is_empty();
+        // Every `symbol:` source is the host's, an empty one too, which
+        // draws nothing (stage 9 H).
+        if s.starts_with("symbol:") {
+            return true;
         }
         let s = s.strip_prefix("app:/").unwrap_or(s);
         !s.is_empty()

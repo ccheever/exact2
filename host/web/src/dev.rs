@@ -164,6 +164,14 @@ impl Session {
         &self.source
     }
 
+    /// The root Contract bytes passed to the last compile, independent of later saves.
+    pub fn source_digest(&self) -> Option<String> {
+        use sha2::Digest;
+        self.last
+            .as_ref()
+            .map(|source| format!("{:x}", sha2::Sha256::digest(source.as_bytes())))
+    }
+
     /// The SHA-256 (hex) of the design file's bytes the committed design
     /// was compiled from, as the design server's `files` digests name it.
     pub fn design_source(&self) -> Option<&str> {
@@ -673,7 +681,12 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
         // Each build's design file bytes, before what it says (an empty
         // batch says nothing else): the served design's (LLP 1122 D5).
         if let Some(Ok(_)) = &built {
-            let _ = writeln!(stdout, "source {}", session.design_source().unwrap_or("-"));
+            let _ = writeln!(
+                stdout,
+                "source {} {}",
+                session.design_source().unwrap_or("-"),
+                session.source_digest().as_deref().unwrap_or("-")
+            );
         }
         match built {
             // Nothing the builds read changed.

@@ -77,7 +77,7 @@ impl Game for Cubes {
             ),
         );
         w.insert_resource(Environment {
-            background: Some([0.05, 0.06, 0.09]),
+            background: Some(Color([0.05, 0.06, 0.09])),
             zenith: [0.35, 0.38, 0.45],
             horizon: [0.35, 0.38, 0.45],
             ground: [0.35, 0.38, 0.45],

@@ -37,7 +37,6 @@ pub struct Bridge<D: DataSource> {
     fonts: Option<FontsFn>,
     control_text: Option<crate::control_text::ControlTextFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
-    decorated_measure: Option<crate::measure::DecoratedMeasureFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<Rc<std::cell::Cell<u64>>>,
     fonts_ctx: *mut c_void,
@@ -112,7 +111,6 @@ impl<D: DataSource> Bridge<D> {
             fonts: None,
             control_text: None,
             field_chrome: None,
-            decorated_measure: None,
             button_measure: None,
             measure_revision: None,
             fonts_ctx: std::ptr::null_mut(),
@@ -264,6 +262,12 @@ impl<D: DataSource> Bridge<D> {
                 // A deadline the auth and surface paths can't keep: the executor refuses it, fencing ordered work.
                 if r.request.timeout_refusal().is_some() {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
+                    continue;
+                }
+                if r.request.url == "exact-activity:" {
+                    if let Ok(request) = std::str::from_utf8(&r.request.body) {
+                        presenter.activity(r.ticket, request);
+                    }
                     continue;
                 }
                 if r.request.is_auth() {
@@ -487,7 +491,6 @@ impl<D: DataSource> Bridge<D> {
                     .with_symbol(hooks.symbol)
                     .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
-                    .with_decorated_field(self.decorated_measure)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
                         self.measure_revision
@@ -517,7 +520,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 plan,
@@ -624,6 +627,15 @@ impl<D: DataSource> Bridge<D> {
         self.painted = true;
         self.adopt_app_module();
         let out = self.host.as_mut().expect("checked").activate_data();
+        self.emit(out)
+    }
+
+    /// A peer published a store revision; first-pixel activation remains separate.
+    pub fn store_changed(&mut self, retry_only: bool) -> u32 {
+        let out = match &mut self.host {
+            Some(host) => host.refresh_store_after(retry_only),
+            None => not_booted(),
+        };
         self.emit(out)
     }
 
@@ -794,7 +806,6 @@ impl<D: DataSource> Bridge<D> {
                     .with_symbol(hooks.symbol)
                     .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
-                    .with_decorated_field(self.decorated_measure)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
                         self.measure_revision
@@ -820,7 +831,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 PlanBytes::input(&plan, entry),
@@ -1245,6 +1256,18 @@ impl<D: DataSource> Bridge<D> {
             .as_mut()
             .map_or_else(not_booted, |h| h.resize(width, height));
         self.emit(out)
+    }
+
+    /// A placement root's margins and its width's authorship (LLP 1126.001
+    /// WP10): a measurement, written to the output as it is, with no batch
+    /// around it (`emit` prepends the presenter's pending ops to a batch).
+    pub fn placement_box(&mut self, view: u32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.placement_box(view));
+        self.output = out.into_bytes();
+        self.output.len() as u32
     }
 
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0

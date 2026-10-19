@@ -105,7 +105,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.11");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -393,7 +393,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.11");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -755,28 +755,43 @@ fn a_synthetic_token_that_comes_to_fold_is_rebuild_then_live() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An icon naming another in the design too, with and without params:
+/// with them the write's check read nothing of such a design and let the
+/// write through, without them the design was refused (stage 9's alias
+/// fix).
 #[test]
 fn a_write_that_makes_a_role_vary_by_an_axis_is_refused_as_the_build_would() {
-    let dir = app(
-        "role-axis",
-        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #000000\n  -exact-label = ink\n",
-    );
-    let file = dir.join("app.tamber");
-    let before = std::fs::read_to_string(&file).unwrap();
-    let mut s = Serve::start(&dir, &[]);
-    let op = json!({"op": "set-token", "name": "ink", "when": [{"axis": "mode", "value": "b"}], "value": "#111111"});
-    let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
-    assert_eq!(
-        proposed["error"]["diagnostics"][0]["id"], "tamber-role-axis",
-        "{proposed}"
-    );
-    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
-    assert_eq!(
-        done["error"]["diagnostics"][0]["id"], "tamber-role-axis",
-        "{done}"
-    );
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
-    let _ = std::fs::remove_dir_all(&dir);
+    let design =
+        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #000000\n  -exact-label = ink\n";
+    let aliased =
+        format!("{design}\nicons\n  icon.house = icon(sf \"house\")\n  icon.home = icon.house\n");
+    let view = "component App\n  params\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    column gap=\"param.gap\"\n";
+    for (tag, design, params) in [
+        ("role-axis", design, false),
+        ("role-axis-alias", &aliased, false),
+        ("role-axis-params", &aliased, true),
+    ] {
+        let dir = app(tag, design);
+        if params {
+            std::fs::write(dir.join("app.contract"), view).unwrap();
+        }
+        let file = dir.join("app.tamber");
+        let before = std::fs::read_to_string(&file).unwrap();
+        let mut s = Serve::start(&dir, &[]);
+        let op = json!({"op": "set-token", "name": "ink", "when": [{"axis": "mode", "value": "b"}], "value": "#111111"});
+        let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
+        assert_eq!(
+            proposed["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+            "{tag}: {proposed}"
+        );
+        let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+        assert_eq!(
+            done["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+            "{tag}: {done}"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// `uses` (LLP 1121 stage 4, commit 6): every style row that reads the
@@ -956,6 +971,12 @@ fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
         planned["ok"]["counted"]["source"],
         planned["ok"]["counted"]["mapped"]
     );
+    // `keep: false` (a client below write): the text, and nothing kept.
+    std::fs::remove_dir_all(dir.join(".exact/tamber-dtcg")).unwrap();
+    let (unkept, _) = s.ask(json!({"method": "export", "kind": "dtcg", "keep": false}));
+    assert_eq!(unkept["ok"]["text"], exported["ok"]["text"], "{unkept}");
+    assert!(unkept["ok"]["baseline"].is_null(), "{unkept}");
+    assert!(!dir.join(".exact/tamber-dtcg").exists());
 }
 
 /// LLP 1121 D10 (stage 6 F): an icon's sources in the IR and from

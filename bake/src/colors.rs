@@ -130,7 +130,6 @@ pub(crate) fn literal<'p>(
     (code.len() == 6 && code[0] == 2)
         .then(|| u32::from_le_bytes([code[1], code[2], code[3], code[4]]) as usize)
         .and_then(|i| plan.strings.get(i))
-        .map(|t| &**t)
 }
 
 /// The app's colour literals checked for `platform`: the first one it

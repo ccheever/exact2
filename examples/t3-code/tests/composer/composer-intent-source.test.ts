@@ -18,7 +18,7 @@ describe('guarded composer intents', () => {
     const client = { snapshotOwner: 'snapshot' }, intent = key('```ts');
     composerSourceSession(client).observe(intent.owner, intent.value);
     expect(composerIntentSource(client, intent)).toEqual({ owner: 'draft', value: '```ts', serial: 3, kind: 'edit', mode: 'rich',
-      start: 0, end: 5, text: '```ts\n```', selectionStart: 6, selectionEnd: 6, preserveSelection: false });
+      start: 0, end: 5, text: '```ts\n\n```', selectionStart: 6, selectionEnd: 6, preserveSelection: false });
   });
   test('refuses composition, invalid ranges, or a source/owner no longer observed', () => {
     const client = { snapshotOwner: 'snapshot' }, intent = key('text');
@@ -29,19 +29,18 @@ describe('guarded composer intents', () => {
     ]) expect(composerIntentSource(client, { ...intent, ...changed }).kind).toBe('stale');
     expect(composerIntentSource(client, intent).kind).toBe('send');
   });
-  test('header and checkbox intents preserve native selection and refuse a stale owner', () => {
+  test('header intents preserve native selection and refuse a stale owner', () => {
     const client = { snapshotOwner: 'snapshot' }, value = '```ts\nx\n```\n- [ ] task';
     composerSourceSession(client).observe('draft', value);
     const language: ComposerIntent = { ...key(value), kind: 'language', start: 0, end: 5, language: 'rust' };
     expect(composerIntentSource(client, language)).toMatchObject({ kind: 'edit', start: 3, end: 5, text: 'rust', preserveSelection: true });
     expect(composerIntentSource(client, { ...language, owner: 'old' }).kind).toBe('stale');
-    expect(composerIntentSource(client, { ...key(value), kind: 'toggle', start: 12, end: 22, checked: true }))
-      .toMatchObject({ kind: 'edit', start: 15, end: 16, text: 'x', preserveSelection: true });
+    expect(composerIntentAnswer(client, ['snapshot', 'draft', value, 4, 12, 22, 'toggle', 'checked', '', false, false, false, 'rich']).kind).toBe('stale');
   });
-  test('formatting uses the guarded shared source and remains inactive in plain and literal modes', () => {
+  test('formatting is the Markdown field\'s own command, never a source edit', () => {
     const client = { snapshotOwner: 'snapshot' }, intent: ComposerIntent = { ...key('word'), key: 'Bold', start: 0, end: 4, command: true };
     composerSourceSession(client).observe('draft', intent.value);
-    expect(composerIntentSource(client, intent)).toMatchObject({ kind: 'edit', start: 0, end: 4, text: '**word**', selectionStart: 2, selectionEnd: 6 });
+    expect(composerIntentSource(client, intent).kind).toBe('default');
     for (const mode of ['plain', 'literal'] as const) {
       composerSourceSession(client).observe('draft', intent.value, '', mode);
       expect(composerIntentSource(client, { ...intent, mode }).kind).toBe('default');

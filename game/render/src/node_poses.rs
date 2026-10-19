@@ -3,41 +3,58 @@ use exact_game::{Entity, Mesh, NodeOffsets, Transform, World};
 use glam::{Quat, Vec3};
 use std::collections::BTreeMap;
 
+/// An entity's offsets at the previous and current tick. `NodeOffsets` is a
+/// kilobyte, so a new tick flips which slot is current and copies once.
 #[derive(Clone, Copy)]
 struct Row {
     entity: Entity,
     tick: u64,
-    pair: [NodeOffsets; 2],
+    slots: [NodeOffsets; 2],
+    current: usize,
+}
+impl Row {
+    fn pair(&self) -> [&NodeOffsets; 2] {
+        [&self.slots[1 - self.current], &self.slots[self.current]]
+    }
 }
 #[derive(Default)]
 pub(crate) struct Histories {
     rows: Vec<Row>,
+    empty: NodeOffsets,
 }
 impl Histories {
     pub fn update(&mut self, w: &World, initial: bool) {
         if initial {
             self.rows.clear();
         }
+        // Rows and the query both ascend by entity index: one walk, not a
+        // component lookup per row.
+        let mut query = w.query::<&NodeOffsets>();
+        let mut offsets = query.iter().peekable();
         for row in &mut self.rows {
-            let curr = w
-                .get::<NodeOffsets>(row.entity)
-                .map(|o| *o)
-                .unwrap_or_default();
             if row.tick != w.tick() {
-                row.pair[0] = row.pair[1];
+                row.current = 1 - row.current;
             }
-            row.pair[1] = curr;
+            while offsets
+                .next_if(|(e, _)| e.index() < row.entity.index())
+                .is_some()
+            {}
+            row.slots[row.current] = match offsets.peek() {
+                Some((e, o)) if *e == row.entity => **o,
+                _ => NodeOffsets::default(),
+            };
             if w.is_fresh(row.entity) {
-                row.pair[0] = curr;
+                row.slots[1 - row.current] = row.slots[row.current];
             }
             row.tick = w.tick();
         }
+        drop(offsets);
+        drop(query);
         self.rows.retain(|r| {
             w.contains(r.entity)
-                && (!r.pair[0].rows().is_empty()
-                    || !r.pair[1].rows().is_empty()
-                    || r.pair[0].overflowed()
-                    || r.pair[1].overflowed())
+                && r.slots
+                    .iter()
+                    .any(|o| !o.rows().is_empty() || o.overflowed())
         });
         for (entity, offsets) in w.query::<&NodeOffsets>().iter() {
             if offsets.rows().is_empty() && !offsets.overflowed() {
@@ -52,7 +69,7 @@ impl Histories {
                     Row {
                         entity,
                         tick: w.tick(),
-                        pair: [
+                        slots: [
                             if initial || w.is_fresh(entity) {
                                 *offsets
                             } else {
@@ -60,20 +77,20 @@ impl Histories {
                             },
                             *offsets,
                         ],
+                        current: 1,
                     },
                 );
             }
         }
     }
-    pub fn pair(&self, e: Entity, snap: bool) -> [NodeOffsets; 2] {
+    pub fn pair(&self, e: Entity, snap: bool) -> [&NodeOffsets; 2] {
         let pair = self
             .rows
             .binary_search_by_key(&e.index(), |r| r.entity.index())
             .ok()
-            .map(|i| self.rows[i])
+            .map(|i| &self.rows[i])
             .filter(|r| r.entity == e)
-            .map(|r| r.pair)
-            .unwrap_or_default();
+            .map_or([&self.empty; 2], Row::pair);
         if snap {
             [pair[1]; 2]
         } else {
@@ -128,15 +145,17 @@ pub(crate) fn node_pair(
     if !node.posable {
         return base;
     }
-    resolve_pair(base, rows, &node.name).unwrap_or(base)
+    let hash = exact_game::NodeName::hash_str(&node.name);
+    resolve_pair(base, [&rows[0], &rows[1]], &node.name, hash).unwrap_or(base)
 }
-/// Validate the whole row before either endpoint is committed.
+/// Validate the whole row before either endpoint is committed. `hash` is
+/// `NodeName::hash_str(name)`, which the caller keeps with the name.
 pub(crate) fn resolve_pair(
     base: [Transform; 2],
-    rows: [NodeOffsets; 2],
+    rows: [&NodeOffsets; 2],
     name: &str,
+    hash: u64,
 ) -> Option<[Transform; 2]> {
-    let hash = exact_game::NodeName::hash_str(name);
     let mut pair = base;
     for i in 0..2 {
         if let Some(row) = rows[i]
@@ -155,16 +174,47 @@ pub(crate) fn resolve_pair(
 pub(crate) struct Assignments {
     rows: BTreeMap<Entity, (Mesh, u64)>,
     revision: u64,
+    /// The world's `Mesh` revision and membership and its entities' revision
+    /// when `rows` last matched it.
+    seen: Option<(u64, u64, u64)>,
 }
 impl Assignments {
-    pub fn update(&mut self, w: &World) {
-        self.rows.retain(|e, _| w.contains(*e) && w.has::<Mesh>(*e));
-        for (e, mesh) in w.query::<&Mesh>().iter() {
+    /// `initial` (a new presentation generation, when `World::changed` cannot
+    /// reach back) compares every `Mesh`; otherwise only those written since.
+    pub fn update(&mut self, w: &World, initial: bool) {
+        let now = (
+            w.revision::<Mesh>(),
+            w.membership::<Mesh>(),
+            w.entities_revision(),
+        );
+        let seen = self.seen.filter(|_| !initial);
+        if seen == Some(now) {
+            return;
+        }
+        if seen.is_none_or(|s| (s.1, s.2) != (now.1, now.2)) {
+            self.rows.retain(|e, _| w.contains(*e) && w.has::<Mesh>(*e));
+        }
+        let mut assign = |e: Entity, mesh: &Mesh| {
             if self.rows.get(&e).is_none_or(|(old, _)| old != mesh) {
                 self.revision += 1;
                 self.rows.insert(e, (mesh.clone(), self.revision));
             }
+        };
+        match seen {
+            Some(seen) => {
+                for e in w.changed::<Mesh>(seen.0) {
+                    if let Some(mesh) = w.contains(e).then(|| w.get::<Mesh>(e)).flatten() {
+                        assign(e, &mesh);
+                    }
+                }
+            }
+            None => {
+                for (e, mesh) in w.query::<&Mesh>().iter() {
+                    assign(e, mesh);
+                }
+            }
         }
+        self.seen = Some(now);
     }
     pub fn revision(&self, e: Entity) -> u64 {
         self.rows.get(&e).map_or(0, |(_, revision)| *revision)
@@ -186,14 +236,16 @@ pub(crate) struct Priming {
     offsets: NodeOffsets,
 }
 impl Priming {
+    /// Then `rows` gives the endpoints to compose with. `current` is the current
+    /// tick's offsets, kept when this capture primes them.
     pub fn begin(
         &mut self,
         tick: u64,
         assignment: (u64, u64),
         posed: bool,
         force: bool,
-        rows: [NodeOffsets; 2],
-    ) -> [NodeOffsets; 2] {
+        current: &NodeOffsets,
+    ) {
         self.capture = self.tick.is_none()
             || self.assignment != assignment
             || (!self.posed && posed)
@@ -205,12 +257,11 @@ impl Priming {
         if self.capture {
             self.primed_tick = Some(tick);
             self.undrawn = true;
-            self.offsets = rows[1];
+            self.offsets = *current;
         }
         self.tick = Some(tick);
         self.assignment = assignment;
         self.posed = posed;
-        self.rows(rows)
     }
     /// Surface feeds may be overwritten by later ticks before encoding a frame.
     pub fn retain_until_draw(&mut self, retain: bool) {
@@ -219,15 +270,20 @@ impl Priming {
             self.undrawn = false;
         }
     }
-    pub fn rows(&self, rows: [NodeOffsets; 2]) -> [NodeOffsets; 2] {
+    pub fn rows<'a>(&'a self, rows: [&'a NodeOffsets; 2]) -> [&'a NodeOffsets; 2] {
         if self.primed_tick == self.tick {
-            [self.offsets, rows[1]]
+            [&self.offsets, rows[1]]
         } else {
             rows
         }
     }
     pub fn capturing(&self) -> bool {
         self.capture
+    }
+    /// Whether this tick's endpoints come from a capture ([`Self::pair`]
+    /// replaces the earlier one).
+    pub fn primed_now(&self) -> bool {
+        self.primed_tick == self.tick
     }
     pub fn captured(&mut self) {
         self.capture = false;

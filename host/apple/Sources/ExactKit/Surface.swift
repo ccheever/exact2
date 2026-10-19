@@ -103,7 +103,8 @@ extension NodeView {
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
         let sizes = BorderPaint.radii(style, in: box)
         let radii = sizes.map { $0.width }
-        let fill = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
+        let authored = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
+        let fill = authored ?? fieldGround
         let gradients = Gradient.layers(style["background_image"])
         let radius = radii.max() ?? 0
         let shape = CornerShape(style["corner_shape"])
@@ -114,6 +115,14 @@ extension NodeView {
             var corners: CACornerMask = []
             let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
             for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
+            // The design's Field under a field's own bezel: on the bezel's corners (BoxLayerIOS.swift).
+            var radius = radius
+            #if os(iOS)
+            if authored == nil, fill != nil, radius == 0, !isCellField {
+                radius = FieldChromeCache.textareaRadius
+                corners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+            }
+            #endif
             s.drawn = nil; s.contents = nil
             s.backgroundColor = fill
             s.cornerRadius = radius

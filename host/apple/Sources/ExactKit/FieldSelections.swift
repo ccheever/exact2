@@ -6,8 +6,9 @@
 // a caret move or typing), and when a script sets a selection (even a caret)
 // unless it set that same one last with nothing between. A selection set on
 // a field that is not being edited waits for its focus, where AppKit's field
-// editor would otherwise select all. The Markdown editor keeps its own
-// (`MarkupEditor`, kind 21).
+// editor would otherwise select all. The Markdown editor's text storage is
+// its source, so the same selection is its source selection (LLP 1045 D6);
+// only its `select` is its own (`MarkupEditor`, kind 21).
 import Foundation
 #if canImport(AppKit)
 import AppKit
@@ -122,9 +123,9 @@ final class FieldSelections {
         return work()
     }
 
-    /// A text field this follows: an input's field or a textarea, never the
-    /// Markdown editor (its own `select`) or the emoji picker (cleared as
-    /// each emoji is taken).
+    /// A text field this follows: an input's field or a textarea, the
+    /// Markdown editor's included, never the emoji picker (cleared as each
+    /// emoji is taken).
     /// An `input` in a closed `dialog` or popover on iOS has no UIKit field
     /// yet (`NodeView.makeWaitingField`): a command on its value or
     /// selection makes it, so both stand when the box opens.
@@ -134,8 +135,13 @@ final class FieldSelections {
         #endif
     }
     static func tracks(_ node: NodeView) -> Bool {
-        (node.field != nil || node.textArea != nil) && node.props["markup"] != "markdown" && node.props["emojiPicker"] != "true"
+        (node.field != nil || node.textArea != nil) && node.props["emojiPicker"] != "true"
     }
+    /// The Markdown editor, whose `select` carries its formats, not HTML's.
+    static func markdown(_ node: NodeView) -> Bool { node.props["markup"] == "markdown" }
+    /// The Markdown editor applying an edit of its own (a format, a range
+    /// edit, its undo): asked about already, or a script's.
+    static func applying(_ node: NodeView) -> Bool { (node.textArea as? TextArea)?.markup?.applying == true }
 
     /// The field's selection now: the editor's, its direction the one last
     /// seen for that range; else the one waiting for its focus or last seen;
@@ -230,15 +236,21 @@ final class FieldSelections {
             presenter.session?.log("setSelectionRange \"\(name)\" refused: not a text field")
             return
         }
+        // Moving the selection would end what the input method composes.
+        if Self.markdown(node), node.composingText {
+            presenter.session?.log("setSelectionRange \"\(name)\" refused: text is being composed")
+            return
+        }
         let word = args.count == 4 ? args[3] as? String : nil
         set(node, .clamped(start, end, word, length: node.fieldText.utf16.count))
     }
 
     /// HTML's range replacement, after the command's commit. It is a value
     /// write, not an undoable user edit; the admitted extra input keeps the
-    /// app's binding synchronized (LLP 1069.001, issue #275).
+    /// app's binding synchronized (LLP 1069.001, issue #275). On the Markdown
+    /// editor it is one undo step, as a format is (LLP 1045 D1).
     func setRangeText(_ args: [Any]) {
-        guard (2...6).contains(args.count), let name = args[0] as? String,
+        guard [2, 4, 5].contains(args.count), let name = args[0] as? String,
               let replacement = args[1] as? String else { return }
         let refuse = { (why: String) in self.presenter.session?.log("setRangeText \"\(name)\" refused: \(why)") }
         let named = presenter.views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name })
@@ -246,10 +258,8 @@ final class FieldSelections {
         guard let node = named, Self.tracks(node), node.textArea != nil || ["text", "search", "url", "tel", "password"].contains(node.props["type"] ?? "text") else {
             refuse("not a plain text field"); return
         }
-        let undo = args.count == 3 || args.count == 6
-        guard !undo || args.last as? String == "undo" else { refuse("invalid undo mode"); return }
-        if undo && node.fieldComposing { refuse("composition is active"); return }
-        let mode = args.count >= 5 ? args[4] as? String ?? "" : "preserve"
+        if Self.markdown(node), node.composingText { refuse("text is being composed"); return }
+        let mode = args.count == 5 ? args[4] as? String ?? "" : "preserve"
         guard ["preserve", "select", "start", "end"].contains(mode) else { refuse("invalid selectionMode"); return }
         let old = current(node), value = Array(node.fieldText.utf16)
         var start = old.start, end = old.end
@@ -277,16 +287,14 @@ final class FieldSelections {
                                        end: old.end > end ? old.end + delta : old.end > start ? after : old.end)
         }
         selection = .clamped(Double(selection.start), Double(selection.end), nil, length: next.utf16.count)
-        if undo && node.fieldText != next {
-            guard let manager = node.fieldUndoManager else { refuse("no native undo manager"); return }
-            let entry = FieldUndoEntry(node: node, value: node.fieldText, selection: old)
-            manager.beginUndoGrouping()
-            entry.register(in: manager)
-            quietly { node.replaceFieldValue(next, clearUndo: false) }
+        if Self.markdown(node) {
+            guard quietly({ node.replaceMarkdownSource(next, selecting: selection.range) }) else { refuse("this editor does not edit"); return }
+            scripted[node.id] = nil
             set(node, selection, notify: false)
-            manager.setActionName("Replace Text")
-            manager.endUndoGrouping()
-        } else { quietly { node.replaceFieldValue(next, clearUndo: !undo) } }
+            replacementInput(node, next, selection, data: replacement)
+            return
+        }
+        quietly { node.replaceFieldValue(next) }
         // Value mutation invalidates the prior scripted-selection suppression.
         scripted[node.id] = nil
         set(node, selection, notify: false)
@@ -305,7 +313,7 @@ final class FieldSelections {
     /// value, direction none; the Markdown editor and the emoji picker
     /// select natively.
     func selectAll(_ node: NodeView) {
-        guard Self.tracks(node) else {
+        guard Self.tracks(node), !Self.markdown(node) else {
             #if os(macOS)
             (node.textArea ?? node.field?.currentEditor())?.selectAll(nil)
             #else
@@ -325,6 +333,8 @@ final class FieldSelections {
         quietly {
             if node.showSelection(s.range), node.editingField { pending[node.id] = nil } else { pending[node.id] = s }
         }
+        // What a format applies to while the editor has no focus.
+        if Self.markdown(node) { (node.textArea as? TextArea)?.markup?.bookmark = s.range }
         if !again && notify { select(node, s) }
     }
 
@@ -347,7 +357,7 @@ final class FieldSelections {
     }
 
     private func select(_ node: NodeView, _ s: FieldSelection) {
-        guard node.handlers.contains("select"), !node.disabled else { return }
+        guard node.handlers.contains("select"), !node.disabled, !Self.markdown(node) else { return }
         onSelect?(node.id, node.fieldText, s)
     }
 
@@ -367,7 +377,7 @@ extension NodeView {
     /// A script replaces the buffer without registering a native undo edit.
     /// As with an authoritative value write, old native undo ranges no longer
     /// describe this buffer; discard only this field's history.
-    func replaceFieldValue(_ value: String, clearUndo: Bool = true) {
+    func replaceFieldValue(_ value: String) {
         pendingValue = nil
         guard !fieldText.utf16.elementsEqual(value.utf16) else { return }
         toldText = nil
@@ -375,20 +385,85 @@ extension NodeView {
         writingValue = true
         defer { writingValue = false }
         let editor = selectionEditor
-        editor?.breakUndoCoalescing()
-        if clearUndo { editor?.undoManager?.removeAllActions() }
+        editor?.breakUndoCoalescing(); editor?.undoManager?.removeAllActions()
         field?.stringValue = value
         editor?.string = value
         #else
-        if clearUndo { (textArea?.undoManager ?? selectionField?.undoManager)?.removeAllActions() }
+        (textArea?.undoManager ?? selectionField?.undoManager)?.removeAllActions()
         textArea?.text = value
         field?.text = value
         headerField?.text = value
         #endif
     }
 
+    /// The Markdown editor's `setRangeText`: the source becomes `value`
+    /// through the editor's own input, as an undo step of its own that
+    /// restores the source, and `selection` is shown. False on tvOS, whose
+    /// text views do not edit.
+    ///
+    /// Each call is one step (issue #792). The manager groups by event: an
+    /// edit earlier in this event (the person's typing, another call) has
+    /// opened the event's group, which a group begun now would join. That
+    /// group is closed, and this call's own is left open in its place for
+    /// the close the manager has scheduled at the end of the event, which
+    /// raises where no group is open (LLP 1045 D5). With none open, its own
+    /// is closed here. Neither is ever empty, which the manager would keep
+    /// as a step that undoes nothing.
+    func replaceMarkdownSource(_ value: String, selecting selection: NSRange) -> Bool {
+        #if os(tvOS)
+        return false
+        #else
+        guard let f = textArea as? TextArea, let editor = f.markup, !editor.applying, !composingText else { return false }
+        let edit = minimalTextEdit(from: fieldText, to: value)
+        // An unchanged source makes no step: only the selection moves.
+        let manager = edit == nil ? nil : f.undoManager
+        let byEvent = manager?.groupsByEvent ?? false, open = byEvent && manager?.groupingLevel == 1
+        if open { manager?.endUndoGrouping() }
+        manager?.groupsByEvent = false
+        editor.applying = true
+        #if os(macOS)
+        // A script's edit, which HTML allows on a read-only field too.
+        let editable = f.isEditable
+        f.isEditable = true
+        f.breakUndoCoalescing()
+        manager?.beginUndoGrouping()
+        if let edit { f.insertText(edit.text, replacementRange: edit.range) }
+        f.setSelectedRange(selection)
+        if !open { manager?.endUndoGrouping() }
+        f.breakUndoCoalescing()
+        f.isEditable = editable
+        #else
+        let editable = f.isEditable
+        f.isEditable = true
+        manager?.beginUndoGrouping()
+        if let edit {
+            f.selectedRange = edit.range
+            f.insertText(edit.text)
+        }
+        f.selectedRange = selection
+        if !open { manager?.endUndoGrouping() }
+        f.isEditable = editable
+        #endif
+        manager?.groupsByEvent = byEvent
+        editor.applying = false
+        editor.bookmark = selection
+        restyleMarkup()
+        publishMarkupSelection()
+        return true
+        #endif
+    }
+
+    /// An input method is composing in the editor.
+    var composingText: Bool {
+        #if os(macOS)
+        (textArea as? NSTextView)?.hasMarkedText() == true
+        #else
+        textArea?.markedTextRange != nil
+        #endif
+    }
+
     /// The field's value as its editor holds it.
-    package var fieldText: String {
+    var fieldText: String {
         #if os(macOS)
         textArea?.string ?? field?.stringValue ?? ""
         #else

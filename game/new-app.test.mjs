@@ -11,7 +11,7 @@ import { applyPattern, createApp, createGame, patternFiles, patterns, rosterSeed
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
  * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
-const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help', 'bun']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
+const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help', 'bun', 'port-lock']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -188,7 +188,7 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
     const seeded = exact('seed', 'web');
     assert.equal(seeded.status, 3, seeded.stderr);
     assert.deepEqual(JSON.parse(seeded.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact2: sdk });
-    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|[^>]*\|seed>/);
+    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <status\|web\|[^>]*\|seed>/);
     assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'seed');
     // A built-in verb's name is the generated file's, and an empty command is no command.
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'seed.mjs'] } }, null, 2));
@@ -313,7 +313,7 @@ test('paths into the checkout are relative only when the two share a tree', () =
 
 test('a sibling app resolves every host dependency from its own manifest', () => {
   const root = resolve(import.meta.dir, '..');
-  const dir = resolve(root, '..', `exact-new-${randomUUID()}`);
+  const dir = resolve(tmpdir(), `exact-new-${randomUUID()}`);
   try {
     // A cold Cargo cache defers the lock to the first build, which resolves it.
     if (/still exact2's/.test(createApp(dir))) return assert.deepEqual(readFileSync(resolve(dir, 'Cargo.lock')), readFileSync(resolve(root, 'Cargo.lock')));
@@ -321,7 +321,7 @@ test('a sibling app resolves every host dependency from its own manifest', () =>
     assert.equal(result.status, 0, result.stderr);
     const packages = JSON.parse(result.stdout).packages;
     assert.equal(packages.length, 3);
-    const paths = { 'exact-logic': 'logic', 'exact-apple': 'host/apple', 'exact-linux': 'host/linux', 'exact-web': 'host/web', 'exact-web-capabilities': 'host/web-capabilities', 'exact-js': 'js', 'exact-js-web': 'js/web', 'exact-js-bake': 'js/bake' };
+    const paths = { 'exact-logic': 'logic', 'exact-apple': 'host/apple', 'exact-apple-update': 'host/apple-update', 'exact-linux': 'host/linux', 'exact-web': 'host/web', 'exact-web-capabilities': 'host/web-capabilities', 'exact-js': 'js', 'exact-js-web': 'js/web', 'exact-js-bake': 'js/bake' };
     for (const pkg of packages) for (const dep of pkg.dependencies) {
       assert.equal(realpathSync(dep.path), realpathSync(resolve(root, paths[dep.name])), `${pkg.name}: ${dep.name}`);
     }
@@ -367,7 +367,8 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     // Where to start, not an order of steps (LLP 1116.012 D1): the nearest pattern, the guide, a name in question
     // answered by the card, `verify` when the features work and `verify ios` once at the end; `help` lists the verbs.
     assert.match(notes, /already in your instructions\. Start from the nearest pattern: `bun exact\.mjs\s+pattern` lists them and `pattern <name>` writes one/);
-    assert.match(notes, /When a name is in question, `bun exact\.mjs contract\s+vocab <name>` answers it/);
+    assert.match(notes, /`bun exact\.mjs contract vocab <name>` answers a\s+name/);
+    assert.match(notes, /`bun exact\.mjs docs <heading words>` a guide's\s+section/);
     assert.match(notes, /`bun exact\.mjs verify`\s+when the features work, and `verify ios` once at the end for an iPhone\s+app/);
     assert.match(notes, /`bun exact\.mjs help`\s+lists the verbs/);
     assert.doesNotMatch(notes, /after each edit|milestone/);
@@ -740,6 +741,8 @@ table owners:
     assert.match(sample[0].row.id, /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
     assert.deepEqual(sample, [{table:'owners', row:{id:sample[0].row.id,person:'dev:alice',role:'owner',label:'example',enabled:true}}]);
     assert.deepEqual(rosterSeeds(schema), sample);
+    assert.deepEqual(rosterSeeds(schema.replace('  insert <- deny\n', '')), sample, 'a missing insert rule denies inserts too');
+    assert.deepEqual(rosterSeeds(schema.replace('  insert <- deny', '  insert <- .person = viewer')), [], 'a writable table needs no roster seed');
     const indented = schema.replace(/^  /gm, '    ').replace(/    update <- deny\n$/, '').trimEnd();
     assert.ok(indented.endsWith('    insert <- deny'));
     assert.deepEqual(rosterSeeds(indented), sample, 'four-space fields and an EOF deny rule preserve all required fields');
@@ -758,6 +761,17 @@ table owners:
     createApp(copied,{snapback:{online:true,build:false}});
     assert.deepEqual(JSON.parse(readFileSync(resolve(copied,'seed.json'),'utf8')),fixture);
     assert.throws(() => rosterSeeds(schema.replace('person: principal','person: people')), /cannot infer owners.person/);
+    rmSync(resolve(parent, 'seed.json'));
+    writeFileSync(resolve(parent, 'snapback/schema.q'), schema.replace('person: principal', 'person: people').replace('  insert <- deny\n', ''));
+    const broken = resolve(parent, 'broken');
+    assert.throws(() => createApp(broken, {snapback:{online:true,build:false}}), /cannot infer owners.person/);
+    assert.equal(existsSync(broken), false, 'a failed seed removes the scaffold');
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), schema.replace('person: principal', 'person: people').replace('  insert <- deny\n', ''));
+    writeFileSync(resolve(parent, 'snapback/schema.q'), schema.replace('  insert <- deny\n', ''));
+    const implicit = resolve(parent, 'implicit');
+    createApp(implicit, {snapback:{online:true,build:false}});
+    assert.deepEqual(JSON.parse(readFileSync(resolve(implicit, 'seed.json'), 'utf8')), sample);
+    assert.match(readFileSync(resolve(implicit, 'app.test.contract'), 'utf8'), /^fresh \"seed.json\"\n/);
     assert.throws(() => rosterSeeds(schema.replace('use personas alice, bob','use identity')), /needs an authenticated principal/);
   } finally { rmSync(parent,{recursive:true,force:true}); }
 }, 90_000);

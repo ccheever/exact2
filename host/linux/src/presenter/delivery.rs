@@ -31,6 +31,7 @@ impl<D: DataSource> Presenter<D> {
         // What the build channel's registration names (LLP 1122 D4).
         if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
             link.design = Some(self.host.runner().design());
+            link.plan_digest = Some(self.host.runner().inspection_digest().to_string());
         }
     }
 
@@ -110,6 +111,7 @@ impl<D: DataSource> Presenter<D> {
                         link.snapshot = true;
                     }
                     self.repin();
+                    self.rehold();
                     self.report_status();
                 }
                 Err(HostError::PreparingModule) => self.pending_dev = Some(generation),

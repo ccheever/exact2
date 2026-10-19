@@ -1,6 +1,6 @@
 // composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9.
-import { codeAt, composerMarkdown, type ComposerAtom, type ComposerBlockOrigin } from './composer-markdown';
-import type { ComposerRange } from './composer-markdown-inline';
+import { codeAt, composerMarkdown, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
+import type { ComposerRange } from './composer-markdown';
 import type { ComposerEdit } from './composer-markdown-edit';
 import { assistantCitationLabel, collectAssistantCitations } from '../timeline/diff-citations';
 
@@ -52,6 +52,16 @@ export function composerChips(value: string): ComposerChip[] {
   return chips;
 }
 
+/** Control references belong to source content, independently of field paint.
+ *  Carried references need not have the delimiter that originally completed them. */
+export function composerChipsInBlocks(value: string, blocks: readonly ComposerBlock[], chips: readonly ComposerChip[] = composerChips(value)): ComposerChip[] {
+  return chips.filter(chip => Number.isInteger(chip.start) && Number.isInteger(chip.end)
+    && chip.start >= 0 && chip.end > chip.start && chip.end <= value.length
+    && value.slice(chip.start, chip.end) === chip.source
+    && blocks.some(block => block.kind !== 'code' && block.kind !== 'rule'
+      && chip.start >= block.contentStart && chip.end <= block.end));
+}
+
 /** Existing atoms keep their identity when an edit only changes adjacent text,
  *  including the delimiter that originally completed a mention or skill. */
 export function reconcileComposerChips(previous: string, value: string, current: readonly ComposerChip[]): ComposerChip[] {
@@ -70,18 +80,6 @@ export function reconcileComposerChips(previous: string, value: string, current:
   return [...carried, ...composerChips(value).filter(chip => !carried.some(old => overlaps(chip, old)))].sort((a, b) => a.start - b.start);
 }
 
-const CHIP_STYLES: Readonly<Record<string, string>> = {
-  mention: 'mention', skill: 'skill', citation: 'citation', thread: 'thread', 'review-comment': 'review-comment',
-  terminal: 'terminal', image: 'image', file: 'file', folder: 'file', video: 'video', 'preview-annotation': 'preview-annotation',
-  'pull-request': 'pull-request', 'pr-open': 'terminal', 'pr-draft': 'pr-draft', 'pr-merged': 'review-comment', 'pr-closed': 'image', invalid: 'invalid',
-};
-export function chipDecorations(chips: readonly ComposerChip[], labels: Readonly<Record<string, string>> = {}, faces?: readonly { kind: string; atomLabel: string }[]): ComposerAtom[] {
-  return chips.map((chip, index) => {
-    const face = faces?.[index], kind = face?.kind ?? (chip.kind === 'context' ? chip.contextKind : chip.kind);
-    return { name: `cmp-chip-${CHIP_STYLES[kind] ?? 'neutral'}`, start: chip.start, end: chip.end,
-      label: face ? face.atomLabel : chip.kind === 'skill' ? labels[chip.name] ?? chip.label : chip.label };
-  });
-}
 
 export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > value.length || chips.some(chip => cursor > chip.start && cursor < chip.end)) return null;
@@ -94,11 +92,6 @@ export function composerTrigger(value: string, cursor: number, chips = composerC
   const skill = /^\p{Sc}/u.exec(token);
   if (skill) return { kind: 'skill', query: token.slice(skill[0].length), start: tokenStart, end: cursor };
   return token.startsWith('@') ? { kind: 'path', query: token.slice(1), start: tokenStart, end: cursor } : null;
-}
-
-export function pastedPathQueryLength(lineBefore: string, pasted: string, active: boolean, blockOrigins?: readonly ComposerBlockOrigin[]): number {
-  if (!active || composerTrigger(lineBefore, lineBefore.length, undefined, true, blockOrigins)?.kind !== 'path') return 0;
-  return /^\S*/.exec(pasted)?.[0].length ?? 0;
 }
 
 export type FreshCitation = ComposerRange & { value: string; source: string; spaces: { before: boolean; after: boolean } };

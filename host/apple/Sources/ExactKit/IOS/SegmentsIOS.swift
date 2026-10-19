@@ -56,7 +56,21 @@ class LabelledSegmentedControl: UISegmentedControl {
 
 private final class ExactSegmentedControl: LabelledSegmentedControl {
     let ownerID: UInt32
-    var icons: [Int: (source: AnyObject, size: CGSize, label: String)] = [:]
+    /// Each image segment's: what it shows, its size and label, and the
+    /// image its picture was drawn from (a symbol's `faceImage`).
+    var icons: [Int: (source: AnyObject, size: CGSize, label: String, drawn: UIImage?)] = [:]
+    /// Its svg-only icons' paths drawn again at the body size its traits now
+    /// give (a text size change); nothing else is touched (stage 9 A2).
+    func redrawPaths() {
+        let points = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection).pointSize
+        for (index, icon) in icons {
+            guard let name = icon.source as? String, FaceSymbol.isPath(name), icon.size.width != points,
+                  let image = FaceSymbol.image(name, points: points) else { continue }
+            image.accessibilityLabel = icon.label
+            setImage(image, forSegmentAt: index)
+            icons[index] = (icon.source, CGSize(width: points, height: points), icon.label, image)
+        }
+    }
     /// The selection last reported or applied. A finger moves the selection
     /// before the change is reported (on iOS 26 after the lift, as the
     /// selection settles); until then the control keeps the newer choice.
@@ -84,6 +98,20 @@ private final class ExactTabBar: UITabBar {
 
 /// A tab bar item that remembers the symbol it was made with.
 private final class TabBarItem: UITabBarItem { var made = "" }
+private extension ExactTabBar {
+    /// Its items' svg-only icon paths drawn again at the size its size class
+    /// now gives (`FaceSymbol.tabBarPoints`); nothing else is touched.
+    func redrawPaths() {
+        let points = FaceSymbol.tabBarPoints(traitCollection)
+        for case let item as TabBarItem in items ?? [] {
+            guard let bar = item.made.firstIndex(of: "|"), let was = Double(item.made[..<bar]), CGFloat(was) != points else { continue }
+            let symbol = String(item.made[item.made.index(after: bar)...])
+            guard FaceSymbol.isPath(symbol) else { continue }
+            item.image = FaceSymbol.image(symbol, points: points)
+            item.made = "\(points)|\(symbol)"
+        }
+    }
+}
 private extension UITabBarItem { var madeWith: String? { (self as? TabBarItem)?.made } }
 
 /// A tab a tab bar item can show: one symbol and one label, nothing else.
@@ -113,7 +141,7 @@ private struct TabBarFace: Equatable {
               image.props["imageSource"]?.hasPrefix("symbol:") == true,
               let label = children.first(where: { $0 !== image }), label.isParagraph,
               !label.accessibleText.isEmpty else { return nil }
-        self.symbol = image.props["symbolName"] ?? ""
+        self.symbol = image.faceSymbol ?? ""
         title = label.accessibleText
         self.label = tab.props["accessibilityLabel"] ?? title
         tint = image.ownUIColor("tint_color")
@@ -126,6 +154,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// The segmented control a tablist or radio group projects to, if any:
     /// a hatched node's platform object (LLP 1075.003.000 §3.2).
     func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
+    /// The image segment `index` of `id`'s control was drawn from.
+    func drawn(of id: UInt32, segment index: Int) -> UIImage? { controls[id]?.icons[index]?.drawn }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
     /// A segmented control's own size, with what it was measured from: its
@@ -234,8 +264,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let raster = icon.raster?.image.image
             // A transparent image carries the segment's accessible name when
             // the OS has no glyph; a nil image loses that native label.
-            let source = raster.map({ UIImage(cgImage: $0) }) ?? icon.image
-            let identity: AnyObject = raster.map { $0 as AnyObject } ?? source ?? icon
+            // A symbol in the control's tint, not the page's ink (`faceImage`).
+            let source = raster.map({ UIImage(cgImage: $0) }) ?? icon.faceImage
+            let identity: AnyObject = raster.map { $0 as AnyObject } ?? icon.image ?? icon
             let size = CGSize(width: max(1, icon.bounds.width), height: max(1, icon.bounds.height))
             if let old = control.icons[index], old.source === identity, old.size == size, old.label == label { return }
             // An image segment shows no title (a title-only face had set one).
@@ -248,16 +279,18 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             }.withRenderingMode(.alwaysOriginal)
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
-            control.icons[index] = (identity, size, label)
+            control.icons[index] = (identity, size, label, source)
         } else if case .symbol(let name)? = tab.segmentFace {
             // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
-            let size = CGSize(width: -1, height: -1)
-            if let old = control.icons[index], (old.source as? NSString) == name as NSString, old.label == label { return }
-            let image = UIImage(systemName: name) ?? UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
+            // A path is drawn at the control's body size, again as that changes (an SF Symbol follows it itself).
+            let points = UIFont.preferredFont(forTextStyle: .body, compatibleWith: control.traitCollection).pointSize
+            let size = FaceSymbol.isPath(name) ? CGSize(width: points, height: points) : CGSize(width: -1, height: -1)
+            if let old = control.icons[index], (old.source as? NSString) == name as NSString, old.size == size, old.label == label { return }
+            let image = FaceSymbol.image(name, points: points) ?? UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
             if control.titleForSegment(at: index)?.isEmpty == false { control.setTitle(nil, forSegmentAt: index) }
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
-            control.icons[index] = (name as NSString, size, label)
+            control.icons[index] = (name as NSString, size, label, image)
         } else if case .title(let title)? = tab.segmentFace {
             control.icons.removeValue(forKey: index)
             if control.imageForSegment(at: index) != nil { control.setImage(nil, forSegmentAt: index) }
@@ -367,6 +400,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             value.onMeasure = { [weak self, weak owner, weak value] in
                 if let owner, let value { self?.measure(owner, value) }
             }
+            // A path's glyph is sized by the size class (`FaceSymbol.tabBarPoints`): drawn again as it changes.
+            value.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (bar: ExactTabBar, _: UITraitCollection) in bar.redrawPaths() }
             owner.addSubview(value)
             bars[owner.id] = value
             return value
@@ -376,10 +411,13 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         assign(bar, \.isUserInteractionEnabled, available(owner))
         assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
         let current = bar.items ?? []
-        if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.madeWith != $1.symbol }) {
+        // Made with the symbol and, for a path, the size its glyph was drawn at.
+        let points = FaceSymbol.tabBarPoints(bar.traitCollection)
+        let made = { (symbol: String) in FaceSymbol.isPath(symbol) ? "\(points)|\(symbol)" : symbol }
+        if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.madeWith != made($1.symbol) }) {
             bar.setItems(faces.enumerated().map { index, face in
-                let item = TabBarItem(title: face.title, image: face.symbol.isEmpty ? nil : UIImage(systemName: face.symbol), tag: index)
-                item.made = face.symbol
+                let item = TabBarItem(title: face.title, image: FaceSymbol.image(face.symbol, points: points), tag: index)
+                item.made = made(face.symbol)
                 return item
             }, animated: false)
         }
@@ -465,6 +503,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 context.delegate = self
                 value.addGestureRecognizer(context)
                 value.autoresizingMask = [.flexibleWidth, .flexibleTopMargin, .flexibleBottomMargin]
+                // A path segment is drawn at the body size: again as the text size changes.
+                value.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (control: ExactSegmentedControl, _: UITraitCollection) in control.redrawPaths() }
                 owner.addSubview(value)
                 controls[owner.id] = value
                 return value

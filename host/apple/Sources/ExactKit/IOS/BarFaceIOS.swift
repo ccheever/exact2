@@ -86,11 +86,17 @@ struct ChipFace: Equatable {
             if kids.count > 1, gap == nil, let g = node.style["column_gap"]?.number { gap = CGFloat(g) }
             for kid in kids {
                 guard case .view(let child) = kid else {
-                    if case .leaf(let leaf) = kid { dot(leaf.style, alpha * CGFloat(leaf.opacity)) }
+                    if case .leaf(let leaf) = kid { visitLeaf(leaf, in: presenter, alpha: alpha * CGFloat(leaf.opacity)) }
                     continue
                 }
                 visit(child, fonted: fonted, inked: inked, alpha: alpha * child.alpha)
             }
+        }
+        // A flat box with children is walked as a view with them is.
+        func visitLeaf(_ leaf: FlatLeaf, in presenter: Presenter?, alpha: CGFloat) {
+            let kids = (presenter?.flats.children(of: leaf.id) ?? []).compactMap { presenter?.flats.leaves[$0] }
+            guard !kids.isEmpty else { dot(leaf.style, alpha); return }
+            for kid in kids where kid.style["display"]?.string != "none" { visitLeaf(kid, in: presenter, alpha: alpha * CGFloat(kid.opacity)) }
         }
         func visit(_ child: NodeView, fonted: Bool, inked: Bool, alpha: CGFloat) {
             let fonted = fonted || ["font_family", "font_size", "font_weight"].contains(where: child.wrote)
@@ -110,7 +116,7 @@ struct ChipFace: Equatable {
                 parts.append(.text(text, font, inked ? pair(child, "text_color") : nil))
                 opacities.append(alpha)
                 lineHeights.append(child.wrote("line_height") ? child.usedLineHeight : nil)
-            } else if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
+            } else if child.kind == "image", let name = child.faceSymbol {
                 let tinted = inked || child.wrote("tint_color")
                 parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), tinted ? pair(child, "tint_color") : nil))
                 opacities.append(alpha)
@@ -164,7 +170,7 @@ struct ChipFace: Equatable {
                     UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
                 })
             case .symbol(let name, let points, let tint):
-                let glyph = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: points))?.withTintColor(ink(tint), renderingMode: .alwaysOriginal)
+                let glyph = FaceSymbol.image(name, points: points, configuration: UIImage.SymbolConfiguration(pointSize: points))?.withTintColor(ink(tint), renderingMode: .alwaysOriginal)
                 return (glyph?.size ?? .zero, { rect in glyph?.draw(in: rect) })
             case .text(let text, let font, let color):
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink(color)]

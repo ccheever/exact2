@@ -45,7 +45,8 @@ impl Instance {
         };
         #[cfg(target_arch = "wasm32")]
         let retired = None;
-        self.presentation = None;
+        let presentation = self.presentation.take();
+        crate::swapchains(|| drop(presentation));
         #[cfg(target_os = "android")]
         {
             self.ring = None;

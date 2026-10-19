@@ -60,7 +60,19 @@ fn a_save_becomes_a_plan_and_an_identical_save_is_nothing() {
     );
     // A real edit.
     save(&src, &GOOD.replace("\"one\"", "\"two\""), 2);
+    use sha2::Digest;
+    assert_eq!(
+        s.source_digest(),
+        Some(format!("{:x}", sha2::Sha256::digest(GOOD.as_bytes())))
+    );
     let again = s.poll::<NoData>().expect("an edit builds").unwrap();
+    assert_eq!(
+        s.source_digest(),
+        Some(format!(
+            "{:x}",
+            sha2::Sha256::digest(std::fs::read(&src).unwrap())
+        ))
+    );
     assert_ne!(again.bytes, built.bytes);
     let map = std::fs::read_to_string(&map_path).unwrap();
     assert_eq!(

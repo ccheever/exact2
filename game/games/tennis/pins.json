@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0xac515f7dceb9e570",
-    "1420": "0xa174a4d137ea52e7"
+    "0": "0xe01436f6f27402f7",
+    "1420": "0xabf0724dcb9e3028"
   },
   "saves": {
-    "continuation": "1567547cb17da39267f6ab42176a1b7648197a842e960d9b84f2578a834eeef5"
+    "continuation": "516239ecd756f2c21e8e59774f5988e5abe33d697af3f887c0535a03b36b9207"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "ed9a1029a9bf6a168150738d48f6e6fdd7243623f8f1750e4b51a196772322ad",
+  "inputs": "970e73951677479aa21a853d25938503929434554f4cddd7b2f25a77ab8f4b7f",
+  "sourceInputs": "e3867a24c98b5f7c2a62c39f175f88ce5f28bab90ab4ff579d868dd1e31c896c",
   "game": "tennis",
   "generated": "bun game/prove.mjs tennis --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "bb15d69dafd3a3b4deda48c3084c383235c65e63",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

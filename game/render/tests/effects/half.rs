@@ -61,7 +61,7 @@ fn half_precision_keeps_glossy_highlights_finite() {
     let draw = |gpu: &Gpu| {
         let mut w = World::new(60, 1);
         w.insert_resource(Environment {
-            background: Some([0.02; 3]),
+            background: Some([0.02; 3].into()),
             fog: None,
             bloom: None,
             ..Default::default()
