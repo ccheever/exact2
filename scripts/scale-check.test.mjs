@@ -94,3 +94,22 @@ test('a corner with another colour in it (a shadow, a border) is not read', () =
   // A fill too close to the background to read.
   expect(edges(image, box, rgb('#fefefe'), white)).toBeNull();
 });
+
+test('a small radius on a fractional edge, a covered left edge, an unnamed child and a value that is no number', () => {
+  // 1.2 px at 1x, its top 0.01 px under a pixel's: no row read shows it, so
+  // it reads as square, and square is within it.
+  const small = { x: 10, y: 10.01, w: 60, h: 40 };
+  const rows = check('linux', { viewport: { w: 100 }, nodes: [{ id: 1, ...small, testId: 'small' }, { id: 2, x: 26, y: 26.01, w: 4, h: 4 }] },
+    drawn(100, 60, small, 1.2, red), { boxes: [
+      { testId: 'small', radius: 1.2, fill: '#ff0000' },
+      { testId: 'small', padding: 16 },
+      { testId: 'small', radius: '12px', fill: '#ff0000' },
+      { testId: 'small', child: '', padding: Number.NaN },
+    ] });
+  expect(rows.map(r => r.ok)).toEqual([true, false, false, false]);
+  // The middle row's first pixels covered by the background: not read.
+  const box = { x: 10, y: 10, w: 120, h: 80 };
+  const covered = drawn(160, 110, box, 12, red);
+  for (let x = 10; x < 22; x++) { const i = (50 * 160 + x) * 4; covered.data[i] = covered.data[i + 1] = covered.data[i + 2] = 255; }
+  expect(edges(covered, box, red, white)).toBeNull();
+});

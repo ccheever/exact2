@@ -71,7 +71,8 @@ export function edges(image, box, fill, ground) {
   // half the box): where its fill begins is the straight edge, which the
   // corner's rows are read from.
   const edge = start(Math.floor(box.y + box.h / 2));
-  if (edge === null) return null;
+  // Not at the box's own left edge: something covers it there.
+  if (edge === null || Math.abs(edge) > 1) return null;
   const out = [];
   for (let row = 0; row < ROWS; row++) {
     const y = top + row, dx = start(y);
@@ -114,8 +115,9 @@ export function check(host, layout, image, expect) {
     const fail = why => { row.ok = false; row.why.push(why); };
     const padding = pick(want.padding, host);
     if (padding === 'missing') fail(`no padding expected for ${host}`);
+    else if (padding !== undefined && !Number.isFinite(padding)) fail(`padding ${JSON.stringify(padding)} is no number`);
     else if (padding !== undefined) {
-      const child = nodes.find(n => n.testId === want.child);
+      const child = typeof want.child === 'string' && want.child ? nodes.find(n => n.testId === want.child) : null;
       if (!child) fail(`its child ${want.child ?? '(unnamed)'} is not in the layout`);
       else {
         row.padding = [child.x - box.x, child.y - box.y];
@@ -125,6 +127,7 @@ export function check(host, layout, image, expect) {
     }
     const radius = pick(want.radius, host);
     if (radius === 'missing') fail(`no radius expected for ${host}`);
+    else if (radius !== undefined && !Number.isFinite(radius)) fail(`radius ${JSON.stringify(radius)} is no number`);
     else if (radius !== undefined) {
       const px = { x: box.x * scale, y: box.y * scale, w: box.w * scale, h: box.h * scale };
       const starts = edges(image, px, rgb(want.fill ?? '#000000'), ground);
@@ -133,7 +136,10 @@ export function check(host, layout, image, expect) {
       else {
         const measured = fitRadius(starts, Math.max(px.w, px.h) / 2 + 1) / scale;
         row.radius = Math.round(measured * 10) / 10;
-        if (Math.abs(measured - row.expected) > 1) fail(`radius ${row.radius}, expected ${row.expected}`);
+        // A radius no deeper than the first row read draws that row as a
+        // square corner does: two such are the same reading.
+        const unseen = starts[0].dy / scale;
+        if (Math.abs(measured - row.expected) > 1 && !(measured <= unseen && row.expected <= unseen)) fail(`radius ${row.radius}, expected ${row.expected}`);
       }
     }
     row.why = row.why.join('; ');
