@@ -1324,16 +1324,58 @@ fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError>
     if a.name == "glassGroup" {
         return glass_group_value(&a.value, scope, shapes).map(|_| ());
     }
-    // A handler names an action, as lowering binds it, even where an app
-    // `fn` shares the name, which a call elsewhere reaches first.
-    if let Expr::Call(name, args, span) = &a.value {
-        if super::component::handler_attr(&a.name) && shapes.fns.contains_key(name) {
-            if let Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(params))) = scope.lookup(name) {
-                return super::action_call(name, params, args, *span, scope, shapes).map(|_| ());
-            }
+    if super::component::handler_attr(&a.name) {
+        if let Some(checked) = handler_action(&a.name, &a.value, scope, shapes) {
+            return checked;
         }
     }
     infer(&a.value, scope, shapes).map(|_| ())
+}
+
+/// A handler's value where `infer` would read it as something else. A
+/// handler names an action of its own component or an action prop, as
+/// lowering binds it (and analyze's `check_handler` holds it to): a call
+/// is the action's even where an app `fn` shares the name, which a call in
+/// an expression reaches first; a name that is only a `fn`, or another
+/// component's action, is refused as a handler's, not typed as the fn or
+/// left to the roster's refusal. `None` leaves the value to `infer`.
+fn handler_action(
+    attr: &str,
+    value: &Expr,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Option<Result<(), TypeError>> {
+    let (name, args, span) = match value {
+        Expr::Ident(n, span) => (n, &[][..], *span),
+        Expr::Call(n, args, span) => (n, args.as_slice(), *span),
+        _ => return None,
+    };
+    match scope.lookup(name) {
+        Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(params))) => {
+            if !args.is_empty() && shapes.fns.contains_key(name) {
+                let checked =
+                    super::component::action_call(name, params, args, span, scope, shapes);
+                return Some(checked.map(|_| ()));
+            }
+            None
+        }
+        Some(_) => None,
+        None => {
+            let names =
+                format!("`{attr}=` names an action of its own component or an `action` prop");
+            let message = match shapes.actions.get(name) {
+                Some(owner) => format!(
+                    "`{name}` is an action of `{owner}`, not in `{}`'s scope: {names}; pass it as one (`{name}: action` under `props`, `{name}={name}` at the use) or `provide` it",
+                    scope.component()
+                ),
+                None if shapes.fns.contains_key(name) => {
+                    format!("`{name}` is a `fn`, not an action: {names}")
+                }
+                None => return None,
+            };
+            Some(err("type-handler-action", message, span))
+        }
+    }
 }
 
 /// `glassGroup`'s value: a number, the literal `"auto"` (typed as the number

@@ -1832,7 +1832,8 @@ component A
     button "t" press=toggle
 ---
 == type-prop-hides-fn
-# In B a call `pick(…)` could be the prop or the fn.
+# In B the call `pick(…)` under `text` is the fn to the checker and the bound action once inlined;
+# a handler `press=pick(…)` alone would be the action both ways.
 fn pick(xs: string[], i: number): string = match xs.at(i) { case some(s) => s, case none => "" }
 component A
   state chosen = ""
@@ -1844,5 +1845,18 @@ component B
   props
     pick: action
   view
-    text "b"
+    button "b" press=pick("b")
+    text pick(["a"], 0)
+---
+== type-handler-action
+# B's handler names A's action: B takes it as an `action` prop.
+component A
+  state v = ""
+  action go(s: string)
+    v = s
+  view
+    B()
+component B
+  view
+    button "go" press=go("x")
 ---

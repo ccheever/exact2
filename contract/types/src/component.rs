@@ -8,7 +8,7 @@ use super::{
 };
 use crate::calls::CAPTURE;
 use contract_syntax::inline::calls::shown;
-use contract_syntax::{Component, Expr, Node, Owner, Span, Stmt, TemplatePart};
+use contract_syntax::{Component, Expr, Node, Owner, Param, Span, Stmt, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
@@ -92,26 +92,8 @@ pub(crate) fn check_component(
                 p.span,
             )),
         };
-        // An action prop named like an app `fn`: inlining makes every call
-        // of that name in the component the bound action's, where the
-        // checker and every other component call the fn.
-        if matches!(ty, Ty::Action(_)) && shapes.fns.contains_key(&p.name) {
-            let name = &p.name;
-            let mut chars = name.chars();
-            let on: String = chars
-                .next()
-                .map(|c| c.to_ascii_uppercase())
-                .into_iter()
-                .chain(chars)
-                .collect();
-            sink.push(TypeError {
-                id: "type-prop-hides-fn",
-                message: format!(
-                    "rename the action prop `{name}` (as in `on{on}`) or `fn {name}`: in `{}` a call `{name}(…)` cannot be both the prop and the fn",
-                    c.name
-                ),
-                span: p.span,
-            });
+        if let Some(e) = hides_fn(c, p, &ty, "prop", shapes) {
+            sink.push(e);
         }
         ct.props.push(ty);
     }
@@ -124,6 +106,9 @@ pub(crate) fn check_component(
                 p.span,
             )),
         };
+        if let Some(e) = hides_fn(c, p, &ty, "inject", shapes) {
+            sink.push(e);
+        }
         ct.props.push(ty);
     }
     for r in &c.resources {
@@ -493,6 +478,103 @@ impl Scope {
             }
         }
     }
+}
+
+/// An action prop or inject named like an app `fn`, where the component
+/// calls that name in an expression: inlining rewrites the call to the
+/// bound action's (`subst_expr`), where the checker typed it as the fn. A
+/// handler's own call (`press=name(…)`) is the action's both ways, and a
+/// name only handlers use, or nothing does, clashes with nothing.
+fn hides_fn(c: &Component, p: &Param, ty: &Ty, kind: &str, shapes: &Shapes) -> Option<TypeError> {
+    if !matches!(ty, Ty::Action(_)) || !shapes.fns.contains_key(&p.name) {
+        return None;
+    }
+    let call = expression_call(c, &p.name)?;
+    let name = &p.name;
+    let mut chars = name.chars();
+    let on: String = chars
+        .next()
+        .map(|c| c.to_ascii_uppercase())
+        .into_iter()
+        .chain(chars)
+        .collect();
+    Some(TypeError {
+        id: "type-prop-hides-fn",
+        message: format!(
+            "rename the action {kind} `{name}` (as in `on{on}`) or `fn {name}`: in `{}` the call `{name}(…)` at line {} cannot be both the {kind} and the fn",
+            c.name, call.line
+        ),
+        span: p.span,
+    })
+}
+
+/// The first call of `name` in the component's derives, states or view that
+/// is not a handler's own (`press=name(…)`): a handler's arguments count,
+/// as does a use's argument.
+fn expression_call(c: &Component, name: &str) -> Option<Span> {
+    fn in_expr(e: &Expr, name: &str) -> Option<Span> {
+        let mut found = None;
+        walk_exprs(e, &mut |x| {
+            if let Expr::Call(n, _, span) = x {
+                if n == name && found.is_none() {
+                    found = Some(*span);
+                }
+            }
+        });
+        found
+    }
+    fn in_nodes(nodes: &[Node], name: &str) -> Option<Span> {
+        nodes.iter().find_map(|n| match n {
+            Node::Children { .. } => None,
+            Node::Element {
+                positional,
+                attrs,
+                children,
+                ..
+            } => positional
+                .iter()
+                .find_map(|e| in_expr(e, name))
+                .or_else(|| {
+                    attrs.iter().find_map(|a| match &a.value {
+                        Expr::Call(n, args, _) if n == name && handler_attr(&a.name) => {
+                            args.iter().find_map(|e| in_expr(e, name))
+                        }
+                        value => in_expr(value, name),
+                    })
+                })
+                .or_else(|| in_nodes(children, name)),
+            Node::Use { args, children, .. } => args
+                .iter()
+                .find_map(|a| in_expr(&a.value, name))
+                .or_else(|| in_nodes(children, name)),
+            Node::When {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => in_expr(cond, name)
+                .or_else(|| in_nodes(then, name))
+                .or_else(|| in_nodes(otherwise, name)),
+            Node::Each {
+                list, key, body, ..
+            } => in_expr(list, name)
+                .or_else(|| in_expr(key, name))
+                .or_else(|| in_nodes(body, name)),
+            Node::Match {
+                subject,
+                some,
+                none,
+                ..
+            } => in_expr(subject, name)
+                .or_else(|| in_nodes(&some.1, name))
+                .or_else(|| in_nodes(none, name)),
+        })
+    }
+    c.derives
+        .iter()
+        .chain(&c.states)
+        .find_map(|b| in_expr(&b.expr, name))
+        .or_else(|| in_nodes(&c.view, name))
 }
 
 /// The attributes whose value is a handler: an action named, or called
@@ -1305,4 +1387,40 @@ fn first_free(
         }
     }
     walk(e, calls, hit, &mut Vec::new())
+}
+
+/// A curried action reference, `action(args)`: the leading parameters
+/// bound, the rest left to the event; its type is what remains.
+pub(crate) fn action_call(
+    name: &str,
+    params: &[Ty],
+    args: &[Expr],
+    span: Span,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    if args.len() > params.len() && !params.is_empty() {
+        return err(
+            "type-arity",
+            format!(
+                "`{name}` takes at most {} argument(s), given {}",
+                params.len(),
+                args.len()
+            ),
+            span,
+        );
+    }
+    for (arg, pt) in args.iter().zip(params.iter()) {
+        let t = infer(arg, scope, shapes)?;
+        if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
+            return err(
+                "type-argument",
+                format!("`{name}` expects `{pt}`, given `{t}`"),
+                arg.span(),
+            );
+        }
+    }
+    Ok(Ty::Action(
+        params.iter().skip(args.len()).cloned().collect(),
+    ))
 }
