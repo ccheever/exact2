@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { API } from '../app.ts';
 import { scrubSessions } from '../../../scripts/tamber-scrub.mjs';
+import { allows, needs, refusal } from '../../../scripts/tamber-pairing.mjs';
 import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
@@ -107,10 +108,33 @@ function take(e: Record<string, any>) {
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-exact-tamber-token, authorization', 'access-control-allow-methods': 'GET, POST' };
 const send = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });
 const preflight = () => new Response(null, { status: 204, headers: CORS });
-const authorized = (req: Request) => req.headers.get('x-exact-tamber-token') === TOKEN;
 // The test driver, as `request … as ada` sends it; no page can.
 const driver = (req: Request) => req.headers.get('authorization') === 'Bearer ada';
 const seq = () => log.at(-1)?.seq ?? 0;
+
+// Pairing (LLP 1121 stage 10 A2, tamber/1.13), as the server answers it: the local token mints a
+// code (`pair-code`), lists the clients (`clients`) and revokes one (`revoke`); a code presented at
+// `/__tamber/pair` gives a client its own token, random each time and kept in memory only, at the
+// code's scope, which A1's table checks on every request (scripts/tamber-pairing.mjs). A code is
+// the next of a fixed series, so a test can type it. The remote doors a test opens
+// (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
+type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
+let paired: Paired[] = [], gone = new Set<string>(), codes = new Map<string, { scope: string; name: string }>(), remote: unknown[] = [], minted = 0;
+const GONE = 'this paired client was revoked or its token expired';
+const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
+/** Who a request is: the local client, a paired one, or no one (null). */
+const who = (req: Request) => tokenIn(req) === TOKEN ? { local: true, scope: 'write', client: null as string | null } : ((p) => p && { local: false, scope: p.scope, client: p.client })(paired.find(p => p.token === tokenIn(req)));
+/** A request no live token sent: told it was revoked if its token was, else not found. */
+const nobody = (req: Request) => gone.has(tokenIn(req)) ? send({ error: { message: GONE } }, 401) : send({ message: 'Not found.' }, 404);
+function revoke(client: string) {
+  const p = paired.find(c => c.client === client);
+  if (!p) return false;
+  paired = paired.filter(c => c !== p);
+  gone.add(p.token);
+  take({ event: 'revoked', client, reason: 'revoked' });
+  save();
+  return true;
+}
 
 const { hostname, port } = new URL(API);
 Bun.serve({ hostname, port: Number(port), routes: {
@@ -119,9 +143,23 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__tamber': {
     OPTIONS: preflight,
     POST: async (req) => {
-      if (!authorized(req)) return send({ message: 'Not found.' }, 404);
+      const asker = who(req);
+      if (!asker) return nobody(req);
       const request = await req.json().catch(() => ({}));
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: PAGE, live: LIVE } });
+      // A paired client is the client its token names; its scope is checked first.
+      if (asker.client) { request.client = asker.client; paired.find(p => p.client === asker.client)!.lastSeen = new Date().toISOString(); }
+      const need = needs(request, (id: string) => (held.find(h => h.proposal === id)?.client as string | undefined) ?? null);
+      if (need === null) return send({ error: { message: `\`${request.method}\` has no scope on this wire` } }, 400);
+      if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
+      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local ? PAGE : null, live: LIVE, scope: asker.scope, local: asker.local, ...(asker.client ? { client: asker.client } : {}) } });
+      if (request.method === 'pair-code') {
+        if (!['read', 'propose', 'write'].includes(request.scope)) return send({ error: { message: 'pair-code names its `scope`: read, propose or write' } }, 400);
+        const n = ++minted, code = `7Q2KD-M4X${String(n % 100).padStart(2, '0')}`;
+        codes.set(code, { scope: request.scope, name: typeof request.name === 'string' ? request.name : '' });
+        return send({ ok: { code, scope: request.scope, expires: new Date(Date.now() + 120_000).toISOString(), ...(remote.length ? { remote } : {}) } });
+      }
+      if (request.method === 'clients') return send({ ok: { clients: [{ client: 'local', local: true, scope: 'write' }, ...paired.map(({ token: _, ...c }) => c)] } });
+      if (request.method === 'revoke') return revoke(request.client) ? send({ ok: { revoked: request.client } }) : send({ error: { message: `no paired client \`${request.client}\`` } }, 404);
       // Scrubs, as the server takes them: a dev loop and a present client.
       if (request.method?.startsWith('scrub')) {
         if (!LIVE) return send({ error: { message: 'no builds preview here: a scrub needs the dev loop\'s design server' } }, 501);
@@ -248,12 +286,38 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
     },
   },
+  // A code for a client's own token, once; a wrong one is 403, saying nothing of which exist.
+  '/__tamber/pair': {
+    OPTIONS: preflight,
+    POST: async (req) => {
+      const { code, name } = await req.json().catch(() => ({}));
+      const at = typeof code === 'string' ? codes.get(code.toUpperCase()) : undefined;
+      if (!at) return send({ error: { message: 'no such pairing code: ask for another' } }, 403);
+      codes.delete(code.toUpperCase());
+      const label = (typeof name === 'string' && name) || at.name || 'client', now = new Date();
+      const p: Paired = { client: `remote:${label}#${paired.length + gone.size + 1}`, name: label, scope: at.scope, peer: '127.0.0.1', created: now.toISOString(), expires: new Date(now.getTime() + 12 * 3600_000).toISOString(), lastSeen: now.toISOString(), token: crypto.randomUUID() };
+      paired.push(p);
+      take({ event: 'paired', client: p.client, scope: p.scope });
+      save();
+      return send({ ok: { token: p.token, client: p.client, scope: p.scope, expires: p.expires } });
+    },
+  },
+  // The remote doors the next codes name (`{remote: [{origin, fingerprint}]}`), as `--remote` opens one.
+  '/__stub/remote': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      remote = (await req.json().catch(() => ({}))).remote ?? [];
+      return send({ ok: true });
+    },
+  },
   // Never held: the stub answers at once, so `clock data` lands it.
   '/__tamber/events': {
     OPTIONS: preflight,
     POST: async (req) => {
-      if (!authorized(req)) return send({ message: 'Not found.' }, 404);
-      const { after = 0, epoch, client } = await req.json().catch(() => ({}));
+      const asker = who(req);
+      if (!asker) return nobody(req);
+      const { after = 0, epoch, client: named } = await req.json().catch(() => ({}));
+      const client = asker.client ?? named;
       if (typeof client === 'string') present.add(client);
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
       miss = false;
@@ -275,6 +339,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       refuseDescribe = '';
       pins = 0;
       present.clear();
+      // (A restart revokes every paired client: the tokens were in memory.)
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;

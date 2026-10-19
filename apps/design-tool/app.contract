@@ -22,6 +22,43 @@ shape Hello
   // A dev loop serves the wire: a value edit applies in place, and a
   // scrub previews on the running copies.
   live: bool
+  // This tool's scope on the server, and whether its token is the local
+  // one, which pairs and revokes clients (tamber/1.13); a paired client's
+  // name, as the server gives it.
+  scope: string
+  local: bool
+  client: string
+
+// A remote door a paired client comes through (LLP 1121 stage 10 B): its
+// origin and its certificate's SHA-256, made for this run, which the other
+// machine checks; a tunnel the developer trusts has none.
+shape Door
+  origin: string
+  fingerprint: string
+  tunnel: bool
+
+// A pairing code (LLP 1122 D12, T6): good once, until `until`, for a
+// client's own token at `scope`.
+shape PairCode
+  ok: bool
+  error: string
+  code: string
+  scope: string
+  until: string
+  doors: Door[]
+
+shape Client
+  client: string
+  name: string
+  scope: string
+  peer: string
+  seen: string
+  until: string
+
+shape Clients
+  ok: bool
+  error: string
+  clients: Client[]
 
 shape Change
   seq: number
@@ -251,6 +288,8 @@ shape Changes
   // commit's dry run, a token's uses and a draft's proposal are read again
   // on, so a scrub's frames and its builds' statuses cost no reads.
   paced: string
+  // Each client paired or gone, and each start again: the clients read again on it.
+  clients: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -604,6 +643,12 @@ component DesignTool
   state proposeAt = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
+  // Pairing (LLP 1122 D12, T6), the local tool's alone: the scope a code is
+  // minted at, the code, the paired clients, and a revoke.
+  state pairScope = "propose"
+  mutation paircode as shape PairCode
+  resource clients = loadClients(hello.local, changes.clients) as shape Clients else empty(ok=true)
+  mutation revoked as shape Pinned refreshes clients
   derive client = `design-tool:${person}`
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
@@ -751,6 +796,14 @@ component DesignTool
       proposeAt = changes.paced
     epoch = changes.epoch
     asks = asks + 1
+  action choosePairScope(v: string)
+    pairScope = v
+  action mintCode
+    if not pending(paircode)
+      send paircode = mintCode(pairScope)
+  action revokeClient(c: string)
+    if not pending(revoked)
+      send revoked = revokeClient(c)
   action reconnect
     refresh hello
     // A poll still held answers for itself; a second would race it. One
@@ -1211,6 +1264,55 @@ component DesignTool
                 row gap=12
                   text f.path flex=1 testId=`file-${f.path}`
                   text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
+            // Pairing (LLP 1122 D12, T6): a code for a client on another
+            // machine, at a scope, with each remote door to check it by; the
+            // clients paired, each revoked here. The local tool's alone.
+            if hello.local
+              column gap=8 testId="pairing"
+                row gap=8 align-items="center" flex-wrap="wrap"
+                  text "Clients" role="heading" aria-level=2 flex=1
+                  select value=pairScope change=choosePairScope aria-label="Pairing scope" testId="pair-scope"
+                    option "Read" value="read"
+                    option "Propose" value="propose"
+                    option "Write" value="write"
+                  button press=mintCode disabled=pending(paircode) buttonStyle="bordered" testId="pair-mint"
+                    text "Pair a client"
+                text (pairScope == "read" ? "Read: it sees the design and its history, and inspects without moving anyone's screens." : pairScope == "propose" ? "Propose: it reads, and offers changes for someone with write to accept." : "Write: it edits, commits, and pins, holds and outlines on the running copies.") color="-exact-secondary-label" font="-exact-footnote" testId="pair-scope-note"
+                match paircode
+                  case some(c)
+                    if c.ok
+                      column gap=4 padding=12 border-radius=12 background-color="-exact-secondary-background" testId="pair-code"
+                        text c.code font="-exact-title2" font-family="ui-monospace, monospace" testId="pair-code-text"
+                        text `Good once, until ${c.until}, for a client of its own at ${c.scope}. Type it on the other machine; nothing else is needed.` color="-exact-secondary-label" font="-exact-footnote" testId="pair-code-note"
+                        if c.doors.length == 0
+                          text "No remote door is open: start the dev loop or tamber serve with --remote <host:port> for a client on another machine." color="-exact-secondary-label" font="-exact-footnote" testId="pair-no-door"
+                        for d in c.doors key=d.origin
+                          if d.tunnel
+                            text `Through the tunnel you trusted, at ${d.origin}` font="-exact-footnote" testId=`pair-door-${d.origin}`
+                          else
+                            column gap=2 testId=`pair-door-${d.origin}`
+                              text `Open ${d.origin}/__tamber/tool/ there, and check its certificate's SHA-256 is` font="-exact-footnote"
+                              text d.fingerprint font="-exact-caption1" font-family="ui-monospace, monospace" testId=`pair-fingerprint-${d.origin}`
+                    else
+                      text c.error color="-exact-system-red" font="-exact-footnote" testId="pair-error"
+                  case none
+                    text "" display="none"
+                if not clients.ok
+                  text clients.error color="-exact-system-red" font="-exact-footnote" testId="clients-error"
+                else if clients.clients.length == 0
+                  text "No client is paired." color="-exact-secondary-label" font="-exact-footnote" testId="no-clients"
+                for k in clients.clients key=k.client
+                  row gap=8 align-items="center" flex-wrap="wrap" testId=`client-${k.client}`
+                    text k.client flex=1 min-width=0
+                    text k.scope font="-exact-footnote" testId=`client-scope-${k.client}`
+                    text `${k.peer}${k.seen != "" ? ` · seen ${k.seen}` : ""}` color="-exact-secondary-label" font="-exact-footnote"
+                    button press=revokeClient(k.client) disabled=pending(revoked) buttonStyle="bordered" testId=`revoke-${k.client}`
+                      text "Revoke"
+                match revoked
+                  case some(r)
+                    text (r.ok ? r.note : r.error) color=(r.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId="revoke-result"
+                  case none
+                    text "" display="none"
             // The canvas (LLP 1122 D3): the running app, at the dev loop's own
             // URL, in a frame the tool never scripts; every control goes
             // through the design server. Sandboxed short of navigating the tool.

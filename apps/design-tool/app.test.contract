@@ -10,7 +10,7 @@ test "it asks for the person's name once, then shows the server's hello"
   clock data
   expect text "person" == "design-tool:Ada"
   expect text "app" == "/stub/theme-fixture"
-  expect text "protocol" == "tamber/1.1 · IR format 1"
+  expect text "protocol" == "tamber/1.13 · IR format 1"
   expect tree has "file-app.tamber"
   expect tree has "file-brand.tamber"
   reload
@@ -1693,3 +1693,43 @@ test "Enter in Rename or in a new token's fields proposes it, as its button does
   expect state editKind == "add-token"
   expect state editTarget == "surface.raised"
   expect state editValue == "#ffffff"
+
+test "pairing: a code at the scope chosen, with each remote door's fingerprint to check; the clients as they pair; a revoke ends one"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/remote" {"remote": [{"origin": "https://192.168.1.20:7743", "fingerprint": "AB:CD:EF:01"}, {"origin": "http://127.0.0.1:7744", "tunnel": true}]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "no-clients" == "No client is paired."
+  expect text "pair-scope-note" == "Propose: it reads, and offers changes for someone with write to accept."
+  type "pair-scope" "read"
+  expect text "pair-scope-note" == "Read: it sees the design and its history, and inspects without moving anyone's screens."
+  tap "pair-mint"
+  clock data
+  expect text "pair-code-text" == "7Q2KD-M4X01"
+  expect text "pair-fingerprint-https://192.168.1.20:7743" == "AB:CD:EF:01"
+  expect text "pair-door-http://127.0.0.1:7744" == "Through the tunnel you trusted, at http://127.0.0.1:7744"
+  request POST "/__tamber/pair" {"code": "7Q2KD-M4X01", "name": "laptop"} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "client-scope-remote:laptop#1" == "read"
+  expect tree missing "no-clients"
+  tap "revoke-remote:laptop#1"
+  clock data
+  expect text "revoke-result" == "remote:laptop#1 was revoked: its token is refused from now on, and its stream and long poll end."
+  expect tree missing "client-remote:laptop#1"
+  expect text "no-clients" == "No client is paired."
+  request POST "/__stub/restart" {} as ada
+
+test "pairing with no remote door open says how to open one"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "pair-mint"
+  clock data
+  expect text "pair-code-text" == "7Q2KD-M4X01"
+  expect text "pair-no-door" == "No remote door is open: start the dev loop or tamber serve with --remote <host:port> for a client on another machine."
+  request POST "/__stub/restart" {} as ada
