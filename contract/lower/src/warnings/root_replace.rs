@@ -40,6 +40,8 @@
 //!
 //! Tabs and every other form are the benefit of the doubt, and a hidden or
 //! disabled button is left alone as plainly unused.
+//!
+//! The file's other warning is the router's too: [`select_after_push`].
 
 use crate::LowerError;
 use contract_syntax::{Attr, BinOp, Component, Expr, Node, Span, Stmt, TemplatePart};
@@ -47,7 +49,14 @@ use contract_types::Checked;
 use exact_route::Table;
 use std::collections::BTreeSet;
 
-pub(super) fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
+/// The router's warnings: [`root_replace`]'s, then [`select_after_push`]'s.
+pub(super) fn router(checked: &Checked<'_>) -> Vec<LowerError> {
+    let mut out = root_replace(checked);
+    out.extend(select_after_push(checked));
+    out
+}
+
+fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
     let (Some(decl), Some(table)) = (&checked.file.routes, &checked.types.shapes.routes) else {
         return Vec::new();
     };
@@ -100,6 +109,72 @@ pub(super) fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
         }
     }
     out
+}
+
+/// `lower-select-after-push`: `select` of a router a `go` or `push` of the
+/// same action made, directly or through a `let`. Both add the visit to the
+/// selected tab's stack, whatever tab declares its route (LLP 1038 §3), so
+/// the tab selected next shows its own stack and the visit waits on the tab
+/// left: a deep link into another tab that opens nothing (the euxy port).
+fn select_after_push(checked: &Checked<'_>) -> Vec<LowerError> {
+    let Some(decl) = &checked.file.routes else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for action in &checked.expanded.root.actions {
+        let mut statements = Vec::new();
+        every(&action.body, &mut statements);
+        let mut pushed: Vec<(&str, &str)> = Vec::new();
+        for s in statements {
+            let e = match s {
+                Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => expr,
+                _ => continue,
+            };
+            selects(e, &decl.slot, &pushed, &mut out);
+            if let Stmt::Let { name, expr, .. } = s {
+                pushed.retain(|(p, _)| p != name);
+                if let Some(verb) = pushes(expr) {
+                    pushed.push((name, verb));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The verb, `go` or `push`, a router value is made by, through `?:`.
+fn pushes(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Call(f, _, _) if f == "go" || f == "push" => Some(f),
+        Expr::Ternary(_, a, b, _) => pushes(a).or_else(|| pushes(b)),
+        _ => None,
+    }
+}
+
+/// Each `select` in `e` of a router a `go` or `push` made.
+fn selects(e: &Expr, nav: &str, pushed: &[(&str, &str)], out: &mut Vec<LowerError>) {
+    if let Expr::Call(f, args, span) = e {
+        if let ("select", [router, tab]) = (f.as_str(), args.as_slice()) {
+            let verb = match router {
+                Expr::Ident(n, _) => pushed.iter().rev().find(|(p, _)| p == n).map(|(_, v)| *v),
+                other => pushes(other),
+            };
+            if let Some(verb) = verb {
+                let tab = match tab {
+                    Expr::Str(t, _) => format!("\"{t}\""),
+                    _ => "tab".into(),
+                };
+                out.push(LowerError {
+                    id: "lower-select-after-push",
+                    message: format!("this `select` shows {tab} as it was: `{verb}` adds its visit to the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left. To open a location on its own tab, write `go(select({nav}, {tab}), url)` (onto that tab's stack) or `open({nav}, url)` (its declared chain, in place of that tab's stack) (docs/recipes/tabs.md)"),
+                    span: *span,
+                });
+            }
+        }
+    }
+    for x in parts(e) {
+        selects(x, nav, pushed, out);
+    }
 }
 
 /// What the app's declarations say.

@@ -172,12 +172,89 @@ pub(super) fn location(f: Stdlib, args: &[Expr], shapes: &Shapes) -> Result<(), 
         return Ok(());
     };
     match &args[1] {
-        Expr::Template(_, span) => err("route-template", "use `path()`", *span),
+        Expr::Template(parts, span) => {
+            let call = path_call(parts, table)
+                .map(|c| match c.contains('`') {
+                    true => format!(": write `` {c} ``"),
+                    false => format!(": write `{c}`"),
+                })
+                .unwrap_or_default();
+            err("route-template", format!("a computed location is `path(\"route\", …)`, which encodes each parameter (a `/` or `%` in a template's would make another location){call}"), *span)
+        }
         Expr::Str(url, span) if table.matches_pattern(url).is_none() => {
             err("route-no-match", format!("no route matches `{url}`"), *span)
         }
         _ => Ok(()),
     }
+}
+
+/// The `path()` a template location spells, when each interpolation is a
+/// whole segment of one route's pattern and simple enough to write back:
+/// `` `/day/${d.key}` `` is `path("day", d.key)`. A query after it is
+/// concatenated, `path("open") + `?u=${u}``.
+fn path_call(parts: &[TemplatePart], table: &exact_route::Table) -> Option<String> {
+    fn written(e: &Expr) -> Option<String> {
+        Some(match e {
+            Expr::Ident(n, _) => n.clone(),
+            Expr::Member(base, field, _) => format!("{}.{field}", written(base)?),
+            Expr::Str(s, _) => format!("{s:?}"),
+            Expr::Number(n, _) => n.to_string(),
+            Expr::Call(f, args, _) => {
+                let args = args.iter().map(written).collect::<Option<Vec<_>>>()?;
+                format!("{f}({})", args.join(", "))
+            }
+            _ => return None,
+        })
+    }
+    // The path's segments, each its pieces, and the query's own text.
+    let mut segments: Vec<Vec<Result<String, &Expr>>> = vec![Vec::new()];
+    let mut query: Option<String> = None;
+    for part in parts {
+        match (part, query.as_mut()) {
+            (TemplatePart::Text(t), Some(q)) => q.push_str(t),
+            (TemplatePart::Expr(e), Some(q)) => q.push_str(&format!("${{{}}}", written(e)?)),
+            (TemplatePart::Expr(e), None) => segments.last_mut()?.push(Err(e)),
+            (TemplatePart::Text(t), None) => {
+                for (i, c) in t.char_indices() {
+                    match c {
+                        '/' => segments.push(Vec::new()),
+                        '?' | '#' => {
+                            query = Some(t[i..].to_string());
+                            break;
+                        }
+                        _ => match segments.last_mut()?.last_mut() {
+                            Some(Ok(s)) => s.push(c),
+                            _ => segments.last_mut()?.push(Ok(String::from(c))),
+                        },
+                    }
+                }
+            }
+        }
+    }
+    let route = table.routes.iter().find(|r| {
+        let pattern: Vec<&str> = r.pattern.split('/').collect();
+        !r.notfound
+            && pattern.len() == segments.len()
+            && pattern
+                .iter()
+                .zip(&segments)
+                .all(|(p, s)| match s.as_slice() {
+                    [Err(_)] => p.starts_with(':'),
+                    [Ok(text)] => p.starts_with(':') || *p == text.as_str(),
+                    [] => p.is_empty(),
+                    _ => false,
+                })
+    })?;
+    let mut args = vec![format!("{:?}", route.name)];
+    for (p, s) in route.pattern.split('/').zip(&segments) {
+        match (p.starts_with(':'), s.as_slice()) {
+            (true, [Err(e)]) => args.push(written(e)?),
+            (true, [Ok(text)]) => args.push(format!("{text:?}")),
+            _ => {}
+        }
+    }
+    let query = query.map(|q| format!(" + `{q}`")).unwrap_or_default();
+    Some(format!("path({}){query}", args.join(", ")))
 }
 
 /// Expand the compiler's `path()` call to the ordinary template/roster AST.

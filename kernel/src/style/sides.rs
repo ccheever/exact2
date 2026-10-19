@@ -2,8 +2,9 @@
 //! `border-width`, `border-style`, `border-color`, `scroll-padding`,
 //! `scroll-margin` (CSS Box 4 §6, CSS Backgrounds 3 §4, CSS Position 3 §3.1,
 //! CSS Scroll Snap 1 §6) and `border-radius` (CSS Backgrounds 3 §5.1). The
-//! compiler splits a literal into its four rows, as the browser expands the
-//! shorthand, and refuses a computed list (LLP 1001 §1): no row splits one.
+//! compiler splits a literal, or a template at its text's white space, into
+//! its four rows, as the browser expands the shorthand, and refuses another
+//! computed list (LLP 1001 §1): no row splits one.
 
 use crate::generated::StyleId;
 
