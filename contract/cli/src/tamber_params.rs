@@ -159,7 +159,8 @@ pub fn fold_with(
         return Err(refused.into_iter().map(|e| packaged(e, app)).collect());
     }
     let folding = exact_tamber::check_design(laid(&design, app), vocab)?;
-    let wrong = contract_lower::package_references(&folding, &app.packages);
+    let wrong =
+        contract_lower::package_references(&folding, &app.packages, &app.tokens, &app.identities);
     if !wrong.is_empty() {
         return Err(wrong.into_iter().map(|e| packaged(e, app)).collect());
     }

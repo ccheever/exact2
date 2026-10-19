@@ -356,3 +356,130 @@ fn a_package_params_default_names_its_packages_own() {
     contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Round 2 (Astra 1): what a package param's default reads moves with the
+/// package's design, whole: the server's cached retention follows it, as a
+/// fresh server's does.
+#[test]
+fn a_package_tokens_edit_moves_what_its_params_keep() {
+    let dir = reading("pkg-params-chain");
+    let file = dir.join("app.tamber");
+    std::fs::write(
+        &file,
+        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #111111\n",
+    )
+    .unwrap();
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let chain = |to: &str| {
+        format!("tamber reading\n\ntheme\n  reading.gap: length = space.md\n  reading.old = #111111\n  reading.new = #222222\n  reading.pin = {to}\n\ncomponent Map\n  params\n    pin: color = reading.pin\n")
+    };
+    std::fs::write(&design, chain("reading.old")).unwrap();
+    let vary = |name: &str| {
+        json!({"method": "propose", "ops": [
+            {"op": "add-token", "name": name, "value": "#333333"},
+            {"op": "set-token", "name": name, "when": [{"axis": "mode", "value": "b"}], "value": "#444444"}
+        ]})
+    };
+    let mut s = Serve::start(&dir, &[]);
+    // Primed on the chain through `reading.old`, which the param keeps.
+    let (before, _) = s.ask(vary("reading.old"));
+    assert_eq!(before["ok"]["class"], "rebuild", "{before}");
+    std::fs::write(&design, chain("reading.new")).unwrap();
+    let primed: Vec<Value> = ["reading.old", "reading.new"]
+        .iter()
+        .map(|n| s.ask(vary(n)).0)
+        .collect();
+    drop(s);
+    let mut fresh = Serve::start(&dir, &[]);
+    for (i, n) in ["reading.old", "reading.new"].iter().enumerate() {
+        let (expected, _) = fresh.ask(vary(n));
+        assert!(expected.get("ok").is_some(), "{expected}");
+        assert_eq!(
+            primed[i]["ok"]["class"], expected["ok"]["class"],
+            "{n}: {} {expected}",
+            primed[i]
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 2 (Astra 2, Grok 1 and 2): a default written as a whole alias is
+/// judged as written: the app's profile colour (folded as `transparent`,
+/// naming none) and the app's icon are refused at the default in the
+/// package's file; a literal icon is the package's own.
+#[test]
+fn a_package_params_written_alias_is_judged_as_written() {
+    let dir = reading("pkg-params-written");
+    std::fs::write(
+        dir.join("app.contract"),
+        "color-profile --brand src=\"assets/brand.icc\"\n\nuse Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = color(--brand 0.1 0.2 0.3 0.4)\n\nicons\n  icon.app = icon(sf \"star\")\n",
+    )
+    .unwrap();
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&design).unwrap();
+    for (param, said) in [
+        ("pin: color = ink", "ink"),
+        ("glyph: icon = icon.app", "icon.app"),
+    ] {
+        std::fs::write(&design, text.replace("pin: color = reading.pin", param)).unwrap();
+        let e = contract::compile_path(&dir.join("app.contract")).expect_err("refused");
+        assert_eq!(e.id, "tamber-unknown-token", "{param}: {e}");
+        let shown = format!("{e}");
+        assert!(
+            shown.contains("reading.tamber:9:") && shown.contains(said),
+            "{param}: {shown}"
+        );
+    }
+    std::fs::write(
+        &design,
+        text.replace(
+            "pin: color = reading.pin",
+            "glyph: icon = icon(sf \"heart\")",
+        ),
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 2 (Grok 3): the app's `params` line sets a package's param only by
+/// a name only it answers; an ambiguous short name sets none, so the
+/// default's own refusal is still said beside `tamber-param-ambiguous`.
+#[test]
+fn an_ambiguous_short_name_sets_no_package_param() {
+    let dir = reading("pkg-params-ambiguous");
+    package(
+        &dir,
+        "maps",
+        "component Pin\n  view\n    text \"p\"\n",
+        "tamber maps\n\ntheme\n  maps.pin = #223344\n\ncomponent Map\n  params\n    pin: color = maps.pin\n",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\nuse Pin from \"@acme/maps\"\ncomponent App\n  view\n    column\n      Card()\n      Pin()\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n\nparams\n  Map.pin = ink\n",
+    )
+    .unwrap();
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&design).unwrap();
+    std::fs::write(
+        &design,
+        text.replace("pin: color = reading.pin", "pin: color = ink"),
+    )
+    .unwrap();
+    let Err(errors) = contract::compile_path_all(&dir.join("app.contract"), false) else {
+        panic!("refused")
+    };
+    let ids: Vec<String> = errors.iter().map(|e| e.id.to_string()).collect();
+    assert!(ids.iter().any(|i| i == "tamber-unknown-token"), "{ids:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

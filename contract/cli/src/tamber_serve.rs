@@ -386,13 +386,16 @@ impl Server {
             // what their defaults read.
             key.push_str(&format!("{:?}\n", design.components));
         }
-        // A package design's components too (stage 12 B1 round 1): their
-        // params are roots of retention, which the walk's key (it leaves
-        // design files out) does not see move.
+        // A package design too, whole (stage 12 B1 rounds 1 and 2): its
+        // components' params are roots of retention and its tokens what
+        // their defaults read, which the walk's key (it leaves design files
+        // out) does not see move.
         for package in &self.app_params().packages {
-            if let Ok(d) = exact_tamber::parse(&package.text) {
-                key.push_str(&format!("{}{:?}\n", package.home, d.components));
-            }
+            key.push_str(&format!(
+                "{} {}\n",
+                package.home,
+                digest(package.text.as_bytes())
+            ));
         }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {

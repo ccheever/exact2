@@ -246,7 +246,14 @@ pub(crate) fn unband(message: &str) -> String {
 /// names). A whole alias of a profile's colour, which the build carries as
 /// written out of the fold, is read from the package's own text. Each
 /// refusal at the token's line in its package's design.
-pub(crate) fn references(folding: &tamber::Folding, packages: &[DesignSource]) -> Vec<LowerError> {
+/// `all` and `identities` are the app's params and components, which say
+/// whether the app's design sets a package's param (a unique match).
+pub(crate) fn references(
+    folding: &tamber::Folding,
+    packages: &[DesignSource],
+    all: &[crate::params::ParamToken],
+    identities: &[String],
+) -> Vec<LowerError> {
     let mut refused = Vec::new();
     let declared: Vec<Vec<tamber::Token>> = packages
         .iter()
@@ -314,12 +321,10 @@ pub(crate) fn references(folding: &tamber::Folding, packages: &[DesignSource]) -
         let params = crate::params::design_tokens(source).0;
         let package = source.package.as_deref().unwrap_or_default();
         for p in &params {
-            let Some(checked) = folding.tokens.iter().find(|t| t.name == p.token) else {
-                continue;
-            };
-            // One the app sets is the app's value, which names the app's.
+            // One the app sets, by a name only it answers, is the app's
+            // value, which names the app's (round 2, Grok 3).
             let set = folding.design.params.iter().any(|e| {
-                crate::params::resolve(&params, &[], &e.name.value)
+                crate::params::resolve(all, identities, &e.name.value)
                     .is_ok_and(|q| q.token == p.token)
             });
             if set {
@@ -337,16 +342,40 @@ pub(crate) fn references(folding: &tamber::Folding, packages: &[DesignSource]) -
                     span: p.param.default_span,
                 })
             };
-            for name in checked.names.iter().chain(&checked.pairs) {
-                if !own(band, name) && !shared(name) && !sibling(name) {
+            let foreign = |name: &str| !own(band, name) && !shared(name) && !sibling(name);
+            // What its fold read (an icon param's is on `icons`, with none).
+            let checked = folding.tokens.iter().find(|t| t.name == p.token);
+            let names: Vec<&String> = checked
+                .into_iter()
+                .flat_map(|c| c.names.iter().chain(&c.pairs))
+                .collect();
+            for name in &names {
+                if foreign(name) {
                     let shown = crate::params::shown(name, &params);
                     wrong(format!(
                         "`{shown}`, a token that isn't the package `{package}`'s"
                     ));
                 }
             }
-            for dial in &checked.reads {
+            for dial in checked.into_iter().flat_map(|c| &c.reads) {
                 wrong(format!("the dial `{dial}`"));
+            }
+            // A whole alias as written (round 2, Astra 2 and Grok 1, 2): a
+            // profile colour's is folded as `transparent`, naming none, and
+            // an icon param's names an icon; a literal (`icon(sf "…")`)
+            // names nothing.
+            let whole = p.param.default.trim();
+            let named = folding
+                .design
+                .tokens
+                .iter()
+                .chain(&folding.design.icons)
+                .any(|t| t.name.value == whole);
+            if named && foreign(whole) && !names.iter().any(|n| *n == whole) {
+                let shown = crate::params::shown(whole, &params);
+                wrong(format!(
+                    "`{shown}`, a token or icon that isn't the package `{package}`'s"
+                ));
             }
         }
     }
@@ -361,7 +390,9 @@ impl crate::Lowerer<'_> {
         folding: &tamber::Folding,
         file: &contract_syntax::File,
     ) -> bool {
-        let wrong = references(folding, &file.package_designs);
+        let all = crate::params::tokens(file);
+        let identities = crate::params::identities(file);
+        let wrong = references(folding, &file.package_designs, &all, &identities);
         let any = !wrong.is_empty();
         for e in wrong {
             self.push(e);

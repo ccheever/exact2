@@ -5267,3 +5267,22 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
     component's other params (`param.pin`), and no dial. A refusal is `tamber-unknown-token` at the default, in the
     package's file. A param the app sets is the app's value and is not held to it. Tests: `maps.pin` and `ink` are
     refused at `reading.tamber:9`; a sibling param is admitted; the app's `Map.pin = ink` builds.
+- **After review round 2 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **The retention key holds each package design whole** (Astra 1). Round 1's key held a package design's
+    components, not its tokens, which a param's default reads through. The key now holds each package design's
+    digest (`Server::synthetic`). Test: `a_package_tokens_edit_moves_what_its_params_keep` primes on
+    `Map.pin → reading.pin → reading.old` (an override of `reading.old` over an axis is `rebuild`), moves
+    `reading.pin` to `reading.new`, and holds both overrides' classes to a fresh server's. On round 1's code the
+    sequence already matched a fresh server (the server's walk notices the package design's file move and builds
+    again), so the test guards the rule rather than reproducing a fault.
+  - **A written whole alias is judged as written** (Astra 2 = Grok 1, 2). A profile colour folds as `transparent`,
+    naming none, and an icon param lies on `icons`, so `pin: color = ink` (the app's `color(--brand …)`) and
+    `glyph: icon = icon.app` (the app's icon) passed. The default as written is now held to the package's rule as
+    the theme tokens' are: a whole token or icon name that isn't the package's, a role, a base name or a sibling param
+    is `tamber-unknown-token` at the default in the package's file. A literal `icon(sf "…")` names nothing. Tests:
+    both are refused at `reading.tamber:9`, and `glyph: icon = icon(sf "heart")` builds.
+  - **The app sets a package param only by a name only it answers** (Grok 3). Whether the app's `params` line sets
+    a param is decided with `resolve` over every param and the Contract components (`package_references` takes them
+    now), so an ambiguous short name sets none, and the default's refusal is said beside `tamber-param-ambiguous`.
+    Test: two packages' `Map`, the app's `Map.pin = ink`, and reading's default `ink`: `tamber-unknown-token` is
+    among the build's refusals.
