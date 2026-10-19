@@ -11,28 +11,33 @@ import { checkoutPort } from './port-lock.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
-/** The app directory `argv` names, as resolveApp (app.mjs) reads it:
- * EXACT_APP_DIR, else `--app`'s path or name under apps/; null for none. */
+/** The app directory `argv` names, as resolveApp (app.mjs) reads it: `--app`'s
+ * path, else EXACT_APP_DIR, else `--app`'s name under apps/; null for none.
+ * `at` is `--app`'s value's index when it is a path (which resolveApp would
+ * take over EXACT_APP_DIR). */
 function namedDir(argv) {
-  if (process.env.EXACT_APP_DIR) return resolve(process.env.EXACT_APP_DIR);
-  const at = argv.findIndex(a => a === '--app' || a.startsWith('--app='));
-  const app = at < 0 ? null : argv[at].startsWith('--app=') ? argv[at].slice(6) : argv[at + 1];
-  if (!app) return null;
-  return /[\\/]|^\.\.?$/.test(app) ? resolve(app) : resolve(ROOT, 'apps', app.replace(/-(web|apple|ios|macos|linux|windows|gpu)$/, ''));
+  const flag = argv.indexOf('--app'), app = flag < 0 ? null : argv[flag + 1];
+  if (app && /[\\/]|^\.\.?$/.test(app)) return { dir: resolve(app), at: flag + 1 };
+  if (process.env.EXACT_APP_DIR) return { dir: resolve(process.env.EXACT_APP_DIR) };
+  return app ? { dir: resolve(ROOT, 'apps', app.replace(/-(web|apple|ios|macos|linux|windows|gpu)$/, '')) } : null;
 }
 
 /** `argv` (a `verb`'s: agent or verify, its host first) for a drive of this
  * checkout's design tool: EXACT_TOOL_PORT set (the checkout's unless named),
  * EXACT_APP_DIR and EXACT_WEB_DIST the stage's, and each `--test` file mapped
- * into it. Any other app, or EXACT_TOOL_PORT=7740, is left as it is. */
+ * into it. Any other app, EXACT_TOOL_PORT=7740 or a request for help is left
+ * as it is. */
 export async function toolDrive(verb, argv) {
-  const dir = namedDir(argv), tool = resolve(ROOT, 'apps/design-tool');
-  if (!dir || !existsSync(dir) || !existsSync(tool) || realpathSync(dir) !== realpathSync(tool)) return argv;
+  if (argv.includes('--help') || argv.includes('-h')) return argv;
+  const named = namedDir(argv), tool = resolve(ROOT, 'apps/design-tool');
+  if (!named || !existsSync(named.dir) || !existsSync(tool) || realpathSync(named.dir) !== realpathSync(tool)) return argv;
   process.env.EXACT_TOOL_PORT ??= String(checkoutPort(ROOT));
   const { stageToolTests, testFiles } = await import('./tamber-tool-port.mjs');
   const tested = testFiles(verb, argv, (await import('./help.mjs')).knownFlags(verb));
-  const staged = stageToolTests(dir, argv, i => tested.has(i));
+  const staged = stageToolTests(named.dir, argv, i => tested.has(i));
   if (!staged) return argv;
   process.env.EXACT_APP_DIR = staged.dir;
-  return staged.args;
+  // A path would name the tool's own directory again (resolveApp takes it
+  // over EXACT_APP_DIR): its name, which the stage's directory answers.
+  return named.at === undefined ? staged.args : staged.args.map((a, i) => (i === named.at ? 'design-tool' : a));
 }

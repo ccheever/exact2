@@ -25,8 +25,11 @@ test('a drive or verify naming the design tool runs on the checkout\'s own port,
   const agent = drive('agent', ['web', '--app', 'design-tool', '--test', 'apps/design-tool/app.test.contract', 'tree']);
   expect(agent).toEqual({ args: ['web', '--app', 'design-tool', '--test', resolve(stage, 'app.test.contract'), 'tree'], port: String(port), dir: stage, dist: resolve(ROOT, `target/design-tool-test-web-${port}`) });
   // By its path, and under verify.
+  // (The path given way to the tool's name, which the stage answers: resolveApp takes a path over EXACT_APP_DIR.)
   const verify = drive('verify', ['web', '--app', 'apps/design-tool']);
-  expect([verify.port, verify.dir]).toEqual([String(port), stage]);
+  expect([verify.args, verify.port, verify.dir]).toEqual([['web', '--app', 'design-tool'], String(port), stage]);
+  // A path names the tool over another app's EXACT_APP_DIR, as resolveApp reads them.
+  expect(drive('agent', ['web', '--app', './apps/design-tool'], { EXACT_APP_DIR: resolve(ROOT, 'apps/caltrain') }).dir).toBe(stage);
   // The stage names its stub's server at that port, not 7740 (verify.mjs appServer reads app.ts's origin).
   expect(appServer(stage).port).toBe(port);
   // A port named is that port's stage.
@@ -40,5 +43,27 @@ test('another app, a drive already in a stage, and EXACT_TOOL_PORT=7740 are left
   // Through its exact.mjs (app-cli.mjs), EXACT_APP_DIR is already the stage.
   const staged = resolve(ROOT, 'target/design-tool-test-17996');
   expect(drive('agent', ['web', '--app', 'design-tool'], { EXACT_APP_DIR: staged, EXACT_TOOL_PORT: '17996' })).toEqual({ args: ['web', '--app', 'design-tool'], port: '17996', dir: staged, dist: null });
+  // Help stages nothing.
+  expect(drive('agent', ['web', '--app', 'design-tool', '--help'])).toEqual({ args: ['web', '--app', 'design-tool', '--help'], ...none });
   expect(drive('verify', ['web', '--app', 'design-tool'], { EXACT_TOOL_PORT: '7740' })).toEqual({ args: ['web', '--app', 'design-tool'], port: '7740', dir: null, dist: null });
 });
+
+test('agent.mjs and verify.mjs named the tool by its path or name stage it: what answers at its stub\'s port is that port\'s, never 7740', async () => {
+  // Something already answering at the stage's port: each refuses before any
+  // build, naming the URL it would have started the stub at.
+  const port = 17994, held = Bun.serve({ port, hostname: '127.0.0.1', fetch: () => new Response('held') });
+  try {
+    const env = { ...process.env, EXACT_TOOL_PORT: String(port) };
+    for (const k of ['EXACT_APP_DIR', 'EXACT_WEB_DIST']) delete env[k];
+    const run = (args) => { const r = spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8', timeout: 120_000 }); return `${r.stdout}${r.stderr}`; };
+    const said = [
+      run(['scripts/verify.mjs', 'web', '--app', 'apps/design-tool']),
+      run(['scripts/verify.mjs', 'web', '--app', 'design-tool']),
+      run(['scripts/agent.mjs', 'web', '--app', './apps/design-tool', '--storage', 'tool-drive-test', '--reset-storage', 'tree']),
+    ];
+    for (const s of said) {
+      expect(s).toContain(`127.0.0.1:${port}`);
+      expect(s).not.toContain('127.0.0.1:7740');
+    }
+  } finally { held.stop(true); }
+}, 300_000);
