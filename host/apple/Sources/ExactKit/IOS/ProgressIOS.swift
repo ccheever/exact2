@@ -52,7 +52,7 @@ extension ControlHost {
             // `var(--exact-accent, AccentColor)` does (LLP 1121 D9, stage 9 F1).
             // (Resolved in the spinner's appearance, as the painters resolve it.)
             let kept = written || owner.style["accent_color"]?.namesTint != true ? nil
-                : authoredAbove(owner)?.style["accent_color"]?.channels(dark: owner.drawsDark, contrast: owner.drawsHighContrast, elevated: owner.drawsElevated).map { TextEngine.color($0) }
+                : authoredAbove(owner).flatMap { above in above.style["accent_color"].flatMap { $0.channels(dark: owner.drawsDark, contrast: owner.drawsHighContrast, elevated: owner.drawsElevated, tint: above.ownTint(for: $0)) } }.map { TextEngine.color($0) }
             let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
             assign(spinner, \.color, own ?? accent ?? Self.platformInk)
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
@@ -74,7 +74,7 @@ extension ControlHost {
     static func authorsAccent(_ view: NodeView) -> Bool {
         guard let accent = view.style["accent_color"] else { return false }
         // A colour of its own, or one made from the tint (`Highlight`'s `@tint/0.2`); not the tint itself.
-        if case .object(let o) = accent, let sys = o["sys"]?.string { return sys.hasPrefix("@tint/") }
+        if case .object(let o) = accent, let sys = o["sys"]?.string { return sys != "@tint" }
         return !accent.namesTint
     }
     /// The nearest view above `view` that authors an accent, if one does, by
