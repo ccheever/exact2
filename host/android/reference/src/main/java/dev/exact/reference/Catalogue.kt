@@ -11,13 +11,18 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.graphics.toArgb
 
 /**
  * The catalogue on a phone (LLP 1115.001.001 D4): one specimen of `specimens.json`, `--es id <id> --es scheme
  * light|dark`, drawn as `DrawTest` draws it on the JVM, over the whole screen with the system bars hidden, so that a
  * screenshot holds only the specimen. `--es scheme dynamic-light|dynamic-dark` draws it in the phone's own colours,
- * which the reader shows Exact's side in, and each launch logs those two schemes (tag `reference`) for the door.
+ * which the reader shows Exact's side in, and each launch logs those two schemes (tag `reference`) for the door. Once
+ * the specimen has settled (600 ms of the phone's frames for a focus and a label's float, a keyboard a focus raised
+ * put away, as it would move the window) it logs `drawn <nonce>`, the launch's `--es nonce`, for `oracle.mjs
+ * --phone` to take its picture.
  */
 class Catalogue : ComponentActivity() {
     override fun onCreate(state: Bundle?) {
@@ -32,7 +37,17 @@ class Catalogue : ComponentActivity() {
         for ((name, s) in listOf("light" to dynamicLightColorScheme(this), "dark" to dynamicDarkColorScheme(this))) {
             Log.i("reference", "dynamic $name " + roles(s).joinToString(",") { (k, v) -> "$k=${v.toArgb().toLong() and 0xFFFFFFFFL}" })
         }
-        setContent { Specimen(id, scheme) }
+        setContent {
+            Specimen(id, scheme)
+            LaunchedEffect(Unit) {
+                val start = withFrameMillis { it }
+                while (withFrameMillis { it } - start < 600) Unit
+                window.insetsController?.hide(WindowInsets.Type.ime())
+                while (window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true) withFrameMillis { }
+                repeat(10) { withFrameMillis { } }
+                Log.i("reference", "drawn ${intent.getStringExtra("nonce")}")
+            }
+        }
         window.setDecorFitsSystemWindows(false)
         window.insetsController?.apply {
             hide(WindowInsets.Type.systemBars())

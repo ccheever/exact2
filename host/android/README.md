@@ -1161,7 +1161,13 @@ app. On a machine with the SDK, Java 21 (`JAVA_HOME`) and Cargo:
 The report is `reference/build/oracle/report.html`. `specimens.json` lists the specimens, their probes and the planted
 defects; each specimen's Exact half is `apps/material-specimens/specimens/<id>.contract`.
 
-On a phone (O2's calibration, LLP 1115.001.001 §3): `./gradlew :reference:assembleDebug` builds the catalogue, which
-draws the specimen `--es id <id> --es scheme light|dark` names over the whole screen, and `bun
-scripts/agent-android.mjs build material-specimens --apk` the specimen app, whose reader boots a specimen's plan
-(`contract build`) pushed to the phone and named by `--es x_plan <path>`.
+On a phone (D4's calibration, LLP 1115.001.001 §3), after the build box's run:
+
+    bun host/android/reference/oracle.mjs --phone <adb serial>
+
+builds and installs the catalogue (`:reference`'s debug APK, which draws the specimen `--es id <id> --es scheme
+light|dark|dynamic-light|dynamic-dark` names over the whole screen and logs `drawn` once settled) and the specimen app
+(`agent-android.mjs build material-specimens --apk`), draws each specimen on the phone both ways (the reader driven by
+`agent.mjs android --reader --plan`, which pushes the plan), and writes `phone/floors.json`: each layer's largest
+difference between two renders of one side, and between the two sides on the phone. It moves the phone's night mode
+and puts it back.
