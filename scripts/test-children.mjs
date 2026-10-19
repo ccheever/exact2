@@ -62,7 +62,8 @@ const kill = (pids, name) => { for (const pid of pids) { try { process.kill(pid,
 /** `spawn`, owned until it is stopped. What it starts is noted as it starts
  * it, and through a stop's grace (a dev loop's tools lead their own groups and
  * may be orphaned before a test's end could look for them; one started and
- * orphaned between two looks is missed: best effort). */
+ * orphaned between two looks is missed: best effort; a daemon it starts that
+ * outlives it and serves others, a build cache server, is signalled too). */
 export function spawnOwned(command, args = [], options = {}) {
   const child = spawn(command, args, options);
   child.known = new Map();
