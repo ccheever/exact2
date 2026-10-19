@@ -39,7 +39,7 @@ impl DataSource for Fixture {
         let options = geolocation::GetCurrentPositionOptions {
             maximum_age: Some(600000.0),
             android: Some(geolocation::GetCurrentPositionAndroid {
-                quality: Some("lowPower".into()),
+                quality: Some("highAccuracy".into()),
                 ..Default::default()
             }),
             ..Default::default()
@@ -65,7 +65,7 @@ impl DataSource for Fixture {
     }
 
     fn grants(&self) -> &str {
-        "device.geolocation-approximate locationPurpose"
+        "device.geolocation locationPurpose"
     }
 
     fn app_id(&self) -> &str {

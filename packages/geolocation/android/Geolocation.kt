@@ -77,8 +77,9 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
     }
 
     override fun resumed() {
-        val now = status().toString()
-        if (said != null && now != said) {
+        // Compared with what was last answered: `status()` keeps what it reads.
+        val before = said ?: return
+        if (status().toString() != before) {
             context.changed("geolocation.geolocationStatus")
             if (watch != null) {
                 last = null
@@ -161,7 +162,7 @@ class GeolocationModule(context: ExtensionContext) : ExactExtension(context) {
             quality(args) == "highAccuracy" -> LocationManager.GPS_PROVIDER
             else -> LocationManager.NETWORK_PROVIDER
         }
-        return chosen.takeIf { Build.VERSION.SDK_INT < 31 || manager.hasProvider(it) || it in manager.allProviders }
+        return chosen.takeIf { it in manager.allProviders }
     }
 
     @TargetApi(31)

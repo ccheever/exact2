@@ -14,5 +14,10 @@
       "linux": "0",
       "android": "0"
     }
+  },
+  "host": {
+    "android": {
+      "minimumOS": "10"
+    }
   }
 }
