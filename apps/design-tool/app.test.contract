@@ -1825,3 +1825,46 @@ test "a paired tool frames no page of this machine, whatever the server's hello 
   expect tree missing "canvas-open"
   expect tree missing "pairing"
   request POST "/__stub/restart" {} as ada
+
+test "stage 11: the base scale's rows are read-only, with each platform the app ships and its source; a package's tokens name their package; set for this app, and back to the base"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/scale" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect tree has "token-space.gap"
+  expect text "token-group-Base scale (Exact)" == "Base scale (Exact)"
+  expect text "token-source-space.md" == "Exact's base, per platform"
+  expect text "token-base-space.md-ios" == "iOS 16px · grouped-row-inset"
+  expect text "token-base-space.md-mac" == "Mac 10px · grouped-row-inset"
+  expect tree missing "token-base-space.md-neutral"
+  tap "token-base-more-space.md"
+  expect text "token-base-space.md-material" == "Android 16px · grouped-row-inset"
+  expect text "token-base-radius.md-mac" == "Mac 6px (a stretch) · control-radius"
+  expect text "token-group-reading package" == "reading package"
+  expect text "token-source-reading.measure" == "From the reading package"
+  expect text "token-over-radius.md" == "Set for this app, over Exact's base (iOS 8px)."
+  expect tree missing "set-for-app-radius.md"
+  // Its cell opens read-only: the base's value is theirs.
+  tap "cell-space.md-0-light"
+  clock data
+  expect text "branch-readonly" == "Exact's base, read only: Set for this app (in the grid) to change it here."
+  expect disabled "branch-value"
+  tap "set-for-app-space.md"
+  clock data
+  expect state editKind == "add-token"
+  expect state editTarget == "space.md"
+  expect state editValue == "16px"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  tap "back-radius.md"
+  clock data
+  expect state editKind == "remove-token"
+  expect state editTarget == "radius.md"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  request POST "/__stub/restart" {} as ada

@@ -11,6 +11,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
+import { groupOf, sourceOf } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { GONE, wire, type Reply } from './wire';
@@ -658,7 +659,7 @@ const sources: Sources = {
           const shadow = t.kind === 'box-shadow' || t.kind === 'text-shadow' ? String(v.value ?? '') : '';
           return { scheme: c.dark ? 'dark' : 'light', column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: t.kind !== 'color' ? 'transparent' : v.residual ? v.srgb : v.css, residual: v.residual, note: v.note, kind: t.kind, shadow, pairs: [] as { name: string; ratio: string; low: boolean }[] };
         });
-        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells };
+        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells, ...sourceOf(t) };
       });
       // Each declared pair's contrast per cell (LLP 1121 D3, `pair=`): the
       // token over what it is drawn on, a token's stored value or a role's
@@ -690,7 +691,7 @@ const sources: Sources = {
       // A role override, as the IR marks it (`role`), whatever its name.
       const roles = new Set(ir.tokens.filter((t: { role: string | null }) => t.role).map((t: { name: string }) => t.name));
       for (const t of tokens) {
-        const g = roles.has(t.name) ? 'roles' : t.name.split(t.name.includes('.') ? '.' : '_')[0];
+        const g = roles.has(t.name) ? 'roles' : groupOf(t, t.name.split(t.name.includes('.') ? '.' : '_')[0]);
         if (!groups.has(g)) groups.set(g, []);
         groups.get(g)!.push(t);
       }
@@ -723,13 +724,13 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', param: false, answer };
+    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', param: false, readOnly: '', answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
     const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
     if (error) return { ...none, ok: false, error };
-    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string> };
+    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string>; source?: string; package?: string };
     // Of the revision the grid shows, or it is read again with the grid.
     if (x.files && digestKey(x.files) !== snap.digests) return { ...none, ok: false, error: 'The design changed while this cell was read; it is read again with the grid.' };
     const b = branchOf(snap.axes, col, x.whens, snap.kinds.get(token) ?? 'color');
@@ -743,6 +744,8 @@ const sources: Sources = {
     return {
       ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, param: snap.params.has(token), answer,
+      // (Stage 11: the base's or a package's value is theirs; the app sets its own, from the grid.)
+      readOnly: x.source === 'base' ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : x.source === 'package' ? `The ${x.package ?? ''} package's, read only: Set for this app (in the grid) to change it here.` : '',
     };
   },
   // The branch editor's typed fields for a value (parts.ts), the names in

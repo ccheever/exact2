@@ -13,6 +13,15 @@ import { allows, needs, refusal } from '../../../scripts/tamber-pairing.mjs';
 import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
+// Stage 11 D's rows (LLP 1121 stage 11; the shape proposed to rt1), as a test turns them on: two base
+// scale names, one the app overrides, and a package's token.
+let SCALE = false;
+const BASE = (ios: string, mac: string, neutral: string, material: string, terminal: string, from: string) => ({ columns: { ios: { value: ios, from }, mac: { value: mac, from, ...(from === 'control-radius' ? { stretch: true } : {}) }, neutral: { value: neutral, from }, material: { value: material, from }, terminal: { value: terminal, from: 'cells' } }, ships: ['ios', 'mac'] });
+const SCALE_TOKENS: Record<string, any>[] = [
+  { name: 'space.md', kind: 'length', role: null, dials: [], entries: null, values: ['16px'], fallback: ['16px', '16px'], source: 'base', base: BASE('16px', '10px', '16px', '16px', '1', 'grouped-row-inset') },
+  { name: 'radius.md', kind: 'length', role: null, dials: [], entries: null, values: ['12px'], fallback: ['12px', '12px'], source: 'app', base: BASE('8px', '6px', '8px', '8px', '0', 'control-radius'), overrides: { source: 'base', value: '8px' } },
+  { name: 'reading.measure', kind: 'length', role: null, dials: [], entries: null, values: ['640px'], fallback: ['640px', '640px'], source: 'package', package: 'reading', file: 'reading.tamber' },
+];
 // A run's token: a restart issues another, as the server does.
 let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
@@ -264,7 +273,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') return send({ ok: { ...DIALS.describe, ...(reversed ? { ir: { ...DIALS.describe.ir, axes: [...DIALS.describe.ir.axes].reverse() } } : {}), files: FILES } });
+      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir: SCALE ? { ...ir, tokens: [...ir.tokens, ...SCALE_TOKENS] } : ir, files: FILES } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
@@ -274,6 +283,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
         const card = DIALS.resolve['surface.card'];
         return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, unknown>) => ({ ...t, dark: `#${FILES['app.tamber'].slice(0, 6)}ff` })) } });
       }
+      // Stage 11 D's rows, as a test turns them on (`/__stub/scale`): length tuples like space.gap's.
+      const scaled = SCALE ? SCALE_TOKENS.find(t => t.name === request.token) : undefined;
+      if (scaled && request.method === 'resolve') return send({ ok: { token: scaled.name, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>) => ({ ...u, value: scaled.values[0], amount: parseFloat(scaled.values[0]) }))) } });
+      if (scaled && request.method === 'explain') return send({ ok: { token: scaled.name, value: scaled.values[0], whens: [], dials: [], names: [], files: FILES, source: scaled.source, ...(scaled.base ? { base: scaled.base } : {}), ...(scaled.package ? { package: scaled.package } : {}), ...(scaled.overrides ? { overrides: scaled.overrides } : {}) } });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       // A write is not applied: canned answers in its shape, enough for the
@@ -344,6 +357,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // The origin the next canvas grants name (a test's: another host refused by the tool).
   '/__stub/canvas': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasAt = (await req.json().catch(() => ({}))).origin ?? ''; return send({ ok: true }); } },
   '/__stub/forge-local': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); forgeLocal = true; return send({ ok: true }); } },
+  '/__stub/scale': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); SCALE = true; return send({ ok: true }); } },
   // The next pair-code and clients refused, once each.
   '/__stub/refuse-pairing': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refusePairing = new Set(['pair-code', 'clients']); return send({ ok: true }); } },
   // A code or a revoke as the local tool would ask it, for a test whose tool is the paired one.
@@ -389,7 +403,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; SCALE = false;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;
