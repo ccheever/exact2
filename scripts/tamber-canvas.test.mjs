@@ -5,11 +5,12 @@
 // interface) and a fake dev loop on loopback; plain HTTP (B owns TLS).
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { randomBytes } from 'node:crypto';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
+import { connect } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
-import { BODY_LIMIT, CANVAS_COOKIE, CHECKPOINT_LIMIT, MINT_RATE, canvasGateway, needs } from './tamber-canvas.mjs';
+import { BODY_LIMIT, CANVAS_COOKIE, CHECKPOINT_LIMIT, MINT_RATE, PLACEHOLDER, canonical, canvasGateway, needs, rewriter } from './tamber-canvas.mjs';
 import { tamberServer } from './tamber-server.mjs';
 
 const ORIGIN = 'https://canvas.test:9443';
@@ -60,7 +61,32 @@ const allows = (scope, need, local = false) => {
  * its own loopback URLs everywhere, and holds `/__dev/page` (SSE) and
  * `/__dev/commands?wait=` open until the client goes. */
 let loop, loopBase, port;
-const seen = [], closed = [];
+const seen = [], closed = [], pressed = new Set();
+/** Loopback addresses in each of their forms, a line each, and the lines a
+ * canvas client sees for them (the loop's own as the canvas origin, any
+ * other as the placeholder, a lookalike untouched). */
+const ADDRESS_CASES = p => [
+  [`http://127.0.0.1:${p}/a`, 'https://canvas.test:9443/a'],
+  ['http://localhost:7000/b', `http://${PLACEHOLDER}/b`],
+  [`http://%6cocalhost:${p}/c`, 'https://canvas.test:9443/c'],
+  ['http://localhost/d', `http://${PLACEHOLDER}/d`],
+  [`https://127.0.0.2:${p}/e`, 'https://canvas.test:9443/e'],
+  [`src="//[::1]:${p}/f"`, 'src="//canvas.test:9443/f"'],
+  [`ws://localhost:${p}/g`, 'wss://canvas.test:9443/g'],
+  [`http:\\/\\/127.0.0.1:${p}\\/h`, 'https:\\/\\/canvas.test:9443\\/h'],
+  ['u=http%3A%2F%2F127.0.0.1%3A7000%2Fi', `u=http%3A%2F%2F${PLACEHOLDER}%2Fi`],
+  [`u=http%3A%2F%2Flocalhost%3A${p}%2Fj`, 'u=https%3A%2F%2Fcanvas.test%3A9443%2Fj'],
+  [`u=http%3A%2F%2F%256cocalhost%3A${p}%2Fj2`, 'u=https%3A%2F%2Fcanvas.test%3A9443%2Fj2'],
+  [`"host": "localhost:${p}"`, '"host": "canvas.test:9443"'],
+  ['"other": "127.0.0.1:7001"', `"other": "${PLACEHOLDER}"`],
+  [`http://0x7f.1:${p}/k`, 'https://canvas.test:9443/k'],
+  ['http://2130706433:7002/l', `http://${PLACEHOLDER}/l`],
+  ['http://[::ffff:127.0.0.1]:7003/m', `http://${PLACEHOLDER}/m`],
+  ['https://example.test/localhost:9000.png', 'https://example.test/localhost:9000.png'],
+  ['notlocalhost:9000 and see localhost:9000.', `notlocalhost:9000 and see ${PLACEHOLDER}.`],
+  ['https://example.test/x and http://192.168.1.20:8765/', 'https://example.test/x and http://192.168.1.20:8765/'],
+];
+const addresses = p => ADDRESS_CASES(p).map(([from]) => from).join('\n');
 beforeAll(async () => {
   loop = createServer((req, res) => {
     const chunks = [];
@@ -88,6 +114,19 @@ beforeAll(async () => {
         res.write(`data: ${JSON.stringify({ reload: 1, page: `${me}/` })}\n\n`);
       } else if (url.pathname === '/__dev/open') {
         res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<a href="exact://x?u=${encodeURIComponent(me + '/')}">${me}/</a>`);
+      } else if (url.pathname === '/addresses.html' || url.pathname === '/addresses.json') {
+        res.writeHead(200, { 'content-type': url.pathname.endsWith('json') ? 'application/json' : 'text/html', link: `<http://localhost:7000/x>; rel=preload, <http://%6cocalhost:${port}/y>; rel=preload`, 'x-addresses': addresses(port).split('\n')[0] });
+        res.end(addresses(port));
+      } else if (url.pathname === '/__dev/generation/stream') {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (const line of addresses(port).split('\n')) res.write(`data: ${line}\n\n`);
+        res.end();
+      } else if (url.pathname === '/big.bin') {
+        // Endless, as fast as the reader takes it; `pressed` once a write waits.
+        res.writeHead(200, { 'content-type': 'application/octet-stream' });
+        const chunk = Buffer.alloc(64 * 1024, 120);
+        const pump = () => { while (!res.destroyed && res.write(chunk)); if (!res.destroyed) { pressed.add('/big.bin'); res.once('drain', pump); } };
+        pump();
       } else if (url.pathname === '/__tamber/token') {
         res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"token":"the-loop-token"}');
       } else {
@@ -128,7 +167,7 @@ test('the route table: read, write, and what is never passed', () => {
   for (const p of ['/', '/index.html', '/app.js', '/__dev', '/__dev/page', '/__dev/hello', '/__dev/commands', '/__dev/generation/1/exact.json', '/__dev/map/abc', '/__dev/inspect.js', '/dev-inspect.json', '/exact.json', '/modules/a.js', '/__dev/design']) expect(needs('GET', p)).toBe('read');
   for (const p of ['/__dev/reloaded', '/__dev/painted', '/__dev/gpu', '/__dev/report']) expect(needs('POST', p)).toBe('read');
   for (const p of ['/__dev/design', '/__dev/checkpoint', '/__dev/open']) expect(needs('POST', p)).toBe('write');
-  for (const [m, p] of [['GET', '/__tamber'], ['POST', '/__tamber'], ['GET', '/__tamber/token'], ['GET', '/__tamber/tool/'], ['POST', '/__tamber/events'], ['GET', '/__dev/install/ios'], ['POST', '/__exact/trace'], ['GET', '/__exact/trace'], ['GET', '/.exact/install/index.html'], ['POST', '/'], ['PUT', '/x'], ['DELETE', '/'], ['GET', '/canvas/c/'], ['PUT', '/__dev/gpu']]) expect(needs(m, p)).toBeNull();
+  for (const [m, p] of [['GET', '/__tamber'], ['POST', '/__tamber'], ['GET', '/__tamber/token'], ['GET', '/__tamber/tool/'], ['POST', '/__tamber/events'], ['GET', '/__dev/install/ios'], ['POST', '/__exact/trace'], ['GET', '/__exact/trace'], ['GET', '/.exact/install/index.html'], ['POST', '/'], ['PUT', '/x'], ['DELETE', '/'], ['GET', '/canvas/c/'], ['PUT', '/__dev/gpu'], ['GET', '/__TAMBER/token'], ['GET', '/__Tamber'], ['GET', '/.EXACT/install/index.html'], ['GET', '/.Exact/install.json'], ['GET', '/__DEV/open'], ['POST', '/__Dev/open'], ['GET', '/__dev/OPEN']]) expect(needs(m, p)).toBeNull();
 });
 
 test('mint, enter, cookie, 303, and the page proxied with nothing of the loop or the client crossing', async () => {
@@ -197,7 +236,7 @@ test('the query string is kept: /__dev/commands?nonce=&ack=&wait=', async () => 
 
 test('a grant reused, older than 30 s, wrong, for another client, or in a query string is refused', async () => {
   let clock = 1_000_000;
-  const g = await gateway({ now: () => clock });
+  const g = await gateway({ now: () => clock, limiter: () => ({ take: () => true, wait: () => 0 }) });
   const post = (path, body, type = 'application/x-www-form-urlencoded') => g.at(path, { method: 'POST', headers: { 'content-type': type, origin: TOOL }, body });
   try {
     const token = g.pairing.add('a', 'read');
@@ -226,8 +265,16 @@ test('a grant reused, older than 30 s, wrong, for another client, or in a query 
     expect(r.headers.get('set-cookie')).toBeNull();
     expect((await post(`/canvas/a/?grant=${ok.grant}`, `grant=${ok.grant}`)).status).toBe(404);
     expect((await g.at(`/canvas/a/?grant=${ok.grant}`)).status).toBe(404);
-    // A foreign Origin on the entry.
-    expect((await g.at('/canvas/a/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.test' }, body: `grant=${ok.grant}` })).status).toBe(404);
+    // An entry Origin that is neither the canvas's nor the tool's: another, none, `null`, malformed. Each burns nothing it didn't read.
+    for (const origin of ['https://evil.test', undefined, 'null', 'not a url', `${TOOL}/`, 'https://canvas.test:9442.evil.test']) {
+      ({ ok } = g.gw.mint(token));
+      const r = await g.at('/canvas/a/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(origin === undefined ? {} : { origin }) }, body: `grant=${ok.grant}` });
+      expect(r.status).toBe(404);
+      expect(r.headers.get('set-cookie')).toBeNull();
+    }
+    // The canvas's own Origin is the other one admitted.
+    ({ ok } = g.gw.mint(token));
+    expect((await g.at('/canvas/a/', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN }, body: `grant=${ok.grant}` })).status).toBe(303);
   } finally { await g.stop(); }
 });
 
@@ -447,4 +494,158 @@ test('onEnd: the reason goes to the log only, both reasons end the same, and a c
     expect(said.at(-1)).toBe('canvas: remote:a#1 revoked: its proxied streams end');
     c.close();
   } finally { await g.stop(); }
+});
+
+/** A request sent exactly as written (no client parses its target), and
+ * the status it got (0 when the connection was cut). */
+function rawRequest(base, method, target, headers = {}) {
+  return new Promise(ok => {
+    const { hostname, port: p } = new URL(base);
+    const socket = connect(Number(p), hostname);
+    let text = '';
+    socket.on('data', d => { text += d; });
+    socket.on('error', () => {});
+    socket.on('close', () => ok({ status: Number(/^HTTP\/1\.1 (\d+)/.exec(text)?.[1] ?? 0), text }));
+    socket.write(`${method} ${target} HTTP/1.1\r\nHost: canvas.test:9443\r\n${Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('')}Connection: close\r\n\r\n`);
+  });
+}
+
+test('canonical: a target the loop could read as another path is refused; the path forwarded is the one checked', () => {
+  expect(canonical('/app.js?x=%2F&y=..')).toEqual({ path: '/app.js', query: '?x=%2F&y=..' });
+  expect(canonical('/canvas/remote%3Aa%231/')).toEqual({ path: '/canvas/remote%3Aa%231/', query: '' });
+  expect(canonical('/a%20b/%C3%A9')).toEqual({ path: '/a%20b/%C3%A9', query: '' });
+  for (const bad of ['//a//b/__dev/open', '//127.0.0.1/__tamber/token', '/%2eexact/install/', '/%2Eexact/install/index.html', '/a/../__tamber/token', '/./__dev/open', '/x/%2e%2e/__tamber', '/x/..', '/x/.',
+    '/__dev%2fopen', '/__dev%2Fopen', '/__dev%5copen', '/__dev\\open', '/x%00', '/x\u0000', '/%5F%5Ftamber/token', '/%5f_dev/open', '/_%5Fdev/open', '/%61pp.js', '/a//b', '/a/', '/%zz', '/%2', 'http://127.0.0.1/__tamber/token', '*', '', 'x', '/a#b', '/a b', '/a?b c', undefined]) {
+    if (bad === '/a/') { expect(canonical(bad)).toEqual({ path: '/a/', query: '' }); continue; }
+    expect(canonical(bad)).toBeNull();
+  }
+});
+
+test('through the gateway: dot segments, empty segments, encoded separators and prefixes, case and absolute targets reach nothing', async () => {
+  const g = await gateway();
+  try {
+    const { cookie } = await enter(g, 'r', 'read');
+    seen.length = 0;
+    for (const target of ['//a//b/__dev/open', '//127.0.0.1/__tamber/token', '/%2eexact/install/index.html', '/a/../__tamber/token', '/./__dev/open', '/x/%2e%2e/__tamber', '/__dev%2fopen', '/__dev%5copen', '/__dev\\open', '/x%00',
+      '/%5F%5Ftamber/token', '/__TAMBER/token', '/.EXACT/install/index.html', '/__Dev/open', '/a//b', '/%zz', 'http://127.0.0.1/__tamber/token', `http://127.0.0.1:${port}/__dev/open`]) {
+      const r = await rawRequest(g.base, 'GET', target, { cookie });
+      expect([404, 400]).toContain(r.status);
+      expect(r.text).not.toContain('the-loop-token');
+    }
+    expect(seen).toEqual([]);
+    // The query is the client's own, kept as it came; the path is the one checked.
+    const r = await rawRequest(g.base, 'GET', '/app.js?x=%2F..%2F__tamber&y=//z', { cookie });
+    expect(r.status).toBe(200);
+    expect(seen.map(s => s.url)).toEqual(['/app.js?x=%2F..%2F__tamber&y=//z']);
+  } finally { await g.stop(); }
+});
+
+test('rewriter: the loop\'s own origin in every form as the canvas\'s, any other loopback authority as the placeholder, lookalikes untouched', () => {
+  const rewrite = rewriter(loopBase, ORIGIN);
+  for (const [from, to] of ADDRESS_CASES(port)) expect(rewrite(from)).toBe(to);
+  // One pass: a canvas origin on loopback (a test listener's) is not rewritten again.
+  expect(rewriter(loopBase, 'https://127.0.0.1:9443')(`http://localhost:${port}/a 127.0.0.1:${port}`)).toBe('https://127.0.0.1:9443/a 127.0.0.1:9443');
+  // A loop on the default port: an authority with no port is it.
+  expect(rewriter('http://127.0.0.1', ORIGIN)('http://localhost/x http://localhost:80/y http://localhost:8080/z')).toBe(`${ORIGIN}/x ${ORIGIN}/y http://${PLACEHOLDER}/z`);
+  // A loopback toolOrigin is refused.
+  for (const toolOrigin of ['http://127.0.0.1:7740', 'http://localhost:7740', 'http://[::1]:7740']) expect(() => canvasGateway({ loop: loopBase, pairing: fakePairing(), origin: ORIGIN, toolOrigin, limiter, allows })).toThrow(TypeError);
+});
+
+test('every loopback address is rewritten in headers, HTML, JSON and SSE', async () => {
+  const g = await gateway();
+  try {
+    const { cookie } = await enter(g, 'r', 'read');
+    const want = ADDRESS_CASES(port).map(([, to]) => to).join('\n');
+    for (const path of ['/addresses.html', '/addresses.json']) {
+      const r = await g.at(path, { headers: { cookie } });
+      expect(await r.text()).toBe(want);
+      expect(r.headers.get('link')).toBe(`<http://${PLACEHOLDER}/x>; rel=preload, <${ORIGIN}/y>; rel=preload`);
+      expect(r.headers.get('x-addresses')).toBe(ADDRESS_CASES(port)[0][1]);
+    }
+    const sse = await (await g.at('/__dev/generation/stream', { headers: { cookie } })).text();
+    expect(sse).toBe(ADDRESS_CASES(port).map(([, to]) => `data: ${to}\n\n`).join(''));
+  } finally { await g.stop(); }
+});
+
+test('revoke closes a stalled upload and a download whose client never reads, at once, upstream too', async () => {
+  const g = await gateway();
+  try {
+    const { cookie } = await enter(g, 'u', 'read');
+    const { hostname, port: p } = new URL(g.base);
+    // An upload that stalls: 10 of a promised 100,000 bytes.
+    const upload = new Promise(ok => {
+      const r = httpRequest({ host: hostname, port: p, method: 'POST', path: '/__dev/report', headers: { cookie, origin: ORIGIN, 'content-length': '100000' } });
+      r.on('error', () => ok('cut'));
+      r.on('close', () => ok('closed'));
+      r.on('response', res => { res.resume(); res.on('close', () => ok('answered')); });
+      r.write('0123456789');
+    });
+    // A download the client never reads: the gateway's writes back up.
+    closed.length = 0; pressed.clear();
+    // A raw socket paused at its first bytes reads nothing more from the kernel.
+    const reading = connect(Number(p), hostname);
+    const download = new Promise(ok => { reading.on('error', () => ok('cut')); reading.on('close', () => ok('closed')); });
+    reading.once('data', () => reading.pause());
+    reading.write(`GET /big.bin HTTP/1.1\r\nHost: canvas.test:9443\r\nCookie: ${cookie}\r\n\r\n`);
+    while (g.gw.live < 2) await new Promise(ok => setTimeout(ok, 5));
+    // Held there: the client reads nothing, so the gateway's writes back up.
+    await new Promise(ok => setTimeout(ok, 200));
+    expect(g.gw.live).toBe(2);
+    const t0 = performance.now();
+    g.pairing.revoke('u');
+    const timeout = new Promise(ok => setTimeout(() => ok('open'), 2000));
+    expect(['cut', 'closed', 'answered']).toContain(await Promise.race([upload, timeout]));
+    // The gateway let both go at once, and the loop's download ended (its fetch aborted).
+    expect(g.gw.live).toBe(0);
+    while (!closed.includes('/big.bin') && performance.now() - t0 < 2000) await new Promise(ok => setTimeout(ok, 5));
+    expect(closed).toContain('/big.bin');
+    expect(performance.now() - t0).toBeLessThan(1000);
+    // The connection is cut: the client, reading at last, finds what was in flight and then its end.
+    reading.resume();
+    expect(['cut', 'closed']).toContain(await Promise.race([download, timeout]));
+  } finally { await g.stop(); }
+});
+
+test('a session evicted past the cap takes its streams with it; a client has at most 32 requests in flight', async () => {
+  const g = await gateway({ limiter: () => ({ take: () => true, wait: () => 0 }) });
+  try {
+    const first = await enter(g, 's', 'read');
+    const token = first.token;
+    const sse = await g.at('/__dev/page', { headers: { cookie: first.cookie } });
+    const reader = sse.body.getReader();
+    await reader.read();
+    // Sixteen more sessions: the first is the oldest past the cap of 16.
+    let last;
+    for (let i = 0; i < 16; i++) {
+      const { ok } = g.gw.mint(token);
+      const entry = await g.at(new URL(ok.url).pathname, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: TOOL }, body: `grant=${ok.grant}` });
+      last = entry.headers.get('set-cookie').split(';')[0];
+    }
+    const ended = await Promise.race([reader.read().then(r => (r.done ? 'done' : 'more'), () => 'cut'), new Promise(ok => setTimeout(() => ok('open'), 2000))]);
+    expect(['done', 'cut']).toContain(ended);
+    expect((await g.at('/', { headers: { cookie: first.cookie } })).status).toBe(404);
+    // At most 32 at once: the 33rd is 503 until one ends.
+    const polls = Array.from({ length: 32 }, () => g.at('/__dev/commands?nonce=n&ack=0&wait=25', { headers: { cookie: last } }).then(r => r.status, () => 'cut'));
+    while (g.gw.live < 32) await new Promise(ok => setTimeout(ok, 5));
+    const over = await g.at('/__dev/hello', { headers: { cookie: last } });
+    expect(over.status).toBe(503);
+    g.pairing.revoke('s');
+    for (const status of await Promise.all(polls)) expect(['cut', 404]).toContain(status);
+    expect(g.gw.live).toBe(0);
+  } finally { await g.stop(); }
+});
+
+test('the JS loop\'s page reloads afresh when its checkpoint is refused (a canvas below write), and its script still parses', () => {
+  const s = readFileSync(new URL('../host/web-js/dev.mjs', import.meta.url), 'utf8');
+  const head = 'const client = (n, revision) => `';
+  const i = s.indexOf(head) + head.length - 1, j = s.indexOf('</script>`;', i) + '</script>`'.length;
+  const names = [...new Set([...s.slice(i, j).matchAll(/\$\{([^}]*)\}/g)].flatMap(m => m[1].match(/\b[A-Z_]{3,}\b/g) ?? []))].filter(n => n !== 'JSON');
+  const html = new Function('n', 'revision', ...names, `return ${s.slice(i, j)};`)(3, 'r', ...names.map(() => []));
+  const code = html.replace(/^<script>/, '').replace(/<\/script>$/, '');
+  expect(() => new Function(code)).not.toThrow();
+  // The 403 is checked before the failure that keeps the old page.
+  const refused = code.indexOf('if(saved.status===403){'), failed = code.indexOf("if(!saved.ok)throw new Error('checkpoint handoff answered '");
+  expect(refused).toBeGreaterThan(0);
+  expect(refused).toBeLessThan(failed);
+  expect(code.slice(refused, failed)).toContain('location.reload();return}');
 });

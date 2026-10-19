@@ -282,8 +282,12 @@ export function developmentAdmission(app, locator) {
 /** The opening links for `page` that this Mac's current development clients
  * admit — what a dev server's opening page offers: one per destination whose
  * placed bundle was built with `--url` at `page`'s origin, carrying that
- * build's token (its receipt keeps it). */
-export function developmentLinks(app, page) {
+ * build's token (its receipt keeps it). Only to a request the development
+ * gate calls local (`access.local`): the token is this Mac's, as the install
+ * token is, never a LAN peer's or a proxied client's (stage 10 C's canvas
+ * gateway marks its requests forwarded). */
+export function developmentLinks(app, page, access) {
+  if (access?.local !== true) return [];
   const origin = new URL(page).origin;
   return ['macos', 'ios-simulator', 'ios'].flatMap((destination) => {
     const { bundle } = appleArtifacts(app, { destination, trust: 'development' });

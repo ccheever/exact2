@@ -17,9 +17,14 @@
 //   `lookup` (a revoked or expired token fails at once), then the route's
 //   scope through `allows`. An unknown, missing, revoked or expired session
 //   is not-found, the same answer for each; a scope refused is 403 naming
-//   both scopes. Allowed POSTs also need `Origin` to be the canvas's own.
+//   both scopes. Allowed POSTs also need `Origin` to be the canvas's own;
+//   the entry needs an explicit Origin, the canvas's or the tool's.
+// - The raw request target is checked (`canonical`): one the loop could
+//   read as another path (an empty or dot segment, an encoded separator,
+//   dot or unreserved character, a backslash or control character) is
+//   not-found, and the path forwarded is exactly the path authorized.
 // - The allow list (`needs`): `read` for the page and its assets (GET/HEAD
-//   outside `/__…` and `/.exact/`), the dev streams and reads, GET
+//   outside `/__…` and `/.exact`, in any case), the dev streams and reads, GET
 //   `/__dev/design` and the page's beacons; `write` (theme2's ruling) for
 //   POST `/__dev/design`, `/__dev/checkpoint` and `/__dev/open`. Never
 //   `/__tamber…`: through the proxy the loop would see a local request.
@@ -31,13 +36,18 @@
 //   it is) calls the request not local: no install or tamber token can be
 //   handed to it whatever path the allow list someday passes.
 // - Downstream: Set-Cookie, CORS and hop-by-hop headers dropped; every
-//   loopback form of the loop's origin, in headers and in HTML, JSON and SSE
-//   bodies (raw and URL-encoded), rewritten to `origin`; `frame-ancestors`
-//   names the tool's remote origin (`toolOrigin`) instead of any loopback
-//   one; `cache-control: no-store`; bodies streamed with backpressure.
-// - Revoke and expiry (A's `onEnd`): the client's live proxied responses
-//   (streams, long polls, in-flight requests) are aborted with their
-//   upstream fetches, and its sessions and grants deleted.
+//   loopback address in headers and in HTML, JSON and SSE bodies (raw,
+//   URL-encoded, JSON-escaped or a bare host:port; any 127/8, localhost or
+//   [::1] host, encoded hosts too, at any port) rewritten: the loop's own to
+//   `origin`, any other to `loopback.invalid`; `frame-ancestors` names the
+//   tool's remote origin (`toolOrigin`, never a loopback one) instead of any
+//   loopback source; `cache-control: no-store`; bodies streamed with
+//   backpressure.
+// - Revoke and expiry (A's `onEnd`): each of the client's proxied requests
+//   (streams, long polls, uploads, downloads a client stopped reading) is
+//   ended at once (its upstream fetch aborted, its request and response
+//   destroyed), and its sessions and grants deleted. A session evicted past
+//   the cap ends its own; a client has at most 32 in flight.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const CANVAS_COOKIE = '__Host-exact-canvas';
@@ -50,7 +60,9 @@ export const BODY_LIMIT = (1 << 20) - 64;
 export const CHECKPOINT_LIMIT = 16 * 1024 * 1024;
 // Grants per client: a burst of 6, refilled at 6 a minute (A's token bucket).
 export const MINT_RATE = { per: 60_000, rate: 6 };
-const ENTRY_LIMIT = 4096, SESSIONS_PER_CLIENT = 16, GRANTS_PER_CLIENT = 8;
+// Per client: live sessions, unexpired grants, and requests proxied at once
+// (the page's two streams, a long poll and its assets fit many times over).
+const ENTRY_LIMIT = 4096, SESSIONS_PER_CLIENT = 16, GRANTS_PER_CLIENT = 8, LIVE_PER_CLIENT = 32;
 
 const READS = new Set(['/__dev', '/__dev/page', '/__dev/hello', '/__dev/commands', '/__dev/inspect.js', '/__dev/design', '/dev-inspect.json', '/exact.json']);
 const READ_PREFIXES = ['/__dev/generation/', '/__dev/map/', '/modules/'];
@@ -61,46 +73,102 @@ const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-au
 const DROP_UP = new Set(['host', 'cookie', 'origin', 'referer', 'x-exact-tamber-token', 'forwarded', 'x-real-ip', 'content-length', 'accept-encoding']);
 const DROP_DOWN = new Set(['set-cookie', 'set-cookie2', 'content-length', 'content-encoding', 'cache-control', 'alt-svc', 'strict-transport-security']);
 
-/** The scope a request needs, or null when the gateway never passes it. */
+/** The request target as the gateway authorizes and forwards it,
+ * `{path, query}`, or null for any target the loop could read as another
+ * path: not origin-form, an empty segment (a leading `//` too), a `.` or
+ * `..` segment, a backslash, NUL or other control character, an encoded
+ * `/`, `\`, NUL or `.`, any percent-encoded unreserved character (which
+ * decodes to the same path) and a malformed escape. The path forwarded is
+ * exactly the path checked. */
+export function canonical(target) {
+  if (typeof target !== 'string' || !target.startsWith('/') || target.includes('#')) return null;
+  const q = target.indexOf('?');
+  const path = q < 0 ? target : target.slice(0, q), query = q < 0 ? '' : target.slice(q);
+  if (path.includes('//') || /[\\\x00-\x20\x7f]/.test(path) || /[\x00-\x20\x7f]/.test(query)) return null;
+  if (/%(?![0-9a-f]{2})/i.test(path) || /%(?:00|2e|2f|5c|2d|5f|7e|3[0-9]|4[1-9a-f]|5[0-9a]|6[1-9a-f]|7[0-9a])/i.test(path)) return null;
+  if (path.split('/').some(seg => seg === '.' || seg === '..')) return null;
+  return { path, query };
+}
+
+/** The scope a canonical path needs, or null when the gateway never passes
+ * it. The reserved prefixes compare without case. */
 export function needs(method, path) {
-  if (path === '/__tamber' || path.startsWith('/__tamber/')) return null;
+  const lower = path.toLowerCase();
+  if (lower === '/__tamber' || lower.startsWith('/__tamber/')) return null;
   if (method === 'POST') return BEACONS.has(path) ? 'read' : WRITES.has(path) ? 'write' : null;
   if (method !== 'GET' && method !== 'HEAD') return null;
   // `/__dev/open` is the loop's opening page; theme2 ruled it `write`.
   if (path === '/__dev/open') return 'write';
   if (READS.has(path) || READ_PREFIXES.some(p => path.startsWith(p))) return 'read';
-  if (path.startsWith('/__') || path.startsWith('/.exact/') || ENTRY.test(path)) return null;
+  if (lower.startsWith('/__') || lower.startsWith('/.exact') || ENTRY.test(path)) return null;
   return 'read';
 }
 
 const sha = value => createHash('sha256').update(value).digest();
 const same = (a, b) => a.length === b.length && timingSafeEqual(a, b);
-const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Every loopback form of `loop`'s origin in a text, as `origin`: a URL
- * (http or https), its URL-encoded form, and the bare host and port. */
-export function rewriter(loop, origin) {
-  const port = new URL(loop).port;
-  const to = new URL(origin);
-  const hosts = ['127\\.0\\.0\\.1', 'localhost', '\\[::1\\]'];
-  const encoded = ['127\\.0\\.0\\.1', 'localhost', '%5B%3A%3A1%5D'];
-  const rules = [
-    [new RegExp(`https?://(?:${hosts.join('|')}):${port}(?!\\d)`, 'gi'), to.origin],
-    [new RegExp(`https?%3A%2F%2F(?:${encoded.join('|')})%3A${port}(?!\\d)`, 'gi'), encodeURIComponent(to.origin)],
-    [new RegExp(`(?:${hosts.join('|')}):${port}(?!\\d)`, 'gi'), to.host],
-    [new RegExp(`(?:${encoded.join('|')})%3A${port}(?!\\d)`, 'gi'), encodeURIComponent(to.host)],
-  ];
-  return text => rules.reduce((t, [from, by]) => t.replace(from, by), text);
+/** Where an address that is no loop of ours points instead: never routed. */
+export const PLACEHOLDER = 'loopback.invalid';
+/** Whether a host (as WHATWG URL serializes it) is this machine's. */
+const isLoopback = host => host === 'localhost' || host.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(host) || host === '0.0.0.0'
+  || host === '[::1]' || host === '[::]' || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host);
+/** A URL authority's port when its host is loopback (`%6cocalhost` and
+ * `0x7f.1` included: WHATWG URL canonicalizes it), else null. */
+function loopbackPort(authority, scheme) {
+  let u;
+  try { u = new URL(`${scheme || 'http:'}//${decodeURIComponent(authority)}`); } catch { return null; }
+  if (!isLoopback(u.hostname)) return null;
+  return u.port || (u.protocol === 'https:' || u.protocol === 'wss:' ? '443' : '80');
 }
 
-const LOOPBACK_SOURCE = /^(?:https?:\/\/)?(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/?$/i;
+const AUTH = String.raw`(?:[\w.~\-:@\[\]]|%[0-9a-f]{2})*`;
+const ENC_AUTH = String.raw`(?:[\w.~\-@]|%(?!2f|3f|23|26)[0-9a-f]{2})*`;
+const BARE_HOST = String.raw`localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\]|%5B%3A%3A1%5D`;
+// One pass, so what it writes is never read again: a URL (any scheme the
+// web routes, or scheme-relative; `\/\/` as JSON may escape it), its
+// URL-encoded form, and a bare loopback `host:port` standing alone (not in
+// a path, not inside a longer name).
+const ADDRESSES = new RegExp(
+  String.raw`(?<![\w.+\-\/\\:%])(?<scheme>(?:https?|wss?):)?(?<sep>\/\/|\\\/\\\/)(?<auth>${AUTH})`
+  + String.raw`|(?<![\w%])(?<escheme>(?:https?|wss?)%3A)?%2F%2F(?<eauth>${ENC_AUTH})`
+  + String.raw`|(?<![\w.\-\/\\%@:\[])(?<host>${BARE_HOST})(?<colon>:|%3A)(?<port>\d{1,5})(?![\w\-]|\.\w)`, 'gi');
+
+/** Every loopback address in a text: the loop's own (any loopback host at
+ * its port) as `origin`; any other loopback authority as PLACEHOLDER, so no
+ * other local service's address is handed out. */
+export function rewriter(loop, origin) {
+  const from = new URL(loop), to = new URL(origin);
+  const port = from.port || '80';
+  const target = p => (p === port ? to.host : PLACEHOLDER);
+  const schemeFor = (scheme, p) => (!scheme || p !== port ? scheme : /^wss?:$/i.test(scheme) ? 'wss:' : to.protocol);
+  return text => text.replace(ADDRESSES, (m, ...args) => {
+    const g = args.at(-1);
+    if (g.auth !== undefined) {
+      const p = loopbackPort(g.auth, g.scheme);
+      return p == null ? m : `${schemeFor(g.scheme ?? '', p)}${g.sep}${target(p)}`;
+    }
+    if (g.eauth !== undefined) {
+      const scheme = g.escheme ? decodeURIComponent(g.escheme).toLowerCase() : '';
+      const p = loopbackPort(g.eauth, scheme);
+      return p == null ? m : `${encodeURIComponent(schemeFor(scheme, p))}%2F%2F${encodeURIComponent(target(p))}`;
+    }
+    const t = target(g.port);
+    return g.colon === ':' ? t : encodeURIComponent(t);
+  });
+}
+
 /** A CSP's `frame-ancestors`: the loop's origin as the canvas's, any other
  * loopback source (the local tool's) gone, the tool's remote origin added. */
-function frameAncestors(policy, loopOrigin, origin, toolOrigin) {
+function frameAncestors(policy, loopPort, origin, toolOrigin) {
+  const loopbackSource = s => {
+    const bare = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+    const scheme = /^(https?|wss?):\/\//i.exec(s)?.[1];
+    return /^\w|^\[/.test(bare) ? loopbackPort(bare.replace(/\/.*$/, ''), scheme ? `${scheme}:` : '') : null;
+  };
   return policy.split(',').map(one => one.split(';').map(d => {
     const words = d.trim().split(/\s+/);
     if (words[0]?.toLowerCase() !== 'frame-ancestors') return d;
-    const kept = words.slice(1).map(s => s.replace(/\/$/, '') === loopOrigin ? origin : s).filter(s => !LOOPBACK_SOURCE.test(s));
+    const kept = words.slice(1).flatMap(s => { const p = loopbackSource(s); return p == null ? [s] : p === loopPort ? [origin] : []; });
     if (toolOrigin && !kept.includes(toolOrigin)) kept.push(toolOrigin);
     return ` frame-ancestors ${kept.length ? kept.join(' ') : "'none'"}`;
   }).join(';')).join(',');
@@ -112,24 +180,38 @@ function cookies(header, name) {
   return [header ?? []].flat().join(';').split(';').map(p => p.trim()).filter(p => p.startsWith(`${name}=`)).map(p => p.slice(name.length + 1)).slice(0, 4);
 }
 
-async function readBody(req, limit) {
+/** A request's body up to `limit`: `{body}`, `{over}` (the caller answers
+ * 413 and closes), or `{gone}` (the client went, or `signal` aborted: a
+ * stalled upload ends with its revoke). */
+const readBody = (req, limit, signal) => new Promise(done => {
   const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    // Over: the caller answers (413, then the connection closed).
-    if (size > limit) return null;
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
-/** `write` with backpressure: resolved once `res` drains or closes. */
-const drained = res => new Promise(ok => {
-  const done = () => { res.off('drain', done); res.off('close', done); ok(); };
-  res.on('drain', done); res.on('close', done);
+  let size = 0, settled = false;
+  const finish = v => {
+    if (settled) return;
+    settled = true;
+    req.off('data', data); req.off('end', end); req.off('error', gone); req.off('close', gone);
+    signal?.removeEventListener('abort', gone);
+    done(v);
+  };
+  const data = chunk => { size += chunk.length; if (size > limit) { req.pause(); finish({ over: true }); } else chunks.push(chunk); };
+  const end = () => finish({ body: Buffer.concat(chunks) });
+  const gone = () => finish({ gone: true });
+  if (signal?.aborted || req.destroyed) return gone();
+  req.on('data', data); req.on('end', end); req.on('error', gone); req.on('close', gone);
+  signal?.addEventListener('abort', gone, { once: true });
 });
-const put = async (res, chunk) => { if (!res.write(chunk)) await drained(res); };
+
+/** `write` with backpressure: resolved once `res` drains or closes, or
+ * `signal` aborts (a client that never reads ends with its revoke). */
+const drained = (res, signal) => new Promise(ok => {
+  const done = () => { res.off('drain', done); res.off('close', done); signal.removeEventListener('abort', done); ok(); };
+  res.on('drain', done); res.on('close', done); signal.addEventListener('abort', done, { once: true });
+});
+const put = async (res, chunk, signal) => {
+  if (signal.aborted) throw new Error('ended');
+  if (!res.write(chunk)) await drained(res, signal);
+  if (signal.aborted) throw new Error('ended');
+};
 
 /** The gateway for the dev loop at `loop` (its loopback origin), served on
  * `origin` (the canvas's public origin), framed by `toolOrigin`. A's
@@ -145,14 +227,18 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
   const mints = limiter({ ...MINT_RATE, clock: now });
   // Every canvas request is remote: never the local token's `local`.
   const may = (scope, need) => allows(scope, need, false);
-  const loopOrigin = new URL(loop).origin, loopHost = new URL(loop).host;
+  const loopOrigin = new URL(loop).origin, loopHost = new URL(loop).host, loopPort = new URL(loop).port || '80';
   origin = new URL(origin).origin;
-  if (toolOrigin) toolOrigin = new URL(toolOrigin).origin;
+  if (toolOrigin) {
+    toolOrigin = new URL(toolOrigin).origin;
+    // The remote tool's origin: a loopback one would frame the canvas from this machine's other services.
+    if (isLoopback(new URL(toolOrigin).hostname)) throw new TypeError('canvasGateway: `toolOrigin` is the tool\'s remote origin, never a loopback one');
+  }
   const rewrite = rewriter(loopOrigin, origin);
-  // Keyed by SHA-256 of the secret, so no lookup compares a secret's bytes.
+  // Keyed by SHA-256 of the secret, and the hash compared timing-safe.
   const grants = new Map(); // hash hex → {hash, client, token, expires}
-  const sessions = new Map(); // hash hex → {client, token, grant}
-  const live = new Map(); // client → Set<AbortController>
+  const sessions = new Map(); // hash hex → {hash, client, token, grant}
+  const live = new Map(); // client → Set<{session, gone, req, res}>, until each response closes
   const ends = new Map(); // client → unsubscribe
   let closed = false;
 
@@ -160,12 +246,27 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
     const rec = token ? pairing.lookup(token) : null;
     return rec && !(rec.expires != null && rec.expires <= now()) ? rec : null;
   };
+  /** A proxied request ended at once: its upstream fetch aborted, its
+   * upload and its response destroyed whatever they wait on. */
+  const kill = ({ gone, req, res }) => {
+    gone.abort();
+    // Not yet answered: not-found, the same as any refused request, then the
+    // connection closed; answered in part: the connection cut.
+    if (!res.headersSent && !res.writableEnded && !res.destroyed) { res.on('finish', () => { req.destroy(); res.socket?.destroy(); }); notFound(res, true); return; }
+    req.destroy(); res.destroy(); res.socket?.destroy();
+  };
+  const dropSession = key => {
+    const s = sessions.get(key);
+    if (!s) return;
+    sessions.delete(key);
+    for (const flight of live.get(s.client) ?? []) if (flight.session === key) kill(flight);
+  };
   // Revoked or expired: the same end.
   const end = (client, reason = 'closed') => {
     if (reason !== 'closed') log(`canvas: ${client} ${reason}: its proxied streams end`);
     ends.get(client)?.();
     ends.delete(client);
-    for (const gone of live.get(client) ?? []) gone.abort();
+    for (const flight of live.get(client) ?? []) kill(flight);
     live.delete(client);
     for (const [k, s] of sessions) if (s.client === client) sessions.delete(k);
     for (const [k, g] of grants) if (g.client === client) grants.delete(k);
@@ -178,8 +279,10 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
     const unsubscribe = pairing.onEnd(client, reason => end(client, reason));
     if (ends.has(client)) ends.set(client, unsubscribe); else unsubscribe?.();
   };
-  const notFound = res => { res.writeHead(404, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end('{"message":"Not found."}'); };
+  const notFound = (res, close = false) => { res.writeHead(404, { 'content-type': 'application/json', 'cache-control': 'no-store', ...(close ? { connection: 'close' } : {}) }); res.end('{"message":"Not found."}'); };
   const json = (res, status, body, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }); res.end(JSON.stringify(body)); };
+  /** Answered, then the connection closed: a body not read to its end. */
+  const refuseBody = (req, res, answer) => { res.on('finish', () => req.destroy?.()); res.setHeader('connection', 'close'); answer(); };
 
   function mint(token) {
     if (closed) return { status: 503, error: { message: 'the canvas gateway is closed' } };
@@ -198,14 +301,15 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
     return { ok: { url: `${origin}/canvas/${encodeURIComponent(rec.client)}/`, grant, expires: at + GRANT_MS } };
   }
 
-  async function enter(req, res, url, client) {
+  async function enter(req, res, target, client) {
     // POST only, the grant only in the body: any query is refused.
-    if (req.method !== 'POST' || url.search) return notFound(res);
+    if (req.method !== 'POST' || target.query) return notFound(res);
+    // An explicit Origin, the canvas's or the tool's: none, `null` or another is refused.
     const given = req.headers.origin;
-    if (given !== undefined && given !== origin && given !== toolOrigin) return notFound(res);
-    const bytes = await readBody(req, ENTRY_LIMIT);
-    if (!bytes) { res.on('finish', () => req.destroy?.()); return notFound(res); }
-    const text = bytes.toString('utf8'), type = String(req.headers['content-type'] ?? '');
+    if (typeof given !== 'string' || (given !== origin && given !== toolOrigin)) return notFound(res);
+    const read = await readBody(req, ENTRY_LIMIT);
+    if (!read.body) { if (read.over) refuseBody(req, res, () => notFound(res)); else if (!res.destroyed) notFound(res); return; }
+    const text = read.body.toString('utf8'), type = String(req.headers['content-type'] ?? '');
     let grant = null;
     try {
       grant = /^application\/json\b/i.test(type) ? JSON.parse(text)?.grant : /^application\/x-www-form-urlencoded\b/i.test(type) ? new URLSearchParams(text).get('grant') : null;
@@ -220,8 +324,10 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
     if (!rec || rec.client !== client || !may(rec.scope, 'read')) return notFound(res);
     const session = randomBytes(32).toString('base64url');
     const mine = [...sessions].filter(([, s]) => s.client === client);
-    for (const [k] of mine.slice(0, Math.max(0, mine.length - SESSIONS_PER_CLIENT + 1))) sessions.delete(k);
-    sessions.set(sha(session).toString('hex'), { client, token: held.token, grant: key });
+    // The oldest past the cap goes, and its streams with it.
+    for (const [k] of mine.slice(0, Math.max(0, mine.length - SESSIONS_PER_CLIENT + 1))) dropSession(k);
+    const sessionHash = sha(session);
+    sessions.set(sessionHash.toString('hex'), { hash: sessionHash, client, token: held.token, grant: key });
     watch(client);
     res.writeHead(303, { location: '/', 'cache-control': 'no-store', 'set-cookie': `${CANVAS_COOKIE}=${session}; Secure; HttpOnly; SameSite=Strict; Path=/` });
     res.end();
@@ -231,39 +337,48 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
   function sessionOf(req) {
     for (const value of cookies(req.headers.cookie, CANVAS_COOKIE)) {
       if (!/^[A-Za-z0-9_-]{43}$/.test(value)) continue;
-      const s = sessions.get(sha(value).toString('hex'));
-      if (!s) continue;
+      const hash = sha(value), key = hash.toString('hex');
+      const s = sessions.get(key);
+      if (!s || !same(s.hash, hash)) continue;
       const rec = valid(s.token);
-      if (rec && rec.client === s.client) return { ...s, scope: rec.scope };
+      if (rec && rec.client === s.client) return { ...s, key, scope: rec.scope };
     }
     return null;
   }
 
+  /** The canvas port's every request. `req.url`, the raw target, is what
+   * is checked and forwarded (`url`, a parse of it, is not trusted). */
   async function handle(req, res, url) {
-    if (closed) { notFound(res); return true; }
-    const entry = ENTRY.exec(url.pathname);
+    const target = closed ? null : canonical(req.url ?? (url && url.pathname + url.search));
+    if (!target) { notFound(res); return true; }
+    const entry = ENTRY.exec(target.path);
     if (entry) {
       let client = null;
       try { client = decodeURIComponent(entry[1]); } catch { /* malformed */ }
-      if (client == null) notFound(res); else await enter(req, res, url, client);
+      if (client == null) notFound(res); else await enter(req, res, target, client);
       return true;
     }
     const session = sessionOf(req);
-    const need = needs(req.method, url.pathname);
+    const need = needs(req.method, target.path);
     if (!session || !need) { notFound(res); return true; }
-    if (!may(session.scope, need)) { json(res, 403, { message: `${req.method} ${url.pathname} needs ${need}`, scope: session.scope, needs: need }); return true; }
+    if (!may(session.scope, need)) { json(res, 403, { message: `${req.method} ${target.path} needs ${need}`, scope: session.scope, needs: need }); return true; }
     if (req.method === 'POST' && req.headers.origin !== origin) { notFound(res); return true; }
-    await proxy(req, res, url, session.client);
+    const held = live.get(session.client) ?? new Set();
+    if (held.size >= LIVE_PER_CLIENT) { json(res, 503, { message: 'too many open canvas requests' }, { 'retry-after': '1' }); return true; }
+    live.set(session.client, held);
+    const flight = { session: session.key, gone: new AbortController(), req, res };
+    held.add(flight);
+    // Tracked until the response closes (after its last byte is flushed, or cut).
+    res.on('close', () => {
+      flight.gone.abort();
+      held.delete(flight);
+      if (!held.size && live.get(session.client) === held) live.delete(session.client);
+    });
+    await proxy(req, res, target, flight.gone.signal);
     return true;
   }
 
-  async function proxy(req, res, url, client) {
-    const gone = new AbortController();
-    const held = live.get(client) ?? new Set();
-    live.set(client, held);
-    held.add(gone);
-    const cut = () => gone.abort();
-    res.on('close', cut);
+  async function proxy(req, res, target, signal) {
     try {
       const named = new Set(String(req.headers.connection ?? '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean));
       const headers = {};
@@ -275,30 +390,28 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
       headers.host = loopHost;
       // A proxy's marker, fixed (no peer address in it): the dev gate, as it
       // is (install-page.mjs), then admits the request by its loopback Host
-      // but never calls it local, so the loop hands this request neither its
-      // install token (installer.page) nor its tamber token, whatever path the
-      // allow list someday passes. The client's own forwarding headers are
-      // dropped above.
+      // but never calls it local, so the loop hands this request no local
+      // credential (its install token, its tamber token, a native client's
+      // admission links on `/__dev/open`), whatever path the allow list
+      // someday passes. The client's own forwarding headers are dropped above.
       headers.forwarded = 'for="_exact-canvas"';
       if (req.method === 'POST') headers.origin = loopOrigin;
       let body;
       if (req.method !== 'GET' && req.method !== 'HEAD') {
-        const limit = url.pathname === '/__dev/checkpoint' ? CHECKPOINT_LIMIT : BODY_LIMIT;
-        body = await readBody(req, limit);
-        if (!body) {
-          res.on('finish', () => req.destroy?.());
-          json(res, 413, { error: { message: `a request is at most ${limit === BODY_LIMIT ? '1' : limit >> 20} MiB` } }, { connection: 'close' });
-          return;
-        }
+        const limit = target.path === '/__dev/checkpoint' ? CHECKPOINT_LIMIT : BODY_LIMIT;
+        const read = await readBody(req, limit, signal);
+        if (read.over) { refuseBody(req, res, () => json(res, 413, { error: { message: `a request is at most ${limit === BODY_LIMIT ? '1' : limit >> 20} MiB` } })); return; }
+        if (read.gone) throw new Error('ended');
+        body = read.body;
       }
-      if (gone.signal.aborted) throw new Error('ended');
-      const answer = await fetch(`${loopOrigin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual', signal: gone.signal });
+      if (signal.aborted) throw new Error('ended');
+      const answer = await fetch(`${loopOrigin}${target.path}${target.query}`, { method: req.method, headers, body, redirect: 'manual', signal });
       const out = {};
       const dropNamed = new Set(String(answer.headers.get('connection') ?? '').toLowerCase().split(',').map(s => s.trim()));
       for (const [k, v] of answer.headers) {
         const key = k.toLowerCase();
         if (HOP.has(key) || dropNamed.has(key) || DROP_DOWN.has(key) || key.startsWith('access-control-')) continue;
-        out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? rewrite(frameAncestors(v, loopOrigin, origin, toolOrigin)) : rewrite(v);
+        out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? rewrite(frameAncestors(v, loopPort, origin, toolOrigin)) : rewrite(v);
       }
       out['cache-control'] = 'no-store';
       const type = String(out['content-type'] ?? '');
@@ -308,6 +421,7 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
       if (text && !stream) {
         // A page or JSON whole, so a URL split over two chunks is rewritten.
         const bytes = Buffer.from(rewrite(Buffer.from(await answer.arrayBuffer()).toString('utf8')));
+        if (signal.aborted) throw new Error('ended');
         res.writeHead(answer.status, out);
         res.end(bytes);
         return;
@@ -322,23 +436,19 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
           rest += decoder.decode(chunk, { stream: true });
           const at = rest.lastIndexOf('\n');
           if (at < 0) continue;
-          await put(res, rewrite(rest.slice(0, at + 1)));
+          await put(res, rewrite(rest.slice(0, at + 1)), signal);
           rest = rest.slice(at + 1);
         }
-        if (rest) await put(res, rewrite(rest));
-      } else for await (const chunk of answer.body) await put(res, chunk);
+        if (rest) await put(res, rewrite(rest), signal);
+      } else for await (const chunk of answer.body) await put(res, chunk, signal);
       res.end();
     } catch {
       // Cut part way (revoked, or either side gone): the answer begun cannot become another.
       if (res.headersSent) res.destroy();
       else if (!res.destroyed) {
-        if (gone.signal.aborted) notFound(res);
+        if (signal.aborted) notFound(res);
         else json(res, 502, { error: { message: 'the dev loop did not answer' } });
       }
-    } finally {
-      res.off('close', cut);
-      held.delete(gone);
-      if (!held.size && live.get(client) === held) live.delete(client);
     }
   }
 

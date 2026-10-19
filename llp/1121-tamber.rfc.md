@@ -4221,8 +4221,8 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
     6 a minute).
   - The url: `<canvas origin>/canvas/<client>/`, never a loopback URL.
 - **The entry**, `POST /canvas/<client>/`, with `grant` in a form or JSON body:
-  - A query string, a GET, an Origin other than the canvas's or the tool's, a wrong, used or expired grant, or
-    another client's: not-found.
+  - A query string, a GET, no Origin or one other than the canvas's or the tool's (`null` included), a wrong, used
+    or expired grant, or another client's: not-found.
   - The grant is compared timing-safe (by its SHA-256) and burned on any try.
   - A session id (256 bits) is bound server-side to the client, its token and that grant.
   - The answer is a 303 to `/`.
@@ -4268,9 +4268,11 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
     then the connection closed.
 - **Downstream:**
   - Set-Cookie, CORS, HSTS and hop-by-hop headers are dropped, with `cache-control: no-store`.
-  - Every loopback form of the loop's origin (127.0.0.1, localhost or [::1] with its port, as a URL, URL-encoded, or
-    a bare host) becomes the canvas origin: in every header (Location, Link, CSP), and in HTML and JSON bodies
-    (`page`, `url`, `/__dev/open`'s links) and SSE streams (a line at a time).
+  - Every loopback address (any 127/8 host, localhost or [::1], however encoded, at any port, the default included;
+    as a URL, scheme-relative, URL-encoded, JSON-escaped, or a bare `host:port` standing alone) is rewritten in every
+    header (Location, Link, CSP) and in HTML and JSON bodies (`page`, `url`, `/__dev/open`'s page) and SSE streams (a
+    line at a time). The loop's own (a loopback host at its port) becomes the canvas origin. Any other loopback
+    authority becomes `loopback.invalid`, which never resolves, so no other local service's address is handed out.
   - `frame-ancestors` names the canvas (`'self'`) and the tool's remote origin, with no loopback source.
   - Bodies are streamed with backpressure, as `forward()` streams them.
 - **Revoke and expiry (A's `onEnd`):**
@@ -4312,3 +4314,36 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
     both ports, and a page-set cookie granting nothing on either port.
   - **Then:** the test through the real dev loops (`devLoop`), a JS-target and a wasm page loading through the
     gateway and a live edit reaching each.
+- **After review round 1 (Astra, Grok):**
+  - The raw request target is checked, and the path forwarded is exactly the path authorized (`canonical`). A target
+    the loop could read as another path is not-found: one not in origin form, an empty segment (a leading `//`
+    too), a `.` or `..` segment, a backslash, NUL or other control character, an encoded `/`, `\`, NUL or `.`, a
+    percent-encoded unreserved character, or a malformed escape. `/__` and `/.exact` compare without case.
+    `//a//b/__dev/open`, `//127.0.0.1/__tamber/token` and `/%2eexact/install/` reach nothing (Astra 1, Grok 1).
+  - Revoke ends every proxied request at once: its upstream fetch is aborted, and its request and response are
+    destroyed, so a stalled upload and a download whose client never reads end too. The body read and the
+    backpressure wait both observe the abort. A response stays tracked until it closes, not until `end()`. Requests
+    are tracked per session, so a session evicted past the cap of 16 ends its own streams, and a client has at most
+    32 requests in flight (503 past that) (Astra 2, Grok 6).
+  - `/__dev/open` no longer hands a native client's admission token to anyone but a local request:
+    `developmentLinks(app, page, access)` (host/apple/build.mjs) gives no links unless `access.local`. That covers
+    the wasm loop and the resident loop behind the JS loop (the same code, its gate given the gateway's
+    `forwarded` mark as it came). Local native clients keep their links (Astra 3, Grok 3).
+  - The rewriter covers every loopback authority at any port, and the default port with none written, in
+    percent-encoded host forms (`%6cocalhost`, `0x7f.1`, as WHATWG URL canonicalizes them). The loop's own origin
+    maps to the canvas's; any other loopback authority becomes `loopback.invalid`. A bare `host:port` is rewritten
+    only standing alone, so `https://example.test/localhost:9000.png` and `notlocalhost:9000` are untouched. One
+    pass, so nothing it writes is read again. A loopback `toolOrigin` is refused (Astra 4, Grok 2).
+  - The entry needs an explicit Origin, the canvas's or the tool's: a missing, `null` or malformed one is refused
+    (Astra 5).
+  - A `read` or `propose` canvas is refused `/__dev/checkpoint` (it stays `write`), so after a JS rebuild the JS
+    loop's page now reloads afresh on that 403 instead of keeping the old page (Astra 6).
+  - A session is looked up by its SHA-256 and the hash compared timing-safe, as a grant is (Grok 5).
+  - The dev gate (install-page.mjs) treats `forwarded` and any `x-forwarded-*` header as forwarding (Grok 7).
+  - Grok 4 (A's shapes) is settled in the plan.
+  - Tests: the canonical table, and the same targets through the gateway reaching nothing; the address cases in
+    headers, HTML, JSON and SSE; a stalled upload and a client that never reads, both closed at once on revoke with
+    the upstream request ended; session eviction and the 32-request cap; the entry's Origin cases; the JS loop's
+    client script parsing with the 403 fallback before the failure path; `install-page.test.mjs`, a later
+    `x-forwarded-*` and the gateway's mark not local, with no admission links for it; `development.rs`, no links
+    for a request that isn't local.

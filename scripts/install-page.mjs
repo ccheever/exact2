@@ -284,7 +284,8 @@ export function developmentGate(origins, port, allowHosts = []) {
       const headers = req.headers ?? {};
       const host = String(headers.host ?? '').toLowerCase();
       const name = host.replace(/:\d+$/, '');
-      const forwarded = ['forwarded', 'x-forwarded-for', 'x-forwarded-host'].some(h => headers[h] !== undefined);
+      // Any proxy's mark: `forwarded`, or any `x-forwarded-*` (a later one too).
+      const forwarded = Object.keys(headers).some(h => { const k = h.toLowerCase(); return (k === 'forwarded' || k.startsWith('x-forwarded-')) && headers[h] !== undefined; });
       let crossSite = false;
       if (req.method === 'POST' && headers.origin !== undefined) {
         try { crossSite = new URL(headers.origin).host.toLowerCase() !== host; } catch { crossSite = true; }

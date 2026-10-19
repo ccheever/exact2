@@ -1372,7 +1372,7 @@ const serve = async (req, res) => {
     // links this Mac's development clients admit for it (LLP 1030.000 §7).
     const page = new URL('/' + url.search, `http://${req.headers.host}`).href;
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
-    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app, developmentLinks(app, page), page));
+    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app, developmentLinks(app, page, access), page));
     return;
   }
   if (url.pathname.startsWith('/__dev/generation/')) {
