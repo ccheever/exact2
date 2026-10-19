@@ -640,6 +640,12 @@ component AuthPage
     email = v
   action setPassword(v: string)
     password = v
+  // The button, or Enter in a field (`submit`), as a form's would.
+  action submitForm
+    if signup
+      register(username, email, password)
+    else
+      login(email, password)
   view
     column class=Container padding-top=24 align-items="center"
       column width="100%" max-width=540
@@ -663,29 +669,28 @@ component AuthPage
           if signup
             input value=username
               input=setUsername
+              submit=submitForm
               placeholder="Username"
               aria-label="Username"
               class=FieldLg
               testId="username"
           input value=email
             input=setEmail
+            submit=submitForm
             placeholder="Email"
             aria-label="Email"
             class=FieldLg
             testId="email"
           input value=password
             input=setPassword
+            submit=submitForm
             type="password"
             placeholder="Password"
             aria-label="Password"
             class=FieldLg
             testId="password"
-          if signup
-            button press=register(username, email, password) class=BtnLg testId="submit"
-              text "Sign up"
-          else
-            button press=login(email, password) class=BtnLg testId="submit"
-              text "Sign in"
+          button press=submitForm class=BtnLg testId="submit"
+            text(signup ? "Sign up": "Sign in")
 
 component SettingsPage
   props
@@ -721,6 +726,9 @@ component SettingsPage
     email = v
   action setPassword(v: string)
     password = v
+  // The button, or Enter in a one-line field (`submit`), as a form's would.
+  action update
+    save(shownImage, shownName, shownBio, shownEmail, password)
   view
     column class=Container padding-top=24 align-items="center"
       column width="100%" max-width=540
@@ -737,12 +745,14 @@ component SettingsPage
             box
         input value=shownImage
           input=setImage
+          submit=update
           placeholder="URL of profile picture"
           aria-label="URL of profile picture"
           class=Field
           testId="image"
         input value=shownName
           input=setName
+          submit=update
           placeholder="Your Name"
           aria-label="Your Name"
           class=FieldLg
@@ -756,18 +766,20 @@ component SettingsPage
           testId="bio"
         input value=shownEmail
           input=setEmail
+          submit=update
           placeholder="Email"
           aria-label="Email"
           class=FieldLg
           testId="email"
         input value=password
           input=setPassword
+          submit=update
           type="password"
           placeholder="New Password"
           aria-label="New Password"
           class=FieldLg
           testId="password"
-        button press=save(shownImage, shownName, shownBio, shownEmail, password)
+        button press=update
           class=BtnLg
           testId="save-settings"
           text "Update Settings"

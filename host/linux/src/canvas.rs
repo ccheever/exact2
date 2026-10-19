@@ -60,6 +60,8 @@ use crate::paint::{Backend, GradientPaint, Rect4, Shape};
 #[cfg(target_os = "android")]
 use crate::presenter::Presenter;
 use crate::text::{Paragraph, RunPaint, TextEngine};
+#[doc(hidden)]
+pub use exact_kernel::NodeKey as ModuleKey;
 use exact_kernel::ViewId;
 #[cfg(target_os = "android")]
 use exact_runner::DataSource;
@@ -1107,7 +1109,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             palette.tell();
         }
         let mut config = crate::app::Config::from_env_static(plan, compat);
-        (config.scale, config.hatches) = (scale, hatches);
+        (config.scale, config.hatches, config.clock_started) = (scale, hatches, Some(started));
         let (mut p, error) = crate::app::boot_presenter_with_painter::<D>(
             &mut config,
             viewport,
@@ -1116,7 +1118,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
-        p.set_live_clock(Some(crate::presenter::wall_since(started)));
+        agent::own_time(&mut p, started);
         crate::surfaces::acquire_fd();
         // What the reader read of the device, before the first frame (D3.1).
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
@@ -1225,7 +1227,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         // The presenter's clock: the runner's frame tasks and timers, and
         // the hatches' tickets and `after`s.
-        if p.wants_frames() {
+        if p.wants_frames() && agent::clock(p).is_none() {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }

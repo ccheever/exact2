@@ -8,19 +8,8 @@ use ComposerEditorView from "./composer-editor.contract"
 use PromptLengthValidation from "./composer-editor.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
 use ComposerRichView from "./composer-rich.contract"
-use cmp-bold, cmp-italic, cmp-strike, cmp-code-inline, cmp-h1, cmp-h2, cmp-h3, cmp-h4 from "./composer-rich.contract"
-use cmp-h5, cmp-h6, cmp-quote, cmp-rule, cmp-code-block, cmp-list-depth0, cmp-list-depth1, cmp-list-depth2 from "./composer-rich.contract"
-use cmp-list-depth3, cmp-list-depth4, cmp-list-depth5, cmp-list-depth6, cmp-list-depth7, cmp-list-depth8, cmp-chip-neutral, cmp-chip-invalid from "./composer-rich.contract"
-use cmp-chip-pull-request, cmp-chip-pr-draft, cmp-chip-thread, cmp-chip-mention, cmp-chip-file, cmp-chip-skill, cmp-chip-review-comment, cmp-chip-citation from "./composer-rich.contract"
-use cmp-chip-terminal, cmp-chip-preview-annotation, cmp-chip-image, cmp-chip-video, cmp-syn-kw, cmp-syn-kw-i, cmp-syn-decl, cmp-syn-decl-i from "./composer-rich.contract"
-use cmp-syn-type, cmp-syn-type-i, cmp-syn-fn, cmp-syn-fn-i, cmp-syn-var, cmp-syn-var-i, cmp-syn-const, cmp-syn-const-i from "./composer-rich.contract"
-use cmp-syn-param, cmp-syn-param-i, cmp-syn-pyparam, cmp-syn-pyparam-i, cmp-syn-flag, cmp-syn-flag-i, cmp-syn-interp, cmp-syn-interp-i from "./composer-rich.contract"
-use cmp-syn-bold, cmp-syn-bold-i, cmp-syn-str, cmp-syn-str-i, cmp-syn-esc, cmp-syn-esc-i, cmp-syn-num, cmp-syn-num-i from "./composer-rich.contract"
-use cmp-syn-nul, cmp-syn-nul-i, cmp-syn-op, cmp-syn-op-i, cmp-syn-builtin, cmp-syn-builtin-i, cmp-syn-punct, cmp-syn-punct-i from "./composer-rich.contract"
-use cmp-syn-com, cmp-syn-com-i, cmp-syn-key, cmp-syn-key-i, cmp-syn-tag, cmp-syn-tag-i, cmp-syn-heading, cmp-syn-heading-i from "./composer-rich.contract"
-use cmp-syn-attr, cmp-syn-attr-i, cmp-syn-regex, cmp-syn-regex-i, cmp-syn-deco, cmp-syn-deco-i, cmp-syn-italic from "./composer-rich.contract"
 use ComposerCodeHeaders from "./composer-code-headers.contract"
-use ComposerChipControls, ComposerChipLayout from "./composer-chip-controls.contract"
+use ComposerChipControls from "./composer-chip-controls.contract"
 
 // T3's ChatComposer: the composer card, its toolbar controls (ComposerControl.tsx
 // "sm"), the send/stop actions (ComposerPrimaryActions.tsx) and the traits and
@@ -65,12 +54,10 @@ component ComposerCard
     rem: number
     richComposer: ComposerRichView
     richComposerOwner: string
-    composerChipLayout: ComposerChipLayout
     composerFieldInputSerial: number
     composerMoved: action
     composerBeforeInput: action
     composerIntentNotice: string
-    composerTaskToggle: action
     composerKeyEvent: action
     composerKeyReleased: action
   props
@@ -103,13 +90,10 @@ component ComposerCard
     urls: AttachmentUrl[]
   derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
   derive restingChip = data.composer.compactTokens != "" and not (data.composer.canResume and not sendable) and data.composer.queueEditing == ""
-  derive richRanges = richComposer.owner == richComposerOwner ? richComposer.decorations : TextDecorations(value=text, spans=[], blocks=[], hidden=[], atoms=[])
   action richMoved(e: InputEvent)
     composerMoved(e)
   action richBeforeInput(e: InputEvent)
     composerBeforeInput(e)
-  action richToggle(e: ToggleEvent)
-    composerTaskToggle(e)
   action richKey(k: string, e: KeyboardEvent)
     composerKeyEvent(k, e)
   action richKeyReleased(k: string, e: KeyboardEvent)
@@ -153,9 +137,9 @@ component ComposerCard
           box position="relative" width="100%" id="composer-field-wrap"
             if text == ""
               text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height=(resting ? "2rem" : "1.421875rem") line-clamp=(resting ? 1 : 3) color="light-dark(#71717abf, #818181bf)" pointer-events="none" aria-hidden=true testId="composer-placeholder"
-            textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite decorations=richRanges selectionchange=richMoved beforeinput=richBeforeInput toggle=richToggle key=richKey keyup=richKeyReleased focus=onFocus blur=onBlur aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none"
-            ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text, resting=resting)
-            ComposerChipControls(source=richComposer, layout=composerChipLayout, owner=richComposerOwner, value=text, serial=composerFieldInputSerial, surface="composer", size=data.look.promptSize, family=data.look.promptFont)
+            textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite markup=(richComposer.mode == "rich" ? "markdown" : "none") selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=onBlur aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none"
+        ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text, resting=resting)
+        ComposerChipControls(source=richComposer, owner=richComposerOwner, value=text, serial=composerFieldInputSerial, surface="composer", size=data.look.promptSize, family=data.look.promptFont)
       // The prompt editor (composer-editor.contract): the length line,
       // and ⇧⇥'s plan toggle as a key button the native editor presses.
       if composerIntentNotice != ""

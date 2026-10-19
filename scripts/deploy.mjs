@@ -505,10 +505,10 @@ function keepLiveMtimes(repo, staged) {
   walk(staged);
 }
 
-/** Child tools may ask Git about their source directory. Keep discovery and
- * explicit Git process state inside the private snapshot boundary. */
+/** Keep Git discovery and process state inside the private snapshot boundary;
+ * shipping bakes ignore a proof profile inherited from the caller's shell. */
 function sealedSourceEnv(sourceRoot, extra = {}) {
-  const env = { ...process.env, ...extra };
+  const env = { ...process.env, ...extra, EXACT_GAME_PROOF_PROFILE: 'release' };
   for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
     'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[name];
   env.GIT_CEILING_DIRECTORIES = sourceRoot;
@@ -578,16 +578,16 @@ export function materializeSnapshot(snapshot, run, app, cache = null) {
   // A game without its own Cargo.lock resolves against the captured SDK lock
   // (game/app/shells.lock), still locked and offline.
   if (manifest.game) gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
-  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
-  // node_modules is an output, never captured; a TypeScript app's bake runs
-  // Rolldown from it and ships SQLite WASM out of it. Install exactly what the
-  // captured bun.lock pins, from Bun's cache, into the captured tree.
+  // node_modules is an output, never captured: a TypeScript app's bake runs Rolldown from it, ships SQLite WASM out of it,
+  // and a module package's crate is under it (LLP 1133.001 D9). Install exactly what the captured bun.lock pins, from
+  // Bun's cache, into the captured tree, before the Cargo closure is asserted.
   for (const root of new Set([exactRoot, workspace])) {
     if (!existsSync(resolve(root, 'package.json')) || !existsSync(resolve(root, 'bun.lock'))) continue;
     const installed = spawnSync(process.execPath, ['install', '--frozen-lockfile', '--prefer-offline'], {
       cwd: root, env: sealedSourceEnv(sourceRoot), stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
     if (installed.status !== 0) refuse(`${root}: bun install --frozen-lockfile failed in the captured source: ${(installed.stderr || installed.stdout || installed.error?.message || '').trim()}`);
   }
+  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
   // Every Contract file the bake will read is in the captured tree: an
   // installed library that still leads outside it is live bytes (LLP 1091 D10).
   assertCapturedContractSources(contractSources(dir, exactRoot, sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: capture.compilerTarget }), capture.compiler), sourceRoot);
@@ -644,7 +644,7 @@ function bakeJs(app, run, web, exactRoot, sourceRoot) {
 }
 
 /** Bake the web app into `<run>/web` (`host/web/build.mjs` with `EXACT_WEB_DIST`): its output goes to stderr so stdout stays the table. Returns the directory. */
-function bake(app, run, exactRoot, sourceRoot) {
+export function bake(app, run, exactRoot, sourceRoot) {
   mkdirSync(run, { recursive: true });
   const web = resolve(run, 'web');
   const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });

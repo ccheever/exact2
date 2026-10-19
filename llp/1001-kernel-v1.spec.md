@@ -30,7 +30,7 @@ references remain unqualified. `position: fixed` is not a schema value. Percenta
 behavior: height for top/bottom, width for left/right, diverging from the
 [W3C draft's width rule](https://w3c.github.io/IntersectionObserver/#dom-intersectionobserver-rootmargin).
 Windows and Android inherit the Linux path without carrier qualification;
-terminal does not sample. The issue stays open. The margin is an observer option, not a CSS layout row.
+terminal does not sample. The margin is an observer option, not a CSS layout row.
 
 ## 1. One declaration authority (WS-B)
 
@@ -984,6 +984,11 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   `regions`). A deviation, declared: a host that reports none (the web, Linux,
   Windows, Android, the terminal) resolves each to its safe-area inset, where a
   platform with margins would give more. `tests/regions.rs`.
+  Window Controls Overlay's title-bar area is a sixth: `env(titlebar-area-x|y|width|height)`
+  against the `Env`'s `titlebar_area`, `None` until a host reports one (the AppKit host
+  under `viewport-fit=cover`), so each is undefined and its fallback applies, as in a
+  browser tab. No compact kind holds it: a length that reads it is always a calculation
+  (wire kind 24, `env()` tags 36–39). `tests/titlebar.rs`.
 - **Comparisons** (2026-10-07; approved by Charlie 2026-10-06).
   Dimension rows accept `calc()`, `min()`, `max()` and `clamp()` over absolute
   lengths, `ch`/`lh`, percentages, viewport units, safe-area insets and viewport

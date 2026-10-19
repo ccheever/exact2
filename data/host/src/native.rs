@@ -334,7 +334,37 @@ fn document_request(
             ));
         }
     }
-    run(operation, data.as_deref()).map(fs_value)
+    // A kept file the app replaces with its own atomic write stays kept (D4).
+    let kept = (operation == FsOp::AtomicWriteFile)
+        .then(|| exact_data::documents::kept::before_write(owner, path))
+        .flatten();
+    let written = run(operation, data.as_deref())?;
+    if let Some(replaced) = kept {
+        exact_data::documents::kept::carry(owner, replaced);
+    }
+    Ok(fs_value(written))
+}
+/// `storage.fs.recentDocuments()` and `forgetDocument(path)` (@ref LLP
+/// 1069.010.000 D5): what the app keeps across launches, under `doc.keep`,
+/// which `io_grants` leaves out of `grants`. `None` for any other request.
+fn kept_request(spec: &str, op: &str, args: &Value, owner: u64) -> Option<Result<Value, String>> {
+    use exact_data::documents::kept;
+    if !matches!(op, "fs.recentDocuments" | "fs.forgetDocument") {
+        return None;
+    }
+    if !spec.lines().any(|line| line.trim() == "doc.keep") {
+        return Some(Err(format!("storage: {op} needs the doc.keep grant")));
+    }
+    Some(match op {
+        // A session that keeps nothing (no store: a drive with no scratch
+        // store) has kept nothing.
+        "fs.recentDocuments" => Ok(kept::list(owner).unwrap_or_else(|| json!([]))),
+        _ => text(args, "path").and_then(|path| {
+            kept::forget(owner, path)
+                .map(|()| Value::Null)
+                .map_err(|_| format!("document ENOENT: {path} is not a document this app keeps"))
+        }),
+    })
 }
 /// [`exact_data::documents`] as ibex2's table.
 fn documents(path: &str, owner: u64) -> Result<fs::DocumentLease, fs::DocumentError> {
@@ -346,12 +376,12 @@ fn documents(path: &str, owner: u64) -> Result<fs::DocumentLease, fs::DocumentEr
         Resolved::Real {
             directory,
             path,
-            selected_file: true,
-        } => fs::DocumentLease::selected_file(directory, path, guard),
+            selected_file: Some(name),
+        } => fs::DocumentLease::selected_file_named(directory, path, name, guard),
         Resolved::Real {
             directory,
             path,
-            selected_file: false,
+            selected_file: None,
         } => fs::DocumentLease::directory(directory, path, guard),
     }
 }
@@ -373,10 +403,14 @@ fn native_filesystem(op: &str, args: &Value) -> bool {
             !path.starts_with("app:/") && !exact_data::documents::is_document(path)
         })
 }
-/// Chosen documents and Windows disk requests require no app directories.
+/// Chosen documents, the kept list and Windows disk requests require no
+/// app directories.
 pub(super) fn independent_storage(payload: &[u8]) -> bool {
     serde_json::from_slice::<Value>(payload).is_ok_and(|r| {
-        r["args"]["path"]
+        matches!(
+            r["op"].as_str(),
+            Some("fs.recentDocuments" | "fs.forgetDocument")
+        ) || r["args"]["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)
             || r["op"]
@@ -399,8 +433,11 @@ pub(super) fn run(
             return Err("unsupported storage protocol".into());
         }
         let op = text(&request, "op")?;
-        let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
         let args = &request["args"];
+        if let Some(kept) = kept_request(grants, op, args, owner) {
+            return kept;
+        }
+        let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
         // Two app files, never a document or a disk path (LLP 1069.002 A1.1).
         if op == "fs.compressImage"
             && ![&args["path"], &args["destination"]]

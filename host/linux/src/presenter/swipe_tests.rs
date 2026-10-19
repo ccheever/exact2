@@ -1212,4 +1212,95 @@ component MessageBubble
             }
         }
     }
+    #[test]
+    fn retained_actions_omitted_descendants_reach_the_rows_handlers() {
+        let _service = crate::content_region::test_service();
+        let mut actual = Vec::new();
+        let mut expected = Vec::new();
+        for child in ["svg", "transparent"] {
+            for pointer in [PointerKind::Mouse, PointerKind::Touch, PointerKind::Pen] {
+                let descendant = if child == "svg" {
+                    "svg width=60 height=30 viewBox=\"0 0 60 30\"\n                  rect testId=`child-${m.id}` x=0 y=0 width=60 height=30 fill=\"red\""
+                } else {
+                    "box opacity=0 width=60 height=30\n                  box testId=`child-${m.id}` width=60 height=30"
+                };
+                let src = source()
+                    .replace("text \"Reply\" font-size=11 color=\"#2668d8\"", descendant)
+                    .replace(
+                        "  action outside",
+                        "  action keyed(k: string)\n    replying = \"key\"\n  action outside",
+                    )
+                    .replace(
+                        "button press=replyTo(m.id)",
+                        "button key=keyed press=replyTo(m.id)",
+                    );
+                let mut p = boot(&src, true, Rows::default());
+                let child_id = id(&p, "child-message-0");
+                let row = id(&p, "reply-message-0");
+                assert!(!p.brush.region_blocks_action(child_id));
+                assert!(p.brush.region_blocks_action(row));
+                let parent = p.host.kernel().node(child_id).unwrap().parent.unwrap();
+                let at = point(&mut p, parent);
+                assert_eq!(
+                    p.hit(at.0, at.1),
+                    Some(if child == "svg" { child_id } else { parent })
+                );
+                actual.push((
+                    child,
+                    pointer,
+                    p.handler_target(child_id, EventKind::Key),
+                    None,
+                ));
+                // Opacity-zero descendants have no acknowledged display ancestry.
+                expected.push((child, pointer, (child == "svg").then_some(row), None));
+                p.set_pointer_kind(pointer);
+                p.pointer_down(at.0, at.1, 1.).unwrap();
+                p.pointer_up(at.0, at.1, 2.).unwrap();
+                actual.push((child, pointer, None, Some(selected(&p))));
+                expected.push((child, pointer, None, Some(DataValue::str("message-0"))));
+                p.focus = Some(child_id);
+                assert!(p
+                    .key_event(EventKind::Key, "k", "KeyK", false, 3.)
+                    .0
+                    .is_none());
+                actual.push((child, pointer, None, Some(selected(&p))));
+                expected.push((
+                    child,
+                    pointer,
+                    None,
+                    Some(DataValue::str(if child == "svg" {
+                        "key"
+                    } else {
+                        "message-0"
+                    })),
+                ));
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+    #[test]
+    fn mouse_svg_click_keeps_the_retained_action_refusal() {
+        let _service = crate::content_region::test_service();
+        let src = source()
+            .replace("  action outside", "  action unsupported\n    replying = `${replying}unsafe`\n  action outside")
+            .replace("column width=\"100%\" padding=5.3", "column press=outside width=\"100%\" padding=5.3")
+            .replace("button press=replyTo(m.id)", "button press=unsupported")
+            .replace("text \"Reply\" font-size=11 color=\"#2668d8\"", "svg testId=`svg-${m.id}` width=60 height=30 viewBox=\"0 0 60 30\"\n                  rect x=0 y=0 width=60 height=30 fill=\"red\"");
+        let mut p = boot(&src, true, Rows::default());
+        let row = id(&p, "reply-message-0");
+        let key = p.host.kernel().node(row).unwrap().key;
+        assert!(matches!(
+            p.host
+                .runner()
+                .capture_action_binding(key, EventKind::Press),
+            Err(exact_runner::runner::ActionBindingRefusal::Unsupported)
+        ));
+        let svg = id(&p, "svg-message-0");
+        let at = point(&mut p, svg);
+        let hit = p.hit(at.0, at.1).unwrap();
+        assert!(!p.brush.region_blocks_action(hit));
+        p.pointer_down(at.0, at.1, 1.).unwrap();
+        p.pointer_up(at.0, at.1, 2.).unwrap();
+        assert_eq!(selected(&p), DataValue::str(""));
+    }
 }

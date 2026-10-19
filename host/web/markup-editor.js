@@ -10,6 +10,7 @@ const NONE = 0xffffffff, HANDLED = 1, SOURCE = 2, PLACE = 4;
 // beforeinput kinds, as `mde_before_input` numbers them; 0 runs natively.
 const KINDS = { historyUndo: 1, historyRedo: 2, formatBold: 3, formatItalic: 4, formatStrikeThrough: 5, insertParagraph: 7, insertLineBreak: 7,
   insertText: 8, insertReplacementText: 9, insertFromPaste: 10, insertFromDrop: 10, insertFromYank: 10, deleteContentBackward: 11, deleteContentForward: 12 };
+const HISTORY = { undo: 'historyUndo', redo: 'historyRedo' };
 const kindOf = t => KINDS[t] ?? (t.startsWith('format') ? 6 : !t.startsWith('delete') ? 0 : /Backward|^deleteByCut$|^deleteContent$/.test(t) ? 13 : 14);
 const STYLES = [[1, 'md-b'], [2, 'md-i'], [4, 'md-c'], [8, 'md-s'], [16, 'md-a'], [64, 'md-m']];
 const CSS = `
@@ -48,37 +49,6 @@ function put(s) {
   const at = wasm.mde_input(s.length), m = new Uint16Array(wasm.memory.buffer, at, s.length);
   for (let i = 0; i < s.length; i++) m[i] = s.charCodeAt(i);
   return s.length;
-}
-
-/** The generic decorated editor shares the kernel's UTF-16 reconciliation. */
-export function reconcileDecorations(record, current) {
-  const lists = ['spans', 'blocks', 'hidden', 'atoms'];
-  const ranges = [], entries = [];
-  for (const kind of lists) for (const item of record[kind] ?? []) {
-    entries.push({ kind, item });
-    ranges.push(item.start, item.end, +(kind === 'hidden' || kind === 'atoms'));
-    if (kind === 'hidden' && item.reveal) {
-      entries.push({ kind: 'reveal', item: item.reveal, owner: item });
-      ranges.push(item.reveal.start, item.reveal.end, 0);
-    }
-  }
-  put(record.value + current);
-  const at = wasm.mde_decoration_ranges(ranges.length);
-  new Uint32Array(wasm.memory.buffer, at, ranges.length).set(ranges);
-  const count = wasm.mde_reconcile_decorations(record.value.length, current.length);
-  const mapped = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), count).slice();
-  const result = { provisional: record.value !== current, spans: [], blocks: [], hidden: [], atoms: [] };
-  const hidden = new Map();
-  for (let i = 0; i < mapped.length; i += 3) {
-    const { kind, item, owner } = entries[mapped[i]], range = { start: mapped[i + 1], end: mapped[i + 2] };
-    if (kind === 'reveal') { const run = hidden.get(owner); if (run) run.reveal = range; }
-    else {
-      const next = { ...item, ...range };
-      if (kind === 'hidden') { next.reveal = null; hidden.set(item, next); }
-      result[kind].push(next);
-    }
-  }
-  return result;
 }
 const text = n => utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_text(), n));
 
@@ -137,7 +107,7 @@ function installMarkupEditor(textarea, host) {
   const h = wasm.mde_new(), defaults = new Set(), ours = ['contenteditable', 'role', 'aria-multiline', 'aria-readonly', 'aria-disabled', 'aria-placeholder'];
   let source = '', lines = [], records = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
-  let nativeHidden = null;
+  let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false;
   let tabIndex = el.getAttribute('tabindex');
   const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !inertAncestor(el);
   const now = () => performance.now();
@@ -210,7 +180,7 @@ function installMarkupEditor(textarea, host) {
     const s = document.getSelection();
     if (!s?.rangeCount || !el.contains(s.anchorNode) || !el.contains(s.focusNode)) return null;
     const a = toSource(s.anchorNode, s.anchorOffset), f = toSource(s.focusNode, s.focusOffset);
-    const from = Math.min(a, f), to = Math.max(a, f);
+    const from = Math.min(a, f), to = Math.max(a, f), way = f < a ? 'backward' : 'forward';
     // The browser's Edit menu and mobile Select All may select only visible
     // text. A selection spanning that whole document owns hidden syntax too.
     if (from !== to) {
@@ -221,9 +191,9 @@ function installMarkupEditor(textarea, host) {
       walker.currentNode = el;
       let last = walker.lastChild();
       while (last && !visible(last)) last = walker.previousNode();
-      if (first && from <= toSource(first, 0) && to >= toSource(last, last.data.length)) return [0, source.length];
+      if (first && from <= toSource(first, 0) && to >= toSource(last, last.data.length)) return [0, source.length, way];
     }
-    return [from, to];
+    return [from, to, way];
   }
   function place(reveal) {
     if (document.activeElement !== el) return;
@@ -231,7 +201,8 @@ function installMarkupEditor(textarea, host) {
     const a = all ? { node: el, offset: 0 } : toDom(from, wasm.mde_draws_after(h, from) === 1);
     const b = all ? { node: el, offset: el.childNodes.length } : from === to ? a : toDom(to, false);
     placed = [from, to];
-    document.getSelection().setBaseAndExtent(a.node, a.offset, b.node, b.offset);
+    if (direction === 'backward' && from !== to) document.getSelection().setBaseAndExtent(b.node, b.offset, a.node, a.offset);
+    else document.getSelection().setBaseAndExtent(a.node, a.offset, b.node, b.offset);
     if (!reveal) return;
     const s = document.getSelection(), focus = s.focusNode?.nodeType === 3 ? s.focusNode.parentElement : s.focusNode;
     let r = s.rangeCount ? s.getRangeAt(0).getBoundingClientRect() : null;
@@ -245,28 +216,77 @@ function installMarkupEditor(textarea, host) {
     const next = text(wasm.mde_facts(h));
     if (next !== payload) { payload = next; host.select(el, payload); }
   }
-  function notify() {
+  /** The app's `input`: the edit's own type and data, the source and selection it left (`edit`: an InputEvent's init). */
+  function notify(edit) {
     notifying = true;
-    try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' })); }
+    try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: edit.inputType ?? '', data: edit.data ?? null, isComposing: !!edit.isComposing })); }
     finally { notifying = false; }
     if (pendingValue !== undefined || pendingSync) queueMicrotask(flush);
+    moved();
   }
   /** Show what an editing call did: redraw, place the caret, tell the app. */
-  function after(bits) {
-    if (destroyed) return;
+  function after(bits, edit = {}) {
+    if (destroyed) return bits;
     if (bits & SOURCE) { read(); render(); }
-    if (bits & PLACE) place(true);
-    if (bits & SOURCE) notify();
-    emit();
+    if (bits & PLACE) { direction = 'none'; place(true); }
+    if (bits & SOURCE) notify(edit);
+    emit(); moved();
+    return bits;
   }
   function run(command, argument = '') {
     if (destroyed || !writable() || composing) return false;
     const n = put(command + argument);
-    after(wasm.mde_command(h, command.length, n - command.length, now()));
+    after(wasm.mde_command(h, command.length, n - command.length, now()), { inputType: HISTORY[command] });
     return true;
   }
-  function reconcile() {
-    if (destroyed || composing) return;
+  /** HTML's `selectionchange` at the field, once per task, when its source selection moved. */
+  function moved() {
+    if (moving || destroyed) return;
+    moving = true;
+    queueMicrotask(() => {
+      moving = false;
+      const now = [el.selectionStart, el.selectionEnd, el.selectionDirection].join();
+      if (destroyed || now === reported || !host.live(el)) return;
+      reported = now; el.dispatchEvent(new Event('selectionchange'));
+    });
+  }
+  /** The text and selection in the DOM, hidden syntax included, as a native edit left them; `skip` leaves nodes out. */
+  function readDom(skip) {
+    const points = new Map();
+    let value = '';
+    function walk(node) {
+      if (node.nodeType === 3) { points.set(node, value.length); value += node.data; return; }
+      const offsets = [value.length], kids = [...node.childNodes].filter(child => !skip?.(child));
+      for (let i = 0; i < kids.length; i++) {
+        const child = kids[i], block = n => n?.nodeType === 1 && /^(DIV|P)$/.test(n.nodeName);
+        if (i && (block(child) || block(kids[i - 1]))) value += '\n';
+        offsets[i] = value.length;
+        if (child.nodeName === 'BR') {
+          points.set(child, [value.length]);
+          if (i < kids.length - 1) value += '\n'; // a final BR is the caret placeholder
+        } else walk(child);
+        offsets[i + 1] = value.length;
+      }
+      points.set(node, offsets);
+    }
+    walk(el);
+    const s = document.getSelection(), offset = (node, at) => {
+      const p = points.get(node);
+      return typeof p === 'number' ? p + at : p?.[at] ?? NONE;
+    };
+    return { value, a: offset(s?.anchorNode, s?.anchorOffset), b: offset(s?.focusNode, s?.focusOffset) };
+  }
+  /** `selectionStart`, `selectionEnd`, `selectionDirection` in source offsets; while an input method composes, the DOM's. */
+  function selection() {
+    if (composing) {
+      const { a, b } = readDom();
+      if (a !== NONE && b !== NONE) return [Math.min(a, b), Math.max(a, b), a === b ? 'none' : b < a ? 'backward' : 'forward'];
+    }
+    const [a, b] = sel();
+    return [a, b, a === b ? 'none' : direction];
+  }
+  function reconcile(edit) {
+    if (destroyed || composing) return 0;
     const s = domSelection(), changes = mutations.concat(observer.takeRecords());
     mutations = [];
     const hidden = nativeHidden; nativeHidden = null;
@@ -280,45 +300,20 @@ function installMarkupEditor(textarea, host) {
     if (structural || last < 0 || hidden) {
       // Read what survived, including hidden syntax, not detached cached nodes.
       // Native editors may create nested blocks and BRs during composition.
-      const points = new Map();
-      let value = '', discard = false;
-      function walk(node) {
-        if (node.nodeType === 3) { points.set(node, value.length); value += node.data; return; }
-        const offsets = [value.length], kids = [...node.childNodes].filter(child => !(discard && hidden?.get(child) === child.textContent));
-        for (let i = 0; i < kids.length; i++) {
-          const child = kids[i], block = n => n?.nodeType === 1 && /^(DIV|P)$/.test(n.nodeName);
-          if (i && (block(child) || block(kids[i - 1]))) value += '\n';
-          offsets[i] = value.length;
-          if (child.nodeName === 'BR') {
-            points.set(child, [value.length]);
-            if (i < kids.length - 1) value += '\n'; // a final BR is the caret placeholder
-          } else walk(child);
-          offsets[i + 1] = value.length;
-        }
-        points.set(node, offsets);
-      }
-      walk(el);
+      let { value, a, b } = readDom();
       // The native editor may retain display:none syntax inside a selection
       // it replaced. Drop only unchanged, selected hidden nodes from before
       // this edit; newly typed syntax and a cancelled composition survive.
-      if (hidden && changes.length && value !== source) {
-        discard = true; value = ''; points.clear(); walk(el);
-      }
-      const selection = document.getSelection(), offset = (node, at) => {
-        const p = points.get(node);
-        return typeof p === 'number' ? p + at : p?.[at] ?? NONE;
-      };
-      const a = offset(selection?.anchorNode, selection?.anchorOffset), b = offset(selection?.focusNode, selection?.focusOffset);
+      if (hidden && changes.length && value !== source) ({ value, a, b } = readDom(child => hidden.get(child) === child.textContent));
       const n = put(value), bits = wasm.mde_reconcile(h, n, Math.min(a, b), Math.max(a, b), now());
       // Even an unchanged source may have a new native DOM shape.
       records = []; lines = []; el.replaceChildren();
       if (!(bits & SOURCE)) { render(); place(false); }
-      after(bits);
-    } else {
-      const from = starts[first], to = last + 1 < starts.length ? starts[last + 1] - 1 : source.length;
-      const n = put(lines.slice(first, last + 1).map(line => line.textContent).join('\n'));
-      after(wasm.mde_reconcile_range(h, from, to, n, s ? s[0] : NONE, s ? s[1] : NONE, now()));
+      return after(bits, edit);
     }
+    const from = starts[first], to = last + 1 < starts.length ? starts[last + 1] - 1 : source.length;
+    const n = put(lines.slice(first, last + 1).map(line => line.textContent).join('\n'));
+    return after(wasm.mde_reconcile_range(h, from, to, n, s ? s[0] : NONE, s ? s[1] : NONE, now()), edit);
   }
   function rememberNativeSelection() {
     const [from, to] = sel();
@@ -331,9 +326,11 @@ function installMarkupEditor(textarea, host) {
     if (!s) return;
     const echo = placed; placed = null;
     const answer = wasm.mde_select(h, s[0], s[1], echo ? echo[0] : NONE, echo ? echo[1] : NONE);
+    if (answer) direction = s[2];
     // Mid-drag the platform owns the selection; snap it when the drag ends.
     if (answer === 2 && !pointer) place(false);
     if (answer) emit();
+    moved();
   }
   function setValue(value) {
     value = String(value);
@@ -390,7 +387,7 @@ function installMarkupEditor(textarea, host) {
     native.classList.remove('exact-markdown-editor', 'md-empty');
     if (!native.classList.length) native.removeAttribute('class');
     native.value = source; native.exactSourceValue = source;
-    native.setSelectionRange(from, to);
+    native.setSelectionRange(from, to, direction);
     host.replace(native); destroy(); el.replaceWith(native);
     if (focused && !native.disabled) native.focus();
   }
@@ -403,13 +400,15 @@ function installMarkupEditor(textarea, host) {
     wasm.mde_drop(h);
   }
 
-  el.addEventListener('beforeinput', e => {
-    if (destroyed || composing || e.isComposing || e.inputType === 'insertCompositionText') return;
+  // selectionchange is asynchronous; a select-all immediately followed by
+  // typing must reach the shared editor, and the app's `beforeinput` the
+  // selection it applies to, before either decides (capture runs first).
+  el.addEventListener('beforeinput', e => { if (!destroyed && !composing && !e.isComposing) selectionChanged(); }, true);
+  /** The editor's own handling, after the app's `beforeinput` (installed after `host.replace`): one it prevented changes nothing. */
+  function beforeInput(e) {
+    if (destroyed || composing || e.defaultPrevented || e.isComposing || e.inputType === 'insertCompositionText') return;
     if (!writable()) { e.preventDefault(); return; }
     const kind = kindOf(e.inputType);
-    // selectionchange is asynchronous; a select-all immediately followed by
-    // typing must reach the shared editor before it decides to type natively.
-    selectionChanged();
     if (!kind) { rememberNativeSelection(); return; }
     let a = NONE, b = NONE;
     const target = (kind === 9 || kind >= 11) && e.getTargetRanges?.()[0];
@@ -418,16 +417,25 @@ function installMarkupEditor(textarea, host) {
     const bits = wasm.mde_before_input(h, kind, put(data), a, b, now());
     if (!(bits & HANDLED)) { rememberNativeSelection(); return; } // native typing, read back on input
     e.preventDefault();
-    after(bits);
-  });
-  // The app hears this editor's own input events only, carrying the source.
+    after(bits, { inputType: e.inputType, data: e.data });
+  }
+  // The app hears this editor's own input events only, carrying the source;
+  // while an input method composes, the DOM's text and selection (`selection`).
   el.addEventListener('input', e => {
     if (notifying) return;
     e.stopImmediatePropagation();
-    if (!e.isComposing) reconcile();
+    const edit = { inputType: e.inputType, data: e.data };
+    if (!e.isComposing) reconcile(edit);
+    else if (composing) { told = el.value; notify({ ...edit, isComposing: true }); }
   });
   el.addEventListener('compositionstart', () => { selectionChanged(); rememberNativeSelection(); composing = true; });
-  el.addEventListener('compositionend', () => { composing = false; queueMicrotask(() => { reconcile(); flush(); }); });
+  // A composition the app heard and that left the source as it was (cancelled) is heard too: its text went.
+  el.addEventListener('compositionend', e => {
+    composing = false;
+    const heard = told, edit = { inputType: 'insertCompositionText', data: e.data };
+    told = null;
+    queueMicrotask(() => { if (!(reconcile(edit) & SOURCE) && heard !== null && heard !== source && !destroyed) notify(edit); flush(); });
+  });
   el.addEventListener('keydown', e => {
     if (e.isComposing || destroyed || e.defaultPrevented || e.exactStopped || e.$stopped) return;
     const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -448,7 +456,9 @@ function installMarkupEditor(textarea, host) {
     } else if (key === 'Tab' && !e.altKey && / (bullet|ordered|task) /.test(` ${payload.split('\n')[0]} `)) command = e.shiftKey ? 'outdent' : 'indent';
     if (!command || !writable()) return;
     e.preventDefault();
-    run(command);
+    // Undo and Redo are the platform's `beforeinput` first, the app's to cancel; the editor applies it (`beforeInput`).
+    if (HISTORY[command]) el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: HISTORY[command] }));
+    else run(command);
   });
   const clip = cut => e => {
     const markdown = copied();
@@ -457,7 +467,7 @@ function installMarkupEditor(textarea, host) {
     // Copy keeps the literal source (LLP 1045 D1); Mod-Shift-C copies plain text.
     e.clipboardData.setData('text/plain', markdown);
     e.clipboardData.setData('text/markdown', markdown);
-    if (cut && writable()) after(wasm.mde_cut(h, now()));
+    if (cut && writable()) after(wasm.mde_cut(h, now()), { inputType: 'deleteByCut' });
   };
   el.addEventListener('copy', clip(false));
   el.addEventListener('cut', clip(true));
@@ -480,14 +490,95 @@ function installMarkupEditor(textarea, host) {
   wasm.mde_load(h, put(raw?.replace(/\r\n?/g, '\n') === textarea.value ? raw : textarea.value));
   read(); render();
   wasm.mde_select(h, textarea.selectionStart, textarea.selectionEnd, NONE, NONE);
-  Object.defineProperty(el, 'value', { get: () => source, set: setValue });
+  Object.defineProperties(el, {
+    value: { get: () => composing ? readDom().value : source, set: setValue },
+    selectionStart: { get: () => selection()[0] },
+    selectionEnd: { get: () => selection()[1] },
+    selectionDirection: { get: () => selection()[2] },
+  });
+  reported = selection().join();
+  // HTML's range methods over source offsets (LLP 1045 D6): offsets are
+  // WebIDL `unsigned long`s, clamped to the source; a caret in hidden syntax
+  // is drawn at its visible edge, so it reads back there.
+  const offset = v => Math.min(source.length, Number(v) >>> 0);
+  el.setSelectionRange = (start, end, way) => {
+    if (destroyed) return;
+    if (composing) throw new DOMException('text is being composed', 'InvalidStateError');
+    const b = offset(end), a = Math.min(offset(start), b);
+    after(wasm.mde_set_selection(h, a, b));
+    direction = way === 'forward' || way === 'backward' ? way : 'none';
+    if (direction === 'backward') place(false);
+    moved();
+  };
+  // One undo step for each call, as a format command is (LLP 1045 D1), and
+  // the one `insertReplacementText` input a plain field's call makes.
+  el.setRangeText = (text, ...range) => {
+    if (destroyed) return;
+    if (composing) throw new DOMException('text is being composed', 'InvalidStateError');
+    text = String(text);
+    let [a, b] = sel();
+    if (range.length) {
+      if (range.length < 2) throw new TypeError('setRangeText takes a start and an end');
+      [a, b] = [Number(range[0]) >>> 0, Number(range[1]) >>> 0];
+      if (a > b) throw new DOMException('start exceeds end', 'IndexSizeError');
+    }
+    const mode = ['preserve', 'select', 'start', 'end'].indexOf(range[2] === undefined ? 'preserve' : String(range[2]));
+    if (mode < 0) throw new TypeError(`setRangeText: ${range[2]} is not a selectionMode`);
+    direction = 'none';
+    after(wasm.mde_replace(h, a, b, put(text), mode, now()) | SOURCE, { inputType: 'insertReplacementText', data: text });
+  };
   el.focus = options => { if (el.hasAttribute('disabled')) return; HTMLElement.prototype.focus.call(el, options); place(false); };
   el.select = () => { if (el.hasAttribute('disabled')) return; wasm.mde_select_all(h); place(false); emit(); };
-  el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy };
+  // `rangeFrame` (LLP 1114.007) over source offsets. Collapsed, the caret's
+  // box at the visible text nearest the offset (an offset in hidden syntax
+  // sits at its edge). Wider, the union of the visible text it covers and of
+  // the caret either side of each line break in it; hidden syntax adds none.
+  const visible = t => t.data.length && !t.parentElement.closest('.md-hide, .md-collapsed');
+  function caret(p) {
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= p) lo = mid; else hi = mid - 1; }
+    const line = lines[lo];
+    // A line not drawn (a collapsed fence's) has no caret.
+    if (!line || !line.getClientRects().length) return null;
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT), r = document.createRange();
+    // The visible text holding `p`, else the nearer of the text either side.
+    let at = null, before = null, after = null;
+    for (let t = walker.nextNode(); t && !at; t = walker.nextNode()) {
+      if (!visible(t)) continue;
+      const s = toSource(t, 0), e = s + t.data.length;
+      if (s <= p && p <= e) at = [t, p - s];
+      else if (e < p) before = [t, t.data.length, e];
+      else after ??= [t, 0, s];
+    }
+    at ??= before && after ? (p - before[2] <= after[2] - p ? before : after) : before ?? after;
+    if (at) { r.setStart(at[0], at[1]); const box = r.getBoundingClientRect(); if (box.height) return box; }
+    // A caret on an empty line has no text to measure: the line's start.
+    const l = line.getBoundingClientRect();
+    return new DOMRect(l.x + parseFloat(getComputedStyle(line).paddingLeft || '0'), l.y, 0, l.height);
+  }
+  function rangeFrame(from, to) {
+    if (destroyed || composing) return null;
+    if (from === to) return caret(from);
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    const add = b => { if (b) { left = Math.min(left, b.left); top = Math.min(top, b.top); right = Math.max(right, b.right); bottom = Math.max(bottom, b.bottom); } };
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      if (!visible(t)) continue;
+      const s = toSource(t, 0);
+      if (s >= to || s + t.data.length <= from) continue;
+      const r = document.createRange();
+      r.setStart(t, Math.max(0, from - s)); r.setEnd(t, Math.min(t.data.length, to - s));
+      for (const b of r.getClientRects()) add(b);
+    }
+    for (const at of starts) if (at > from && at <= to) { add(caret(at - 1)); add(caret(at)); }
+    return left === Infinity ? null : new DOMRect(left, top, right - left, bottom - top);
+  }
+  el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy, rangeFrame };
   configure();
   const initialFocus = document.activeElement === textarea;
   textarea.replaceWith(el);
   host.replace(el);
+  el.addEventListener('beforeinput', beforeInput);
   if (initialFocus) el.focus();
   queueMicrotask(emit);
   return el;

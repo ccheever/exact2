@@ -255,6 +255,10 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"screenshot\",\"path\":");
                     q(path, &mut s);
                 }
+                Step::ExpectRefusal { target, .. } => {
+                    s.push_str("{\"op\":\"expect-refusal\",\"target\":");
+                    q(target, &mut s);
+                }
                 Step::ExpectTree {
                     target, present, ..
                 } => {

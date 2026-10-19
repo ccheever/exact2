@@ -4,6 +4,7 @@ import { checkSteadyResidency, checkTextureFamily } from '../../render/tests/res
 import { decodePng } from '../../../scripts/png.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+export const proofData = ["logic/tests/leaf-pixels.json"];
 if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,equal,out,say,host})=>{
   const start=async world=>{const s=await open({size:[1280,720],...world?{world}:{}});await s.tap('play');return s;};
   const s=await start(),w=s.world('world');await w.hold('KeyD',2500);

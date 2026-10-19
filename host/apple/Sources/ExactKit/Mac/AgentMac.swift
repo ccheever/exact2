@@ -258,8 +258,12 @@ extension Agent {
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
-        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
+        var env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
             .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
+        // The title-bar area, only where it is defined, as a browser names it.
+        if let area = presenter.titlebarArea, area.count == 4 {
+            for (name, value) in zip(["x", "y", "width", "height"], area) { env["titlebar-area-" + name] = Agent.r2(value) }
+        }
         // The page scrolls too, and it is the one whose overscroll drags the
         // app's own chrome (LLP 1033 D4).
         let (px, py) = Agent.overscroll(of: presenter.viewport)
@@ -284,6 +288,7 @@ extension Agent {
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
+        MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
         let host = v.paragraphOwner
         // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.
         if !host.flowShapes.isEmpty, let paragraph = host.paragraphLayout() {
@@ -362,7 +367,7 @@ extension Agent {
             let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
-            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
+            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" || source == "symbol:" ? "empty" : name.isEmpty ? "role" : "os" }
             native["symbol"] = symbol
         }
         if v.materialRequest != nil {
@@ -529,6 +534,7 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if req["holdState"] != nil { return holdTap(req) } // a held state (LLP 1122 D8, HeldState.swift)
         // An alert's buttons are AppKit's (LLP 1115.000 D7.6): a tap on an
         // authored button of it presses the alert's, and nothing behind its
         // sheet takes one.
@@ -1041,6 +1047,9 @@ extension Agent {
     /// unavailable (ScreenCaptureKit replaces it, and asks for Screen
     /// Recording even for the caller's own windows), so it is looked up at
     /// run time; the window server still answers it for the caller's own.
+    /// EXACT_AGENT_ACTIVATE=1 (only scripts/measure-controls.mjs sets it): an
+    /// activated run, whose pictures say whether they were (ExactMac main.swift).
+    nonisolated static let activated = ExactEnv.agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
     private static func ownWindowImage(_ number: Int) -> CGImage? {
         typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil } // RTLD_DEFAULT
@@ -1149,6 +1158,7 @@ extension Agent {
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
+            if Self.activated { r["active"] = NSApp.isActive && window.isKeyWindow }
             // The windows drawn over it where they sit: a sheet, a sheet on it, a popover.
             if !attached.isEmpty { r["attached"] = attached }
             if loading > 0 { r["imagesPending"] = loading }
@@ -1165,6 +1175,9 @@ extension Agent {
         guard let png = picture?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG of the viewport"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
+        // An activated run (EXACT_AGENT_ACTIVATE=1, measure-controls'): whether the app was active and its window key
+        // as it was taken, which the measure requires of each picture.
+        if Self.activated { r["active"] = NSApp.isActive && (v.window?.isKeyWindow ?? false) }
         if loading > 0 { r["imagesPending"] = loading }
         // This is the viewport's own drawing: a dialog's sheet and AppKit's popover are other windows (LLP 1115.002 D7).
         let apart = presenter.sheets(on: v.window).map { String(describing: Swift.type(of: $0)) } + presenter.menus.windowed.map { _ in "NSPopover" }

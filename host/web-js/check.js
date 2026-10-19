@@ -221,8 +221,9 @@ export function observe(views, inactive = () => false) {
         if (!inked && e.hasAttribute('data-native')) item.platformInk = true;
         break;
       }
-      const clamp = cs.webkitLineClamp && cs.webkitLineClamp !== 'none' || cs.textOverflow === 'ellipsis' && cs.overflowX !== 'visible';
-      if (clamp) item.clamp = true;
+      const ellipsis = cs.textOverflow === 'ellipsis' && cs.overflowX !== 'visible';
+      if (ellipsis || cs.webkitLineClamp && cs.webkitLineClamp !== 'none') item.clamp = true;
+      if (ellipsis) item.ellipsis = true;
       let ink = b;
       if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
         const dx = el.scrollWidth - el.clientWidth, dy = el.scrollHeight - el.clientHeight;
@@ -234,6 +235,10 @@ export function observe(views, inactive = () => false) {
           ink = rr;
           const dx = Math.max(rr.right - b.right, b.left - rr.left), dy = Math.max(rr.bottom - b.bottom, b.top - rr.top);
           if (dx > 1 || dy > 1) item.over = [r2(Math.max(0, dx)), r2(Math.max(0, dy))];
+          // Where its lines are drawn, where that is not its box: the driver judges two texts running into each other on it.
+          if (Math.abs(rr.left - b.left) > 0.5 || Math.abs(rr.right - b.right) > 0.5 || Math.abs(rr.top - b.top) > 0.5 || Math.abs(rr.bottom - b.bottom) > 0.5) {
+            item.ink = { x: r2(rr.left), y: r2(rr.top), w: r2(rr.width), h: r2(rr.height) };
+          }
         }
       }
       const under = backing(el, ink);

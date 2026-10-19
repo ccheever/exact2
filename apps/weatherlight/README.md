@@ -30,8 +30,18 @@ retains only that city's last good forecast, labeled stale; this cache lasts for
 the session. Loading placeholders keep the hourly and daily sections the same
 size, and a refresh keeps the current city’s data and scroll position. The page
 uses the host's document scroller; only the hourly strip scrolls independently,
-on its horizontal axis. No location
-permission or API key is needed.
+on its horizontal axis. No API key is needed.
+
+"Use my location" asks for approximate location through `@exact/geolocation`
+(LLP 1133.002 §7): the grant line `device.geolocation-approximate
+locationPurpose`, its purpose in `strings/en.json`. From the answer on, the
+forecast follows the person (`watchPosition` in `app.ts`, re-asked after a
+five-kilometre move); choosing a city stops following. While location is
+denied, a line says so and city search still works. Under the agent, no
+platform asks: `--permission geolocation=granted`, `prefer permission.geolocation
+denied`, the `permission` and `position` tickets in `state.pending` (`tap @t
+allow`, `type @t 51.5074,-0.1278`), and `prefer extension
+geolocation.watchPosition={"coords":{"latitude":48.8566,"longitude":2.3522}}`.
 
 Weather and geocoding: [Open-Meteo](https://open-meteo.com/), CC BY 4.0. Forecasts
 are model estimates, not a weather-alert service. The public endpoint is for

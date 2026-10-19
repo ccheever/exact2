@@ -1,0 +1,108 @@
+// @ref LLP 1121 stage 9 B (D10) — on iOS a page symbol nobody tinted whose
+// `color` its author wrote, on it or on an ancestor (the kernel's
+// `symbolColorWritten`), draws in that colour; under no written colour it
+// keeps UIKit's inherited tint, the accent, and a written tint still wins.
+#if os(iOS)
+import UIKit
+import XCTest
+@testable import ExactKit
+
+final class SymbolColorIOSTests: XCTestCase {
+    private var window: UIWindow!
+    override func tearDown() { window?.isHidden = true; window = nil }
+
+    private let red: [Double] = [232, 28, 36, 255]
+    private let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+    private let teal: [Any] = [[48, 176, 199, 255], [64, 200, 224, 255]]
+    private let pink: [Any] = [[173, 20, 87, 255], [244, 143, 177, 255]]
+
+    /// A root whose accent is red, holding star symbols.
+    private func presenter(_ images: [(Int, Bool, [String: Any])]) -> Presenter {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view", "props": [:], "handlers": [], "style": ["accent_color": red]],
+                                    ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0]]
+        for (id, written, style) in images {
+            var props: [String: Any] = ["imageSource": "symbol:star", "symbolName": "star"]
+            if written { props["symbolColorWritten"] = "1" }
+            ops.append(["op": "create", "id": id, "kind": "image", "props": props, "handlers": [], "style": ["font_size": 17].merging(style) { $1 }])
+            ops.append(["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
+        }
+        ops += [["op": "children", "id": 1, "ids": images.map { $0.0 }], ["op": "roots", "ids": [1]]]
+        p.apply(wireBatch(ops))
+        return p
+    }
+    private func ink(_ p: Presenter, _ id: UInt32) throws -> [Double] {
+        let color = try XCTUnwrap(p.views[id]?.symbolView?.tintColor)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        _ = color.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map { (Double($0) * 255).rounded() }
+    }
+
+    func testAWrittenColourIsTheSymbolsInk() throws {
+        let p = presenter([(2, true, ["text_color": tint]), (3, true, ["text_color": pink]), (4, false, ["text_color": pink]),
+                           (5, true, ["text_color": pink, "tint_color": teal])])
+        XCTAssertNil(try XCTUnwrap(p.views[2]).symbolInk, "the accent is UIKit's live tint, inherited")
+        XCTAssertEqual(try ink(p, 2), red, "`color=\"AccentColor\"`: the accent")
+        XCTAssertEqual(try ink(p, 3), [173, 20, 87, 255], "a token's colour")
+        XCTAssertEqual(try ink(p, 4), red, "a colour nobody wrote keeps the accent")
+        XCTAssertEqual(try ink(p, 5), [48, 176, 199, 255], "a written tint wins")
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["symbolColorWritten": "1"], "clear": []]]))
+        XCTAssertEqual(try ink(p, 4), [173, 20, 87, 255], "written later")
+        p.apply(wireBatch([["op": "props", "id": 4, "set": [:], "clear": ["symbolColorWritten"]]]))
+        XCTAssertEqual(try ink(p, 4), red, "and unwritten again")
+    }
+
+    /// LLP 1121 D9: a symbol a native control shows as its face keeps the
+    /// control's tint. Under the same written green, hierarchical (which
+    /// bakes its colour into the image's configuration): a tablist of two
+    /// image tabs and a radio group of two image radios are segmented
+    /// controls, whose images are made without it (`faceImage`); a one-tab
+    /// tablist stays as authored, and its image, like a page symbol beside
+    /// them, takes it.
+    func testAProjectedSegmentKeepsTheControlsTint() throws {
+        let p = presenter([])
+        let style: [String: Any] = ["font_size": 17, "text_color": [0, 200, 0, 255], "symbol_rendering": "hierarchical"]
+        let symbol: [String: Any] = ["imageSource": "symbol:sf/star.fill", "symbolName": "star.fill", "symbolColorWritten": "1"]
+        var ops: [[String: Any]] = []
+        func group(_ id: Int, _ role: String, _ member: String, _ count: Int) {
+            ops.append(["op": "create", "id": id, "kind": "view", "props": ["accessibilityRole": role], "handlers": [], "style": [:]])
+            ops.append(["op": "frame", "id": id, "x": 0.0, "y": Double(id), "w": 300.0, "h": 32.0])
+            var members: [Int] = []
+            for k in 1...count {
+                let tab = id + k * 2, image = tab + 1
+                ops.append(["op": "create", "id": tab, "kind": "button", "props": ["accessibilityRole": member, "accessibilityLabel": "Star \(k)"], "handlers": ["press"], "style": [:]])
+                ops.append(["op": "create", "id": image, "kind": "image", "props": symbol, "handlers": [], "style": style])
+                ops.append(["op": "frame", "id": image, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
+                ops.append(["op": "children", "id": tab, "ids": [image]])
+                members.append(tab)
+            }
+            ops.append(["op": "children", "id": id, "ids": members])
+        }
+        group(100, "tablist", "tab", 2); group(200, "radiogroup", "radio", 2); group(300, "tablist", "tab", 1)
+        ops.append(["op": "create", "id": 400, "kind": "image", "props": symbol, "handlers": [], "style": style])
+        ops.append(["op": "frame", "id": 400, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
+        ops.append(["op": "children", "id": 1, "ids": [100, 200, 300, 400]])
+        p.apply(wireBatch(ops))
+        let green = [0.0, 200.0, 0.0, 255.0]
+        for id: UInt32 in [400, 303] { XCTAssertEqual(try ink(p, id), green, "\(id): a page symbol takes its written green") }
+        let written = UIImage.SymbolConfiguration(hierarchicalColor: try XCTUnwrap(p.views[400]?.symbolInk))
+        XCTAssertTrue(try XCTUnwrap(p.views[400]?.image?.symbolConfiguration).isEqual(try XCTUnwrap(p.views[400]?.image?.symbolConfiguration).applying(written)), "the page's image bakes it")
+        for owner: UInt32 in [100, 200] {
+            let control = try XCTUnwrap(p.views[owner]?.subviews.first { $0 is UISegmentedControl } as? UISegmentedControl, "\(owner) projects")
+            XCTAssertEqual(control.numberOfSegments, 2)
+            XCTAssertNotNil(control.imageForSegment(at: 0))
+            // What the installed segment was drawn from: not the page's image,
+            // and made without the written green.
+            let icon = try XCTUnwrap(p.views[owner + 3]), drawn = try XCTUnwrap(p.segments.drawn(of: owner, segment: 0))
+            XCTAssertFalse(drawn === icon.image, "\(owner): the segment is drawn from its own image")
+            let face = try XCTUnwrap(drawn.symbolConfiguration)
+            XCTAssertFalse(face.isEqual(face.applying(written)), "\(owner): the segment's image is made without the written green")
+            XCTAssertTrue(try XCTUnwrap(icon.faceImage?.symbolConfiguration).isEqual(face), "\(owner): it is the face's")
+        }
+    }
+}
+#endif

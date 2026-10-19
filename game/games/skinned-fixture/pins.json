@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "60": "0x0e6efd40d47f5dd7",
-    "120": "0xf8baf228b103fe37"
+    "60": "0xfaca59677d1c344f",
+    "120": "0x5cd6ed3af60b820a"
   },
   "saves": {
-    "continuation": "94d92ef6986d34858999cb5988e1142172dbe67c91462c8c6daadb3ee03d1ef4"
+    "continuation": "0befa81d4850b97a5f6468bd33119b0ee57ebfba711a90c55dea54e0df879ee1"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1bcda3637bea8d8b8da44aa19eda7536b2b4cc51cf07ee1bdef33f3128fd248a",
+  "inputs": "7df395704a2f55e5461f9f906211f0741aa51f4e2fb4fec352742f8cc2522c03",
+  "sourceInputs": "d1e7b01bc3e5fbe6ec4c33ffe8e0567959330401725900b79065eea50842b107",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "0512f5892679d1a59963b0cc7d61d98cfc13aa4b",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

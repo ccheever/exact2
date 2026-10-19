@@ -2,9 +2,9 @@
 
 A macOS client for [T3 Code](https://github.com/pingdotgg/t3code) servers, written with Exact.
 Contract draws the interface; TypeScript owns the client state, the projections and the server
-connections (HTTP, WebSocket RPC, the saved environments and their credentials). Exact's shared
-decorated textarea owns composer text, selection, styling and undo; TypeScript supplies its
-Markdown projection and guarded edit intents. An app-local Swift module (`modules/apple/`)
+connections (HTTP, WebSocket RPC, the saved environments and their credentials). Exact's
+Markdown editor owns composer text, selection, styling and undo; TypeScript supplies the
+source's block and reference projection and guarded edit intents. An app-local Swift module (`modules/apple/`)
 adapts OS clipboard and drop facts, focus and modifier events, terminal and browser web views,
 menus, notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
@@ -455,9 +455,7 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
 - `T3ToolActivityIcon.swift`: a muted tool icon is drawn at the reference's `brightness(0.6)` in the
   light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
 - `T3ImageAccent.swift` and `T3ComposerImageChip.swift`: an image's average colour needs its
-  pixels, and readback is refused. The latter supplies raw image facts only. Shared composer
-  chips use a static image accent; their per-image ink, fill and border palette is not supported
-  by the current static decoration declarations.
+  pixels, and readback is refused. The latter supplies raw image facts only.
 - `T3RowDrop.swift`: a legacy row takes any file and rings while a drag is over it; `drop` takes only
   `file_handlers` types and has no `dragenter` or `dragleave`.
 - `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
@@ -471,8 +469,14 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   (`timelineSleep`: data modules have no timers).
 - Composer OS adapters (`T3ComposerAttach`, `T3ComposerIntent`, `T3ComposerQueueKey` and
   `T3ComposerEditor`) retain clipboard/file staging, folder extraction, modifier and focus
-  routing, and video first-frame facts. Inline atoms, range geometry, text, selection and undo
-  use Exact's shared decorated textarea; the app has no native parser or styling owner.
+  routing, and video first-frame facts. The composer is Exact's Markdown editor (`textarea
+  markup="markdown"`, LLP 1045): it styles lists, tasks, quotes, headings, rules and fenced code
+  as they are typed, owns ⌘B/⌘I (`format`), and keeps native undo. The app reads the source
+  selection from its `beforeinput`, `input` and `selectionchange`, and edits it only with
+  `setRangeText` (one undo step each) and `setSelectionRange`: completions, draft history, the
+  code language picker, citations and Enter/Tab/paste in code. References and code languages are
+  ordinary controls beside the field. Plain and literal answers stay ordinary textareas. The
+  editor does not draw app-supplied highlights or atomic chips; references stay source text.
 
 Differences that belong to the app:
 

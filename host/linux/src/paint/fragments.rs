@@ -89,14 +89,16 @@ impl Painter {
             .unwrap_or_else(|| paragraph.clone());
         // An ellipsized line changes in place.
         let roll = roll.filter(|_| Rc::ptr_eq(&shown, &paragraph));
-        let mut backgrounds = Vec::new();
-        text_backgrounds(kernel, node, None, self.dark, walk.reveal, &mut backgrounds);
+        let backgrounds = text_backgrounds(kernel, node, self.dark, walk.reveal);
+        let backgrounds = shown.inline_backgrounds(&backgrounds, &kernel.env());
         let reveal = walk.reveal;
         let at = |painter: &mut Self, origin: (f32, f32)| {
             // Inline backgrounds, under the glyphs, per line fragment.
-            for (r, color) in shown.run_backgrounds(&backgrounds) {
-                let shape = Shape::rect((origin.0 + r.0, origin.1 + r.1, r.2, r.3));
-                painter.backend.fill(&shape, color, ts);
+            for (shape, color) in &backgrounds {
+                let mut shape = *shape;
+                shape.rect.0 += origin.0;
+                shape.rect.1 += origin.1;
+                painter.backend.fill(&shape, *color, ts);
             }
             painter.text_decorations(kernel, &shown, &palette, origin, ts, reveal);
             match &roll {

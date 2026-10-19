@@ -61,8 +61,9 @@ fn an_accent_on_switches_is_unreachable_on_the_mac_only() {
 
 #[test]
 fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
-    // The Mac's checkbox is best-effort: no word.
-    let view = "component App\n  state on = true\n  action check(checked: bool)\n    on = checked\n  view\n    input type=\"checkbox\" checked=on change=check aria-label=\"A\" accent-color=\"accent.brand\"\n";
+    // The Mac's checkbox is exact and its disabled prominent button best-effort
+    // (measured in a key window, stage 9 F2): no word for either.
+    let view = "component App\n  state on = true\n  action check(checked: bool)\n    on = checked\n  action go\n    on = on\n  view\n    column\n      input type=\"checkbox\" checked=on change=check aria-label=\"A\" accent-color=\"accent.brand\"\n      button \"Go\" buttonStyle=\"bordered-prominent\" press=go disabled=true accent-color=\"accent.brand\"\n";
     let path = app(
         "checkbox",
         "\"macos\": {}",
@@ -70,6 +71,22 @@ fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
         view,
     );
     assert_eq!(unreachable(&path), Vec::<String>::new());
+    // A disabled checkbox under an accent is none on the Mac (AppKit draws it grey): said.
+    let disabled = view.replace(
+        "change=check aria-label",
+        "change=check disabled=true aria-label",
+    );
+    let path = app(
+        "checkbox-disabled",
+        "\"macos\": {}",
+        "  accent.brand = #e0218a\n",
+        &disabled,
+    );
+    let said = unreachable(&path);
+    assert!(
+        said.iter().any(|s| s.contains("disabled checkbox")),
+        "{said:?}"
+    );
     // A switch with no accent anywhere: nothing set, nothing unreachable.
     let plain = SWITCHES.replace(" accent-color=\"accent.brand\"", "");
     let path = app(
@@ -83,21 +100,22 @@ fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
 
 #[test]
 fn a_field_role_is_judged_unless_the_field_writes_its_own_row() {
-    let design = "  FieldText = #0b8a3a\n";
+    let design = "  Field = #fff1a8\n";
     let view = "component App\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input value=words change=write aria-label=\"Words\"\n";
-    let path = app("field", "\"ios\": {}, \"web\": {}", design, view);
+    let path = app("field", "\"macos\": {}", design, view);
     let said = unreachable(&path);
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(
-        said[0]
-            .starts_with("FieldText on the web's fields: the web host does not read FieldText yet"),
+        said[0].starts_with(
+            "Field on macOS fields: AppKit's bezeled NSTextField draws its own ground"
+        ),
         "{said:?}"
     );
     let own = view.replace(
         "aria-label=\"Words\"",
-        "aria-label=\"Words\" color=\"#000000\"",
+        "aria-label=\"Words\" background-color=\"#ffffff\"",
     );
-    let path = app("field-own", "\"ios\": {}, \"web\": {}", design, &own);
+    let path = app("field-own", "\"macos\": {}", design, &own);
     assert_eq!(unreachable(&path), Vec::<String>::new());
 }
 
@@ -149,7 +167,7 @@ fn classes_conditions_and_appearance_none() {
 /// every class it may take gives exempts it, one a branch may clear does not.
 #[test]
 fn auto_precedence_timed_progress_and_sure_rows() {
-    let design = "  accent.brand = #e0218a\n  FieldText = #0b8a3a\n";
+    let design = "  accent.brand = #e0218a\n  Field = #fff1a8\n";
     let auto = "component App\n  state on = true\n  action check(checked: bool)\n    on = checked\n  view\n    column accent-color=\"accent.brand\"\n      input type=\"checkbox\" switch accent-color=\"auto\" checked=on change=check aria-label=\"A\"\n";
     assert_eq!(
         unreachable(&app("auto", "\"macos\": {}", design, auto)),
@@ -173,17 +191,18 @@ fn auto_precedence_timed_progress_and_sure_rows() {
     );
     let timed =
         "component App\n  view\n    progress start=0 end=1000 accent-color=\"accent.brand\"\n";
-    // A timed progress: the web's bar (exact), iOS's spinner (none).
+    // A timed progress: the web's bar (exact), the Mac's spinner (none;
+    // iOS's is best-effort since the spinner rule, so says nothing).
     assert!(unreachable(&app("timed-web", "\"web\": {}", design, timed)).is_empty());
-    assert!(unreachable(&app("timed", "\"ios\": {}", design, timed))
+    assert!(unreachable(&app("timed", "\"macos\": {}", design, timed))
         .iter()
-        .any(|m| m.contains("iOS spinners")));
+        .any(|m| m.contains("macOS spinners")));
 
-    let both = "style Red\n  color=\"#ff0000\"\n\nstyle Blue\n  color=\"#0000ff\"\n\ncomponent App\n  state flag = true\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input class=(flag ? Red : Blue) value=words change=write aria-label=\"W\"\n";
-    assert!(unreachable(&app("both", "\"web\": {}", design, both)).is_empty());
-    let cleared = "component App\n  state flag = true\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input color=(flag ? \"#ff0000\" : none) value=words change=write aria-label=\"W\"\n";
+    let both = "style Red\n  background-color=\"#ff0000\"\n\nstyle Blue\n  background-color=\"#0000ff\"\n\ncomponent App\n  state flag = true\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input class=(flag ? Red : Blue) value=words change=write aria-label=\"W\"\n";
+    assert!(unreachable(&app("both", "\"macos\": {}", design, both)).is_empty());
+    let cleared = "component App\n  state flag = true\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input background-color=(flag ? \"#ff0000\" : none) value=words change=write aria-label=\"W\"\n";
     assert_eq!(
-        unreachable(&app("cleared", "\"web\": {}", design, cleared)).len(),
+        unreachable(&app("cleared", "\"macos\": {}", design, cleared)).len(),
         1
     );
 }
@@ -193,8 +212,8 @@ fn auto_precedence_timed_progress_and_sure_rows() {
 /// native in one branch is judged.
 #[test]
 fn branches_hold_apart() {
-    let design = "  accent.brand = #e0218a\n  FieldText = #0b8a3a\n";
-    let head = "style Primary\n  buttonStyle=\"filled\"\n\nstyle Plain\n  buttonStyle=\"plain\"\n\nstyle Red\n  color=\"#ff0000\"\n\ncomponent App\n  state flag = true\n  state on = true\n  state words = \"a\"\n  action check(checked: bool)\n    on = checked\n  action write(value: string)\n    words = value\n  action go\n    flag = !flag\n  view\n    column accent-color=\"accent.brand\"\n";
+    let design = "  accent.brand = #e0218a\n  Field = #fff1a8\n";
+    let head = "style Primary\n  buttonStyle=\"filled\"\n\nstyle Plain\n  buttonStyle=\"plain\"\n\nstyle Red\n  background-color=\"#ff0000\"\n\ncomponent App\n  state flag = true\n  state on = true\n  state words = \"a\"\n  action check(checked: bool)\n    on = checked\n  action write(value: string)\n    words = value\n  action go\n    flag = !flag\n  view\n    column accent-color=\"accent.brand\"\n";
     let button = format!(
         "{head}      button \"Post\" class=(flag ? Primary : Plain) press=go disabled=flag\n"
     );
@@ -203,11 +222,11 @@ fn branches_hold_apart() {
             .iter()
             .any(|m| m.contains("disabled prominent buttons"))
     );
-    let field = format!("{head}      input class=Red color=(flag ? \"#ff0000\" : none) value=words change=write aria-label=\"W\"\n");
+    let field = format!("{head}      input class=Red background-color=(flag ? \"#ff0000\" : none) value=words change=write aria-label=\"W\"\n");
     assert!(
-        unreachable(&app("branch-field", "\"web\": {}", design, &field))
+        unreachable(&app("branch-field", "\"macos\": {}", design, &field))
             .iter()
-            .any(|m| m.starts_with("FieldText"))
+            .any(|m| m.starts_with("Field on"))
     );
     let switch = format!("{head}      input type=\"checkbox\" switch appearance=(flag ? \"auto\" : \"none\") checked=on change=check aria-label=\"S\"\n");
     assert!(

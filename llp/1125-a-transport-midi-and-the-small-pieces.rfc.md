@@ -252,10 +252,13 @@ resource transport = exactTransport() as shape Transport
 --   clock: "internal" | "midi" }
 ```
 
-A playhead is drawn from it in a frame task gated on visibility (LLP 1073),
-with `beat = anchorBeat + (performanceNow() − anchorAt) × bpm / 60000`. A
-frame commits only while the playhead is shown, and sound never waits on
-those commits.
+The beat is `anchorBeat + (performanceNow() − anchorAt) × bpm / 60000`. A
+playhead follows it as CSS animations on a clock timeline (LLP 1055.002),
+whose position the app reads once per anchor, so nothing commits while it
+plays (`docs/contract-for-agents.md`, "Following the transport"; euxy's port went
+from 9–10% of a core to 0.1% this way, 2026-10-18). Text that changes with
+the beat is a frame task gated on visibility (LLP 1073). Sound never waits
+on either.
 
 **Haptic steps** play on the main thread at their time. UIKit's feedback
 generators cannot be scheduled ahead, so a blocked main thread makes them

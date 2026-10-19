@@ -43,6 +43,8 @@ use std::sync::{Mutex, MutexGuard};
 
 /// A driver has asked: the host's turns run at the runner's clock.
 static DRIVEN: AtomicBool = AtomicBool::new(false);
+/// A driver's launch: the runner's clock from the boot, before any request.
+static SEEK: AtomicBool = AtomicBool::new(false);
 
 /// Streams painted since the reader last took one, oldest first. A process
 /// has one host, and only its thread paints and takes.
@@ -56,10 +58,31 @@ fn driven() -> bool {
     DRIVEN.load(Ordering::Relaxed)
 }
 
-/// The clock the host's turns run at while a driver holds it: the
-/// runner's. `None` with no driver: the wall's.
+/// Who owns time from the boot. A driver's launch (`EXACT_AGENT=1`, the
+/// reader's `--agent`) is the runner's seek clock from its boot, as the
+/// stdio agent's: its clock starts at zero and its date at the drive's
+/// epoch, and no frame before the driver's first request moves it (a live
+/// clock there fired every boot timer due in the time since `started`, a
+/// plan fetched from a URL included). Any other launch: the display's wall
+/// from `started` (the timers RFC, D1).
+pub(crate) fn own_time<D: DataSource + Default>(
+    p: &mut crate::presenter::Presenter<D>,
+    started: std::time::Instant,
+) {
+    if std::env::var("EXACT_AGENT").as_deref() == Ok("1") {
+        SEEK.store(true, Ordering::Relaxed);
+    } else {
+        p.set_live_clock(Some(crate::presenter::wall_since(started)));
+    }
+}
+
+/// The clock the host's turns run at while a driver holds it, or from the
+/// boot of a driver's launch: the runner's. `None` otherwise: the wall's.
+/// While it is the runner's, a display turn presents no frame: frame tasks
+/// run at the driver's clock steps, as virtual frames, not once per display
+/// refresh at an unmoved time.
 pub(super) fn clock<D: DataSource>(p: &crate::presenter::Presenter<D>) -> Option<f64> {
-    driven().then(|| p.host().now())
+    (driven() || SEEK.load(Ordering::Relaxed)).then(|| p.host().now())
 }
 
 /// A recording finished over `older`, which the reader never took. With a

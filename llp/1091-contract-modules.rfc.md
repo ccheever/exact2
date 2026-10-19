@@ -66,8 +66,8 @@ Qualified access (`use * as ui`, `ui.Button(…)`) is §6, not taken now.
   scope now, "since `use` cannot reach a library outside the app directory
   and every imported name lands in one namespace".
 - **Copies across apps.** `apps/markdown` and `apps/llp` carry the same
-  `Blocks`/`Runs` renderer (QUEUE). Lexy declares its own `timeline Activity`
-  because there's no `exact:motion` (LLP 1055.002 D8).
+  `Blocks`/`Runs` renderer (QUEUE). An app declares its own `timeline
+  Activity` because there's no `exact:motion` (LLP 1055.002 D8).
 - **Who uses `use` today.** In this repo: `apps/messages`, `apps/messages-legacy`,
   `apps/expose`, `examples/{ios,macos}/calendar`, `contract/corpus/use`.
   Outside it: `signal-exact2`. All of them already name each import on its
@@ -337,9 +337,9 @@ data code is a separate design with its own consumer.
   behaviour with one file too; D4 doesn't change it.
 - **Apps.** Add `use` lines for transitively reached names in
   `apps/messages`, `apps/messages-legacy`, `apps/expose`,
-  `examples/*/calendar`; signal-exact2 is told. Lexy moves to
-  `exact:motion`'s `Activity`. `apps/markdown`/`apps/llp` share `Blocks` from
-  a package (the QUEUE item), as stage 2's consumer.
+  `examples/*/calendar`; signal-exact2 is told. An app that declares its own
+  `timeline Activity` moves to `exact:motion`'s. `apps/markdown`/`apps/llp`
+  share `Blocks` from a package (the QUEUE item), as stage 2's consumer.
 - **Docs.** `contract-for-agents.md`, `contract-for-humans.md`, and
   `contract-grammar.md` get the `use` forms and the scope rule.
 
@@ -382,8 +382,8 @@ Stage 2:
    new` writing `package.json`, and `@exact/reading` (`packages/reading`, a
    Bun workspace) shared by `apps/markdown` and `apps/llp`: the block model,
    `Runs` and `SchemeButton`. Their `Blocks` had diverged in layout and stay
-   each app's. Lexy is not in this repository; its move to `exact:motion` is
-   its owner's. Planned as:
+   each app's. Replacing an app's own `timeline Activity` with
+   `exact:motion`'s is left to the app's author. Planned as:
    **Stage 2, reach (2026-10-06).** `exact:` built-ins with `exact:motion`;
    package resolution; the source list and its consumers; `exact new` writes
    `package.json`; `Blocks` shared between markdown and llp as the consumer.

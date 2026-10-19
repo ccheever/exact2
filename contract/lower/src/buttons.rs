@@ -5,14 +5,7 @@ use crate::{err, tags::AttrTarget, ButtonSite, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
-fn rows(a: &Attr) -> Vec<StyleId> {
-    match crate::tags::attr_valued(&a.name, &a.value) {
-        Some(AttrTarget::Styles(ids)) => ids.to_vec(),
-        Some(AttrTarget::Shorthand) => crate::shorthands::rows(&a.name).to_vec(),
-        Some(AttrTarget::Flex) => vec![StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis],
-        _ => Vec::new(),
-    }
-}
+use crate::tags::rows;
 
 fn layout(id: StyleId) -> bool {
     use StyleId::*;

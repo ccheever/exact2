@@ -3,8 +3,8 @@
 // one token where one conflicts, a hand edit, a new file and a `git checkout`
 // reaching a subscriber and a long poll, a write announced once, a server
 // whose lock is another's answering 503, and the dev loop answering `hello`.
-import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
+import { spawnOwned, stopAll } from './test-children.mjs';
 import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -274,6 +275,8 @@ beforeAll(async () => {
   headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
   await tamber.ready;
 }, 600_000); // a cold checkout builds the compiler first
+// A dev loop a test started ends with the test, a timeout included (test-children.mjs).
+afterEach(() => stopAll());
 afterAll(async () => {
   await tamber?.close();
   server?.close();
@@ -293,6 +296,9 @@ const post = async request => {
   const res = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: JSON.stringify(request) });
   return { status: res.status, ...(await res.json()) };
 };
+
+/** The long poll's answer. */
+const poll = async request => (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify(request) })).json();
 
 /** The change stream's events as they come. */
 async function subscribe() {
@@ -427,13 +433,10 @@ async function devLoop(flags = [], app = 'theme-fixture') {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-tamber-dev-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Owned: ended with what it starts when the test ends, a timeout included (test-children.mjs).
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = async () => {
-    if (dev.exitCode === null && dev.signalCode === null) {
-      const exit = new Promise(ok => dev.once('exit', ok));
-      dev.kill('SIGTERM');
-      if (!(await Promise.race([exit.then(() => true), new Promise(ok => setTimeout(() => ok(false), 30_000).unref())]))) dev.kill('SIGKILL');
-    }
+    await dev.stop(30_000);
     rmSync(dist, { recursive: true, force: true });
   };
   let out = '', err = '';
@@ -754,7 +757,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.11');
+      expect(hello.protocol).toBe('tamber/1.13');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.
@@ -871,21 +874,38 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(held.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1b1b1b');
   await stream.until(e => e.some(x => x.event === 'proposal' && x.proposal === held.ok.proposal));
+  // The long poll's held revision (tamber/1.12): a poll that names it gets
+  // no list while it is unchanged; another run's epoch, or a change, the list.
+  const at = await poll({ after: 0, wait: false, client: 'tool' });
+  expect(at.proposals.map(p => p.proposal)).toContain(held.ok.proposal);
+  const same = await poll({ after: at.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect([same.held, same.proposals]).toEqual([at.held, undefined]);
+  expect((await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: at.seq, epoch: at.epoch, wait: false, held: String(at.held) }) })).status).toBe(400);
+  expect((await poll({ after: at.seq, epoch: 'another', wait: false, client: 'tool', held: at.held })).proposals).toEqual(at.proposals);
   const taken = await post({ method: 'accept', client: 'person', proposal: held.ok.proposal });
   expect(taken.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('ink = #1b1b1b');
   await stream.until(e => e.some(x => x.client === 'agent' && x.acceptedBy === 'person'));
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === held.ok.proposal && x.reason === 'accepted'));
   expect((await post({ method: 'accept', client: 'person', proposal: held.ok.proposal })).status).toBe(404);
+  const moved = await poll({ after: same.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect(moved.held).not.toBe(at.held);
+  expect(moved.proposals.map(p => p.proposal)).not.toContain(held.ok.proposal);
   // Stale: the file moves after review; the accept gives a new diff to accept.
   const second = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#1c1c1c' }] });
   writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace('#1b1b1b', '#1d1d1d'));
   await stream.until(e => e.at(-1)?.client === null && e.at(-1)?.edited.includes('app.tamber'));
+  const pending = await poll({ after: 0, wait: false, client: 'tool' });
   const stale = await post({ method: 'accept', client: 'person', proposal: second.ok.proposal });
   expect(stale.ok.recomputed).toBe(true);
   expect(stale.ok.proposal).not.toBe(second.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === second.ok.proposal && x.reason === 'replaced' && x.replacedBy === stale.ok.proposal));
   expect(stream.events.find(x => x.event === 'proposal' && x.proposal === stale.ok.proposal).replaces).toBe(second.ok.proposal);
+  // A recompute (dropped, held again as another) moves the revision too.
+  const recomputed = await poll({ after: pending.seq, epoch: pending.epoch, wait: false, client: 'tool', held: pending.held });
+  expect(recomputed.held).not.toBe(pending.held);
+  expect(recomputed.proposals.map(p => p.proposal)).toEqual(expect.arrayContaining([stale.ok.proposal]));
+  expect(recomputed.proposals.map(p => p.proposal)).not.toContain(second.ok.proposal);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
@@ -913,7 +933,12 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(part.ok.diff).toContain('#1f1f1f');
   expect(part.ok.diff).not.toContain('#1e1e1e');
   expect((await post({ method: 'drop', proposal: part.ok.proposal })).status).toBe(400);
+  const listed = await poll({ after: 0, wait: false, client: 'tool' });
   expect((await post({ method: 'drop', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
+  // A drop moves the held revision: the list comes again, without it.
+  const dropped = await poll({ after: listed.seq, epoch: listed.epoch, wait: false, client: 'tool', held: listed.held });
+  expect(dropped.held).not.toBe(listed.held);
+  expect(dropped.proposals.map(p => p.proposal)).not.toContain(part.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === part.ok.proposal && x.client === 'person'));
   stream.close();
 }, 30_000);
@@ -1430,3 +1455,43 @@ test("history reads a .contract commit's state rows, and a revert undoes them, l
     rmSync(repo, { recursive: true, force: true });
   }
 }, 600_000);
+
+// LLP 1122 D4, D8; LLP 1121 stage 8 E (*1.11*): `hold`, a present client's
+// with write scope, sent to its build; replayed after a rebuild at the one
+// site at the same source location in the new plan's map; the build's `held`
+// is every client's event.
+test('a hold reaches its build and follows its site into the build\'s next plan', async () => {
+  const port = 8807, P1 = '4'.repeat(64), P2 = '5'.repeat(64);
+  const node = (line) => ({ file: 'exact:app', line, col: 5, end_col: 9, component: 'App', chain: [], bindings: [] });
+  const maps = { [P1]: { digest: P1, sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [node(3), node(7)] }, [P2]: { digest: P2, sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [node(1), node(2), node(7)] } };
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, sourceMap: digest => (maps[digest] ? Buffer.from(JSON.stringify(maps[digest])) : null) });
+  const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
+  const post = body => ask(tamber, gate, { path: '/__tamber', method: 'POST', headers, body: JSON.stringify(body) });
+  const frames = [], s = tamber.channel.open(f => frames.push(f));
+  tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], plan: 'g', planDigest: P1 }));
+  // Not present: refused.
+  expect((await post({ method: 'hold', client: 'tool', build: 'web-1', site: 1, instance: [], state: 'active' })).status).toBe(409);
+  await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ wait: false, client: 'tool' }) });
+  const held = await post({ method: 'hold', client: 'tool', build: 'web-1', site: 1, instance: [], state: 'active' });
+  expect(held.status).toBe(200);
+  expect(frames.at(-1)).toEqual({ kind: 'hold', revision: held.body.ok.revision, hold: { site: 1, instance: [], state: 'active' }, plan: P1 });
+  // Its build says it holds it: every client is told.
+  tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'held', state: 'active', revision: held.body.ok.revision }));
+  const events = (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events;
+  expect(events.find(e => e.event === 'held')).toMatchObject({ build: 'web-1', state: 'active' });
+  // A rebuild: site 1 (line 7) is site 2 of the new plan.
+  tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest: P2 }));
+  expect(frames.at(-1)).toMatchObject({ kind: 'hold', hold: { site: 2, instance: [], state: 'active' } });
+  expect(frames.at(-1).revision).toBeGreaterThan(held.body.ok.revision);
+  // Let go.
+  expect((await post({ method: 'hold', client: 'tool', build: 'web-1', state: null })).status).toBe(200);
+  expect(frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
+  // A hold refused is its owner's answer: another client never sees it.
+  const hover = await post({ method: 'hold', client: 'tool', build: 'web-1', site: 2, instance: [], state: 'hover' });
+  tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'unsupported', what: 'hold', detail: 'no hover here', revision: hover.body.ok.revision }));
+  const seen = async (client) => (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client }) })).body.events.filter(e => e.event === 'unsupported');
+  expect(await seen('tool')).toMatchObject([{ build: 'web-1', what: 'hold', detail: 'no hover here', only: 'tool' }]);
+  expect(await seen('other')).toEqual([]);
+  await tamber.close();
+});

@@ -9,6 +9,7 @@ mod arrange;
 mod colors;
 mod field_align;
 mod focus;
+mod grouped_rows;
 mod height;
 mod height_binding;
 mod holds;

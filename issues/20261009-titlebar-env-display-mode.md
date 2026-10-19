@@ -9,10 +9,19 @@
 
 ## Current scope
 
-Remaining: Window Controls Overlay `env(titlebar-area-x|y|width|height)`,
-including absent-value fallback and fullscreen geometry transitions, then
-manifest title-row/traffic-light configuration before arbitrary positioning.
-Saved-frame repair already landed.
+Remaining: a real full-screen transition on macOS (⌃⌘F, the green button
+or the View menu), checking that `env(titlebar-area-*)` goes to zero on
+entry and comes back on exit, and that `displayMode` flips with it. Both
+are implemented (LLP 1039 D7 and D8); only the real transition is unverified
+(below, 2026-10-18).
+
+Ruled (Charlie, 2026-10-18): Window Controls Overlay's
+`env(titlebar-area-x|y|width|height)` only, reporting AppKit's own geometry
+under `viewport-fit="cover"`, with the absent-value fallback, 0 in full screen
+and in a window whose toolbar LLP 1115.002 D2 projects, and full-screen
+transitions verified with a real ⌃⌘F. No manifest field moves the traffic
+lights: D2's unified toolbar is the platform's 52 pt title row, and moving the
+lights would be a tell. Saved-frame repair already landed.
 
 The display-mode slice is implemented: `exactViewport().displayMode` and
 `state.device.displayMode`; browser media-query changes on both web targets;
@@ -29,8 +38,7 @@ as well as the JS target’s facts.
 fullscreen entry/exit remains unverified because the XCTest process could not
 activate or enter fullscreen. The Chrome test checks the real media-query value
 and injects changes to exercise installed-app modes without a PWA installation.
-This issue stays open until titlebar env geometry and configuration land, with
-real macOS fullscreen verification still required.
+This issue stays open until real macOS fullscreen verification is done.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
@@ -107,3 +115,39 @@ Keep open with the bounded scope below.
 Use the web's names for the free titlebar area and display mode. A macOS manifest field may configure the title row and traffic lights.
 
 Implement the fact/env slice before arbitrary button positioning. Verify full-screen transitions and fallback env values; the frame-shrink bug in #113 is already fixed.
+
+## Title-bar area landed, 2026-10-18
+
+`env(titlebar-area-x|y|width|height)` is LLP 1039 D8: AppKit's title bar
+beside the traffic lights under `viewport-fit="cover"`, zero in full screen
+and under a toolbar, undefined (the fallback applies) everywhere else. No
+manifest field was added.
+
+Verified:
+
+- A scratch app (`bun scripts/exact.mjs new`, a `main viewport-fit="cover"`
+  holding a row with `margin-left="env(titlebar-area-x, 0px)"`,
+  `width="env(titlebar-area-width, 100%)"` and
+  `height="env(titlebar-area-height, 52px)"`) driven with `agent macos --size
+  900x600 layout` on macOS 27.0.1: `safe-area 32 0 0 0 · titlebar-area 78,0
+  822×32`, the row at `78,0 822×32`. AppKit's own geometry in the same window:
+  the title bar's view 900×32, the zoom button's frame ending at 69 with the
+  close button 9 from the left, and the horizontally corner-adapted safe area
+  (`NSView.LayoutRegion`) starting at 78.
+- The same app with a navigation root, whose window gets LLP 1115.002 D2's
+  toolbar: `safe-area 52 0 0 0 · titlebar-area 0,0 0×0`, and the row
+  0×0 (a defined zero, so the fallbacks do not apply).
+- The web JS target in Chrome (`agent web`): the browser gets the `env()`
+  text as written and, with no installed app, uses the fallbacks: the row
+  `0,0 900×52`; a row without fallbacks takes its initial values.
+- `TitleBarAreaMacTests`: the area equals AppKit's (and the traffic lights
+  are centred in its height), is zero with the window's full-screen style
+  and notification and under a toolbar, and is undefined for a window whose
+  content does not cover the title bar and for a view embedded below it.
+  `kernel/tests/it/titlebar.rs` and `exact-apple`'s calculation snapshot test
+  cover parsing, fallbacks, the wire and deferred calculations.
+
+Not verified: a real full-screen transition. This Mac's screen was locked
+for the whole session: the window server gave no window captures, and System
+Events timed out, so no real ⌃⌘F could be sent. The full-screen path is
+covered only by the window's style and the notification the test supplies.

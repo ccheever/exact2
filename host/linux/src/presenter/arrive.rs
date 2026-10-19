@@ -135,6 +135,12 @@ impl<D: DataSource> Presenter<D> {
     /// A press on `hit` begins, a key's or a pointer's, with the focus
     /// where it is now: what a route that arrives next came from.
     pub(crate) fn note_press(&mut self, hit: ViewId, key: bool) {
+        self.note_press_from(hit, key, self.focus);
+    }
+
+    /// A field's mouse activation remembers focus before its down default,
+    /// but begins the route-arrival window only when the press completes.
+    pub(crate) fn note_press_from(&mut self, hit: ViewId, key: bool, focus: Option<ViewId>) {
         let mut control = Some(hit);
         while let Some(id) = control {
             if self.presses(id) {
@@ -144,7 +150,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.route_focus.pressed = Some(Press {
             control,
-            focus: self.focus,
+            focus,
             key,
             at: Instant::now(),
         });

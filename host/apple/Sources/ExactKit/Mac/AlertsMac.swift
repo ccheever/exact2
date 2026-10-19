@@ -8,7 +8,9 @@
 // one says so (`hasDestructiveAction`), the cancel answers Escape, and the
 // default (`defaultRow`: exactly one `filled`, non-destructive button)
 // answers Return and is drawn so by AppKit; with none or several nothing is
-// the default, as AppKit leaves a destructive alert.
+// the default, as AppKit leaves a destructive alert. An alert whose one
+// button is its cancel is AppKit's one-button alert: that button is the
+// default, on Return, and Escape does nothing, as `NSAlert` does.
 // A chosen button presses its authored button by view id once, on the turn
 // after the sheet has ended, and only while the alert still showed what is
 // there (as the chooser's menu does, ChooserMac.swift). Any other shape is
@@ -123,8 +125,9 @@ final class AlertHost {
         guard fields.count <= 1, children.count == actions.count + cancels.count + texts.count + fields.count, let cancel = cancels.first,
               actions.allSatisfy({ closes($0, pop, popover: popover) }),
               // A prompt's actions may all be disabled (Save, until a name is
-              // typed): its field and its cancel are still there.
-              !fields.isEmpty || actions.contains(where: { choosable($0, in: pop) }) else { return nil }
+              // typed): its field and its cancel are still there. With no
+              // action and no field it is the one-button alert, which tells.
+              actions.isEmpty ? fields.isEmpty : !fields.isEmpty || actions.contains(where: { choosable($0, in: pop) }) else { return nil }
         let lines = texts.map(menus.title(of:)).filter { !$0.isEmpty }
         // A prompt's fields count with its text: what it asks explains it.
         guard ConfirmationShape.isAlert(texts: lines.count + fields.count, actions: actions.count, cancels: cancels.count) else { return nil }
@@ -140,8 +143,10 @@ final class AlertHost {
         let emphasized = fields.isEmpty ? Self.defaultRow(filled: nodes.map { $0.face?.style == "filled" }, destructive: destructive)
             : actions.indices.first { !destructive[$0] }
         let words = ConfirmationShape.alertText(label: pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }, lines: lines)
+        // A one-button alert's button is AppKit's OK: the default, on
+        // Return and not Escape, as `NSAlert` makes its only button.
         return Plan(title: words.title ?? "", message: words.message ?? "", rows: rows, fields: fields, destructive: destructive,
-                    defaultRow: emphasized.flatMap { rows[$0].cancel ? nil : $0 })
+                    defaultRow: actions.isEmpty ? 0 : emphasized.flatMap { rows[$0].cancel ? nil : $0 })
     }
 
     /// The row Return presses (LLP 1115.000 D7.3): the one `filled`,
@@ -175,7 +180,7 @@ final class AlertHost {
             // the default, and the authored cancel is the cancel, whatever
             // its title. (The Return button is the window's default button
             // cell; AppKit holds its key equivalent while the sheet is key.)
-            button.keyEquivalent = row.cancel ? (pop.props["closedby"] == "none" ? "" : "\u{1b}") : index == owner.defaultRow ? "\r" : ""
+            button.keyEquivalent = index == owner.defaultRow ? "\r" : row.cancel ? (pop.props["closedby"] == "none" ? "" : "\u{1b}") : ""
             button.setAccessibilityIdentifier(row.node?.props["testId"])
             // A prompt's Return goes through its input first (`promptDefault`).
             if index == owner.defaultRow, !plan.fields.isEmpty {
@@ -390,7 +395,7 @@ final class AlertHost {
         // A prompt's Return goes through its field, as a person's does.
         if name == "Enter", let node = owner.fields.first { return fieldReturned(node) }
         let escapes = owner.node?.props["closedby"] != "none"
-        let index = name == "Enter" ? owner.defaultRow : name == "Escape" && escapes ? owner.rows.firstIndex(where: \.cancel) : nil
+        let index = name == "Enter" ? owner.defaultRow : name == "Escape" && escapes ? owner.rows.indices.first { owner.rows[$0].cancel && $0 != owner.defaultRow } : nil
         guard let index, owner.alert.buttons.indices.contains(index), owner.alert.buttons[index].isEnabled else { return false }
         owner.alert.buttons[index].performClick(nil)
         return true

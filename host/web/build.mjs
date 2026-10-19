@@ -2,9 +2,8 @@
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
 // what it refuses (a capability the runtime lacks, named) fails the build.
-// A game (LLP 1046), and `--wasm`, get the wasm target: the wasm under the `web` profile (size-tuned),
-// `wasm-opt -Oz` when binaryen is on PATH, then `dist/` = index.html +
-// glue.js + app.wasm.
+// Games and `--wasm` use the wasm target. Shipping modules use `web` plus
+// wasm-opt; proofs may select `gpu-dev` without wasm-opt. The host stays `web`.
 // Usage: bun host/web/build.mjs [crate=caltrain-web]
 // (`--js` is accepted and is the default.) `--wasm` is internal, for what the
 // retiring wasm target still serves (LLP 1071 §7, "Retiring the wasm target
@@ -30,7 +29,8 @@ import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
+import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
@@ -63,6 +63,10 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   mkdirSync(dirname(dist), { recursive: true });
   let stage = mkdtempSync(`${dist}.stage-`);
   process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });
+  // What this build reads, and when, as it starts: the next check (webChanges) compares every input
+  // changed since then, so a source changed or gone while it compiles, or a build published over it
+  // meanwhile, is a change, never taken as built.
+  const inputsAt = Date.now(), inputs = webInputDigests(app, true);
   const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
   // What it says names the output, not the stage.
   const said = (text) => (text ?? '').replaceAll(stage, dist);
@@ -77,7 +81,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     for (const line of compiler) console.error(line);
     for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs: webInputDigests(app, true) }) + '\n');
+      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs, inputsAt }) + '\n');
     replaceBuild(stage, dist);
     stage = null;
     process.exit(0);
@@ -123,7 +127,11 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // whole, as does a machine whose binaryen isn't the pinned one.
 const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
-const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly}));
+// Proofs select the requested game profile under either trust mode; ordinary builds ship web.
+const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
+if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
+const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
+const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
 // dist, so a server sees the previous app or the next one, never a mixture;
@@ -202,23 +210,11 @@ function copyHostFiles(group) {
 }
 if (!bakeOnly) copyHostFiles('base');
 if (!bakeOnly && !production) copyHostFiles('development');
-// The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
-// own wasm beside markup-editor.js, fetched only when a Markdown textarea mounts.
-const webEnv = webToolchainEnv(buildEnv);
-if (!bakeOnly) {
-const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-markdown-editor', '--lib', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
-if (editor.status !== 0) process.exit(editor.status ?? 1);
-const editorBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/exact_markdown_editor.wasm');
-const editorWasm = resolve(stage, 'markup-editor.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', editorWasm, editorBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(editorBuilt, editorWasm);
-
-// The exclusions walker is its own leaf artifact; ordinary apps fetch none of it.
-const flow = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-textflow', '--bin', 'textflow-web', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
-if (flow.status !== 0) process.exit(flow.status ?? 1);
-const flowBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/textflow-web.wasm');
-const flowWasm = resolve(stage, 'textflow.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', flowWasm, flowBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(flowBuilt, flowWasm);
-}
+// These app-independent modules use the same input-checked products as the JS
+// target, so a gameplay edit does not rerun Cargo and wasm-opt for either leaf.
+if (!bakeOnly) await Promise.all([
+  [buildEditor, 'markup-editor.wasm'], [buildFlow, 'textflow.wasm'],
+].map(async ([build, name]) => copyFileSync(await build({keepFresh:true}), resolve(stage, name))));
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
@@ -287,6 +283,7 @@ if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(bakedReceipt.inputs.grantCeili
   copyHostFiles('storage');
 }
 copyStaticTreeIfPresent(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.entries/plans'), resolve(stage, 'plans'));
+copyStaticTreeIfPresent(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.entries/activities'), resolve(stage, 'activities'));
 const copiedAssets = listAssets(stage);
 verifyBakeFiles(bakedReceipt, planBytes, copiedAssets);
 let pairedRust = null;
@@ -471,7 +468,7 @@ if (authReach.sessions) {
 // the web) and wasm-opt. Only when the app has a GPU crate.
 // Each declared GPU module (LLP 1009 D6) is its own wasm under gpu/, fetched
 // the first time a canvas of one of its surfaces mounts.
-const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts(app, stage);
+const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts(app, stage, {profile:gpuProfile});
 let gpuNote = gpu.note;
 if (gpu.built) {
   copyHostFiles('gpu');
@@ -502,16 +499,9 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   // Content digests of what this build read: a staleness check compares bytes, not times.
   inputs: webInputDigests(app, false),
 }) + '\n');
-rmSync(previous, { recursive: true, force: true });
-if (existsSync(dist)) renameSync(dist, previous);
-try {
-  renameSync(stage, dist);
-  stage = null;
-} catch (error) {
-  if (existsSync(previous)) renameSync(previous, dist);
-  throw error;
-}
-rmSync(previous, { recursive: true, force: true });
+// In place in one step where the system has one (serve.mjs `replaceBuild`).
+replaceBuild(stage, dist);
+stage = null;
 if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, exact.json, index.html; documents: ${documentNote}${authNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
