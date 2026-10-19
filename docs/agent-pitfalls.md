@@ -1495,6 +1495,16 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A HUD shortcut's chord does not reach the focused world.** On every host a shown
+  button's `aria-keyshortcuts` takes its chord (the key with exactly those modifiers)
+  before the canvas hears it; a button with `action=` presses that action once, a
+  disabled one nothing. While the button shows, an `Actions` binding of the same key
+  does not fire for that chord; the key with other modifiers still reaches the world.
+  The bake warns (`analyze-shortcut-world-key`); drop the key from `Actions` or the
+  shortcut. [Touch controls](../game/recipes/touch-controls.md).
+- **Show on-screen controls by `exactViewport().pointer`, never always.** A stick on a
+  desktop is a tell. The starter shows its stick and buttons under `coarse` only;
+  `prefer pointer coarse` shows them on a desktop drive.
 - **A continued proof uses its saved source copy.** Keep the SDK unchanged until
   it finishes. Edit the original game freely during a new run; `--continue` refuses
   if its authored inputs differ from the snapshot, naming the file. Start a new

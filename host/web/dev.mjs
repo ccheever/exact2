@@ -20,6 +20,7 @@ import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
+import { startupBuilds } from './dev-startup.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { designDigest, patchDesign } from '../../scripts/tamber-patch.mjs';
 import { relayChannel, serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
@@ -102,15 +103,14 @@ async function currentWebBuild() {
   } catch { return false; }
 }
 const early = app.manifest.game && servedAs == null ? await buildingServer({app:app.dir, host, port, gate, origins}) : null;
+const startup = startupBuilds();
 if (app.manifest.game) {
-  const checked = spawn(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:'inherit'});
-  const code = await new Promise((ok, reject) => { checked.once('error', reject); checked.once('exit', code => ok(code ?? 1)); });
+  const code = await startup.run(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:'inherit'});
   if (code !== 0) process.exit(code);
 }
 if (!await currentWebBuild()) {
   early?.phase('host', 'build');
-  const b = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
-  const code = await new Promise((ok, reject) => { b.once('error', reject); b.once('exit', code => ok(code ?? 1)); });
+  const code = await startup.run(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (code !== 0) process.exit(code);
 }
 // The last complete cdylib links name their transitive source files, including
@@ -1493,7 +1493,5 @@ const banner = () => {
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 };
 if (early) banner(); else server.listen(port, host, banner);
-process.on('SIGINT', stop);
-process.on('SIGTERM', stop);
-process.on('SIGHUP', stop);
+startup.handoff(stop);
 watchLauncher(stop);

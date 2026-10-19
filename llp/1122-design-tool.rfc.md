@@ -1377,3 +1377,59 @@ the second disabled).
 | Inspect on the held node shows the state part's rows | **Met** on the JS loop with stage 9 E: the held row ":active background-color" at its part (`screens.contract:582`) with its token, no provenance incomplete, "Edit PostButton :active background-color" on it. |
 | The workbench's state parts, editable through `set-state` | **Met**: the selection's `:active` row offers the state rung (the default) and "Edit the token primary_600 instead"; the field starts at `primary_600`; Rebuilds; Apply wrote one line (`screens.contract:582`, `primary_600` → `positive_500`). |
 | After the rebuild the hold is held again | **Met** on the JS loop (00:49Z, at main with the glue fixes): the server re-sent it at the corresponding copy ("Holding pressed.", where before the replay fix every PostButton cleared), the reloaded page held it 2 s later ("Held pressed.") with the canvas out of view, and in view its ground was the new `:active` value, `positive_500`, with no touch. **Met** on the wasm loop too (01:17Z, in a quiet window): Held again after its restart, `positive_500` in view. |
+
+### T5, template and style rungs (step 1 `1c6434a090`, `ee2d85d546`; step 2 `f0f1917a25`; step 3 `95332bb9de`; the map's `layout` `7553483dd7`; fixes `c74d313a22`, `7eec1a9a90`, `fb943c06df`, `47d74f03b7`, `e1d7526acc`, `7311d0f039`; optional *1.12* fields)
+
+- **The template and style rungs** (D6, step 1, the server's join): a row its author wrote, where
+  the map places it (D1's `at` and `attr`), answers the template rung `{file, at, sha256, row,
+  state?, instances, text, component?, token?}` on the node or the style rung `{style, row, file,
+  text, token?}` in its class's `style` by the name its file declares, the default unless the row
+  reads a param (whose rung then carries its `template` address, for a detach); the token its
+  whole value is offered beside. `row` is the attribute as written (a shorthand's whole for a
+  longhand). Only a plain value is offered, read at the map's UTF-8 byte column as Contract writes
+  one (`plainAt`: a string, its escapes decoded as the lexer does, a bare `#…` colour, a number,
+  in any parentheses, then a comment, another attribute or a positional argument); an expression
+  or a name in scope, a file outside the app's own sources, a conditional class and a layout row
+  (the map's `layout`, D14, set-row's own test: `paint_row`, now the library's) are refused with a
+  reason, a whole token still offered. A state row written under the node takes the template rung
+  with `state`, held ones too where the build names the held node; `instances` counts call-site
+  chains (a `button "…"`'s label is no copy).
+- **The tool's editor** (step 2): "Edit this template · N instances" / "Edit style X" as the
+  bordered default, a field from the value as written, proposed as `set-row` (Rebuilds, no scrub),
+  its draft bound to the copy (with the build's facts) and the files' digests, and refused at
+  propose when the files moved since the copy was selected; the server's refusals (a moved file, a
+  compile failure with its diagnostics, D14) shown, nothing written.
+- **Moves** (step 3, D6's enumerated set; `moves.ts`): a template row to a new param (`add-param`
+  in the template's file, its kind the row's, its default the value as written) or, an
+  unconditional value, a new token (`add-token`), the row reading it; a param row detached to its
+  template (the param's value written there; `remove-param` for it unless the server says another
+  row still reads it, and for each param it alone left read, as the compile names them; refused
+  where the design sets it or its default is an expression over another param). Each one
+  transaction, one undo; checked against the params read the ops were made from.
+- **Known limits:**
+  - a promotion's kind is read from the row's name (a colour row's, opacity's number, shadows,
+    `font-family`, durations, easings, else a length); a row whose value the server types
+    otherwise is refused by the server, not guessed again;
+  - a detach copies a token default as the token's name (the row then reads the token, D6's
+    "expressions are kept"), and refuses a default that is an expression over another param;
+  - before the server's first file read the join has no own-sources list and uses the path rule
+    (the server's write refuses a vendored file regardless);
+  - a positional argument written against the value with no space (`opacity=0.5("hi")`) reads as
+    an expression;
+  - a param colour on the JS page reads as a dynamic value (a CSS variable the page resolves), so
+    its row offers neither the param rung nor a detach there.
+
+### T5's gate (2026-10-19; the run is `~/x2theme/t5-gate-run.txt`)
+
+On a copy of the clone (`dt5-gate`, its main `95d7d41` with the header's right slot given a literal
+ground and the Post button a one-reader `corner` param).
+
+| Gate line | Result |
+|---|---|
+| A template colour edit writes one line and hot-reloads | **Met** on the JS loop: `#f1f3f5` → `#ffb3b3` at `home.contract:331` only, Rebuilds, the page rebuilt to that colour; one undo restored it. |
+| A stale source digest is refused | **Met**: the file edited after the copy was selected; the server refused (`tamber-contract-edit`: the file changed since line 331 was selected), nothing written. |
+| A candidate that fails to compile writes nothing | **Met**: `not-a-colour` refused with its diagnostic (`tamber-unknown-token`), the files unchanged. |
+| Promote to param and to token are each one transaction | **Met**: `drawerGround` (the param's line and the row reading it, one write, one undo); `gate.drawer` (`app.tamber`'s new token and the row naming it, two files, one write, one undo). |
+| A `class:` row edits the style in its own file | **Met**: the Post button's `color` row wrote `style PostButton`'s line in `screens.contract`; undone. |
+| (review2) Detach is one transaction, its closure listed | **Met**: `PostButton.corner` detached: its line removed and the row written `999px`, one write, one undo. |
+| (review2) A layout row is refused with D14's reason | **Met**: width, height, margins, paddings, alignment and font-weight rows each say D14's reason. |

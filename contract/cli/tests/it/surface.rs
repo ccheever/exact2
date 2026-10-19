@@ -482,3 +482,152 @@ component App
         .set_surface_record("world", Some(r#"{"state":"invalid"}"#))
         .is_err());
 }
+
+/// LLP 1132 D11: a button's `aria-keyshortcuts` on a key the game's
+/// `Actions` bind (`.shells/keys.json`, from its GPU build) is a warning
+/// naming both, through a component prop too; it refuses nothing, and a
+/// key no action binds, or a game without the declaration, says nothing.
+#[test]
+fn a_shortcut_on_a_key_the_game_binds_warns() {
+    let dir = std::env::temp_dir().join(format!("contract-shortcut-keys-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        "component App\n  view\n    canvas surface=world()\n      Shop(hotkey=\"1\")\n      button action=\"jump\" aria-keyshortcuts=\"Shift+J 9\" aria-label=\"Jump\"\n        text \"Jump\"\ncomponent Shop\n  props\n    hotkey: string\n  view\n    button action=\"buy\" aria-keyshortcuts=hotkey aria-label=\"Buy\"\n      text \"Buy\"\n",
+    )
+    .unwrap();
+    assert!(
+        contract::shortcut_findings(&path).unwrap().is_empty(),
+        "no declaration, no warning"
+    );
+    // A game whose last GPU build wrote no keys is told so.
+    std::fs::write(dir.join(".shells/surfaces.json"), r#"{"world":[]}"#).unwrap();
+    let ids =
+        |found: Vec<contract::CompileError>| found.into_iter().map(|e| e.id).collect::<Vec<_>>();
+    assert_eq!(
+        ids(contract::shortcut_findings(&path).unwrap()),
+        ["analyze-shortcut-keys-stale"]
+    );
+    std::fs::write(
+        dir.join(".shells/keys.json"),
+        r#"{"world":{"Digit1":["one"],"KeyJ":["jump"],"KeyW":["move"]}}"#,
+    )
+    .unwrap();
+    let found = contract::shortcut_findings(&path).unwrap();
+    let said: Vec<_> = found
+        .iter()
+        .map(|e| (e.id.as_str(), e.is_warning(), e.span.line))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("analyze-shortcut-world-key", true, 5),
+            ("analyze-shortcut-world-key", true, 11)
+        ],
+        "{found:?}"
+    );
+    // `Shift+J` takes Shift+KeyJ alone: the world still hears J pressed otherwise.
+    assert!(
+        found[0]
+            .message
+            .contains("takes KeyJ pressed with exactly Shift held")
+            && found[0]
+                .message
+                .contains("with other modifiers still reaches it")
+            && found[0].message.contains("button's own `action`"),
+        "{}",
+        found[0]
+    );
+    assert!(
+        found[1]
+            .message
+            .contains("\"1\" takes Digit1 pressed with no modifier held")
+            && found[1]
+                .message
+                .contains("does not hear that press as `one`"),
+        "{}",
+        found[1]
+    );
+    assert_eq!(found[1].related.len(), 1, "the use that passed \"1\"");
+    assert_eq!(found[1].related[0].span.line, 4);
+    // Rust newer than the keys: they may predate an `Actions` edit.
+    std::fs::create_dir_all(dir.join("logic/src")).unwrap();
+    std::fs::write(dir.join("logic/src/lib.rs"), "").unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(dir.join(".shells/keys.json"))
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let stale = contract::shortcut_findings(&path).unwrap();
+    assert_eq!(stale.len(), 3, "{stale:?}");
+    assert!(
+        stale[2]
+            .message
+            .starts_with(".shells/keys.json is older than"),
+        "{}",
+        stale[2]
+    );
+    let compiled = contract::compile_path_all(&path, false);
+    assert!(
+        compiled.is_ok(),
+        "a warning refuses nothing: {:?}",
+        compiled.err()
+    );
+    let (_, warned) = contract::compile_path_all_with_warnings(&path, false);
+    assert_eq!(
+        warned
+            .iter()
+            .filter(|e| e.id == "analyze-shortcut-world-key")
+            .count(),
+        2,
+        "a build prints them"
+    );
+    assert!(warned.iter().any(|e| e.id == "analyze-shortcut-keys-stale"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The modifiers a chord as ARIA spells it holds and the physical keys
+/// that type its key with exactly those held, which the shortcut warning
+/// compares with the codes `Actions` bind.
+#[test]
+fn a_chord_names_its_modifiers_and_the_physical_keys_that_type_it() {
+    let codes = contract_analyze::chord_codes;
+    let none: Vec<&str> = Vec::new();
+    let names = |chord| codes(chord).1;
+    assert_eq!(
+        codes("1"),
+        (none.clone(), vec!["Digit1".into(), "Numpad1".into()])
+    );
+    assert_eq!(codes("Shift+a"), (vec!["Shift"], vec!["KeyA".into()]));
+    assert_eq!(codes("Space"), (none.clone(), vec!["Space".into()]));
+    assert_eq!(names("Enter"), ["Enter", "NumpadEnter"]);
+    assert_eq!(names("F13"), ["F13"]);
+    // A key Shift types is its main-row key only with Shift held; the keypad's either way.
+    assert_eq!(names("*"), ["NumpadMultiply"]);
+    assert_eq!(names("Shift+*"), ["Digit8", "NumpadMultiply"]);
+    assert_eq!(
+        codes("Control+Plus"),
+        (vec!["Control"], vec!["NumpadAdd".into()])
+    );
+    assert_eq!(codes("Meta++"), (vec!["Meta"], vec!["NumpadAdd".into()]));
+    assert_eq!(names("Control+Shift+Plus"), ["Equal", "NumpadAdd"]);
+    assert_eq!(names("Shift+!"), ["Digit1"]);
+    assert_eq!(names("-"), ["Minus", "NumpadSubtract"]);
+    assert_eq!(names("Shift+_"), ["Minus"]);
+    assert_eq!(names("Shift+-"), ["NumpadSubtract"]);
+    // Chords no key types with exactly their modifiers on a US layout.
+    for chord in [
+        "!",
+        "_",
+        "Shift+1",
+        "Control+Shift+1",
+        "F36",
+        "Volume",
+        "Hyper+K",
+    ] {
+        assert!(names(chord).is_empty(), "{chord}: {:?}", names(chord));
+    }
+}

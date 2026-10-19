@@ -42,11 +42,21 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const titleAx = await axNames(s);
   check('Play is initially focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   check('state agrees with initial focus', (await s.state()).focus.logical === node(title, 'play')?.id);
-  check('title, controls and Play', !!node(title, 'play') && ['Small game', 'Move with WASD or arrow keys', 'Space jumps · E lights', 'Touch controls appear during play'].every(text => title.nodes.some(n => n.props?.text === text)));
+  check('title, controls and Play', !!node(title, 'play') && ['Small game', 'Move with WASD or arrow keys', 'Space jumps · E lights', 'On a touch screen, touch controls appear during play'].every(text => title.nodes.some(n => n.props?.text === text)));
   check('world loads after Play', !node(title, 'world'));
   await s.tap('play');
   check('HUD is a polite live region', node(await s.tree(), 'hud-lit')?.props.accessibilityLive === 'polite');
   check('initial HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 0');
+  // On-screen controls follow the primary input: a mouse shows none, a touch screen all three.
+  // At launch it is the device class's: a phone's touch screen, a desktop's mouse.
+  const touchScreen = ['ios', 'android'].includes(host), launched = await s.tree();
+  check(`the ${touchScreen ? 'touch screen shows' : 'mouse shows no'} on-screen controls at launch`, ['move', 'jump', 'light'].every(id => !!node(launched, id) === touchScreen));
+  await s.prefer({pointer:'coarse'});
+  const touch = await s.tree();
+  check('a touch screen shows the stick and buttons', ['move', 'jump', 'light'].every(id => !!node(touch, id)));
+  await s.prefer({pointer:'fine'});
+  const mouse = await s.tree();
+  check('a mouse again hides them', ['move', 'jump', 'light'].every(id => !node(mouse, id)));
   const game = s.world('world');
   pin(0, await game.snapshot());
   check('no prompt outside range', !node(await s.tree(), 'near-prompt'));

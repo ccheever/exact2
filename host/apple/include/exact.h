@@ -246,10 +246,6 @@ uint32_t exact_region_request(ExactRuntime rt, uint64_t request, uint64_t known_
 uint32_t exact_region_complete(ExactRuntime rt, uint64_t request, ExactMetrics metrics, void *owner, ExactRegionReleaseFn release);
 
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
-/* Source-backed editor layout. Negative width/height refuses the measurement. */
-typedef ExactMetrics (*ExactDecoratedMeasureFn)(void *ctx, uint32_t view, const ExactMeasureRequest *request,
-    const uint8_t *record, size_t record_len, const uint8_t *styles, size_t styles_len, float root, float scale);
-void exact_set_decorated_measure(ExactRuntime rt, ExactDecoratedMeasureFn read);
 
 /* The plan's declared faces, synchronously before first layout. The strings
  * are UTF-8 and live only for the callback. This is a host seam, not an
@@ -476,8 +472,10 @@ typedef struct { double x, y, width, height; uint32_t available; } ExactInlineFr
 typedef ExactInlineFrame (*ExactInlineFrameFn)(void *ctx, uint32_t view);
 typedef ExactInlineFrame (*ExactRangeFrameFn)(void *ctx, uint32_t view, uint32_t start, uint32_t end);
 void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, ExactRangeFrameFn range, void *ctx);
-/* Request/reply JSON for the optional decorated field, freed by exact_markup_free. */
-uint64_t exact_decorations(const uint8_t *input, size_t len, const uint8_t **out, size_t *count);
+/* A textarea's decorations (LLP 1114.007): UTF-8 JSON {record, current, styles} in,
+ * {provisional, spans, styles} out, valid until the next call on this thread; null when
+ * the request does not parse. */
+const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t *count);
 /* Open top-layer views in back-to-front order, with viewport x/y/width/height
  * in four doubles per id: where the host shows each, a block's root by its
  * block's rectangle (the root sits in it by its own frame) and any other view

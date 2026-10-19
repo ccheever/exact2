@@ -272,13 +272,23 @@ fn main() {
         })
         .collect();
     let name = <Logic as Game>::NAME;
-    let text = serde_json::to_string_pretty(&serde_json::json!({name: arguments})).unwrap() + "\\n";
-    let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../surfaces.json");
-    if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
-        let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-        fs::write(&temporary, text).expect("write game surface declaration");
-        fs::rename(temporary, &path).expect("publish complete game surface declaration");
+    let publish = |file: &str, json: serde_json::Value| {
+        let text = serde_json::to_string_pretty(&json).unwrap() + "\\n";
+        let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(file);
+        if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
+            let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+            fs::write(&temporary, text).expect("write game declaration");
+            fs::rename(temporary, &path).expect("publish complete game declaration");
+        }
+    };
+    publish("../surfaces.json", serde_json::json!({name: arguments}));
+    // The keys \`Actions\` bind, for the Contract bake's shortcut warning (LLP 1132 D11).
+    let actions = <Logic as Game>::actions();
+    let mut keys = std::collections::BTreeMap::<&str, Vec<&str>>::new();
+    for (code, action) in actions.keys() {
+        keys.entry(code).or_default().push(action);
     }
+    publish("../keys.json", serde_json::json!({name: keys}));
 ${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
     bake_files::bake_game_tables::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake tuning tables");
     println!("cargo:rerun-if-changed={}", level_bake_path());

@@ -266,7 +266,9 @@ impl SourceMap {
                     out.extend_from_slice(b"},\"attr\":");
                     quote(&mut out, &w.name);
                     // A layout row (LLP 1122 D14), which `set-row` refuses by
-                    // this same test: said, so a client offers it no edit.
+                    // this same test: said, so a client offers it no edit. The
+                    // value is empty: `tags::rows` reads it only for `resize`,
+                    // a handler when an ident or call, never a written row.
                     let written = contract_syntax::Attr {
                         name: w.name.clone(),
                         value: contract_syntax::Expr::Str(String::new(), w.span),

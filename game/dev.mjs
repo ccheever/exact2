@@ -58,22 +58,27 @@ if (import.meta.main) {
   if (!name || (!local && !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name))) throw new Error('Usage: bun game/dev.mjs <name|path> [--port <n>] [dev options]');
   const app = local ? resolve(name) : resolve(import.meta.dir, 'games', name);
   if (!existsSync(resolve(app, 'app.contract'))) throw new Error(`No game: ${app}`);
-  let chosen, start = 8765;
+  let chosen, child = null, cancelled = false, start = 8765;
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => {
+    cancelled = true;
+    child?.kill(signal);
+  });
   const explicit = process.argv.some(a => a === '--port' || a.startsWith('--port='));
   // The port is probed before the minute-long build; another loop can take it
   // meanwhile. A chosen (not explicit) port that is lost at listen moves on.
   for (let attempt = 0; ; attempt++) {
     try { chosen = await devPort(process.argv.slice(3), {start}); } catch (error) { console.error(error.message); process.exit(1); }
+    if (cancelled) process.exit(0);
     if (chosen.port !== 8765 && !explicit) console.log(`port${chosen.port > 8766 ? `s 8765–${chosen.port - 1} are` : ' 8765 is'} in use; serving on ${chosen.port} (--port chooses one)`);
-    const child = spawn(process.execPath, [resolve(import.meta.dir, '../host/web/dev.mjs'), ...chosen.args], {
+    child = spawn(process.execPath, [resolve(import.meta.dir, '../host/web/dev.mjs'), ...chosen.args], {
       env:{...process.env, EXACT_APP_DIR:app, EXACT_UPDATE_TRUST:'development', EXACT_WEB_DIST:resolve(app, 'dist')},
       stdio:['inherit', 'inherit', 'pipe'],
     });
     let taken = false;
     child.stderr.on('data', bytes => { process.stderr.write(bytes); taken ||= /cannot listen on .*EADDRINUSE/.test(String(bytes)); });
-    for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child.kill(signal));
     const code = await new Promise(ok => child.on('exit', (code, signal) => ok(code ?? (signal ? 1 : 0))));
-    if (!(taken && !explicit && attempt < 5)) process.exit(code);
+    child = null;
+    if (cancelled || !(taken && !explicit && attempt < 5)) process.exit(code);
     console.log(`port ${chosen.port} was taken during the build; trying the next free port`);
     start = chosen.port + 1;
   }

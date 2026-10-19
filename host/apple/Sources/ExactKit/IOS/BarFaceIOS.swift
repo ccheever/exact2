@@ -86,11 +86,17 @@ struct ChipFace: Equatable {
             if kids.count > 1, gap == nil, let g = node.style["column_gap"]?.number { gap = CGFloat(g) }
             for kid in kids {
                 guard case .view(let child) = kid else {
-                    if case .leaf(let leaf) = kid { dot(leaf.style, alpha * CGFloat(leaf.opacity)) }
+                    if case .leaf(let leaf) = kid { visitLeaf(leaf, in: presenter, alpha: alpha * CGFloat(leaf.opacity)) }
                     continue
                 }
                 visit(child, fonted: fonted, inked: inked, alpha: alpha * child.alpha)
             }
+        }
+        // A flat box with children is walked as a view with them is.
+        func visitLeaf(_ leaf: FlatLeaf, in presenter: Presenter?, alpha: CGFloat) {
+            let kids = (presenter?.flats.children(of: leaf.id) ?? []).compactMap { presenter?.flats.leaves[$0] }
+            guard !kids.isEmpty else { dot(leaf.style, alpha); return }
+            for kid in kids where kid.style["display"]?.string != "none" { visitLeaf(kid, in: presenter, alpha: alpha * CGFloat(kid.opacity)) }
         }
         func visit(_ child: NodeView, fonted: Bool, inked: Bool, alpha: CGFloat) {
             let fonted = fonted || ["font_family", "font_size", "font_weight"].contains(where: child.wrote)

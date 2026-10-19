@@ -473,7 +473,7 @@ fn a_written_row_says_its_attribute() {
         r##"use Card from "./card.contract"
 component App
   view
-    column padding="4px 8px" color="#111111" testId="col"
+    column padding="4px 8px" color="#111111" border-color="#222222" testId="col"
       Card()
 "##,
     );
@@ -484,7 +484,7 @@ component App
 
 component Card
   view
-    row class=Raised font-size=14 testId="card"
+    row class=Raised font-size=14 border="1px solid #333333" testId="card"
       text "c"
 "##,
     );
@@ -516,6 +516,14 @@ component Card
     // A layout row says so (D14: `set-row` refuses it); a paint row doesn't.
     assert_eq!(top["layout"], true, "{top}");
     assert!(color.get("layout").is_none(), "{color}");
+    // A paint shorthand's longhands carry none; a shorthand writing a layout
+    // row marks all of its longhands, its colour's too (set-row edits it whole).
+    let paint = row("col", "border_color_top");
+    assert_eq!(paint["attr"], "border-color", "{paint}");
+    assert!(paint.get("layout").is_none(), "{paint}");
+    let mixed = row("card", "border_color_top");
+    assert_eq!(mixed["attr"], "border", "{mixed}");
+    assert_eq!(mixed["layout"], true, "{mixed}");
     let ground = row("card", "background_color");
     assert_eq!(ground["origin"], "class:Raised");
     assert_eq!(ground["attr"], "background-color");

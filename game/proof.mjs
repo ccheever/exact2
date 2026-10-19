@@ -593,6 +593,8 @@ export function proofInputReader(root, app, cachePath) {
 export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
   if (surface) mkdirSync(dirname(surface),{recursive:true});
   const declaration = resolve(directory,'build-linux-surfaces.json'), assets = resolve(directory,'build-linux-assets');
+  // The keys `Actions` bind travel with the declaration (the bake's shortcut warning reads them).
+  const keys = surface && resolve(dirname(surface),'keys.json'), keysCache = resolve(directory,'build-linux-keys.json');
   let cachedAssets = !app;
   // No cache is an ordinary miss; a cached file that would overwrite an authored one is a refusal.
   if (app && existsSync(resolve(assets,'files.json'))) { restoreBakedAssets(assets, app); cachedAssets = true; }
@@ -605,10 +607,12 @@ export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostI
   const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact,build:async () => {
     await build('gpu');
     if (surface) copyFileSync(surface,declaration);
+    if (keys && existsSync(keys)) copyFileSync(keys,keysCache);
     if (app) { cacheBakedAssets(app,assets); cachedAssets = true; }
   }});
   // A fresh snapshot needs the declaration even when the GPU product is reused.
   if (surface) copyFileSync(declaration,surface);
+  if (keys && existsSync(keysCache)) copyFileSync(keysCache,keys);
   completeGpu();
   // The GPU build may have changed surfaces.json; observe it only afterwards.
   const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs,artifact:hostArtifact,build:()=>build('host')});
@@ -1034,7 +1038,7 @@ async function runProof(meta, script) {
         const receipt = JSON.parse(readFileSync(resolve(buildOut,'build-linux-gpu.sha256')));
         writeFileSync(artifacts.module + '.proof.json',JSON.stringify({...receipt,artifact:productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json'))}));
       },
-      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
+      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8') + (existsSync(resolve(appInfo.workspace,'keys.json')) ? readFileSync(resolve(appInfo.workspace,'keys.json'),'utf8') : '')),
       gpuArtifact:() => validatedProduct('module'),
       hostArtifact:() => validatedProduct('binary'),
       build:async part => {

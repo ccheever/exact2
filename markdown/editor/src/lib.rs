@@ -16,7 +16,6 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
-pub mod decorations;
 mod editor;
 mod projection;
 mod text;
