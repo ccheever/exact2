@@ -292,7 +292,8 @@ re-arms it from the commit that changed the key (compared as a `for` key),
 and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
 key a string, number or bool (`type-task-key`), and neither reads `performanceNow()`,
 directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
-a millisecond interval is a literal whole number of at least 1.
+a millisecond interval is a literal whole number of at least 1 (`after(1, …)` is the web's
+`setTimeout(f, 0)`: 0 would be due in the commit that armed it).
 
 A `sequence` (LLP 1125 D2) declares what should play, as a value, and the
 runner plays it: the gate is a task's, and its body is exactly one
