@@ -7,7 +7,7 @@ import { liveFleetEvent } from './shared/live-streams';
 import type { Native } from './shared/protocol';
 import { environmentKey, fleet, type FleetEntry } from './shared/settings-b-fleet';
 import { mobileSchedule, mobileScheduleInput, mobileTaskDraft, mobileTaskInput, mobileTaskSignature } from './settings-scheduled-draft';
-import { mobileScheduledBegin, mobileScheduledClose, mobileScheduledCommand, mobileScheduledEdit, mobileScheduledEditor, mobileScheduledSave, mobileScheduledTasks, scheduledGrant } from './settings-scheduled';
+import { mobileScheduledBegin, mobileScheduledBranches, mobileScheduledBranchQuery, mobileScheduledClose, mobileScheduledCommand, mobileScheduledEdit, mobileScheduledEditor, mobileScheduledEnvironment, mobileScheduledMenu, mobileScheduledSave, mobileScheduledTasks, scheduledGrant } from './settings-scheduled';
 const task:Obj={id:'task-a',title:'Audit',prompt:'Inspect this',projectId:'p',modelSelection:{instanceId:'codex',model:'gpt'},schedule:{type:'webhook',signature:{header:'signature',encoding:'hex',prefix:'sha256=',secret:'must-not-send'},maxDeliveryAgeMinutes:30},workspaceStrategy:{type:'root'},enabled:true,runtimeMode:'auto',interactionMode:'default',threadId:'thread',creationSource:'web'};
 test('webhook edits preserve current signature metadata, never send a secret or stale configuration',()=>{
   const draft=mobileTaskDraft('',null,task),changed={...task,schedule:{...obj(task.schedule),signature:{header:'new-signature',encoding:'base64',prefix:'v2',secret:'also-private'}}};
@@ -99,6 +99,71 @@ test('field edits make no requests; save rechecks revoked permissions and dirty 
   const {native,calls,deny}=transport();expect((await mobileScheduledBegin(scope,'scheduled-test','',native)).message).toBe('');const count=calls.length;
   mobileScheduledEdit('title','Nightly');mobileScheduledEdit('prompt','Audit');expect(calls).toHaveLength(count);expect(mobileScheduledEditor().dirty).toBe(true);expect(mobileScheduledClose().closed).toBe(false);
   deny();expect((await mobileScheduledSave(native)).message).toContain('cannot change');expect(calls.some(call=>call.method==='scheduledTasks.upsert')).toBe(false);
+});
+test('Scheduled Runs on preserves the complete draft when its current environment is selected',async()=>{
+  const {mobileScheduledNativeMenu}=await import('./settings-scheduled-native');
+  const {native,calls,entry}=transport();
+  entry.shell.projects.push({id:'q',title:'Other project',workspaceRoot:'/tmp/other'});
+  entry.config.providers=[{instanceId:'codex',driver:'codex',enabled:true,installed:true,auth:{status:'authenticated'},models:[
+    {slug:'gpt',name:'GPT',isDefault:true},{slug:'chosen',name:'Chosen',capabilities:{optionDescriptors:[
+      {id:'effort',label:'Effort',type:'select',options:[{id:'low',label:'Low',isDefault:true},{id:'high',label:'High'}]},
+      {id:'fast',label:'Fast',type:'boolean',currentValue:false}]}},
+  ]}];
+  let branchReads=0,menuReads=0;
+  const controls:Native={...native,async later(input){
+    const request=obj(input);
+    if(request.op==='mobileScheduledMenu'){menuReads++;return {ok:true,generation:0,value:{choice:entry.environmentId}};}
+    if(request.method==='vcs.listRefs'){
+      calls.push(request);branchReads++;
+      return branchReads===1?{ok:true,generation:101,value:{refs:[{name:'release',isRemote:false}],nextCursor:100}}
+        :{ok:false,generation:101,error:{kind:'transport',message:'Branches unavailable.',uncertain:false}};
+    }
+    return native.later(input);
+  }};
+  expect((await mobileScheduledBegin(scope,entry.environmentId,'',controls)).message).toBe('');
+  const edits=[['title','Nightly'],['prompt','Inspect this project'],['projectId','q'],['model',JSON.stringify(['codex','chosen'])],
+    ['option:effort','high'],['option:fast','true'],['workspace','existing_worktree'],['baseRef','release'],['checkoutPath','/tmp/checkout'],
+    ['runtimeMode','auto'],['enabled','false'],['startFromOrigin','false'],['mode','webhook'],['maxDeliveryAgeMinutes','60'],
+    ['timeOfDay','10:11'],['intervalMinutes','25'],['repeat','every_day']];
+  expect(edits.map(([key,value])=>mobileScheduledEdit(key!,value!).message)).toEqual(edits.map(()=>''));
+  await mobileScheduledBranches('release',false,controls);
+  mobileScheduledBranchQuery('release-next');await mobileScheduledBranches('release-next',false,controls);
+  expect(mobileScheduledEdit('unknown','').message).toBe('Unknown scheduled task field.');
+  const before=mobileScheduledEditor(),selected=mobileScheduledMenu('environment').find(row=>row.selected);
+  expect(before).toMatchObject({dirty:true,projectId:'q',workspace:'existing_worktree',baseRef:'release',checkoutPath:'/tmp/checkout',
+    error:'Unknown scheduled task field.',branchError:'Branches unavailable.',branchQuery:'release-next',hasMore:true,branches:[{id:'release'}]});
+  expect(selected).toMatchObject({id:entry.environmentId,disabled:false});
+  const count=calls.length,direct=await mobileScheduledEnvironment(entry.environmentId,scope,controls),afterDirect=mobileScheduledEditor();
+  const menu=await mobileScheduledNativeMenu('environment',scope,controls),afterMenu=mobileScheduledEditor(),additionalRequests=calls.slice(count);
+  mobileScheduledEdit('projectId','p');
+  const afterProject=mobileScheduledEditor();
+  expect({direct:direct.message,menu:menu.message,menuReads,additionalRequests,afterDirect,afterMenu,
+    explicitModel:afterProject.models.find(model=>model.selected)?.model,options:afterProject.options}).toEqual({
+    direct:'',menu:'',menuReads:1,additionalRequests:[],afterDirect:before,afterMenu:before,explicitModel:'chosen',options:before.options,
+  });
+});
+test('Scheduled Runs on resets environment-owned choices only for a genuinely different environment',async()=>{
+  const {native,calls,entry}=transport(),environmentId='scheduled-other',origin='http://scheduled-other.test',key=environmentKey(origin,environmentId);
+  const other:FleetEntry={...entry,key,origin,environmentId,subscriptions:{},config:{settings:{},providers:[
+    {instanceId:'other-provider',driver:'codex',enabled:true,installed:true,auth:{status:'authenticated'},models:[{slug:'other-model',name:'Other model',isDefault:true}]},
+  ]},shell:{projects:[{id:'other-project',title:'Destination project',workspaceRoot:'/tmp/destination'}],threads:[],sequence:0}};
+  fleet.entries.set(key,other);fleet.saved=[...fleet.saved,{origin,environmentId}];
+  const controls:Native={...native,async later(input){return obj(input).op==='environments'
+    ?{ok:true,generation:101,value:{saved:fleet.saved}}:native.later(input);}};
+  expect((await mobileScheduledBegin(scope,entry.environmentId,'',controls)).message).toBe('');
+  for(const [field,value] of [['title','Nightly'],['prompt','Inspect this'],['workspace','existing_worktree'],['baseRef','release'],
+    ['checkoutPath','/tmp/checkout'],['runtimeMode','auto'],['startFromOrigin','false'],['enabled','false'],['mode','interval'],['intervalMinutes','25']]){
+    expect(mobileScheduledEdit(field!,value!).message).toBe('');
+  }
+  const count=calls.length;
+  expect((await mobileScheduledEnvironment(environmentId,scope,controls)).message).toBe('');
+  const changed=mobileScheduledEditor();
+  expect(changed).toMatchObject({environmentId,name:'Nightly',prompt:'Inspect this',mode:'interval',interval:'25',enabled:false,
+    projectId:'other-project',workspace:'worktree',baseRef:'main',checkoutPath:'',startFromOrigin:true,dirty:true});
+  expect(changed.models.find(model=>model.selected)).toMatchObject({instanceId:'other-provider',model:'other-model'});
+  expect(changed.runtimes.find(runtime=>runtime.selected)?.id).toBe('full-access');
+  expect(calls.slice(count).some(call=>call.op==='http'&&call.path==='/api/auth/session')).toBe(true);
+  expect(calls.some(call=>call.method==='scheduledTasks.upsert')).toBe(false);
 });
 test('a task query error keeps its retained data separate from read-only permissions',async()=>{
   const {native,calls,entry}=transport({streamError:'Task stream failed.',permissions:[]});
