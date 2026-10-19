@@ -818,4 +818,7 @@ test('the cut of an unparsed authority never lands in its userinfo (round 3 re-c
   expect(r.text('(http://user;name@localhost:9000)')).toBe('(https://canvas.test:9443)');
   expect(r.text('(http://user;name@127.0.0.1:7005);')).toBe('(http://loopback.invalid);');
   expect(r.text("default-src http://127.0.0.1:9000;img-src 'self'")).toBe("default-src https://canvas.test:9443;img-src 'self'");
+  // Re-check 3: the longest prefix that parses, so a host WHATWG reads whole stays.
+  expect(r.text('(http://user;name@localhost;evil.test:9000)')).toBe('(http://user;name@localhost;evil.test:9000)');
+  expect(r.text('a http://localhost:9000,http://127.0.0.1:7005 b')).toBe('a https://canvas.test:9443,http://loopback.invalid b');
 });

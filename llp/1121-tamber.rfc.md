@@ -4397,4 +4397,5 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
 
   - Grok's nits: an https loop on its default port (no port written) is the loop's own origin, not another loopback (the port defaults from the scheme); addPort's same-origin check on the canvas port is C2's (its `origins`)
   - After the re-check (Astra): an authority that doesn't parse is read up to its FIRST `;`, `,`, `)` or `}` and the scan goes on from there, so a compact CSP (`default-src http://127.0.0.1:9000;img-src 'self'`) and a list of sources (`a,b`) are each rewritten; a userinfo `;@` still parses whole and is never cut.
-  - After re-check 2 (Astra): that cut is made only past any userinfo (after the last `@`), so `(http://127.0.0.1;@evil.test:9000)` stays evil.test's, untouched, and `(http://user;name@localhost:9000)` is the loop's..
+  - After re-check 2 (Astra): that cut is made only past any userinfo (after the last `@`), so `(http://127.0.0.1;@evil.test:9000)` stays evil.test's, untouched, and `(http://user;name@localhost:9000)` is the loop's.
+  - After re-check 3 (Astra): the cut is the LONGEST prefix that parses (still past any userinfo), so a host WHATWG reads whole, such as `localhost;evil.test`, is never cut into a loopback one. Other missed loopback spellings stay the known limit above (the lead: only a changed non-loopback host blocks)..
