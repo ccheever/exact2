@@ -5,7 +5,7 @@
 // scripts/scale-check.mjs's, the package designs' refusals the contract
 // tests', the server's rows its own replies.
 //
-//   bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>]
+//   bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>] [--clone <copy>]
 //
 // Hosts default to web, linux, macos and ios for the packages' lines, and
 // those plus the Android reader (--app, an app with no data: unsaid) and the
@@ -277,11 +277,29 @@ export function lines(opts) {
       const r = run('bun', ['test', 'scripts/design-tool.test.mjs', '-t', names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')]);
       return r.ok ? pass(...names.map(n => `design-tool test: ${n}`)) : fail(...names, r.out.split('\n').slice(-6).join(' / '));
     }],
+    ['clone', 'The clone\'s space.header keeps its meaning (Q5), on a signed-out copy of its design', () => {
+      // A clone copy signed out (dt2-gate2 by default), its design copied
+      // here without its icon tokens (whose files the fold reads; they name
+      // no space), so nothing is signed in and nothing of the clone written.
+      const from = join(opts.clone, 'app.tamber');
+      if (!existsSync(from)) return waits(`a clone copy at ${opts.clone} (--clone)`);
+      const text = readFileSync(from, 'utf8');
+      const said = /^\s*space\.header\s*=\s*(\S+)/m.exec(text)?.[1];
+      if (!said) return waits(`the clone copy at ${opts.clone} names no space.header`);
+      const dir = join(WORK, 'clone');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'app.tamber'), text.split('\n').filter(l => !/^\s+icon\.\S+\s*=/.test(l)).join('\n'));
+      const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'eval', join(dir, 'app.tamber')]);
+      const got = /^space\.header = (\S+)/m.exec(r.out)?.[1];
+      const evidence = [`the clone's app.tamber: space.header = ${said}; this checkout folds it to ${got ?? '(none)'}`];
+      return r.ok && got === said ? pass(...evidence) : fail(...evidence, r.out.split('\n').slice(-4).join(' / '));
+    }],
     ['no-regressions', 'Release output unchanged for apps using none of this; the clone\'s space.header keeps its meaning; conform clean', () => {
       const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(homedir(), 'x2ios/apps-wasm'), '--out', join(WORK, 'conform')]);
       const summary = conform.out.split('\n').find(l => /failures across/.test(l)) ?? conform.out.trim().split('\n').slice(-1)[0];
       const header = run('cargo', ['test', '-q', '-p', 'contract', '--test', 'it', 'tamber_base_scale']);
-      const evidence = [`conform --synthetic --strict --linux: ${summary}`, `space.header and the app's own space.* names (tamber_base_scale): ${header.ok ? 'pass' : 'FAIL'}`, 'release identity: B2\'s 14/14 (theme2 22:07) and the clone copy run are E\'s, on main after B2, C2 and A2'];
+      const evidence = [`conform --synthetic --strict --linux: ${summary}`, `an app's own space.* names (tamber_base_scale): ${header.ok ? 'pass' : 'FAIL'}`, 'release identity: B2\'s 14/14 (theme2 22:07); E re-runs it on main after B2, C2 and A2'];
       return conform.ok && header.ok ? pass(...evidence) : fail(...evidence);
     }],
   ];
@@ -289,10 +307,10 @@ export function lines(opts) {
 
 /** The command line: hosts, the Android app, the lines to run, the file. */
 export function parse(argv) {
-  const opts = { hosts: [], app: 'unsaid', only: [], out: join(homedir(), 'x2theme/stage11-gate-run.txt') };
+  const opts = { hosts: [], app: 'unsaid', only: [], out: join(homedir(), 'x2theme/stage11-gate-run.txt'), clone: join(homedir(), '.tuft/projects/dt2-gate2') };
   for (let i = 0; i < argv.length; i++) {
     const [flag, v] = [argv[i], argv[i + 1]];
-    if (!['--host', '--app', '--only', '--out'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--host', '--app', '--only', '--out', '--clone'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
     if (flag === '--host') opts.hosts.push(v); else if (flag === '--only') opts.only.push(v); else opts[flag.slice(2)] = v;
     i++;
@@ -302,7 +320,7 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>] [--clone <copy>]`); process.exit(2); }
   mkdirSync(WORK, { recursive: true });
   const head = run('git', ['rev-parse', '--short=10', 'HEAD']).out.trim();
   const out = [`# Stage 11 gate run (LLP 1121 §5 stage 11), ${new Date().toISOString()}, ${head}`, ''];
