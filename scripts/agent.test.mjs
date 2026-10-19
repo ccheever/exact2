@@ -616,3 +616,20 @@ test('whole-journal text names each canvas and its dropped prefix', () => {
   assert.match(text, /world last a/);
   assert.match(text, /world last b/);
 });
+
+test('a plain screenshot in an app that keeps reference pictures names compare; no folder, or a compare, says nothing', async () => {
+  const { referenceNote } = await import('./agent-compare.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const app = mkdtempSync(resolve(tmpdir(), 'exact-ref-'));
+  try {
+    const note = (ops) => { const said = []; referenceNote(ops, app, (l) => said.push(l)); return said.join('\n'); };
+    assert.equal(note(['screenshot .exact/home.png']), '');
+    mkdirSync(resolve(app, 'ref'));
+    for (const f of ['home.png', 'list.png']) writeFileSync(resolve(app, 'ref', f), '');
+    assert.match(note(['tap add', 'screenshot .exact/home.png window']), /ref\/ holds 2 reference pictures: "screenshot \.exact\/home\.png compare \S*ref\/home\.png"/);
+    assert.match(note(['screenshot .exact/other.png']), /compare \S*ref\/<name>\.png"/);
+    assert.equal(note(['screenshot .exact/home.png compare ref/home.png']), '');
+    assert.equal(note(['screenshot .exact/a.apng over 600 every 50']), '');
+  } finally { rmSync(app, { recursive: true, force: true }); }
+});

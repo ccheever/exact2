@@ -655,6 +655,9 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
                 self.wanted.push("next.bin".into());
             }
         }
+        fn accepts_asset_update(&self, name: &str) -> bool {
+            name == "tables/lookup.bin"
+        }
         fn messages(&mut self) -> Vec<String> {
             std::mem::take(&mut self.delivered)
         }
@@ -700,6 +703,8 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
     );
     assert!(m.take_messages(id).is_empty());
     assert!(!m.asset(id, "next.bin", Err(exact_gpu::AssetError::Missing)));
+    assert!(m.asset(id, "tables/lookup.bin", Ok(&[4])));
+    assert_eq!(m.take_messages(id), ["tables/lookup.bin:Ok([4])"]);
 }
 
 #[test]

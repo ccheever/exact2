@@ -296,6 +296,18 @@ The first call compiles the compiler (minutes on a cold checkout).
 Ports    none. Runs to completion: exit 0 when it compiled.`,
     example: 'bun exact.mjs contract build app.contract --json',
   },
+  docs: {
+    line: 'a guide section by heading',
+    usage: 'bun exact.mjs docs <heading words>',
+    flags: [],
+    body: `Prints the section of start-here, contract-for-agents, contract-grammar, agent-pitfalls,
+reference or a recipe that holds every word, as a whole word, most densely (in code and in
+a recipe they weigh more), after its path and line, then the next matches. A section whose
+heading is on the words prints from its heading, any other from the paragraph that
+mentions them; up to 120 lines. A word may be a CSS name (-exact-exit-animation).
+Ports    none. Runs to completion.`,
+    example: 'bun exact.mjs docs tabular numbers',
+  },
   pattern: {
     line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
     usage: 'bun exact.mjs pattern [<name>] [--force]',
@@ -376,6 +388,13 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs feedback status',
   },
   // A game's own verbs (exact2's game/README.md).
+  check: {
+    line: 'check game logic types and determinism without linking',
+    usage: 'bun exact.mjs check',
+    flags: [], internal: ['--check'],
+    body: 'Checks the logic library only. Host, linker and target errors belong to the build.\nPorts    none. Runs to completion; exits 1 on failure.',
+    example: 'bun exact.mjs check',
+  },
   'test-rust': {
     line: 'the game\'s hostless Rust tests (logic/tests) and determinism lints',
     usage: 'bun exact.mjs test-rust',
@@ -471,8 +490,7 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
     'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
     ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
-    'bun exact.mjs <verb> --help: flags and an example;',
-    'bun exact.mjs <verb> --help all: every flag and port.',
+    'bun exact.mjs <verb> --help: flags and an example; bun exact.mjs <verb> --help all: every flag and port.',
   ].join('\n');
 }
 

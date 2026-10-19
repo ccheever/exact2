@@ -4,16 +4,16 @@
     "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "164c5806b3c64f56788f799db26a4f74169fa313569612de4d5db8d0ad4f7a1f"
+    "continuation": "fb7228f320ecd6e1e2d4219836b5c6ce52cfd191d3fca8ee6bc4266e5a57a6b1"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "0cfddade50e45b3574ebcb65585d8a2fecc4fcfd3e5cb1a29ee03497a111922b",
-  "sourceInputs": "7f158cffaf1cb9f4ee288cb16d8050b02778b12d7911e895f1f71b795a821d46",
+  "inputs": "0e3580d0e1ae109278fcf10ba20c78725586c2089318309cc8001c744a6ff755",
+  "sourceInputs": "abc78712eca22c6ee88456c18be5db097a564327b2b9b1ea0be79238c5aea2d1",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "d6ffc6b3ce8b47abd608cd054a52691ca3b8aa30",
-  "reason": "LLP 1127.003 on main: EXSIM v8 (InputEvent::Pad, player) moves the continuation save's bytes; Rivals uses neither pads nor triggers, and its ticks equal main's."
+  "at": "6419855d6257b681461c72dc257e33e6375017fb",
+  "reason": "EXGAME v5 (developmentEdits): continuation bytes differ by the version byte only; tick hashes unchanged"
 }

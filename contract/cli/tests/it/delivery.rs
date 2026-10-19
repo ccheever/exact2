@@ -201,6 +201,17 @@ fn manifest_identity_survives_an_unnamed_data_standin_and_conflicts_fail() {
         }
     }
     assert!(contract::bake(compiled, Conflict).is_err());
+    std::fs::create_dir_all(directory.join(".shells")).unwrap();
+    std::fs::rename(
+        directory.join("app.json"),
+        directory.join(".shells/app.json"),
+    )
+    .unwrap();
+    let generated = contract::compile_path(&path).unwrap();
+    assert_eq!(
+        contract::bake(generated, NoData).unwrap().app_id,
+        "com.exact.standin"
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
 

@@ -77,6 +77,9 @@ pub mod text;
 /// enum Discriminants { #[default] A = 1, B = 2 }
 /// ```
 pub trait Data: Sized + Default + 'static {
+    /// Persisted table identity. The derive captures the declaring module and type name.
+    /// Manual table records must provide their own stable, qualified identity.
+    const TYPE_ID: &'static str = "";
     /// Development edit of one declared scalar field; custom formats refuse by default.
     fn set_field(&mut self, field: &str, _text: &str) -> Result<(), DataError> {
         Err(DataError::new(format!(
@@ -284,6 +287,10 @@ pub trait Writer {
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
+    /// Complete tuning records require every non-transient named field.
+    fn complete(&self) -> bool {
+        false
+    }
     /// Account decoded allocations before reserving input-controlled storage.
     fn claim(&mut self, _bytes: usize) -> Result<(), DataError> {
         Ok(())

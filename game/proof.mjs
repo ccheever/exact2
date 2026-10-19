@@ -192,7 +192,7 @@ export function buildInputHash(host, target, mode = '0', profile = process.env.E
   // Receipts made before complete directory checks may describe stale artifacts.
   const hash = createHash('sha256').update('exact game proof receipt v4\0').update(host).update(target);
   if (host === 'web') hash.update(mode);
-  if (host === 'linux' || host === 'windows') hash.update(profile);
+  if (host === 'linux' || host === 'windows' || host === 'web') hash.update(profile);
   return hash;
 }
 export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
@@ -261,9 +261,11 @@ export function agreePins(rows, previous, hosts, app) {
     }
     reference ??= row;
   }
-  const release = rows.filter(row => row.host === native && row.mode === '0' && row.profile === 'release');
-  if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
-    throw new Error(`repin refused: ${native} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
+  for (const host of [native, ...hosts.includes('web') ? ['web'] : []]) {
+    const release = rows.filter(row => row.host === host && row.mode === '0' && row.profile === 'release');
+    if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
+      throw new Error(`repin refused: ${host} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
+  }
   return {...reference.pins, hosts};
 }
 export function pinInputs(rows) {
@@ -329,7 +331,7 @@ export function editProvenance() {
 // Read only provenance fields; walk skipped values to preserve the binary name table.
 // Tags and bounds follow engine/src/data/bin.rs. This does not restore gameplay.
 function savedFields(bytes, magic, fields) {
-  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v8' : 'EXGAME v5'} save: ${reason}`); };
+  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v8' : 'EXGAME v6'} save: ${reason}`); };
   if (!bytes.subarray(0, magic.length).equals(Buffer.from(magic, 'binary'))) fail('unsupported format');
   if (bytes.length > 2 * 1024 ** 3) fail('load size limit');
   let pos = magic.length;
@@ -409,7 +411,7 @@ function assertSaveEdits(bytes) {
   const saved = savedFields(bytes, 'EXSIM\0\x08', ['world', 'queue']);
   if (!Buffer.isBuffer(saved.world) || !Array.isArray(saved.queue))
     throw new Error('pinSave refused: invalid EXSIM v8 world or queue');
-  const world = savedFields(saved.world, 'EXGAME\0\x05', ['developmentEdits']);
+  const world = savedFields(saved.world, 'EXGAME\0\x06', ['developmentEdits']);
   if (world.developmentEdits !== undefined && typeof world.developmentEdits !== 'boolean')
     throw new Error('pinSave refused: invalid developmentEdits marker');
   if (world.developmentEdits) throw new Error('pinSave refused: save contains a set development edit');
@@ -434,6 +436,7 @@ export function pinRecorder(previous, app, check, collecting = false, provenance
   };
   return {pins,
     pin(tick, state) {
+      if (state?.tableEdits) check(`pin ${tick} refused: development table edits are in the journal`, false);
       provenance.assert();
       provenance.observe([state]);
       provenance.assert();
@@ -539,8 +542,8 @@ export function proofInputs(root, app, cachePath) {
   let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
   const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}, authoredState=[], assetState=[]; let reads=0;
   const manifest = resolve(app, '.baked-assets.json');
-  const generated = new Set(existsSync(manifest)
-    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
+  const generated = new Set([prefix + 'assets/exact-tables.json', ...(existsSync(manifest)
+    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : [])]);
   const ignoredDirectories = new Set();
   const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories);
   // File stats miss sources created, consumed and removed between scans. Walk
@@ -838,7 +841,7 @@ export async function proof(meta, script) {
       } else {
         const script = host === 'windows' ? 'host/windows/build.mjs' : host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs';
         const flags = host === 'windows' ? (profile === 'release' ? ['--release'] : []) : host === 'web' ? ['--wasm'] : device ? ['--device', ...(phone ? ['--phone', phone] : [])] : host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [];
-        const child = spawn('bun', [resolve(root,script), ...flags], {cwd:root, env:process.env, stdio:'inherit', windowsHide:true});
+        const child = spawn('bun', [resolve(root,script), ...flags], {cwd:root, env:{...process.env, EXACT_GAME_PROOF_PROFILE:profile}, stdio:'inherit', windowsHide:true});
         sample();
         const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
         if (code !== 0) throw new Error(`app build exited ${code}`);

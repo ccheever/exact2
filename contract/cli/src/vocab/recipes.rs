@@ -28,6 +28,7 @@ macro_rules! pattern {
 
 pub const RECIPES: &[(&str, &str)] = &[
     recipe!("after-a-write"),
+    recipe!("app-json"),
     recipe!("chat-thread"),
     recipe!("content-design"),
     recipe!("dates-and-days"),
@@ -42,6 +43,8 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("keyboard-and-focus"),
     recipe!("list-rows"),
     recipe!("money"),
+    recipe!("motion"),
+    recipe!("native-module"),
     recipe!("native-views"),
     recipe!("navigation-stack"),
     recipe!("number-field"),
@@ -60,6 +63,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("tabs"),
     recipe!("tamber"),
     recipe!("tests"),
+    recipe!("theme"),
     recipe!("timer-in-a-component"),
     recipe!("timer-that-survives-relaunch"),
     recipe!("timers"),

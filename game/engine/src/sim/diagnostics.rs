@@ -21,6 +21,11 @@ impl<G: Game> Sim<G> {
             0,
             "pin refused: queued set development edit awaits admission"
         );
+        assert_eq!(
+            self.table_edits(),
+            0,
+            "pin refused: development table edits are in the journal"
+        );
         let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
         #[derive(Default, crate::Data)]
         struct Pins {

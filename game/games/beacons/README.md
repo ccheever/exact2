@@ -7,15 +7,21 @@ an Xbox pad) jumps, the west button (X) lights and the left shoulder sprints. Th
 on-screen Move, Jump and Light controls also feed the engine input. Pause freezes the world;
 Play again reconstructs it from seed 7.
 
-The game is `logic/src/lib.rs`, `app.contract`, `proof.mjs`, its hostless tests
+The game is `logic/src/lib.rs`, `movement.json`, `app.contract`, `proof.mjs`, its hostless tests
 in `logic/tests/` and the proof's `pins.json`. From the repository root:
 
 ```sh
-bun game/dev.mjs beacons                    # live world; gameplay edits carry state
+bun game/dev.mjs beacons                    # live world; table-only web edits carry state
 bun game/prove.mjs beacons                  # GPU-less Linux proof against pins.json
 bun game/games/beacons/proof.mjs web        # headless Chrome with a real GPU canvas
 bun game/app/shells.mjs game/games/beacons --test   # Rust tests and determinism lints
 ```
+
+`movement.json` sets speed as a curve over stick magnitude and the jump height.
+The web dev loop validates an edit and delivers it without compiling Rust; the
+running world reads the new values on its next tick. Invalid edits keep the last
+valid values and name the field in the journal. A successful Rust save rebuilds the
+primary module and restarts the world.
 
 The Linux proof skips 3D screenshot capture; `--paranoid` exercises continuous,
 Save and FreshGame modes, and `bun game/prove.mjs beacons --repin` regenerates the

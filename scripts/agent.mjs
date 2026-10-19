@@ -30,7 +30,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
-import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot } from './agent-compare.mjs';
+import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot, referenceNote } from './agent-compare.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead, holdTap } from './agent-drag.mjs';
 import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp } from './agent-keys.mjs';
@@ -1386,10 +1386,10 @@ export async function main(argv, injected = {}) {
     return 2;
   }
   const served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage); // the app's own server, if it has one (LLP 1116.008 D1)
-  // A named store is kept between drives on a native host unless the drive asks it emptied (`--reset-storage`); on the
-  // web, Chrome's profile for it starts empty unless the drive keeps it (`--keep-storage`, LLP 1086 EX4). A native host
-  // empties the whole scratch tree at its first boot (picker.rs `empty_fresh_tree`), refusing one under a link. A drive
-  // that compares with a reference starts empty on every host unless kept: what an earlier drive stored is no part of the screen (euxy port).
+  referenceNote(ops, resolveApp(flags.app).dir);
+  // A named store is kept between drives on a native host unless the drive asks it emptied (`--reset-storage`); on the web, Chrome's profile for it
+  // starts empty unless the drive keeps it (`--keep-storage`, LLP 1086 EX4). A native host empties the whole scratch tree at its first boot (picker.rs
+  // `empty_fresh_tree`), refusing one under a link. A drive that compares with a reference starts empty on every host unless kept: what an earlier drive stored is no part of the screen (euxy port).
   const fresh = flags.storage !== undefined && (host === 'web' || ops.some((l) => /^\s*screenshot\s.*\scompare\s/.test(l)) ? !flags.keepStorage : flags.resetStorage);
   if (fresh && host !== 'web' && !flags.resetStorage) console.error(`note: --storage ${flags.storage} starts empty, as a drive that compares with a reference does (--keep-storage keeps it)`);
   const launch = () => (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });

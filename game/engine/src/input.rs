@@ -9,6 +9,14 @@ pub use contexts::{Binding, Bindings, InputContexts};
 pub(crate) use pad::pad_index;
 pub use pad::{Curve, Pad, PadState, MAX_PADS, PAD_BUTTONS};
 pub use triggers::InputState;
+/// Register the input resources a world restores in any process: contexts,
+/// bindings and the state input last applied.
+pub(crate) fn register_resources(world: &mut crate::World) {
+    world
+        .register_resource::<InputContexts>()
+        .register_resource::<Bindings>()
+        .register_resource::<InputState>();
+}
 use triggers::{Trigger, TriggerState};
 
 /// Canvas regions used by discoverable touch controls (coordinates in points).

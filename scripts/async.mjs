@@ -107,7 +107,7 @@ export function glueTests(root) {
   const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
     .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
   // The glue lane is macOS: link.test reads Mach-O load commands with Apple tools.
-  return [...files, './host/apple/link.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-manifest', 'agent', 'agent-launch', 'tamber-server', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  return [...files, './host/apple/link.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-manifest', 'push', 'agent', 'agent-launch', 'tamber-server', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
@@ -121,6 +121,7 @@ export function checks(sha, since, selection = {}) {
     // and Fieldnotes as the dev loop builds it (its Rust drive, in `test`).
     prepareCheck,
     ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--tests', '--no-fail-fast']],
+    ['game-lock', 'bun', ['game/app/shells.mjs', '--update-lock']],
     gameCheck,
     ['game-recipes', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '-p', 'exact-game', '--locked', '--doc', '--no-fail-fast']],
     ['game-vocab', 'bun', ['test', 'game/vocab.test.mjs']],

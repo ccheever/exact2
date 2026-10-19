@@ -13,13 +13,18 @@ pub struct Options {
 pub struct Beacon {
     pub lit: bool,
 }
-/// Walking and running speeds, metres a second.
-const WALK: f32 = 4.;
-const RUN: f32 = 7.;
+#[derive(Default, Data)]
+pub struct Movement {
+    pub speed: asset::Curve,
+    pub jump: f32,
+}
+/// A held sprint runs at this many times the movement table's speed.
+const SPRINT: f32 = 1.75;
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
     const HZ: u32 = 60;
+    const TABLES: &'static [asset::Table] = &[asset::Table::of::<Movement>("movement.json")];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -124,11 +129,15 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
-        // The speed follows the hold, not its edges: a release while paused
-        // leaves none, and the player walks again from the first tick on resume.
-        let speed = if input.held("sprint") { RUN } else { WALK };
-        if w.require::<Character>("player").speed != speed {
-            w.require_mut::<Character>("player").speed = speed;
+        // Set before the step, every tick: the table tunes walking, a held
+        // sprint scales it, and a sprint released while paused (no edge) walks
+        // again from the first tick on resume.
+        {
+            let tuning = w.table::<Movement>("movement.json").unwrap();
+            let walk = tuning.speed.at(input.stick_xz("move").length());
+            let mut player = w.require_mut::<Character>("player");
+            player.speed = if input.held("sprint") { walk * SPRINT } else { walk };
+            player.jump = tuning.jump;
         }
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));

@@ -179,7 +179,6 @@ export function patchLines(from) {
   return Object.entries(root.patch?.['crates-io'] ?? {}).map(([name, spec]) =>
     `${name} = { path = ${JSON.stringify(pathFrom(from, resolve(ROOT, spec.path)))} }`);
 }
-
 /** How an outside workspace at `from` names a path in this checkout: relative, with `/`
  * (Windows reads it; a Mac can't read Skirmish's `..\\exact2`), when the two share a directory
  * below the root (a checkout beside the app moves with it), absolute when they share nothing,
@@ -386,22 +385,22 @@ export function webHostFiles(...groups) {
  * `gpu`, a declared module as `gpu/<name>`. `cargo` builds the crates first,
  * on stable (@ref LLP 1047: a GPU crate keeps its toolchain's std), as the wasm target's bake does
  * (the JS target has no bake); the wasm target passes false, having built them. Missing packaging tools refuse the build. */
-export function webGpuArtifacts(app, stage, { cargo = false, env = process.env } = {}) {
+export function webGpuArtifacts(app, stage, { cargo = false, env = process.env, profile = 'web' } = {}) {
   const artifacts = [...(app.hasGpu ? [{ crate: app.crate('gpu'), stem: 'gpu' }] : []),
     ...gpuModules(app.manifest).map(({ name }) => ({ crate: app.crate(`gpu-${name}`), stem: `gpu/${name}` }))];
   const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
   let note = '';
   for (const { crate, stem } of artifacts) {
     if (cargo) buildCommand('cargo', ['build', ...cargoReproducibilityFlags(app), ...injectedProfiles(app), ...wasmRemapFlags(app), '-p', crate,
-      '--target', 'wasm32-unknown-unknown', '--profile', 'web', '--lib', '--config', 'profile.web.strip=false'], app, cargoEnvironment({ ...env, CARGO_TARGET_DIR: app.target }), 'inherit');
-    const wasm = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
+      '--target', 'wasm32-unknown-unknown', '--profile', profile, '--lib', '--config', `profile.${profile}.strip=false`], app, cargoEnvironment({ ...env, CARGO_TARGET_DIR: app.target }), 'inherit');
+    const wasm = resolve(app.target, 'wasm32-unknown-unknown', profile, crate.replace(/-/g, '_') + '.wasm');
     const [dir, name] = stem.includes('/') ? [resolve(stage, 'gpu'), stem.slice(4)] : [stage, stem];
     const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dir, '--out-name', name, wasm], { stdio: 'inherit' });
     if (wb.error?.code === 'ENOENT') throw new Error('wasm-bindgen not on PATH; run bun scripts/exact.mjs setup in the SDK checkout');
     if (wb.status !== 0) throw new Error(`wasm-bindgen ${crate} failed`);
     const bg = resolve(stage, `${stem}_bg.wasm`);
     // `EXACT_WEB_NAMES=1` keeps the name section, as host/web/build.mjs does for app.wasm: a profile then names GPU functions.
-    const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', env.EXACT_WEB_NAMES === '1' ? '-g' : '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
+    const o = profile === 'gpu-dev' ? {status:null} : spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', env.EXACT_WEB_NAMES === '1' ? '-g' : '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
     const bytes = readFileSync(bg);
     note += `${note ? '; ' : ''}${stem}_bg.wasm ${kib(bytes.length)} (${kib(gzipSync(bytes, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), ${stem}.js ${kib(readFileSync(resolve(stage, `${stem}.js`)).length)}`;
   }
@@ -1164,6 +1163,17 @@ export function bakeSelection(graph, part) {
   return (part === 'gpu' ? gpu : part === 'host' ? [graph.root] : [...gpu,graph.root]).filter(Boolean);
 }
 
+/** What ships to an Apple device or an Android phone is optimized as one module: fat LTO
+ * makes the stripped binary smaller than thin — 4.8% on Apple, no slower to boot, for 16 s
+ * of a production build (LLP 1036.000 §8); 6.4% for Caltrain's Android library (16.6 →
+ * 15.6 MB), whose release build takes about a minute longer. Said on the command line and
+ * not in `[profile.release]`, which every developer tool builds with. Cargo's fingerprints
+ * keep thin and fat apart: a target directory used both ways (a macOS and a Linux bake on a
+ * Mac) recompiles, and never reuses the other's artifacts. */
+export function wholeProgram(kind, profile) {
+  return ['apple','ios','macos','tvos','android'].includes(kind) && profile === 'release' ? ['--config','profile.release.lto="fat"'] : [];
+}
+
 /** One actual target build, including the optional GPU artifact. Consumers
  * classify its completed receipt; compatibility is never recomputed in JS.
  * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
@@ -1183,7 +1193,7 @@ export function buildBake(app, platform, target, options = {}) {
   if(native)env.EXACT_NATIVE_SOURCE=native;else delete env.EXACT_NATIVE_SOURCE;
   const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
   // Production-profile game bakes (web, Apple, release Linux, deploy) hold the
-  // logic to the determinism lints; the gpu-dev edit loop leaves them to --test.
+  // logic to determinism lints; the gpu-dev loop runs them in its preceding check.
   if(app.manifest.game&&(options.profile??'')!=='gpu-dev')lintGame(app.dir,app.manifest.game,{env});
   const gpuPackage=(pkg)=>pkg.id===graph.surface?.id||graph.modules.some((m)=>m.id===pkg.id), moduleProducts={}, preparedProducts=new Map();
   delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES;
@@ -1204,6 +1214,7 @@ export function buildBake(app, platform, target, options = {}) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
+    const profile = (gpuPackage(pkg) ? options.gpuProfile : null) ?? options.profile ?? (platform === 'web' ? 'web' : 'release');
     // The GPU bake can create the first asset directory (for a typed level).
     env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(','); env.EXACT_BACKEND_SELECTION=existsSync(resolve(app.dir,'.exact/backend-origin')) ? 'present' : 'absent';
     // The app's own web artifact builds std for size; a GPU crate keeps the toolchain's std.
@@ -1212,13 +1223,8 @@ export function buildBake(app, platform, target, options = {}) {
     // bundling its whole dependency graph into a 700 MB archive nobody reads. The archive the
     // app links is asked for here, where it is built to be launched.
     const archive=apple&&pkg.id===graph.root.id;
-    // What ships to an Apple device is optimized as one module: fat LTO makes the
-    // stripped binary 4.8% smaller than thin and no slower to boot, for 16 s of a
-    // production build (LLP 1036.000 §8). Said here and not in `[profile.release]`,
-    // which every developer tool builds with; only a bake builds for an Apple target
-    // at `release`, so nothing is compiled under both.
-    const whole=apple&&(options.profile??'release')==='release'?['--config','profile.release.lto="fat"']:[];
-    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const whole=wholeProgram(kind,options.profile??'release');
+    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',profile,...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${profile}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: a TypeScript app's plan, which the link carries
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});

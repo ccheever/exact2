@@ -255,7 +255,7 @@ pub struct World {
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
-const MAGIC: &[u8; 8] = b"EXGAME\0\x05";
+const MAGIC: &[u8; 8] = b"EXGAME\0\x06";
 
 impl World {
     /// Measure a named region of the tick; nested spans account exclusive time.
@@ -321,10 +321,7 @@ impl World {
     // components (animation, sockets, audio) still register where they install.
     fn register_scene(&mut self) {
         use crate::scene::*;
-        self.register_resource::<crate::Shadows>()
-            .register_resource::<crate::InputContexts>()
-            .register_resource::<crate::Bindings>()
-            .register_resource::<crate::InputState>();
+        crate::input::register_resources(self.register_resource::<crate::Shadows>());
         self.register::<Transform>()
             .register::<Parent>()
             .register::<Mesh>()
@@ -1159,6 +1156,7 @@ impl World {
             w.end_struct();
         }
         self.assets.write_identity(w);
+        self.write_tables(w);
         if !self.messages.borrow().is_empty() {
             w.field("messages");
             self.messages.borrow().write(w);
@@ -1188,7 +1186,9 @@ impl World {
             .expect("presentation generation exhausted");
         next.epoch.set(self.epoch.get().wrapping_add(1));
         // Delivery ownership is not saved state; transfer it only after validation.
+        let tables = next.assets.tables.clone();
         next.assets = std::mem::take(&mut self.assets);
+        next.assets.tables = tables;
         next.set_seen
             .set(self.set_seen.get() || next.set_seen.get());
         *self = next;
@@ -1214,12 +1214,14 @@ impl World {
         if bytes.len() > crate::data::MAX_LOAD_BYTES {
             return Err(DataError::new("save exceeds load size limit"));
         }
-        if bytes.starts_with(b"EXGAME\0\x04") {
-            return Err(DataError::new("restore refused: EXGAME v4 predates v5 development-edit provenance; no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`"));
+        for version in [4, 5] {
+            if bytes.starts_with(&[b'E', b'X', b'G', b'A', b'M', b'E', 0, version]) {
+                return Err(DataError::new(format!("restore refused: EXGAME v{version} predates v6 tableInputs; no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`")));
+            }
         }
         bytes.strip_prefix(MAGIC).ok_or_else(|| {
             DataError::new(format!(
-                "unsupported world save format (expected EXGAME v5; saw {:02x?})",
+                "unsupported world save format (expected EXGAME v6; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })
@@ -1249,6 +1251,7 @@ impl World {
                 "components" => 4,
                 "resources" => 8,
                 "assetIdentity" => 16,
+                "tableInputs" => 32,
                 _ => 0,
             };
             match field.as_str() {
@@ -1265,6 +1268,7 @@ impl World {
                     }
                 }
                 "assetIdentity" => self.assets.read_identity(r)?,
+                "tableInputs" => self.read_tables(r)?,
                 "rng" => self.rng().read(r)?,
                 "developmentEdits" => {
                     let mut seen = false;
@@ -1336,6 +1340,7 @@ impl World {
         }
         self.validate_event_queues()?;
         self.assets.require_identity(seen & 16 != 0)?;
+        self.validate_tables_restore(seen & 32 != 0)?;
         if seen & 15 != 15 {
             return Err(DataError::new("incomplete world save"));
         }

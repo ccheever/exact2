@@ -1,19 +1,19 @@
 {
   "ticks": {
-    "0": "0xeea76e80d36d39df",
-    "90": "0x284b31db4a5cb036"
+    "0": "0x2961d75463b1486e",
+    "90": "0xdf2367cf46480dc2"
   },
   "saves": {
-    "continuation": "e2240fdddd13038d87ba1bfdb396fb04b06671d977f31da16a52c088e461ecf4"
+    "continuation": "78a0b179e63ae2b66c50f02a1fa0dd1e80debae181678e7925b66cfaa761f47b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "7fad3e6a53a911eceac21495bd085d2e38ac976168903b2ad74c59ae5a60bddf",
-  "sourceInputs": "e58f101fe050a5956125405d7cce51d12849826dc0cf702c98678962f0b596ad",
+  "inputs": "18229a5ebff2dceb52d738497c22804a6c3a1f36325d588d56f09bfb3eb16bbf",
+  "sourceInputs": "5496dd98f3beec2e8bac8053f0ef7cdfdfd22f11f222325bdeacf7d64a2544f5",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "534104c7ac746ce723a0bc7b17a71f7735ef3a42",
-  "reason": "LLP 1127.003 on main's rings-and-halos Beacons: EXSIM v8 (InputEvent::Pad, player) and Beacons' gameplay, a 200 ms sprint hold and a beacon input context for light, with the speed reconciled before the step; the InputState resource joins the hash once used."
+  "at": "b671b1c006b24915e786b30647f0c70b0a47141f",
+  "reason": "movement tables (TableValues in the hash) on main's rings-and-halos baseline; EXGAME v6 (tableInputs)"
 }
