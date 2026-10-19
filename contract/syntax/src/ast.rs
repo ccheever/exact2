@@ -1178,22 +1178,27 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 /// [`input_control`], or `Some("field")` for a text field whose `select`
 /// is HTML's (x2apps codeedit #2): an `input` that is no control, or a
 /// `textarea` that is not the Markdown editor (no `markup`, or literally
-/// `none`), whose `select` carries the field's `InputEvent`; the editor's
-/// carries its `MarkdownSelection`. What a handler's payload is typed by.
+/// `none`), whose `select` carries the field's `InputEvent`; or
+/// `Some("markdown")` for a textarea that may be the editor, whose `select`
+/// carries its `MarkdownSelection` and whose other field events are a text
+/// field's, over its source (LLP 1045 D6). What a handler's payload is
+/// typed by.
 pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
-    let field = match tag {
-        "input" => input_control(tag, attrs).is_none(),
-        "textarea" => attrs
-            .iter()
-            .find(|a| a.name == "markup")
-            .is_none_or(|a| matches!(&a.value, Expr::Str(m, _) if m == "none")),
-        _ => false,
-    };
-    if field {
-        Some("field")
-    } else {
-        input_control(tag, attrs)
+    match tag {
+        "input" if input_control(tag, attrs).is_none() => Some("field"),
+        "textarea" => Some(match attrs.iter().find(|a| a.name == "markup") {
+            Some(a) if !matches!(&a.value, Expr::Str(m, _) if m == "none") => "markdown",
+            _ => "field",
+        }),
+        _ => input_control(tag, attrs),
     }
+}
+
+/// Whether a [`payload_control`] edits text: a text field's or the
+/// Markdown editor's `input`, `selectionchange` and `beforeinput` carry the
+/// field's `InputEvent`.
+pub fn edits_text(control: Option<&str>) -> bool {
+    matches!(control, Some("field" | "markdown"))
 }
 
 /// The control an `input`'s literal `type` names; `None` for a text field's

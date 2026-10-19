@@ -108,9 +108,12 @@ package final class TextArea: NSTextView {
         if markup != nil { super.insertBacktab(sender) } else { window?.selectPreviousKeyView(self) }
     }
 
+    /// Return: the app's `beforeinput` first, then the Markdown editor's
+    /// list continuation, else a line break (LLP 1045 D6).
     package override func insertNewline(_ sender: Any?) {
-        if markup != nil, !hasMarkedText(), owner?.formatMarkup("newline") == true { return }
-        super.insertNewline(sender)
+        guard markup != nil, !hasMarkedText(), let owner else { super.insertNewline(sender); return }
+        let line = { if !owner.formatMarkup("newline") { super.insertNewline(sender) } }
+        if let fields = owner.presenter?.fieldSelections { fields.nativeEdit(owner, replacement: "\n", marked: false, line) } else { line() }
     }
 
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
