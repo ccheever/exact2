@@ -131,8 +131,10 @@ pub(crate) fn sizes_through_ratio(
     }
 }
 
-/// Resolve a container's incoming sizes. In a content probe,
-/// a transferred width is a minimum that wider content can exceed.
+/// Resolve a container's incoming sizes. A non-replaced content probe with
+/// no width and a supplied height treats the transferred width as a floor
+/// when min-width is auto and neither overflow axis scrolls. Wider content
+/// can exceed the transferred maximum; an indefinite-height probe keeps it.
 pub(crate) fn container_sizes_through_ratio(
     style: &impl CoreStyle,
     pb_sum: Size<f32>,
@@ -240,11 +242,13 @@ pub(crate) fn minimum_ratio_width(
     })?;
     let transferred = ratio.width(height);
     drop(style);
+    // EXACT PATCH 57: a leaf must measure content independently: a supplied
+    // height derives a width and returns before calling its measurer. A
+    // container needs the height to let content exceed its transferred cap.
+    let known = if tree.child_count(node) == 0 { Size::NONE } else { Size { width: None, height: Some(height) } };
     let intrinsic = tree.measure_child_size(
         node,
-        // EXACT PATCH 57: this probe has a definite height. Its transfer is
-        // an automatic width floor; content may exceed the transferred cap.
-        Size { width: None, height: Some(height) },
+        known,
         parent,
         Size { width: crate::AvailableSpace::MinContent, height: crate::AvailableSpace::MinContent },
         crate::SizingMode::ContentSize,

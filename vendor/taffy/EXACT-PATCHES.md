@@ -1771,17 +1771,23 @@ height bounds, wrapping, alignment, column direction, and flex and grid items.
 
 A non-replaced container's `ContentSize` probe with a supplied height keeps
 its authored maximum width instead of the width transferred from `max-height`.
-The automatic inline minimum's probe supplies its clamped definite height;
-an indefinite-height probe retains the transferred cap, including for a
-flex basis. Block uses the same ratio-aware content measurement as flex and
-grid: a derived width is an automatic minimum that wider content can exceed,
-unless an explicit inline minimum or scrolling disables it. Block and flex also keep the
-transferred maximum out of a supplied-height probe's min/max short circuit.
+The automatic inline minimum's container probe supplies its clamped definite
+height; an indefinite-height probe retains the transferred cap, including
+for a flex basis. A leaf's probe leaves both dimensions unknown so it reaches
+its text measurer: supplying a height would derive a width and return early.
+The minimum combines that independent content width with the height transfer.
+Block uses the same ratio-aware content measurement as flex and grid: a
+derived width is an automatic minimum that wider content can exceed, unless
+an explicit inline minimum or scrolling disables it. Block and flex also
+keep the transferred maximum out of a supplied-height probe's min/max short
+circuit.
 
 A row item with a definite height keeps that wider content minimum when
 flex chooses its automatic minimum. Specified widths and maximum widths
-still cap it. Auto-height rows, columns and replaced elements retain the
-transferred cap; the hypothetical-size clamp is unchanged.
+still cap it. When flex chooses its main-axis automatic minimum, auto-height
+rows, columns and replaced elements retain the transferred cap; the
+hypothetical-size clamp is unchanged. A column item's inline minimum can
+still exceed its transferred width cap, as in block, absolute and root layout.
 This follows Chrome 151.0.7922.34, measured on 2026-10-19.
 [Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) defines a
 converted cross-axis maximum for the content suggestion of non-replaced
@@ -1800,16 +1806,24 @@ An auto-height row item stays 60×60, as does the column analogue.
 holds eight measurements of canvas and loaded-image items (natural size
 300×150), including 60×60 rows and columns, a width cap and a zero minimum.
 
-The 51 literal `Chrome 151 ratio max-height growth` cases use the same Chrome
+The 48 literal `Chrome 151 ratio max-height growth` cases use the same Chrome
 version and date. They hold growth in 200px rows with block, flex and grid
 items and outer parents. Removing the transferred cap from an indefinite-height
 basis probe froze the reported item at 60×60 instead of Chrome's 200×60;
 25 cases (33 frames) failed before restricting the uncapped probe to a
 supplied height. Controls cover zero minima, hidden overflow, padding under
 both box-sizing modes, flex bases, a width cap, another ratio, minimum heights,
-shrinking rows, explicit heights and definite stretch. Equal minimum and
-maximum heights without an authored height keep 60×60 in a 50px row, as
+explicit heights and definite stretch. Equal minimum and maximum heights
+without an authored height keep 60×60 in a 50px row, as
 Chrome and `origin/main` do; they do not gain a definite-height exception.
+
+The 24 literal `Chrome 151 ratio inline probe` cases use the same version
+and date. Eleven text-leaf frames failed before preserving the independent
+probe. The 120px word keeps 120×60 with max-height and 120×80 without it;
+controls cover an authored width cap, zero minimum, scrolling, another ratio,
+both box-sizing modes, shorter and wrapping text, and growth. Block and
+absolute children, the root and flex-start column items with a 120px child
+keep 120×60 in Chrome and the kernel; main's 60×60 is not a cap to restore.
 
 ## Cargo workspace boundary
 
