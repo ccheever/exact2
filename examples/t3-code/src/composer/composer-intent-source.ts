@@ -1,5 +1,5 @@
 import { composerSourceSession } from './composer-rich-state';
-import { composerLanguageEdit, composerTaskEdit } from './composer-block-actions';
+import { composerLanguageEdit } from './composer-block-actions';
 import type { ComposerMode, ComposerSessionResult } from './composer-source-session';
 
 export type ComposerIntent = {
@@ -9,7 +9,6 @@ export type ComposerIntent = {
   | { kind: 'key'; key: string; shift: boolean; command: boolean }
   | { kind: 'input' | 'paste'; text: string }
   | { kind: 'language'; language: string }
-  | { kind: 'toggle'; checked: boolean }
 );
 export type ComposerIntentReply = {
   owner: string; value: string; serial: number; kind: string; mode: ComposerMode;
@@ -31,8 +30,6 @@ export function composerIntentAnswer(client: { snapshotOwner: string }, args: re
       ? composerIntentSource(client, { ...common, kind, key, shift, command }) : refused;
     case 'input': case 'paste': return typeof text === 'string' ? composerIntentSource(client, { ...common, kind, text }) : refused;
     case 'language': return typeof text === 'string' ? composerIntentSource(client, { ...common, kind, language: text }) : refused;
-    case 'toggle': return text === 'checked' || text === 'unchecked'
-      ? composerIntentSource(client, { ...common, kind, checked: text === 'checked' }) : refused;
     default: return refused;
   }
 }
@@ -48,11 +45,9 @@ export function composerIntentSource(client: { snapshotOwner: string }, intent: 
     || !Number.isSafeInteger(intent.start) || !Number.isSafeInteger(intent.end)
     || intent.start < 0 || intent.end < intent.start || intent.end > intent.value.length) return reply;
   const range = { start: intent.start, end: intent.end };
-  if (intent.kind === 'language' || intent.kind === 'toggle') {
+  if (intent.kind === 'language') {
     if (intent.mode !== 'rich') return reply;
-    const replacement = intent.kind === 'language'
-      ? composerLanguageEdit({ value: intent.value, current: intent.value, header: range, language: intent.language, blockOrigins: session.blockOrigins })
-      : composerTaskEdit({ value: intent.value, current: intent.value, block: range, checked: intent.checked, blockOrigins: session.blockOrigins });
+    const replacement = composerLanguageEdit({ value: intent.value, current: intent.value, header: range, language: intent.language, blockOrigins: session.blockOrigins });
     if (replacement) session.input(intent.owner, intent.value, replacement, replacement.text);
     return replacement ? { ...reply, ...replacement, kind: 'edit', preserveSelection: true } : reply;
   }

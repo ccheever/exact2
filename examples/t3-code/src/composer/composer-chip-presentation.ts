@@ -7,7 +7,7 @@ import type { ComposerChip } from './composer-source-chips';
 
 export type ComposerChipFace = {
   kind: string; label: string; suffix: string; icon: string; fileToken: string;
-  imageId: string; atomLabel: string; available: boolean; interactive: boolean; comment: boolean; tip: string;
+  imageId: string; available: boolean; interactive: boolean; comment: boolean; tip: string;
 };
 const icons: Readonly<Record<string, string>> = {
   mention: 'at-sign', skill: 'sparkles', citation: 'quote', thread: 'messages-square',
@@ -16,7 +16,7 @@ const icons: Readonly<Record<string, string>> = {
   'pr-merged': 'git-merge', 'pr-closed': 'git-pull-request-closed',
 };
 
-/** Product metadata describes the shared atom and its Contract controls.
+/** Product metadata describes a source reference and its Contract controls.
  *  Context resolution reuses the existing records; path spelling never guesses a folder. */
 export function composerChipFaces(client: T3Client, value: string, chips: readonly ComposerChip[], preview = false): ComposerChipFace[] {
   const contexts = preview ? {} : chipContexts(client, value);
@@ -38,10 +38,7 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
     const fileToken = chip.kind === 'mention' && !preview ? workspaceFileIcon(client, chip.path) : '';
     const icon = !available ? 'circle-dashed' : fileToken === 'folder' ? 'folder' : icons[kind] ?? 'circle-dashed';
     const interactive = available && (chip.kind === 'skill' || !preview && icons[kind] !== undefined), comment = !preview && chip.kind === 'citation';
-    // Em spaces reserve measured display slots for Contract glyph controls;
-    // clipboard and edits continue to use the atom's original source range.
-    const atomLabel = `\u2003${label}${suffix ? ` ${suffix}` : ''}${comment ? '\u2003' : ''}`;
     return { kind: !available && kind === 'terminal' ? 'invalid' : kind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
-      imageId, atomLabel, available, interactive, comment, tip };
+      imageId, available, interactive, comment, tip };
   });
 }
