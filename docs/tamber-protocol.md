@@ -189,7 +189,17 @@ statuses:
   for the tunnel's far end, said loudly at start-up. Its requests are routed as the remote
   listener's, `{remote: true, tunnel: true, peer}`, answering to loopback names at any port:
   only a paired token works through it, never the local one. The canvas has no tunnel port in
-  stage 10 (QUEUE).
+  stage 10 (QUEUE). A tunnel with a certificate of its own (cloudflared, Tailscale Funnel) names
+  its public host with `--allow-host <name>`: the tunnel door answers to it too, and takes a page
+  of `https://<name>` as its own origin.
+- **A sandboxed page** (stage 10b: a Figma plugin's UI is an iframe whose origin is `null`) may call
+  the wire only with `--allow-plugin-origin`, on the tunnel door and on the main loopback port
+  (from this machine, naming a loopback host), never the TLS door. There, `Origin: null` on
+  `/__tamber`, `/__tamber/subscribe`, `/__tamber/events` and `/__tamber/pair` gets CORS
+  (`Access-Control-Allow-Origin: null`; a preflight `OPTIONS` answered 204, `POST` with
+  `content-type` and `x-exact-tamber-token`); every such request is a remote one, so only a
+  paired token works, never the local one. Nothing else answers a sandboxed page, the token
+  route included.
 
 ### Pairing (*1.13*)
 

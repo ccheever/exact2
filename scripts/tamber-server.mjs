@@ -94,7 +94,7 @@ import { scrubSessions } from './tamber-scrub.mjs';
 import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
-import { openRemote, remoteArgs } from './tamber-remote.mjs';
+import { openRemote, pluginOnLoopback, remoteArgs } from './tamber-remote.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
@@ -1147,12 +1147,14 @@ const appOf = given => (/\.(contract|tamber)$/.test(given) ? dirname(given) : gi
 /** A listener on `host`:`port` behind the development gate, each request
  * given to `handle(req, res, url, access)` (a false return is a not-found);
  * stopped, with `stop()`'s own end, on a signal or when its launcher goes. */
-async function listen({ host, port, handle, stop }) {
+async function listen({ host, port, handle, stop, first = null }) {
   const server = createServer();
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(port, host, ok); });
   const origins = installBrowserOrigins({ host, port: server.address().port });
   const gate = developmentGate(origins, server.address().port);
   server.on('request', async (req, res) => {
+    // A request `first` answers is no other's (a sandboxed page's wire request, stage 10b).
+    if (first && await first(req, res)) return;
     const access = gate.check(req);
     if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     let url; try { url = new URL(req.url, 'http://localhost'); } catch { notFound(res); return; }
@@ -1181,7 +1183,7 @@ export async function serveAlone(argv) {
   const tamber = tamberServer({ appDir: dir, pairTtlMs: ttl, remote: () => doors?.list() ?? [] });
   // The remote doors first: one that cannot bind leaves nothing listening.
   doors = await openRemote(tamber, asked).catch(async e => { console.error(`tamber serve: ${e.message}`); await tamber.close(); process.exit(1); });
-  const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: async () => { await Promise.all([tamber.close(), doors?.close()]); } })
+  const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: async () => { await Promise.all([tamber.close(), doors?.close()]); }, first: asked.plugin ? (req, res) => pluginOnLoopback(tamber, req, res) : null })
     .catch(async e => { console.error(`tamber serve: cannot listen: ${e.code ?? e.message}`); await Promise.all([tamber.close(), doors?.close()]); process.exit(1); });
   console.log(origins.map(o => `${o.origin}/__tamber`).join('\n'));
   console.log(`  (the design server for ${dir}; the token at GET /__tamber/token from this machine only; ctrl-c to stop)`);
