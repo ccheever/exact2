@@ -10,7 +10,9 @@ import { canvasFrame, onCanvasWord, pairingSources } from '../apps/design-tool/p
 // Windows as a message's source: the tool's page (top), its canvas frame, a popup, a frame inside the canvas.
 const toolTop = {}, canvasWin = { top: toolTop, parent: toolTop }, popup = {}, nested = { top: toolTop, parent: canvasWin };
 popup.top = popup; popup.parent = popup;
-const word = (origin, source = canvasWin, type = 'exact-canvas-entered') => onCanvasWord({ origin, source, data: { type } });
+// A frame of the popup (it is another window's direct frame), and a window gone (parent and top null).
+const popupFrame = { top: popup, parent: popup }, gone = { top: null, parent: null };
+const word = (origin, source = canvasWin, type = 'exact-canvas-entered') => onCanvasWord({ origin, source, currentTarget: toolTop, data: { type } });
 
 test('the tool\'s scope table is the server\'s, method for method', () => {
   expect(NEEDS).toEqual({ ...METHOD_SCOPE });
@@ -161,6 +163,8 @@ test('the canvas entry page\'s word (C2) from the minted canvas\'s origin alone 
   word('https://192.168.1.20:7745', popup);
   word('https://192.168.1.20:7745', nested);
   word('https://192.168.1.20:7745', null);
+  word('https://192.168.1.20:7745', popupFrame);
+  word('https://192.168.1.20:7745', gone);
   expect((await src.canvasEntered(['remote:Ada#1', 'epoch-1', 0, 1])).entered).toBe(false);
   word('https://192.168.1.20:7745');
   expect((await src.canvasEntered(['remote:Ada#1', 'epoch-1', 0, 2])).entered).toBe(true);
@@ -208,4 +212,19 @@ test('one mint a canvas key: a second ask for it (its word moving meanwhile) sha
   word('https://192.168.1.20:7745');
   expect((await src.loadCanvas([false, 'remote:Ada#1', 'epoch-3', 0, true])).frame).toBe('https://192.168.1.20:7745/');
   expect(mints).toBe(1);
+});
+
+test('an ask for no canvas overtakes a mint in flight: its grant is answered nowhere and kept nowhere', async () => {
+  let release = () => {};
+  const slow = new Promise(ok => { release = ok; });
+  let n = 0;
+  const call = async () => { const g = ++n === 1 ? 'E' : 'F'; await slow; return { error: '', reply: { ok: { url: 'https://192.168.1.20:7745/canvas/remote%3AAda%231/', grant: g.repeat(43), expires: 0 } }, used: 'run-1' }; };
+  const src = pairingSources(call, async () => ({ ok: false, error: '', client: '', scope: '' }), () => 'https://192.168.1.20:7743');
+  const pending = src.loadCanvas([false, 'remote:Ada#1', 'epoch-4', 0, false]);
+  // hello failed meanwhile: no client, no server run.
+  await src.loadCanvas([false, '', '', 0, false]);
+  release();
+  expect(JSON.stringify(await pending)).not.toContain('#g=');
+  // Asked again once hello is back: a fresh grant, never the one nobody was shown.
+  expect(JSON.stringify(await src.loadCanvas([false, 'remote:Ada#1', 'epoch-4', 0, false]))).toContain('FFFF');
 });

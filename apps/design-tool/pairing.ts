@@ -49,16 +49,16 @@ let minted = { key: '', origin: '', frame: '', root: '' }, entered = '';
 // The mint in flight (one a key, shared), and the newest ask's number.
 let minting: { key: string; answer: Promise<{ frame: string; root: string; error: string }> } | null = null, asks = 0;
 type Peer = { parent?: unknown; top?: unknown };
-type Message = { origin?: string; source?: Peer | null; data?: { type?: unknown } };
+type Message = { origin?: string; source?: Peer | null; currentTarget?: unknown; data?: { type?: unknown } };
 const page = globalThis as { addEventListener?: (type: string, listener: (e: Message) => void) => void };
 /** The page's `message` listener (exported for its test). */
 export function onCanvasWord(e: Message) {
   if (e?.data?.type !== 'exact-canvas-entered' || !minted.frame || e.origin !== minted.origin) return;
-  // (From a frame of this page, the canvas being its one: never a window the canvas opened, which is
-  // its own top, nor a frame inside the canvas, whose parent is the canvas. A cross-origin window's
-  // parent and top can be read.)
-  const from = e.source;
-  if (!from || from === from.top || from.parent !== from.top) return;
+  // (From a frame of this page, the window the word came to, the canvas being its one: never a window
+  // the canvas opened, nor a frame of one, nor a frame inside the canvas, nor a window gone, whose
+  // parent and top read null. A cross-origin window's parent and top can be read.)
+  const from = e.source, here = e.currentTarget;
+  if (!from || !here || from.parent !== here || from.top !== here || from === here) return;
   entered = minted.key;
   minted = { ...minted, frame: '' };
 }
@@ -79,11 +79,12 @@ export function pairingSources(call: Call, pairWith: PairWith, door: () => strin
     // word `done` moving), the same canvas comes back, as its gateway page
     // once it has entered, the grant gone: no new grant, one load of that page.
     loadCanvas: async ([local, client, epoch, tick]) => {
+      // (Every ask overtakes a mint in flight for another, an ask for no canvas too.)
+      const mine = ++asks;
       if (local || !client || !epoch || !door()) return { ok: true, error: '', frame: '', root: '' };
       const key = canvasKey(client, epoch, tick);
       if (minted.key === key) return { ok: true, error: '', frame: entered === key ? minted.root : minted.frame, root: minted.root };
       // One mint a key: a second ask for it (its `done` moving meanwhile) waits on the first.
-      const mine = ++asks;
       if (minting?.key !== key) {
         const answer = (async () => {
           const { error, reply } = await call('/__tamber', { method: 'canvas' });
