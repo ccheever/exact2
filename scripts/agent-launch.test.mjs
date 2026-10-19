@@ -555,6 +555,15 @@ test('widget addresses occupy the command word and accept only strict reads or a
   await widgetStep(session, {entry:'next-trains'}, 'clock +60000');
   expect(calls).toEqual([{op:'state', widget:{entry:'next-trains'}, availability:true}, '+60000', '+60000']);
   expect((await widgetStep(session, {entry:'next-trains'}, 'screenshot a.png'))[1].path).toBe(resolve('a.png'));
+  await widgetStep(session, {entry:'next-trains'}, 'clock +60000', 'activity');
+  await widgetStep(session, {entry:'departure'}, 'clock +60000', 'activity');
+  expect(calls.filter(c => c.availability)).toEqual([
+    {op:'state', widget:{entry:'next-trains'}, availability:true},
+    {op:'state', activity:{entry:'next-trains'}, availability:true},
+    {op:'state', activity:{entry:'departure'}, availability:true},
+  ]);
+  const refused = {clock: async () => { throw Error('the refused address must not move the clock'); }, op: async () => ({error:'no gallery'})};
+  await expect(widgetStep(refused, {entry:'next-trains'}, 'clock +60000')).rejects.toThrow('no gallery');
 });
 
 test('backend diagnostics name the selected source and warn when a saved selection shadows the literal', async () => {

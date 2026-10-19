@@ -70,8 +70,10 @@ export async function widgetStep(session, widget, line, kind = 'widget') {
   const address = { [kind]: widget };
   const { op, path, value } = widgetOperation(line, kind);
   if (op === 'clock') {
-    if (!availability.has(session)) availability.set(session, session.op({ op: 'state', ...address, availability: true }));
-    const available = await availability.get(session);
+    if (!availability.has(session)) availability.set(session, new Map());
+    const addresses = availability.get(session), key = JSON.stringify(ordered(address));
+    if (!addresses.has(key)) addresses.set(key, session.op({ op: 'state', ...address, availability: true }));
+    const available = await addresses.get(key);
     if (available.error) throw new MalformedOperation(available.error);
   }
   return [op, op === 'clock' ? await session.clock(value) : ordered(await session.op({ op, ...address, ...(path ? { path } : {}) }))];
