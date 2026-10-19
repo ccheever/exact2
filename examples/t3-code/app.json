@@ -74,6 +74,7 @@
     "snapshot-id",
     "anchor",
     "snapshot-owner",
+    "owner",
     "frame",
     "media-url",
     "media-kind",
@@ -92,6 +93,7 @@
     "pick",
     "dialog-focus",
     "focus-stop",
-    "dialog-return"
+    "dialog-return",
+    "guide-editable"
   ]
 }

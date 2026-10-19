@@ -212,8 +212,10 @@ final class LocalBackendManagerTests: XCTestCase {
     }
 
     func test_resolvePrimary_produces_a_stable_scoped_bootstrap_token() {
-        let first = T3LocalBackend.shared.currentBootstrapToken, second = T3LocalBackend.shared.currentBootstrapToken
-        XCTAssertNotNil(first.range(of: "^[0-9a-f]{48}$", options: .regularExpression))
+        let backend = T3LocalBackend()
+        backend.nowMs = { T3DesktopBootstrap.windowMs * 10 }
+        let first = backend.currentBootstrapToken, second = backend.currentBootstrapToken
+        XCTAssertNotNil(first.range(of: "^[0-9a-f]{64}$", options: .regularExpression))
         XCTAssertEqual(first, second)
         let base = ["PATH": "/usr/bin", "T3CODE_PORT": "4888", "T3CODE_MODE": "web", "T3CODE_DESKTOP_LAN_HOST": "10.0.0.2", "T3CODE_HOME": "/elsewhere", "LANG": "en_US.UTF-8"]
         let env = T3LocalShellEnvironment.serverEnvironment(base: base) { _, _, _ in "" }

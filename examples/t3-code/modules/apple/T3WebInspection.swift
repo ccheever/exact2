@@ -10,8 +10,8 @@ import WebKit
 /// stays absent, a declared difference. Exact's `iframe` web views get the same opt-in from the
 /// host itself (main #309, the development web arm); these are the module's own.
 ///
-/// A release build is any of: the clone's packaged build (`Contents/Resources/distribution.json`
-/// `{"flavor":"packaged"}`, the marker the embedded server reads, T3LocalPolicy.packaged); a
+/// A release build is any of: the app's distribution-only handler and scheme; a legacy
+/// `distribution.json` packaged marker (inspection compatibility only); a
 /// production-trust bake (the bundle receipt's `build.trust`); and a distributed bundle (what
 /// `--distribution` assembles and `exact release` signs, or an IPA), whose receipt is the shipped
 /// one, its binary reduced to a digest. The last two are where #309 leaves its opt-in out. Every
@@ -20,8 +20,10 @@ enum T3WebInspection {
     /// This build's answer, read once from the bundle.
     static let enabled = permits(resources: Bundle.main.resourceURL)
 
-    static func permits(resources: URL?) -> Bool {
-        if T3LocalPolicy.packaged(resources: resources) { return false }
+    static func permits(resources: URL?, bundleInfo: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> Bool {
+        if T3LocalPolicy.packaged(info: bundleInfo) { return false }
+        if let resources, let data = try? Data(contentsOf: resources.appendingPathComponent("distribution.json")),
+           let marker = try? JSONSerialization.jsonObject(with: data) as? [String: Any], marker["flavor"] as? String == "packaged" { return false }
         guard let resources, let data = try? Data(contentsOf: resources.appendingPathComponent("receipt.json")),
               let receipt = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let build = receipt["build"] as? [String: Any] else { return true }

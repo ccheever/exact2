@@ -8,7 +8,15 @@ use contract_syntax::{Expr, Span};
 
 /// The compiler shapes an app builds as it builds its own: the Media
 /// Session's `MediaMetadata`, by the API's constructor (LLP 1098 D1).
-pub const COMPILER_RECORDS: &[&str] = &["MediaMetadata"];
+pub const COMPILER_RECORDS: &[&str] = &[
+    "MediaMetadata",
+    "TextDecorations",
+    "TextDecorationSpan",
+    "TextDecorationBlock",
+    "TextDecorationHidden",
+    "TextDecorationAtom",
+    "TextDecorationRange",
+];
 
 /// Whether `name(…)` builds a record: a shape the app declares or one of
 /// [`COMPILER_RECORDS`], never another compiler shape (`Router`,

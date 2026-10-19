@@ -1,7 +1,17 @@
+import { replArguments } from './tool-activity';
+import { commandOutputView, commandSpans } from './command-output';
+import { terminalOutputPlainText } from './terminal-output';
+import { toolImages } from './tool-images';
+import { secretCard } from './secret-card';
+import { focusDiffFind } from '../diff/diff-find';
+import { threadFindAction, threadFindExpanded } from './thread-find-runtime';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link';
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
+import { relabelThreadLinks } from './thread-links';
+import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
+import { markdownThreadGlyphs } from './markdown-thread-glyphs';
 import { shellCommand } from '../highlight/shell-command';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
 import { runnableShellCommands } from '../terminal/terminal-integrations';
@@ -34,7 +44,7 @@ import { preparationFailureRunId, retryableActivities } from './workspace-retry'
 import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
-import { prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
+import { prGuideLocalFor, prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
 import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
 import { openLinkFromUi } from '../browser/browser-links';
 import { chatExternalLinkMenu } from './external-link-menu';
@@ -105,11 +115,17 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // the composer's drafts (pages-pr-detail.ts)
   if (op === 'pr-ui-select') return surfaceLocal(client, native, 'linked-pr-open', stackLayerTarget(value), ''); // a stack layer beside a thread
   if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // the panel header's menu choices
+  if (op.startsWith('pr-guide-')) return prGuideLocalFor(client, native, op.slice(9), id, value);
+  if (op === 'pr-code-find-focus') { focusDiffFind(client, 'pr', id); return ''; }
   if (op.startsWith('pr-code-')) return prCodeLocalFor(client, native, op.slice(8), id, value); // the Code tab's presses (pages-pr-code.ts)
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // git-route.ts
   if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId),
     openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });
   const view = timelineView(client);
+  if (op === 'find-focus') { focusDiffFind(client, null); return ''; }
+  if (op === 'diff-find-focus') { focusDiffFind(client, 'panel'); return ''; }
+  if (op.startsWith('diff-find-')) { client.diffState.find.action(op.slice(10), value); return ''; }
+  if (op.startsWith('find-')) return threadFindAction(client, op.slice(5), value);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
   if (op === 'history') {
     const threadId = client.threadId;
@@ -168,7 +184,8 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
 function copyText(client: T3Client, id: string): string {
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === id);
   const item = obj(row?.item);
-  return item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '';
+  const text = item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '';
+  return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads);
 }
 
 /**
@@ -266,6 +283,7 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   const fetches = turnItemNeedsDetailFetch(entry.item);
   const detail = turnItemDetailView(client, entry.item, undefined, entry.id);
   entry = { ...entry, item: detail.item };
+  const argumentsView = entry.itemType === 'dynamic_tool' ? replArguments(entry.item.toolName, entry.item.input) : [];
   const item = entry.item, warning = entry.sourceActivityKind === 'runtime.warning';
   const failedError = item.type === 'error' && item.status === 'failed';
   const failed = !warning && displayFailed(entry);
@@ -275,6 +293,8 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   // V2ItemInspector draws search results and file changes as their own parts, not as tool output.
   const extras = plain === undefined ? inspectorExtras(item, path => workspaceRelativePath(path, root)) : NO_INSPECTOR_EXTRAS;
   const structured = item.type === 'file_search' || item.type === 'web_search';
+  const terminal = commandOutputView(client, entry.id, item), terminalText = terminal?.value?.output.text ?? '';
+  const terminalState = terminal?.value ? terminalText ? '' : terminal.value.running ? '' : 'empty' : terminal?.error ? 'error' : 'loading';
   const reasoning = entry.itemType === 'reasoning';
   const usage = failedError && obj(item.failure).class === 'usage_limit';
   // An answered question leads with what was asked (even over a lone tool's label) and trails its answer.
@@ -284,8 +304,9 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   // A thread read names the thread by its live title, linked to it (ThreadReadLabel).
   const read = failedError || reasoning ? null : threadReadLabel(entry, title, client.shell.threads);
   // Reads and skills expand to plain text (output) instead of the inspector (body).
-  return { id: entry.id, label: read?.text ?? title, linkPrefix: read?.prefix ?? '', linkTitle: read?.title ?? '', linkThreadId: read?.threadId ?? '', body: entry.questionAnswer ? '' : plain !== undefined && fetches ? plain ?? '' : inspect.input, icon: failedError || warning || severe ? 'circle-alert' : entryIcon(entry),
-    output: reasoning ? str(entry.detail) : fetches ? detail.text : structured ? '' : plain ?? detail.text, outputState: detail.state, ...extras, detailOpen: turnItemIsOpen(client, entry.id), ...toolActivityIconSources(client, item), result: inspect.result, failed, timestamp: entry.createdAt,
+  return { id: entry.id, label: read?.text ?? title, linkPrefix: read?.prefix ?? '', linkTitle: read?.title ?? '', linkThreadId: read?.threadId ?? '', replArguments: argumentsView, body: entry.questionAnswer || argumentsView.length ? '' : plain !== undefined && fetches ? plain ?? '' : inspect.input, icon: failedError || warning || severe ? 'circle-alert' : entryIcon(entry),
+    terminal: terminal !== null, terminalSpans: commandSpans(terminalText), terminalTruncated: terminal?.value?.output.truncated === true, toolImages: toolImages(item).map(({ id, name, source }) => ({ id, name, source })),
+    output: terminal ? terminalText ? terminalOutputPlainText(terminalText) : terminal.error || (terminal.value?.running === false ? 'No output.' : terminal.value ? '' : 'Loading output…') : reasoning ? str(entry.detail) : fetches ? detail.text : structured ? '' : plain ?? detail.text, outputState: terminal ? terminalState : detail.state, ...extras, detailOpen: turnItemIsOpen(client, entry.id), ...toolActivityIconSources(client, item), result: inspect.result, failed, timestamp: entry.createdAt,
     tone: failedError ? usage ? 'provider-warning' : 'provider-error' : warning ? 'warning' : severe ? 'error' : failed ? 'failed' : '',
     ok: inspect.ok, reasoning, expandable: !failedError && (!!entry.questionAnswer || (plain !== undefined ? !!plain || entry.item.outputOmitted === true || !!detail.text : turnItemHasDetail(entry.item))),
     detail: failedError && !usage ? str(obj(item.failure).message) : '', status: entry.status === 'inProgress' ? 'Thinking' : 'Thought',
@@ -306,7 +327,7 @@ export function transcriptRows(client: T3Client): Message[] {
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
-    expandedRuns: open('fold'), expandedAttempts: open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
+    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads };
   return rows.map(row => present(row, context));
@@ -373,15 +394,16 @@ function present(row: Row, context: PresentContext): Message {
       return { ...base, kind: 'inline-document', runId: str(entry.item.runId), inlineDocuments: [inlineDocumentView(context.client, key, ref)] };
     }
     case 'plan': {
-      const markdown = str(row.entry.item.markdown);
+      const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
-        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown),
+        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id),
         diagrams: messageDiagrams(markdown, row.entry.item.streaming === true),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
       sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
-    case 'event': return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }) };
+    case 'event': if (row.entry.item.type === 'secret_request') return { ...base, kind: 'secret', secret: secretCard(context.client, row.entry.item, row.entry.row.visibility) };
+      return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }) };
 
     case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
       actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };
@@ -390,13 +412,13 @@ function present(row: Row, context: PresentContext): Message {
       const common = { ...base, runId: str(item.runId), sourceThreadId: str(row.entry.row.sourceThreadId), completed: item.status === 'completed',
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
-        const text = str(item.text);
-        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips(item, context.root, context.threads, row.id),
+        const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
+        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
           diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
-      const text = sender.text, chips = messageChips(item, context.root, context.threads, row.id), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // A file with a chip in the prose needs no standalone row (images always show).
       return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text, false),
         collapsible: shouldCollapseUserMessage(text),
@@ -427,10 +449,10 @@ export function userMessagePresentation(item: Obj): { text: string; attribution:
 
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
   | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'
-  | 'linkPrefix' | 'linkTitle' | 'linkThreadId'>> & { timeTip: string };
+  | 'replArguments' | 'linkPrefix' | 'linkTitle' | 'linkThreadId' | 'terminal' | 'terminalTruncated' | 'terminalSpans' | 'toolImages'>> & { timeTip: string };
 const blankActivity = (activity: Activity): RowActivity => ({
   tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '',
-  ...activity, outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
+  ...activity, replArguments: activity.replArguments ?? [], terminal: activity.terminal ?? false, terminalTruncated: activity.terminalTruncated ?? false, terminalSpans: activity.terminalSpans ?? [], toolImages: activity.toolImages ?? [], outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
   results: activity.results ?? NO_INSPECTOR_EXTRAS.results, changePath: activity.changePath ?? '', stats: activity.stats ?? false, additions: activity.additions ?? 0,
   deletions: activity.deletions ?? 0, diffRunId: activity.diffRunId ?? '', diffPath: activity.diffPath ?? '', startedMs: activity.startedMs ?? 0,
   initials: activity.initials ?? '', driverIcon: activity.driverIcon ?? '', targetLabel: activity.targetLabel ?? '',
@@ -466,7 +488,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      secret: message.secret ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body)), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
   rows.forEach((row, index) => {

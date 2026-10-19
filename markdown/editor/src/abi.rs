@@ -25,6 +25,7 @@ struct Abi {
     input: Vec<u16>,
     out: Vec<u32>,
     text: Vec<u16>,
+    ranges: Vec<u32>,
 }
 
 thread_local! {
@@ -59,6 +60,38 @@ pub extern "C" fn mde_input(len: u32) -> *mut u16 {
         input.clear();
         input.resize(len as usize, 0);
         input.as_mut_ptr()
+    })
+}
+
+/// Room for decoration range triples `(start, end, fragile)`.
+#[no_mangle]
+pub extern "C" fn mde_decoration_ranges(len: u32) -> *mut u32 {
+    ABI.with(|abi| {
+        let ranges = &mut abi.borrow_mut().ranges;
+        ranges.clear();
+        ranges.resize(len as usize, 0);
+        ranges.as_mut_ptr()
+    })
+}
+
+/// Reconcile decorations with the kernel's rules. The input buffer contains
+/// the old source followed by the current source. Output triples at `mde_out`
+/// are `(input range index, mapped start, mapped end)`.
+#[no_mangle]
+pub extern "C" fn mde_reconcile_decorations(before: u32, current: u32) -> u32 {
+    ABI.with(|abi| {
+        let abi = &mut *abi.borrow_mut();
+        let (before, current) = (before as usize, current as usize);
+        if before.saturating_add(current) > abi.input.len() {
+            abi.out.clear();
+            return 0;
+        }
+        abi.out = crate::decorations::reconcile(
+            &String::from_utf16_lossy(&abi.input[..before]),
+            &String::from_utf16_lossy(&abi.input[before..before + current]),
+            &abi.ranges,
+        );
+        abi.out.len() as u32
     })
 }
 

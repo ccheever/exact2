@@ -218,6 +218,10 @@ export interface LimitPool {
 
 /** Show Cursor's two usable pools instead of a combined percentage when both are available. */
 export function displayLimitWindows(pool: LimitPool): readonly LimitPoolWindow[] {
+  if (pool.driver === 'antigravity') return [...pool.windows].sort((left, right) =>
+    Number(!left.id.startsWith('gemini-')) - Number(!right.id.startsWith('gemini-'))
+    || left.id.replace(/-(5h|weekly|quota)$/, '').localeCompare(right.id.replace(/-(5h|weekly|quota)$/, ''))
+    || kindRank(left.kind) - kindRank(right.kind));
   if (pool.driver !== 'cursor') return pool.windows;
   const hasBothPools = pool.windows.some(window => window.id === 'autoPercentUsed') && pool.windows.some(window => window.id === 'apiPercentUsed');
   return pool.windows.filter(window => !hasBothPools || window.id !== 'totalPercentUsed')

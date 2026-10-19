@@ -24,7 +24,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
   const window = contractComponent('app-window.contract', 'T3Window');
   function fixture() {
     const state: Env = { dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
-    const live = new Set<string>(), menus = new Set<string>(), inert = new Set<string>(), focused: string[] = [];
+    const live = new Set<string>(), menus = new Set<string>(), inert = new Set<string>(), focused: string[] = [], observedFocus: string[] = [];
     const scope = {
       none: null,
       querySelectorAll: (selector: string) => { expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]']).toContain(selector); return [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id)); },
@@ -33,12 +33,27 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
       dialogReturn: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
       dialogLineage: (frames: { owner: string; returns: { owner: string; target: string }[] }[], owner: string) => frames.find(item => item.owner === owner)?.returns ?? [],
       focus: (id: string) => focused.push(id), stopPropagation() {},
+      chipFocusChanged: (id: string) => observedFocus.push(id),
     };
     const call = (action: string, ...args: unknown[]) => window.call(action, state, scope, args);
     const outside = (id: string) => call('windowFocused', { target: id });
     const inside = (owner: string, id: string) => call('dialogEntered', owner, { target: id });
-    return { state, live, menus, inert, focused, call, outside, inside };
+    return { state, live, menus, inert, focused, observedFocus, call, outside, inside };
   }
+  test('ordinary, menu and dialog focus facts reach root chip completion without changing dialog return ownership', () => {
+    const rig = fixture();
+    rig.outside('composer');
+    rig.call('dialogMenuEntered', 'composer-menu', 'composer-options', { target: 'composer-menu-keys' });
+    rig.live.add('chip-popover');
+    rig.inside('chip-popover', 'citation-comment-text');
+    expect(rig.observedFocus).toEqual(['composer', 'composer-menu-keys', 'citation-comment-text']);
+    rig.call('windowBlurred', { relatedTarget: null });
+    expect(rig.observedFocus).toHaveLength(3);
+    rig.live.clear();
+    rig.call('windowBlurred', { relatedTarget: null });
+    expect(rig.observedFocus.at(-1)).toBe('');
+    expect(rig.state.dialogFocusId).toBe('');
+  });
   // Owner information comes from the popup's caller, including the environment half of task IDs.
   const menus = [
     ['pages-usage.contract', 'UsageBreadcrumb', '"usage-environment-menu"', '"usage-environment"', 'usage-environment-menu', 'usage-environment', 'usage-environment-keys', 'usage-model-prices'],

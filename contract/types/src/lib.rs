@@ -22,6 +22,7 @@ mod bounds;
 mod calls;
 mod checks;
 mod component;
+mod decorations;
 mod enums;
 mod failure;
 mod geometry;
@@ -1150,6 +1151,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);
+    decorations::declare(&mut shapes);
     failure::declare(&mut shapes);
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {

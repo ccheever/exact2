@@ -2999,7 +2999,10 @@ end[, selectionMode]])` replaces its selection or a UTF-16 range. Selection
 is preserved by default (`select`, `start`, `end` are the other modes).
 Exact deliberately fires one `input` so its action can update the bound
 value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
-step. That input type also covers hatch replacements and browser spelling
+step by default. On the web, append `"undo"` after the selection mode, or call
+`setRangeText(id, text, "undo")`, to create one undoable replacement. The field keeps
+its plain source; see [decorations](contract-grammar.md#plain-textarea-decorations) for styled
+textarea ranges. That input type also covers hatch replacements and browser spelling
 corrections, so it does not uniquely identify this command. `select` follows
 input only when the selection changes. URL inputs trim surrounding ASCII
 whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` reports caret moves through `InputEvent`, and

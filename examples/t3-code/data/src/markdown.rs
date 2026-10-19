@@ -33,7 +33,14 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "createProvider",
             "command",
             "composerEditor",
+            "composerRich",
+            "composerField",
+            "composerFieldObserved",
+            "composerFieldAcknowledged",
+            "composerIntent",
             "composerChip", // a skill chip's details popover (composer-chip-popover.ts)
+            "composerChipObserved",
+            "composerChipPressed",
             "composerWorkspace",
             "refreshComposerWorkspace",
             "refreshTimelineReads",
@@ -75,9 +82,9 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "serverBrowserText",
             "serverBrowserUpload",
             "serverBrowserWheel",
-
             "shellDetails",
             "chatCanvas",
+            "threadFind",
             "terminalDrawer", // the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
             "prList",
@@ -94,6 +101,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
         ],
         &[
             "renderMarkdown",
+            "renderQuestionMarkdown",
             "renderPullRequestMarkdown",
             "renderFileMarkdown",
         ],
@@ -108,10 +116,9 @@ impl DataSource for Markdown {
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        // renderPullRequestMarkdown: the same parse for a pull request body and its comments;
-        // renderFileMarkdown: a Markdown file in Files (files-surface.ts)
-        // and a sent attachment's (attachment-surface.ts).
+        // Pull requests, their comments, Files and sent attachments share this Markdown parse.
         if source != "renderMarkdown"
+            && source != "renderQuestionMarkdown"
             && source != "renderPullRequestMarkdown"
             && source != "renderFileMarkdown"
         {
@@ -128,7 +135,11 @@ impl DataSource for Markdown {
                 continue;
             };
             let Some(id) = fields.first() else { continue };
-            let kind = fields.get(1).and_then(Value::as_str).unwrap_or("");
+            let kind = if source == "renderQuestionMarkdown" {
+                "assistant"
+            } else {
+                fields.get(1).and_then(Value::as_str).unwrap_or("")
+            };
             if kind != "assistant"
                 && kind != "plan"
                 && kind != "user"
@@ -138,20 +149,17 @@ impl DataSource for Markdown {
                 continue;
             }
             let text = fields.get(3).and_then(Value::as_str).unwrap_or("");
-            // An editable file's rendered Markdown
-            // (FileMarkdownPreview), whose task checkboxes write the file.
+            // FileMarkdownPreview: task checkboxes write the editable file.
             if kind == "file" {
                 documents.push(document_with_tasks(id.clone(), text, None, true));
                 continue;
             }
-            // A sent attachment's rendered Markdown
-            // (AttachmentFilePreview: ChatMarkdown with no `cwd`), its checkboxes disabled.
+            // AttachmentFilePreview: no `cwd`, task checkboxes disabled.
             if kind == "attachment" {
                 documents.push(document_with_links(id.clone(), text, None, false, false));
                 continue;
             }
-            // UserMessageBody renders ChatMarkdown with `lineBreaks`: a single
-            // newline is a line break, kept through the parse as U+2028.
+            // UserMessageBody keeps single newlines as U+2028 line breaks.
             if kind == "user" {
                 documents.push(document_with_skills(
                     id.clone(),
@@ -174,17 +182,17 @@ impl DataSource for Markdown {
                 ));
             }
         }
-        Ok(Value::record(vec![Value::list(documents)]))
+        Ok(find_documents(documents, messages, args))
     }
 }
 
+include!("markdown_find.rs");
 include!("pierre_icons.rs");
 include!("markdown_tables.rs");
 include!("markdown_table_align.rs");
 include!("markdown_links.rs");
 include!("markdown_media.rs");
 include!("markdown_headings.rs");
-
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
@@ -867,9 +875,8 @@ fn flow_tokens(block: &markdown_parse::Block) -> Option<Vec<markdown_parse::Run>
     Some(collapse_spaces(tokens))
 }
 
-/// CSS `white-space: normal` for the flowed words: a run of spaces is one
-/// space, across token boundaries too (a chip followed by "  next" keeps one),
-/// and none starts a line. Code spans and chips keep their text.
+/// Collapse prose spaces across tokens and omit line-leading spaces.
+/// Code spans and chips retain whitespace.
 fn collapse_spaces(tokens: Vec<markdown_parse::Run>) -> Vec<markdown_parse::Run> {
     let mut previous_space = true;
     let mut collapsed = Vec::with_capacity(tokens.len());
@@ -1201,7 +1208,7 @@ mod tests {
             ]
         );
         assert_eq!(pierre_icon_token("src/app.tsx"), "react");
-        assert_eq!(pierre_icon_token("Cargo.toml"), "default");
+        assert_eq!(pierre_icon_token("Cargo.toml"), "toml");
     }
 
     /// A web link's own menu is dispatched per node (FlowRuns), not per inline run (ChatRuns), so

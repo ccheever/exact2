@@ -164,3 +164,13 @@ test('the editor session: open, type, apply a preset, add and default choices, c
   customModelEditorOp(owner, host, 'cancel', 'codex_work', '', '');
   expect(customModelEditorView(owner, 'codex_work', 'codex', live)).toEqual([]);
 });
+
+test('a built-in rename stays one built-in row and opens the same editor before it has an override', () => {
+  const host = { config: { settings: { providerInstances: { codex: { driver: 'codex', config: { customModels: [] } } } },
+    providers: [{ instanceId: 'codex', models: [{ slug: 'gpt-5', name: 'GPT 5', isCustom: false }] }] } };
+  const owner = {};
+  customModelEditorOp(owner, host, 'open', 'codex', 'gpt-5', '');
+  expect(customModelEditorView(owner, 'codex', 'codex', [])[0]?.slug).toBe('gpt-5');
+  expect(deriveProviderModelsForDisplay({ liveModels: [{ slug: 'gpt-5', name: 'My GPT', isCustom: false }],
+    customModels: [{ slug: 'gpt-5', name: 'My GPT', capabilities: null }] })).toEqual([{ slug: 'gpt-5', name: 'My GPT', isCustom: false }]);
+});

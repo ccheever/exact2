@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import type { T3Client } from '../../src/client/client';
+import { T3Client } from '../../src/client/client';
 import {
   adoptComposerFiles, base64Utf8, composerFileAttachments, composerFileRecords, draftFiles, fileAttachments, fileChipContexts, fileChipLink,
   fileContextRecords, fileSendBlock, fileStagingLimit, formatAttachmentSize, nextPastedTextFileName, pruneFiles, referencedFiles, stageFold, takeFold,
@@ -67,23 +68,26 @@ describe('fold, chip and send', () => {
     const calls: Obj[] = [];
     const native: Native = { available: true, watch() {}, async later(input) {
       const request = obj(input) as Obj; calls.push(request);
-      return { ok: true, generation: 1, value: request.op === 'editorEdit' ? { applied: true } : {} };
+      return { ok: true, generation: 1, value: request.op === 'editorEdit' ? { applied: acceptComposerEdit(client, request) } : {} };
     } };
-    const local = { drafts: {} as Record<string, string> };
-    const rpcs: Obj[] = [];
-    const client = { local, draftKey: 'env:t1', environmentId: 'env', generation: 1,
-      async rpc(_native: Native, method: string, payload: Obj) { rpcs.push({ method, payload }); return { attachmentId: 'att-9', relativeUrl: '/api/attachments/upload/x' }; } } as unknown as T3Client;
+    const rpcs: Obj[] = [], client = new T3Client();
+    Object.defineProperties(client, { draftKey: { value: 'env:t1' }, environmentId: { value: 'env' } });
+    client.generation = 1;
+    client.rpc = async (_native: Native, method: string, payload: Obj) => { rpcs.push({ method, payload }); return { attachmentId: 'att-9', relativeUrl: '/api/attachments/upload/x' }; };
+    const local = client.local;
+    observeComposer(client, 'before ');
     return { native, client, calls, rpcs, local };
   }
   test('a held paste stages once, chips where it went, and uploads with the send', async () => {
     const { native, client, calls, rpcs } = harness();
-    const fold = { id: 3, text: 'x'.repeat(40_000), start: 7, end: 7, expect: '' };
+    const current = observeComposer(client, 'before ');
+    const fold = { id: 3, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value, text: 'x'.repeat(40_000), start: 7, end: 7, expect: '' };
     await takeFold(client, native, fold, 'f1');
     await takeFold(client, native, fold, 'f2'); // the view re-asked: same fold, same file
     const edits = calls.filter(call => call.op === 'editorEdit');
-    expect(edits).toHaveLength(2);
-    expect(edits[0]).toMatchObject({ start: 7, end: 7, expect: '', pad: true, fold: 3, text: '[pasted-text.txt](t3-context://v1/file/file_f1) ' });
-    expect(edits[1]!.text).toBe(edits[0]!.text);
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toMatchObject({ start: 7, end: 7, expect: '', pad: true, text: '[pasted-text.txt](t3-context://v1/file/file_f1) ' });
+    expect(draftFiles(client.local)).toHaveLength(1);
     const prompt = `before ${String(edits[0]!.text)}`;
     expect(fileChipContexts(client, prompt)).toEqual({ 'file/file_f1': 'file\t40 KB' });
     expect(composerFileRecords(client, prompt)).toEqual([]);

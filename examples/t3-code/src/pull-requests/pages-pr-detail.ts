@@ -1,3 +1,10 @@
+import { notePagePullRequest } from '../panel/closed-views';
+import { buildAddSelectionToAgentHandoff, buildAskAboutGuideStopHandoff, contextMetadata } from './pages-pr-handoffs-logic';
+import { openPullRequestIn } from '../panel/pr-attachment-surfaces';
+import { panelState } from '../panel/panel-surfaces';
+import { emptyGuideView, generateGuide, guideEntry, guideNavigate, guideReader, presentGuide, readGuide } from './pages-pr-guide';
+import { guideDiffLocal, presentGuideDiff, type GuideDiffCard } from './pages-pr-guide-diff';
+import { checkoutCommand, sourceControlHostName } from '../shared/source-control-hosts';
 import { sharedPullRequestSummary } from './pages-pr-shared';
 // The pull request detail panel: pullRequests.detail and
 // .activity read for the selected row, presented as PullRequestDetailPanel's
@@ -16,7 +23,7 @@ import { sharedPullRequestSummary } from './pages-pr-shared';
 // (pages-pr-refresh.ts), Refresh, the live-refresh interval or an arrival — reads while the last
 // detail stays on screen; the activity reads again when the server announced a change, on
 // Refresh, or when the detail's `updatedAt` moved (shouldRefreshPullRequestActivity).
-import { diffSchemeOf, markdownEnv, type ChipView } from '../timeline/message-chips';
+import { diffSchemeOf, markdownEnv, type MarkdownEnv } from '../timeline/message-chips';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -37,7 +44,7 @@ import { commentEditing, emptyWrites, presentWrites, previewBodies, prWrite, rea
 import { composerNow } from '../composer/composer-controls';
 import { emptyActions, isActionOp, notedListEntry, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions';
 import { markStackDue, readPanelStack } from './pages-pr-stack';
-import { emptyHandoffs, presentHandoffs, prHandoffCommand } from './pages-pr-handoffs';
+import { emptyHandoffs, presentHandoffs, prHandoffCommand, prGuideTaskHandoff } from './pages-pr-handoffs';
 import { runQuickAction, queueQuickAction, queueCloseBatch } from './pages-pr-quick';
 import { finishCheckoutHandoff } from '../details/pr-row-actions';
 import { emptyLinks, emptyPreview, hoveredLink, linkChips, linksCommand, linkPanelOnPage, openLink, presentLinks, readLinkedThreads, readPreview, type LinkContext } from './pages-pr-links';
@@ -104,13 +111,14 @@ export function emptyDetail() {
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
     projectId: '', host: '', hostName: 'GitHub', linkMenu: '', linkOpenLabel: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // Settings → Appearance code font, size and word wrap for the Markdown.
-    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
+    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] } as MarkdownEnv, diffScheme: 'red-green',
     // The header's primary control, the More menu, the dialogs, the base branch's mark, the stack.
     actions: emptyActions(),
     // Which hand-off is preparing, whether the pull request can be checked out, whose it is beside a thread.
     handoffs: emptyHandoffs(),
     // The Code tab (pages-pr-code.ts), drawn once opened for this pull request.
     codeTab: emptyCode(),
+    guide: emptyGuideView(), guideDiff: { cards: [] as GuideDiffCard[], code: emptyCode(), canComment: false },
     // The linked threads, the Link/Unlink item, the back arrow; the hovered link's card.
     links: emptyLinks(), preview: emptyPreview(),
     // "Act on" — the servers a hand-off can act on, on the page.
@@ -143,14 +151,15 @@ const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.
 const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
 
 /** `returns`: the window focused again (app.contract `windowReturned`, which reads the clock then). */
-export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; tab?: string; page?: boolean; linkTick?: number; preview?: string };
+export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; tab?: string; page?: boolean; linkTick?: number; preview?: string; guideActive?: boolean };
 export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
+  if (input.page) notePagePullRequest(client, input.selected, input.visible !== false);
   const selection = parseSelection(input.selected);
   const live = !!native?.available && client.ready;
   if (!selection) {
-    shown.delete(client);
+    shown.delete(client); guideReader(client).shownKey = '';
     if (live) await holdPullRequestRefreshes(client, native!, 'detail', false);
     return view;
   }
@@ -200,6 +209,8 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh }) === 'wake') {
     return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
   }
+  if (display && await readGuide({ client, native: native!, reference: { ...writeReference(selection), environmentId: selection.environmentId }, detail: display, now: input.now, tab: input.tab ?? '', refresh: input.refresh, visible: input.guideActive ?? input.visible }) === 'wake')
+    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client, input), panel);
   // The page's linked threads (every 10 s), and the hovered link's card.
   if (display) await readLinkedThreads(client, native!, linkContext(selection, display, input), input.linkTick ?? 0);
   const hovered = input.preview ?? hoveredLink(client);
@@ -264,7 +275,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
       view.phase = 'ghost'; view.loading = true; view.ghost = ghostOf(listEntry, now);
       // loadingPullRequestCheckoutCommand: a GitHub reference already names its checkout.
       const identity = obj(client.shell.projects.find(project => project.id === selection.projectId)?.repositoryIdentity);
-      if (identity.provider === 'github' || selection.host.toLowerCase() === 'github.com') view.checkoutCommand = `gh pr checkout ${selection.number}`;
+      view.checkoutCommand = checkoutCommand({ provider: str(identity.provider, selection.host.toLowerCase() === 'github.com' ? 'github' : ''), number: selection.number });
     }
     return view;
   }
@@ -276,10 +287,15 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   view.writes = presentWrites(client, reference, display);
   const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now });
   view.codeTab = code.view;
-  view.bodies = [...view.bodies, ...previewBodies(client, reference), ...code.bodies];
+  const guideReference = { ...reference, environmentId: selection.environmentId };
+  const guide = presentGuide(client, guideReference, display), guideDiff = presentGuideDiff({ client, reference: guideReference, detail: display, now }, guideEntry(client, guideReference));
+  view.guide = guide.view; view.guideDiff = { cards: guideDiff.cards, code: guideDiff.view, canComment: guideDiff.canComment };
+  view.bodies = [...view.bodies, ...previewBodies(client, reference), ...code.bodies, ...guide.bodies, ...guideDiff.bodies];
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
   view.actions = presentActions(client, { ...panelContext(client, panel!, view.ref, listEntry), checksState: view.summary.checksState || null, checksStale: view.summary.checksStale,
     refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)) });
+  view.actions.guideEnabled = view.guide.enabled && view.guide.canWrite; view.actions.guideDisabled = view.guide.running;
+  view.actions.guideLabel = view.guide.running ? 'Writing guide...' : view.guide.hasGuide ? 'Rewrite guide' : 'Write guide';
   // `#N` and commit autolinks in the text (remarkPullRequestAutolinks), each pull request link a chip with its card.
   const context = linkContext(selection, display, input ?? { selected: '', refresh: 0, now });
   view.links = presentLinks(client, context);
@@ -356,10 +372,10 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     phase: 'content', loading: false, number: num(detail.number), numberLabel: `#${num(detail.number)}`, title: str(detail.title), repository: str(detail.repository),
     url: str(detail.url), state, stateLabel: STATE_LABELS[state] ?? 'Open', conflict: conflictLabel(detail), author: author.login, authorAvatar: author.avatar, authorInitial: author.initial,
     updated: `updated ${relativeLabel(detail.updatedAt, now)}`, updatedAgo: relativeLabel(detail.updatedAt, now), filesCount: count(num(detail.changedFiles)),
-    checkoutCommand: str(detail.provider, 'github') === 'github' ? `gh pr checkout ${num(detail.number)}` : '', baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
+    checkoutCommand: checkoutCommand(detail), baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
     files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
-    hostName: HOST_NAMES[str(detail.provider)] ?? 'GitHub',
+    hostName: sourceControlHostName(str(detail.provider, 'github')),
     linkMenu: `${str(detail.provider)} ${str(detail.url)}`, linkOpenLabel: openOnHostLabel(str(detail.provider)), // the number's menu (PrLinkMenu)
     activityPending: options.activityPending === true, activityError: options.activityError ?? '',
   });
@@ -413,7 +429,6 @@ export function gitHubPullRequestBrowserUrl(identity: Obj, repository: string, n
   if (!origin && !hostname) return '';
   try { const url = new URL(origin || `https://${hostname}`); url.pathname = `/${path.join('/')}/pull/${number}`; return url.toString(); } catch { return ''; }
 }
-const HOST_NAMES: Record<string, string> = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps', forgejo: 'Forgejo' };
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return ''; } };
 
 /** pages:pr-* writes, each against the selected pull request on its host. */
@@ -433,6 +448,39 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'quick') return runQuickAction(client, native, value, ref => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; }, () => stale(client));
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');
+  if (op === 'guide-ask' || op === 'guide-lines') {
+    const ctx = contextOf(client, selected)!;
+    if (!ctx.detail) throw new ClientError('The pull request is still loading.');
+    const reference = { ...writeReference(selection), environmentId: selection.environmentId }, entry = guideEntry(client, reference), view = presentGuide(client, reference, ctx.detail).view;
+    if (!view.canAsk) throw new ClientError('This environment cannot open an agent question.');
+    const bar = value.indexOf('|'), surface = bar < 0 ? 'page' : value.slice(0, bar), question = bar < 0 ? value : value.slice(bar + 1);
+    const acting = surface === 'page' ? handoffServer(client, ctx.key, selection.environmentId ?? '', selection.projectId) : null;
+    const elsewhere = acting ? (kind: string, task: Parameters<typeof actOnHandoff>[5], mode: 'worktree' | 'local', detail: Obj) => actOnHandoff(client, native, acting, detail, kind, task, mode) : undefined;
+    let answer = '';
+    if (op === 'guide-lines') {
+      const comment = draftSelection(client, reference, ctx.detail, question, entry.code ?? undefined);
+      if (comment) {
+        const { pullRequest: _none, ...lines } = comment;
+        const task = buildAddSelectionToAgentHandoff({ ...contextMetadata(ctx.detail), comment: lines, request: question });
+        answer = await prGuideTaskHandoff(client, native, ctx.detail, surface, task, elsewhere);
+      }
+    } else {
+      const stop = entry.result.guide?.stops[view.position];
+      if (!stop) return '';
+      const task = buildAskAboutGuideStopHandoff({ ...contextMetadata(ctx.detail), stop: { ...stop, index: view.position, attention: stop.attention?.note ?? null }, question });
+      answer = await prGuideTaskHandoff(client, native, ctx.detail, surface, task, elsewhere);
+    }
+    if (answer === 'sidebar:new-thread') {
+      openPullRequestIn(panelState(client), { projectId: selection.projectId, host: selection.host, repository: selection.repository, number: selection.number, url: str(ctx.detail.url), environmentId: entry.environmentId });
+      return 'pr-guide:asked';
+    }
+    return answer;
+  }
+  if (op === 'guide-write') {
+    const ctx = contextOf(client, selected)!;
+    await generateGuide({ client, native, reference: { ...writeReference(selection), environmentId: selection.environmentId }, detail: ctx.detail ?? {}, now: composerNow(client), tab: 'guide', refresh: 0 });
+    return '';
+  }
   if (op === 'handoff') {
     // Ask, Explain, Fix findings, a finding's Fix, Check out and Resolve conflicts.
     const ctx = contextOf(client, selected)!, panel = panelsOf(client).get(ctx.key);
@@ -485,4 +533,19 @@ export function prCodeLocalFor(client: T3Client, native: Native, op: string, sel
   if (!selection) return Promise.resolve('');
   const panel = panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)]));
   return prCodeLocal({ client, native, reference: writeReference(selection), detail: panel?.detail ?? panel?.cached ?? null }, op, value);
+}
+
+/** Guide navigation and excerpt selection share the Code review store, with independent diff scope. */
+export async function prGuideLocalFor(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
+  const selection = parseSelection(selected), ctx = selection ? contextOf(client, selected) : null;
+  if (!selection || !ctx?.detail) return '';
+  const reference = { ...writeReference(selection), environmentId: selection.environmentId }, entry = guideEntry(client, reference);
+  if (op === 'navigate' || op === 'finish') {
+    const view = presentGuide(client, reference, ctx.detail).view;
+    if (op === 'finish' && !view.canFinish) return '';
+    guideNavigate(client, reference, op === 'finish' ? view.position : Number(value), op === 'finish');
+    if (op === 'finish') entry.finishNonce++;
+    return '';
+  }
+  return guideDiffLocal({ client, native, reference, detail: ctx.detail }, entry, op, value);
 }

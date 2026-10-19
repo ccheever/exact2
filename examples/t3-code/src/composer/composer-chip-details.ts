@@ -1,4 +1,4 @@
-// The composer chips' other presses, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// The composer chips' other presses, adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // composerContextPresentation.tsx (the registry's renderers and ComposerContextActions), contextChipParts.tsx
 // (ContextChipPopover, PullRequestChip, FileChip, ImageChipButton), ComposerPromptEditorTiptap.tsx ComposerMentionNodeView,
 // ThreadContextChip.tsx and chat/AssistantCitationChip.tsx, and ChatComposer.tsx's `composerContextActions`.
@@ -13,16 +13,18 @@
 // the action (T3ComposerChipPress.swift `act`); the window's `chipAct` task sends `editorlocal:chip-act` once per press.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { ClientError, type Native } from '../client/protocol';
 import { openFileSurface } from '../panel/panel-surfaces';
 import { chatLocal } from '../timeline/timeline-presentation';
 import { parseAssistantCitationHref } from '../timeline/diff-citations';
 import { reviewCommentRecords } from './composer-editor';
+import { contextId } from './composer-editor-menu';
 import { draftFiles } from './composer-editor-files';
 import { videoOp } from './composer-attachments';
 import { openComposerFile } from './composer-chip-file';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
 import { previewAnnotationContextLabel, type PreviewAnnotationPayload, type SavedAnnotation } from '../browser/browser-annotation';
+import { composerChipTake } from './composer-chip-bridge';
 
 /** What a context chip's details popover shows (the rest of composer-chip-popover.ts's ChipPopover). */
 export type ChipDetails = { kind: string; label: string; title: string; description: string; lines: string; rows: number; diff: string; image: string; aspect: number };
@@ -124,7 +126,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
   const act = str(press.act), context = str(press.context);
   if (act === 'mention') { if (str(press.path)) await openFileSurface(client, native, str(press.path), 0); return ''; }
   if (act === 'thread') {
-    const threadId = context.startsWith('thread_') ? context.slice('thread_'.length) : '';
+    const threadId = str(client.shell.threads.find(thread => contextId('thread', str(thread.id)) === context)?.id);
     return chatLocal(client, native, 'chip-thread', threadId, '');
   }
   if (act === 'citation') {
@@ -157,12 +159,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
 
 /** `editorlocal:chip-act`: the press the window saw (`seq`), taken from the editor once, then performed. */
 export async function chipAct(client: T3Client, native: Native, seq: number): Promise<string> {
-  let press: Obj = {};
-  try { const reply = await bridgeReply(native, { op: 'editorChip' }); press = reply.ok ? obj(reply.value) : {}; } catch { return ''; }
-  if (Number(press.seq) !== seq || press.open === true || !str(press.act)) return '';
-  await bridgeReply(native, { op: 'editorChipClose', seq }).catch(() => undefined);
-  // The Settings prompt sample has no actions (SettingsFontPreviews renders no ComposerContextActionsContext); a press
-  // from another draft's composer is stale.
-  if (str(press.surface) !== 'composer' || (str(press.owner) && str(press.owner) !== client.snapshotOwner)) return '';
+  const press = composerChipTake(client, seq);
+  if (!press) return '';
   return performChipAct(client, native, press);
 }

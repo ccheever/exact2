@@ -22,7 +22,7 @@ describe('insert-context', () => {
     const { native, client, inserted } = harness();
     await insertContext(client, native, 'thread', 'abc');
     expect(inserted).toEqual(['[Fix the build](t3-context://v1/thread/thread_abc)']);
-    await expect(insertContext(client, native, 'thread', 'missing')).rejects.toThrow('Use threads from this environment');
+    await expect(insertContext(client, native, 'thread', 'missing')).rejects.toThrow('That thread is no longer available.');
   });
   test('files become file links, folders @mentions (quoted with spaces)', async () => {
     const { native, client, inserted } = harness();

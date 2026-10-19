@@ -37,6 +37,7 @@ pub struct Bridge<D: DataSource> {
     fonts: Option<FontsFn>,
     control_text: Option<crate::control_text::ControlTextFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
+    decorated_measure: Option<crate::measure::DecoratedMeasureFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<Rc<std::cell::Cell<u64>>>,
     fonts_ctx: *mut c_void,
@@ -111,6 +112,7 @@ impl<D: DataSource> Bridge<D> {
             fonts: None,
             control_text: None,
             field_chrome: None,
+            decorated_measure: None,
             button_measure: None,
             measure_revision: None,
             fonts_ctx: std::ptr::null_mut(),
@@ -485,6 +487,7 @@ impl<D: DataSource> Bridge<D> {
                     .with_symbol(hooks.symbol)
                     .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
+                    .with_decorated_field(self.decorated_measure)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
                         self.measure_revision
@@ -791,6 +794,7 @@ impl<D: DataSource> Bridge<D> {
                     .with_symbol(hooks.symbol)
                     .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
+                    .with_decorated_field(self.decorated_measure)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
                         self.measure_revision
