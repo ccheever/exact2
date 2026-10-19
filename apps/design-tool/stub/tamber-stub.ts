@@ -16,12 +16,14 @@ const DB = process.env.DB ?? '.exact/tamber-stub.json';
 // Stage 11 D's rows (LLP 1121 stage 11; theme2's 16:17Z 1.14 shape), as a test turns them on: describe's
 // `base` rows (two names, one the app overrides), the app's override as its token, and a package's token.
 let SCALE = false;
+// (Rebuilt at each restart: a test's writes move them.)
+let BASE_ROWS: Record<string, any>[] = [], SCALE_TOKENS: Record<string, any>[] = [];
 const metric = (ref: string) => ({ kind: 'metric', ref });
-const BASE_ROWS: Record<string, any>[] = [
+const baseRows = (): Record<string, any>[] => [
   { name: 'space.md', kind: 'length', columns: { ios: { value: '16px', source: metric('grouped-row-inset') }, mac: { value: '10px', source: metric('grouped-row-inset') }, neutral: { value: '16px', source: metric('grouped-row-inset') }, material: { value: '16px', source: { kind: 'guideline', cite: 'M3 spacing' } }, terminal: { value: '1cell', source: { kind: 'terminal' } } }, override: null },
   { name: 'radius.md', kind: 'radius', columns: { ios: { value: '8px', source: metric('control-radius') }, mac: { value: '6px', source: { kind: 'stretch', ref: 'control-radius', why: 'the Mac draws no larger control' } }, neutral: { value: '8px', source: metric('control-radius') }, material: { value: '8px', source: { kind: 'measured', id: 'm3-shape-small' } }, terminal: { value: '0', source: { kind: 'terminal' } } }, override: { file: 'app.tamber', line: 40, col: 3, text: '12px' } },
 ];
-const SCALE_TOKENS: Record<string, any>[] = [
+const scaleTokens = (): Record<string, any>[] => [
   { name: 'radius.md', kind: 'length', role: null, dials: [], entries: null, values: ['12px'], fallback: ['12px', '12px'] },
   { name: 'reading.measure', kind: 'length', role: null, dials: [], entries: null, values: ['640px'], fallback: ['640px', '640px'], package: 'reading', file: 'reading.tamber' },
 ];
@@ -289,7 +291,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // Stage 11 D's rows, as a test turns them on (`/__stub/scale`): length tuples like space.gap's.
       const scaled = SCALE ? SCALE_TOKENS.find(t => t.name === request.token) : undefined, baseRow = SCALE ? BASE_ROWS.find(r => r.name === request.token) : undefined;
       if (baseRow && !baseRow.override && request.method === 'resolve') return send({ ok: { name: baseRow.name, base: baseRow, files: FILES } });
-      if (baseRow && !baseRow.override && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, base: baseRow, files: FILES } });
+      if (baseRow && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, base: baseRow, files: FILES } });
       if (scaled && request.method === 'resolve') return send({ ok: { token: scaled.name, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>) => ({ ...u, value: scaled.values[0], amount: parseFloat(scaled.values[0]) }))), ...(baseRow ? { base: baseRow } : {}) } });
       if (scaled && request.method === 'explain') return send({ ok: { token: scaled.name, value: scaled.values[0], whens: [], dials: [], names: [], files: FILES, ...(scaled.package ? { package: scaled.package, file: scaled.file } : {}) } });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
@@ -307,6 +309,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
       if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      // A base name set for this app, or its override taken away (stage 11): the rows describe gives move with it.
+      if (SCALE && request.method === 'transaction') for (const o of request.ops ?? []) {
+        const row = BASE_ROWS.find(r => r.name === o.name);
+        if (row && o.op === 'add-token') { row.override = { file: 'app.tamber', line: 41, col: 3, text: String(o.value) }; SCALE_TOKENS.push({ name: row.name, kind: 'length', role: null, dials: [], entries: null, values: [String(o.value)], fallback: [String(o.value), String(o.value)] }); }
+        if (row && o.op === 'remove-token') { row.override = null; SCALE_TOKENS.splice(SCALE_TOKENS.findIndex(t => t.name === row.name), 1); }
+      }
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
@@ -362,7 +370,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // The origin the next canvas grants name (a test's: another host refused by the tool).
   '/__stub/canvas': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasAt = (await req.json().catch(() => ({}))).origin ?? ''; return send({ ok: true }); } },
   '/__stub/forge-local': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); forgeLocal = true; return send({ ok: true }); } },
-  '/__stub/scale': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); SCALE = true; return send({ ok: true }); } },
+  '/__stub/scale': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); SCALE = true; BASE_ROWS = baseRows(); SCALE_TOKENS = scaleTokens(); return send({ ok: true }); } },
   // The next pair-code and clients refused, once each.
   '/__stub/refuse-pairing': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refusePairing = new Set(['pair-code', 'clients']); return send({ ok: true }); } },
   // A code or a revoke as the local tool would ask it, for a test whose tool is the paired one.

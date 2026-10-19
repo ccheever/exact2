@@ -1863,6 +1863,15 @@ test "stage 11: the base scale's rows are read-only, with each platform the app 
   tap "apply"
   clock data
   expect text "undo" == "Undo (1)"
+  // Set for this app, the base name is the app's: said over the base, no second Set, its way back offered.
+  clock +1
+  clock data
+  expect tree missing "set-for-app-space.md"
+  expect text "token-over-space.md" == "Set for this app, over Exact's base (iOS 16px)."
+  // Its cell edits the app's line, not read-only.
+  tap "cell-space.md-0-light"
+  clock data
+  expect tree missing "branch-readonly"
   tap "back-radius.md"
   clock data
   expect state editKind == "remove-token"
@@ -1870,4 +1879,9 @@ test "stage 11: the base scale's rows are read-only, with each platform the app 
   tap "apply"
   clock data
   expect text "undo" == "Undo (2)"
+  // Back to the base: Exact's again, set for this app offered once more.
+  clock +1
+  clock data
+  expect tree has "set-for-app-radius.md"
+  expect tree missing "token-over-radius.md"
   request POST "/__stub/restart" {} as ada

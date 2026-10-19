@@ -660,10 +660,11 @@ const sources: Sources = {
           const shadow = t.kind === 'box-shadow' || t.kind === 'text-shadow' ? String(v.value ?? '') : '';
           return { scheme: c.dark ? 'dark' : 'light', column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: t.kind !== 'color' ? 'transparent' : v.residual ? v.srgb : v.css, residual: v.residual, note: v.note, kind: t.kind, shadow, pairs: [] as { name: string; ratio: string; low: boolean }[] };
         });
-        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells, start: cells[0]?.css ?? '', ...sourceOf(t, baseRows.get(t.name), targets) };
+        // (Set for this app starts from the value as written, never the grid's words for it.)
+        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells, start: String(tuples[0]?.value ?? ''), ...sourceOf(t, baseRows.get(t.name), targets, designFile) };
       });
       // Exact's base names the app does not override (stage 11): per platform, no fold, so no cells.
-      for (const row of baseRows.values()) if (!row.override && !tokens.some((t: { name: string }) => t.name === row.name)) { const src = sourceOf(null, row, targets); tokens.push({ name: row.name, kind: 'length', follows: '', cells: [], start: src.columns[0]?.value ?? '', ...src }); }
+      for (const row of baseRows.values()) if (!row.override && !tokens.some((t: { name: string }) => t.name === row.name)) { const src = sourceOf(null, row, targets, designFile); tokens.push({ name: row.name, kind: 'length', follows: '', cells: [], start: src.columns[0]?.value ?? '', ...src }); }
       // Each declared pair's contrast per cell (LLP 1121 D3, `pair=`): the
       // token over what it is drawn on, a token's stored value or a role's
       // fallback; below 4.5:1, WCAG's for text, it is marked low.
@@ -733,10 +734,15 @@ const sources: Sources = {
     if (!token || !col || !snap || snap.file !== file) return none;
     const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
     if (error) return { ...none, ok: false, error };
-    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string>; kind?: string; package?: string };
+    const raw = reply.ok as { value?: string; whens?: { when: When[]; value: string }[]; dials?: string[]; names?: string[]; files?: Record<string, string>; kind?: string; package?: string; file?: string; base?: { override?: { text?: string } | null; columns?: Record<string, { value?: string }> } };
+    // A base name (stage 11, `kind: 'base'`): its override is the app's line, edited as one; with none, the
+    // base's value, read only (no per-tuple fold: each platform's, the first the app ships said).
+    const based = raw.kind === 'base', overridden = based && !!raw.base?.override;
+    const x = { value: based ? String(raw.base?.override?.text ?? Object.values(raw.base?.columns ?? {})[0]?.value ?? '') : String(raw.value ?? ''), whens: based ? [] : raw.whens ?? [], dials: raw.dials ?? [], names: raw.names ?? [], files: raw.files };
     // Of the revision the grid shows, or it is read again with the grid.
     if (x.files && digestKey(x.files) !== snap.digests) return { ...none, ok: false, error: 'The design changed while this cell was read; it is read again with the grid.' };
-    const b = branchOf(snap.axes, col, x.whens, snap.kinds.get(token) ?? 'color');
+    const kind = snap.kinds.get(token) ?? (based ? 'length' : 'color');
+    const b = branchOf(snap.axes, col, x.whens, kind);
     if (b.tie) return { ...none, ok: false, error: `${token} has two branches for ${col.label}, ${b.tie}; the checker refuses that, so fix the file by hand.` };
     const value = b.index >= 0 ? x.whens[b.index].value : x.value;
     // An expression's inputs: the tokens and dials it names; a dial's
@@ -745,10 +751,10 @@ const sources: Sources = {
     // A dial with no control (`control=none`) is said, not offered.
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
-      ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
+      ok: true, error: '', token, kind, column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, param: snap.params.has(token), answer,
       // (Stage 11: the base's or a package's value is theirs; the app sets its own, from the grid.)
-      readOnly: x.kind === 'base' ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : x.package ? `The ${x.package} package's, read only: Set for this app (in the grid) to change it here.` : '',
+      readOnly: based && !overridden ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : raw.package && raw.file !== designFile ? `The ${raw.package} package's, read only: Set for this app (in the grid) to change it here.` : '',
     };
   },
   // The branch editor's typed fields for a value (parts.ts), the names in

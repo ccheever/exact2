@@ -35,13 +35,16 @@ export function baseColumns(row: any, shipped: string[]): BaseColumn[] {
 /** A row's source: a base row (`base`, no override), a package's token, or
  * the app's; for the app's override of a base name, what it replaces (`over`)
  * and the way back (`back`). */
-export function sourceOf(t: any, base: any, shipped: string[]): Source {
+export function sourceOf(t: any, base: any, shipped: string[], appFile = ''): Source {
   const columns = base ? baseColumns(base, shipped) : [];
   // (The column an app value starts from, and the over-line names: the first this app ships, else the first.)
   const shown = columns[0];
   const startFrom = shown ? `${shown.label}'s ${shown.value}` : '';
   if (base && !base.override) return { source: 'base', package: '', of: 'base', over: '', back: '', columns, startFrom };
   if (base) return { source: 'app', package: '', of: 'base', over: `Set for this app, over Exact's base${shown ? ` (${shown.label} ${shown.value})` : ''}.`, back: 'Back to the base', columns, startFrom };
+  // (A package's token the app sets: its row names the app's design as its file, A2; the tool reads that as the
+  // app's line over the package's value.)
+  if (t?.package && appFile && t.file === appFile) return { source: 'app', package: String(t.package), of: 'package', over: `Set for this app, over the ${t.package} package's value.`, back: 'Back to the package', columns: [], startFrom: '' };
   if (t?.package) return { source: 'package', package: String(t.package), of: 'package', over: '', back: '', columns: [], startFrom: '' };
   return { source: 'app', package: '', of: '', over: '', back: '', columns: [], startFrom: '' };
 }

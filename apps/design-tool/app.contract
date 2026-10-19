@@ -824,7 +824,7 @@ component DesignTool
   derive shownValue = editKind == branchOp and draftFor != "" and editTarget == branch.token and not draftStale ? editValue : branch.value
   // The branch by what it is, not which read: a read that gives the same
   // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
-  derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}`
+  derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}␟${branch.readOnly}`
   derive partsBase = rawFor == branchKey and editKind == branchOp and editTarget == branch.token ? rawBase : branch.value
   resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
   // The cut by its value and its parts (a reread that reads a name as
@@ -1166,6 +1166,8 @@ component DesignTool
   // Stage 11: a base or package value set for this app (its override line, add-token), or the app's line
   // over one of theirs taken away (remove-token), each reviewed and applied as any edit.
   action setForApp(name: string, value: string, from: string)
+    // (The override is the app's line: written in the app's design, whichever file is open.)
+    file = ""
     newName = name
     newValue = value
     // (One platform's value becomes the app's on every platform: said beside the proposal.)
@@ -1180,6 +1182,7 @@ component DesignTool
     editWhen = ""
     editValue = value
   action backToBase(name: string)
+    file = ""
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false
@@ -1836,7 +1839,7 @@ component DesignTool
                       button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose or branch.readOnly != "") destructive=true testId="remove"
                         text "Remove"
                   dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
-                    button press=removeToken disabled=(not canPropose) destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                    button press=removeToken disabled=(not canPropose or branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
                       text "Remove"
                     button commandfor="confirm-remove" command="close"
                       text "Cancel"
@@ -1894,10 +1897,10 @@ component DesignTool
                           text "Cancel scrub"
                   else
                     row gap=8
-                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose) buttonStyle="filled" testId="apply"
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) buttonStyle="filled" testId="apply"
                         text (canWrite ? "Apply" : "Propose for review")
                       if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
-                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite) testId="scrub-start"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) testId="scrub-start"
                           text "Scrub live"
                       button press=cancelEdit testId="cancel-edit"
                         text "Cancel"
