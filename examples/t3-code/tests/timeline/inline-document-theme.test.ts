@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
-import { inlineDocumentEvent, inlineDocumentKey, inlineDocumentView, inlineReference, inlineTheme, syncInlineDocuments } from '../../src/timeline/inline-documents';
+import { inlineDocumentEvent, inlineDocumentKey, inlineDocumentView, inlineDocumentsPosted, inlineReference, inlineTheme, syncInlineDocuments } from '../../src/timeline/inline-documents';
 
 const native = { available: true } as Native;
 function fixture(kind: 'html' | 'mcp') {
@@ -56,4 +56,22 @@ for (const kind of ['html', 'mcp'] as const) test(`${kind} live theme and font u
   expect(JSON.stringify(theme)).toContain('Georgia');
   expect(view().src).toBe(src);
   expect(mintCount()).toBe(1);
+});
+
+for (const kind of ['html', 'mcp'] as const) test(`${kind}: a theme change during the attachments read counts as posted, so the snapshot carrying it is read again`, async () => {
+  const { client, receive, drainPosts } = fixture(kind);
+  await syncInlineDocuments(client, native, 0, 'light');
+  if (kind === 'mcp') {
+    await receive({ jsonrpc: '2.0', id: 1, method: 'ui/initialize', params: {} });
+    await receive({ jsonrpc: '2.0', method: 'ui/notifications/initialized' });
+  }
+  await receive({ jsonrpc: '2.0', method: 't3/adapter-ready' });
+  await drainPosts();
+  await syncInlineDocuments(client, native, 1, 'light');
+  const before = inlineDocumentsPosted(client);
+  await syncInlineDocuments(client, native, 2, 'light');
+  expect(inlineDocumentsPosted(client)).toBe(before);
+  await syncInlineDocuments(client, native, 3, 'dark');
+  expect(inlineDocumentsPosted(client)).toBeGreaterThan(before);
+  expect((await drainPosts()).some(message => JSON.stringify(message).includes('"dark"'))).toBe(true);
 });

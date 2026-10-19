@@ -138,6 +138,37 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertTrue(fixture.editor.delegate === fixture.inner)
     }
 
+    func testOpenMenuKeysPressItsKeyButtonsAndEveryOtherCommandReachesTheSharedField() {
+        let fixture = EditorFixture()
+        fixture.type("@a")
+        fixture.down(); fixture.returnKey(); fixture.escape()
+        XCTAssertEqual(pressedNodes, [], "no menu: nothing is pressed")
+        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertNewline(_:)),
+            #selector(NSResponder.cancelOperation(_:))])
+        fixture.key("ArrowDown", node: 3); fixture.key("ArrowUp", node: 4); fixture.key("Enter", node: 5); fixture.key("Escape", node: 6)
+        fixture.inner.commands = []
+        fixture.down(); fixture.up(); fixture.returnKey(); fixture.tab(); fixture.escape()
+        XCTAssertEqual(pressedNodes, [3, 4, 5, 5, 6])
+        XCTAssertEqual(fixture.inner.commands, [], "the open menu takes its keys")
+        XCTAssertEqual(fixture.editor.string, "@a")
+        fixture.left()
+        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveLeft(_:))])
+        // The menu closes: its buttons unmount and the keys are the field's again.
+        for name in ["ArrowDown", "ArrowUp", "Enter", "Escape"] { fixture.composer.remove(fixture.keys[name]!) }
+        fixture.inner.commands = []; pressedNodes = []
+        fixture.down(); fixture.returnKey()
+        XCTAssertEqual(pressedNodes, [])
+        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertNewline(_:))])
+        fixture.key("stash-Enter", node: 8); fixture.key("stash-Delete", node: 9)
+        fixture.inner.commands = []
+        fixture.returnKey(); fixture.send("\u{7f}", 51, .command)
+        XCTAssertEqual(pressedNodes, [8, 9], "the stash menu's Return and ⌘⌫")
+        fixture.editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0), replacementRange: fixture.editor.selectedRange())
+        pressedNodes = []
+        XCTAssertEqual(fixture.editor.delegate?.textView?(fixture.editor, doCommandBy: #selector(NSResponder.insertNewline(_:))), true)
+        XCTAssertEqual(pressedNodes, [], "a composition keeps Return")
+    }
+
     func testFoldIsOwnerScopedObservedSourceUntilExplicitAcknowledgement() throws {
         let fixture = EditorFixture()
         fixture.composer.editor.pasteDetector = { _ in true }

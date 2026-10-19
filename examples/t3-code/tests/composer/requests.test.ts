@@ -75,6 +75,15 @@ describe('approvals', () => {
     await command('approval', 'a', 'acceptForSession');
     expect(committed).toEqual([{ type: 'runtime-request.respond', threadId: 't1', requestId: 'a', decision: 'acceptForSession', commandId: 'id-1' }]);
   });
+  test('a connection without orchestration:operate shows the approval with its actions disabled (canOperateThread)', () => {
+    const { client } = harness({
+      runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }],
+      turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ operable: true, canRespond: true });
+    client.scopes = ['orchestration:read', 'terminal:read'];
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ operable: false, canRespond: false, live: true,
+      responseReason: 'This connection does not have permission to respond.' });
+  });
   test('a live request stays pressable while reconnecting and the press names the reconnect', async () => {
     const { client, command, committed } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }],

@@ -18,7 +18,7 @@ import { htmlRenderFromToolItem, mcpAppFromToolItem } from './inline-tool-output
 export type InlineReference = { kind: 'html'; reference: HtmlRenderReference } | { kind: 'mcp'; reference: McpAppReference };
 export type InlineDocumentView = { key: string; kind: string; title: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number; outline: { key: string; kind: string; x: number; y: number; width: number; height: number; lines: number }[] };
 type Frame = { token: string; url: string; expiresAt: number; src: string; ready: boolean; error: string; height?: number; reading: boolean; lastTheme?: string; lastShortcuts?: string; shortcut?: string; shortcutSerial?: number; posts: { key: string; text: string }[]; serial: number; runtime?: DocumentRuntime; fullscreen?: boolean; width?: number; inlineWidth?: number; viewportHeight?: number };
-type State = { systemScheme: string; generation: number; environment: string; origin: string; frames: Map<string, Frame> };
+type State = { systemScheme: string; generation: number; environment: string; origin: string; frames: Map<string, Frame>; posted: number };
 const states = new WeakMap<T3Client, State>();
 const MIN_URL_LIFE = 5 * 60_000;
 const LIMIT = 64;
@@ -38,8 +38,11 @@ function postToDocument(client: T3Client, frame: Frame, message: unknown): void 
     return;
   }
   frame.posts.push({ key: `${frame.token}:${++frame.serial}`, text });
+  state(client).posted++;
   client.revision++;
 }
+/** Messages queued for the documents so far: a read that posts (a theme change) has the snapshot that carries them re-read. */
+export const inlineDocumentsPosted = (client: T3Client) => states.get(client)?.posted ?? 0;
 function updateShortcuts(client: T3Client, frame: Frame): void {
   const message = documentShortcutsMessage(client.config), signature = JSON.stringify(message);
   if (frame.ready && frame.lastShortcuts !== signature) { frame.lastShortcuts = signature; postToDocument(client, frame, message); }
@@ -53,7 +56,7 @@ function state(client: T3Client): State {
   let value = states.get(client);
   if (!value || value.generation !== client.generation || value.environment !== client.environmentId || value.origin !== client.origin) {
     if (value) for (const frame of value.frames.values()) if (frame.runtime) disposeDocumentRuntime(frame.runtime);
-    value = { systemScheme: 'dark', generation: client.generation, environment: client.environmentId, origin: client.origin, frames: new Map() };
+    value = { systemScheme: 'dark', generation: client.generation, environment: client.environmentId, origin: client.origin, frames: new Map(), posted: 0 };
     states.set(client, value);
   }
   return value;
