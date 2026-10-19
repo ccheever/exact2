@@ -552,3 +552,17 @@ test('round 9: a Figma-only edit is listed before a pull of the unchanged export
   await expect(send({ type: 'apply', text: meta }, 'applied')).rejects.toThrow('read-only file');
   expect([writes, undos]).toEqual([0, 0]);
 });
+
+test('round 10: an alias of the person\'s that reads as the design\'s value stays an alias through a pull', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], fill = f.variables.find(v => v.name === 'accent/fill'), mode = col.modes[0].modeId;
+  const other = f.figma.variables.createVariableCollection('Brand');
+  other.renameMode(other.modes[0].modeId, col.modes[0].name);
+  const brand = f.figma.variables.createVariable('blue', other, 'COLOR');
+  brand.setValueForMode(other.modes[0].modeId, fill.valuesByMode[mode]);
+  fill.valuesByMode[mode] = { type: 'VARIABLE_ALIAS', id: brand.id };
+  expect((await send({ type: 'check', text: TEXT }, 'checked')).conflicts).toEqual([]);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  expect(fill.valuesByMode[mode]).toEqual({ type: 'VARIABLE_ALIAS', id: brand.id });
+});

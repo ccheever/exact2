@@ -175,8 +175,16 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
       if (fv && fv.resolvedType !== v.type) { did(fv.remove()); fv = undefined; }
       if (!fv) fv = did(figma.variables.createVariable(v.name, col, v.type));
       if (fv.getSharedPluginData?.(KEY, 'token') !== v.token) did(fv.setSharedPluginData(KEY, 'token', v.token));
-      // (only a value that differs: one already the design's is no change)
-      for (const mode of c.modes) if (fv.valuesByMode?.[ids[mode]] === undefined || !same(fv.valuesByMode[ids[mode]], v.values[mode])) did(fv.setValueForMode(ids[mode], v.values[mode]));
+      // Only a value that differs: one already the design's is no change, and
+      // an alias of the person's that reads as the design's value stays an alias.
+      for (const mode of c.modes) {
+        const raw = fv.valuesByMode?.[ids[mode]];
+        if (raw !== undefined && typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') {
+          const got = await valueOf(fv, ids[mode], collections);
+          if ('value' in got && same(got.value, v.values[mode])) continue;
+        } else if (raw !== undefined && same(raw, v.values[mode])) continue;
+        did(fv.setValueForMode(ids[mode], v.values[mode]));
+      }
     }
     c.id = col.id;
     c.contextIds = Object.fromEntries(c.modes.map(mode => [c.contexts[mode], ids[mode]]));
