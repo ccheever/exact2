@@ -485,8 +485,9 @@ async function wired(canvas = pairing => canvasGateway({ loop: loopBase, pairing
   if (tamber.canvas) port.on('request', (req, res) => { tamber.canvas.handle(req, res, new URL(req.url, 'http://x')); });
   const local = (await (await fetch(`${wireBase}/__tamber/token`)).json()).token;
   await tamber.ready;
-  const post = async (request, token = local, path = '/__tamber', peer = null) => {
-    remote = peer ? { local: false, remote: true, peer } : null;
+  const post = async (request, token = local, path = '/__tamber', peer = null, door = true) => {
+    // `peer` through B's door, or (`door` false) plain HTTP from off this machine.
+    remote = peer ? (door ? { local: false, remote: true, peer } : { allowed: true, local: false, peer }) : null;
     try {
       const res = await fetch(`${wireBase}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { 'x-exact-tamber-token': token } : {}) }, body: JSON.stringify(request) });
       const text = await res.text();
@@ -534,6 +535,17 @@ test('with stage 10 A: `canvas` through the real dispatcher (read), enter, proxy
     expect((await w.at('/', { headers: { cookie } })).status).toBe(404);
     // Its token is told it was revoked; no grant for it.
     expect((await w.post({ method: 'canvas' }, p.token, '/__tamber', '198.51.100.9')).status).toBe(401);
+  } finally { await w.stop(); }
+});
+
+test('a plain LAN peer\'s `canvas` call is not found, the grant minted only through the door', async () => {
+  const w = await wired();
+  try {
+    const p = await w.pair('read', 'lan');
+    const plain = await w.post({ method: 'canvas' }, p.token, '/__tamber', '192.0.2.41', false);
+    expect([plain.status, plain.ok]).toEqual([404, undefined]);
+    expect(w.tamber.canvas.live).toBe(0);
+    expect((await w.post({ method: 'canvas' }, p.token, '/__tamber', '192.0.2.41')).status).toBe(200);
   } finally { await w.stop(); }
 });
 

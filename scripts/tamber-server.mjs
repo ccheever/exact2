@@ -494,10 +494,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       else json(res, 200, { token });
       return true;
     }
+    const wire = ['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname);
+    // Plain HTTP from off this machine (a --lan bind's peer) reaches nothing
+    // of the wire, pairing and paired tokens included: remote use is B's TLS
+    // door or a tunnel the developer trusts, never plaintext (LLP 1122 D12).
+    if ((wire || url.pathname === '/__tamber/pair') && !access?.local && !access?.remote && !access?.tunnel) { notFound(res); return true; }
     // The one path that needs no token (stage 10 A2): a pairing code for a
     // token, once.
     if (url.pathname === '/__tamber/pair') { await pairEndpoint(req, res, access); return true; }
-    if (!['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname)) return false;
+    if (!wire) return false;
     const who = req.method === 'POST' ? principalOf(req, access) : null;
     if (!who) { if (req.method === 'POST' && wasRevoked(req)) json(res, 401, { error: { message: GONE } }); else notFound(res); return true; }
     const scope = who.scope;
