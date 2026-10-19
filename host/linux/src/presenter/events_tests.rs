@@ -478,28 +478,34 @@ fn press_fixture() -> Presenter<Keeps> {
 
 #[test]
 fn a_held_press_multiplies_scale_about_the_origin_even_under_reduced_motion() {
-    let mut p = press_fixture();
-    let button = id(&p, "other");
-    let before = p.rect_of(button).unwrap();
-    let (x, y) = (before.0 + 20., before.1 + 10.);
-    assert!(p.pointer_down(x, y, 0.).unwrap());
-    p.clock(120.);
-    let held = p.rect_of(button).unwrap();
-    assert_eq!(held, (before.0, before.1, before.2 * 0.5, before.3 * 0.5));
-    // Moving off and back inside the original edge keeps the contact alive.
-    p.pointer_move(before.0 + before.2 + 5., y, 120.).unwrap();
-    p.clock(240.);
-    assert_eq!(p.rect_of(button).unwrap(), before);
-    p.pointer_move(before.0 + before.2 - 2., y, 240.).unwrap();
-    p.clock(360.);
-    assert_eq!(p.rect_of(button).unwrap(), held);
-    p.pointer_up(before.0 + before.2 - 2., y, 360.).unwrap();
-    p.clock(480.);
-    assert_eq!(p.rect_of(button).unwrap(), before);
-    assert!(
-        log(&p).ends_with(" 1"),
-        "the release still activates the original button"
-    );
+    for kind in [PointerKind::Mouse, PointerKind::Touch] {
+        let mut p = press_fixture();
+        p.set_pointer_kind(kind);
+        let button = id(&p, "other");
+        let before = p.rect_of(button).unwrap();
+        let (x, y) = (before.0 + 20., before.1 + 10.);
+        assert!(p.pointer_down(x, y, 0.).unwrap());
+        p.clock(120.);
+        let held = p.rect_of(button).unwrap();
+        assert_eq!(held, (before.0, before.1, before.2 * 0.5, before.3 * 0.5));
+        // Moving off and back inside the original edge keeps the contact alive.
+        p.pointer_move(before.0 + before.2 + 5., y, 120.).unwrap();
+        p.clock(240.);
+        assert_eq!(p.rect_of(button).unwrap(), before);
+        p.pointer_move(before.0 + before.2 - 2., y, 240.).unwrap();
+        p.clock(360.);
+        assert_eq!(p.rect_of(button).unwrap(), held);
+        p.pointer_up(before.0 + before.2 - 2., y, 360.).unwrap();
+        p.clock(480.);
+        assert_eq!(p.rect_of(button).unwrap(), before);
+        // Chrome hits outside the scaled button before pointerup restores it.
+        // Direct touch keeps the original feedback box as its activation area.
+        assert!(log(&p).ends_with(if kind == PointerKind::Mouse {
+            " 0"
+        } else {
+            " 1"
+        }));
+    }
 }
 
 #[test]

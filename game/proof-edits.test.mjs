@@ -219,4 +219,4 @@ await proof(import.meta, async ({open, check, pin, pinSave, out}) => {
     for (const [path, bytes] of originals) writeFileSync(path, bytes);
     if (existsSync(temporary)) rmSync(temporary, {recursive:true, force:true});
   }
-}, 1200000);
+}, 600000);

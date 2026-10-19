@@ -147,14 +147,20 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
 /// An authored accent: an `accent-color` on the node or above it, else the
 /// design's `AccentColor` (LLP 1121 D9); none where only the platform's.
 /// `accent-color: AccentColor` names the platform's (or the design's), not
-/// an authored one.
+/// an authored one, except under an authored accent, which it keeps, as the
+/// web's `var(--exact-accent, AccentColor)` does (stage 9 F1): the painting
+/// scope holds that one ([`roles::scoped_accent`]).
 pub(crate) fn authored_accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
     use exact_kernel::style::roles;
     let platform = roles::role("AccentColor");
-    let written = node
-        .computed_style(StyleMask::INHERITED)
-        .accent_color
-        .filter(|c| !matches!(c, exact_kernel::ColorValue::Role(id) if Some(*id) == platform));
+    let accent = node.computed_style(StyleMask::INHERITED).accent_color;
+    let role = matches!(accent, Some(exact_kernel::ColorValue::Role(id)) if Some(id) == platform);
+    let written = if role {
+        roles::scoped_accent()
+            .filter(|c| !matches!(c, exact_kernel::ColorValue::Role(id) if Some(*id) == platform))
+    } else {
+        accent
+    };
     written
         .map(|c| rgba(c.resolve(dark)))
         .or_else(|| roles::overridden(platform?).map(|c| rgba(c.resolve(dark))))

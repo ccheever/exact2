@@ -628,6 +628,12 @@ package final class Runtime {
         let values = (insets ?? []).map(Float.init)
         return on { read(values.withUnsafeBufferPointer { exact_regions(rt, $0.baseAddress, UInt32($0.count)) }) }
     }
+    /// The title-bar area beside the window's controls (Window Controls
+    /// Overlay): x, y, width, height, or none, when every `titlebar-area-*` is undefined.
+    package func titlebarArea(_ rect: [CGFloat]?) -> Batch {
+        let values = (rect ?? []).map(Float.init)
+        return on { read(values.withUnsafeBufferPointer { exact_titlebar_area(rt, $0.baseAddress, UInt32($0.count)) }) }
+    }
     /// What changed of the view at once (`exact_view`): each part given is
     /// told, the window's size (`.some(nil)` clears it), the safe-area
     /// insets, the layout regions (`.some(nil)` when every region is the

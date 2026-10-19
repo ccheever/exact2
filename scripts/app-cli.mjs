@@ -43,6 +43,7 @@ export function warningLines(dir, host, warnings) {
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */
 export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
   return {
+    status: ['scripts/exact.mjs', 'status', dir],
     web: ['host/web/dev.mjs', '--app', name],
     'web-build': ['host/web/build.mjs', name],
     test: ['scripts/agent.mjs', host, '--app', name],
@@ -101,6 +102,12 @@ export async function run({ dir, name, game = false, exact2, args }) {
     const help = await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null);
     if (!help) { console.error(`no exact2 at ${exact2}: EXACT2 names the checkout`); return 1; }
     return help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
+  }
+  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+    const {readStatus, formatStatus, waitReady} = await import(resolve(exact2, 'game/status.mjs'));
+    if (verb === 'status') { console.log(formatStatus(readStatus(dir))); return 0; }
+    try { const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)}); console.log(`READY ${row.url}`); return 0; }
+    catch (e) { console.error(e.message); return 1; }
   }
   if (!verbs[verb] && !own[verb]) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);

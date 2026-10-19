@@ -711,6 +711,10 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
+A Mac agent drive never takes the focus: the app is an accessory, never activated (a `type` makes its window key
+without activating it), so AppKit draws its controls as in an inactive app. `EXACT_AGENT_ACTIVATE=1`, which only
+`scripts/measure-controls.mjs` sets (never a default), activates that one run, and the app that was in front is put
+back when it exits, however it exits (LLP 1121 stage 9 F2).
 Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
@@ -1468,7 +1472,7 @@ on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
 picker panel (a drive's held pickers still answer), so outside a drive only
 `open-file` delivers one there. The handles end with the
-session: nothing about a document is remembered across launches.
+session, unless the app keeps what the person chose (below).
 
 **A change on disk asks the answer again** (LLP 1069.010.000 D1). An answer
 that calls `storage.fs.watch(path)` is asked again when the file, a folder's
@@ -1497,6 +1501,34 @@ is refused with code `ECHANGED` and nothing is written (a file that is gone
 refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
+
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS). An
+app granted `doc.keep` keeps exactly what the person chose — a file or folder
+from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
+typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
+reads again after a relaunch, in any of the app's windows, with no panel.
+The kept set is File ▸ Open Recent's: Clear Menu, or an entry falling off
+the end of the list, ends its reopening (a window that has it open keeps it
+until the app quits).
+
+```ts
+export const grants = ['fs.read doc:/', 'doc.keep'].join('\n');
+storage.fs.watch('doc:/');                       // asked again when the list changes
+const recent = await storage.fs.recentDocuments();
+// [{ path: 'doc:/12/notes', name: 'notes', kind: 'directory', mode: 'readwrite', opened: 1760572800000 }, …]
+await storage.fs.forgetDocument(recent[0].path); // off the list and Open Recent; ENOENT if not kept
+```
+
+A Rust source sends `fs.recentDocuments` and `fs.forgetDocument` storage
+requests (`apps/markdown/data`). A kept item is the object chosen: a move
+or rename is followed and keeps its path (`<name>` is the name it was
+chosen by); a file another program replaced at its name is not the
+document, and the app's own `atomicWriteFile` carries the entry to the file
+it wrote (from Rust; not yet from TypeScript). A path whose entry is gone
+refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
+both calls are refused. Under the agent the kept set is the drive's scratch
+store (`--storage`), never the person's. Linux and iOS keep nothing yet and
+list nothing; the web has neither call yet.
 
 ### Bake and deliver a TypeScript module
 

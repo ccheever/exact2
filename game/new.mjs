@@ -47,7 +47,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
       .replaceAll('bun /path/to/exact2/game/prove.mjs', `bun ${script('prove.mjs', destination)}`)
       .replaceAll('bun /path/to/exact2/game/app/shells.mjs', `bun ${script('app/shells.mjs', destination)}`));
   }
-  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.shells/\n/app.contract.d.ts\n/assets/exact-tables.json\n');
+  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.exact/\n/.shells/\n/app.contract.d.ts\n/assets/exact-tables.json\n');
   const proofPath = resolve(destination,'proof.mjs');
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
   // Identity derives from the directory and Game::ID; app.json holds authored keys only.
@@ -86,7 +86,6 @@ export function createGame(destination, directory = import.meta.dir, options = {
     writeFileSync(resolve(destination, 'AGENTS.md'), agentNotes(destination, name, {game:true}));
     linkClaude(destination);
     editorTasks(destination, {game:true});
-    writeFileSync(resolve(destination, '.gitignore'), `${readFileSync(resolve(destination, '.gitignore'), 'utf8')}/.exact/\n`);
     return `Created ${destination}
   cd ${quote(destination)}
   bun exact.mjs test-rust     the hostless Rust tests (logic/tests) and determinism lints
@@ -616,11 +615,10 @@ exact-js-bake = ${dep('js/bake')}
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
         .placed(TYPESCRIPT_PLACEMENT)
 }
@@ -849,11 +847,10 @@ exact-js-bake = ${dep('apple', 'js/bake')}
     'apple/src/lib.rs': `//! ${title} on Apple: the Contract UI and the TypeScript data module.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
         .placed(TYPESCRIPT_PLACEMENT)
 }

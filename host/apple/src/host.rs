@@ -167,7 +167,8 @@ pub struct Host<D: DataSource> {
     /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
     head_edited: bool,
     language: Option<String>,
-    mirror: IdMap<ViewId, Mirror>,
+    /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
+    mirror: IdMap<ViewId, Box<Mirror>>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
     /// Hatch words: those journaled as viewless here, and those the plan does not give this platform.
@@ -664,12 +665,9 @@ impl<D: DataSource> Host<D> {
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());
         }
-        // The documents a person chose (LLP 1069.010 D1), minted for the
-        // session that asks: `openDocument` for a host route, `mintDocument`
-        // for what a picker returned, `forgetDocuments` as the session ends.
-        if let Some(op @ ("openDocument" | "mintDocument" | "forgetDocuments")) = op.as_deref() {
-            let grants = self.runner.data_ref().grants().to_owned();
-            return Some(crate::picker::documents(op, request, &grants));
+        // The documents a person chose, and those the app keeps (LLP 1069.010 D1, 1069.010.000).
+        if let Some(reply) = crate::documents::answer(op.as_deref(), request, &self.runner) {
+            return Some(reply);
         }
         let picked = op.as_deref() == Some("pickedPath");
         exact_runner::agent::answer(&mut self.runner, request).map(|(reply, _)| {

@@ -160,6 +160,15 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, call, ctx));
         }
 
+        /// Where a document the app forgot goes (LLP 1069.010.000 D5): off
+        /// the platform's recents, by the Swift host.
+        #[no_mangle]
+        pub extern "C" fn exact_on_document_forgotten(forgotten: Option<extern "C" fn(u64, u64)>) {
+            if let Some(forgotten) = forgotten {
+                $crate::documents::on_forgotten(forgotten);
+            }
+        }
+
         /// The app module announced a topic (LLP 1016.002), on this thread.
         #[no_mangle]
         pub extern "C" fn exact_app_changed(rt: u32, topic: *const u8, len: usize) {
@@ -790,6 +799,18 @@ macro_rules! host {
                 unsafe { std::slice::from_raw_parts(insets, count as usize) }
             };
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.regions(insets), |n| n)
+        }
+
+        /// The title-bar area beside the window's controls (Window Controls
+        /// Overlay): `count` is 4 (x, y, width, height) or 0 (none, so every
+        /// `env(titlebar-area-*)` is undefined); returns the batch's length.
+        #[no_mangle]
+        pub unsafe extern "C" fn exact_titlebar_area(rt: u32, rect: *const f32, count: u32) -> u32 {
+            let rect = if count == 0 || rect.is_null() { &[] } else {
+                // SAFETY: the caller keeps `count` floats live for this synchronous call.
+                unsafe { std::slice::from_raw_parts(rect, count as usize) }
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.titlebar_area(rect), |n| n)
         }
 
         /// The window's size, which every viewport unit resolves

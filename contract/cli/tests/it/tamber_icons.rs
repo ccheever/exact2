@@ -458,3 +458,17 @@ fn a_grouped_row_carries_an_svg_only_icon() {
     assert_eq!(rows[1].symbol.as_deref(), Some("bubble.left"));
     assert_eq!(rows[1].icon, None);
 }
+
+/// A design icon naming another builds in an app with params, an icon
+/// param's default naming the alias too (beside `tamber_cli`'s test of an
+/// app without params, theme2 22:12).
+#[test]
+fn an_icon_alias_builds_beside_params() {
+    let design =
+        "  icon.house = icon(sf \"house\", svg \"icons/reply.svg\")\n  icon.home = icon.house\n";
+    let view = "component App\n  params\n    glyph: icon = \"icon.home\"\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    column  gap=\"param.gap\"\n      image \"symbol:icon.home\"\n      image \"symbol:param.glyph\"\n";
+    let path = app("alias-params", "\"ios\": {}, \"web\": {}", design, view);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let form = "symbol:icon|house|0 -960 960 960|M760-200v-160H200Z|icons/reply.svg";
+    assert!(plan.strings.iter().any(|s| s == form), "{:?}", plan.strings);
+}

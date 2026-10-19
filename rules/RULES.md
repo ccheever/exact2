@@ -9,7 +9,7 @@ Each rule is **[check]** (enforced in CI) or **[review]** (enforced by a human).
 ## Budgets — every budget is a trade, not a limit
 
 - **6 blocking checks, 65s total.** A seventh requires deleting one, same PR. **[check]**
-- **16 documents in the working set** (`llp/current/`). A 17th requires archiving one —
+- **15 documents in the working set** (`llp/current/`). A 16th requires archiving one —
   which is just removing the link. The corpus itself is uncapped. **[check]**
 - **10 documents in the foundation** (`llp/foundation/`). **[check]**
 - **This file: 700 words.** If it grows, something becomes a check or stops being a rule. **[check]**

@@ -17,7 +17,9 @@
 //!
 //! The answer watches what it opened and the folder it sits in, so an edit
 //! made in another program, or a file added beside it, shows without a
-//! reload (LLP 1069.010.000 D1).
+//! reload (LLP 1069.010.000 D1). What the person opened is kept across
+//! launches where the host keeps documents (`doc.keep`, LLP 1069.010.000
+//! D3): `recentDocuments` lists it, and `forgetDocument` removes one.
 //!
 //! @ref LLP 1033 (the reader), LLP 1016 D1/D2 (requests as values)
 
@@ -44,8 +46,9 @@ pub use welcome::WELCOME;
 /// prose, and reading it would stall the worker for no one's benefit.
 pub const LIMIT: u64 = 4 * 1024 * 1024;
 
-/// What the reader may reach: the documents the person chose, to read.
-pub const GRANTS: &str = "fs.read doc:/";
+/// What the reader may reach: the documents the person chose, to read,
+/// kept to reopen after a relaunch.
+pub const GRANTS: &str = "fs.read doc:/\ndoc.keep";
 
 /// A file the reader opened, or could not.
 type Opened = Result<(String, Document), String>;
@@ -111,7 +114,11 @@ impl Markdown {
 
     /// The value of `open(path)` once the file is in hand.
     fn opened(&mut self, asked: &str, result: Opened) -> Value {
-        let siblings = std::mem::replace(&mut self.beside, Value::list(Vec::new()));
+        // Nothing finished yet leaves no list beside it.
+        let siblings = match std::mem::replace(&mut self.beside, Value::list(Vec::new())) {
+            list @ Value::List(_) => list,
+            _ => Value::list(Vec::new()),
+        };
         match result {
             Ok((path, doc)) => {
                 let value = Self::value(&path, doc, "", siblings);
@@ -359,6 +366,35 @@ pub fn resolve(base: &str, target: &str) -> String {
     format!("{scheme}{}", parts.join("/"))
 }
 
+/// `shape Kept[]` from `storage.fs.recentDocuments()`'s list. A host that
+/// keeps nothing (the web, Linux, iOS, a drive with no scratch store)
+/// refuses or lists nothing, and both are no recent documents.
+fn kept(reply: Result<Json, String>) -> Value {
+    let listed = reply
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    Value::list(
+        listed
+            .iter()
+            .filter_map(|d| {
+                let text = |k: &str| d[k].as_str().map(Value::str);
+                Some(Value::record(vec![
+                    text("path")?,
+                    text("name")?,
+                    text("kind")?,
+                ]))
+            })
+            .collect(),
+    )
+}
+
+/// `shape Forgot`: whether `forgetDocument` removed it, and why not.
+fn forgot(reply: Result<Json, String>) -> Value {
+    let message = reply.err().unwrap_or_default();
+    Value::record(vec![Value::Bool(message.is_empty()), Value::str(&message)])
+}
+
 impl DataSource for Markdown {
     fn app_id(&self) -> &str {
         "com.exact.markdown"
@@ -374,6 +410,8 @@ impl DataSource for Markdown {
         // needs the first frame's value. @ref LLP 1027 D4
         match source {
             "open" => Ok(self.welcome()),
+            "recentDocuments" => Ok(Value::list(Vec::new())),
+            "forgetDocument" => Ok(forgot(Ok(Json::Null))),
             other => Err(DataError::UnknownSource(other.to_string())),
         }
     }
@@ -384,8 +422,24 @@ impl DataSource for Markdown {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        if source != "open" {
-            return Err(DataError::UnknownSource(source.to_string()));
+        match source {
+            // Asked again when what the app keeps changes (D5).
+            "recentDocuments" => {
+                store.observe_topic(exact_data::documents::kept::LIST_TOPIC);
+                return Ok(Answer::Later(storage::request(
+                    "fs.recentDocuments",
+                    json!({}),
+                )));
+            }
+            "forgetDocument" => {
+                let Some(path) = args.first().and_then(Value::as_str) else {
+                    return Err(DataError::BadArguments("forgetDocument(path)".into()));
+                };
+                let args = json!({ "path": path });
+                return Ok(Answer::Later(storage::request("fs.forgetDocument", args)));
+            }
+            "open" => {}
+            other => return Err(DataError::UnknownSource(other.to_string())),
         }
         let Some(asked) = args.first().and_then(Value::as_str) else {
             return Err(DataError::BadArguments("open(path)".into()));
@@ -449,8 +503,11 @@ impl DataSource for Markdown {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        if source != "open" {
-            return Err(DataError::UnknownSource(source.to_string()));
+        match source {
+            "recentDocuments" => return Ok(Answer::Now(kept(storage::response(outcome)))),
+            "forgetDocument" => return Ok(Answer::Now(forgot(storage::response(outcome)))),
+            "open" => {}
+            other => return Err(DataError::UnknownSource(other.to_string())),
         }
         let asked = args
             .first()

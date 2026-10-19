@@ -212,7 +212,8 @@ final class SegmentHost {
             for (index, tab) in tabs.enumerated() {
                 if case .image(let icon)? = tab.segmentFace {
                     // Keep the native accessibility description even with no glyph.
-                    let image = (icon.image?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 1, height: 1))
+                    // A symbol in the control's tint, not the page's ink (`faceImage`).
+                    let image = (icon.faceImage?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 1, height: 1))
                     if icon.bounds.width > 0, icon.bounds.height > 0 { image.size = icon.bounds.size }
                     image.accessibilityDescription = tab.accessibleName
                     control.setImage(image, forSegment: index)

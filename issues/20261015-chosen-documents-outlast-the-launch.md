@@ -7,7 +7,7 @@
 **Date:** 2026-10-15
 **Related:** https://github.com/rami-maalouf/exact-draw/blob/main/docs/exact-experience.md (sections 001 and 006); LLP 1069.010 D1 ("Rejected, for now: a handle that outlives the launch"), D5 (Open Recent), Q2 (bookmarks kept expressible); `docs/reference.md`, "Documents the person chose"; `issues/20261009-macos-orderly-sigterm-quit-hold.md` (stopping a bundled helper)
 
-Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): LLP 1069.010.000 accepted 2026-10-15. Stage 1 (watches and expected writes) built 2026-10-16 on macOS, Linux and the web; stage 2 (documents kept across launches) waits for stage 1 to have a user
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): LLP 1069.010.000 accepted 2026-10-15. Stage 1 (watches and expected writes) built 2026-10-16 on macOS, Linux and the web; stage 2 (documents kept across launches) built on macOS 2026-10-18 (the LLP's "As built: stage 2 on macOS"); what remains is below
 
 ## The consumer
 
@@ -46,3 +46,23 @@ that service with the app, so the app still needs a terminal to launch.
 ## Ruling
 
 LLP 1069.010.000 was accepted on 2026-10-15 (its Rulings section). On 2026-10-18 Charlie ruled that the in-repo Markdown and LLP readers are stage 1's user, as the LLP's own §2, §5 and §8 name them, so stage 2 starts now on macOS (the bookmark, `<n>` persistence, `recentDocuments()`, `forgetDocument()`, `doc.keep`), then Linux and the web; iOS stays out. D4's hard rows (another program replacing the file at its path, a move) need the Markdown editor and a fixture, not the reader alone.
+
+## What remains (2026-10-18)
+
+Stage 2 is built on macOS: `doc.keep`, the kept set and its `<n>`, the
+security-scoped bookmarks, Open Recent as the list, `recentDocuments()`
+and `forgetDocument()` from Rust and TypeScript, and the Markdown reader's
+Recent list. Left:
+
+- **Linux** (D4, D6): the freedesktop recent-files store as the list, the
+  path with its device and inode as the handle, nothing kept outside a
+  desktop session. The library's kept set (`exact_data::documents::kept`)
+  is the host-independent half.
+- **The web** (D4, D6, D7): `FileSystemHandle`s in IndexedDB,
+  `requestPermission(id, path, mode)` under a press, the two calls in the
+  glue.
+- **D4's hard rows by an editor**: the Markdown editor saving a kept file
+  with its own atomic replace from TypeScript, and a fixture where another
+  program replaces it, on each host.
+- **Exact Draw** (§7): reopen its last folder with its companion's file
+  service stopped.

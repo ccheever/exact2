@@ -1,3 +1,6 @@
+import {gameNonInput, proofInputFiles, executionInputFiles} from '../game/inputs.mjs';
+export {gameNonInput} from '../game/inputs.mjs';
+import {readStatus, formatStatus} from '../game/status.mjs';
 // Session setup shared by the agent CLI and its programmatic driver.
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -487,7 +490,8 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 export function refuseStale(what, built, changed, command) {
   // A file no build reads belongs in the app's `.exact/` (Depot: evidence JSON beside the app refused every drive).
   const hint = changed.some(p => /\.json$/.test(p) && !/(^|\/)(app|package|tsconfig)\.json$/.test(p)) ? '; a file no build reads (evidence, logs, runtime state) belongs in the app\'s `.exact/`, which no build, watcher or freshness check reads' : '';
-  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}`);
+  const progress = process.env.EXACT_APP_DIR ? formatStatus(readStatus(process.env.EXACT_APP_DIR).filter(r => r.state === 'running')) : '';
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}${progress && !progress.startsWith('No ') ? `; ${progress}` : ''}`);
 }
 
 /** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
@@ -795,15 +799,14 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
  * its proof, pins, documents, tests, shots, tools, repros, and helper scripts
  * outside the built trees. The proof's input digest (game/proof.mjs), the web
  * staleness check and a game's native receipt share it. */
-export function gameNonInput(path) {
-  path = path.replaceAll('\\', '/');
-  return /^(shots|tools|repros)\//.test(path)
-    || /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
-    || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
-}
 /** What a web build of `app` reads, modified after `since` (every file by default):
  * the app's own files and the shared host/runtime roots, as shown paths. */
 export function webInputs(app, js, since = -Infinity) {
+  if (app.manifest?.game) {
+    const files = proofInputFiles(ROOT, app.dir).map(file => resolve(ROOT, file));
+    const admitted = since === -Infinity ? files : files.filter(file => statSync(file).mtimeMs > since);
+    return {app:admitted.filter(file => file.startsWith(app.dir + '/')), shared:admitted.filter(file => !file.startsWith(app.dir + '/'))};
+  }
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
@@ -1040,4 +1043,18 @@ export async function exclusiveIOS(udid, bundle, launch, { directory = resolve(t
     carrier.close = () => closed ??= (async () => { try { await close(); } finally { await unlock(); } })();
     return carrier;
   } catch (error) { await unlock(); throw error; }
+}
+
+/** A proof executes private products and checks those copies against their inputs. */
+export function proofProductChanges(receipt, bin, app, root = ROOT) {
+  const record = JSON.parse(readFileSync(receipt,'utf8')), changed = [];
+  if (record.binary !== bin) return ['proof receipt names another binary'];
+  const files = executionInputFiles(root,app.dir);
+  for (const file of new Set([...files,...Object.keys(record.inputs)])) {
+    const path = resolve(root,file);
+    if (!files.includes(file) || !existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== record.inputs[file]) changed.push(file);
+  }
+  for (const [path,hash] of Object.entries(record.products))
+    if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== hash) changed.push(path);
+  return changed;
 }

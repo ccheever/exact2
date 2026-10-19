@@ -601,6 +601,36 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// A captured mouse click follows kernel ancestry through nodes hidden
+    /// by pointerup. A picture boundary is returned for retained dispatch;
+    /// ordinary live handler lookup must not cross it.
+    fn mouse_press_target(&self, id: ViewId) -> Option<ViewId> {
+        if self.host.route_visibility(id).1 {
+            return None;
+        }
+        let kernel = self.host.kernel();
+        let mut at = Some(id);
+        while let Some(id) = at {
+            if self.brush.region_blocks_action(id) {
+                return Some(id);
+            }
+            let node = kernel.node(id)?;
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return None;
+            }
+            if self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Press)
+            {
+                return Some(id);
+            }
+            at = node.parent;
+        }
+        None
+    }
+
     /// The web's focusable nodes: controls, inputs, buttons and links, a
     /// node with a `focus`, `blur` or `key` handler (the web gives it a
     /// `tabindex`), and any node with an explicit `tabindex`, a negative one
@@ -673,20 +703,47 @@ impl<D: DataSource> Presenter<D> {
         x: f32,
         y: f32,
         now_ms: f64,
-        field_focus_before_down: Option<Option<ViewId>>,
+        focus_before_down: Option<Option<ViewId>>,
     ) -> Option<ViewId> {
         // An open select menu takes the press: a row, or light dismiss.
         if let Some(select) = self.menu_press(x, y) {
             return Some(select);
         }
         let hit = self.hit(x, y)?;
-        self.note_press_from(hit, false, field_focus_before_down.unwrap_or(self.focus));
-        let focus = field_focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit);
+        self.press_hit_after_down(hit, (x, y), now_ms, focus_before_down, false)
+    }
+
+    pub(crate) fn press_hit_after_down(
+        &mut self,
+        hit: ViewId,
+        (x, y): (f32, f32),
+        now_ms: f64,
+        focus_before_down: Option<Option<ViewId>>,
+        mouse_click: bool,
+    ) -> Option<ViewId> {
+        self.note_press_from(hit, false, focus_before_down.unwrap_or(self.focus));
+        let focus = focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit);
+        let click = mouse_click.then(|| self.mouse_press_target(hit)).flatten();
+        if let Some(picture) = click.filter(|id| self.brush.region_blocks_action(*id)) {
+            return self.retained_press(picture, now_ms);
+        }
         // A popover's invoker, or a dialog's button: the top layer's, where
         // a shell presents one (`presenter/top.rs`); else refused.
         if let Some(invoker) = self.top_invoker(hit) {
             if self.has_windows() && focus {
                 self.focus_for_press(hit, (x, y), now_ms, self.direct());
+            }
+            if mouse_click {
+                let key = self.host.kernel().node(invoker)?.key;
+                if let Some(target) = click {
+                    self.dispatch_press(target, now_ms, true);
+                }
+                if !self.has_windows() && !self.neutral_alerts() {
+                    self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
+                    return None;
+                }
+                self.follow_invocation(key, invoker, now_ms);
+                return Some(invoker);
             }
             return self.invoke(invoker, now_ms, true);
         }
@@ -694,23 +751,40 @@ impl<D: DataSource> Presenter<D> {
             return self.retained_press(hit, now_ms);
         }
         if let Some(control) = self.control_target(hit) {
-            for phase in ["down", "up"] {
-                if !self.control_input(control, phase, x, y, 1, now_ms) {
-                    return None;
-                }
+            let accepted = ["down", "up"]
+                .into_iter()
+                .all(|phase| self.control_input(control, phase, x, y, 1, now_ms));
+            if let Some(target) = click {
+                self.dispatch_press(target, now_ms, true);
             }
-            return Some(control);
+            return accepted.then_some(control);
         }
         if focus {
             self.focus_for_press(hit, (x, y), now_ms, self.direct());
         }
-        if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
+        if self.press_range(hit, x) {
+            if let Some(target) = click {
+                self.dispatch_press(target, now_ms, true);
+            }
+            return Some(hit);
+        }
+        let control = if mouse_click {
+            self.click_control(hit, now_ms, click)
+        } else {
+            self.toggle_control(hit, now_ms)
+        };
+        if control {
             return Some(hit);
         }
         // A link under the press is followed after the press's own handler,
         // as a click's default action follows its listeners (LLP 1038 §7).
         let link = self.link_at(hit, x, y);
-        let Some(target) = self.handler_target(hit, EventKind::Press) else {
+        let target = if mouse_click {
+            click
+        } else {
+            self.handler_target(hit, EventKind::Press)
+        };
+        let Some(target) = target else {
             if let Some(href) = link {
                 self.follow(hit, &href, now_ms);
                 return Some(hit);

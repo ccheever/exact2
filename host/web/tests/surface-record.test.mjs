@@ -352,11 +352,11 @@ test('the last bounded non-adapter failure enters fallback and logs the terminal
     return '{"status":"failed","code":"no-device","error":"no device: limits rejected"}';
   };
   f.exact.gpu.deviceLost();
-  for(let i=0;i<4;i++) await Promise.resolve();
+  await new Promise(setImmediate);
   for(const delay of [100,200,400,800]) {
     assert.equal(timers.length,1);
     const timer=timers.shift(); assert.equal(timer.ms,delay); timer.fn();
-    for(let i=0;i<4;i++) await Promise.resolve();
+    await new Promise(setImmediate);
   }
   assert.equal(attempts,5);
   assert.equal(f.exact.gpu.recovery.status,'no device');

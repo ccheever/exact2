@@ -989,11 +989,25 @@ screen, 2026-10-16.)
 - **After a long press made with `axe touch --down --up --delay`, the iOS simulator
   ignores taps.** An action sheet or alert the long press opened stays up whatever
   is tapped, and relaunching the app does not help: Apple's Settings app on that
-  simulator ignores taps too, until the simulator reboots. Cause: AXe 1.8.0's
-  touch command, not the app. Fix: make real touches with the agent, which taps
+  simulator ignores taps too, until the simulator reboots. In an Exact app the
+  symptom can be partial: the tab bar and an alert's buttons, which are UIKit's,
+  ignore taps while the app's own buttons still answer them. UIKit's controls do
+  that while another touch is down: with `axe touch --down` holding one finger,
+  Apple's Photos ignores a tap on its tab bar exactly as an Exact app's does, and
+  a sequencer's play button still plays. Cause: AXe 1.8.0's touch command, not
+  the app. Fix: make real touches with the agent, which taps
   an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
   "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
-  prompt, 2026-10-18.)
+  prompt, and its tab bar after a relaunch, 2026-10-18.)
+- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
+  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+  one run); otherwise the app opens the link at once. A drive that then taps where
+  the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
+  taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
+  the link presented, and UIKit dismisses that sheet and pops the route, as it would
+  for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
+  `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
+  "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
@@ -1481,6 +1495,30 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A continued proof uses its saved source copy.** Keep the SDK unchanged until
+  it finishes. Edit the original game freely during a new run; `--continue` refuses
+  if its authored inputs differ from the snapshot, naming the file. Start a new
+  proof to verify the edit. `tools/` probes and `.exact/status.json` are not game inputs.
+  A fresh snapshot has no generated `.shells/surfaces.json`. Cache that declaration
+  with the GPU receipt and restore it before checking the host receipt. Restore
+  Git-ignored baked assets too: a Cargo cache hit does not rerun `bake_art`.
+  Shared Cargo targets are compilation caches; copy validated native products
+  into the run before driving them, so another proof cannot replace them.
+  Declare proof-only JSON or other files with `export const proofData = ["relative/path"];`
+  so the snapshot copies them and continuation checks them. Resolve SDK files from
+  the shared runner’s `proofSDK`, not by walking up from a relocated proof.
+
+- **A first native proof can require a rerun after generated directories appear.**
+  If it says `app or asset directories changed during build`, rerun the same
+  command after generation finishes. The first receipt is refused deliberately;
+  the fresh/stable/cached proof test covers this path.
+- **Stopping `game/dev.mjs` during a build can leave its build child running.**
+  A terminated server does not prove its Cargo/build descendants exited. Record
+  the process tree before stopping it, then check those PIDs; terminate only
+  processes belonging to that invocation before starting another build.
+- **`exact.mjs linux` builds the host, not the game's GPU module.** For the
+  `gpu-dev` host/module pair, use `bun proof.mjs linux --build-only` from the
+  game directory. See [game build profiles](../game/README.md#exact2-integration).
 - **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
   is the fallback when the socket cannot resolve; rotating that fallback does not
   rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
+import {refusalMessage} from './agent-keys.mjs';
 //   tree | layout | state | logs [--all] | check [light|dark|both] | screenshot <png> [window [status|app]] (an iOS simulator's window: the display's pixels when they are this app's, still; `app` the app's own drawing) | screenshot <png> compare <reference.png> | screenshot <png|apng> over <ms> every <ms> [window] | screenshot <path> <canvas> save
 //   tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | hold-state active|hover|focus-visible|none | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
 //   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others; a hold moves the app's clock by <ms>; a plain tap is pointerdown, pointerup, then the press; the target shows pressed until the lift, so `tap row down` "screenshot held.png" `tap up` pictures it, under --touch platform too, where the holds, reads and clock +<ms> between run inside one real touch played at tap up)
-//   A word a form does not use is refused by name; a form a carrier cannot deliver as a hand's answers `delivery: "unsupported"` (#107).
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
 //   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | close | sample <x> <y> […] (extended linear sRGB under view points, LLP 1100 D12) | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>] | perf hatches [during "<op>" …]
@@ -12,7 +12,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
+import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, proofProductChanges, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 import { widgetStep } from './agent-widget.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -533,7 +533,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   if (macPlan) plan = macPlan.plan; else if (macBuild) refuseBuild('macos', macBuild, a, { sample });
   if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : android ? `run bun scripts/agent-android.mjs build ${a.name}${process.env.EXACT_ANDROID_READER ? ' --apk' : ''} first` : linux ? `run ${linuxBuild(a).join(' ')} first` : `EXACT_MAC_BIN names no file: ${bin}`);
   if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, artifacts.executable) : bin);
-  if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
+  if (portable && process.env.EXACT_PROOF_PRODUCTS) refuseStale(host, bin, proofProductChanges(process.env.EXACT_PROOF_PRODUCTS, bin, a), 'rerun the proof'); else if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
   else if (windows) {
     const receipt = resolve(bakeOutput(a), `windows-${bakeTarget('windows')}.build.json`);
     refuseStale('windows', bin, packagedBuildChanges(receipt, dirname(bin), a), `bun host/windows/build.mjs ${a.crate('windows')}`);
@@ -876,7 +876,6 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** The agent's clock, milliseconds: the last `clock` value (0 at boot). */
     now: 0,
     logCursor: 0,
-    /** Await the current page's GPU load time, or null before loading/on native. */
     gpuMs: carrier.gpuMs,
     /** The host's wire: one request as the carrier sends it, views addressed by `id`. The methods (`tap`, `type`, …)
      * are the operations a person performs; a request the wire would answer by doing nothing is refused (habits F8). */
@@ -905,17 +904,18 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return canvas?.world ? s.op({op:"tree", id:canvas.id, world:true, ...under}) : reply;
     },
     world(name) { return worldView(this, name); },
-    /** Every slot, derive, and resource by name, as typed JSON. */
     state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target, false, true) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs({all = false} = {}) {
       const since = all ? 0 : s.logCursor;
-      const r = await s.op({ op: 'logs', since, ...(all ? {all:true} : {}) }); r.world = takeWorldLogs(s, r.world, all);
+      let r; try { r = await s.op({ op: 'logs', since, ...(all ? {all:true} : {}) }); }
+      catch (e) { if (carrier.host !== 'web' || !carrier.hostLines.length) throw e; r = {lines:[], from:since, next:since, refused:e.reply?.refused, error:e.message}; } r.world = takeWorldLogs(s, r.world, all);
       const dropped = Math.max(0, r.from - since);
       s.logCursor = r.next;
       // What the driver did that the journal could not keep (a test's `reload` waiting for storage, LLP 1097 D9).
       const notes = s.notes?.splice(0) ?? [];
-      const crash = carrier.crashes?.() ?? []; return { lines: [...notes, ...r.lines], host: carrier.hostLines.splice(0), ...(crash.length ? { crash } : {}), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
+      const host = carrier.hostLines.slice(all ? 0 : s.hostLogCursor ?? 0); s.hostLogCursor = carrier.hostLines.length;
+      const crash = carrier.crashes?.() ?? []; return { ...(r.error ? {error:r.error, refused:r.refused} : {}), lines: [...notes, ...r.lines], host, ...(crash.length ? { crash } : {}), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
     },
     /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
     async perf(target, frames) {
@@ -1494,5 +1494,5 @@ export async function main(argv, injected = {}) {
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (e.steps) console.error(render('type', {steps:e.steps})); console.error(e.message); process.exit(e.stale ? 3 : 1); });
+  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (refusalMessage(e.reply)) console.error(refusalMessage(e.reply)); else console.error(e.message); if (process.env.EXACT_AGENT_DEBUG || process.argv.includes('--json')) console.error(e.stack); if (e.steps && !refusalMessage(e.reply)) console.error(render('type', {steps:e.steps})); process.exit(e.stale ? 3 : 1); });
 }

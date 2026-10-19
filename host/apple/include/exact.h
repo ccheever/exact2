@@ -134,7 +134,8 @@ uint32_t exact_calc_parse(const uint8_t *text, size_t len);
 
 /* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
  * viewport width/height (the window's when a sheet is open), segment cols/rows, the layout
- * regions' count (0 or 20) and the regions (LLP 1123 D10), then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * regions' count (0 or 20) and the regions (LLP 1123 D10), the title-bar area's count (0 or 4)
+ * and its x,y,w,h, then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
  * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
 void *exact_calc_create(uint32_t handle, const double *values, size_t count);
 double exact_calc_resolve(const void *context, double basis);
@@ -365,6 +366,13 @@ void exact_set_app_module(ExactRuntime rt, ExactAppLaterFn later, ExactAppCallFn
 void exact_app_answer(void *slot, uint32_t status, const uint8_t *bytes, size_t len);
 void exact_app_changed(ExactRuntime rt, const uint8_t *topic, size_t len);
 void exact_app_reply(void *reply, uint32_t status, const uint8_t *bytes, size_t len);
+
+/* A document the app kept was forgotten by the app (LLP 1069.010.000 D5):
+ * called on a storage worker's thread with the object's device and inode;
+ * the host takes it off NSDocumentController's recents on the main thread.
+ * One hook for the process. */
+typedef void (*ExactForgottenFn)(uint64_t device, uint64_t inode);
+void exact_on_document_forgotten(ExactForgottenFn forgotten);
 
 /* Buffers. exact_in returns NULL for a handle nobody holds. */
 uint8_t *exact_in(ExactRuntime rt, size_t len);
@@ -692,6 +700,13 @@ uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, flo
  * region is the safe area. A change re-sends the style of every node that
  * reads the environment and lays out again. */
 uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
+/* The title-bar area beside the window's controls (points, from the layout
+ * viewport), what env(titlebar-area-x|y|width|height) resolves to (Window
+ * Controls Overlay): count is 4, x, y, width, height (all zero while the area
+ * is hidden), or 0, when the window gives none and each variable is undefined.
+ * A change re-sends the style of every node that reads the environment and
+ * lays out again. */
+uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count);
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments

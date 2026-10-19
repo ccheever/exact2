@@ -100,6 +100,14 @@ impl<D: DataSource> Bridge<D> {
         });
         self.emit(out)
     }
+    /// The title-bar area changed (Window Controls Overlay): x, y, width,
+    /// height, or none, when the window gives no such area.
+    pub fn titlebar_area(&mut self, rect: &[f32]) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.set_titlebar_area(crate::Host::<D>::titlebar_area_from(rect))
+        });
+        self.emit(out)
+    }
 }
 
 /// Invalid environment answers refuse the candidate rather than silently inheriting the page.

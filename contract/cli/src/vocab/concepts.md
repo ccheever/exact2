@@ -141,7 +141,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar
+names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -189,8 +189,11 @@ component App
   `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
   path("recipe", name)) : push(nav, path("recipe", name))`.
 - Each route keeps its own scroll: a pushed screen opens at its top, and Back returns to the
-  list where it was left. Build locations with `path("recipe", name)`; a route's parameters
-  are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
+  list where it was left. What an `if` swaps inside one route's scroll keeps that scroll's
+  place, as a web page's does, so the stages a person moves through (a quiz's start, its
+  questions, its results) are routes too; swapped by a state, the next stage opens where the
+  last was scrolled to, part way down and under the bar. Build locations with
+  `path("recipe", name)`; a route's parameters are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
   over the screen is a sheet (`contract vocab modal`).
 - A welcome shown at first launch only is not a second route: the main screen is the root
   route and shows the welcome while a `persist` flag is unset (docs/recipes/first-launch.md).
@@ -1071,3 +1074,26 @@ component App
 
 - The action the task runs clears the message whatever it reads: a gated task is armed at
   commits, not by the clock (docs/agent-pitfalls.md, "A gate reads state at commits").
+
+## titlebar: a row beside the Mac's traffic lights
+names: titlebar-area, titlebar-area-x, titlebar-area-y, titlebar-area-width, titlebar-area-height, title-bar, traffic-lights, trafficLightPosition, window-controls-overlay, hiddenInset
+
+Window Controls Overlay's `env(titlebar-area-x|y|width|height)` is the part of the title
+bar the page may draw in, beside the window's controls. On the Mac, under
+`viewport-fit="cover"`, it is AppKit's title bar less the traffic lights: in a 900-point
+window `78 0 822×32`. It is all zero in full screen and while the window has a toolbar (an
+app with routes has one), and undefined elsewhere: in a browser tab, on iOS, Linux and
+Windows, and on a Mac window that does not cover its title bar. Give each a fallback.
+
+```contract
+component App
+  view
+    main viewport-fit="cover" display="flex" flex-direction="column" width="100%" height="100%"
+      row margin-left="env(titlebar-area-x, 0px)" width="env(titlebar-area-width, 100%)" height="env(titlebar-area-height, 0px)" align-items="center"
+        text "Drafts" role="heading" aria-level=1
+      scroll flex=1 min-height=0 padding=16
+        text "Body"
+```
+
+- Nothing moves the traffic lights or sets the row's height: the title bar is AppKit's.
+- More: docs/contract-grammar.md (lengths).

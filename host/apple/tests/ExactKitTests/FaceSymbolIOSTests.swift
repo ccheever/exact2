@@ -380,25 +380,32 @@ final class FaceSymbolGroupedTests: GroupedListFixture {
 
     /// A path in the accent (`AccentColor`, as GroupedListIOSTests' testASymbolInTheAccentTakesTheCellsTint has
     /// a symbol, its file at its cap): no colour of its own, so the cell's tint, not the label, as it changes.
+    /// The same for an untinted path whose written `color` is `AccentColor`
+    /// (LLP 1121 stage 9 B: the colour it takes is the accent's).
     func testAPathInTheAccentTakesTheCellsTint() throws {
+        let accent: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+        try assertTheCellsTint(props: [:], style: ["tint_color": accent])
+        try assertTheCellsTint(props: ["symbolColorWritten": "1"], style: ["text_color": accent])
+    }
+    private func assertTheCellsTint(props: [String: Any], style: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
         let p = presenter { self.pathModel() }
+        let source: [String: Any] = ["imageSource": "symbol:icon||0 0 24 24|M2 2 L22 2 L22 22 L2 22 Z|icons/x.svg"]
         p.apply(wireBatch([
-            ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:icon||0 0 24 24|M2 2 L22 2 L22 22 L2 22 Z|icons/x.svg"],
-             "style": ["tint_color": ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]]],
+            ["op": "create", "id": 31, "kind": "image", "props": source.merging(props) { $1 }, "style": style],
             ["op": "create", "id": 33, "kind": "text", "props": ["text": "Reply"], "style": [:]],
             ["op": "children", "id": 10, "ids": [31, 33]],
         ]))
         let row = try cell(p, 10)
-        XCTAssertNil((row.contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor, "the accent is the cell's tint")
+        XCTAssertNil((row.contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor, "the accent is the cell's tint", file: file, line: line)
         let light = UITraitCollection(userInterfaceStyle: .light)
         func shown() throws -> UIColor {
             row.layoutIfNeeded()
             func images(_ v: UIView) -> [UIImageView] { ((v as? UIImageView).map { [$0] } ?? []) + v.subviews.flatMap(images) }
-            return try XCTUnwrap(images(row.contentView).first { $0.image?.renderingMode == .alwaysTemplate }, "the path's view").tintColor
+            return try XCTUnwrap(images(row.contentView).first { $0.image?.renderingMode == .alwaysTemplate }, "the path's view", file: file, line: line).tintColor
         }
         for accent in [UIColor.systemTeal, .systemPink] {
             window.tintColor = accent
-            XCTAssertEqual(try shown().resolvedColor(with: light), accent.resolvedColor(with: light), "drawn in the accent as it changes")
+            XCTAssertEqual(try shown().resolvedColor(with: light), accent.resolvedColor(with: light), "drawn in the accent as it changes", file: file, line: line)
         }
     }
 
