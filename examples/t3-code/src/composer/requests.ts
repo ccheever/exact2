@@ -118,6 +118,9 @@ function responseReason(client: T3Client, resumable: boolean): string {
   return '';
 }
 
+/** canOperateThread: without orchestration:operate a request card shows with its answers and decisions disabled. */
+const operable = (client: T3Client) => client.scopes.includes('orchestration:operate');
+
 /** The composer shows the first pending approval, else the first pending question (ChatComposer). */
 export function requestPresentation(client: T3Client) {
   const { approvals: pendingApprovals } = composerRequests(client);
@@ -130,8 +133,7 @@ export function requestPresentation(client: T3Client) {
     return { id: approval.requestId, label: approvalLabel(approval.kind), appName: approval.appName,
       count: pendingApprovals.length > 1 ? `1/${pendingApprovals.length}` : '', mono: approval.kind !== 'mcp-elicitation',
       detail: approval.live ? approval.detail || approvalLabel(approval.kind) : NOT_RESUMABLE,
-      // canOperateThread: without orchestration:operate the card shows with its actions disabled.
-      canRespond: !reason, operable: client.scopes.includes('orchestration:operate'), live: approval.live, responding: responding(approval.requestId), responseReason: reason,
+      canRespond: !reason, operable: operable(client), live: approval.live, responding: responding(approval.requestId), responseReason: reason,
       options: options.filter(option => option.primary), more: options.filter(option => !option.primary) };
   });
   const active = approvals.length ? undefined : composerInput(client);
@@ -142,7 +144,7 @@ export function requestPresentation(client: T3Client) {
     const customActive = (entry.initialAnswer !== undefined ? active.custom : active.custom.trim()).length > 0;
     const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(entry.question), client.shell.threads), root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
     return { id: `${input.requestId}::${entry.id}`, requestId: input.requestId, header: entry.header, question: text,
-      multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, live: input.resumable, responseReason: reason,
+      multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, operable: operable(client), live: input.resumable, responseReason: reason,
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
       position: input.questions.length > 1 ? `${index + 1}/${input.questions.length}` : '', index, last: active.last,
       canAdvance: active.canAdvance, complete: active.complete,
@@ -205,6 +207,7 @@ export function setCustomAnswer(client: T3Client, value: string): boolean {
 }
 /** Selecting replaces the custom answer; its text returns to the thread draft. */
 export function chooseOption(client: T3Client, id: string, value: string, carry: (text: string) => void): boolean {
+  if (!operable(client)) return false; // handleOptionSelection: a disabled card ignores the pick
   const separator = id.indexOf('::');
   const current = requireInput(client, id.slice(0, separator));
   if (current.active!.id !== id.slice(separator + 2)) throw new ClientError('That question is no longer active.');

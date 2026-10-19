@@ -107,15 +107,38 @@ final class T3ComposerEditor {
     /// Return, Tab (the highlighted item) and Escape before the field's own command.
     func menuCommand(_ selector: Selector, in view: NSTextView) -> Bool {
         guard view === textView, view.isEditable, !view.hasMarkedText() else { return false }
+        if let step = Self.arrow(selector, NSApp.currentEvent) {
+            // ⌥↓ is two commands (moveForward:, moveToEndOfParagraph:): its first press holds the second.
+            if let event = NSApp.currentEvent, event === arrowEvent { return true }
+            let pressed = step > 0 ? press("ArrowDown") || press("stash-ArrowDown") : press("ArrowUp") || press("stash-ArrowUp")
+            arrowEvent = pressed ? NSApp.currentEvent : nil
+            return pressed
+        }
         switch selector {
-        case #selector(NSResponder.moveDown(_:)): return press("ArrowDown") || press("stash-ArrowDown")
-        case #selector(NSResponder.moveUp(_:)): return press("ArrowUp") || press("stash-ArrowUp")
         case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
             return press("Enter") || press("stash-Enter")
         case #selector(NSResponder.insertTab(_:)): return press("Enter")
         case #selector(NSResponder.cancelOperation(_:)): return press("Escape")
         case #selector(NSResponder.deleteToBeginningOfLine(_:)): return press("stash-Delete")
         default: return false
+        }
+    }
+    private weak var arrowEvent: NSEvent?
+    /// The menus read `event.key` (onComposerCommandKey, ComposerStashMenu), so ↑ and ↓ move the highlight with
+    /// any modifier held, ⇧ included, while ⌃N and ⌃P, which AppKit binds to moveDown: and moveUp: too, move the
+    /// caret. With no key event (a command sent directly), the selector alone decides.
+    static func arrow(_ selector: Selector, _ event: NSEvent?) -> Int? {
+        if let event, event.type == .keyDown {
+            switch event.charactersIgnoringModifiers?.unicodeScalars.first.map({ Int($0.value) }) {
+            case NSDownArrowFunctionKey: return 1
+            case NSUpArrowFunctionKey: return -1
+            default: return nil
+            }
+        }
+        switch selector {
+        case #selector(NSResponder.moveDown(_:)): return 1
+        case #selector(NSResponder.moveUp(_:)): return -1
+        default: return nil
         }
     }
     private func press(_ name: String) -> Bool {

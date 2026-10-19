@@ -1438,6 +1438,14 @@ component T3Code
           composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
         else
           format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
+    else if not composing and k == "Tab" and e.shiftKey and data.composer.planVisible and not composerInCode
+      // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), in a list or with a menu open too.
+      // A code block outdents first (ComposerPromptEditorTiptap); without the toggle a list outdents and other text
+      // gives the focus back (TextAreaMac.insertBacktab).
+      preventDefault()
+      stopPropagation()
+      if data.connected
+        menuPick("interaction", "", data.composer.planActive ? "default" : "plan")
     else
       composerGrammarKey(k, e, composing)
     composerComposing = composing
