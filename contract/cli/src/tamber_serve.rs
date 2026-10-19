@@ -642,7 +642,7 @@ impl Server {
             Some("import-plan") => vec![reply(self.texts().and_then(|now| {
                 let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
                 let kept = crate::tamber_export::kept(&self.dir.join(&self.design));
-                crate::tamber_import::plan(&request, design.map_or("tamber app\n", |t| t), &kept)
+                crate::tamber_import::plan(&request, design.map(String::as_str), &kept)
             }))],
             Some("export") => vec![reply(self.export(&request))],
             other => vec![reply(Err(

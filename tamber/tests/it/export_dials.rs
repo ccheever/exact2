@@ -333,3 +333,82 @@ fn an_explicit_baseline_is_the_only_one_and_must_have_the_designs_axes() {
     let refused = reimport_against(&theirs, Some(&theirs), &[], DESIGN, &vocab()).unwrap_err();
     assert!(refused[0].message.starts_with("pull first"), "{refused:?}");
 }
+
+#[test]
+fn round_3_a_baseline_whose_references_multiply_is_refused_quickly() {
+    use exact_tamber::export::reimport_against;
+    let text = dtcg(&check(DESIGN, &vocab()).unwrap(), &vocab()).unwrap();
+    // The real header and contexts; a context's sources a tree of repeated
+    // references, eight to each next level, ten levels deep.
+    let mut forged: Value = serde_json::from_str(&text).unwrap();
+    for level in 0..10 {
+        let next = if level == 9 {
+            json!([{"x": {"$type": "number", "$value": 1}}])
+        } else {
+            json!(vec![json!({"$ref": format!("#/sets/l{}", level + 1)}); 8])
+        };
+        forged["sets"][format!("l{level}")] = json!({ "sources": next });
+    }
+    let first = forged["modifiers"]["mode"]["contexts"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    forged["modifiers"]["mode"]["contexts"][&first] = json!([{"$ref": "#/sets/l0"}]);
+    let forged = forged.to_string();
+    let started = std::time::Instant::now();
+    let refused = reimport_against(&text, Some(&forged), &[], DESIGN, &vocab()).unwrap_err();
+    assert!(started.elapsed().as_secs() < 5);
+    assert!(
+        refused.iter().any(|d| d.message.contains("expand")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn round_3_a_colour_with_and_without_its_hex_agrees() {
+    let design = "tamber t\n\ndials\n  accent: color = #1083fe\n\ntheme\n  accent.fill = accent\n  accent.line = accent\n  accent.ring = accent\n";
+    let (_, _, import) = edited_in(design, |_, t| {
+        t["accent"]["fill"]["$value"] = red();
+        t["accent"]["line"]["$value"] =
+            json!({"colorSpace": "srgb", "components": [1.0, 0.0, 0.0]});
+    });
+    assert_eq!(
+        import.dials.len(),
+        1,
+        "{:?} {:?}",
+        import.ops,
+        import.unmapped
+    );
+}
+
+#[test]
+fn round_3_a_bare_role_name_is_followed_and_a_default_edit_keeps_its_branches() {
+    let design = "tamber t\n\ntheme\n  background = #000000\n  ink = background\n";
+    let (_, _, import) = edited_in(design, |_, t| t["ink"]["$value"] = red());
+    assert_eq!(
+        import.pins.len(),
+        1,
+        "{:?} {:?}",
+        import.ops,
+        import.unmapped
+    );
+    assert!(
+        import.pins[0]
+            .follows
+            .iter()
+            .any(|f| f.ends_with("background")),
+        "{:?}",
+        import.pins
+    );
+    let design = "tamber t\n\naxes\n  brand = plain | loud\n\ndials\n  accent: color = #1083fe\n\ntheme\n  ink = #000000\n    when brand=loud: accent\n  accent.ring = accent\n";
+    let (_, _, import) = edited_in(design, |name, t| {
+        if name.starts_with("brand=plain") {
+            t["ink"]["$value"] = red();
+        }
+    });
+    assert!(!import.ops.is_empty(), "{:?}", import.unmapped);
+    assert!(import.pins.is_empty(), "{:?} {:?}", import.ops, import.pins);
+}

@@ -152,7 +152,11 @@ fn import_with(
 /// `name` is the file's (a Figma export's `<Collection>.<Mode>.json` names
 /// its modes). Astryx is not taken here: resolving its package needs a Bun
 /// install, which its CLI does.
-pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Value> {
+pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Value, Value> {
+    // The design it planned on, by digest (none with no design file yet), so
+    // the wire holds the proposal on that same text or plans again.
+    let digest = design.map(|t| crate::tamber_serve::digest(t.as_bytes()));
+    let current = design.unwrap_or("tamber app\n");
     let bad = |m: &str| json!({"message": m});
     let field = |k: &str| match &request[k] {
         Value::Null => Ok(None),
@@ -168,7 +172,9 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
         let (dials, pins) =
             exact_tamber::import::marks_of(current, &ops, &contract_lower::tamber_vocab())
                 .ok_or_else(|| bad("the design does not check"))?;
-        return Ok(json!({"dials": dials_json(&dials), "pins": pins_json(&pins)}));
+        return Ok(
+            json!({"dials": dials_json(&dials), "pins": pins_json(&pins), "digest": digest}),
+        );
     }
     let kind = field("kind")?.ok_or_else(|| bad("`kind` is shadcn, tailwind or dtcg"))?;
     if kind == "astryx" {
@@ -264,7 +270,11 @@ pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Va
         Some(Err(all)) => Err(
             json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| if files.len() == 1 { json!({"file": files[0].0, "line": d.line, "col": d.col, "id": d.id, "message": d.message}) } else { json!({"id": d.id, "message": d.message}) }).collect::<Vec<_>>()}),
         ),
-        Some(Ok(import)) => Ok(import_json(&kind, &import)),
+        Some(Ok(import)) => {
+            let mut out = import_json(&kind, &import);
+            out["digest"] = json!(digest);
+            Ok(out)
+        }
     }
 }
 

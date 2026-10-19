@@ -15,6 +15,7 @@
 //! expression or a role included, and a changed one is proposed as a
 //! `set-token` for its tuple.
 
+use crate::export_dials::{alike, read_css};
 use crate::import::{counted, dtcg::colour, Import, Unmapped};
 use crate::syntax::Token;
 use crate::{fallback, Diagnostic, Folded, Folding, Half, Host, Op, Vocab};
@@ -533,19 +534,32 @@ fn flatten(tree: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
 
 /// A context source's tokens, in order: a token tree, or a reference to a
 /// set or a tree in the same document (`#/sets/…`), resolved as the
-/// Resolver Module says. A reference elsewhere, or a cycle, is refused.
+/// Resolver Module says. A reference elsewhere, a cycle, or a document
+/// whose references multiply past `VISITS` sources and tokens is refused.
 fn source_tokens(
     doc: &Value,
     src: &Value,
     depth: usize,
     out: &mut Vec<(String, Value)>,
+    budget: &mut usize,
 ) -> Result<(), String> {
     if depth > 16 {
         return Err("references nest too deep".into());
     }
+    let spent = |budget: &mut usize, n: usize| {
+        *budget = budget.checked_sub(n).ok_or_else(|| {
+            format!(
+                "its references expand to more than {} sources and tokens",
+                crate::import::dtcg::VISITS
+            )
+        })?;
+        Ok::<(), String>(())
+    };
+    spent(budget, 1)?;
     let Some(r) = src.get("$ref").and_then(Value::as_str) else {
+        let before = out.len();
         flatten(src, "", out);
-        return Ok(());
+        return spent(budget, out.len() - before);
     };
     let target = r
         .strip_prefix('#')
@@ -554,10 +568,14 @@ fn source_tokens(
     match target.get("sources").and_then(Value::as_array) {
         Some(srcs) => {
             for s in srcs {
-                source_tokens(doc, s, depth + 1, out)?;
+                source_tokens(doc, s, depth + 1, out, budget)?;
             }
         }
-        None => flatten(target, "", out),
+        None => {
+            let before = out.len();
+            flatten(target, "", out);
+            spent(budget, out.len() - before)?;
+        }
     }
     Ok(())
 }
@@ -567,6 +585,7 @@ fn source_tokens(
 type ByContext = std::collections::BTreeMap<String, Vec<(String, Value)>>;
 fn tokens_by_context(doc: &Value) -> Result<ByContext, String> {
     let mut out = ByContext::new();
+    let mut budget = crate::import::dtcg::VISITS;
     for (context, srcs) in doc["modifiers"]["mode"]["contexts"]
         .as_object()
         .into_iter()
@@ -574,7 +593,8 @@ fn tokens_by_context(doc: &Value) -> Result<ByContext, String> {
     {
         let mut all = Vec::new();
         for src in srcs.as_array().into_iter().flatten() {
-            source_tokens(doc, src, 0, &mut all).map_err(|e| format!("`{context}`: {e}"))?;
+            source_tokens(doc, src, 0, &mut all, &mut budget)
+                .map_err(|e| format!("`{context}`: {e}"))?;
         }
         out.insert(context.clone(), all);
     }
@@ -619,18 +639,7 @@ fn written_colour(value: &Value) -> Option<String> {
 
 /// A colour value as the colour it reads as.
 fn read(value: &Value) -> Option<Wide> {
-    match colour(value).and_then(|c| exact_color::parse(&c))? {
-        Parsed::Legacy(c) => Some(Half::legacy(c).wide()),
-        Parsed::Wide(w) => Some(w),
-        _ => None,
-    }
-}
-
-/// Two colours the same, to a reprint's rounding: a millionth in linear
-/// sRGB, well inside an 8-bit step.
-fn alike(x: &Wide, y: &Wide) -> bool {
-    let (p, q) = (x.linear_srgb(), y.linear_srgb());
-    p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-6) && (x.alpha - y.alpha).abs() < 1e-6
+    colour(value).and_then(|c| read_css(&c))
 }
 
 /// Two colour values the same: as written, or as the colours they read as

@@ -61,10 +61,27 @@ pub struct Candidate {
 /// or the line and why they are refused too.
 pub(crate) type Literal = Result<Vec<Op>, (String, String)>;
 
-/// Two colours' texts the same colour (both parse, as candidates' do).
-fn alike(a: &str, b: &str) -> bool {
+/// Two colours' texts the same colour, to a reprint's rounding (`#ff0000`,
+/// `red`, `color(srgb 1 0 0)`), as re-import compares values.
+fn same(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
-        || exact_color::parse(a).is_some_and(|x| exact_color::parse(b) == Some(x))
+        || matches!((read_css(a), read_css(b)), (Some(x), Some(y)) if alike(&x, &y))
+}
+
+/// A CSS colour as the colour it reads as.
+pub(crate) fn read_css(text: &str) -> Option<exact_color::Wide> {
+    match exact_color::parse(text)? {
+        exact_color::Parsed::Legacy(c) => Some(crate::Half::legacy(c).wide()),
+        exact_color::Parsed::Wide(w) => Some(w),
+        _ => None,
+    }
+}
+
+/// Two colours the same, to a reprint's rounding: a millionth in linear
+/// sRGB, well inside an 8-bit step.
+pub(crate) fn alike(x: &exact_color::Wide, y: &exact_color::Wide) -> bool {
+    let (p, q) = (x.linear_srgb(), y.linear_srgb());
+    p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-6) && (x.alpha - y.alpha).abs() < 1e-6
 }
 
 /// The dial a changed token moves by, if it does: every context whose
@@ -101,7 +118,7 @@ pub(crate) fn candidate(
                 return None;
             }
             match &found {
-                Some((d, v)) if *d != dial || !alike(v, &value) => return None,
+                Some((d, v)) if *d != dial || !same(v, &value) => return None,
                 Some(_) => {}
                 None => found = Some((dial, value)),
             }
@@ -114,7 +131,7 @@ pub(crate) fn candidate(
         for dark in [false, true] {
             let context = &sides[usize::from(dark)];
             if dial_of(branch(modes, dark)).as_deref() == Some(dial.as_str())
-                && !(changed(context) && want(context).is_some_and(|w| alike(&w, &value)))
+                && !(changed(context) && want(context).is_some_and(|w| same(&w, &value)))
             {
                 return None;
             }
@@ -183,7 +200,7 @@ pub(crate) fn dials(
     for (dial, all) in by {
         let tokens: Vec<String> = all.iter().map(|c| c.0.token.clone()).collect();
         let value = all[0].0.value.clone();
-        if all.iter().any(|c| !alike(&c.0.value, &value)) {
+        if all.iter().any(|c| !same(&c.0.value, &value)) {
             let values: Vec<String> = all
                 .iter()
                 .map(|c| format!("{} {}", c.0.token, c.0.value))
@@ -273,23 +290,29 @@ pub(crate) fn marks(
             .tokens
             .iter()
             .zip(&cur.design.tokens)
-            .find(|(_, t)| t.name.value == *name)
+            .find(|(_, t)| t.name.value.eq_ignore_ascii_case(name))
         else {
             continue;
         };
-        // The lines that won where it writes, side by side: its own line,
-        // or for a new `when`, each tuple and scheme it holds in, the line
-        // that won there before it.
+        // The lines that won where it writes, side by side: its own line
+        // (the default for no `when`), or for a new `when`, each tuple and
+        // scheme where it wins, the line that won there before it (not where
+        // a narrower line still wins).
         let text = |b: Option<usize>| b.map_or(&decl.value.value, |w| &decl.whens[w].value.value);
-        let old: Vec<(&String, usize)> = match decl.whens.iter().position(|w| w.conds == *when) {
-            Some(w) => vec![(text(Some(w)), 0), (text(Some(w)), 1)],
+        let own = match when.is_empty() {
+            true => Some(None),
+            false => decl.whens.iter().position(|w| w.conds == *when).map(Some),
+        };
+        let old: Vec<(&String, usize)> = match own {
+            Some(w) => vec![(text(w), 0), (text(w), 1)],
             None => (0..cur.tokens.first().map_or(1, |t| t.values.len()))
                 .map(|k| modes_of(cur, k))
                 .filter(|modes| when.iter().all(|c| modes.contains(c)))
                 .flat_map(|modes| {
-                    [false, true]
-                        .map(|dark| (text(branch(decl, under, &modes, dark)), usize::from(dark)))
+                    [false, true].map(|dark| (branch(decl, under, &modes, dark), usize::from(dark)))
                 })
+                .filter(|(b, _)| b.is_none_or(|w| decl.whens[w].conds.len() <= when.len()))
+                .map(|(b, i)| (text(b), i))
                 .collect(),
         };
         // What it followed there and no longer does: a side the literal
@@ -300,8 +323,14 @@ pub(crate) fn marks(
             .iter()
             .chain(&checked.names)
             .filter(|n| {
+                // A role's row (`-exact-background`) is named bare too (`background`).
+                let named = |text: &str| {
+                    names(text, n)
+                        || n.strip_prefix("-exact-")
+                            .is_some_and(|bare| names(text, bare))
+                };
                 old.iter()
-                    .any(|(text, i)| names(&sides(text)[*i], n) && !names(&new[*i], n))
+                    .any(|(text, i)| named(&sides(text)[*i]) && !named(&new[*i]))
             })
             .cloned()
             .collect();

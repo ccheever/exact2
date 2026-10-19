@@ -160,3 +160,19 @@ test('some items accepted: the dials and pins kept are marked again on the desig
   const bad = await post({ method: 'propose', hold: true, client: 'person', files, ops: [{ op: 'set-dial', name: 'accent', value: '#00ff00' }], review: { dials: [{ items: ['x'] }] } });
   expect(bad.status).toBe(400);
 }, 120_000);
+
+test('round 3: a re-import with no marks, recomputed after the design moved, is marked again on the design as it is', async () => {
+  const token = await paired('propose');
+  const pulled = (await post({ method: 'export', kind: 'dtcg' }, token)).ok.text;
+  const got = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(pulled, (_, t) => { t.surface.sunk.$value = RED; }), baseline: pulled }, token);
+  expect(got.ok.review.pins?.map(p => p.token)).toEqual(['surface.sunk']); // it followed `lift`
+  const plain = await post({ method: 'import', client: 'figma', kind: 'dtcg', source: edited(pulled, (_, t) => { t.surface.page.$value = RED; }), baseline: pulled }, token);
+  expect(plain.ok.review.pins).toBeUndefined();
+  // Meanwhile surface.page comes to follow the accent: the accept recomputes, and says so.
+  const files = (await post({ method: 'hello', client: 'person' })).ok.files;
+  expect((await post({ method: 'transaction', client: 'person', files, ops: [{ op: 'set-token', name: 'surface.page', value: 'light-dark(accent, #000000)' }] })).status).toBe(200);
+  const again = await post({ method: 'accept', client: 'person', proposal: plain.ok.proposal });
+  expect(again.ok?.recomputed).toBe(true);
+  const held = (await post({ after: 0, wait: false }, local, '/__tamber/events')).proposals.find(p => p.proposal === again.ok.proposal);
+  expect(held.review.pins?.map(p => [p.token, p.follows])).toEqual([['surface.page', ['accent']]]);
+}, 120_000);

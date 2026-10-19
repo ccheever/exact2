@@ -992,7 +992,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return replaced(await hold(p.client, plan.ok.ops, plan.ok.files, id, plan.ok.review));
     };
     const replaced = fresh => {
-      if (!fresh.ok) { restore(id, p); return fresh; }
+      if (!fresh.ok) { restore(id, p); return fresh; } else if (p.reimport) proposals.get(fresh.ok.proposal).reimport = true;
       send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
       return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
     };
@@ -1003,16 +1003,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
-      let fresh;
-      // A re-import's dials and pins, marked again on the design as it is, never as it was (stage 10b).
-      const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); };
+      let fresh; // A re-import (the server's own mark, never its review's fields) is marked again on the design as it is, and held on that same text, else marked again (stage 10b).
+      const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); return hold(p.client, ops, m.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: m.ok.digest } : undefined, id, review, own); };
       // Some of a revert's items: on the files it was planned on, or that
       // selection planned again.
       if (reverted) review.revert = { ...review.revert, only: ops.map(revertKey) };
       // Its guards stay its guards: a part, or one planned again on files
       // moved since, checks what the whole was planned on.
       const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
-      try { fresh = (old?.dials || old?.pins ? await remark() : undefined) ?? await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own); } catch (e) { restore(id, p); throw e; }
+      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };
@@ -1113,14 +1112,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   async function importHeld(request, scope = 'write') {
     if (typeof request.kind !== 'string') return { status: 400, error: { message: '`kind` is a string' } };
     for (const k of ['source', 'name', 'prefix', 'baseline']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
-    // One file (`source`, `name`), or several (`sources`): the server reads
-    // either. A `baseline` (the export the client pulled) is taken when this
-    // run gave it out, is kept, or is the design's own (stage 10b).
-    const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) });
-    if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
-    const { ops, review } = importReview(planned.ok);
-    if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
-    return hold(request.client, ops, undefined, undefined, review, undefined, scope);
+    // One file (`source`, `name`), or several (`sources`). A `baseline` (the export the client pulled) is taken when this run gave it
+    // out, is kept, or is the design's own (stage 10b). Held on the design text it was planned and marked on, else planned again.
+    for (let tries = 0; ; tries++) {
+      const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) });
+      if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
+      const { ops, review } = importReview(planned.ok);
+      if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
+      const held = await hold(request.client, ops, planned.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: planned.ok.digest } : undefined, undefined, review, undefined, scope);
+      if (held.error?.conflict && tries < 2) continue;
+      if (held.ok) proposals.get(held.ok.proposal).reimport = true; return held;
+    }
   }
 
   function close() {

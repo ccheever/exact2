@@ -281,8 +281,9 @@ fn deep(root: &Value, into: &mut Map<String, Value>, over: &Map<String, Value>) 
 /// Every token in a tree: its dotted path and definition, `$type` (or a
 /// legacy group `type`) inherited from groups, `$root` a token of its group,
 /// `$extends` and a group's `$ref` merged under it; a token that is a whole
-/// `$ref` an alias. An error for a cycle, a missing target, or nesting past
-/// 64.
+/// `$ref` an alias. An error for a cycle, a missing target, nesting past
+/// 64, or more than [`VISITS`] nodes walked (a group referenced again and
+/// again multiplies).
 fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
     fn walk(
         file: &str,
@@ -291,12 +292,17 @@ fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
         path: &mut Vec<String>,
         ty: Option<String>,
         out: &mut Vec<Def>,
+        visits: &mut usize,
     ) -> Result<(), String> {
         let Some(map) = node.as_object() else {
             return Ok(());
         };
         if path.len() > 64 {
             return Err(format!("`{}` nests deeper than 64", path.join(".")));
+        }
+        *visits += 1;
+        if *visits > VISITS {
+            return Err(format!("its groups expand to more than {VISITS} nodes"));
         }
         // A whole-token `$ref`: to a token, a `$value` or anything not a
         // group, it is an alias.
@@ -361,15 +367,20 @@ fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
                 continue;
             }
             path.push(k.clone());
-            walk(file, root, v, path, ty.clone(), out)?;
+            walk(file, root, v, path, ty.clone(), out, visits)?;
             path.pop();
         }
         Ok(())
     }
     let mut out = Vec::new();
-    walk(file, tree, tree, &mut Vec::new(), None, &mut out).map_err(|e| format!("{file}: {e}"))?;
+    walk(file, tree, tree, &mut Vec::new(), None, &mut out, &mut 0)
+        .map_err(|e| format!("{file}: {e}"))?;
     Ok(out)
 }
+
+/// The nodes a file's tree may expand to, references followed: far past any
+/// real design's, short of what a body of 1 MiB can multiply to.
+pub(crate) const VISITS: usize = 200_000;
 
 /// Whether mode names are the scheme's sides.
 fn scheme(modes: &[String]) -> bool {

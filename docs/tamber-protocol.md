@@ -845,18 +845,19 @@ list is unchanged: it keeps its own.
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
 - **A re-import's dials and pins** (*1.13*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
   changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
-  in every context, proposes `set-dial` for that dial instead of a literal over the line. The review
-  lists it in `dials`, `[{dial, value, from, impact}]`: `from` the tokens the file changed, `impact`
-  every token value the change moves alone against the design, `[{token, tuple, before, after}]`
-  (values as the plan carries them, so `#ff0000ff` beside the dial's `#ff0000`), so accepting it is
-  seen to reach past the one variable. A changed value whose line followed dials or tokens by an expression
-  is a literal over it, listed in `pins`, `[{token, when, follows}]`, with what it no longer follows
-  (D14's mark). Inverting an expression is not attempted. Each list is absent when empty, and each
-  entry names its operations (`items`), as an offer does; a recomputed proposal (files moved since,
-  or some items) is marked again on the design as it is, its dials' `impact` and its `pins` read
-  afresh, each dial keeping its `from`. Tokens that would set one dial to different values, or a
-  dial the design refuses, are proposed as literals instead, each a pin marked with the dial.
-  Colour values agree when they are the same colour (`#F00` and `red`).
+  in every context where that dial line wins, proposes `set-dial` for that dial instead of a literal
+  over the line. The review lists it in `dials`, `[{dial, value, from, impact}]`: `from` the tokens
+  the file changed, `impact` every token value the change moves alone against the design, `[{token,
+  tuple, before, after}]` (values as the plan carries them, so `#ff0000ff` beside the dial's
+  `#ff0000`), so accepting it is seen to reach past the one variable. A changed value whose line
+  followed dials or tokens by an expression is a literal over it, listed in `pins`, `[{token, when,
+  follows}]`, with what it no longer follows (D14's mark). Inverting an expression is not attempted.
+  Each list is absent when empty, and each entry names its operations (`items`), as an offer does; a
+  recomputed proposal (files moved since, or some items) is marked again on the design as it is, its
+  dials' `impact` and its `pins` read afresh, each dial keeping its `from`. Tokens that would set
+  one dial to different values, or a dial the design refuses, are proposed as literals instead, each
+  a pin marked with the dial. Colour values agree when they are the same colour (`#F00`, `red` and
+  `color(srgb 1 0 0)`). A role's row is followed by its bare name too (`background`).
 - **`baseline`** (*1.13*, stage 10b): the export text a client pulled, for a client below `write`,
   whose `export` keeps none. It is taken when its header's digest is an export this server run gave
   out, a kept one, or the design's own, and its contexts (each one's name, modes and scheme) and axes
