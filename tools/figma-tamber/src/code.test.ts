@@ -566,3 +566,21 @@ test('round 10: an alias of the person\'s that reads as the design\'s value stay
   await send({ type: 'apply', text: TEXT }, 'applied');
   expect(fill.valuesByMode[mode]).toEqual({ type: 'VARIABLE_ALIAS', id: brand.id });
 });
+
+test('round 11: an alias is judged by what it reads once the pull is written, and one the pull replaces is listed first', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0], mode = col.modes[0], fill = f.variables.find(v => v.name === 'accent/fill');
+  const other = f.variables.find(v => v.resolvedType === 'COLOR' && v !== fill);
+  // accent.fill aliases another token; the design moves that other token only.
+  other.valuesByMode[mode.modeId] = fill.valuesByMode[mode.modeId];
+  fill.valuesByMode[mode.modeId] = { type: 'VARIABLE_ALIAS', id: other.id };
+  const token = other.getSharedPluginData('exact', 'token');
+  const moved = variant(doc => { let at = doc.modifiers.mode.contexts[mode.name][0]; for (const k of token.split('.')) at = at[k]; at.$value = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' }; });
+  const checked = await send({ type: 'check', text: moved }, 'checked');
+  expect(checked.aliases.map((a: any) => [a.variable, a.mode])).toEqual([['accent/fill', mode.name]]);
+  await send({ type: 'apply', text: moved }, 'applied');
+  // Written as the export says: accent.fill keeps its own value, not the other's new one.
+  expect(fill.valuesByMode[mode.modeId].type).toBeUndefined();
+  expect(tokensOf(JSON.parse((await send({ type: 'collect' }, 'collected')).source))[mode.name]['accent.fill']).toEqual(tokensOf(JSON.parse(TEXT))[mode.name]['accent.fill']);
+});

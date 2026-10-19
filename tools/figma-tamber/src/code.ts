@@ -56,6 +56,35 @@ async function valueOf(v: any, modeId: string, collections: any[]): Promise<{ va
   return value === undefined || value === null ? { why: 'no value in this mode' } : { value };
 }
 
+/** What a variable's alias in a mode reads as once a pull is written: a
+ * Tamber variable on the way, the design's new value for it (`next`, by
+ * token, then context); else what it reads now. Undefined for a value that
+ * is no alias, or one that goes nowhere or round a cycle. */
+async function aliasAfter(v: any, modeId: string, context: string, next: Map<string, Record<string, FigmaValue>>, collections: any[]): Promise<FigmaValue | undefined> {
+  const mode = (await collectionOf(v.variableCollectionId, collections))?.modes.find((m: any) => m.modeId === modeId)?.name;
+  const seen = new Set([v.id]);
+  let value = v.valuesByMode[modeId];
+  if (!(value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS')) return undefined;
+  while (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS') {
+    if (seen.has(value.id)) return undefined;
+    seen.add(value.id);
+    const target = await figma.variables.getVariableByIdAsync(value.id);
+    if (!target) return undefined;
+    const token = target.getSharedPluginData?.(KEY, 'token');
+    if (token && next.get(token)?.[context] !== undefined) return next.get(token)![context];
+    const col = await collectionOf(target.variableCollectionId, collections);
+    if (!col) return undefined;
+    value = target.valuesByMode[col.modes.find((m: any) => m.name === mode)?.modeId ?? col.defaultModeId];
+  }
+  return value ?? undefined;
+}
+/** A plan's values by token, then context. */
+const nextOf = (plan: Plan) => {
+  const next = new Map<string, Record<string, FigmaValue>>();
+  for (const c of plan.collections) for (const v of c.variables) for (const mode of c.modes) next.set(v.token, { ...next.get(v.token), [c.contexts[mode]]: v.values[mode] });
+  return next;
+};
+
 /** A plan's variable in a collection: by the token it is (the plugin's mark
  * on it, so a variable renamed in Figma is still the token's), never by a
  * stranger's name. */
@@ -100,6 +129,7 @@ async function holding(plan: Plan): Promise<{ now: Held; unread: { variable: str
 async function write(plan: Plan, before: Plan | null, fresh = false) {
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
   const variables = await figma.variables.getLocalVariablesAsync();
+  const next = nextOf(plan);
   // Each collection first, refused before anything is touched: the one the
   // last pull wrote (by id), else one of the plan's name this plugin made
   // that no other of the last pull's collections is; one each.
@@ -176,12 +206,13 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
       if (!fv) fv = did(figma.variables.createVariable(v.name, col, v.type));
       if (fv.getSharedPluginData?.(KEY, 'token') !== v.token) did(fv.setSharedPluginData(KEY, 'token', v.token));
       // Only a value that differs: one already the design's is no change, and
-      // an alias of the person's that reads as the design's value stays an alias.
+      // an alias of the person's that reads as the design's value once this
+      // pull is written stays an alias (any other was listed by check).
       for (const mode of c.modes) {
         const raw = fv.valuesByMode?.[ids[mode]];
         if (raw !== undefined && typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') {
-          const got = await valueOf(fv, ids[mode], collections);
-          if ('value' in got && same(got.value, v.values[mode])) continue;
+          const after = await aliasAfter(fv, ids[mode], c.contexts[mode], next, collections);
+          if (after !== undefined && same(after, v.values[mode])) continue;
         } else if (raw !== undefined && same(raw, v.values[mode])) continue;
         did(fv.setValueForMode(ids[mode], v.values[mode]));
       }
@@ -216,7 +247,24 @@ figma.ui.onmessage = async (msg: any) => {
         // And the variables a pull removes or makes again (a token the design dropped, a type changed): their bindings go.
         const { plan } = stored(), doc = JSON.parse(msg.text), held = plan ? await holding(plan) : { now: {}, unread: [] };
         const fresh = new Map(pull(doc, Infinity).collections[0].variables.map(v => [v.token, v.type])), drops = (plan?.collections ?? []).flatMap(c => c.variables).filter((v, i, all) => all.findIndex(w => w.token === v.token) === i && fresh.get(v.token) !== v.type).map(v => ({ token: v.token, variable: v.name, why: fresh.has(v.token) ? 'its type changed: it is made again' : 'the design dropped it' }));
-        say({ type: 'checked', conflicts: plan ? conflicts(plan, doc, held.now) : [], unread: held.unread, drops, contexts: plan ? contextsMoved(plan, doc) : { added: [], removed: [] } });
+        // And each alias of the person's the pull writes a literal over (one that won't read as the design's new value).
+        const aliases: { collection: string; variable: string; mode: string }[] = [];
+        if (plan) {
+          const next = nextOf(pull(doc, Infinity)), collections = await figma.variables.getLocalVariableCollectionsAsync(), variables = await figma.variables.getLocalVariablesAsync();
+          for (const c of plan.collections) {
+            const col = collectionIn(collections, c);
+            for (const v of col ? c.variables : []) {
+              const fv = variableOf(variables, col, v);
+              for (const mode of fv ? c.modes : []) {
+                const m = modeIn(col, c, mode), raw = m && fv.valuesByMode[m.modeId], want = next.get(v.token)?.[c.contexts[mode]];
+                if (!(raw && typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') || want === undefined) continue;
+                const after = await aliasAfter(fv, m.modeId, c.contexts[mode], next, collections);
+                if (after === undefined || !same(after, want)) aliases.push({ collection: col.name, variable: fv.name, mode });
+              }
+            }
+          }
+        }
+        say({ type: 'checked', conflicts: plan ? conflicts(plan, doc, held.now) : [], unread: held.unread, drops, aliases, contexts: plan ? contextsMoved(plan, doc) : { added: [], removed: [] } });
         break;
       }
       case 'apply': {
