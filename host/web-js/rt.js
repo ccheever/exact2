@@ -1,5 +1,5 @@
 export { liveTime } from "./live-time.js";
-import { inertAncestor, renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { inertAncestor, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
@@ -956,7 +956,7 @@ export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isC
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
-export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
+export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
@@ -1117,8 +1117,8 @@ export function mde(e) {
       live: n => n.isConnected,
       replace(n) {
         Ids.set(n, id); Views.set(id, n);
-        Object.defineProperty(e, "value", { configurable: true, get: () => n.value, set: v => { n.value = v; } });
-        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
+        Object.defineProperties(e, { value: { configurable: true, get: () => n.value, set: v => { n.value = v; } }, ...Object.fromEntries(["selectionStart", "selectionEnd", "selectionDirection"].map(k => [k, { configurable: true, get: () => n[k] }])) });
+        for (const t of ["input", "beforeinput", "selectionchange", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
           const forwarded = new ev.constructor(t, ev); forwarded.$stopped = ev.$stopped; if (ev.defaultPrevented) forwarded.preventDefault();
           if (!e.dispatchEvent(forwarded)) ev.preventDefault(); if (forwarded.$stopped) ev.$stopped = true;
         }, t === "keydown"); // before the editor applies its own key default
@@ -1133,7 +1133,7 @@ export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () 
 /** The `InputEvent` record (contract/types selection.rs's order); a type
  * with none has its caret after its text, a control 0, 0, `none`. */
 function inputRecord(e, value, checked, event) {
-  const n = e.value?.length ?? 0, field = textField(e);
+  const n = e.value?.length ?? 0, field = sourceField(e);
   return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none", event?.inputType ?? "", event?.data ?? null, event?.cancelable ?? false, event?.isComposing ?? false];
 }
 /** Press feedback (LLP 1061): the web host's input piece shows it, from

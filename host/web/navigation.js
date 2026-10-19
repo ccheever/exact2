@@ -1118,8 +1118,8 @@ export function settleValue(el, acted = false) {
 // What `type <id> <value>` sets rather than types into (D9): the valued controls, a checkbox (or `switch`), which a
 // value turns on or off, and a radio, which `true` checks (x2apps survey #2).
 export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"));
-// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's.
-export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
+// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's. A `sourceField` adds the Markdown editor, whose `input`, `selectionchange` and `beforeinput` carry its source selection (LLP 1045 D6) and whose `select` is its own.
+export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file", sourceField = (el) => !!el?.exactMarkup || el instanceof HTMLTextAreaElement || textField(el);
 export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
 // Host kinds 40–42 carry UTF-16 start,end,direction before the field’s text.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
@@ -1140,21 +1140,21 @@ export function setFieldSelection(el, args, log) {
     getSelection().setBaseAndExtent(...(direction === "backward" ? [bn, bo, an, ao] : [an, ao, bn, bo])); return;
   }
   if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field or text`);
-  try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
+  try { el.setSelectionRange(start, end, direction); } catch (error) { log(`setSelectionRange "${id}" refused: ${el.exactMarkup ? error.message : `an input type=${el.type} has no text selection`}`); }
 }
-// @ref LLP 1069.001, 2026-10-12 — HTML's range edit, plus one input to synchronize the app's value; no undo step.
+// @ref LLP 1069.001, 2026-10-12 — HTML's range edit, plus one input to synchronize the app's value; no undo step (the Markdown editor's makes one and its own input, LLP 1045 D1).
 export function setFieldRangeText(el, args, log) {
   const [id, text, ...range] = args;
   if (!el) return log(`setRangeText "${id}" refused: no live node with that id`);
-  if (typeof el.setRangeText !== "function" || el.exactMarkup || el.getAttribute("markup") === "markdown") return log(`setRangeText "${id}" refused: not a plain text field`);
+  if (typeof el.setRangeText !== "function") return log(`setRangeText "${id}" refused: not a text field`); // a Markdown textarea before its editor loads is a plain source editor
   try { el.setRangeText(text, ...range); }
-  catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
-  el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
+  catch (error) { return log(`setRangeText "${id}" refused: ${el.exactMarkup ? error.message : error.name}`); }
+  if (!el.exactMarkup) el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
 }
 // Edit data is length-prefixed in UTF-8; commas and newlines are valid text.
 function inputPayload(el, e) { return `${e.inputType ?? ""},${+e.cancelable},${+!!e.isComposing},${e.data == null ? -1 : new TextEncoder().encode(e.data).length},${e.data ?? ""}${fieldSelection(el)}${el.value}`; }
 export function controlEvent(el, kind, on, dispatch) {
-  if (kind === "select" || kind === "selectionchange") return void (textField(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
+  if (kind === "select" || kind === "selectionchange") return void ((kind === "select" ? textField : sourceField)(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
   if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
   if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
@@ -1168,7 +1168,7 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? 54 : 23, textField(el) ? inputPayload(el, e) : value); settleValue(el, true);
+    dispatch(sourceField(el) ? 54 : 23, sourceField(el) ? inputPayload(el, e) : value); settleValue(el, true);
   });
 }
 // D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
