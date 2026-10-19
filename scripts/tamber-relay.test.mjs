@@ -195,7 +195,15 @@ test('round 1: the token never goes to an unverified relay, even with NODE_TLS_R
   const echo = await fakeRelay({ refuse: `bad token ${TOKEN}\x1b[2J` });
   const c = connectRelay(relayOf(echo.control), { client: () => true, connect: toRelay(echo.control), warn: l => warned.push(l), pool: 1 });
   const why = await c.ready.catch(e => e.message);
-  expect(why).toBe('the relay refused: bad token [token]?[2J');
+  expect(why).toBe('the relay refused: [withheld: it carries the token]');
+  // Broken up by a character, cased otherwise: still withheld.
+  const split = await fakeRelay({ refuse: `bad ${TOKEN.slice(0, 9)}-${TOKEN.slice(9).toUpperCase()}` });
+  const c2 = connectRelay(relayOf(split.control), { client: () => true, connect: toRelay(split.control), warn: l => warned.push(l), pool: 1 });
+  expect(await c2.ready.catch(e => e.message)).toBe('the relay refused: [withheld: it carries the token]');
+  // A refusal without it: shown, printable.
+  const plain = await fakeRelay({ refuse: 'no such account\x1b[2J' });
+  const c3 = connectRelay(relayOf(plain.control), { client: () => true, connect: toRelay(plain.control), warn: l => warned.push(l), pool: 1 });
+  expect(await c3.ready.catch(e => e.message)).toBe('the relay refused: no such account?[2J');
   expect(warned.some(l => l.includes(TOKEN) || l.includes('\x1b'))).toBe(false);
 });
 
@@ -310,18 +318,30 @@ test('round 1: the real wire through the relay: a code names the relay\'s sessio
   expect(logged.some(l => /^tamber: relayed pairing limited \(10 a minute\): try again in \d+ s$/.test(l))).toBe(true);
   // A paired client's long poll, held through the relay: open until the relay revokes the account
   // (told on an idle connection), then cut by the connector itself.
-  const held = (port, tok) => {
-    let open = true;
-    const body = JSON.stringify({ after: 0, wait: true });
-    const s = connectTLS({ host: '127.0.0.1', port, servername: TOOL, ca: devCert.cert }, () => s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${TOOL}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${tok}\r\n\r\n${body}`));
-    const closed = new Promise(ok => { for (const e of ['close', 'end', 'error']) s.on(e, () => { open = false; ok(); }); });
-    return { closed, get open() { return open; } };
-  };
-  const poll = held(relay.pub, pt);
+  // Revoked as a paired client (the local `revoke`): its pending long poll through the relay told 401.
+  const poll = await longPoll(relay.pub, pt);
   await new Promise(ok => setTimeout(ok, 300));
-  expect(poll.open).toBe(true);
+  expect([poll.open, poll.text]).toEqual([true, '']); // (pending: nothing answered yet)
+  const rv = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+  queueMicrotask(() => rv.end(JSON.stringify({ method: 'revoke', client: json(paired.body).ok.client })));
+  await w.handle(rv, { writeHead() {}, setHeader() {}, write() {}, end() {} }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+  await until(() => poll.text.startsWith('HTTP/1.1 401'), 3000);
+});
+
+test('round 3: a pending long poll through the relay is cut by the connector when the relay revokes the account (told on an idle connection)', async () => {
+  const relay = await fakeRelay();
+  let doors = null;
+  const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemote(w, { relay: relayOf(relay.control) }, { connect: toRelay(relay.control), say: () => {}, warn: () => {} });
+  closing.push(async () => { await doors.close(); await w.close(); });
+  await until(() => relay.idle.length === POOL);
+  const pt = await pairThrough(w, relay.pub);
+  const poll = await longPoll(relay.pub, pt);
+  await new Promise(ok => setTimeout(ok, 300));
+  expect([poll.open, poll.text]).toEqual([true, '']);
   relay.refuseIdle('this account was revoked');
   await poll.closed;
+  expect(poll.text).toBe(''); // (cut, never answered)
 });
 
 test('round 3: closing the server ends a relayed client\'s long poll', async () => {
@@ -338,13 +358,34 @@ test('round 3: closing the server ends a relayed client\'s long poll', async () 
   await w.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
   const out = await ask(relay.pub, TOOL, { path: '/__tamber/pair', body: JSON.stringify({ code: JSON.parse(text).ok.code }) });
   const pt = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)).ok.token;
-  const body = JSON.stringify({ after: 0, wait: true });
-  const s = connectTLS({ host: '127.0.0.1', port: relay.pub, servername: TOOL, ca: devCert.cert }, () => s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${TOOL}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${pt}\r\n\r\n${body}`));
-  const closed = new Promise(ok => { for (const e of ['close', 'end', 'error']) s.on(e, ok); });
+  const poll = await longPoll(relay.pub, pt);
   await new Promise(ok => setTimeout(ok, 300));
+  expect([poll.open, poll.text]).toEqual([true, '']);
   await doors.close();
-  await closed;
+  await poll.closed;
 });
+
+/** A paired client's long poll through the relay, pending: its first ask for where to start, then a wait after it. */
+async function longPoll(port, tok) {
+  const first = await ask(port, TOOL, { path: '/__tamber/events', headers: `x-exact-tamber-token: ${tok}\r\n`, body: '{"wait":false}' });
+  const { seq, epoch } = JSON.parse(first.slice(first.indexOf('{'), first.lastIndexOf('}') + 1));
+  const body = JSON.stringify({ after: seq, epoch, wait: true });
+  const p = { open: true, text: '' };
+  const s = connectTLS({ host: '127.0.0.1', port, servername: TOOL, ca: devCert.cert }, () => s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${TOOL}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${tok}\r\n\r\n${body}`));
+  s.on('data', d => { p.text += d; });
+  p.closed = new Promise(ok => { for (const e of ['close', 'end', 'error']) s.on(e, () => { p.open = false; ok(); }); });
+  return p;
+}
+/** Paired through the relay with a code minted locally: its token. */
+async function pairThrough(w, port) {
+  let token = null, text = '';
+  await w.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+  const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+  queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read' })));
+  await w.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+  const out = await ask(port, TOOL, { path: '/__tamber/pair', body: JSON.stringify({ code: JSON.parse(text).ok.code }) });
+  return JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)).ok.token;
+}
 
 test('round 2: a relay that hands the tool a client and drops it costs a doubling wait; a line started after the greeting has a deadline', async () => {
   // Accepted and dropped before its TLS settles, every time: a round of the pool a wait, not a loop.

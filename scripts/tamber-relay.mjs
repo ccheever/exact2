@@ -86,7 +86,10 @@ const DIALS = { rate: 20, burst: 40 };
 /** Streams handed down at once, at most (as the TLS door's 64 connections). */
 export const STREAMS = 64;
 /** A relay's words, shown: printable, at most 120 characters, the token never. */
-const shown = (text, token) => text.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '[token]').replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
+// (the token's letters and digits anywhere in it, however cased or broken up: the whole word withheld)
+const bare = text => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+const carries = (text, token) => bare(token).length >= 8 && bare(text).includes(bare(token));
+const shown = (text, token) => (carries(text, token) ? '[withheld: it carries the token]' : text.replace(/[^\x20-\x7e]/g, '?').slice(0, 120));
 
 /** The connector: `POOL` idle connections to the relay at `host:port`,
  * each client the relay hands down given to `client(sni, address, stream,
@@ -104,13 +107,14 @@ const shown = (text, token) => text.replace(new RegExp(token.replace(/[.*+?^${}(
  * any closes. Each connection has `greetMs` to verify the relay and be
  * greeted, and as long for any line it starts. `close()` ends every
  * connection, idle or carrying a client. */
-export function connectRelay({ host, port, account, token, names = null }, { client, named: told = () => true, ended = () => {}, warn = console.error, connect = connectTLS, pool = POOL, backoffMs = BACKOFF_MS, greetMs = 10_000, clock = Date.now } = {}) {
+export function connectRelay({ host, port, account, token, names = null }, { client, named: told = () => true, ended = () => {}, warn = console.error, connect = connectTLS, pool = POOL, backoffMs = BACKOFF_MS, greetMs = 10_000, clock = () => performance.now() } = {}) {
   const live = new Set();
-  let closed = false, idle = 0, carried = 0, wait = 250, timer = null, served = null;
+  let closed = false, idle = 0, carried = 0, wait = 250, timer = null, budget = null, served = null;
   // (a relay's word that carries the token is never shown, logged or an origin)
-  const clean = word => !word.toLowerCase().includes(token.toLowerCase());
+  const clean = word => !carries(word, token);
+  // The dial budget, on a monotonic clock (a wall clock set back stalls nothing).
   let tokens = DIALS.burst, at = clock();
-  const mayDial = () => { const now = clock(); tokens = Math.min(DIALS.burst, tokens + (now - at) * DIALS.rate / 1000); at = now; if (tokens < 1) return false; tokens -= 1; return true; };
+  const mayDial = () => { const now = clock(); tokens = Math.min(DIALS.burst, tokens + Math.max(0, now - at) * DIALS.rate / 1000); at = now; if (tokens < 1) return false; tokens -= 1; return true; };
   let ready, refused;
   const named = new Promise((ok, fail) => { ready = ok; refused = fail; });
   named.catch(() => {});
@@ -118,6 +122,7 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
     if (closed) return;
     closed = true;
     clearTimeout(timer);
+    clearTimeout(budget);
     for (const c of live) c.destroy();
     refused(new Error(why));
     ended(why);
@@ -127,10 +132,12 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
     timer = setTimeout(() => { timer = null; fill(); }, wait);
     wait = Math.min(wait * 2, backoffMs);
   };
-  // (dialled only while the pool is short, no wait is running and the dial budget has one)
+  // (dialled only while the pool is short, no failure's wait is running and
+  // the dial budget has one; the budget's wait is its own, so a failure
+  // still doubles the backoff behind it)
   const fill = () => {
-    while (!closed && !timer && idle < pool) {
-      if (!mayDial()) { timer = setTimeout(() => { timer = null; fill(); }, Math.ceil(1000 / DIALS.rate)); return; }
+    while (!closed && !timer && !budget && idle < pool) {
+      if (!mayDial()) { budget = setTimeout(() => { budget = null; fill(); }, Math.ceil(1000 / DIALS.rate)); return; }
       dial();
     }
   };
@@ -180,7 +187,7 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
           late = null;
           due();
           // (names the server can't serve, its certificate not covering them: stopped, never shown)
-          if (!served) { served = { tool: a, canvas: b }; if (!told(served)) { warn(`tamber: the relay names a session (${a}) this server's certificate for it does not cover`); return stop('the relay\'s names are not the certificate\'s'); } ready(served); }
+          if (!served) { served = { tool: a, canvas: b }; if (!told(served)) { warn(`tamber: the relay names a session (${shown(a, token)}) this server's certificate for it does not cover`); return stop('the relay\'s names are not the certificate\'s'); } ready(served); }
           continue;
         }
         if (word !== 'CLIENT' || !NAME.test(a) || !clean(a)) return conn.destroy();
