@@ -267,6 +267,14 @@ not so aligned is still copied. `include/ibex2_jsi.h` says so at
 `CompiledScript`. In euxy on iOS the copies were 81 KB of malloc at idle.
 Replay on a refresh.
 
+## Local patch 17, a host-task worker gives its stack back when idle
+
+`pool.rs`: on Apple platforms a worker that finishes a job with none queued
+releases its stack pages below its frame (`MADV_FREE_REUSABLE`). The two
+workers kept through a quiet spell otherwise keep every page a job reached
+dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
+Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

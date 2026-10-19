@@ -103,6 +103,9 @@ fn spawn_worker(pool: &'static Pool) {
                     // as idle. Recheck before this job can block.
                     ensure_worker(pool);
                     job();
+                    if pool.pending.load(Ordering::Acquire) == 0 {
+                        release_stack();
+                    }
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     // Quiet: keep a few, let the rest go.
@@ -119,6 +122,38 @@ fn spawn_worker(pool: &'static Pool) {
         })
         .expect("spawn a host-task worker");
 }
+
+/// Give back the pages of this worker's stack below this frame, which hold
+/// only the finished job's frames: a worker kept through a quiet spell would
+/// otherwise keep them dirty, in the footprint (80 KB in euxy on iOS after
+/// its launch). A later job that reaches as deep gets them back zero-filled.
+/// One page stays under this frame for the red zone and `madvise`'s callees.
+#[cfg(target_vendor = "apple")]
+#[inline(never)]
+fn release_stack() {
+    let marker = 0u8;
+    let frame = std::hint::black_box(&marker) as *const u8 as usize;
+    // SAFETY: the pthread calls read this thread's own stack bounds, and
+    // every page released lies below the live frames, between the stack's
+    // low end and a page under this one.
+    unsafe {
+        let me = libc::pthread_self();
+        let top = libc::pthread_get_stackaddr_np(me) as usize;
+        let low = top - libc::pthread_get_stacksize_np(me);
+        let page = libc::sysconf(libc::_SC_PAGESIZE) as usize;
+        let end = (frame & !(page - 1)) - page;
+        if end > low {
+            libc::madvise(
+                low as *mut libc::c_void,
+                end - low,
+                libc::MADV_FREE_REUSABLE,
+            );
+        }
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn release_stack() {}
 
 #[cfg(test)]
 mod tests {
