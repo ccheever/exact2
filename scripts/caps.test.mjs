@@ -153,7 +153,6 @@ for (const [name, files, expect] of cases) {
   result(name, ok, `expected ${expect ? `code 1 with "${expect}"` : 'code 0'}, got code ${code}\n${out}`);
 }
 {
-  // A PATH that holds git and no cargo: the workspace check fails by name, beside every other violation
   const dir = repo(crate({ 'app/Cargo.toml': PACKAGE, 'app/src/lib.rs': 'pub fn f() {}\n', 'src/big.js': 'x\n'.repeat(2000) }));
   const bin = mkdtempSync(join(tmpdir(), 'caps-bin-'));
   symlinkSync(Bun.which('git'), join(bin, 'git'));
