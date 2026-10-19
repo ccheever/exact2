@@ -44,6 +44,14 @@ pub fn space(px: f32, cell: f32) -> f32 {
     }
 }
 
+/// A gap of `px` points under `env`'s terminal space rule ([`space`]).
+pub(crate) fn gap(env: &Env, px: f32, cell: f32) -> f32 {
+    match env.cell_spaces {
+        true => space(px, cell),
+        false => px,
+    }
+}
+
 impl Dimension {
     /// A space (padding, margin, gap) under `env`'s terminal space rule: a
     /// length that resolves to points is whole cells of `cell` on its axis

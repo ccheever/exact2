@@ -1359,13 +1359,9 @@ impl StyleProps {
         s.align_self = align_self(self.align_self);
         s.align_content = align_content(self.align_content);
         s.justify_items = justify_items(self.justify_items, self.direction);
-        let gap = |v: f32, cell: f32| match env.cell_spaces {
-            true => cells::space(v, cell),
-            false => v,
-        };
         s.gap = taffy::geometry::Size {
-            width: length(gap(self.column_gap, across)),
-            height: length(gap(self.row_gap, down)),
+            width: length(cells::gap(env, self.column_gap, across)),
+            height: length(cells::gap(env, self.row_gap, down)),
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
