@@ -34,8 +34,9 @@
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compilerWarnings } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
 
@@ -290,19 +291,40 @@ async function iosBuild(app) {
   return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
 }
 
-/** The compiler's warnings for the app's sources, as `bun exact.mjs contract build app.contract` prints them,
- * whatever this run built (a fresh build said them when it was made): this checkout's compiler as built, or
- * through Cargo when its sources are newer. */
+/** The compiler's warnings for the app's sources, every one (`contract build --json`: its text form says the
+ * SF Symbols only the web draws blank in one line, and this report counts each), each in the line `contract build`
+ * prints it as; whatever this run built (a fresh build said them when it was made): this checkout's compiler as
+ * built, or through Cargo when its sources are newer. */
 async function compilerWarningsOf(app) {
-  const [{ fresh }, { compilerWarnings }, { cargoEnvironment }] = await Promise.all([import('../host/web-js/module.mjs'), import('./agent-launch.mjs'), import('./app.mjs')]);
+  const [{ fresh }, { cargoEnvironment }] = await Promise.all([import('../host/web-js/module.mjs'), import('./app.mjs')]);
   const env = cargoEnvironment(process.env), binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
   delete env.RUSTUP_TOOLCHAIN; delete env.CARGO_TARGET_DIR; // as `exact contract` runs it: exact2's toolchain and target
   const [command, ...pre] = fresh(binary, resolve(ROOT, 'target/debug/contract.d')) ? [binary] : ['cargo', 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--'];
-  const child = spawn(command, [...pre, 'build', resolve(app.dir, 'app.contract')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(command, [...pre, 'build', '--json', resolve(app.dir, 'app.contract')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
   await new Promise((done) => { child.on('close', done); child.on('error', done); });
-  return compilerWarnings(said);
+  return warningsOfBuild(said);
+}
+
+/** The warnings in what `contract build --json` wrote: its one JSON array's entries of severity `warning`, each as
+ * the line the text build prints (`file:line:col warning [id] message`, the file relative to `cwd` when under it,
+ * as `compilerWarnings` gives it). Output that holds no array (Cargo failing to build the compiler) gives the
+ * warning lines found in it, so a text build's are still read. */
+export function warningsOfBuild(text, cwd = process.cwd()) {
+  const array = String(text ?? '').split('\n').find((line) => line.startsWith('['));
+  let entries;
+  try { entries = JSON.parse(array); } catch { entries = null; }
+  if (!Array.isArray(entries)) return compilerWarnings(text, cwd);
+  const lines = new Set();
+  for (const e of entries) {
+    if (e?.severity !== 'warning' || typeof e.message !== 'string') continue;
+    const file = typeof e.file === 'string' ? e.file : '';
+    const near = file && relative(cwd, file);
+    const at = file ? `${isAbsolute(file) && !near.startsWith('..') ? near : file}:` : '';
+    lines.add(`${at}${e.line}:${e.col} warning [${e.id}] ${e.message}`);
+  }
+  return [...lines];
 }
 
 /** A test's capture, by its number and the start of its name: `web-t2-the-items-survive-a-relaunch.png`. */

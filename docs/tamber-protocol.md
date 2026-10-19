@@ -98,7 +98,7 @@ on macOS and Linux.
   `Content-Security-Policy: frame-ancestors 'self' http://127.0.0.1:7740` (*1.3*): the tool's
   origin and the page's own may frame it, no other. `'self'` lets a page the canvas shows frame
   its own pages. No `X-Frame-Options`. Development only; the tool never scripts the frame.
-- **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]` runs it with no app running.
+- **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>]` runs it with no app running.
   It binds loopback unless `--lan`, and a client reaching it over the LAN still can't get the token.
 - **One writer per project.** The design process holds `.exact/tamber.lock`. When a second server
   for the same app can't take the lock, its design process exits. Its `POST /__tamber` and
@@ -157,7 +157,26 @@ statuses:
 - **Every POST** carries the token as `x-exact-tamber-token`, never in a URL. Reads need it too,
   since a design may be unreleased.
 - **A client follows no redirects** when fetching the token.
-- **Remote clients** (pairing, scoped tokens) are LLP 1121 stage 10, not yet built.
+- **Remote clients** (pairing, scoped tokens) are LLP 1121 stage 10; pairing is not yet built.
+- **The remote listener** (stage 10 B, `scripts/tamber-remote.mjs`) is off unless asked:
+  `--remote <host:port>` on a dev loop (`bun exact.mjs web`) or on `tamber serve` opens a second
+  listener, bound only where it names, that speaks TLS only.
+  - Its certificate is self-signed, made for the run in memory (ECDSA P-256), never written to
+    disk. Its SHA-256 fingerprint is printed at start-up, for a remote client to pin.
+  - Plain HTTP to it gets no protocol: the handshake fails and the connection closes, the
+    pairing endpoint included.
+  - It serves `/__tamber`, `/__tamber/subscribe`, `/__tamber/events`, `/__tamber/pair`, and the
+    design tool's own static files under `/__tamber/tool/` (no token: they hold no secret). Every
+    other path, `/__tamber/token` and the app's pages included, is not found.
+  - A request there is never `access.local`: it is `{remote: true, tunnel: false, peer}`, the peer
+    its socket's (no forwarding header is read). Its `Cookie` header is removed before the wire
+    sees it, and a request whose `Origin` is not the listener's own is refused (403).
+- **A trusted tunnel** (ssh -L, a VPN's forward; stage 10 B2) arrives on loopback looking local, so
+  it gets a port of its own: `--trust-tunnel <port>` opens a plain listener on `127.0.0.1:<port>`
+  for the tunnel's far end, said loudly at start-up. Its requests are routed as the remote
+  listener's, `{remote: true, tunnel: true, peer}`, answering to loopback names at any port:
+  only a paired token works through it, never the local one. The canvas has no tunnel port in
+  stage 10 (QUEUE).
 
 ## Requests
 

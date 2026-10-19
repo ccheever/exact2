@@ -472,3 +472,62 @@ fn an_icon_alias_builds_beside_params() {
     let form = "symbol:icon|house|0 -960 960 960|M760-200v-160H200Z|icons/reply.svg";
     assert!(plan.strings.iter().any(|s| s == form), "{:?}", plan.strings);
 }
+
+/// A build's warnings come in rank order (`contract::warning_rank`): what
+/// changes the native app first, symbols only the web draws blank last, and
+/// as text those are one line, which `--json` lists each of. The euxy port's
+/// header warning was one of 43, behind 21 of them and 13 aliases.
+#[test]
+fn warnings_that_change_the_native_app_come_first_and_web_only_symbols_are_one_line() {
+    let view = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      image \"symbol:sf/flag.one\"\n      image \"symbol:gearshape\"\n      image \"symbol:sf/flag.two\"\n      button press=go\n        image \"symbol:add\"\n";
+    let path = app("ranked", "\"ios\": {}, \"web\": {}", "", view);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let ids: Vec<&str> = warnings.iter().map(|w| w.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "lower-button-unlabelled",
+            "lower-symbol-alias",
+            "lower-symbol-platform",
+            "lower-symbol-platform"
+        ],
+        "{warnings:#?}"
+    );
+    assert!(warnings[2..].iter().all(contract::web_only));
+    let run = |json: bool| {
+        let mut args = vec!["build", path.to_str().unwrap()];
+        if json {
+            args.push("--json");
+        }
+        std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(&args)
+            .output()
+            .unwrap()
+    };
+    let json: serde_json::Value = serde_json::from_slice(&run(true).stdout).unwrap();
+    let listed: Vec<&str> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(listed, ids);
+    let text = String::from_utf8(run(false).stderr).unwrap();
+    let said: Vec<&str> = text.lines().filter(|l| l.contains(" warning [")).collect();
+    assert_eq!(said.len(), 3, "{text}");
+    assert!(said[0].contains("[lower-button-unlabelled]"), "{text}");
+    assert!(
+        said[2].ends_with("warning [lower-symbol-platform] 2 SF Symbol uses draw blank on the web, here first: an icon token or a role draws on every host (`contract build --json` says each, and how)"),
+        "{text}"
+    );
+    // With Linux shipped too, a blank symbol is a native host's, said each.
+    let path = app(
+        "ranked-linux",
+        "\"ios\": {}, \"web\": {}, \"linux\": {}",
+        "",
+        view,
+    );
+    let (_, warnings) = contract::compile_path_all_warned(&path, false);
+    assert!(!warnings.iter().any(contract::web_only), "{warnings:#?}");
+}

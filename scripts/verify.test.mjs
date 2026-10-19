@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts } from './verify.mjs';
+import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -182,6 +182,35 @@ test('the compiler\'s warnings: a group before the tests, by rule as findings ar
   assert.equal(many.lines.at(-1), 'verify: 8 problems (8 findings; the tests passed) in 9.0 s');
   assert.equal(many.lines.at(-2), 'open it: bun exact.mjs ios --run (launches what verify checked)');
   assert.equal(many.exit, 0);
+});
+
+// The compiler's text form says the SF Symbols only the web draws blank in one line (the euxy port's 21 hid its header
+// warning); verify reads the build's JSON, so its count is every warning (22, not 2), each in the text form's line.
+test('the compiler\'s warnings are read from the build\'s JSON, every one, in the text form\'s lines', () => {
+  const cwd = '/work/app';
+  const entry = (line, id, message, file = `${cwd}/app.contract`) => ({ id, severity: 'warning', message, file, line, col: 5, end_col: 9, related: [] });
+  const symbol = (i) => entry(10 + i, 'lower-symbol-platform', i === 0
+    ? 'symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token'
+    : `symbol \`sf/${i}\` is blank on web too: write \`symbol:add\`, the role, which draws on every host`);
+  const entries = [
+    entry(9, 'lower-header-unplaced', 'this `button` in this route\'s `header` is not shown on iOS'),
+    entry(3, 'lower-symbol-alias', 'write `symbol:add`'),
+    ...Array.from({ length: 20 }, (_, i) => symbol(i)),
+    { ...entry(2, 'type-arity', '`f` takes 1 argument(s), given 2'), severity: 'error' },
+  ];
+  const said = warningsOfBuild(`${JSON.stringify(entries)}\n`, cwd);
+  assert.equal(said.length, 22);
+  assert.equal(said[0], 'app.contract:9:5 warning [lower-header-unplaced] this `button` in this route\'s `header` is not shown on iOS');
+  assert.equal(said[2], 'app.contract:10:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token');
+  assert.equal(said.filter((w) => / warning \[lower-symbol-platform\] /.test(w)).length, 20);
+  // The report counts them all, in the build's order.
+  const r = report({ host: 'ios', built: null, compiler: said, tested: { none: true }, checks: [], shots: [], ms: 1000 });
+  assert.equal(r.lines[0], 'compiler: 22 warnings');
+  assert.equal(r.lines.at(-1), 'verify: 22 problems (22 findings; the tests passed) in 1.0 s');
+  // A file elsewhere, or none, is kept as given; a build with no JSON (Cargo failing to build the compiler, a text
+  // build) still yields the warning lines in it.
+  assert.deepEqual(warningsOfBuild(JSON.stringify([entry(1, 'x', 'm', '/elsewhere/a.contract'), entry(2, 'y', 'n', null)]), cwd), ['/elsewhere/a.contract:1:5 warning [x] m', '2:5 warning [y] n']);
+  assert.deepEqual(warningsOfBuild(`error: could not compile\n${cwd}/app.contract:9:5 warning [lower-header-unplaced] text form\n`, cwd), ['app.contract:9:5 warning [lower-header-unplaced] text form']);
 });
 
 // LLP 1116.010 D6: a screen survives a reload. Each test's end screen is reloaded where it stands and its texts compared;

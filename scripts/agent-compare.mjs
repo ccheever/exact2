@@ -466,7 +466,7 @@ export function compareScreenshot(s, args) {
 /** What a capture's reply says it left out or could not do, a line each. */
 function captureNotes(shot) {
   const out = [];
-  for (const k of ['note', 'paintedNote', 'chromeNote', 'unshownNote']) if (typeof shot[k] === 'string') out.push(shot[k]);
+  for (const k of ['note', 'chromeNote', 'unshownNote']) if (typeof shot[k] === 'string') out.push(shot[k]);
   if (shot.notShown?.windows?.length) out.push(`not in the capture, as windows of their own: ${shot.notShown.windows.join(', ')} (the reference may show them)`);
   if (shot.imagesPending) out.push(`${shot.imagesPending} image${shot.imagesPending === 1 ? ' was' : 's were'} still loading`);
   return out;
@@ -509,6 +509,8 @@ export async function compareOp(s, referencePath, take) {
   if (near) writeFileSync(close, encodePng(near));
   let text = report(result, nodes, { reference: referencePath, diff, close, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes) });
   if (notes.length) text += '\n' + notes.map((n) => `  capture: ${n}`).join('\n');
+  // A menu the agent painted moves the score and reads as the app's bug: said before the score.
+  if (typeof shot.paintedNote === 'string') text = `NOTE: ${shot.paintedNote}\n${text}`;
   // A floating sheet's content is drawn scaled by the platform, the reference's too: a box measured smaller is that.
   for (const line of scaledLines(layout)) text += `\n  note: ${line}`;
   const { mask, ...kept } = result;

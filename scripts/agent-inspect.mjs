@@ -300,8 +300,13 @@ function renderLine(op, r) {
     if (rest.w != null && rest.h != null) lead.push(`${rest.w}×${rest.h}`);
     delete rest.screenshot; delete rest.w; delete rest.h;
   }
+  // What a picture shows that the app does not (a menu the agent painted, the authored bars), each on a line of its
+  // own: in the run of key=values it read as one more field, and a painted menu as an app bug (euxy port).
+  const notes = op === 'screenshot' ? ['paintedNote', 'chromeNote', 'unshownNote', 'note'].filter((k) => typeof rest[k] === 'string').map((k) => {
+    const said = rest[k]; delete rest[k]; return `\n  NOTE: ${said}`;
+  }) : [];
   return [...lead, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, op !== 'clock' && clock != null && `clock ${clock} ms`,
-    ...Object.entries(rest).map(([k, v]) => `${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' · ');
+    ...Object.entries(rest).map(([k, v]) => `${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' · ') + notes.join('');
 }
 
 /** The most of a `state` reply its transcript prints whole (`state … --full` prints it all, `--json` every reply):

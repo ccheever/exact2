@@ -11,6 +11,11 @@ test('log rendering skips canvas error rows and preserves journal order', () => 
   expect(render('logs', { lines: [], world: [error] })).toBe('(nothing new)');
 });
 
+test('a screenshot says what it shows that the app does not on lines of their own', () => {
+  const text = render('screenshot', { screenshot: 'a.png', w: 402, h: 874, painted: [{ id: 9, testId: 'menu' }], paintedNote: 'the agent painted it' });
+  expect(text).toBe('screenshot a.png · 402×874 · painted=[{"id":9,"testId":"menu"}]\n  NOTE: the agent painted it');
+});
+
 const record = { slots: { liked: true, draft: '' }, derives: { left: 2 }, resources: { groceries: [{ title: 'Eggs', done: false }, { title: 'Milk', done: true }], weather: { temp: 21 } }, mediaSession: { owner: null }, transport: { state: 'stopped' }, clock: 0 };
 // A session whose views are `like` and `transport` (testIds); asking `state` of anything else is refused as a missing view, as
 // the driver's is. A view's answer is the whole record, as every host's is for a view that is not a world.

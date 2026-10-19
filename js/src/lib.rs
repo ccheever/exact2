@@ -605,7 +605,7 @@ impl Module {
             .harden()
             .map_err(|e| format!("exact-js: hardening failed: {e}"))?;
         match &self.bytecode {
-            Bytecode::Linked(bytes) => engine.load_static(*bytes),
+            Bytecode::Linked(bytes) => engine.load_static(bytes),
             Bytecode::Owned(bytes) => engine.load_shared(bytes.clone()),
         }
         .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
