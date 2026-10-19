@@ -22,7 +22,7 @@ test('table publication counts the whole operation and refuses imported subproce
 test('a table generation publishes with zero spawns and preserves the admitted plan and siblings', () => {
   const plan = Buffer.from('plan'), before = Buffer.from('old'), next = Buffer.from('new');
   const hash = b => createHash('sha256').update(b).digest('hex');
-  const start = source.indexOf('const tableGenerations = new Map();'), end = source.indexOf('// The resident compiler', start);
+  const start = source.indexOf('const tableGenerations = new Map();'), end = source.indexOf('\nlet dev = null;', start);
   const make = new Function('createHash','canonicalBytes','webEnvelope','resolve','filesystem','devGenerationDigest',`
     const typescript=true,portableRust=true,currentModule=new Map([['app.plan',Buffer.from('unpublished')],['plans/pending.plan',Buffer.from('pending')]]),currentRust=null,app={},dist='unused';
     const epoch='a'.repeat(32),program='program',seq=2;let retentionToken=null;

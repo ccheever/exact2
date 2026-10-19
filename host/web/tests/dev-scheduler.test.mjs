@@ -314,7 +314,7 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     writeFileSync(graphPath,JSON.stringify(build));
     let identity=true;
     const start=source.indexOf('async function currentWebBuild()');
-    const end=source.indexOf('\nif (!await currentWebBuild())',start);
+    const end=source.indexOf('\nconst early =',start);
     const current=new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs',
       'const producersOnly=false;'+source.slice(start,end)+';return currentWebBuild;')
       (async()=>identity,dir,{manifest:{}},graphPath,readFileSync,pendingBuildInputs);
@@ -422,7 +422,7 @@ function scheduler(game = false) {
   return new Function('game', `
     let building=false, rustActive=false, buildPending=false, rustPending=false, rustDirty=false, again=false, changed=new Set(), calls=[];
     let lastFailed=new Set(), failedInputs=new Set(), failing=false;
-    const app={manifest:game?{game:{}}:{},dir:'fixture',workspace:'fixture'};
+    const phases=[],early={phase:(...args)=>phases.push(args)},app={manifest:game?{game:{}}:{},dir:'fixture',workspace:'fixture'};
     const process={execPath:'bun',stdout:{write(){}}},root='.',buildEnv={},resolve=(...parts)=>parts.join('/'),existsSync=()=>false;
     let hostBuildChild,checked; const push=()=>{},watchCompilerInputs=()=>{};
     const spawn=()=>{calls.push(['check']);checked={};return {stdout:{on(){}},stderr:{on(){}},on(event,fn){checked[event]=fn;}};};
@@ -432,17 +432,18 @@ function scheduler(game = false) {
     const produceRustNow = () => { rustActive=true; calls.push(['rust']); };
     ${legacy ? 'function rebuild(){if(building){again=true;return;}const files=[...changed];changed.clear();if(gpuOnly(files))produceGpu(files);else rebuildNow(files);}function drainBuilds(){rebuild();}' : ''}
     ${functions}
-    return {calls, check(code){checked.exit(code);}, rust:produceRust, change(file){changed.add(file);buildPending=true;drainBuilds();},
+    return {calls, phases, check(code){checked.exit(code);}, rust:produceRust, change(file){changed.add(file);buildPending=true;drainBuilds();},
       set failing(value){failing=value;}, get retrying(){return lastFailed.size>0;},
       finish(){building=false;rustActive=false;${legacy ? 'if(again||changed.size){again=false;rebuild();}' : 'drainBuilds();'}}};
   `)(game);
 }
 test('a failed game check does not start either rebuild and a corrected save checks first', () => {
   const s=scheduler(true);s.change('gpu.rs');
-  assert.deepEqual(s.calls,[['check']]);s.check(1);
+  assert.deepEqual(s.calls,[['check']]);assert.deepEqual(s.phases,[['check','build']]);s.check(1);
   assert.deepEqual(s.calls,[['check']]);assert.equal(s.retrying,true);
   s.change('gpu.rs');assert.deepEqual(s.calls,[['check'],['check']]);s.check(0);
   assert.deepEqual(s.calls,[['check'],['check'],['gpu',['gpu.rs']]]);
+  assert.deepEqual(s.phases,[['check','build'],['check','failed'],['check','build'],['check','ready']]);
 });
 test('a Rust request during GPU build stays Rust, with no empty full rebuild', () => {
   const s=scheduler(); s.change('gpu.rs'); s.rust();
@@ -630,7 +631,7 @@ test('the resident module watcher follows backend selection without other local 
 },15000);
 
 test('dev cache requires every GPU artifact from the requested profile', async () => {
-  const start=source.indexOf('async function currentWebBuild()'),end=source.indexOf('\nif (app.manifest.game)',start);
+  const start=source.indexOf('async function currentWebBuild()'),end=source.indexOf('\nconst early =',start);
   const app={manifest:{game:{}},target:'/fixture/target',crate:kind=>`fixture-${kind}`};
   const build={version:1,trust:'development',binary:{configuration:{flags:{EXACT_WEB_LINK:'all'}}}};
   const products=profile=>['gpu','gpu-sky'].map(kind=>({path:resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')}));

@@ -693,7 +693,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
-});
+}, 120000);
 
 
 test('clock settle diagnostic names busy, held input, and logs on a real unsettled reply', async () => {

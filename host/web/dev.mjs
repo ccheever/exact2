@@ -882,12 +882,12 @@ function drainBuilds() {
     // A GPU-only save after a failed app build still rebuilds the wasm.
     const files = [...new Set([...lastFailed, ...changed])]; lastFailed = new Set(); changed = new Set();
     if (app.manifest.game) {
-      building = true;
+      building = true; early?.phase('check', 'build');
       const check = hostBuildChild = spawn(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:['ignore','pipe','pipe']});
       let output = '';
       for (const stream of [check.stdout, check.stderr]) stream.on('data', bytes => { output += bytes; process.stdout.write(bytes); });
       check.on('exit', code => {
-        building = false; hostBuildChild = null;
+        building = false; hostBuildChild = null; early?.phase('check', code === 0 ? 'ready' : 'failed');
         if (code === 0) { if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files); }
         else {
           lastFailed = new Set(files); push({error:output});
@@ -1308,7 +1308,7 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     // The side directory mirrors dist: `gpu.js`, or a module's `gpu/<name>.js`.
     await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',module ? resolve(stage, 'gpu') : stage,'--out-name',module ?? 'gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')]);
     if (tuning && stem === 'gpu' && (await (await import('../../game/app/tables.mjs')).tableValidator(stage, true)).names.length) {
-      changed.add(source); buildPending = true; rmSync(stage, {recursive:true,force:true}); return;
+      changed.add(source); buildPending = true; early?.phase('host', 'build'); rmSync(stage, {recursive:true,force:true}); return true;
     }
     gpuVersion++; gpuVersions.set(gpuVersion, { stem, directory: stage }); gpuSides.set(stem, gpuVersion);
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
