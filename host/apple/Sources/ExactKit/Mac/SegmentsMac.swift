@@ -221,7 +221,7 @@ final class SegmentHost {
                     control.setToolTip(tab.accessibleName, forSegment: index)
                 } else if case .symbol(let name)? = tab.segmentFace {
                     // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
-                    let image = NSImage(systemSymbolName: name, accessibilityDescription: tab.accessibleName)
+                    let image = FaceSymbol.image(name, accessibilityDescription: tab.accessibleName)
                         ?? NSImage(size: NSSize(width: 1, height: 1))
                     image.accessibilityDescription = tab.accessibleName
                     control.setImage(image, forSegment: index)

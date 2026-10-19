@@ -38,7 +38,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
-    /// Group 1 of every forward pass: cascades, comparison sampler, local maps.
+    /// Group 1 of every forward pass: cascades, comparison sampler, local maps
+    /// and the gathering sampler.
     pub(super) fn refresh_shadow_sample(&mut self) {
         if !std::mem::take(&mut self.shadow_sample_stale) {
             return;
@@ -65,6 +66,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: view(self.local.as_ref().map(|l| &l.sample), placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.shadow_gather),
                 },
             ],
         });

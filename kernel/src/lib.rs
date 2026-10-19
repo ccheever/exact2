@@ -97,7 +97,7 @@ pub use style::{
     link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, Region, RowValue,
-    SegmentVar, StyleValue, Transitions, Vec2, ViewportUnit,
+    SegmentVar, StyleValue, TitleBarVar, Transitions, Vec2, ViewportUnit,
 };
 pub use text::case::link as link_text_transform;
 pub use text::case::{
@@ -109,7 +109,7 @@ pub use text::{
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};
-pub use wire::{FrameBuilder, Op};
+pub use wire::{look_rows, FrameBuilder, Op, LOOK_FOCUS_VISIBLE, LOOK_HOVER};
 
 pub use region::{
     ContentRegion, RegionArtifact, RegionFrame, RegionInputs, RegionLayoutReceipt,

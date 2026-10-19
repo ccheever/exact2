@@ -66,10 +66,11 @@ pub struct NodeOffsets {
 }
 impl NodeOffsets {
     /// Add or replace a named row. Excess distinct names are dropped, never panic.
+    #[inline]
     pub fn with(mut self, node: NodeName, transform: Transform) -> Self {
         if let Some(row) = self.rows[..self.len as usize]
             .iter_mut()
-            .find(|r| r.node.as_str() == node.as_str())
+            .find(|r| r.node.hash() == node.hash() && r.node.as_str() == node.as_str())
         {
             row.transform = transform;
         } else if (self.len as usize) < self.rows.len() {
@@ -81,10 +82,12 @@ impl NodeOffsets {
         self
     }
     /// Written rows, in insertion order.
+    #[inline]
     pub fn rows(&self) -> &[NodeOffset] {
         &self.rows[..self.len as usize]
     }
     /// Whether this present exceeded the fixed row capacity.
+    #[inline]
     pub fn overflowed(&self) -> bool {
         self.overflow
     }

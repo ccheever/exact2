@@ -461,6 +461,27 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Porting a React Native app
 
+What a port writes from habit, what the compiler says, and what to write (the euxy port,
+2026-10-17: 19 of 50 compiles refused, most of them these). A warning builds; fix it anyway.
+
+| React Native writes | exact2 says | Write |
+|---|---|---|
+| `line-height=20` | `lower-line-height-multiplier` (warning) | `line-height="20px"`: a bare number is a multiplier, as in CSS |
+| `color="rgba(0,0,0,0.5)"`, `"#00000080"` | `lower-colour-one-scheme` (warning) | a role (`-exact-secondary-label`, `-exact-fill`), `light-dark(<light>, <dark>)`, or nothing |
+| `` text `${n} cards` `` | `lower-count-plural` (warning) | `` `${n} ${n == 1 ? "card" : "cards"}` `` |
+| `0% rotate=-2deg` in `keyframes` | `syntax-unquoted-length` | `0% rotate="-2deg"`, each keyframe on one line |
+| `tags.find(t => …)` | `syntax-method-call` | `first(tags.filter(t => …))`; in each row of a list, `lower-row-lookup` (warning): join it in the data module |
+| a helper action reading state its caller just set | `analyze-call-stale-read` | `let next = …` in the caller, `n = next`, pass `next` |
+| `width=120` on a box of text | `lower-text-px-width` (warning) | `width="7.5rem"`, or let the content size it |
+| `numberOfLines`, `ellipsizeMode`, `resizeMode`, `textTransform`, `fontVariant` | `lower-unknown-attr` | `line-clamp`, `text-overflow`, `object-fit`, `text-transform`, `font-variant-numeric` |
+| `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
+| `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
+| `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
+| `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
+| a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
+
 What the original's style objects say is not always what its iOS screen shows. Port
 what the screenshot shows. (euxy port against its Expo original, judged screen by
 screen, 2026-10-16.)
@@ -483,6 +504,16 @@ screen, 2026-10-16.)
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
   ref/x.png"` names each differing region's node and source line, a box's size measured in
   both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).
+
+- **A scrolled sheet or screen ends 34 points higher than the original.** euxy's Edit
+  Lane sheet, scrolled to its end, left 58 points under Delete lane where the original
+  left 24. Cause: a React Native `ScrollView` does not inset its content on iOS
+  (`contentInsetAdjustmentBehavior` is `never`), so its `paddingBottom: 24` was the whole
+  gap and the last row sat over the home indicator. A route's last scroller in exact2 is
+  inset by UIKit as a hand-built one is (`automatic`: the home indicator's 34 points, and
+  the tab bar's height on a tab), and the ported padding adds to that. Fix: subtract the
+  inset from the ported padding (`padding-bottom=0` here leaves 34); do not add
+  `env(safe-area-inset-bottom)` to it.
 
 - **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
   `padding="13px 16px" min-height=24` made
@@ -527,6 +558,21 @@ screen, 2026-10-16.)
   a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
   `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
   capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A glow on a tiny LED is barely there.** Cause: a blur spreads a small source thin, so
+  `box-shadow="0 0 7px …"` on a 5-pt dot is at most an eighth of its colour beside the
+  dot, in Chrome and on every host alike; the original's halo was a larger disc blurred
+  under the dot. A radial gradient instead draws a halo that is too big. Fix: Skia's
+  `<Circle r={R} opacity={a}><BlurMask blur={σ} /></Circle>` under a dot of radius `r` is
+  `box-shadow="0 0 <2σ>px <R − r>px <colour at a>"` on the dot: the spread grows the dot
+  to the halo's disc. euxy's `R=4.5, σ=4, a=0.55` under a 5-pt LED is
+  `box-shadow="0 0 8px 2px eu.glow"`, which matched the original's halo to within a
+  few levels.
+- **A bar's shadow casts a band over the strip below it.** Cause: the original cast the
+  shadow from a dock that ran to the screen's bottom edge, under the tab bar, so its
+  downward spill fell off screen; a route's content ends above the tab bar, so the same
+  `box-shadow` spills onto the strip there. Fix: keep the shadow and clip its spill with
+  `clip-path` past the box's top only (`clip-path="path('M 0 -40 L 2000 -40 L 2000 77 L 0
+  77 Z')"` on a 77-pt bar).
 - **A sheet sits a few points low, or ends short of the screen with its bottom corners
   showing.** Cause: a computed `navigationDetent` (`(screen height − 100) × 0.45`)
   guesses UIKit's maximum; and the original's `sheetCornerRadius` set the sheet's corner
@@ -595,6 +641,14 @@ screen, 2026-10-16.)
 
 ## Actions
 
+- **A send reads a derive from before the action's writes.** An action's writes
+  commit together; reading a derive after assigning one of its inputs still reads
+  the previous commit's derive. Build the next record explicitly for the send,
+  for example `DepartureState(current, at=current.at + 600000, status="Delayed")`,
+  and assign local state in the same action. Caltrain's activity update sent
+  "On time" after incrementing its delay until it built that next record
+  (`apps/caltrain/app.contract`, LLP 1126.001 WP9).
+
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
   words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
   (`syntax-expected-name`); nor can `length` name a function or action in a file
@@ -618,6 +672,17 @@ screen, 2026-10-16.)
   value. Fix: compute the value in a derive (from the `exactTime` source's
   `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
   the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
+
+- **A marker that moves by `if` costs a view each move.** Symptom: an animation
+  that moves a dot, a playhead or a selection ring from cell to cell several
+  times a second keeps a phone busier than a hand-built UIKit screen. Cause:
+  `if head == 0` around the marker destroys a node in one cell and creates one in
+  the next at every move: a view made and dropped, its style applied, and a
+  layout. Fix: keep the marker in every cell and move it by `opacity=(head == 0 ?
+  1 : 0)` (with `transition="none"` where it must not fade), as a hand-built app
+  toggles `alpha` or `isHidden`. Measured on euxy playing (sixty-eight step
+  cells, eight moves a second, iPhone 17 simulator): 7.1 → 5.5 % CPU, median of
+  four. (euxy CPU work, 2026-10-18.)
 
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
@@ -885,6 +950,31 @@ screen, 2026-10-16.)
 
 ## Driving and testing
 
+- **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
+  string form sets the whole textarea: AppKit selects all, then inserts the supplied
+  value. Even one character per call is replacement, so `" suffix"` does not append
+  to the existing prompt. Keep strings for whole-value setup. For incremental ASCII,
+  first verify the actual native selection is collapsed at the intended insertion
+  point, then send keys, including `Space` for a space:
+
+  ```js
+  await s.type('composer', 'seed'); // Replace the whole field.
+  // Verify the native caret is at source offset 4 before appending.
+  for (const character of ' a') {
+    const reply = await s.type('composer', {
+      key: character === ' ' ? 'Space' : character,
+    });
+    assert.equal(reply.delivery, 'platform');
+  }
+  ```
+
+  Wait for the app's accepted source after each key: `"seed "`, then `"seed a"`.
+  Assert one accepted-input serial increment per character and an unchanged owner;
+  the final value or a delivery receipt alone does not prove incremental input.
+  This ASCII example does not exercise IME composition. (T3 composer acceptance,
+  2026-10-19; [AgentMac.swift](../host/apple/Sources/ExactKit/Mac/AgentMac.swift),
+  textarea branch of `type`; [public driver](../scripts/agent.mjs), `type`.)
+
 - **A compiler fixture silently tests its helper instead of `App`.** The first
   component is the root; the name `App` has no special meaning. Put the root
   before its helpers. (SVG `use` warning's component-expansion test, 2026-10-17;
@@ -896,6 +986,28 @@ screen, 2026-10-16.)
   tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
   after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
   (Shelf recipe, 2026-10-10.)
+- **After a long press made with `axe touch --down --up --delay`, the iOS simulator
+  ignores taps.** An action sheet or alert the long press opened stays up whatever
+  is tapped, and relaunching the app does not help: Apple's Settings app on that
+  simulator ignores taps too, until the simulator reboots. In an Exact app the
+  symptom can be partial: the tab bar and an alert's buttons, which are UIKit's,
+  ignore taps while the app's own buttons still answer them. UIKit's controls do
+  that while another touch is down: with `axe touch --down` holding one finger,
+  Apple's Photos ignores a tap on its tab bar exactly as an Exact app's does, and
+  a sequencer's play button still plays. Cause: AXe 1.8.0's touch command, not
+  the app. Fix: make real touches with the agent, which taps
+  an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
+  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
+  prompt, and its tab bar after a relaunch, 2026-10-18.)
+- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
+  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+  one run); otherwise the app opens the link at once. A drive that then taps where
+  the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
+  taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
+  the link presented, and UIKit dismisses that sheet and pops the route, as it would
+  for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
+  `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
+  "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
@@ -1162,7 +1274,9 @@ screen, 2026-10-16.)
   session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
-  the app's files are there.** Cause: without `--storage <name>` the data
+  the app's files are there.** Cause: a web drive without `--storage <name>`
+  (a native one uses the store `default`, kept between drives), or an authored
+  test, whose store starts empty: the data
   module reads an empty store (`readFile`, `readdir`, `stat` and `realpath` reject
   with code `ENOENT`, as for a missing file) and every write throws "storage is
   unavailable in agent mode…", so a module that catches a missing file falls back
@@ -1381,6 +1495,52 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A continued proof uses its saved source copy.** Keep the SDK unchanged until
+  it finishes. Edit the original game freely during a new run; `--continue` refuses
+  if its authored inputs differ from the snapshot, naming the file. Start a new
+  proof to verify the edit. `tools/` probes and `.exact/status.json` are not game inputs.
+  A fresh snapshot has no generated `.shells/surfaces.json`. Cache that declaration
+  with the GPU receipt and restore it before checking the host receipt. Restore
+  Git-ignored baked assets too: a Cargo cache hit does not rerun `bake_art`.
+  Shared Cargo targets are compilation caches; copy validated native products
+  into the run before driving them, so another proof cannot replace them.
+  Declare proof-only JSON or other files with `export const proofData = ["relative/path"];`
+  so the snapshot copies them and continuation checks them. Resolve SDK files from
+  the shared runner’s `proofSDK`, not by walking up from a relocated proof.
+
+- **A first native proof can require a rerun after generated directories appear.**
+  If it says `app or asset directories changed during build`, rerun the same
+  command after generation finishes. The first receipt is refused deliberately;
+  the fresh/stable/cached proof test covers this path.
+- **Stopping `game/dev.mjs` during a build can leave its build child running.**
+  A terminated server does not prove its Cargo/build descendants exited. Record
+  the process tree before stopping it, then check those PIDs; terminate only
+  processes belonging to that invocation before starting another build.
+- **`exact.mjs linux` builds the host, not the game's GPU module.** For the
+  `gpu-dev` host/module pair, use `bun proof.mjs linux --build-only` from the
+  game directory. See [game build profiles](../game/README.md#exact2-integration).
+- **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
+  is the fallback when the socket cannot resolve; rotating that fallback does not
+  rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
+  rotation on a working socket.
+- **Entity verbs require an entity handle.** Use `World::get_mut`, `require_mut` or
+  `nearest_xz_mut`. Consuming query rows and resource guards have no entity identity;
+  their verbs report `entity-handle-required`. Borrowed query iteration yields plain
+  references, which do not expose these verbs.
+- **Append new `Data` enum variants when existing values must keep their hashes.**
+  Saves name variants, but the simulation hash includes their declaration ordinals.
+  Keep existing ordinals, including `Mesh::Asset` at five, to preserve model-world
+  pins when adding primitives.
+- **A handle's `tint` and `offset` change simulation state.** They write the entity's
+  `Material` and local `Transform`; they save and hash. For a cosmetic flash or bob,
+  derive `Tint` or `Offset` in `Game::present` instead. `glow_to` retargets the saved
+  `Glow`; keep authored material emission constant or the intensity is applied twice.
+  [Game pickup recipe](../game/recipes/pickup.md).
+- **Builder hex colours are sRGB; `Material::rgb` is linear.**
+  `prop(...).color("#808080")` converts the channels to about 0.216, not 0.502.
+  [Literal builders](../game/recipes/literal-builders.md) and the builder hash test
+  use the same conversion as the CSS colour library.
+
 - **Older saves refuse to restore after adding a generated model.** `restore` names it:
   ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
   at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
@@ -1388,6 +1548,14 @@ screen, 2026-10-16.)
   appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
   for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
   1046.012 F5, 2026-10-07.)
+
+- **`exact setup` keeps reporting `MISSING wasm-bindgen` after installing it, and `test web`
+  fails with "wasm-bindgen not on PATH".** Cause: setup installs it with `cargo install`,
+  whose binaries land in `~/.cargo/bin`, and then looks for it on PATH; a rustup from
+  Homebrew puts only `/opt/homebrew/opt/rustup/bin` there, so the install succeeds and the
+  check never sees it. Fix: put `~/.cargo/bin` on PATH (`.zprofile`), or symlink
+  `~/.cargo/bin/wasm-bindgen` beside `cargo`. **Candidate diagnostic:** setup could check
+  `~/.cargo/bin` and say the PATH is the problem. (Fishslop bench setup, 2026-10-17.)
 
 ## Access hatches
 

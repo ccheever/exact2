@@ -81,8 +81,12 @@ pub struct GroupedRow {
     pub view: ViewId,
     /// Whether its children are anything but a standard cell's parts.
     pub custom: bool,
-    /// The leading symbol's Apple name.
+    /// The leading symbol's Apple name ("" for an icon token with none).
     pub symbol: Option<String>,
+    /// The leading symbol's icon token form (after `symbol:`) when it has
+    /// no Apple name but a template path, which the host draws as the
+    /// cell's template image (LLP 1121 D10, stage 9 A2); `None` otherwise.
+    pub icon: Option<String>,
     /// The title.
     pub title: Option<String>,
     /// The second text: a value beside the title, or a subtitle under it.
@@ -202,9 +206,28 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
         .props
         .str(PropId::ImageSource)?
         .strip_prefix("symbol:")?;
-    // An icon token's SF Symbol too (LLP 1121 D10).
+    // An icon token's SF Symbol too, or "" for one whose path the host
+    // draws (LLP 1121 D10); an empty name is no symbol, as an empty `sf/`
+    // one is (stage 9 H).
     let name = crate::apple_symbol_name(role);
-    (!name.is_empty() || role.starts_with("sf/")).then(|| name.to_owned())
+    (!name.is_empty() || role.is_empty() || role.starts_with("sf/") || drawn_icon(role).is_some())
+        .then(|| name.to_owned())
+}
+
+/// The icon token form `role` is when it has no SF Symbol and a template
+/// path: the host draws that path where Apple has no symbol (stage 9 A2).
+fn drawn_icon(role: &str) -> Option<&str> {
+    let icon = crate::Icon::parse(role)?;
+    (icon.sf.is_empty() && !icon.path.is_empty()).then_some(role)
+}
+
+/// The icon token form a symbol image draws by its path (`drawn_icon`).
+fn icon_of(node: &NodeRef<'_>) -> Option<String> {
+    let role = node
+        .props
+        .str(PropId::ImageSource)?
+        .strip_prefix("symbol:")?;
+    drawn_icon(role).map(str::to_owned)
 }
 
 /// A text node's text, its white space collapsed as its `white-space` has
@@ -391,6 +414,7 @@ impl Kernel {
         if let Some((first, after)) = rest.split_first() {
             if let Some(symbol) = apple_symbol(first) {
                 out.symbol = Some(symbol);
+                out.icon = icon_of(first);
                 rest = after;
             }
         }

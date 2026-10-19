@@ -29,7 +29,7 @@ test('the neutral sheet\'s colours are the role table\'s neutral column', () => 
   const root = /:root \{([^}]*)\}/.exec(neutral)[1];
   const defined = new Map([...root.matchAll(/--exact-([a-z-]+): (light-dark\([^)]*\))/g)].map((m) => [m[1], m[2]]));
   // A role by its own name; a CSS system colour the sheet needs as a value by its name in lower case.
-  const role = (name) => pair.get(name) ?? pair.get({ 'gray-text': 'GrayText' }[name]);
+  const role = (name) => pair.get(name) ?? pair.get({ 'gray-text': 'GrayText', 'field-text': 'FieldText' }[name]);
   for (const [name, value] of defined) expect([name, value]).toEqual([name, role(name)]);
   // Every role named by either sheet is defined in the neutral column.
   const named = new Set([...(shell + neutral).matchAll(/var\(--exact-([a-z-]+)/g)].map((m) => m[1]).filter((name) => role(name)));
@@ -45,8 +45,12 @@ test('the neutral sheet\'s colours are the role table\'s neutral column', () => 
 // it to the table both ways: every length it writes is a row's, on a property that row is written on, and every row
 // is written. A length that follows from rows (a pill's radius, a thumb's travel) is named beside its reason.
 test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral column', () => {
-  const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics.filter(([, kind]) => kind !== 'style');
-  const value = new Map(rows.map((row) => [row[0], row.at(-1)]));
+  // A row's neutral value is its third cell when it has three, else its sixth; a row whose neutral value is unset is
+  // another look's own (Android's Material rows) and no sheet's here.
+  const neutralCell = (row) => (row.length === 3 ? row[2] : row[5]);
+  const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics
+    .filter((row) => row[1] !== 'style' && neutralCell(row) !== 'unset');
+  const value = new Map(rows.map((row) => [row[0], neutralCell(row)]));
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
   // The properties each length is written on.
   const WHERE = {
@@ -160,6 +164,7 @@ const fixture = `
     <div data-exact-progress id="spinner" style="display:grid;width:20px;height:20px"></div><div data-exact-progress data-exact-said="color" id="spinner-said" style="display:grid;width:20px;height:20px"></div>
     <div role="radiogroup" id="segments" style="display:flex"><button type="button" role="radio" aria-checked="true" data-native data-button-style="bordered" id="chosen" style="display:grid"><span data-exact-text>Day</span></button><button type="button" role="radio" aria-checked="false" data-native data-button-style="bordered" id="segment" style="display:grid"><span data-exact-text>Week</span></button></div>
     <div data-exact-on="press" id="pressable" style="width:120px;height:40px"></div>
+    <button data-exact-said="background-color" id="filled" style="width:120px;height:40px;background-color:#2f6b3f;color:#ffffff">Add</button>
     <div data-exact-text id="paragraph">A <a data-view href="/x" id="inline">link</a> in it.</div>
     <div data-liststyle="inset-grouped" id="list" style="background-color:light-dark(rgb(242, 242, 247), rgb(0, 0, 0))"><section><div id="card" style="border-radius:26px;background-color:light-dark(rgb(255, 255, 255), rgb(28, 28, 30))"><div>Row</div></div></section></div>
     <div data-liststyle="inset-grouped" data-exact-said="background-color" id="list-said" style="background-color:rgb(1, 2, 3)"></div>
@@ -259,6 +264,10 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // The unsaid hover: a wash over a pressable nobody styled, and a link in running text underlines.
       await page.hover('#pressable');
       expect([at('hover'), await page.evaluate(() => css('pressable', 'backgroundImage') !== 'none')]).toEqual([at('hover'), true]);
+      // A button its author filled washes in its own ink, at the filled button's share (LLP 1129 D1).
+      await page.hover('#filled');
+      const wash = await page.evaluate(() => [rgba(css('filled', 'backgroundImage').match(/rgba?\([^)]*\)|color\([^)]*\)/)[0]), color('filled')]);
+      expect([at('filled'), wash[0]]).toEqual([at('filled'), [...wash[1].slice(0, 3), 0.12]]);
       await page.hover('#inline');
       expect([at('link'), await page.evaluate(() => css('inline', 'textDecorationLine'))]).toEqual([at('link'), 'underline']);
       await page.mouse.move(1, 1);

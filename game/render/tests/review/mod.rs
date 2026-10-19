@@ -233,7 +233,8 @@ fn resize_buckets_preserve_logical_pixels_and_never_shrink() {
             first = Some(pixels.data.clone());
         }
         if index == 1 {
-            assert_eq!(stats.texture_creations, previous_creations + 9);
+            // The scene's three targets and bloom's eight (six octaves, two tap grids).
+            assert_eq!(stats.texture_creations, previous_creations + 11);
         }
         if index >= 2 {
             assert_eq!(stats.texture_creations, previous_creations);

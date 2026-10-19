@@ -1,4 +1,4 @@
-//! `contract build <file.contract> [-o <file.plan>] [--json] [--map]` — compile, print a
+//! `contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map]` — compile, print a
 //! one-line summary, write the bytes. Baking needs the app's data crate and
 //! happens in the app's own build (see `apps/caltrain`), not here.
 //! `contract types <file.contract> [-o <app.d.ts>] [--check]` — generate TypeScript's
@@ -13,19 +13,24 @@ use std::process::ExitCode;
 mod ambient;
 mod build;
 mod diff;
+mod migrate;
 mod tamber;
 mod tamber_contract;
+mod tamber_explain;
 mod tamber_export;
 mod tamber_gen;
 mod tamber_history;
 mod tamber_import;
 mod tamber_ops;
+mod tamber_param_lines;
+mod tamber_rows;
 mod tamber_serve;
 mod verify;
 mod vocab;
 
 const USAGE: &str = "usage:
-  contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)]
+  contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)]
+  contract migrate <file.contract>
   contract symbols <file.contract> [--name <exact-name>]
   contract sources <file.contract>
   contract fmt [--check | --stdout] <file.contract>
@@ -64,6 +69,7 @@ fn run() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("build") => build::run(&args[1..]),
+        Some("migrate") => migrate::run(&args[1..]),
         Some("symbols") => symbols(&args[1..]),
         Some("sources") => sources(&args[1..]),
         Some("fmt") => fmt(&args[1..]),

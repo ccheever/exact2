@@ -29,7 +29,7 @@ pub use links::EngineLinks;
 mod path;
 mod played;
 mod slots;
-pub use played::{PlayedCurve, PlayedTransition};
+pub use played::{PlayedCurve, PlayedTransition, TransitionEnds};
 mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
@@ -238,6 +238,29 @@ impl Hasher for SlotHasher {
     }
     fn write_u64(&mut self, value: u64) {
         self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+std::thread_local! {
+    static STILL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While it lives, a change any engine on this thread observes jumps to its
+/// value: no transition starts, and one running on the property stops there
+/// (a scrub's frame, which follows the tool's gesture, LLP 1121 D13): the
+/// whole commit's, its layout and heights observed after its rows
+/// included. An animation plays on.
+#[must_use]
+pub struct Still(bool);
+
+/// See [`Still`].
+pub fn still() -> Still {
+    Still(STILL.with(|s| s.replace(true)))
+}
+
+impl Drop for Still {
+    fn drop(&mut self) {
+        STILL.with(|s| s.set(self.0));
     }
 }
 
@@ -499,7 +522,7 @@ impl Engine {
                 .get(&change.node)
                 .and_then(|t| t.matching(change.property))
         }
-        .filter(|t| t.starts())
+        .filter(|t| t.starts() && !STILL.with(std::cell::Cell::get))
         .map(|t| t.governing(change.property));
 
         // An unchanged settled slot (most of a touched node's) changes

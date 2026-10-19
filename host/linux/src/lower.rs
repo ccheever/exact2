@@ -173,6 +173,23 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let now = self.engine.now();
+        // A track the reader plays whose node now has something painted over
+        // the property (a press row, a look naming it, set while it played)
+        // is the engine's again, from where its curve is (LLP 1121 D8).
+        for (node, t) in &self.played {
+            let Some(n) = self
+                .runner
+                .kernel()
+                .node_by_key(exact_kernel::motion::node_key(*node))
+            else {
+                continue;
+            };
+            for (property, _) in t {
+                if crate::host::press::paints_over(&n, *property) {
+                    self.engine.reclaim_played(*node, *property);
+                }
+            }
+        }
         let mut ended = Vec::new();
         self.played.retain(|node, t| {
             let before = t.len();
@@ -315,7 +332,16 @@ impl<D: DataSource> Host<D> {
                 })
             })
         };
-        for play in self.engine.animation_plays(node_u64(key)) {
+        // An animation the engine samples (a look's or a press's opacity over
+        // it, `playable`) is in the recording and the layer's base already:
+        // never a reader track too, beside a transition a sibling lowered.
+        let sampled = self.engine.node_sampled(node_u64(key));
+        for play in self
+            .engine
+            .animation_plays(node_u64(key))
+            .into_iter()
+            .filter(|_| !sampled)
+        {
             let a = &play.animation;
             for p in a.keyframes.properties() {
                 let (underlying, axes): (Value, &[(u32, usize)]) = match p {
@@ -534,6 +560,11 @@ fn easing(out: &mut Vec<u32>, e: Option<&Easing>) {
 /// does: a box's transform and opacity; an SVG element's opacity; a filled
 /// circle's radius as a scale about its centre.
 fn playable(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
+    // What the host paints over the node's own (a press, a look: LLP 1061 D7,
+    // LLP 1121 D8) is composed where the engine samples, so it stays there.
+    if props.iter().any(|p| crate::host::press::paints_over(n, *p)) {
+        return false;
+    }
     let s = n.style;
     let svg = n.node_type.is_svg_element();
     let served = |p: &Paint| matches!(p, Paint::Url(..));

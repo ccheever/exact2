@@ -45,6 +45,8 @@ mod surface;
 pub mod tells;
 mod timing;
 mod trace;
+#[cfg(test)]
+mod translucent_tests;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.
@@ -546,7 +548,7 @@ macro_rules! module {
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits($crate::development_build())),
             )],
             shaders: $shaders,
         };

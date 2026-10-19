@@ -175,10 +175,12 @@ export function install(exact) {
       visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!inertAncestor(el), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
       native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {
         source: el.dataset.symbolSource, name: el.dataset.symbolSource.slice(el.dataset.symbolSource.startsWith('symbol:sf/') ? 10 : 7), found: !!el.dataset.symbolPath || el.hasAttribute('data-symbol-file'),
-        ...(!el.dataset.symbolPath && !el.hasAttribute('data-symbol-file') ? { reason: el.dataset.symbolSource === 'symbol:sf/' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
+        ...(!el.dataset.symbolPath && !el.hasAttribute('data-symbol-file') ? { reason: el.dataset.symbolSource === 'symbol:sf/' || el.dataset.symbolSource === 'symbol:' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
       } } : {}) },
       browser: Object.fromEntries(Object.entries(INHERITED).map(([row, prop]) => [row, cs.getPropertyValue(prop)])),
       observed: { clock: exact.clock.now, wall: Date.now() },
+      // What is held on it (LLP 1122 D8): its state and the rows it shows.
+      ...((h) => { if (h?.held && h.held.node == null && h.held.el) h.held.node = id(h.held.el); return h ?? {}; })(exact.heldOf?.(el)),
     };
   };
   // presence-glue.js `observation`, by this runtime's view ids (its elements carry no `data-view`).
@@ -291,6 +293,14 @@ export function install(exact) {
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) await selectAll(el); return {}; }
       case 'tap':
         if (req.part != null) return partTap(req);
+        // A held state (LLP 1122 D8, `holdState`): the input glue's, as the real one (it loads after paint).
+        if (req.holdState !== undefined) {
+          if (!exact.hold) await import('./rt.js').then(rt => rt.pressFeedback?.()).catch(() => {});
+          for (let i = 0; i < 40 && !exact.hold; i++) await new Promise(ok => setTimeout(ok, 50));
+          if (!exact.hold) return { error: 'the input glue is not loaded' };
+          const r = exact.hold(views.get(req.id), req.holdState);
+          return r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : { tapped: req.id, holdState: r.held, delivery: 'recognized' };
+        }
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
           for (const a of [req.into.block === undefined ? 'start' : req.into.block, req.into.inline === undefined ? 'nearest' : req.into.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === 'string' ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true };

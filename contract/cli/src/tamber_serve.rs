@@ -63,9 +63,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+#[path = "tamber_scrub.rs"]
+mod scrub;
+#[path = "tamber_walk.rs"]
+mod walk;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.11";
+pub const PROTOCOL: &str = "tamber/1.12";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -196,11 +200,21 @@ struct Server {
     /// Contract sources they were read from, with the retention its plan
     /// keeps tokens by (D7), read by the same build.
     synthetic: Option<Synthetic>,
-    /// The app's components' params (LLP 1121 D15), by the same key.
-    params: (String, contract::tamber_params::AppParams),
+    /// The app's components' params (LLP 1121 D15), by the Contract
+    /// sources' key ([`Server::sources_key`]): every read and write asks
+    /// them, and loading them parses the app (~200 ms on the clone).
+    params: std::cell::RefCell<(String, std::rc::Rc<contract::tamber_params::AppParams>)>,
+    /// The Contract sources as last walked ([`walk::Walk`]): every snapshot and
+    /// every request's params ask them, and walking them parses the app
+    /// (~200 ms on the clone).
+    graph: std::cell::RefCell<Option<walk::Walk>>,
+    /// Requests handled: a walk is checked once per request.
+    asked: std::cell::Cell<u64>,
     /// The app's own Contract sources at the last read that loaded them
     /// all: a root that stops parsing for a moment keeps its imports.
     contract: std::cell::RefCell<Vec<String>>,
+    /// What an open scrub's frames fold over (`tamber_scrub.rs`).
+    scrub: Option<scrub::Base>,
 }
 
 /// A digest, its synthetic token expressions, and the plan's retention.
@@ -333,7 +347,10 @@ impl Server {
             client: None,
             synthetic: None,
             params: Default::default(),
+            graph: Default::default(),
+            asked: Default::default(),
             contract: Default::default(),
+            scrub: None,
         };
         server.same_state()?;
         server.recover()?;
@@ -353,32 +370,7 @@ impl Server {
     /// not kept, and tried again.
     fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
-        let graph = contract::source_graph(&root);
-        let mut key = String::new();
-        for s in &graph.sources {
-            if s.path.extension().is_some_and(|e| e == "tamber") {
-                continue;
-            }
-            key.push_str(&s.path.to_string_lossy());
-            key.push('\0');
-            key.push_str(
-                &std::fs::read(&s.path)
-                    .map(|b| digest(&b))
-                    .unwrap_or_default(),
-            );
-            key.push('\n');
-        }
-        // Whether code beside the app can name a token outside its views
-        // (D7's retention: app.ts, a data crate, app.json's modules or
-        // hatches), which none of the sources say.
-        key.push_str(&format!("bindable {}\n", contract::code_beside(&root)));
-        // What resolved the imports (package manifests, the paths tried).
-        for path in &graph.consulted {
-            key.push_str(&path.to_string_lossy());
-            key.push('\0');
-            key.push_str(&std::fs::read(path).map(|b| digest(&b)).unwrap_or_default());
-            key.push('\n');
-        }
+        let mut key = self.sources_key();
         if let Some(design) = snap
             .iter()
             .find(|(f, _, _)| *f == self.design)
@@ -388,9 +380,9 @@ impl Server {
                 key.push_str(&t.name.value);
                 key.push('\n');
             }
-        }
-        if self.params.0 != key {
-            self.params = (key.clone(), contract::tamber_params::params_of(&root));
+            // A native component's params, kept by their declaration, and
+            // what their defaults read.
+            key.push_str(&format!("{:?}\n", design.components));
         }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
@@ -566,7 +558,8 @@ impl Server {
             .filter(|n| n.ends_with(".tamber") && *n != self.design)
             .collect();
         others.sort();
-        let contract = crate::tamber_contract::owned_kept(&self.dir, &self.contract);
+        let owned = self.walk().owned.clone();
+        let contract = crate::tamber_contract::owned_kept(&self.dir, owned, &self.contract);
         Ok(std::iter::once(self.design.clone())
             .chain(others)
             .chain(contract)
@@ -607,6 +600,7 @@ impl Server {
     }
 
     fn handle(&mut self, line: &str) -> Vec<Value> {
+        self.asked.set(self.asked.get() + 1);
         let request: Value = match serde_json::from_str(line) {
             Ok(v @ Value::Object(_)) => v,
             Ok(_) => {
@@ -635,6 +629,7 @@ impl Server {
                 )]
             }
             Some("propose") => vec![reply(self.transaction(&request, false))],
+            Some("scrub-fold") => vec![reply(self.scrub_fold(&request))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
             // The wire's own, for `history`, `revert` and `import`.
@@ -709,7 +704,7 @@ impl Server {
     /// two components share is refused, not read as a design token.
     fn lookup(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding, String), Value> {
         let name = required(request, "token")?;
-        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let app = self.app_params();
         let token = match contract_lower::params::resolve(&app.tokens, &app.identities, &name) {
             Ok(p) => p.token.clone(),
             Err(e) if e.id == "tamber-param-ambiguous" => {
@@ -728,12 +723,8 @@ impl Server {
         request: &Value,
         app: &contract::tamber_params::AppParams,
     ) -> Result<(Snapshot, exact_tamber::Folding, exact_tamber::Design), Value> {
-        let params = app.tokens.as_slice();
-        if params.is_empty() {
-            let (snap, folding) = self.design(request)?;
-            let design = folding.design.clone();
-            return Ok((snap, folding, design));
-        }
+        // Folded as the build folds it (an icon naming another included),
+        // with or without params.
         let snap = self.snapshot()?;
         let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
         let text = &snap
@@ -751,11 +742,11 @@ impl Server {
     /// A reply with each param named by its full name (D15), never by its
     /// name below the IR.
     fn present(&self, v: Value) -> Value {
-        let all = contract::tamber_params::params_of(&self.dir.join("app.contract")).tokens;
-        if all.is_empty() {
+        let app = self.app_params();
+        if app.tokens.is_empty() {
             return v;
         }
-        let text = contract_lower::params::shown(&v.to_string(), &all);
+        let text = contract_lower::params::shown(&v.to_string(), &app.tokens);
         serde_json::from_str(&text).unwrap_or(v)
     }
 
@@ -793,7 +784,7 @@ impl Server {
     fn describe(&self, request: &Value) -> Result<Value, Value> {
         // The app's components' params (LLP 1121 D15) fold with the design,
         // so a dial only a param reads is read; listed by full name.
-        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let app = self.app_params();
         let all = app.tokens.as_slice();
         let (snap, folding, design) = self.design_with(request, &app)?;
         let mut ir: Value =
@@ -842,6 +833,15 @@ impl Server {
             .iter()
             .map(|d| located(&file, d, &app))
             .collect();
+        // Each icon's entry says which source each shipped target draws
+        // (LLP 1121 stage 9 C, *1.12*).
+        if let Some(icons) = ir["icons"].as_array_mut() {
+            for entry in icons {
+                if let Some(icon) = folding.icons.iter().find(|i| entry["name"] == i.name) {
+                    entry["draws"] = crate::tamber_explain::draws(&self.dir, icon);
+                }
+            }
+        }
         Ok(
             json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
         )
@@ -939,6 +939,15 @@ impl Server {
     /// on, and the tokens those values name, as the checker resolved them.
     fn explain(&self, request: &Value) -> Result<Value, Value> {
         let (snap, folding, name) = self.lookup(request)?;
+        // An icon, an icon param's too (D10, *1.12*).
+        let app = self.app_params();
+        // The design asked about (`file`), whose lines set the app's values.
+        let design = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        if let Some(icon) =
+            crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
+        {
+            return Ok(icon);
+        }
         let (token, declared) = folding
             .tokens
             .iter()
@@ -952,9 +961,13 @@ impl Server {
                 json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value})
             })
             .collect();
-        Ok(
-            json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)}),
-        )
+        let mut out = json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)});
+        // A param (D15): where it is declared, its default as written, and
+        // the design's line that sets the app's value, *1.12*.
+        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
+            out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
+        }
+        Ok(out)
     }
 
     /// Where the app reads a token (`crate::tamber_uses`): each plan site
@@ -965,13 +978,24 @@ impl Server {
     /// `outline`).
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
         let (snap, folding, name) = self.lookup(request)?;
-        if !folding.tokens.iter().any(|t| t.name == name) {
+        let icon = folding.icons.iter().any(|i| i.name == name);
+        if !icon && !folding.tokens.iter().any(|t| t.name == name) {
             return Err(no_token(&folding, &name));
         }
         // A design file the app does not build has no sites.
         if optional(request, "file")?.is_some_and(|f| f != self.design) {
             return Ok(
                 json!({"token": name, "plan": null, "sites": [], "aliases": [], "files": files_json(&snap)}),
+            );
+        }
+        // An icon's image sites, an icon param's too (stage 9 C2, *1.12*).
+        if icon {
+            return crate::tamber_explain::icon_uses(
+                &self.dir,
+                &self.design,
+                &self.app_params(),
+                &snap,
+                &name,
             );
         }
         let aliases = contract::tamber_uses::aliases(
@@ -1004,8 +1028,22 @@ impl Server {
                 &aliased,
             )
             .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+            // Each instance at the element or style holding a literal is a
+            // site (stage 9 C2, *1.12*).
+            let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
+                .map_err(
+                    |e| json!({"message": format!("the app does not build: {}", e.message)}),
+                )?;
+            let map: Value = serde_json::from_str(&map.json(&plan.encode()))
+                .map_err(|e| json!({"message": format!("source map: {e}")}))?;
+            let sites = contract::tamber_uses::motion_instances(
+                &self.dir.join("app.contract"),
+                sites,
+                &map,
+            )
+            .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
             return Ok(
-                json!({"token": name, "plan": null, "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
+                json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
             );
         }
         let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
@@ -1039,7 +1077,10 @@ impl Server {
             .iter()
             .filter(|(p, _, d)| {
                 (ops.iter().any(|(f, _)| f == p) || contract_ops.iter().any(|(f, _)| f == p))
-                    && match seen.get(p) {
+                    // A held proposal's base gives a file it planned on
+                    // and left as it was (a style op with no `file` that
+                    // changed nothing there) in `requires`: as seen.
+                    && match seen.get(p).or_else(|| requires.get(p)) {
                         Some(s) => s != d,
                         None => write,
                     }
@@ -1058,8 +1099,7 @@ impl Server {
         }
         // A param set or unset by a name the app has (D15), on the line the
         // design already gives it, whichever name that line uses.
-        let _ = self.synthetic(&snap);
-        crate::tamber_ops::param_names(&mut ops, &snap, &self.params.1)?;
+        crate::tamber_ops::param_names(&mut ops, &snap, &self.app_params())?;
         // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
         // a propose would write, which it asks for.
         let texts = !write && request["texts"] == json!(true);
@@ -1129,7 +1169,8 @@ impl Server {
         // The tokens the plan keeps (D7): an edit to one it does not keep
         // (a plain app's token no view names) leaves the plan as it is.
         let retention = self.synthetic.as_ref().and_then(|(_, _, r)| r.clone());
-        let params = crate::tamber_ops::params(&self.params.1);
+        let app = self.app_params();
+        let params = crate::tamber_ops::params(&app);
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
@@ -1137,7 +1178,7 @@ impl Server {
             params: &params,
         };
         let mut planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
-            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &self.params.1)).collect::<Vec<_>>()})
+            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &app)).collect::<Vec<_>>()})
         })?;
         let restores: Vec<(String, Op)> = all_ops
             .iter()
@@ -1158,55 +1199,13 @@ impl Server {
         // override that varies by an app axis (LLP 1121 D5, the compiler's
         // `tamber-role-axis`). An undo restores what was, and is not judged.
         if !undo {
-            // A role that varied before this write is the file's own,
-            // already refused by the build; only what the write makes vary.
-            let varies = |text: &str| -> Vec<(String, u32, u32)> {
-                exact_tamber::check(text, &self.vocab).map_or(Vec::new(), |f| {
-                    f.tokens
-                        .iter()
-                        .zip(&f.design.tokens)
-                        .filter(|(t, _)| {
-                            t.role.is_some()
-                                && t.values.windows(2).any(|w| w[0].css() != w[1].css())
-                        })
-                        .map(|(t, d)| (t.name.clone(), d.name.line, d.name.col))
-                        .collect()
-                })
-            };
-            let mut axis = Vec::new();
-            for (path, text, _) in &planned.files {
-                let before: Vec<String> = texts
-                    .iter()
-                    .find(|(p, _)| p == path)
-                    .map_or(Vec::new(), |(_, t)| {
-                        varies(t).into_iter().map(|(n, ..)| n).collect()
-                    });
-                for (name, line, col) in varies(text) {
-                    if !before.contains(&name) {
-                        axis.push(diagnostic(path, &exact_tamber::Diagnostic { id: "tamber-role-axis", message: format!("`{name}` overrides a role and varies by an app axis: a role has one value, which the hosts' own surfaces read; vary a token the rows name instead (LLP 1121 D5)"), line, col }));
-                    }
-                }
-            }
-            if !axis.is_empty() {
-                return Err(json!({"message": "refused", "diagnostics": axis}));
-            }
-            // A param's value folds with the params where it lands, inside
-            // its range (D15), as the build checks it.
-            // Any write: an unset, a token's or an axis's edit can take a
-            // param out of its range or its `when` out of the design too.
-            if !self.params.1.tokens.is_empty() {
-                let set: Vec<(String, String)> = planned
-                    .files
-                    .iter()
-                    .filter(|(p, _, _)| *p == self.design)
-                    .map(|(p, t, _)| (p.clone(), t.clone()))
-                    .collect();
-                crate::tamber_ops::param_values(&set, &self.params.1, &self.vocab, &self.dir)?;
-            }
+            self.write_checks(&texts, &planned)?;
         }
         let mut out = json!({
             "files": files_json(snap),
-            "changed": planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>(),
+            // A param a token's edit reaches is named in full (LLP 1122 T3:
+            // the IR token a plan names it by reaches no client).
+            "changed": self.present(json!(planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>())),
             // The closure unknown (the app's build stops before its design):
             // no edit is answered live.
             "class": if known.is_some() { planned.class.name() } else { exact_tamber::Class::Rebuild.name() },
@@ -1376,6 +1375,7 @@ impl Server {
                     self.stop(format!("withdrawing the journal: {e}"));
                 }
                 clean(&renames);
+                self.recheck();
                 let files = self
                     .snapshot()
                     .map(|s| files_json(&s))
@@ -1449,12 +1449,12 @@ fn temp_name(name: &str) -> bool {
         .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
 }
 
-/// Why `explain` or `uses` has no token `name`: an icon (a param's too) is
-/// read through `describe` and `resolve` (D10).
+/// Why `uses` has no token `name`: an icon (a param's too) is read through
+/// `describe`, `resolve` and `explain` (D10).
 fn no_token(folding: &exact_tamber::Folding, name: &str) -> Value {
     match folding.icons.iter().any(|i| i.name == name) {
         true => {
-            json!({"message": format!("`{name}` is an icon: `describe` and `resolve` read an icon's sources; `explain` and `uses` take a token")})
+            json!({"message": format!("`{name}` is an icon: `describe`, `resolve` and `explain` read an icon; `uses` takes a token")})
         }
         false => json!({"message": format!("no token `{name}`")}),
     }

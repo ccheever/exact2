@@ -117,7 +117,7 @@ final class ReadoutView: UIView {
             NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: size.width), dot.heightAnchor.constraint(equalToConstant: size.height)])
             return dot
         case .symbol(let name, let points, let tint):
-            let image = UIImageView(image: UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: points)))
+            let image = UIImageView(image: FaceSymbol.image(name, points: points, configuration: UIImage.SymbolConfiguration(pointSize: points)))
             image.tintColor = ink(tint)
             return image
         case .text(let text, let font, let color):

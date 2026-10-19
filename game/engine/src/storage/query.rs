@@ -150,6 +150,23 @@ macro_rules! owned_row {
         $make()
     };
 }
+macro_rules! row_guard {
+    (Ref, $ptr:expr, $lease:expr) => {
+        Ref {
+            ptr: $ptr,
+            _lease: $lease,
+            _life: PhantomData,
+        }
+    };
+    (RefMut, $ptr:expr, $lease:expr) => {
+        RefMut {
+            owner: None,
+            ptr: $ptr,
+            _lease: $lease,
+            _life: PhantomData,
+        }
+    };
+}
 macro_rules! reference {
     ($form:ty, $m:literal, $o:tt, $item:ty, $owned:ty, $guard:ident, $s:ident, $i:ident, $fetch:expr) => {
         impl<'q, C: Component> Query for $form {
@@ -164,11 +181,7 @@ macro_rules! reference {
                 lease: &QueryLease<'w>,
             ) -> Self::Owned<'w> {
                 state.touch(index);
-                let make = || $guard {
-                    ptr: state.ptr(index),
-                    _lease: lease.split(),
-                    _life: PhantomData,
-                };
+                let make = || row_guard!($guard, state.ptr(index), lease.split());
                 owned_row!($o, state, index, make)
             }
             type State<'w> = ComponentBorrow<'w, C, $m, $o>;

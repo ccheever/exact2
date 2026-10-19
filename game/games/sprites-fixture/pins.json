@@ -1,16 +1,18 @@
 {
   "ticks": {
-    "300": "0x04bd5b984fb15ee6"
+    "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "81af51c431c2fd9b0d27f1b9dfd76e49dda6aab431f405ba791fe31a8206320c"
+    "continuation": "bfe4bea33e73d634f6aed6726bdf56855630c1271aeb9fb50de6ba77b0f48978"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bbea76faf0acf15ed30b329373387a042ecd54b6d3a9403484b110461f4147dc",
+  "inputs": "0d20e9731c62f1639411d97a1e573a090672469fae3fc465a079175d2170fc69",
+  "sourceInputs": "375c405b859f57e59f46dff05c9547a378f407f796a2d11c2a6f5f103647e469",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "888a7904529cd916cc394ec0ac1b0c1ba8d23d8d",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None"
 }

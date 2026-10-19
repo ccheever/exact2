@@ -5,13 +5,13 @@
 // (`contract vocab swipe`, `menu`): a swipe or the menu's Delete deletes at once, as Mail and
 // Notes do, and the detail's Delete asks first. A smaller app deletes what it doesn't need: the
 // delete (`askRemove`, `remove`, the dialog, the row's `delete=`, the menu's Delete), the
-// notes (the shape's field, the title's `enterkeyhint`, the sheet's and the detail's
-// sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
+// notes (the shape's field, the sheet's and the detail's sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
 // the menu's Lock and Delete's reason).
 // Compose as the platform does: a row pushes its detail, create and edit are sheets, a phone
 // gets one column and a wide window two (`responsive-columns`); not a form above one long list.
 // The bar's search field filters as you type (`contract vocab search`); an empty list, a failed
-// read and no match are each an `EmptyState` in the list's place. Save is disabled until valid.
+// read and no match are each an `EmptyState` in the list's place. Save is disabled until valid;
+// Enter (Return on iOS) in the title saves, as a form does on the web (`submit=save`).
 use Badge, EmptyState from "exact:content"
 
 routes nav
@@ -166,7 +166,7 @@ component App
                 row
                   column flex=1 min-width=0 gap=4
                     input value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
-                      autofocus=true enterkeyhint="next" aria-invalid=(refusal != "") testId="add-title"
+                      autofocus=true submit=save aria-invalid=(refusal != "") testId="add-title"
                     if refusal != ""
                       text refusal font="-exact-footnote" color="-exact-system-red" testId="add-error"
                 footer

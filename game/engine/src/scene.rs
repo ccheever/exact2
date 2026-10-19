@@ -276,6 +276,27 @@ pub enum Mesh {
     },
     /// A baked asset's stable name.
     Asset(String),
+    /// Flat annulus in XZ, facing +Y.
+    Ring {
+        /// Hole radius in metres; zero makes a disc.
+        inner: f32,
+        /// Outside radius in metres; greater than inner.
+        outer: f32,
+    },
+    /// Doughnut around Y, centred on the XZ plane.
+    Torus {
+        /// Distance from the origin to the tube centre, in metres.
+        radius: f32,
+        /// Tube radius in metres; smaller than radius.
+        tube: f32,
+    },
+    /// Capped cone along Y, tip at +height/2.
+    Cone {
+        /// Base radius in metres.
+        radius: f32,
+        /// Total height in metres.
+        height: f32,
+    },
 }
 impl Default for Mesh {
     fn default() -> Self {
@@ -307,6 +328,18 @@ impl Mesh {
     pub fn plane(width: f32, depth: f32) -> Self {
         Self::Plane { width, depth }
     }
+    /// Flat annulus in XZ, facing +Y; radii are in metres.
+    pub fn ring(inner: f32, outer: f32) -> Self {
+        Self::Ring { inner, outer }
+    }
+    /// Doughnut around Y; radius names the tube centre, tube its cross-section radius.
+    pub fn torus(radius: f32, tube: f32) -> Self {
+        Self::Torus { radius, tube }
+    }
+    /// Capped Y-axis cone with its tip at +height/2, in metres.
+    pub fn cone(radius: f32, height: f32) -> Self {
+        Self::Cone { radius, height }
+    }
     /// Baked model by name.
     pub fn asset(name: impl Into<String>) -> Self {
         Self::Asset(name.into())
@@ -325,6 +358,15 @@ impl Mesh {
                 ("Cylinder", positive(*radius) && positive(*height))
             }
             Self::Plane { width, depth } => ("Plane", positive(*width) && positive(*depth)),
+            Self::Ring { inner, outer } => (
+                "Ring",
+                inner.is_finite() && *inner >= 0.0 && positive(*outer) && inner < outer,
+            ),
+            Self::Torus { radius, tube } => (
+                "Torus",
+                positive(*radius) && positive(*tube) && tube < radius,
+            ),
+            Self::Cone { radius, height } => ("Cone", positive(*radius) && positive(*height)),
             Self::Asset(_) => return Ok(()),
         };
         if valid {
@@ -433,6 +475,16 @@ impl Material {
     /// Set linear RGB emitted light.
     pub fn emissive(mut self, r: f32, g: f32, b: f32) -> Self {
         self.emissive = [r, g, b];
+        self
+    }
+    /// Set straight alpha in [0, 1]. Translucent primitives join the depth-sorted
+    /// quad batch, depth-tested without depth writes or refraction.
+    pub fn alpha(mut self, alpha: f32) -> Self {
+        assert!(
+            alpha.is_finite() && (0.0..=1.0).contains(&alpha),
+            "Material::alpha requires a finite value in [0, 1]"
+        );
+        self.color[3] = alpha;
         self
     }
     /// Set the metal fraction.
@@ -869,8 +921,19 @@ impl World {
         }
         None // A runtime cycle has not yet been repaired by propagate.
     }
+    /// Set a discontinuous local pose with a distinct interpolation start.
+    /// For a landing followed by movement within one tick, `previous` is the
+    /// landing and `current` includes that movement. Descendants inherit the
+    /// start through their current local poses. History is not saved or hashed.
+    pub fn teleport_from(&mut self, e: Entity, previous: Transform, current: Transform) {
+        self.teleport(e, current);
+        if self.contains(e) {
+            self.interpolation_origins.insert(e, previous);
+        }
+    }
     /// Set a local pose, refresh parented globals and mark this entity fresh.
     pub fn teleport(&mut self, e: Entity, transform: Transform) {
+        self.interpolation_origins.remove(&e);
         if self.insert(e, transform) {
             self.mark_fresh(e);
             for (_, follow) in self.query::<&mut Follow>().iter() {
@@ -1190,6 +1253,7 @@ impl Follow {
 /// so both translation and rotation stop exactly. Missing targets leave the pose alone.
 #[track_caller]
 pub fn follow(world: &World) {
+    let _span = world.span("scene::follow");
     if world.in_tick && world.followed.replace(true) {
         return;
     }

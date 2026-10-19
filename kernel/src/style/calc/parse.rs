@@ -19,7 +19,7 @@ pub(crate) mod refusal {
     pub(crate) const RELATIVE: &str =
         "rem and em are not supported inside calc(), min(), max() or clamp(); write px";
     pub(crate) const UNITLESS: &str = "a number where a length goes inside calc(), min(), max() or clamp() takes a unit, as CSS requires, zero too: 0px, 15px";
-    pub(crate) const NOT_A_LENGTH: &str = "calc(), min(), max() and clamp() take px (or in, cm, mm, q, pt, pc, ch, lh) lengths, percentages, env(safe-area-inset-*), env(viewport-segment-* x y), viewport lengths (vw, vh, vmin, vmax, svh, lvh, dvh, …), numbers and e, pi, infinity and NaN";
+    pub(crate) const NOT_A_LENGTH: &str = "calc(), min(), max() and clamp() take px (or in, cm, mm, q, pt, pc, ch, lh) lengths, percentages, env(safe-area-inset-*), env(viewport-segment-* x y), env(titlebar-area-*), viewport lengths (vw, vh, vmin, vmax, svh, lvh, dvh, …), numbers and e, pi, infinity and NaN";
     pub(crate) const FUNCTION: &str =
         "inside a length the functions are calc(), min(), max(), clamp() and env()";
     pub(crate) const NONE: &str =
@@ -543,11 +543,14 @@ pub(super) fn env_parts(
         .map_err(|_| Fail::Why(refusal::SYNTAX))?;
     let name = name.ok_or(EnvRefusal::UnknownVariable)?;
     let indices: Vec<&str> = indices.iter().map(String::as_str).collect();
-    let term = match env::named(&name, &indices)? {
-        Dimension::Env(edge, _) => EnvTerm::Inset(edge),
-        Dimension::Segment(var, x, y, _) => EnvTerm::Segment(var, x, y),
-        Dimension::Region(region, edge, _) => EnvTerm::Region(region, edge),
-        _ => return Err(Fail::Why(refusal::NOT_A_LENGTH)),
+    let term = match env::TitleBarVar::from_name(&name) {
+        Some(var) if indices.is_empty() => EnvTerm::TitleBar(var),
+        _ => match env::named(&name, &indices)? {
+            Dimension::Env(edge, _) => EnvTerm::Inset(edge),
+            Dimension::Segment(var, x, y, _) => EnvTerm::Segment(var, x, y),
+            Dimension::Region(region, edge, _) => EnvTerm::Region(region, edge),
+            _ => return Err(Fail::Why(refusal::NOT_A_LENGTH)),
+        },
     };
     let fallback = match p.next() {
         Err(_) => None,

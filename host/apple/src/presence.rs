@@ -157,7 +157,8 @@ impl<D: DataSource> Host<D> {
         if let Some(l) = self.presence.leaving.iter().find(|l| l.view == view) {
             let shown = self.shown_paint(motion_node(l.key));
             let env = self.runner.kernel().env();
-            batch.style(view, &style::restyle_presented(&l.style, &env, &shown));
+            let own = l.animations.properties().contains(&Property::Color);
+            batch.style(view, &style::restyle_presented(&l.style, &env, &shown, own));
         }
     }
 
@@ -332,6 +333,21 @@ impl<D: DataSource> Host<D> {
         }
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         let mut colored: Vec<(ViewId, bool)> = Vec::new();
+        // Before sampling: a transition handed over presents its target.
+        // Under the agent's clock (no first-frame rule) motion is sampled:
+        // nothing new is handed over, and what was comes back.
+        if self.svg.play_transitions {
+            let new = self.engine.starts_on_frame() && !self.native_mode();
+            let runs = &self.inline_runs;
+            for view in super::svg_lower::hand_over_transitions(
+                self.runner.kernel(),
+                &mut self.engine,
+                &|v| runs.contains_key(&v),
+                new,
+            ) {
+                self.svg.played(view);
+            }
+        }
         let frame = self.engine.frame();
 
         for p in frame {

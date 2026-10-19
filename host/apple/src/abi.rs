@@ -37,6 +37,7 @@ pub struct Bridge<D: DataSource> {
     fonts: Option<FontsFn>,
     control_text: Option<crate::control_text::ControlTextFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
+    decorated_measure: Option<crate::measure::DecoratedMeasureFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<Rc<std::cell::Cell<u64>>>,
     fonts_ctx: *mut c_void,
@@ -111,6 +112,7 @@ impl<D: DataSource> Bridge<D> {
             fonts: None,
             control_text: None,
             field_chrome: None,
+            decorated_measure: None,
             button_measure: None,
             measure_revision: None,
             fonts_ctx: std::ptr::null_mut(),
@@ -262,6 +264,12 @@ impl<D: DataSource> Bridge<D> {
                 // A deadline the auth and surface paths can't keep: the executor refuses it, fencing ordered work.
                 if r.request.timeout_refusal().is_some() {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
+                    continue;
+                }
+                if r.request.url == "exact-activity:" {
+                    if let Ok(request) = std::str::from_utf8(&r.request.body) {
+                        presenter.activity(r.ticket, request);
+                    }
                     continue;
                 }
                 if r.request.is_auth() {
@@ -485,6 +493,7 @@ impl<D: DataSource> Bridge<D> {
                     .with_symbol(hooks.symbol)
                     .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
+                    .with_decorated_field(self.decorated_measure)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
                         self.measure_revision
@@ -514,7 +523,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 plan,
@@ -624,6 +633,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A peer published a store revision; first-pixel activation remains separate.
+    pub fn store_changed(&mut self, retry_only: bool) -> u32 {
+        let out = match &mut self.host {
+            Some(host) => host.refresh_store_after(retry_only),
+            None => not_booted(),
+        };
+        self.emit(out)
+    }
+
     /// Prepare plan + UTF-8 pairing receipt + compiled module from one input buffer.
     /// This is a development-origin API, not an authenticated update channel.
     pub fn prepare_module(
@@ -728,8 +746,9 @@ impl<D: DataSource> Bridge<D> {
         // The real candidate remains deferred through all-session acceptance.
         // After commit, its paint receipt configures storage before activation
         // and data_ready refreshes its baked/kept external-reading resources.
-        let length =
-            self.prepare_plan_carried(plan_len, data, hooks, width, height, delivery, validated);
+        let length = self.prepare_plan_carried(
+            plan_len, data, hooks, width, height, delivery, validated, None,
+        );
         if let Some(prepared) = &mut self.prepared {
             prepared.module = true;
             prepared.let_go = let_go;
@@ -760,11 +779,11 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
     ) -> u32 {
-        self.prepare_plan_carried(len, data, hooks, width, height, delivery, None)
+        self.prepare_plan_carried(len, data, hooks, width, height, delivery, None, None)
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn prepare_plan_carried(
+    pub(super) fn prepare_plan_carried(
         &mut self,
         len: usize,
         mut data: D,
@@ -773,6 +792,7 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
         carried: Option<exact_runner::Carried>,
+        entry: Option<&str>,
     ) -> u32 {
         if let Some(refusal) = self.refuse_analysis() {
             return refusal;
@@ -789,6 +809,7 @@ impl<D: DataSource> Bridge<D> {
                     .with_symbol(hooks.symbol)
                     .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
+                    .with_decorated_field(self.decorated_measure)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
                         self.measure_revision
@@ -814,10 +835,10 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch = self.launch_facts.clone();
+        let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
-                PlanBytes::Copied(&plan),
+                PlanBytes::input(&plan, entry),
                 data,
                 measurer,
                 self.launch_layout,
@@ -858,16 +879,6 @@ impl<D: DataSource> Bridge<D> {
                 self.output.len() as u32
             }
             Err(e) => self.prepare_error(&format!("boot: {e:?}")),
-        }
-    }
-
-    /// Prepare and commit a single session's plan replacement.
-    pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
-        let len = self.prepare_plan(len, data, hooks, width, height);
-        if self.prepared.is_some() {
-            self.commit_plan()
-        } else {
-            len
         }
     }
 
@@ -1251,6 +1262,18 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A placement root's margins and its width's authorship (LLP 1126.001
+    /// WP10): a measurement, written to the output as it is, with no batch
+    /// around it (`emit` prepends the presenter's pending ops to a batch).
+    pub fn placement_box(&mut self, view: u32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.placement_box(view));
+        self.output = out.into_bytes();
+        self.output.len() as u32
+    }
+
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet.
     pub fn set_page(&mut self, bits: u32) -> u32 {
@@ -1423,8 +1446,10 @@ fn escape(s: &str) -> String {
 /// A thread-local bridge cell, for the exports.
 pub type Cell<D> = RefCell<Bridge<D>>;
 
+mod boot;
 mod colors;
 mod registry;
+mod snapshot;
 #[cfg(test)]
 use registry::REFUSAL;
 pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};

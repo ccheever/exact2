@@ -58,6 +58,7 @@ mod text_measurement_cache;
 mod text_style_move;
 mod timeline;
 mod timeline_scope;
+mod titlebar;
 mod transform_binding;
 mod video;
 mod wire;

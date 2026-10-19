@@ -186,25 +186,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 frame.ambient_occlusion.is_some() || self.soft_retained || counting,
             )
         };
-        self.quads.soft_pass(
-            &self.device,
-            &self.queue,
-            soft.then_some(&self.targets.depth),
-            (frame.proj * frame.view).inverse(),
-            self.depth_split(),
-        );
-        let uncounted = if counting {
-            let depth = match &self.look_direct {
-                Some(d) if direct => &d.depth,
-                _ => &self.targets.depth,
-            };
-            self.quads.begin_count(&self.device, depth, direct).err()
-        } else {
-            particles.then_some("a scene copy draws translucency over depth it writes")
-        };
-        if let Some(probe) = &mut self.probe {
-            probe.uncounted = uncounted;
-        }
         let cascades = self.prepare_effects(frame);
         let map = frame.environment_map.and_then(|m| {
             let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
@@ -251,6 +232,27 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
         self.probe_size();
+        // Soft particles after `prepare_cull`, then the look frame's counting,
+        // which picks its soft probe variants by `soft_active`.
+        self.quads.soft_pass(
+            &self.device,
+            &self.queue,
+            soft.then_some(&self.targets.depth),
+            (frame.proj * frame.view).inverse(),
+            self.depth_split(),
+        );
+        let uncounted = if counting {
+            let depth = match &self.look_direct {
+                Some(d) if direct => &d.depth,
+                _ => &self.targets.depth,
+            };
+            self.quads.begin_count(&self.device, depth, direct).err()
+        } else {
+            particles.then_some("a scene copy draws translucency over depth it writes")
+        };
+        if let Some(probe) = &mut self.probe {
+            probe.uncounted = uncounted;
+        }
         self.prepare_shadow_cache(cascades.as_ref(), frame, hooks.materials());
         let lean = self.lights.info[0] == 0. && frame.fill.is_none() && self.grids == 0;
         let early = self.pipelines.early;
@@ -669,7 +671,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         .as_ref()
                         .map_or(&self.targets.resolved, |t| t.hdr(&self.targets.resolved)),
                 ));
-                self.texture_creations += 6;
+                self.texture_creations += BloomTargets::TEXTURES;
             }
         } else {
             self.bloom = None;
@@ -757,6 +759,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let record = &self.models.records
                 [(self.slot_list[slot as usize] - crate::RENDER_SLOT_BASE) as usize];
             self.quads.order.push(crate::quads::Order {
+                viewmodel: self.batches[index].viewmodel,
                 kind: crate::quads::Kind::Model(index, slot),
                 depth,
                 layer: 0,

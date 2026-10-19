@@ -73,13 +73,35 @@ fn a_shipped_target_without_a_source_is_refused() {
         e.message.contains("linux") && e.message.contains("more than one colour"),
         "{e:?}"
     );
-    // Apple draws the SF Symbol: an SVG alone is no source there.
+    // Apple draws a template's path too (stage 9 A): an SVG alone is a
+    // source there; a file of more than one colour needs an SF Symbol.
     let svg_only = "  icon.svg = icon(svg \"icons/reply.svg\")\n";
     let path = app("apple", "\"ios\": {}", svg_only, &view("symbol:icon.svg"));
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        plan.strings.iter().any(|s| s.starts_with("symbol:icon||")),
+        "an svg-only icon, no sf"
+    );
+    let two = "  icon.two = icon(svg \"icons/two.svg\")\n";
+    let path = app("apple-two", "\"ios\": {}", two, &view("symbol:icon.two"));
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
+    assert!(
+        e.message.contains("ios") && e.message.contains("an SF Symbol"),
+        "{e:?}"
+    );
+    // A watch draws only the SF Symbol yet: a one-colour SVG alone is no source there, said so.
+    let path = app(
+        "watch",
+        "\"watchos\": {}",
+        svg_only,
+        &view("symbol:icon.svg"),
+    );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
     assert!(
-        e.message.contains("icon.svg has no source for ios"),
+        e.message
+            .contains("a watch draws an icon only as an SF Symbol"),
         "{e:?}"
     );
     let path = app("web-only", "\"web\": {}", design, &view("symbol:icon.two"));
@@ -287,10 +309,66 @@ fn the_platform_warning_names_what_ships_and_how_to_stop() {
     ] {
         assert!(pencil.contains(part), "{part}: {pencil}");
     }
-    assert!(
-        !flag.contains("The role") && flag.contains("Declare an icon token"),
-        "{flag}"
+    // The advice is said once a build; a later use is a line.
+    assert_eq!(
+        flag,
+        "symbol `sf/flag.checkered` is blank on linux and web too: declare `icon.flag-checkered` as the first `lower-symbol-platform` warning shows, and write `symbol:icon.flag-checkered`"
     );
+}
+
+/// The euxy port's forty SF Symbols printed forty paragraphs and filled the
+/// cap, so the warnings after them were not printed: the later uses are a
+/// line each, and a later warning still prints. The group is outside the
+/// cap, the advice its lines point at too, after a full cap of warnings.
+#[test]
+fn later_platform_symbols_are_a_line_each_outside_the_cap() {
+    let uses: String = (0..contract_lower::MAX_WARNINGS + 5)
+        .map(|i| format!("      image \"symbol:sf/flag.{i}\"\n"))
+        .collect();
+    let view = format!("component App\n  view\n    column\n{uses}      image \"symbol:sf/pencil\"\n      image \"symbol:gearshape\"\n");
+    let aliases: String = (0..contract_lower::MAX_WARNINGS)
+        .map(|_| "      image \"symbol:gearshape\"\n")
+        .collect();
+    let late = view.replace("    column\n", &format!("    column\n{aliases}"));
+    let path = app("repeats", "\"ios\": {}, \"web\": {}", "", &view);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let platform: Vec<&str> = warnings
+        .iter()
+        .filter(|w| w.id == "lower-symbol-platform")
+        .map(|w| w.message.as_str())
+        .collect();
+    assert_eq!(
+        platform.len(),
+        contract_lower::MAX_WARNINGS + 6,
+        "{platform:?}"
+    );
+    assert!(
+        platform[0].contains("in app.tamber's `icons`"),
+        "{}",
+        platform[0]
+    );
+    assert!(
+        platform[1..].iter().all(|m| !m.contains("app.tamber")),
+        "{platform:?}"
+    );
+    assert_eq!(
+        platform.last().copied(),
+        Some("symbol `sf/pencil` is blank on web too: write `symbol:pencil`, the role, which draws on every host")
+    );
+    assert!(
+        warnings.iter().any(|w| w.id == "lower-symbol-alias"),
+        "{warnings:?}"
+    );
+    let path = app("repeats-late", "\"ios\": {}, \"web\": {}", "", &late);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let advice = warnings
+        .iter()
+        .filter(|w| w.id == "lower-symbol-platform")
+        .find(|w| w.message.contains("in app.tamber's `icons`"));
+    let line = 4 + contract_lower::MAX_WARNINGS as u32;
+    assert_eq!(advice.map(|w| w.span.line), Some(line), "{warnings:?}");
 }
 
 /// Review round 1: a nested template of literals folds too, and a template
@@ -329,4 +407,68 @@ fn a_refused_icons_uses_are_not_refused_again() {
     };
     let ids: Vec<&str> = errors.iter().map(|e| e.id.as_str()).collect();
     assert_eq!(ids, ["tamber-icon-svg"], "{errors:?}");
+}
+
+/// Stage 9 A2: a grouped row led by an svg-only icon is a standard cell
+/// whose symbol is "" and whose icon is its token form, which Apple draws
+/// as the cell's template image; an `sf` icon's row names its symbol and
+/// carries no icon.
+#[test]
+fn a_grouped_row_carries_an_svg_only_icon() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+    let path = app(
+        "grouped",
+        "\"ios\": {}",
+        "  icon.svg = icon(svg \"icons/reply.svg\")\n  icon.sf = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n",
+        "component App\n  action go\n  view\n    column testId=\"root\" width=402 height=874\n      list appearance=\"auto\" testId=\"list\" flex=1\n        section\n          button press=go\n            image \"symbol:icon.svg\"\n            text \"Reply\"\n          button press=go\n            image \"symbol:icon.sf\"\n            text \"Answer\"\n",
+    );
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(root, exact_kernel::Offer::definite(402.0, 874.0))
+        .unwrap();
+    let k = r.kernel();
+    let list = k.node_by_key(k.find_by_test_id("list")[0]).unwrap().id;
+    let rows = &k.grouped_list(list).unwrap().sections[0].rows;
+    assert!(!rows[0].custom, "{:?}", rows[0]);
+    assert_eq!(rows[0].symbol.as_deref(), Some(""));
+    assert_eq!(
+        rows[0].icon.as_deref(),
+        Some("icon||0 -960 960 960|M760-200v-160H200Z|icons/reply.svg")
+    );
+    assert_eq!(rows[0].title.as_deref(), Some("Reply"));
+    assert_eq!(rows[1].symbol.as_deref(), Some("bubble.left"));
+    assert_eq!(rows[1].icon, None);
+}
+
+/// A design icon naming another builds in an app with params, an icon
+/// param's default naming the alias too (beside `tamber_cli`'s test of an
+/// app without params, theme2 22:12).
+#[test]
+fn an_icon_alias_builds_beside_params() {
+    let design =
+        "  icon.house = icon(sf \"house\", svg \"icons/reply.svg\")\n  icon.home = icon.house\n";
+    let view = "component App\n  params\n    glyph: icon = \"icon.home\"\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    column  gap=\"param.gap\"\n      image \"symbol:icon.home\"\n      image \"symbol:param.glyph\"\n";
+    let path = app("alias-params", "\"ios\": {}, \"web\": {}", design, view);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let form = "symbol:icon|house|0 -960 960 960|M760-200v-160H200Z|icons/reply.svg";
+    assert!(plan.strings.iter().any(|s| s == form), "{:?}", plan.strings);
 }

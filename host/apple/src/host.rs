@@ -22,6 +22,8 @@ use exact_motion::{Change, Engine, HoldToken, Property};
 #[path = "agent.rs"]
 mod agent;
 
+#[path = "activities.rs"]
+mod activities;
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "arrange_group.rs"]
@@ -77,7 +79,7 @@ mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
-use exact_plan::{EventKind, Plan};
+use exact_plan::EventKind;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
@@ -96,6 +98,8 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "snapshot.rs"]
+pub(crate) mod snapshot;
 pub(crate) use scale::LaunchLayout;
 #[cfg(test)]
 #[path = "spacing_tests.rs"]
@@ -163,7 +167,8 @@ pub struct Host<D: DataSource> {
     /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
     head_edited: bool,
     language: Option<String>,
-    mirror: IdMap<ViewId, Mirror>,
+    /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
+    mirror: IdMap<ViewId, Box<Mirror>>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
     /// Hatch words: those journaled as viewless here, and those the plan does not give this platform.
@@ -180,6 +185,9 @@ pub struct Host<D: DataSource> {
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
+    /// Committing a presented frame's timers and frame tasks
+    /// ([`Host::frame`]), where nothing but their commits moves the tree.
+    in_frame: bool,
     /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003
     /// §9.11), each with its width, resolved padding, border and bottom cover when last measured.
     fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
@@ -223,6 +231,9 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
+    store_refresh_pending: bool,
+    store_activation_pending: bool,
+    store_retry_names: Vec<String>,
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
     doc_watch: Option<crate::doc_watch::DocWatch>,
@@ -240,22 +251,7 @@ pub struct Host<D: DataSource> {
     closed: layout::closed::Closed,
 }
 
-/// A plan's bytes at boot: copied from while decoding, or linked into the
-/// program, whose data pool the decoded plan then keeps in place.
-#[derive(Clone, Copy)]
-pub(crate) enum PlanBytes<'a> {
-    Copied(&'a [u8]),
-    Static(&'static [u8]),
-}
-
-impl PlanBytes<'_> {
-    fn decode(self) -> Result<Plan, exact_plan::PlanError> {
-        match self {
-            PlanBytes::Copied(bytes) => Plan::decode(bytes),
-            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
-        }
-    }
-}
+pub(crate) use crate::plan_bytes::PlanBytes;
 
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with the app's text measurer and viewport (points):
@@ -416,6 +412,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
+        let entry_props = match plan_bytes {
+            PlanBytes::Entry(_, _, Some(bytes)) => {
+                Some(snapshot::props(&plan, bytes).map_err(HostError::Layout)?)
+            }
+            _ => None,
+        };
+        let carried = entry_props.as_ref().or(carried);
         // Before anything is built from it (LLP 1047.001 D5).
         if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
             return Err(HostError::Unlinked(names));
@@ -453,6 +456,9 @@ impl<D: DataSource> Host<D> {
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
         runner.set_device_links(links.device);
+        if links.activities {
+            runner.link_activities().map_err(HostError::Runner)?;
+        }
         // @ref LLP 1079 D1 — a development build measures its work, a
         // release build from the first ask (`Bridge::measure_work`).
         crate::abi::measure_at_boot(&mut runner, compat);
@@ -500,6 +506,7 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             layout_withheld: false,
+            in_frame: false,
             fit_routes: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
@@ -542,6 +549,9 @@ impl<D: DataSource> Host<D> {
             viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
+            store_refresh_pending: false,
+            store_activation_pending: false,
+            store_retry_names: Vec::new(),
             preload_wake: Default::default(),
             doc_watch: None,
             secrets,
@@ -788,6 +798,7 @@ impl<D: DataSource> Host<D> {
     /// the app is otherwise unaffected, as a web app is when `setItem`
     /// throws: the next launch will not remember.
     fn persist(&mut self) {
+        let mut changed = self.runner.data().take_storage_changed();
         for line in self.kept_failures() {
             self.runner.log(line);
         }
@@ -797,7 +808,12 @@ impl<D: DataSource> Host<D> {
             };
             if let Err(e) = secrets.write(&w) {
                 self.runner.log(format!("store {} failed: {e}", w.name));
+            } else {
+                changed = true;
             }
+        }
+        if changed {
+            crate::store::widget_changed(self.runner.data_ref().app_id());
         }
     }
 
@@ -992,7 +1008,10 @@ impl<D: DataSource> Host<D> {
         // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
         self.runner.present_frames(true);
         let a = self.runner.frame(now_ms);
-        self.advanced(a)
+        self.in_frame = true;
+        let out = self.advanced(a);
+        self.in_frame = false;
+        out
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
@@ -1072,6 +1091,22 @@ impl<D: DataSource> Host<D> {
     /// The viewport's new size, in one batch.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
         self.resize_inner(width, height, Batch::new(), None)
+    }
+
+    /// A placement root's resolved margins and whether its width is the author's
+    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored]`;
+    /// an error names the view.
+    pub fn placement_box(&mut self, view: ViewId) -> String {
+        let kernel = self.runner.kernel();
+        let Some(key) = kernel.node(view).map(|n| n.key) else {
+            return serde_json::json!({"error": format!("no view {view}")}).to_string();
+        };
+        match kernel.placement_box(key) {
+            Some(b) => serde_json::to_string(&b).unwrap(),
+            None => {
+                serde_json::json!({"error": format!("view {view} is not laid out")}).to_string()
+            }
+        }
     }
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
@@ -1332,9 +1367,16 @@ impl<D: DataSource> Host<D> {
         }
         let seek = self.engine.advance(self.engine_time(self.now_ms));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        // A frame whose commits changed no node (a frame task that only
+        // moved state nothing shows) lays out as a timer with no commit
+        // does: sixty commits a second each cost a whole layout and paint
+        // order walk otherwise. A withheld layout still runs to settle.
+        let inert = self.in_frame
+            && !self.layout_withheld
+            && receipts.iter().all(|t| unchanged(&t.receipt));
         let layout_error = if height_target_error.is_some() {
             height_target_error
-        } else if receipts.is_empty() {
+        } else if inert {
             self.height_layout_if_needed(&mut batch).err()
         } else {
             self.layout(&mut batch).err()
@@ -1366,6 +1408,20 @@ impl<D: DataSource> Host<D> {
         self.present(&mut batch, false);
         self.finish(batch, error)
     }
+}
+
+/// Whether a commit left every node as it was.
+fn unchanged(r: &exact_kernel::CommitReceipt) -> bool {
+    !r.layout_invalidated
+        && r.created.is_empty()
+        && r.destroyed.is_empty()
+        && r.touched.is_empty()
+        && r.exits.is_empty()
+        && r.handoffs.is_empty()
+        && r.display_changed.is_empty()
+        && r.timelines.is_empty()
+        && r.renewed.is_empty()
+        && r.revealed.is_empty()
 }
 
 /// A frame in its parent's space (a root's is absolute).

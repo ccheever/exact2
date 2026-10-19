@@ -51,11 +51,12 @@ pub use canvas2d::{
 mod carry;
 mod checkpoint;
 mod collection;
+mod snapshot;
 mod source;
 mod tabs;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
-    NativeHandler, Overlaid, PreloadWake, Target, Write, BACKGROUND,
+    NativeHandler, Overlaid, PreloadWake, SnapshotModule, Target, Write, BACKGROUND,
 };
 mod delivery;
 mod links;
@@ -88,6 +89,7 @@ pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
+mod activities;
 mod apply;
 mod live_time;
 pub mod midi;
@@ -378,8 +380,8 @@ pub struct Runner<D: DataSource> {
     reorder_kept: exact_kernel::style::wide::Keep,
     /// The design digest a live batch left (LLP 1121 stage 4); `None`: its plan's own.
     design: Option<String>,
-    /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
-    live: bool,
+    /// A development build admitting live batches ([`Runner::admit_live`]), and its last scrub frame.
+    live: live::Live,
     /// What a binding was told of this plan's tokens (a name it lacks), each said once (LLP 1121 D12).
     tamber_said: Vec<String>,
     /// How many times a token's value moved (`set_tokens`): a binding's input.
@@ -514,6 +516,7 @@ pub struct Runner<D: DataSource> {
     settled: Option<settlement::Settled>,
     /// Per derive: its value depends on the durable store (bake provenance).
     derive_store_dependent: Vec<bool>,
+    activities: activities::Activities,
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
@@ -723,7 +726,7 @@ impl<D: DataSource> Runner<D> {
             _ => None,
         };
         let now_ms = match seed {
-            Seed::Fresh => 0.0,
+            Seed::Fresh => crate::time::launch_clock(),
             Seed::At(now_ms) => now_ms,
             Seed::Carried(carried) => carried.now_ms,
             Seed::Checkpoint(checkpoint) => checkpoint.now_ms,
@@ -854,7 +857,7 @@ impl<D: DataSource> Runner<D> {
             reorder_ops: Vec::new(),
             reorder_kept: Default::default(),
             design: None,
-            live: false,
+            live: Default::default(),
             tamber_said: Vec::new(),
             design_moves: 0,
             roles: exact_kernel::style::roles::Installed::new(roles.clone()),
@@ -913,6 +916,7 @@ impl<D: DataSource> Runner<D> {
             awaiting: Vec::new(),
             keeping: Default::default(),
             churn: Default::default(),
+            activities: activities::Activities::default(),
             delivery,
             viewport,
             page: Default::default(),

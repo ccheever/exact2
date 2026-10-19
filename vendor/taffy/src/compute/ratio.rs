@@ -131,6 +131,28 @@ pub(crate) fn sizes_through_ratio(
     }
 }
 
+/// Resolve a flex or grid container's incoming sizes. In a content probe,
+/// a transferred width is a minimum that wider content can exceed.
+pub(crate) fn container_sizes_through_ratio(
+    style: &impl CoreStyle,
+    pb_sum: Size<f32>,
+    given: Size<Option<f32>>,
+    min: Size<Option<f32>>,
+    max: Size<Option<f32>>,
+    sizing_mode: crate::SizingMode,
+) -> (Size<Option<f32>>, Size<Option<f32>>, Size<Option<f32>>) {
+    let (mut size, mut min, max) = sizes_through_ratio(style, pb_sum, given, min, max);
+    // EXACT PATCH 56: the non-replaced content minimum combines content and
+    // the ratio transfer (Flexbox §4.5). A known width would skip content
+    // measurement; a floor leaves it independent of the transferred size.
+    if sizing_mode == crate::SizingMode::ContentSize && !style.is_compressible_replaced() && given.width.is_none() {
+        if let Some(width) = size.width.take() {
+            min.width = Some(width.maybe_min(max.width).maybe_max(min.width));
+        }
+    }
+    (size, min, max)
+}
+
 /// `limits` (a min or a max) transferred through `ratio` into the axes the
 /// style does not size (`sized`); a sized axis keeps its own limit only.
 pub(crate) fn transfer_into_unsized(
@@ -176,25 +198,38 @@ pub(crate) fn percentage_height(style: &impl CoreStyle, pb: Size<f32>, width: Op
     Some(Ratio::of(style, pb)?.height(width?))
 }
 
-/// The automatic inline minimum of a non-replaced ratio box whose width
-/// derives from a definite height is its min-content width, capped by max-width.
+/// The automatic inline minimum of a non-replaced ratio box combines its
+/// min-content width with the definite height's transfer, capped by max-width.
+/// A flexed border-box height replaces the preferred height when supplied.
 pub(crate) fn minimum_ratio_width(
     tree: &mut impl crate::LayoutPartialTree,
     node: crate::NodeId,
     parent: Size<Option<f32>>,
+    used_height: Option<f32>,
 ) -> Option<f32> {
     use crate::{LayoutPartialTreeExt, MaybeResolve, ResolveOrZero};
     let style = tree.get_core_container_style(node);
     if style.aspect_ratio().is_none() || !style.size().width.is_auto()
         || !style.min_size().width.is_auto() || style.is_compressible_replaced()
-        || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container()
-        || style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b)).is_none() {
+        || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container() {
         return None;
     }
     let pb = (style.padding().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))
         + style.border().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))).sum_axes();
-    let adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb.width } else { 0.0 };
-    let max = style.max_size().width.maybe_resolve(parent.width, |v, b| tree.calc(v, b)).map(|w| w + adjustment);
+    let ratio = Ratio::of(&style, pb)?;
+    let adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb } else { Size::ZERO };
+    let min_height = style.min_size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
+        .maybe_add(adjustment.height);
+    let max = style.max_size().maybe_resolve(parent, |v, b| tree.calc(v, b)).maybe_add(adjustment);
+    // EXACT PATCH 50: the content-only probe omits the definite height's
+    // transfer (CSS Sizing 4 §5.1, Flexbox §4.5). Keep the larger suggestion,
+    // transferring the clamped height in the box the ratio relates.
+    // EXACT PATCH 54: flex layout has already applied the height's bounds.
+    let height = used_height.or_else(|| {
+        style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
+            .map(|height| (height + adjustment.height).maybe_clamp(min_height, max.height))
+    })?;
+    let transferred = ratio.width(height);
     drop(style);
     let intrinsic = tree.measure_child_size(
         node,
@@ -205,5 +240,5 @@ pub(crate) fn minimum_ratio_width(
         crate::AbsoluteAxis::Horizontal,
         crate::geometry::Line::FALSE,
     );
-    Some(intrinsic.maybe_min(max))
+    Some(f32_max(intrinsic, transferred).maybe_min(max.width))
 }

@@ -98,10 +98,22 @@ impl<D: DataSource> Runner<D> {
             }
         }
         exact_kernel::style::theme::take_named();
-        let ops = patches
+        let mut ops: Vec<Op> = patches
             .into_iter()
             .map(|(id, patch)| Op::SetStyle { id, patch })
             .collect();
+        // A node's state looks that read one, whole (LLP 1121 D8).
+        let mut looks: Vec<_> = self
+            .ids
+            .theme
+            .looks()
+            .filter(|(view, l)| l.tokens & bits != 0 && kernel.node(*view).is_some())
+            .collect();
+        looks.sort_by_key(|(view, _)| *view);
+        for (view, l) in looks {
+            ops.push(crate::instance::looks::op(view, l, &self.plan));
+            set += l.states.iter().map(|(_, rows)| rows.len()).sum::<usize>();
+        }
         Ok((self.apply(ops)?, set))
     }
 }

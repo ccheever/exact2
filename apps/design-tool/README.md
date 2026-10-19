@@ -64,11 +64,56 @@ whose design the port serves.
 - `app.ts` is the `tamber/1` client: the token from `GET /__tamber/token`
   once, every request a `POST /__tamber`, and changes followed by the long
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.
+  The design is read again only when the files move (a `changed` event, a
+  gap, a new server run), not on a build's status or a scrub's frame: a
+  read is `describe`, a `resolve` per token (four at a time, stopped once
+  a newer read starts) and `hello`, which on a big design takes seconds. A
+  proposal is asked again on every poll answer but while a scrub is shown,
+  since its class can move with no file moving.
 - Every write is `design-tool:<person>`, the person asked once and kept.
 - The dials panel and the token grid are drawn from `describe` and
   `resolve`; a cell edits the branch it shows, and every edit is proposed
   (its diff and "live" or "rebuilds") before Apply writes it. Undo and redo
   are this run of the server's inverses: a new run starts them again.
+- The component panel (T3, LLP 1122 D7; `components.ts`) lists every
+  component with params (`describe`'s `components`, a native view's
+  declared in the design too), grouped and ordered as the dials are, each
+  param with its declared control; `control=token`, the default, is a
+  field that takes a token or a literal. An edit is `set-param` (its line
+  in the design's `params` block), proposed with its chip and scrubbed when
+  live; a duration or easing param rebuilds. A param the app sets says so,
+  with Reset (`unset-param`, one undo), and a literal that no longer
+  follows the tokens its default reads is marked pinned.
+- A selected row that reads a param (the join's param rung) opens the param,
+  never the token it aliases (D6): on the branch that won for the copy, its
+  typed fields and "only this mode" as a token's, its edit `set-param`. The
+  token it aliases directly is offered beside it.
+- Held states (T4, LLP 1122 D8; `holds.ts`): Pressed, Hovered or Focused
+  holds that state on the selected copy (`hold`), one a build, a new one
+  replacing the last; Let go ends it. The status says whether the build has
+  confirmed it (Holding, then Held), where it is (here, the node its press
+  resolves to when the build names it, or another node of the build), why
+  the last one went (real input, disabled, its node gone in a new plan,
+  another hold) and a state a build cannot hold. While it is held here,
+  the selection's page is asked again for the held look's rows, each shown
+  at its part's place; a host that reports none, or not their tokens, says
+  provenance incomplete and leaves them read-only.
+- A style's state part row (an `:active` part's, the map's `state` and
+  `at`) is edited by `set-state` by default (D6): "Edit Style :active row"
+  opens a field from the value as written in the part (empty when it is not
+  one literal), proposed as Rebuilds and applied; the token its whole value
+  is, offered beside it. The edit is bound to the copy and the files it was
+  opened on: a write since, or a stale or read-only copy, refuses Apply
+  until the copy is selected and the row opened again. A part in a package
+  is read-only; an inline state row on a node waits for `set-row` (T5).
+- Act first, re-scope after (D6, `rescope.ts`): the last edit of a param
+  whose value there aliases one token offers "Apply to the token … instead",
+  and the last edit of a token that one param aliases there offers "Apply to
+  … instead". The move is one transaction (the edit's inverse, then the same
+  value at the other rung, on the same `when`), worked out from the revision
+  the edit was reviewed on and refused if any file it read has changed since
+  (another write, a hand edit, the component's source). It is a write of
+  its own: one undo takes back the move, a second the edit.
 - A cell's value has typed fields by its kind (`parts.ts`): a length's
   amount and unit, a number, each shadow's inset, offsets, blur, spread
   and colour (a literal or a token's name), a type's style, weight, size,

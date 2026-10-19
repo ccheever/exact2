@@ -62,7 +62,7 @@ impl Quads {
             return "?".into();
         };
         match draw.kind {
-            Kind::Particle(additive, look, soft) => {
+            Kind::Particle(additive, look, soft, _) => {
                 let what = match self.looks.get(look as usize).filter(|_| look != NO_LOOK) {
                     Some(l) => format!("particles {}", l.value.texture),
                     None => "particle dots".into(),
@@ -118,7 +118,7 @@ impl Quads {
             return Ok(());
         }
         for &i in &draws {
-            let Kind::Particle(additive, look, soft) = self.draws[i].kind else {
+            let Kind::Particle(additive, look, soft, _) = self.draws[i].kind else {
                 unreachable!()
             };
             let soft = soft && self.soft_active;

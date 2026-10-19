@@ -1,0 +1,24 @@
+# Code review: Apple's absolute press opacity and looks (LLP 1121 stage 8 B2), round 2, 2026-10-18 (grok)
+
+- **Family:** xAI. Grok 4.7 via the grok CLI, reasoning effort xhigh, edits denied, a throwaway worktree.
+- **Scope:** `e99eda450` and its round-1 fixes `943ff1e70` (now `c3fc0a5ef`, `419ff84f6`; same tree).
+- **Method:** one brief (sha256 `10c7c506554622bd020cbddd4dff8cc24f2911e614ec7297255f6cf1a57dc9b5`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** RIGHT WITH CHANGES (should-fix: a look's opacity change mid-press snapping against the press additive, tests asserting endpoints only).
+- **Disposition:** in the round-2 commit. 1: the press fade is always `-depth × progress` of the press's own ease, held, easing in or out (`refreshPressOpacity` re-aims during the release too), so what shows moves with a look, as on the web and Linux. 2: the tests assert the look and press additives together, a hover dropped halfway in (`fromValue` at that progress), and the focus look through a disabled toggle.
+
+---
+
+**RIGHT WITH CHANGES.**
+
+Round 1 is fixed. A disabled change calls `relook()` (`PresenterMac.swift:44`, `PresenterIOS.swift:67`) and `looked()` drops the look (`PressPaint.swift:297`). Cleared look rows cross as JSON null and Swift removes the key (`PressPaint.swift:303`); a cleared opacity crosses as 1. Look `currentcolor` is the node’s colour in `looks.rs`. A hand-written share is of what shows (`PressPaint.swift:84`), so 0.5 of a hover at 0.8 is displayed 0.4, matching `host/linux/src/press.rs:80` and `host/web/index.html:307`. The re-entrant hover defer publishes only the newer path (`PresenterMac.swift:933`) and only for views inside the viewport (`HoverMac.swift:28`). The move of `hover(_:_:)` into `HoverMac.swift` is the same body. Settled press endpoints match the amended design: an absolute `press_opacity_to` eases to that opacity, and a full press that has already finished (`left == 0`) stays on the target when a look or the base opacity changes.
+
+1. **SHOULD-FIX** — `host/apple/Sources/ExactKit/PressPaint.swift:249` (with `applyLookOpacity` at `:312` and the release path at `:149`). While the press fade is still running, a change in what shows snaps the look offset to the new opacity and leaves the press additive where the old depth had it. Linux and the web recompute `shown + (target - shown) * p` on the same progress. Apple’s sum jumps by `Δshown * p` for an absolute target (and by `Δshown * (1 - share) * p` for a share), then eases the old additive toward the new depth on a fresh curve.
+
+   Example: own opacity 1, hover 0.8, `press_opacity_to` 0.6, halfway through the press-in. Displayed opacity is 0.7. The pointer leaves and the hover drops. The correct instant value is 0.8. This host shows 0.9 (model 1 plus the old press additive −0.1), then eases toward 0.6. The same split happens on the way out: `refreshPressOpacity` returns at `:251` whenever `pressPaint.down` is false, so a look that comes or goes during the release snaps immediately and the press fade is not rebased. After that re-aim, `fadePressOpacity` (`:149`) samples the segment, then `ease.aim` and `segment = nil` leave the ease clock on the pre-segment factor, so a re-press during that release takes its `fromValue` from a clock that no longer matches the animation.
+
+   Fix: keep one press progress `p` (0 at rest, 1 held). In the same turn as the look snap, set the press animation’s `fromValue` to `-newDepth * p` (absolute and share both, since `pressDepth` already encodes that). Do it while the release fade is in flight, not only while `down`. Update that same clock at release so the next press samples the additive actually on screen. Add a test that drops the hover about 40 ms into the press and checks presentation opacity, which is model alpha plus the `lookOpacity` and `pressOpacity` additives.
+
+2. **SHOULD-FIX** — `host/apple/tests/ExactKitTests/StateLooksTests.swift:93` and `:141`. Both messages describe a composed result (“from the hover’s 0.8 to 0.6”, “0.8 to 0.4”) and assert only the press animation’s `toValue`. That `toValue` is the full-press additive under the assumption the look additive is still present. Neither test asserts `lookFade` after the press, and neither samples an in-flight value, so finding 1 cannot fail them. `testADisabledNodeTakesNoLook` (`:104`) toggles hover only; `focusVisible` never changes.
+
+   Fix: with the hover held, assert the look additive and the press additive together (hover 0.8 and target 0.6 → look `toValue` −0.2 and press `toValue` −0.2; share 0.5 of 0.8 → look −0.2 and press −0.4). Drive one opacity change during the 120 ms ease and assert the presentation opacity from finding 1. Set `focusVisible` in the disabled test and assert the focus border drops and returns with the same props updates.

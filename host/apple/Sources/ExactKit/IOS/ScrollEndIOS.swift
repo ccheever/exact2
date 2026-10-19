@@ -19,13 +19,15 @@ extension NodeView {
         if sv.isDragging || sv.isDecelerating { end.hold() } else { settleScrollEnd() }
     }
 
-    /// Once still: ended, unless a touch or a smooth correction holds it
-    /// now (asked again then; a touch that never drags reports no end of
-    /// its own, and a correction's first frame may not have come yet).
+    /// Once still: ended, unless a touch, a smooth correction or an element
+    /// reveal holds it now (asked again then; a touch that never drags
+    /// reports no end of its own, a correction's first frame may not have
+    /// come yet, and a reveal ends with its animation).
     private func settleScrollEnd() {
         scrollEnd?.settle { [weak self, token = incarnation] in
             guard let self, self.incarnation == token, let sv = self.scrollView else { return }
             let correcting = self.presenter?.collections.offsetDrivers[self.id] != nil || self.presenter?.collections.startOwed.contains(self.id) == true
+                || self.presenter?.elementScrolls.revealing(sv) != nil
             if sv.isTracking || sv.isDragging || sv.isDecelerating || correcting { self.settleScrollEnd() } else { self.endScroll() }
         }
     }

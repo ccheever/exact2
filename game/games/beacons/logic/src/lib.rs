@@ -94,6 +94,22 @@ impl Game for Beacons {
                     Beacon::default(),
                 ),
             );
+            w.spawn_named(
+                format!("ring-{}", i + 1),
+                (
+                    Transform::at(x, 0.205, z),
+                    Mesh::ring(0.72, 0.9),
+                    Material::glow([0.12, 0.55, 0.6]),
+                ),
+            );
+            w.spawn_named(
+                format!("halo-{}", i + 1),
+                (
+                    Transform::at(x, 1.0, z),
+                    Mesh::sphere(0.7),
+                    Material::glow([0.12, 0.55, 0.6]).alpha(0.12),
+                ),
+            );
         }
         w.publish("lit", 0);
         w.publish("near", "");
@@ -105,12 +121,12 @@ impl Game for Beacons {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let mut near = "";
-        if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+        if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
             if input.pressed("light") {
                 beacon.lit = true;
-                w.require_mut::<Glow>(entity).0.to(w.tick_end(), 1.0, 0.5);
+                beacon.glow_to(1.0, 0.5);
             } else {
-                near = w.name(entity).unwrap_or_default();
+                near = beacon.name().unwrap_or_default();
             }
         }
         w.publish("lit", w.count::<Beacon>(|b| b.lit));

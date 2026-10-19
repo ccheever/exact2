@@ -36,6 +36,7 @@ extension Presenter {
             stack.append(contentsOf: next.subviews)
         }
         for leaving in [view] + held { _ = leaving.endEditing(true) }
+        for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
         for member in members { release(member.id) { _ in } }
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
@@ -62,7 +63,7 @@ extension Presenter {
         return (Array(live) + leaving.values.map(\.view)).filter { $0.window != nil }.map { view in
             let viewport = self.viewport
             let r = view.convert(view.surface?.frame ?? view.bounds, to: viewport)
-            return ["id": Int(view.id), "x": r.minX - viewport.contentOffset.x, "y": r.minY - viewport.contentOffset.y,
+            return ["id": Int(view.id), "x": r.minX - viewport.pageOrigin.x, "y": r.minY - viewport.pageOrigin.y,
                     "w": r.width, "h": r.height, "opacity": view.alpha, "exiting": isLeaving(view)]
         }
     }

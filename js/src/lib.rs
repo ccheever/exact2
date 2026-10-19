@@ -72,7 +72,7 @@ pub use exact_data::Placed;
 pub use exact_js_value::{from_json, to_json, Shape};
 pub use exact_runner::Placement;
 pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
-pub use paired::Paired;
+pub use paired::{Bytecode, Paired};
 
 use door::{c_string, host_door};
 use engine::{Engine, HostFn};
@@ -178,6 +178,9 @@ struct HostState {
     /// over (op 14), by the prelude's ticket for each socket's stream (LLP
     /// 1016.000 D7).
     socket_ops: Vec<(u64, exact_runner::SocketOp)>,
+    /// The socket operations a turn of an answer sent as it made them (op
+    /// 17; the amendment of 2026-10-18), by the same ticket.
+    answer_ops: Vec<(u64, exact_runner::SocketOp)>,
     /// Each open socket's buffered bytes at the start of this turn, by the
     /// prelude's ticket for its stream (op 15).
     socket_buffered: Vec<(u64, u64)>,
@@ -213,12 +216,15 @@ struct HostState {
     /// Delivering between answers (a background round, a let-go call's
     /// steps): there is no store, and storage is not refused as at bake.
     between_answers: bool,
+    storage_changed: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
 /// engine that runs it once loaded.
 pub struct Module {
-    bytecode: Arc<[u8]>,
+    bytecode: Bytecode,
+    snapshot: bool,
+    snapshot_deadline: Option<Instant>,
     app_id: String,
     grants: String,
     revision: std::sync::OnceLock<String>, // the bytecode's SHA-256, when first asked
@@ -294,7 +300,7 @@ impl Module {
     /// at [`Module::load`]. Under the agent (`EXACT_AGENT=1`) its `crypto`
     /// draws the agent's repeatable stream (LLP 1069.005 D2b).
     pub fn new(
-        bytecode: impl Into<Arc<[u8]>>,
+        bytecode: impl Into<Bytecode>,
         app_id: impl Into<String>,
         grants: impl Into<String>,
     ) -> Module {
@@ -303,6 +309,8 @@ impl Module {
         let module = Module {
             revision: std::sync::OnceLock::new(),
             bytecode: bytecode.into(),
+            snapshot: false,
+            snapshot_deadline: None,
             app_id: app_id.into(),
             grants,
             engine: None,
@@ -506,6 +514,16 @@ impl Module {
 
     fn load_engine_with_prelude(&mut self, prelude: &'static [u8]) -> Result<Watched, String> {
         let io = exact_runner::io_grants(&self.grants);
+        // Stage 1 permits file reads, not file/SQLite writes or document handles.
+        // Identity still checks the full baked grants; only endowment narrows.
+        let io = if self.snapshot {
+            io.lines()
+                .filter(|line| line.starts_with("fs.read app:/"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            io
+        };
         self.host.documents = storage::reaches_documents(&io);
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
@@ -565,7 +583,7 @@ impl Module {
             self.storage
                 .as_ref()
                 .expect("Context was created")
-                .configure(paths)?;
+                .configure(paths, self.snapshot)?;
         }
         if self.directories.is_some() || (self.host.documents && !self.host.baking) {
             engine.install_storage()?;
@@ -581,9 +599,11 @@ impl Module {
         engine
             .harden()
             .map_err(|e| format!("exact-js: hardening failed: {e}"))?;
-        engine
-            .load_shared(self.bytecode.clone())
-            .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
+        match &self.bytecode {
+            Bytecode::Linked(bytes) => engine.load_static(*bytes),
+            Bytecode::Owned(bytes) => engine.load_shared(bytes.clone()),
+        }
+        .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
         let abi = engine.string("abi")?;
         if !abi_supported(&abi) {
             return Err(format!(
@@ -601,7 +621,9 @@ impl Module {
         // A dev restart or a reload replaces the module: what it started
         // and did not await is finished first, within a second (LLP 1097
         // D10). A worker's answers waited for theirs.
-        self.finish_background(std::time::Duration::from_secs(1));
+        if !self.snapshot {
+            self.finish_background(std::time::Duration::from_secs(1));
+        }
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());
         }
@@ -834,15 +856,22 @@ impl Module {
         let mut store = store;
         self.host.store = store.as_mut().map(|s| &mut **s as *mut Store);
         self.host.socket_ops.clear();
+        self.host.answer_ops.clear();
         if let Some(store) = store.as_deref() {
             self.host.socket_buffered = socket::snapshot(&self.streams, store);
         }
-        // A mutation's synchronous source may send on a socket (D7).
+        // A mutation's synchronous source may send on a socket (D7), and so
+        // may a resource's answer and a mutation's after its source (the
+        // amendment of 2026-10-18); a call for no target sends nothing.
         let mutation = match target {
             Some(Target::Mutation(_)) if session => "mutation",
+            Some(Target::Resource(_)) if session => "answer",
             _ => "",
         };
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
@@ -869,10 +898,16 @@ impl Module {
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
-        // Socket operations ride only an answer given now (D7).
+        // What the turn sent as an answer goes whatever it answers (the
+        // amendment of 2026-10-18); a mutation's staged socket operations
+        // ride only an answer given now (D7).
+        let answer_ops = std::mem::take(&mut self.host.answer_ops);
+        if let (Some(store), false) = (store.as_deref_mut(), answer_ops.is_empty()) {
+            self.stage_answer(store, source, answer_ops);
+        }
         let socket_ops = std::mem::take(&mut self.host.socket_ops);
         let result = match (result, store) {
             (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
@@ -895,12 +930,12 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let answer = match result {
@@ -1017,6 +1052,9 @@ impl Module {
         }
         let payload = serde_json::json!({ "answer": json(answer, &sig.result)?, "writes": list });
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let engine = self.engine.as_mut().expect("checked above");
         let text = engine
             .call(
@@ -1025,10 +1063,10 @@ impl Module {
             )
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay threw: {e}")))?;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             return Err(DataError::Unavailable(format!(
                 "`{source}`'s overlay took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let reply: Json = serde_json::from_str(&text)
@@ -1098,7 +1136,12 @@ impl Module {
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
+        self.host.answer_ops.clear();
+        self.host.socket_buffered = socket::snapshot(&self.streams, store);
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             if ticket == WAITING {
@@ -1136,8 +1179,13 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
+        // What this turn of an answer sent (D7, the amendment of 2026-10-18).
+        let answer_ops = std::mem::take(&mut self.host.answer_ops);
+        if !answer_ops.is_empty() {
+            self.stage_answer(store, source, answer_ops);
+        }
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         if result.is_err() && self.watch.take() {
@@ -1146,12 +1194,12 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let answer = match result {
@@ -1218,8 +1266,12 @@ impl Module {
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.socket_buffered = socket::snapshot(&self.streams, store);
         self.host.socket_ops.clear();
+        self.host.answer_ops.clear();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked by resume");
             let text = engine
@@ -1255,17 +1307,17 @@ impl Module {
             self.forget_calls(vec![call]);
         }
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine
                 .as_mut()
                 .expect("checked by resume")
                 .clear_reply();
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         match result? {

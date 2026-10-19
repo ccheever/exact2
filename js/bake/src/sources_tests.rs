@@ -297,3 +297,36 @@ fn cargo_watches_captured_package_files_and_installed_paths() {
     }
     assert_eq!(code.packages["a@1.0.0"], "d");
 }
+
+/// A bake made outside Cargo gives the archive only what Rust compiles: its
+/// entry reads the plan the link carries, and a plan an earlier bake in
+/// Cargo left is gone; a file whose bytes did not change keeps its time.
+#[test]
+fn a_linked_bake_gives_the_archive_what_rust_compiles() {
+    let baked = Scratch::new(&std::env::temp_dir()).unwrap();
+    let out = Scratch::new(&std::env::temp_dir()).unwrap();
+    for name in super::COMPILED {
+        std::fs::write(baked.0.join(name), name).unwrap();
+    }
+    std::fs::write(baked.0.join("app.plan"), "plan").unwrap();
+    std::fs::write(out.0.join("app.plan"), "stale").unwrap();
+    std::fs::write(out.0.join("module.rs"), "module.rs").unwrap();
+    let kept = std::fs::metadata(out.0.join("module.rs"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    super::take_baked(&baked.0, &out.0).unwrap();
+    for name in super::COMPILED {
+        assert_eq!(std::fs::read_to_string(out.0.join(name)).unwrap(), name);
+    }
+    let modified = std::fs::metadata(out.0.join("module.rs"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(modified, kept);
+    assert_eq!(
+        std::fs::read_to_string(out.0.join("baked.rs")).unwrap(),
+        super::LINKED
+    );
+    assert!(!out.0.join("app.plan").exists());
+}

@@ -9,11 +9,15 @@ use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind}
 use crate::Span;
 
 mod color_profile;
+mod component;
 mod decls;
+mod decorations;
 mod expr;
 mod keyframes;
 mod media_session;
 mod midi;
+mod migration;
+pub(crate) use migration::parsed_with_edits;
 mod names;
 mod params;
 mod parts;
@@ -68,59 +72,40 @@ pub fn parse_source(src: &str, source_id: u32) -> Result<File, SyntaxError> {
     parse_source_all(src, source_id).map_err(|mut all| all.swap_remove(0))
 }
 
-/// Parse a file and report every refusal (at most [`MAX_REFUSALS`]): each
+/// Parse a file and report every refusal (at most [`MAX_REFUSALS`], except
+/// retired spellings, which are all reported): each
 /// line that does not lex, else each top-level declaration that does not
 /// parse — a refused declaration is skipped to the next line that starts in
-/// the first column, and parsing goes on from there.
+/// the first column, and parsing goes on from there — and within a component
+/// each member that does not parse.
 pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxError>> {
-    let (tokens, lexed) = Lexer::tokenize_recovering(
-        src,
-        Span {
-            source_id,
-            ..Span::point(1, 1)
-        },
-    );
-    let mut p = Parser {
-        tokens,
-        pos: 0,
-        names: NameSpans::default(),
-        depth: 0,
-        view_depth: 0,
-        last: 0,
-        free: Vec::new(),
-        methods: Vec::new(),
-    };
-    let parsed = p.file_all();
-    if lexed.is_empty() {
-        return parsed;
-    }
-    // A line the lexer refused parses as whatever it managed: not news.
-    let bad: Vec<u32> = lexed.iter().map(|e| e.span.line).collect();
-    let mut all: Vec<SyntaxError> = lexed.into_iter().map(SyntaxError::from).collect();
-    all.extend(
-        parsed
-            .err()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|e| !bad.contains(&e.span.line)),
-    );
-    all.sort_by_key(|e| (e.span.line, e.span.col));
-    all.truncate(MAX_REFUSALS);
-    Err(all)
+    parse_source_partial(src, source_id).map_err(|partial| partial.errors)
+}
+
+/// A file some of which was refused: what parsed, when later passes can
+/// check it, and the names of what was refused.
+#[derive(Debug)]
+pub struct Partial {
+    /// The declarations and members that parsed; `None` when the file's
+    /// declarations cannot all be told apart (a line that does not lex, or
+    /// [`MAX_REFUSALS`] reached) or its first component was refused, which
+    /// would make another component the app.
+    pub file: Option<Box<File>>,
+    /// Every refusal, as [`parse_source_all`] reports them.
+    pub errors: Vec<SyntaxError>,
+    /// The names the refused declarations and members declared: what a later
+    /// pass says about one of them may be only that it is missing.
+    pub hidden: Vec<String>,
+}
+
+/// [`parse_source_all`], keeping what parsed beside the refusals.
+pub fn parse_source_partial(src: &str, source_id: u32) -> Result<File, Partial> {
+    parsed_with_edits(src, source_id).0
 }
 
 /// Parse lexer output and return its unchanged tokens for source-preserving tools.
 pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), SyntaxError> {
-    let mut p = Parser {
-        tokens,
-        pos: 0,
-        names: NameSpans::default(),
-        depth: 0,
-        view_depth: 0,
-        last: 0,
-        free: Vec::new(),
-        methods: Vec::new(),
-    };
+    let mut p = Parser::new(tokens);
     let file = p.file()?;
     Ok((file, p.tokens))
 }
@@ -137,12 +122,22 @@ struct Parser {
     /// Free calls of a method's name (`trim(s)`), each with its refusal: refused
     /// at the end of the file unless the file declares a `fn`, shape or action
     /// of that name (LLP 1116.015 D2).
-    free: Vec<(String, SyntaxError)>,
+    free: Vec<(String, SyntaxError, Vec<crate::migrate::Edit>)>,
+    retired: Vec<SyntaxError>,
+    edits: Vec<crate::migrate::Edit>,
     /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
     /// when it declares a `fn`, shape or action of that name, which the
     /// rewritten call would reach where TypeScript's method never would
     /// (LLP 1116.016 D2).
     methods: Vec<(String, Span)>,
+    /// Whether a refused component member is recorded and skipped.
+    recover: bool,
+    /// The refusals recorded inside a declaration that was kept.
+    recovered: Vec<SyntaxError>,
+    /// What the refused declarations and members named ([`Partial::hidden`]).
+    hidden: Vec<String>,
+    /// Whether a component was refused before any component parsed.
+    first_refused: bool,
 }
 
 type R<T> = Result<T, SyntaxError>;
@@ -311,22 +306,27 @@ impl Parser {
 
     fn file(&mut self) -> R<File> {
         self.declarations(false)
-            .map_err(|mut all| all.swap_remove(0))
+            .map_err(|mut partial| partial.errors.swap_remove(0))
     }
 
-    fn file_all(&mut self) -> Result<File, Vec<SyntaxError>> {
+    fn file_all(&mut self) -> Result<File, Partial> {
         self.declarations(true)
     }
 
     /// The file's declarations. With `recover`, a refused declaration is
-    /// recorded and parsing resumes at the next line starting in column 1.
-    fn declarations(&mut self, recover: bool) -> Result<File, Vec<SyntaxError>> {
+    /// recorded and parsing resumes at the next line starting in column 1,
+    /// and a refused component member at the next member.
+    fn declarations(&mut self, recover: bool) -> Result<File, Partial> {
+        self.recover = recover;
         let mut file = File::default();
         let mut errors = Vec::new();
         loop {
             let start = self.pos;
-            match self.declaration(&mut file) {
-                Ok(true) => {}
+            let declared = self.declaration(&mut file);
+            errors.append(&mut self.recovered);
+            match declared {
+                Ok(true) if errors.len() < MAX_REFUSALS => {}
+                Ok(true) => return Err(self.partial(None, errors)),
                 Ok(false) => {
                     let declared = |name: &str| {
                         file.fns.iter().any(|f| f.name == name)
@@ -336,12 +336,16 @@ impl Parser {
                                 .iter()
                                 .any(|c| c.actions.iter().any(|a| a.name == name))
                     };
+                    // A free call of a refused declaration's or member's name may
+                    // be a call of it, as of one that parsed.
                     let free = std::mem::take(&mut self.free);
-                    errors.extend(
-                        free.into_iter()
-                            .filter(|(n, _)| !declared(n))
-                            .map(|(_, e)| e),
-                    );
+                    for (name, error, edits) in free {
+                        if !declared(&name) && !self.hidden.contains(&name) {
+                            errors.push(error);
+                            self.edits.extend(edits);
+                        }
+                    }
+                    errors.append(&mut self.retired);
                     let methods = std::mem::take(&mut self.methods);
                     errors.extend(methods.into_iter().filter(|(n, _)| declared(n)).map(|(n, span)| {
                         let call = if n == "length" { ".length".to_string() } else { format!(".{n}(…)") };
@@ -353,19 +357,23 @@ impl Parser {
                             span,
                         }
                     }));
+                    file.names = std::mem::take(&mut self.names);
                     if errors.is_empty() {
-                        file.names = std::mem::take(&mut self.names);
                         return Ok(file);
                     }
                     errors.sort_by_key(|e| (e.span.line, e.span.col));
-                    errors.truncate(MAX_REFUSALS);
-                    return Err(errors);
+                    if !errors.iter().any(|e| crate::migrate::is_retired(e.id)) {
+                        errors.truncate(MAX_REFUSALS);
+                    }
+                    let kept = (!self.first_refused).then_some(file);
+                    return Err(self.partial(kept, errors));
                 }
                 Err(e) => {
                     errors.push(e);
                     if !recover || errors.len() >= MAX_REFUSALS {
-                        return Err(errors);
+                        return Err(self.partial(None, errors));
                     }
+                    self.refused(start, &file);
                     // A declaration refused where it began is stepped past.
                     if self.pos == start {
                         self.next();
@@ -373,6 +381,43 @@ impl Parser {
                     self.skip_to_declaration();
                 }
             }
+        }
+    }
+
+    fn partial(&mut self, file: Option<File>, errors: Vec<SyntaxError>) -> Partial {
+        Partial {
+            file: file.map(Box::new),
+            errors,
+            hidden: std::mem::take(&mut self.hidden),
+        }
+    }
+
+    /// What the declaration refused at token `start` named: a `use` line's
+    /// names, else the word after its keyword (`component Card`, `fn total`).
+    fn refused(&mut self, start: usize, file: &File) {
+        let line: Vec<&TokenKind> = self.tokens[start..]
+            .iter()
+            .map(|t| &t.kind)
+            .take_while(|k| !matches!(k, TokenKind::Newline | TokenKind::Indent | TokenKind::Eof))
+            .collect();
+        let word = |k: &TokenKind| match k {
+            TokenKind::Ident(w) => Some(w.clone()),
+            _ => None,
+        };
+        match line.as_slice() {
+            [TokenKind::Ident(k), rest @ ..] if k == "use" => self.hidden.extend(
+                rest.iter()
+                    .take_while(|t| !matches!(t, TokenKind::Ident(w) if w == "from"))
+                    .filter_map(|t| word(t))
+                    .filter(|w| w != "as"),
+            ),
+            [TokenKind::Ident(k), name, ..] => {
+                if k == "component" && file.components.is_empty() {
+                    self.first_refused = true;
+                }
+                self.hidden.extend(word(name));
+            }
+            _ => {}
         }
     }
 
@@ -417,6 +462,9 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
+                TokenKind::Ident(w) if w == "decoration" => {
+                    file.decorations.push(self.decoration()?)
+                }
                 TokenKind::Ident(w) if w == "keyframes" => {
                     let decl = self.keyframes_decl()?;
                     if let Some(first) = file.keyframes.iter().find(|k| k.name == decl.name) {
@@ -468,7 +516,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     );
@@ -750,13 +798,19 @@ impl Parser {
             }
             // @ref LLP 1116.015 D2 — a list type is `T[]`.
             "list" if self.at_punct("<") => {
-                self.next();
+                let open = self.next().span;
                 let inner = self.type_expr()?;
-                return Err(SyntaxError {
+                let close = self.expect_punct(">")?;
+                self.edits.push(crate::migrate::Edit::new(span, span, ""));
+                self.edits.push(crate::migrate::Edit::new(open, open, ""));
+                self.edits
+                    .push(crate::migrate::Edit::new(close, close, "[]"));
+                self.retired.push(SyntaxError {
                     id: "syntax-list-type",
                     message: format!("write `{inner}[]`: a list type is `T[]`, as in TypeScript"),
                     span,
                 });
+                TypeExpr::List(Box::new(inner), span)
             }
             _ => TypeExpr::Named(name, span),
         };
@@ -766,215 +820,6 @@ impl Parser {
             ty = TypeExpr::List(Box::new(ty), span);
         }
         Ok(ty)
-    }
-
-    fn component(&mut self) -> R<Component> {
-        let span = self.expect_word("component")?;
-        let name = self.named_ident(span)?;
-        self.newline()?;
-        let mut c = Component {
-            name,
-            props: Vec::new(),
-            injects: Vec::new(),
-            provides: Vec::new(),
-            slot: false,
-            states: Vec::new(),
-            persist: Vec::new(),
-            derives: Vec::new(),
-            resources: Vec::new(),
-            mutations: Vec::new(),
-            actions: Vec::new(),
-            tasks: Vec::new(),
-            sequences: Vec::new(),
-            view: Vec::new(),
-            params: Default::default(),
-            span,
-        };
-        if !matches!(self.peek_kind(), TokenKind::Indent) {
-            return self.err("syntax-empty-component", "a component needs a body");
-        }
-        let mut sections: Vec<(String, Span)> = Vec::new();
-        self.next();
-        loop {
-            match self.peek_kind().clone() {
-                TokenKind::Dedent => {
-                    self.next();
-                    break;
-                }
-                TokenKind::Eof => break,
-                TokenKind::Newline => {
-                    self.next();
-                }
-                TokenKind::Ident(w) => {
-                    if matches!(
-                        w.as_str(),
-                        "props" | "inject" | "provide" | "slot" | "view" | "params"
-                    ) {
-                        let section_span = self.peek().span;
-                        if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
-                            return duplicate("component section", &w, section_span, *first);
-                        }
-                        sections.push((w.clone(), section_span));
-                    }
-                    match w.as_str() {
-                        "props" | "inject" => {
-                            self.next();
-                            self.newline()?;
-                            let list = self.block(|p| {
-                                let (name, span) = p.ident()?;
-                                p.expect_punct(":")?;
-                                let ty = p.type_expr()?;
-                                p.newline()?;
-                                Ok(Param {
-                                    name,
-                                    ty: Some(ty),
-                                    span,
-                                })
-                            })?;
-                            if w == "props" {
-                                c.props = list;
-                            } else {
-                                c.injects = list;
-                            }
-                        }
-                        // @ref LLP 1035.005.000 D9 — one binding per line; a
-                        // bare name provides the in-scope value of that name.
-                        "provide" => {
-                            self.next();
-                            self.newline()?;
-                            let mut provides: Vec<Binding> = Vec::new();
-                            for b in self.block(|p| {
-                                let (name, span) = p.ident()?;
-                                let expr = if p.eat_punct("=") {
-                                    p.expr()?
-                                } else {
-                                    Expr::Ident(name.clone(), span)
-                                };
-                                p.newline()?;
-                                Ok(Binding { name, expr, span })
-                            })? {
-                                if let Some(first) = provides.iter().find(|p| p.name == b.name) {
-                                    return duplicate("provided name", &b.name, b.span, first.span);
-                                }
-                                provides.push(b);
-                            }
-                            c.provides = provides;
-                        }
-                        "slot" => {
-                            self.next();
-                            self.newline()?;
-                            c.slot = true;
-                        }
-                        "state" | "derive" => {
-                            let t = self.next();
-                            let name = self.named_ident(t.span)?;
-                            // @ref LLP 1116.015 D2 — `state x: T = …` declares the type.
-                            let declared = if w == "state" && self.eat_punct(":") {
-                                Some(self.type_expr()?)
-                            } else {
-                                self.type_annotation(&w, &name, ":")?;
-                                None
-                            };
-                            self.expect_punct("=")?;
-                            self.on_its_line(&w)?;
-                            let expr = self.expr()?;
-                            let none = matches!(expr, Expr::None(_));
-                            self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
-                            if let Some(span) = self.persist_word(&w, &name)? {
-                                c.persist.push(Persist {
-                                    name: name.clone(),
-                                    span,
-                                });
-                            }
-                            self.newline()?;
-                            let expr = match declared {
-                                Some(ty) => Expr::Typed(Box::new(expr), ty, t.span),
-                                None => expr,
-                            };
-                            let b = Binding {
-                                name,
-                                expr,
-                                span: t.span,
-                            };
-                            if w == "state" {
-                                c.states.push(b)
-                            } else {
-                                c.derives.push(b)
-                            }
-                        }
-                        "params" => c.params.list = self.params_section()?,
-                        "resource" => c.resources.push(self.resource()?),
-                        "mutation" => c.mutations.push(self.mutation()?),
-                        "action" => c.actions.push(self.action()?),
-                        "task" => c.tasks.push(self.task()?),
-                        "sequence" => c.sequences.push(self.sequence()?),
-                        "view" => {
-                            self.next();
-                            self.newline()?;
-                            c.view = self.block(|p| p.node())?;
-                        }
-                        // @ref LLP 1035.005.000 D8 — accepted assertion text
-                        // that compiled to nothing promised more than a comment.
-                        "contract" => {
-                            return self.err(
-                                "syntax-contract-block",
-                                "a component's `contract` section is not part of Contract: \
-                                 write the assertions as `test` blocks in `app.test.contract` \
-                                 (LLP 1017 P7)",
-                            )
-                        }
-                        "timer" | "interval" => {
-                            let end = self.tokens[self.pos..]
-                                .iter()
-                                .position(|t| t.kind == TokenKind::Newline)
-                                .map_or(self.tokens.len(), |n| self.pos + n);
-                            return self.err(
-                                "syntax-unknown-section",
-                                names::timer_hint(&w, &self.tokens[self.pos + 1..end]),
-                            );
-                        }
-                        other => {
-                            return self.err(
-                                "syntax-unknown-section",
-                                format!("unknown section `{other}`{}", names::section_hint(other)),
-                            )
-                        }
-                    }
-                }
-                // A one-line declaration continued on an indented line (a
-                // resource's `else` under it; authoring bench).
-                TokenKind::Indent
-                    if matches!(self.peek2(), TokenKind::Ident(w)
-                        if matches!(w.as_str(), "else" | "then" | "refreshes" | "as")) =>
-                {
-                    let TokenKind::Ident(w) = self.peek2().clone() else {
-                        unreachable!()
-                    };
-                    let example = if w == "else" {
-                        " (like `resource tasks = loadTasks() as shape Task[] else empty()`)"
-                    } else {
-                        ""
-                    };
-                    return self.err(
-                        "syntax-expected-section",
-                        format!(
-                            "`{w} …` is indented under the line above, and a declaration is one \
-                             line: join them{example}"
-                        ),
-                    );
-                }
-                other => {
-                    if let Some(e) = self.continued_expression("syntax-expected-section") {
-                        return e;
-                    }
-                    return self.err(
-                        "syntax-expected-section",
-                        format!("expected a section, found {}", describe(&other)),
-                    );
-                }
-            }
-        }
-        Ok(c)
     }
 
     fn resource(&mut self) -> R<ResourceDecl> {
@@ -1124,14 +969,14 @@ impl Parser {
                     p.expect_punct("(")?;
                     let var = p.named_ident(span)?;
                     p.expect_punct(")")?;
-                    p.newline()?;
+                    p.case_end(Some(&var), "statements")?;
                     some = Some((var, p.block(|q| q.stmt())?));
                 } else {
                     p.expect_word("none")?;
                     if none.is_some() {
                         return duplicate("match arm", "none", case_span, span);
                     }
-                    p.newline()?;
+                    p.case_end(None, "statements")?;
                     none = Some(p.block(|q| q.stmt())?);
                 }
                 Ok(())
@@ -1274,8 +1119,14 @@ impl Parser {
             "if" => self.node_if(span),
             "for" => self.node_for(span),
             // @ref LLP 1116.015 D1 — the view's former words, refused with the edit.
-            "when" => self.err("syntax-view-keyword", "a view chooses with `if`: write `if <condition>`, and `else if` for `else when`"),
-            "each" => self.err("syntax-view-keyword", "a view repeats with `for`: write `for x in xs key=x.id`"),
+            "when" => {
+                self.retired_view(span, "if");
+                self.node_if(span)
+            }
+            "each" => {
+                self.retired_view(span, "for");
+                self.node_for(span)
+            }
             "match" => self.node_match(span),
             "else" | "case" => self.err(
                 "syntax-stray-keyword",

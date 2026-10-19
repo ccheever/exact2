@@ -24,9 +24,15 @@ macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::grouped_list_exports!();
         $crate::markup_exports!();
+
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
+        /// Native intrinsic field layout using the optional editor's applier.
+        #[no_mangle]
+        pub extern "C" fn exact_set_decorated_measure(rt:u32,read:Option<$crate::measure::DecoratedMeasureFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES,rt,|e|e.bridge.set_decorated_measure(read));
+        }
         $crate::raster_exports!();
         $crate::textflow_exports!();
         $crate::collapse_exports!();
@@ -293,6 +299,35 @@ macro_rules! host {
             }, |n| n)
         }
 
+        /// Snapshot bytes, kind and optional props JSON, concatenated in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
+                b.set_delivery($delivery);
+                b.boot_entry(plan, kind, props, ($new)(), hooks, width, height)
+            }, |n| n)
+        }
+        /// Refresh the entry's declared source; returns a JSON timeline or an error.
+        #[no_mangle]
+        // The synchronous caller owns both slices until this call returns;
+        // the C ABI's exports are not `unsafe fn`, as the others here are not.
+        #[allow(clippy::not_unsafe_ptr_arg_deref)]
+        pub extern "C" fn exact_entry_timeline(rt: u32, now: f64, remaining_ms: f64, receipt: *const u8, receipt_len: usize, module: *const u8, module_len: usize) -> u32 {
+            let receipt = if receipt.is_null() { &[] } else { unsafe { std::slice::from_raw_parts(receipt, receipt_len) } };
+            let module = if module.is_null() { &[] } else { unsafe { std::slice::from_raw_parts(module, module_len) } };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.entry_timeline_module(now, remaining_ms, receipt, module), |n| n)
+        }
+
+        /// Refresh a headless entry, retaining preview props when unavailable.
+        #[no_mangle]
+        pub extern "C" fn exact_refresh_entry(rt: u32, now: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| {
+                b.refresh_entry(($new)(), now)
+            }, |n| n)
+        }
+
         /// Prepare one session, optionally using a composition-owned generation.
         #[no_mangle]
         pub extern "C" fn exact_prepare_plan(rt: u32, token: u64, len: usize, width: f32, height: f32) -> u32 {
@@ -311,6 +346,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_data_ready(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.data_ready(), |n| n)
+        }
+
+        /// Re-read the shared store and ask its resources again (LLP 1126.001 WP12).
+        #[no_mangle]
+        pub extern "C" fn exact_store_changed(rt: u32, retry_only: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.store_changed(retry_only != 0), |n| n)
         }
 
         /// Prepare an admitted module generation, optionally carrying a delivery token;
@@ -361,8 +402,8 @@ macro_rules! host {
 
         /// The presenter's synchronous viewport union for an inline run.
         #[no_mangle]
-        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, ctx: *mut ::std::ffi::c_void) {
-            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, ctx));
+        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, range: Option<$crate::geometry::RangeFrameFn>, ctx: *mut ::std::ffi::c_void) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, range, ctx));
         }
 
         /// The open top-layer nodes before a native action read. No batch.
@@ -636,8 +677,19 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reads_on_line(), |_| 1)
         }
 
-        /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
-        /// ports or inputs, or the agent's `prefer midi` and `tap midi`.
+        /// The presenter declares a packaged arm before any boot.
+        #[no_mangle]
+        pub extern "C" fn exact_link_activities(rt: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.link_activities(), |_| ());
+        }
+
+        /// Activity facts or one send's completion in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_activities(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.activities(len), |n| n)
+        }
+
+        /// MIDI ports or messages from the host, or the agent's `prefer midi` and `tap midi`.
         #[no_mangle]
         pub extern "C" fn exact_midi(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.midi(len), |n| n)
@@ -701,6 +753,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
         }
 
+        /// A placement root's resolved margins and its width's authorship (LLP 1126.001
+        /// WP10): the output holds JSON `[left, top, right, bottom, authored]`, no batch
+        /// around it; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_placement_box(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.placement_box(view), |n| n)
+        }
+
         /// Resolve a logical row key in the input buffer, or UINT32_MAX.
         #[no_mangle]
         pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {
@@ -730,6 +790,18 @@ macro_rules! host {
                 unsafe { std::slice::from_raw_parts(insets, count as usize) }
             };
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.regions(insets), |n| n)
+        }
+
+        /// The title-bar area beside the window's controls (Window Controls
+        /// Overlay): `count` is 4 (x, y, width, height) or 0 (none, so every
+        /// `env(titlebar-area-*)` is undefined); returns the batch's length.
+        #[no_mangle]
+        pub unsafe extern "C" fn exact_titlebar_area(rt: u32, rect: *const f32, count: u32) -> u32 {
+            let rect = if count == 0 || rect.is_null() { &[] } else {
+                // SAFETY: the caller keeps `count` floats live for this synchronous call.
+                unsafe { std::slice::from_raw_parts(rect, count as usize) }
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.titlebar_area(rect), |n| n)
         }
 
         /// The window's size, which every viewport unit resolves

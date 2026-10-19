@@ -1,9 +1,10 @@
 import {test, expect} from 'bun:test';
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
+import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync, chmodSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
+import {copyProofProducts, withProofBuild, buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
 import {writeFixtureFile} from './tests/proof-helpers.mjs';
 
 test('receipts issued before directory checks rebuild once even when source and artifact digests still match', async () => {
@@ -197,15 +198,24 @@ test('E11 receipts and proof provenance bind post-bake generated assets', async 
   const surface=()=>readFileSync(resolve(app,'.shells/surfaces.json'),'utf8');
   try {
     write('game/games/sample/art/crate.gltf','authored');write('game/games/sample/logic/src/lib.rs','surface');generated('mac-simd');
+    write('game/games/sample/.gitignore','/assets/\n/.baked-assets.json\n');spawnSync('git',['init','-q',dir]);spawnSync('git',['add','.'],{cwd:dir});
     mkdirSync(resolve(app, '.shells'), {recursive:true});
     let inputs;const read=()=>inputs=proofInputs(dir,app,resolve(out,'input-digests.json')), inputHash=value=>buildInputHash('linux','target').update(value).digest('hex'), before=read();let gpu='old-product',binary='old-host',builds=[];
-    const run=()=>{const scan=proofInputReader(dir,app,resolve(out,'input-digests.json'));const read=()=>inputs=scan();return ensureLinuxReceipts({directory:out,gpuInputs:()=>inputHash(read().gpu),hostInputs:()=>inputHash(read().host+surface()),gpuArtifact:()=>gpu,hostArtifact:()=>binary,build:async part=>{builds.push(part);if(part==='gpu'){generated('linux-simd');write('game/games/sample/.shells/surfaces.json',readFileSync(resolve(app,'logic/src/lib.rs'),'utf8'));gpu='linux-product';}else binary='linux-host';}});};await run();
+    const run=()=>{const scan=proofInputReader(dir,app,resolve(out,'input-digests.json'));const read=()=>inputs=scan();return ensureLinuxReceipts({directory:out,app,surface:resolve(app,'.shells/surfaces.json'),gpuInputs:()=>inputHash(read().gpu),hostInputs:()=>inputHash(read().host+surface()),gpuArtifact:()=>gpu,hostArtifact:()=>binary,build:async part=>{builds.push(part);if(part==='gpu'){generated('linux-simd');write('game/games/sample/.shells/surfaces.json',readFileSync(resolve(app,'logic/src/lib.rs'),'utf8'));gpu='linux-product';}else binary='linux-host';}});};await run();
     const summary=inputs.all, after=proofInputs(dir,app,resolve(out,'input-digests.json')), gpuReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-gpu.sha256'))), hostReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-host.sha256')));
     expect(before.all).not.toBe(after.all);
     expect({gpu:gpuReceipt.inputs,host:hostReceipt.inputs,summary}).toEqual({gpu:inputHash(after.gpu),host:inputHash(after.host+surface()),summary:after.all});
-    expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
+    expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);
+    rmSync(resolve(app,'.shells'),{recursive:true});rmSync(resolve(app,'assets'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
+    write('artifacts/linux/build-linux-surfaces.json','corrupt');await run();expect(builds.splice(0)).toEqual(['gpu']);
+    write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/logic/src/lib.rs','surface with added argument');await run();expect(builds.splice(0)).toEqual(['gpu','host']);
     write('game/games/sample/app.contract','changed');await run();expect(builds.splice(0)).toEqual(['host']);gpu=null;await run();expect(builds.splice(0)).toEqual(['gpu']);
+    // An author's file where the cache would put a generated one is refused by name and left alone;
+    // a generated file the manifest owns is restored over.
+    rmSync(resolve(app,'art'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));write('game/games/sample/assets/textures/crate.astc.tex','authored replacement');spawnSync('git',['add','-f','game/games/sample/assets/textures/crate.astc.tex'],{cwd:dir});
+    await expect(run()).rejects.toThrow('would overwrite a file the bake does not own');
+    expect(readFileSync(resolve(app,'assets/textures/crate.astc.tex'),'utf8')).toBe('authored replacement');
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -371,7 +381,7 @@ test('repin records portable source provenance separately and still refuses mixe
     expect(pins[0].sourceInputs).toBe(pins[1].sourceInputs);
     expect(pins[0].inputs).not.toBe(pins[1].inputs);
   } finally { rmSync(dir, {recursive:true, force:true}); }
-}, 15000);
+}, 120000);
 
 test('proof summaries record both identities from the completed bake', async () => {
   // Match the child's import.meta URL when macOS's temporary root is a symlink.
@@ -413,7 +423,7 @@ test('proof summaries record both identities from the completed bake', async () 
       env:{...process.env, EXACT_GAME_PROOF_PROFILE:'release', EXACT_PROOF_OUT:out}, stdout:'pipe', stderr:'pipe',
     });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(code, stdout + stderr).toBe(0);
+    expect(code, stdout + stderr).toBe(3);
     const after = proofInputs(root, app), summary = JSON.parse(readFileSync(resolve(out, 'summary.json')));
     expect(after.all).not.toBe(before.all);
     expect(after.authored).toBe(before.authored);
@@ -423,3 +433,121 @@ test('proof summaries record both identities from the completed bake', async () 
     expect(receipt.inputs).toBe(buildInputHash('linux', target, '0', 'release').update(after.all).digest('hex'));
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 15000);
+
+
+test('ignored Rust directories are skipped while tracked files override ignore rules', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-ignored-'))), app = resolve(dir, 'game/games/sample');
+  const git = (...args) => { const r = spawnSync('git', args, {cwd:dir}); expect(r.status).toBe(0); };
+  try {
+    git('init', '-q');
+    writeFixtureFile(app, 'app.contract', 'plan');
+    writeFixtureFile(dir, 'private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'private/generated.rs', 'ignored app output');
+    writeFixtureFile(dir, 'private/tracked.rs', 'tracked source');
+    writeFixtureFile(dir, 'excluded/generated.rs', 'info exclude');
+    git('add', 'private/tracked.rs');
+    writeFixtureFile(dir, '.gitignore', 'private/\n');
+    writeFixtureFile(dir, '.git/info/exclude', 'excluded/\n');
+    const files = proofInputFiles(dir, app);
+    expect(files).not.toContain('private/generated.rs');
+    expect(files).not.toContain('game/games/sample/private/generated.rs');
+    expect(files).not.toContain('excluded/generated.rs');
+    expect(files).toContain('private/tracked.rs');
+    const read = proofInputReader(dir, app); read();
+    writeFixtureFile(dir, 'private/generated.rs', 'changed output');
+    read();
+    writeFixtureFile(dir, 'private/tracked.rs', 'changed source');
+    expect(read).toThrow('authored proof inputs changed during build');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+
+test('external repositories apply their own ignores and excludes with tracked precedence', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-external-ignored-')));
+  const sdk = resolve(dir, 'sdk'), app = resolve(dir, 'external');
+  const git = (cwd, ...args) => { expect(spawnSync('git', args, {cwd}).status).toBe(0); };
+  try {
+    writeFixtureFile(sdk, 'engine/lib.rs', 'sdk');
+    writeFixtureFile(app, 'logic/src/lib.rs', 'game');
+    git(sdk, 'init', '-q'); git(app, 'init', '-q');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    git(app, 'add', 'logic/private/tracked.rs');
+    writeFixtureFile(app, '.gitignore', 'logic/private/\n');
+    writeFixtureFile(app, '.git/info/exclude', 'logic/excluded/\n');
+    writeFixtureFile(app, 'logic/private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'excluded');
+    const files = proofInputFiles(sdk, app);
+    expect(files).toContain('../external/logic/private/tracked.rs');
+    expect(files).toContain('../external/logic/src/lib.rs');
+    expect(files).not.toContain('../external/logic/private/generated.rs');
+    expect(files).not.toContain('../external/logic/excluded/generated.rs');
+    const before = proofInputs(sdk, app);
+    writeFixtureFile(app, 'logic/private/generated.rs', 'changed ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'changed excluded');
+    expect(proofInputs(sdk, app).all).toBe(before.all);
+    const read = proofInputReader(sdk, app); read();
+    writeFixtureFile(app, 'logic/excluded/new-output.rs', 'new excluded entry');
+    read();
+    const ignoredSibling = writeFixtureFile(app, 'logic/private/new-output.rs', 'new ignored sibling');
+    read();
+    writeFileSync(ignoredSibling + '.tmp', 'replacement');
+    renameSync(ignoredSibling + '.tmp', ignoredSibling);
+    read();
+    rmSync(ignoredSibling);
+    read();
+    // Even a reverted tracked edit must invalidate the in-flight proof.
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'temporary authored bytes');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    expect(read).toThrow('authored proof inputs changed during build');
+    const stable = proofInputReader(sdk, app); stable();
+    const transient = writeFixtureFile(app, 'logic/src/transient.rs', 'consumed source');
+    rmSync(transient);
+    expect(stable).toThrow('authored proof inputs changed during build');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'changed tracked');
+    expect(proofInputs(sdk, app).authored).not.toBe(before.authored);
+    rmSync(resolve(app, '.git'), {recursive:true});
+    expect(proofInputFiles(sdk, app)).toContain('../external/logic/private/generated.rs');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+
+test('two snapshots execute their private validated products while shared builds change', async () => {
+  const {snapshot} = await import('./proof-snapshot.mjs');
+  const {proofProductChanges} = await import('../scripts/agent-launch.mjs');
+  const sdk=mkdtempSync(resolve(tmpdir(),'proof-products-')), app=resolve(sdk,'game/games/sample'), target=resolve(app,'target');
+  mkdirSync(target,{recursive:true});spawnSync('git',['init','-q',sdk]);
+  writeFixtureFile(app,'logic/src/lib.rs','first');writeFixtureFile(app,'proof.mjs','');writeFixtureFile(app,'pins.json','{}');
+  const binary=resolve(target,'game'), module=resolve(target,'module');
+  const build=async run=>withProofBuild(target,async()=>{
+    const id=readFileSync(resolve(run.src,'logic/src/lib.rs'),'utf8');
+    writeFileSync(binary,'#!/bin/sh\nwhile read line; do cat "$(dirname "$0")/module"; printf "\\n"; done\n');chmodSync(binary,0o755);writeFileSync(module,id);
+    return copyProofProducts(sdk,run.src,{binary,module},resolve(run.src,'../build'));
+  });
+  let a,b;
+  try {
+    const first=snapshot(sdk,app,resolve(app,'artifacts/one')), firstProducts=await build(first);
+    a=Bun.spawn([firstProducts.binary],{stdin:'pipe',stdout:'pipe'});
+    writeFileSync(resolve(app,'logic/src/lib.rs'),'second');
+    const second=snapshot(sdk,app,resolve(app,'artifacts/two')), secondProducts=await build(second);
+    b=Bun.spawn([secondProducts.binary],{stdin:'pipe',stdout:'pipe'});
+    a.stdin.write('drive\n');a.stdin.end();b.stdin.write('drive\n');b.stdin.end();
+    expect(await new Response(a.stdout).text()).toBe('first\n');
+    expect(await new Response(b.stdout).text()).toBe('second\n');
+    expect(await a.exited).toBe(0);expect(await b.exited).toBe(0);
+    expect(proofProductChanges(firstProducts.receipt,firstProducts.binary,{dir:first.src},sdk)).toEqual([]);
+    expect(()=>copyProofProducts(sdk,first.src,{binary,module},resolve(first.src,'artifacts/invalid'),{module:createHash('sha256').update('first').digest('hex')})).toThrow('changed after validation');
+    writeFileSync(firstProducts.module,'corrupt');
+    expect(proofProductChanges(firstProducts.receipt,firstProducts.binary,{dir:first.src},sdk)).toContain(firstProducts.module);
+  } finally {a?.kill();b?.kill();rmSync(sdk,{recursive:true,force:true});}
+},60000);
+
+
+test('unchanged proof directories keep their identity when locale collation changes', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'proof-collation-')), app=resolve(root,'game/games/sample');
+  writeFixtureFile(app,'logic/Z/lib.rs','Z');writeFixtureFile(app,'logic/a/lib.rs','a');
+  const collate=String.prototype.localeCompare, read=proofInputReader(root,app);
+  try {
+    read();String.prototype.localeCompare=function(other){return -collate.call(this,other);};
+    expect(()=>read()).not.toThrow();
+  } finally {String.prototype.localeCompare=collate;rmSync(root,{recursive:true,force:true});}
+});

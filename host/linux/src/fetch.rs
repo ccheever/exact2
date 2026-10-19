@@ -205,8 +205,14 @@ impl Poller {
             match worker.try_recv() {
                 Ok(answer) => {
                     self.channel = None;
+                    // A long poll answered paced itself; another tick waits.
+                    let pause = if answer.held() {
+                        std::time::Duration::ZERO
+                    } else {
+                        TICK
+                    };
                     link.settle(answer);
-                    self.channel_due = std::time::Instant::now() + TICK;
+                    self.channel_due = std::time::Instant::now() + pause;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => self.channel = None,
                 Err(std::sync::mpsc::TryRecvError::Empty) => return,

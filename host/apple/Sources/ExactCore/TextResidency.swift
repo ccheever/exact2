@@ -142,6 +142,8 @@ extension Spec {
             value.runs[i].decoration = ""
             value.runs[i].href = ""
             value.runs[i].background = nil
+            value.runs[i].backgroundBox = 0
+            value.runs[i].backgroundRadii = []
             value.runs[i].shadow = nil
             value.runs[i].stroke = nil
         }
@@ -164,6 +166,8 @@ package struct TextPaint: Hashable {
         let decoration: String
         let href: String
         let background: [Double]?
+        let backgroundBox: UInt32
+        let backgroundRadii: [InlineRadius]
         let shadow: [Double]?
         let stroke: [Double]?
     }
@@ -174,6 +178,7 @@ package struct TextPaint: Hashable {
         color = spec.color
         ellipsis = spec.ellipsis
         runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+                                      backgroundBox: $0.backgroundBox, backgroundRadii: $0.backgroundRadii,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
     package func applying(to identity: TextIdentity) -> Spec {
@@ -187,6 +192,8 @@ package struct TextPaint: Hashable {
             spec.runs[i].decoration = runs[i].decoration
             spec.runs[i].href = runs[i].href
             spec.runs[i].background = runs[i].background
+            spec.runs[i].backgroundBox = runs[i].backgroundBox
+            spec.runs[i].backgroundRadii = runs[i].backgroundRadii
             spec.runs[i].shadow = runs[i].shadow
             spec.runs[i].stroke = runs[i].stroke
         }

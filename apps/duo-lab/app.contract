@@ -1,6 +1,6 @@
 // Duo Lab (LLP 1078 D8): the first consumer of `device-posture` and the
 // viewport segments, and the iPhone Duo's stress fixture — what
-// `bun scripts/smoke.mjs duo` drives through open, book, half and closed.
+// `bun scripts/smoke.mjs duo` drives fully open, partially folded and closed.
 //
 // Four screens behind routes. Fold reads the three fields `exactViewport`
 // gained and lays two panes on the segments with `env(viewport-segment-*)`,
@@ -210,7 +210,11 @@ component DuoLab
                           text "Back" font-size=14 font-weight=600 color="AccentColor"
                         text "Note" font-size=20 font-weight=700 testId="note-title"
                       text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
-                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
+                    // Partially folded like a laptop (two segments down), the sheet keeps to the lower
+                    // segment, where UIKit's sheets go and Apple's talk puts controls. The
+                    // keyboard fills that segment, and the sheet riding on it then takes the
+                    // upper one, below the header.
+                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height=(twoDown ? "min(env(viewport-segment-height 0 1), calc(100% - env(-exact-safe-area-corners-inset-top) - 72px))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
                       column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                         text "Note" font-size=18 font-weight=600
                         text "Drag to resize" font-size=11 color="-exact-secondary-label"

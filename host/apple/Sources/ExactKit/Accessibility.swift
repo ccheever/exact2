@@ -640,7 +640,10 @@ extension Presenter {
             guard !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
-            _ = target.becomeFirstResponder()
+            if target.becomeFirstResponder() {
+                autofocusedThisTurn = node
+                DispatchQueue.main.async { [weak self] in self?.autofocusedThisTurn = nil }
+            }
             #endif
         }
         #if os(macOS)

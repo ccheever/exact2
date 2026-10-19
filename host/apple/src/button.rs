@@ -12,6 +12,18 @@ pub(crate) fn face_json(
     rows: Option<&ButtonFaceStyle>,
     style: Option<&str>,
 ) -> String {
+    face_json_named(face, rows, style, None)
+}
+
+/// `face_json`, and the icon token's name as its author wrote it
+/// (`icon.reply`, `icon_path::icon_name`) as `symbolIcon` where the face's
+/// symbol is an svg-only icon's path: the agent's name for it (stage 9 A2).
+pub(crate) fn face_json_named(
+    face: Option<&PressFace>,
+    rows: Option<&ButtonFaceStyle>,
+    style: Option<&str>,
+    icon: Option<&str>,
+) -> String {
     let quote = exact_runner::agent::quote;
     let button = face.is_some();
     let face = face.cloned().unwrap_or_default();
@@ -30,6 +42,13 @@ pub(crate) fn face_json(
     match face.symbol.as_deref().map(exact_kernel::apple_symbol_name) {
         Some(apple) => quote(apple, &mut json),
         None => json.push_str("null"),
+    }
+    // @ref LLP 1121 D10 — an svg-only icon's path beside its "" name (stage
+    // 9 A2): the face draws it as a template image its control tints.
+    crate::icon_path::push_json(face.symbol.as_deref(), &mut json);
+    if let Some(name) = icon.filter(|_| json.contains("\"symbolPath\"")) {
+        json.push_str(",\"symbolIcon\":");
+        quote(name, &mut json);
     }
     json.push_str(&format!(
         ",\"raster\":{},\"leading\":{},\"fits\":{},\"label\":",
@@ -212,6 +231,46 @@ mod tests {
                 );
             }
         }
+    }
+    /// LLP 1121 D10, stage 9 A2: an svg-only icon's face carries its path
+    /// beside its "" name; an `sf` icon's and a role's carry none.
+    #[test]
+    fn an_svg_only_icons_face_carries_its_path() {
+        let json = |symbol: &str| -> serde_json::Value {
+            let face = PressFace {
+                symbol: Some(symbol.into()),
+                fits: true,
+                ..Default::default()
+            };
+            serde_json::from_str(&face_json(Some(&face), None, None)).unwrap()
+        };
+        let svg = json("icon||0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg");
+        assert_eq!(svg["symbol"], "");
+        assert_eq!(svg["symbolPath"], "M 2 2 L 22 2 L 12 20 Z");
+        assert_eq!(svg["symbolViewBox"], "0 0 24 24");
+        let sf = json("icon|heart|0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg");
+        assert_eq!(sf["symbol"], "heart");
+        assert!(sf.get("symbolPath").is_none(), "{sf}");
+        assert!(json("sf/lock").get("symbolPath").is_none());
+        // The agent's name for it, where the plan gives one; none beside an `sf`.
+        let named = |symbol: &str| -> serde_json::Value {
+            let face = PressFace {
+                symbol: Some(symbol.into()),
+                fits: true,
+                ..Default::default()
+            };
+            serde_json::from_str(&face_json_named(Some(&face), None, None, Some("icon.tri")))
+                .unwrap()
+        };
+        assert_eq!(
+            named("icon||0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg")["symbolIcon"],
+            "icon.tri"
+        );
+        assert!(
+            named("icon|heart|0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg")
+                .get("symbolIcon")
+                .is_none()
+        );
     }
     /// LLP 1115.000 D15: the face says whether its author wrote a
     /// `buttonStyle`. A written name crosses with its row's columns; with

@@ -177,11 +177,9 @@ test('in the browser, buried sparks fail the look and sparks above the ground pa
   const proof = async label => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const dir = resolve(out, `${label}-${attempt}`);
-      // Collecting a baseline, as an unpinned game's first proof does: its exit
-      // is then its failures' and its look's alone.
+      // An unpinned game's proof is UNVERIFIED (exit 3); a failed look makes it a FAIL (exit 1).
       const p = Bun.spawn([process.execPath, resolve(app, 'proof.mjs'), 'web'], {cwd:resolve(import.meta.dir, '..'),
-        env:{...process.env, EXACT_PROOF_OUT:dir, EXACT_PROOF_REPIN:'1',
-          CARGO_TARGET_DIR:resolve(import.meta.dir, '../target/look-sparks')},
+        env:{...process.env, EXACT_PROOF_OUT:dir, CARGO_TARGET_DIR:resolve(import.meta.dir, '../target/look-sparks')},
         stdout:'pipe', stderr:'pipe'});
       const text = await new Response(p.stdout).text() + await new Response(p.stderr).text();
       const code = await p.exited;
@@ -201,7 +199,7 @@ test('in the browser, buried sparks fail the look and sparks above the ground pa
     writeFileSync(lib, sparks('1.0'));
     const above = await proof('above');
     expect(above.summary.look.status, above.text.slice(-3000)).toBe('PASS');
-    expect(above.code, above.text.slice(-3000)).toBe(0);
+    expect(above.code, above.text.slice(-3000)).toBe(3);
   } finally {
     rmSync(app, {recursive:true, force:true});
     rmSync(out, {recursive:true, force:true});

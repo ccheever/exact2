@@ -134,7 +134,8 @@ uint32_t exact_calc_parse(const uint8_t *text, size_t len);
 
 /* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
  * viewport width/height (the window's when a sheet is open), segment cols/rows, the layout
- * regions' count (0 or 20) and the regions (LLP 1123 D10), then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * regions' count (0 or 20) and the regions (LLP 1123 D10), the title-bar area's count (0 or 4)
+ * and its x,y,w,h, then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
  * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
 void *exact_calc_create(uint32_t handle, const double *values, size_t count);
 double exact_calc_resolve(const void *context, double basis);
@@ -245,6 +246,10 @@ uint32_t exact_region_request(ExactRuntime rt, uint64_t request, uint64_t known_
 uint32_t exact_region_complete(ExactRuntime rt, uint64_t request, ExactMetrics metrics, void *owner, ExactRegionReleaseFn release);
 
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
+/* Source-backed editor layout. Negative width/height refuses the measurement. */
+typedef ExactMetrics (*ExactDecoratedMeasureFn)(void *ctx, uint32_t view, const ExactMeasureRequest *request,
+    const uint8_t *record, size_t record_len, const uint8_t *styles, size_t styles_len, float root, float scale);
+void exact_set_decorated_measure(ExactRuntime rt, ExactDecoratedMeasureFn read);
 
 /* The plan's declared faces, synchronously before first layout. The strings
  * are UTF-8 and live only for the callback. This is a host seam, not an
@@ -373,6 +378,12 @@ uint32_t exact_baked_compat(ExactRuntime rt);
  * viewport. Returns the first batch's length. A boot that fails leaves the
  * running app, if any, exactly as it was. */
 uint32_t exact_boot(ExactRuntime rt, float width, float height);
+/* Snapshot-only boot: concatenated plan bytes, UTF-8 kind and optional props JSON.
+ * Pure boot reads no store or secrets. Timeline refresh is the only data step. */
+uint32_t exact_boot_entry(ExactRuntime rt, size_t plan, size_t kind, size_t props, float width, float height);
+uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_ms, const uint8_t *receipt, size_t receipt_len, const uint8_t *module, size_t module_len);
+/* Gallery-only query: a fresh data seam and scratch store, no host activation. */
+uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);
@@ -384,6 +395,8 @@ uint32_t exact_commit_plan(ExactRuntime rt);
 uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
+/* A peer committed to the shared store. Does not activate before first pixel. */
+uint32_t exact_store_changed(ExactRuntime rt, uint32_t retry_only);
 void exact_discard_plan(ExactRuntime rt);
 /* Content has settled (a scroll came to rest): the tree and the motion
  * engine give back storage beyond the live nodes. Changes nothing shown. */
@@ -454,7 +467,10 @@ void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, 
  * synchronously on the runtime owner; UI work is served on main. */
 typedef struct { double x, y, width, height; uint32_t available; } ExactInlineFrame;
 typedef ExactInlineFrame (*ExactInlineFrameFn)(void *ctx, uint32_t view);
-void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, void *ctx);
+typedef ExactInlineFrame (*ExactRangeFrameFn)(void *ctx, uint32_t view, uint32_t start, uint32_t end);
+void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, ExactRangeFrameFn range, void *ctx);
+/* Request/reply JSON for the optional decorated field, freed by exact_markup_free. */
+uint64_t exact_decorations(const uint8_t *input, size_t len, const uint8_t **out, size_t *count);
 /* Open top-layer views in back-to-front order, with viewport x/y/width/height
  * in four doubles per id: where the host shows each, a block's root by its
  * block's rectangle (the root sits in it by its own frame) and any other view
@@ -581,6 +597,10 @@ uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
+/* @ref LLP 1126.001 WP9: declare the packaged arm before boot, then deliver
+ * its source snapshots or send completions through the input buffer. */
+void exact_link_activities(ExactRuntime rt);
+uint32_t exact_activities(ExactRuntime rt, size_t len);
 /* @ref LLP 1125 D6-D8: a MIDI message, JSON in the input buffer: the MIDI
  * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
  * `tap midi`. Returns the batch length. */
@@ -649,6 +669,10 @@ void exact_measure_work_later(void);
 uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
+/* A placement root's resolved margins and its width's authorship (LLP 1126.001 WP10): exact_out
+ * holds JSON [margin left, top, right, bottom, authored width 0|1] with no batch around it, or
+ * {"error": …}; returns its length. */
+uint32_t exact_placement_box(ExactRuntime rt, uint32_t view);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */
 uint32_t exact_list_index(ExactRuntime rt, uint32_t view, uint32_t len);
 /* Two concatenated UTF-8 keys in input; empty first key selects all text.
@@ -669,6 +693,13 @@ uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, flo
  * region is the safe area. A change re-sends the style of every node that
  * reads the environment and lays out again. */
 uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
+/* The title-bar area beside the window's controls (points, from the layout
+ * viewport), what env(titlebar-area-x|y|width|height) resolves to (Window
+ * Controls Overlay): count is 4, x, y, width, height (all zero while the area
+ * is hidden), or 0, when the window gives none and each variable is undefined.
+ * A change re-sends the style of every node that reads the environment and
+ * lays out again. */
+uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count);
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments

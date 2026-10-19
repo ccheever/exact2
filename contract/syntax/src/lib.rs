@@ -26,6 +26,7 @@ pub mod idioms;
 pub mod inline;
 pub mod lexer;
 mod midi;
+pub mod migrate;
 mod notfound;
 pub mod params;
 pub mod parser;
@@ -45,7 +46,10 @@ pub use inline::{
 pub use lexer::{Lexer, Token, TokenKind};
 pub use midi::MidiStep;
 pub use notfound::implicit_notfound;
-pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
+pub use parser::{
+    is_launch, parse, parse_source, parse_source_all, parse_source_partial, same_launch, Partial,
+    SyntaxError,
+};
 pub use sequence::Sequence;
 pub use share::share_calls;
 pub use spans::VisitSpans;

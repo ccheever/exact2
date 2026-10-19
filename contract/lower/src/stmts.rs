@@ -76,8 +76,21 @@ impl Lowerer<'_> {
                 args,
                 ..
             } => {
-                for arg in args {
-                    expr::compile(self, asm, arg, scope, locals)?;
+                let activity = matches!(
+                    source.as_str(),
+                    "startActivity" | "updateActivity" | "endActivity"
+                );
+                let mut types = Vec::new();
+                for (i, arg) in args.iter().enumerate() {
+                    let ty = expr::compile(self, asm, arg, scope, locals)?;
+                    if activity {
+                        let ty = contract_types::activity_option_type(source, i).unwrap_or(ty);
+                        types.push(self.ty_id(&ty)?.0.to_string());
+                    }
+                }
+                if activity {
+                    let descriptor = self.b.str(&types.join(","));
+                    asm.str(descriptor);
                 }
                 let m = self.mutations[root
                     .mutations
@@ -85,7 +98,7 @@ impl Lowerer<'_> {
                     .position(|m| &m.name == target)
                     .unwrap()];
                 let source = self.b.str(source);
-                asm.send(m, source, args.len() as u16);
+                asm.send(m, source, args.len() as u16 + u16::from(activity));
             }
             Stmt::Refresh { target, .. } => {
                 let r = self.resources[root

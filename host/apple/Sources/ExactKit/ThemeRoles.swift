@@ -124,6 +124,8 @@ extension Presenter {
         for sheet in ThemeRoles.adopted(by: root) {
             sheet.tintColor = root.tintColor
             #if os(iOS)
+            // A popover's layer over a sheet is clear: only what it holds paints.
+            if sheet is PopoverLayer { continue }
             sheet.backgroundColor = ThemeRoles.color("background", in: sheet) ?? ThemeRoles.color("Canvas", in: sheet, or: .systemBackground)
             #endif
         }
@@ -160,6 +162,10 @@ extension NodeView {
         if field != nil || textArea != nil { reapplyColors() }
         #else
         if field != nil { applyFieldStyle() }
+        // Its ink may be the design's FieldText, which a live edit moves.
+        if textArea != nil { styleTextArea() }
+        // Its ground may be the design's Field (applyBoxLayer, on display).
+        if isNativeTextControl { layer.setNeedsDisplay() }
         textArea?.setNeedsDisplay()
         setNeedsLayout()
         #endif

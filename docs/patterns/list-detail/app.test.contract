@@ -147,3 +147,17 @@ test "a row deletes by swipe without asking, and its long-press menu locks it"
   clock data
   expect state lib == []
   expect tree has "add-item"
+
+test "Enter in the title saves, as a form does"
+  clock data
+  tap "empty-add"
+  clock settle
+  type "add-title" key "Enter"
+  clock data
+  expect state lib.length == 0
+  type "add-title" "Pears"
+  type "add-title" key "Enter"
+  clock data
+  clock settle
+  expect state lib.0 .title == "Pears"
+  expect tree missing "add-title"

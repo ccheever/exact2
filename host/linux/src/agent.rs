@@ -17,6 +17,17 @@ use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
 use std::io::{BufRead, Write};
 
+pub(crate) fn refusal(subsystem: &str, message: &str) -> serde_json::Value {
+    let host = if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "android") {
+        "android"
+    } else {
+        "linux"
+    };
+    serde_json::json!({"error":message, "refused":{"host":host, "subsystem":subsystem, "message":message}})
+}
+
 fn malformed(message: &str) -> String {
     serde_json::json!({ "error": message, "malformed": true }).to_string()
 }
@@ -84,7 +95,11 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     p.sync_surfaces();
     let reply = p.merge_surfaces(line, reply);
     p.sync_surfaces();
-    let reply = p.surfaces.error.take().map_or(reply, |e| error(&e));
+    let reply = p
+        .surfaces
+        .error
+        .take()
+        .map_or(reply, |e| refusal("gpu", &e).to_string());
     p.run_commands(D::default);
     let reply = p.settle_scroll_commands(line, reply);
     // The moments this command's commits caused, after them and before its picture.
@@ -155,7 +170,15 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .node(view)
                     .is_some_and(|n| n.node_type == exact_kernel::NodeType::Canvas))
         {
-            return p.surface_request(view, q).to_string();
+            let subsystem = if q["op"] == "screenshot" && q["form"] == "save" {
+                "assets"
+            } else {
+                "gpu"
+            };
+            let reply = p.surface_request(view, q);
+            return reply["error"]
+                .as_str()
+                .map_or_else(|| reply.to_string(), |e| refusal(subsystem, e).to_string());
         }
     }
     // `tap @t` / `type @t` answer a held device request before any view is
@@ -186,6 +209,19 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                let mut decorations: Vec<_> = p
+                    .brush
+                    .field_text
+                    .iter()
+                    .filter_map(|(id, field)| {
+                        Some(serde_json::json!({"id":id,"applied":field.decoration_state()?}))
+                    })
+                    .collect();
+                decorations.sort_by_key(|value| value["id"].as_u64());
+                s.push_str(&format!(
+                    ",\"decorations\":{}",
+                    serde_json::json!(decorations)
+                ));
                 let presence: Vec<_> = p
                     .boxes()
                     .to_vec()
@@ -274,7 +310,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         ),
         Some("layout") if line.contains("\"native\"") => {
             let mut reply: serde_json::Value =
-                match serde_json::from_str(&p.layout_json(id(), field_bool(line, "plan"))) {
+                match serde_json::from_str(&p.layout_held(id(), field_bool(line, "plan"))) {
                     Ok(reply) => reply,
                     Err(_) => return error("layout: unreadable"),
                 };
@@ -286,13 +322,17 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             reply.to_string()
         }
-        Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
+        Some("layout") => p.layout_held(id(), field_bool(line, "plan")),
         Some("tap") => {
             // Input variants use the full JSON parser before any delivery.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
                 Err(_) => return malformed("unreadable tap request"),
             };
+            // A held state (LLP 1122 D8): the state, not a press.
+            if let Some(state) = request.get("holdState") {
+                return p.hold_tap(id(), state).to_string();
+            }
             // A held contact's phase that says `mouse` (a drag's, review A1)
             // is a contact with the left button held, as `answer` set it up.
             let phased = request.get("phase").is_some();

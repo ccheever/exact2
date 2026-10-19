@@ -60,6 +60,8 @@ use crate::paint::{Backend, GradientPaint, Rect4, Shape};
 #[cfg(target_os = "android")]
 use crate::presenter::Presenter;
 use crate::text::{Paragraph, RunPaint, TextEngine};
+#[doc(hidden)]
+pub use exact_kernel::NodeKey as ModuleKey;
 use exact_kernel::ViewId;
 #[cfg(target_os = "android")]
 use exact_runner::DataSource;
@@ -1107,7 +1109,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             palette.tell();
         }
         let mut config = crate::app::Config::from_env_static(plan, compat);
-        (config.scale, config.hatches) = (scale, hatches);
+        (config.scale, config.hatches, config.clock_started) = (scale, hatches, Some(started));
         let (mut p, error) = crate::app::boot_presenter_with_painter::<D>(
             &mut config,
             viewport,

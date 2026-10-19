@@ -18,6 +18,7 @@ mod deps;
 mod document;
 mod find;
 mod foresee;
+pub mod looks;
 mod region;
 pub mod tabs;
 mod text;
@@ -1165,6 +1166,7 @@ impl NodeInst {
                 patch: p,
             });
         }
+        self.emit_looks(u, frames, fresh, u.theme.retheme || self.tuple != before)?;
         // A canvas's surface inputs: evaluated with the bindings (so a trap
         // refuses the commit whole), published only with a successful apply.
         if let Some(surface) = row.surface.filter(|s| {

@@ -164,10 +164,9 @@ extension Picker {
 #elseif canImport(UIKit)
 extension Picker {
     func presentDocument(_ name: String, view: UInt32, multiple: Bool, suggestedName: String) {
-        guard var controller = session.presenter.root.window?.rootViewController else {
+        guard let controller = ViewPresentation.presenter(for: session.presenter.views[view] ?? session.presenter.root) else {
             session.log("\(name): refused: no window"); documentCancelled(view, name); return
         }
-        while let presented = controller.presentedViewController { controller = presented }
         let picker: UIDocumentPickerViewController
         switch name {
         case "showDirectoryPicker":

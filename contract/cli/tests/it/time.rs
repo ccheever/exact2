@@ -98,6 +98,46 @@ fn a_date_known_at_launch_is_read_from_the_first_frame() {
     assert_eq!(text(&outside()), "0/0");
 }
 
+/// A live clock's reading at launch starts a fresh runner's clock: what its
+/// boot arms is due from then, not from zero, so a window booted a minute
+/// into the process does not fire its `after` at its first advance. A seek
+/// clock's boot (none told) and a reading that is no clock time start at zero.
+#[test]
+fn a_live_clock_known_at_launch_starts_a_fresh_runners_clock() {
+    const TIMER_APP: &str = "component App\n  state ticks = 0\n  task tick mount\n    after(10000, step)\n  action step\n    ticks = ticks + 1\n  view\n    text `${ticks}/${performanceNow()}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(TIMER_APP).unwrap(), NoData).unwrap();
+    let boot = |clock: Option<f64>| {
+        let launch = exact_runner::time::Launch {
+            clock,
+            ..exact_runner::time::Launch::NONE
+        };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let mut r = boot(Some(60_000.0));
+    assert_eq!(text(&r), "0/60000");
+    assert_eq!(r.timer_due_ms(), Some(70_000.0));
+    r.advance(65_000.0).unwrap();
+    assert_eq!(
+        text(&r),
+        "0/60000",
+        "the timer is not due until 10 s after the boot"
+    );
+    r.advance(70_000.0).unwrap();
+    assert_eq!(text(&r), "1/70000");
+    assert_eq!(boot(None).timer_due_ms(), Some(10_000.0));
+    assert_eq!(boot(Some(f64::NAN)).timer_due_ms(), Some(10_000.0));
+    assert_eq!(boot(Some(-1.0)).timer_due_ms(), Some(10_000.0));
+}
+
 /// Where the viewer is, known at launch: the first frame reads the locale,
 /// zone and seed, and the same place told after commits nothing; a place
 /// that does not validate boots on the defaults.
@@ -106,7 +146,11 @@ fn a_place_known_at_launch_is_read_from_the_first_frame() {
     const PLACE_APP: &str = "shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.timeZone}/${time.seed}` testId=\"date\"\n";
     let plan = contract::bake(contract::compile(PLACE_APP).unwrap(), NoData).unwrap();
     let boot = |place: Option<exact_runner::time::Place>| {
-        let launch = exact_runner::time::Launch { time: None, place };
+        let launch = exact_runner::time::Launch {
+            time: None,
+            place,
+            clock: None,
+        };
         exact_runner::time::launching_with(launch, || {
             Runner::boot(
                 plan.clone(),
@@ -1045,11 +1089,21 @@ fn resource_clock_advice_keeps_json_build_success_and_stdout_valid() {
         "{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&run.stdout).unwrap(),
-        serde_json::json!([])
+    // The advice is among the array's warnings, and stderr is empty.
+    let reply = serde_json::from_slice::<serde_json::Value>(&run.stdout).unwrap();
+    let advice = reply.as_array().unwrap();
+    assert!(!advice.is_empty(), "{reply}");
+    assert!(
+        advice
+            .iter()
+            .all(|w| w["id"] == "analyze-resource-clock" && w["severity"] == "warning"),
+        "{reply}"
     );
-    assert!(String::from_utf8_lossy(&run.stderr).contains("warning:"));
-    assert!(String::from_utf8_lossy(&run.stderr).contains("analyze-resource-clock"));
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    let human = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&human.stderr).contains("analyze-resource-clock"));
     std::fs::remove_dir_all(root).unwrap();
 }

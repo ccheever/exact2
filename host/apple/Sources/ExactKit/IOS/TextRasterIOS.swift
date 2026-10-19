@@ -411,8 +411,8 @@ extension Presenter {
         guard !applying else { return true }
         let port = viewport.bounds
         let culls = viewport.clipsToBounds
-        // The viewport clips the document's text, not a presentation's (LLP 1123 D2)
-        let presented = !modals.mountRoots.isEmpty
+        let presentations = surfaces(includingRetiring: true).filter { $0.kind != .document }
+        func presented(_ node: UIView) -> Bool { presentations.contains { node.isDescendant(of: $0.view) } }
         var clips: TextClips?
         defer { textClips = nil }
         var owed = false
@@ -422,7 +422,7 @@ extension Presenter {
             owed = true
             let c = clips ?? TextClips(viewport, soon: 0, reach: 0)
             clips = c; textClips = c
-            if culls && !(presented && !node.isDescendant(of: viewport)) && !c.frame(node).intersects(port) { continue }
+            if culls && !presented(node) && !c.frame(node).intersects(port) { continue }
             let visible = textScrollportRect(node)
             guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
             textRasters.ensure(node, urgent: true)
@@ -478,17 +478,18 @@ extension Presenter {
         // More than two viewports a second: what is behind will not show.
         let fast = abs(velocity) > port.height * 2
         func passed(_ r: CGRect) -> Bool { fast && (velocity > 0 ? r.maxY <= port.minY : r.minY >= port.maxY) }
-        if textRasters.inFlight > 0 { textRasters.abandonStale { passed(clips.frame($0)) } }
+
         // The viewport clips its content: a paragraph farther than the reach
         // from it has no band, so its distance alone rules it out.
         let culls = viewport.clipsToBounds
-        // The viewport clips the document's text, not a presentation's (LLP 1123 D2)
-        let presented = !modals.mountRoots.isEmpty
+        let presentations = surfaces(includingRetiring: true).filter { $0.kind != .document }
+        func presented(_ node: UIView) -> Bool { presentations.contains { node.isDescendant(of: $0.view) } }
+        if textRasters.inFlight > 0 { textRasters.abandonStale { !presented($0) && passed(clips.frame($0)) } }
         var ranked: [(distance: CGFloat, node: NodeView)] = []
         for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
             let r = clips.frame(node)
-            let distance = presented && !node.isDescendant(of: viewport) ? 0 : max(0, port.minY - r.maxY, r.minY - port.maxY)
-            guard !(culls && distance > reach), !passed(r), !textBand(node, reach: reach).isEmpty else { continue }
+            let distance = presented(node) ? 0 : max(0, port.minY - r.maxY, r.minY - port.maxY)
+            guard !(culls && distance > reach), (presented(node) || !passed(r)), !textBand(node, reach: reach).isEmpty else { continue }
             ranked.append((distance, node))
         }
         ranked.sort { $0.distance == $1.distance ? $0.node.id < $1.node.id : $0.distance < $1.distance }

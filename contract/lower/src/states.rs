@@ -8,9 +8,14 @@
 //!   where B is the base the class and the node compose (a `border-color` its
 //!   four sides, a side a `border` writes its component), so a state row
 //!   overrides each side the base wrote, longhand or not.
-//! - A host-known state (`:active`, `:hover`, `:focus-visible`) is recorded
-//!   for the hosts to apply on their own tracking: its rows, literal only
-//!   (a token is a literal), by longhand ([`Folded::looks`]).
+//! - `:active` lowers to the press paint (LLP 1061 D7, D8 as amended
+//!   2026-10-18): its `background-color`, `color` and `-exact-press-scale` to
+//!   the node's `-exact-press-` rows, its `opacity` to the press's absolute
+//!   target (`-exact-press-opacity-to`, lowering's alone), each row keeping
+//!   its `:active` span; the host's one press shows them.
+//! - `:hover` and `:focus-visible` are recorded for the hosts to apply on
+//!   their own tracking: their rows by longhand ([`Folded::looks`]).
+//! - A host-known state's rows are literal only (a token is a literal).
 //! - Paint rows only, never on a native control or a list's row.
 
 use super::*;
@@ -28,14 +33,21 @@ const RUNNER_ROWS: [&str; 6] = [
     "-exact-tint-color",
 ];
 
-/// The rows a host-known state takes: none that inherits.
-const HOST_ROWS: [&str; 5] = [
-    "background-color",
-    "border-color",
-    "opacity",
-    "box-shadow",
-    "-exact-press-scale",
+/// The rows `:hover` and `:focus-visible` take: none that inherits.
+const HOST_ROWS: [&str; 4] = ["background-color", "border-color", "opacity", "box-shadow"];
+
+/// The rows `:active` takes, and the press paint's row each lowers to: the
+/// press's colour reaches the subtree, so `color` is one (LLP 1061 D7).
+const ACTIVE_ROWS: [(&str, &str); 4] = [
+    ("background-color", "-exact-press-background-color"),
+    ("color", "-exact-press-color"),
+    ("opacity", PRESS_OPACITY_TO),
+    ("-exact-press-scale", "-exact-press-scale"),
 ];
+
+/// The press's absolute opacity, lowering's row for `:active`'s `opacity`
+/// (never an author's: `lower-unknown-attr`).
+pub const PRESS_OPACITY_TO: &str = "-exact-press-opacity-to";
 
 /// The four sides' colour rows, top, right, bottom, left.
 const SIDES: [&str; 4] = [
@@ -60,20 +72,23 @@ pub(crate) struct Folded {
     /// How many of `attrs` are base rows; each after is a fold's, and
     /// `by_class` says whether its class wrote it.
     pub base_len: usize,
+    /// Where `:active`'s press paint rows start in `attrs` (the last).
+    pub pressed: usize,
     pub by_class: Vec<bool>,
 }
 
-/// Whether a row `name` (as written) is one a state of `host` kind takes,
-/// a side's colour as `border-color`.
-fn admitted(name: &str, host: bool) -> bool {
+/// Whether a row `name` (as written) is one `state` takes, a side's colour
+/// as `border-color`.
+fn admitted(name: &str, state: &str) -> bool {
     let name = if SIDES.contains(&name) {
         "border-color"
     } else {
         name
     };
-    match host {
-        true => HOST_ROWS.contains(&name),
-        false => RUNNER_ROWS.contains(&name),
+    match state {
+        "disabled" | "checked" => RUNNER_ROWS.contains(&name),
+        "active" => ACTIVE_ROWS.iter().any(|(r, _)| *r == name),
+        _ => HOST_ROWS.contains(&name),
     }
 }
 
@@ -332,18 +347,24 @@ impl Lowerer<'_> {
                 let fns = &self.fns;
                 values::computed_list(&row.name, &row.value, &|f| fns.get(f).map(|(_, b)| *b))?;
             }
-            if !admitted(&row.name, host) {
-                let rows = if host {
-                    &HOST_ROWS[..]
-                } else {
-                    &RUNNER_ROWS[..]
+            if !admitted(&row.name, state) {
+                let rows: Vec<&str> = match *state {
+                    "disabled" | "checked" => RUNNER_ROWS.to_vec(),
+                    "active" => ACTIVE_ROWS.iter().map(|(r, _)| *r).collect(),
+                    _ => HOST_ROWS.to_vec(),
+                };
+                let why = match (*state, row.name.as_str()) {
+                    ("active", "border-color" | "box-shadow") => " and is the host's press, whose paint draws no border or shadow yet (LLP 1061 D7)".to_string(),
+                    (_, "-exact-press-scale") => " and a press scale is `:active`'s".to_string(),
+                    ("active", _) => " and is the host's press (LLP 1061 D7)".to_string(),
+                    _ if host => " and never changes what a child inherits".to_string(),
+                    _ => String::new(),
                 };
                 return err(
                     "lower-state-row",
                     format!(
-                        "`{}` in `:{state}`: a state part takes paint rows only, so a state never lays out{}; `:{state}` takes {}",
+                        "`{}` in `:{state}`: a state part takes paint rows only, so a state never lays out{why}; `:{state}` takes {}",
                         row.name,
-                        if host { " and never changes what a child inherits" } else { "" },
                         rows.iter().map(|r| format!("`{r}`")).collect::<Vec<_>>().join(", ")
                     ),
                     row.span,
@@ -354,6 +375,24 @@ impl Lowerer<'_> {
                     "lower-state-literal",
                     format!("`{}` in `:{state}` is computed: the host applies its state on its own, with no round trip to the runner, so its rows are literals (a token's name is one)", row.name),
                     row.value.span(),
+                );
+            }
+        }
+        // `:active` is the press D7's pressed paint shows on (theme2's 05:28
+        // ruling (3)): the same paint said twice is refused, naming both.
+        for (state, row, _) in parts.iter().filter(|(s, ..)| *s == "active") {
+            let paint = match row.name.as_str() {
+                "opacity" => "-exact-press-opacity",
+                name => ACTIVE_ROWS
+                    .iter()
+                    .find(|(r, _)| *r == name)
+                    .map_or("", |(_, p)| *p),
+            };
+            if base.iter().any(|a| a.name == paint) {
+                return err(
+                    "lower-state-press-paint",
+                    format!("`{}` in `:{state}` and `{paint}` both say the press's look: keep one spelling (LLP 1121 D8, LLP 1061 D7)", row.name),
+                    row.span,
                 );
             }
         }
@@ -398,7 +437,7 @@ impl Lowerer<'_> {
         let mut folded: Vec<(String, Expr, Span, bool, bool)> = Vec::new();
         let mut looks: Vec<(String, Vec<Attr>)> = Vec::new();
         for (state, row, _) in &parts {
-            if !matches!(*state, "disabled" | "checked") {
+            if !matches!(*state, "disabled" | "checked" | "active") {
                 let rows = match looks.iter_mut().find(|(s, _)| s == state) {
                     Some((_, rows)) => rows,
                     None => {
@@ -472,12 +511,31 @@ impl Lowerer<'_> {
             });
             by_class.push(class);
         }
+        // `:active`'s rows as the press paint's, the class's then the
+        // node's (the node's wins), each at its `:active` row's span.
+        let pressed = attrs.len();
+        for (_, row, class) in parts.iter().filter(|(s, ..)| *s == "active") {
+            let (_, paint) = ACTIVE_ROWS
+                .iter()
+                .find(|(r, _)| *r == row.name)
+                .expect("admitted");
+            if let Some(at) = (pressed..attrs.len()).find(|i| attrs[*i].name == *paint) {
+                attrs.remove(at);
+                by_class.remove(at - base_len);
+            }
+            attrs.push(Attr {
+                name: paint.to_string(),
+                ..row.clone()
+            });
+            by_class.push(*class);
+        }
         Ok(Some(Folded {
             attrs,
             looks,
             disabled_look: disabled_look || base_styled,
             class_len,
             base_len,
+            pressed,
             by_class,
         }))
     }

@@ -33,7 +33,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
   const ninety = await world(s);
   check('1500 ms is 90 ticks', ninety.tick === 90, ninety.tick);
   pin(90, ninety);
-  const lines = (await s.logs())?.world?.flatMap(entry => entry.lines) ?? [];
+  const lines = (await s.logs())?.world?.flatMap(entry => Array.isArray(entry.lines) ? entry.lines : []) ?? [];
   for (const line of ['sfx drone at ui gain 1.00 offset 0.50 fade-in 1.00 loop', 'loop drone on gain 0.50',
     'sfx blip at ui gain 1.00 pan -0.60', 'sfx blip at ui gain 1.00 pan 0.60',
     'sfx whoosh at speaker gain 1.00', 'sfx tick at ui gain 1.00']) {
@@ -60,7 +60,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
   const ended = (await world(s)).audio;
   check('the faded voice ended while the source loops on', !ended.voices.some(v => v.sound === 'drone')
     && ended.sources.some(src => src.sound === 'drone' && src.playing), ended);
-  const fadeLines = (await s.logs())?.world?.flatMap(entry => entry.lines) ?? [];
+  const fadeLines = (await s.logs())?.world?.flatMap(entry => Array.isArray(entry.lines) ? entry.lines : []) ?? [];
   check('journal carries the fade', fadeLines.some(l => l.endsWith('sfx drone fade 0.50')), fadeLines.slice(-12));
   check('no host errors', !(await s.logs())?.host?.some(line => /^(exception:|console\.error:|error:)/.test(line)));
   const endFile = resolve(out, 'end.world');

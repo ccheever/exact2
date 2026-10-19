@@ -1,6 +1,7 @@
 // The inspector's view of a selection (LLP 1122 D5, D6), apart from the
 // client's state: what a selection was made under, when it stops being
 // current, and each row as the panel shows it.
+import { holdView, type Holding } from './holds';
 
 type Column = { id: string; label: string; dark: boolean; values: string[] };
 type Axis = { name: string; values: string[]; under: string | null };
@@ -8,8 +9,10 @@ type Build = { status: any; plan?: string | null; design?: string | null; pinRev
 /** A selection with what it was made under: its build's facts (`at`), the
  * app design's axes, the scheme it is shown in ('' when not known), and why
  * it is no longer current, once it is not. */
-export type Selected = { e: any; at: string; axes: string; scheme: string; stale: string };
+export type Selected = { e: any; at: string; axes: string; scheme: string; stale: string; files?: string; asking?: boolean };
 
+// An `:active` part's rows as their press paint carries them (LLP 1121 D8), by the part's spelling.
+const ACTIVE: Record<string, string> = { press_background_color: 'background-color', press_color: 'color', press_opacity_to: 'opacity', press_scale: '-exact-press-scale' };
 const SOURCES: Record<string, string> = { authored: 'set here', dynamic: 'a dynamic expression', inherited: 'inherited', initial: 'initial' };
 // The wire's row names that authors spell otherwise (contract/lower's
 // style_names.rs); any other is its name with dashes.
@@ -46,11 +49,14 @@ export const schemeOf = (e: any, build: Build) => {
  * same tuple in the design read it is opened on. */
 export const placeOf = (axes: Axis[], col: Column) => `${col.dark ? 'dark' : 'light'}|${axes.map((a, i) => `${a.name}=${col.values[i]}`).sort().join(' ')}`;
 
-const noSelection = { has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false };
+const noHold = { can: false, state: '', held: false, status: '' };
+/** A state rung as the inspector offers it: `set-state`'s target, `style|state|row|file`, and its words. */
+const stateOf = (x: any) => x?.style ? { state: [x.style, x.state, x.row, x.file].join('|'), stateLabel: `Edit ${x.style} :${x.state} ${x.row}`, stateText: String(x.text ?? '') } : { state: '', stateLabel: '', stateText: '' };
+const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '' };
 /** The selection as the inspector shows it: each row's source, and its edit
  * on the branch that won for the copy (D6: its modes' column and scheme), its
  * token link or why it is read-only; nothing to do while stale. */
-export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean) {
+export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '') {
   if (!s) return { ...noSelection, inspecting };
   const e = s.e, dark = s.scheme === 'dark';
   // On a light copy an under-dark axis is its default; any other the copy
@@ -59,14 +65,33 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
   const col = s.scheme && axes.length && values.every(v => v != null) ? columns.find(c => c.dark === dark && c.values.every((v, i) => v === values[i])) : undefined;
   const at = (x: any, file = String(x?.file)) => x ? `${file}:${x.line} · ${x.component}` : '';
   const usable = !stale && !!col;
+  const shown = holdView(e, holding, note, !!stale);
+  // The selection's report of the state held here (one of an earlier hold's is not it).
+  const reported = e.held?.state === shown.state;
+  // A held row's source is the place its part is written (an object), a base row's a word.
+  const partAt = (x: any) => `${String(x.file ?? '').split('/').pop()}:${x.line}`;
+  const row = (r: any) => ({
+    name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
+    source: r.source && typeof r.source === 'object' ? `${r.state ? `:${r.state} part at ` : ''}${partAt(r.source)}` : `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
+    rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',
+    param: usable ? String(r.editable?.param ?? '') : '', short: usable ? String(r.editable?.short ?? r.editable?.param ?? '') : '',
+    // The state rung, or beneath a token rung (T4): `set-state`'s target.
+    ...stateOf(usable && r.editable?.rung === 'state' ? r.editable : null),
+    reason: String(r.editable?.reason ?? ''), column: col?.id ?? '',
+  });
   return {
+    key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? [])].join('|'), files: s.files ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any) => at(x)), modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
-    rows: (e.rows ?? []).map((r: any) => ({
-      name: rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
-      source: `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
-      rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',
-      reason: String(r.editable?.reason ?? ''), column: col?.id ?? '',
-    })),
+    hold: shown,
+    // The rows the state held here shows (stage 8 E), or why they are not
+    // known: a host that reports none, or says it can't name their tokens,
+    // leaves the held look read-only (D8).
+    heldState: shown.held && reported ? String(e.held.state) : '',
+    heldRows: shown.held && reported ? (e.held.rows ?? []).map(row) : [],
+    // (Its page asked to report them again, the answer not in yet: `asking`.)
+    heldNote: !shown.held ? '' : !reported && s.asking ? 'Its page is asked for the held look\'s rows.'
+      : !reported || !e.held.rows?.length || e.held.provenance === 'incomplete' ? 'Provenance incomplete: this host reports no rows (or not their tokens) for the held look, so it is read-only here.' : '',
+    rows: (e.rows ?? []).map(row),
   };
 }

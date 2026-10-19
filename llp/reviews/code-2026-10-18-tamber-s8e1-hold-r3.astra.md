@@ -1,0 +1,11 @@
+# Review round 3, LLP 1121 stage 8 E1 (held states), Astra (gpt-6-astra, max)
+
+**WRONG**
+
+1. **BLOCKING — Queued wasm holds still cross generations.** [host/web/dev.js:706](/tmp/rv-s8e1-r3/host/web/dev.js:706) captures the generation after queueing and waiting for glue. A rebuild completed during either wait therefore passes the guard. Reproduced with a pin active: old-plan hold → rebuild → `gone` → new-plan status; the server deletes the hold without calling correspondence. Round 2’s fix remains incomplete. **Fix:** bind the command to its plan/generation when received, before queueing or awaiting, and defer an overtaken command to same-plan rehold or server correspondence.
+
+2. **SHOULD-FIX — Redelivery resurrects a closed hold on the page.** [host/web-js/inspect-dev.js:450](/tmp/rv-s8e1-r3/host/web-js/inspect-dev.js:450), also [host/web/dev.js:700](/tmp/rv-s8e1-r3/host/web/dev.js:700). Neither host remembers terminal revisions. Reproduced: apply R → real input drops R → poll redelivers its unacknowledged answer → host applies R again. The server correctly rejects that positive report, leaving the overlay active with `hold: null` at the server. **Fix:** remember terminal revisions per connection and ignore their redelivery; distinguish duplicates of a live hold from commands already ended.
+
+3. **SHOULD-FIX — JS resolution counts retired exit-animation elements.** [host/web-js/inspect-dev.js:474](/tmp/rv-s8e1-r3/host/web-js/inspect-dev.js:474) searches every matching `data-site`, including retained `[data-exiting]` subtrees. For a conditional arm, the ghost still resolves to its old instance path. Reproduced: a ghost alone accepts the hold; a ghost beside its live replacement produces false ambiguity and `gone`. **Fix:** exclude exiting subtrees before counting matches. Also update [input-glue.js:336](/tmp/rv-s8e1-r3/host/web/input-glue.js:336) to drop existing holds on logical retirement rather than waiting for physical removal.
+
+Focused server/CLI tests, the in-memory held-row join, and caps passed; changed source files are ≤1,499 lines. Findings were reproduced with in-memory probes. The file-based inspect test was blocked by read-only permissions; browser/Cargo verification was not run. Working tree remains clean.
