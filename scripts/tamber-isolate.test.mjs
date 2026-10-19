@@ -107,11 +107,15 @@ test('one client holds at most two imports; another is still taken', async () =>
 test('an import whose request or client goes leaves the queue at once, or is stopped while it runs; the server\'s close cancels them all', async () => {
   await withApp(async (design, app) => {
     const slow = sh('sleep 0.5; echo \'{"ok":{}}\'');
-    // Running: stopped (its planner's sleep would take 30 s).
-    const run = new AbortController(), t0 = Date.now();
-    const running = planAlone({}, design, { signal: run.signal, spawnPlan: sh('sleep 30') }, app);
-    setTimeout(() => run.abort(), 100);
+    // A planner that says when it started, and when it ended.
+    const watched = script => { let child; const started = new Promise(ok => { watched.start = ok; }); return { started, ended: () => new Promise(ok => (child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok))), spawn: () => { child = sh(script)(); watched.start(); return child; } }; };
+    // Running: stopped (its planner's sleep would take 30 s), its process ended.
+    const run = new AbortController(), t0 = Date.now(), p1 = watched('sleep 30');
+    const running = planAlone({}, design, { signal: run.signal, spawnPlan: p1.spawn }, app);
+    await p1.started;
+    run.abort();
     expect([(await running).status, (await running).error.message, Date.now() - t0 < 5000]).toEqual([503, 'the import was cancelled', true]);
+    await p1.ended();
     await new Promise(ok => setTimeout(ok, 200)); // (its planner reaped: its permit back)
     // Waiting: answered at once, its place given back (a queue of one takes another).
     const first = planAlone({}, design, { spawnPlan: slow }, app);
@@ -125,11 +129,12 @@ test('an import whose request or client goes leaves the queue at once, or is sto
     // Already gone: never queued.
     expect((await planAlone({}, design, { signal: AbortSignal.abort(), spawnPlan: slow }, app)).error.message).toBe('the import was cancelled');
     // The server's close: the running one stopped, the waiting one cancelled.
-    const a = planAlone({}, design, { spawnPlan: sh('sleep 30') }, app), b = planAlone({}, design, { spawnPlan: slow }, app);
-    await new Promise(ok => setTimeout(ok, 100));
+    const p2 = watched('sleep 30');
+    const a = planAlone({}, design, { spawnPlan: p2.spawn }, app), b = planAlone({}, design, { spawnPlan: slow }, app);
+    await p2.started;
     stopImports();
     const [ra, rb] = await Promise.all([a, b]);
-    expect(rb.error.message).toBe('the import was cancelled');
-    expect(ra.status).toBe(503);
+    expect([ra.error.message, rb.error.message]).toEqual(['the import was cancelled', 'the import was cancelled']);
+    await p2.ended();
   });
 }, 60_000);

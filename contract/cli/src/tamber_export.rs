@@ -165,26 +165,36 @@ const KEPT_BYTES: u64 = 64 << 20;
 /// `.exact` or its baselines directory is a link (never read through one,
 /// as [`keep`] never writes through one).
 pub fn kept(design: &Path) -> Vec<String> {
+    kept_within(design, KEPT_BYTES)
+}
+
+fn kept_within(design: &Path, mut left: u64) -> Vec<String> {
     use std::io::Read;
     let dir = baselines(design);
     let plain = |d: &Path| std::fs::symlink_metadata(d).is_ok_and(|m| m.is_dir());
     if !plain(dir.parent().expect("in .exact")) || !plain(&dir) {
         return Vec::new();
     }
-    let mut left = KEPT_BYTES;
     let mut out = Vec::new();
     for (path, _) in kept_files(&dir).into_iter().take(KEPT) {
         let Ok(f) = std::fs::File::open(path) else {
             continue;
         };
-        let mut text = String::new();
-        // (one byte past what is left: a file that reaches it ends the reading)
-        match f.take(left + 1).read_to_string(&mut text) {
-            Ok(n) if (n as u64) <= left => left -= n as u64,
-            Ok(_) => break,
-            Err(_) => continue,
+        // Every byte read is charged, a file that is not text too; one
+        // byte past what is left ends the reading.
+        let mut bytes = Vec::new();
+        let n = f
+            .take(left + 1)
+            .read_to_end(&mut bytes)
+            .map_or(0, |n| n as u64);
+        let n = n.max(bytes.len() as u64);
+        if n > left {
+            break;
         }
-        out.push(text);
+        left -= n;
+        if let Ok(text) = String::from_utf8(bytes) {
+            out.push(text);
+        }
     }
     out
 }
@@ -233,6 +243,34 @@ mod kept_tests {
         std::fs::rename(app.join(".exact"), &elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, app.join(".exact")).unwrap();
         assert!(kept(&design).is_empty());
+        // `.exact` real, its baselines directory a link: none read either.
+        std::fs::remove_file(app.join(".exact")).unwrap();
+        std::fs::create_dir_all(app.join(".exact")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.join(dir.file_name().unwrap()), &dir).unwrap();
+        assert!(kept(&design).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Read up to a total only, a file that is not text charged too.
+    #[test]
+    fn kept_stops_at_its_total() {
+        let root = std::env::temp_dir().join(format!("exact-kept-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let design = root.join("app.tamber");
+        let dir = baselines(&design);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Oldest to newest: a text file, then one not text, then a newer text file.
+        std::fs::write(dir.join("a.json"), "{\"n\": 1}").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(dir.join("b.json"), [0xff; 100]).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(dir.join("c.json"), "{\"n\": 3}").unwrap();
+        // 8 bytes, then 100 not read as text but charged, then 8 more: 116 in all.
+        assert_eq!(
+            super::kept_within(&design, 8 + 100 + 8),
+            ["{\"n\": 3}", "{\"n\": 1}"]
+        );
+        assert_eq!(super::kept_within(&design, 8 + 100 + 7), ["{\"n\": 3}"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -45,13 +45,12 @@ const residentKb = pid => new Promise(done => {
 // answer goes back as soon as it is known; a killed planner still holds
 // the permit until the kernel has reaped it).
 let last = Promise.resolve(), queued = 0;
-// The planner running now: stopped with the wire (its group is its own, so
-// nothing else would), and when this process exits.
-let running = null;
 const killGroup = child => { if (child?.pid > 1) { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } } };
-// Every import not yet answered, each its cancel: the server's close cancels them all.
+// Every import not yet ended, each its cancel: the server's close (and this
+// process's exit) cancels them all, a running one's planner stopped by its
+// own import (never a pid already reaped).
 const pending = new Set();
-export const stopImports = () => { for (const cancel of [...pending]) cancel(); killGroup(running); };
+export const stopImports = () => { for (const cancel of [...pending]) cancel(); };
 process.once('exit', stopImports);
 const mine = new Map(); // each client's imports outstanding, at most two
 const busy = { status: 503, error: { message: 'imports are busy: try again shortly' } };
@@ -76,14 +75,17 @@ export function planAlone(request, design, limits = {}, appDir = null, who = nul
     queued--;
     if (who !== null) { const n = mine.get(who) - 1; if (n) mine.set(who, n); else mine.delete(who); }
   };
+  // The request, let go of as soon as it leaves the queue unplanned (a
+  // cancelled import's source is not held until its turn comes).
+  let job = request;
   let answer, expired = false, stopRun = null;
   const reply = new Promise(ok => { answer = ok; });
   // Gone before its turn: out of the queue now; while it runs: stopped.
-  const cancel = () => { if (stopRun) return stopRun(cancelled); if (expired) return; expired = true; clearTimeout(wait); release(); answer(cancelled); };
+  const cancel = () => { if (stopRun) return stopRun(cancelled); if (expired) return; expired = true; job = null; clearTimeout(wait); release(); answer(cancelled); };
   pending.add(cancel);
   l.signal?.addEventListener('abort', cancel, { once: true });
   // Each waiting entry expires on its own clock, whatever is ahead of it.
-  const wait = setTimeout(() => { expired = true; release(); answer(busy); }, l.waitMs);
+  const wait = setTimeout(() => { expired = true; job = null; release(); answer(busy); }, l.waitMs);
   const turn = last.then(async () => {
     clearTimeout(wait);
     if (expired) return;
@@ -91,7 +93,8 @@ export function planAlone(request, design, limits = {}, appDir = null, who = nul
     const t = await Promise.race([designText(design, appDir, l.designBytes), new Promise(ok => setTimeout(() => ok({ status: 503, error: { message: 'the design took too long to read' } }), 2000))]);
     if (expired) return;
     if (!('text' in t)) return answer(t);
-    const [planned, exited, stop] = planOnce(request, design, t.text, l);
+    const [planned, exited, stop] = planOnce(job, design, t.text, l);
+    job = null;
     stopRun = stop;
     planned.then(answer);
     await exited;
@@ -134,8 +137,7 @@ async function designText(path, appDir, max) {
 function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = contract, probe = residentKb }) {
   const child = spawnPlan(['tamber', 'import-plan', design]);
   if (!child) return [Promise.resolve({ status: 503, error: { message: 'the compiler is not built yet: try again once the design server is up' } }), Promise.resolve(), () => {}];
-  running = child;
-  const exited = new Promise(ok => child.on('close', () => { if (running === child) running = null; ok(); }));
+  const exited = new Promise(ok => child.on('close', ok));
   let stopping = () => {};
   return [new Promise(done => {
     let out = '', bytes = 0, err = '', settled = false, probing = false, gone = false, blind = null;
