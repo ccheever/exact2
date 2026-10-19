@@ -83,8 +83,13 @@ const ADDRESS_CASES = p => [
   [`http://localhost.:${p}/n`, 'https://canvas.test:9443/n'],
   [`at 127.1:${p} and foo.localhost:7004 now`, `at canvas.test:9443 and ${PLACEHOLDER} now`],
   [`(see http://user@localhost:${p}/o)`, '(see https://canvas.test:9443/o)'],
-  // Never another host: evil.test is this URL's host.
+  // Never another host: evil.test is this URL's host, whatever its userinfo holds.
   ['http://127.0.0.1%2F@evil.test/a', 'http://127.0.0.1%2F@evil.test/a'],
+  ['http://127.0.0.1;@evil.test/a http://127.0.0.1,x@evil.test/b http://a(127.0.0.1)@evil.test/c', 'http://127.0.0.1;@evil.test/a http://127.0.0.1,x@evil.test/b http://a(127.0.0.1)@evil.test/c'],
+  // Userinfo punctuation in a loopback URL: the whole authority goes.
+  [`http://user;name@localhost:${p}/u1 http://u,(x)@127.0.0.1:7005/u2`, `https://canvas.test:9443/u1 http://${PLACEHOLDER}/u2`],
+  // A list's or a sentence's punctuation after an authority that doesn't parse with it stays in the text.
+  [`default-src 'self' http://127.0.0.1:${p}; img-src http://localhost:7006, (at http://localhost:${p})`, `default-src 'self' https://canvas.test:9443; img-src http://${PLACEHOLDER}, (at https://canvas.test:9443)`],
   ['https://example.test/localhost:9000.png', 'https://example.test/localhost:9000.png'],
   ['notlocalhost:9000 and see localhost:9000.', `notlocalhost:9000 and see ${PLACEHOLDER}.`],
   ['https://example.test/x and http://192.168.1.20:8765/ and http://127.0.0.1.example.test/', 'https://example.test/x and http://192.168.1.20:8765/ and http://127.0.0.1.example.test/'],
@@ -125,7 +130,7 @@ beforeAll(async () => {
       } else if (url.pathname === '/__dev/open') {
         res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<p>build with --url ${me}/</p><a id="browser" href="${me}/">${me}/</a>`);
       } else if (url.pathname === '/addresses.html' || url.pathname === '/addresses.json') {
-        res.writeHead(200, { 'content-type': url.pathname.endsWith('json') ? 'application/vnd.exact.envelope+json' : 'text/html', link: `<http://localhost:7000/x>; rel=preload, <http://%6cocalhost:${port}/y>; rel=preload`, 'x-addresses': addresses(port).split('\n')[0], 'x-evil': 'http://127.0.0.1%2F@evil.test/a' });
+        res.writeHead(200, { 'content-type': url.pathname.endsWith('json') ? 'application/vnd.exact.envelope+json' : 'text/html', link: `<http://localhost:7000/x>; rel=preload, <http://%6cocalhost:${port}/y>; rel=preload`, 'x-addresses': addresses(port).split('\n')[0], 'x-evil': 'http://127.0.0.1%2F@evil.test/a', 'x-userinfo': `http://127.0.0.1;@evil.test/a http://user;name@localhost:${port}/u http://u,(x)@127.0.0.1:7005/v` });
         res.end(url.pathname.endsWith('json') ? addressJSON(port) : addresses(port));
       } else if (url.pathname === '/plain.json') {
         // No loopback in it: its bytes, spacing and escapes, pass as they came.
@@ -681,11 +686,14 @@ test('loopback addresses are rewritten in headers, HTML, JS, CSS, JSON and SSE; 
     expect(html.headers.get('link')).toBe(`<http://${PLACEHOLDER}/x>; rel=preload, <${ORIGIN}/y>; rel=preload`);
     expect(html.headers.get('x-addresses')).toBe(ADDRESS_CASES(port)[0][1]);
     expect(html.headers.get('x-evil')).toBe('http://127.0.0.1%2F@evil.test/a');
+    expect(html.headers.get('x-userinfo')).toBe(`http://127.0.0.1;@evil.test/a ${ORIGIN}/u http://${PLACEHOLDER}/v`);
     // JSON (an envelope's type too) by parsing: the escaped spelling caught, the evil.test URL untouched.
     const json = await (await g.at('/addresses.json', { headers: { cookie } })).json();
     expect(json.escaped).toBe(`${ORIGIN}/x`);
     expect(json[`${ORIGIN}/key`]).toBe(1);
     expect(json.cases).toContain('http://127.0.0.1%2F@evil.test/a');
+    expect(json.cases).toContain('http://127.0.0.1;@evil.test/a http://127.0.0.1,x@evil.test/b http://a(127.0.0.1)@evil.test/c');
+    expect(json.cases).toContain(`${ORIGIN}/u1 http://${PLACEHOLDER}/u2`);
     expect(json.cases).toContain('https://canvas.test:9443/n');
     expect(await (await g.at('/plain.json', { headers: { cookie } })).text()).toBe('{ "a" : "https://example.test/\\u0041",\n "n": 1.50 }');
     const sse = await (await g.at('/__dev/generation/stream', { headers: { cookie } })).text();
@@ -787,4 +795,10 @@ test('the JS loop\'s page reloads afresh when its checkpoint is refused (a canva
   expect(refused).toBeGreaterThan(0);
   expect(refused).toBeLessThan(failed);
   expect(code.slice(refused, failed)).toContain('location.reload();return}');
+});
+
+test("an https loop on its default port is the loop's own origin, not another loopback (round 3, Grok)", () => {
+  const r = rewriter('https://127.0.0.1', 'https://canvas.test:9443');
+  expect(r.text('see https://127.0.0.1/x and https://127.0.0.1:443/y')).toBe('see https://canvas.test:9443/x and https://canvas.test:9443/y');
+  expect(r.text('http://127.0.0.1/z')).toBe('http://loopback.invalid/z');
 });

@@ -120,6 +120,7 @@ const isLoopback = parsed => {
   return host === 'localhost' || host.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(host) || host === '0.0.0.0'
     || host === '[::1]' || host === '[::]' || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host);
 };
+const parses = (authority, scheme) => { try { new URL(`${scheme}//${authority}/`); return true; } catch { return false; } };
 /** An authority's port when WHATWG URL parses its host as loopback, else
  * null. Nothing is decoded first: `127.0.0.1%2F@evil.test` is evil.test's. */
 function loopbackPort(authority, scheme = 'http:') {
@@ -130,12 +131,12 @@ function loopbackPort(authority, scheme = 'http:') {
 }
 
 // Candidates, each decided by WHATWG URL: a web URL or a scheme-relative
-// one (its authority up to the first delimiter, whitespace, quote or
-// bracket of the text around it), and a bare `host:port` standing alone
+// one (its authority up to the first `/`, `?`, `#`, `\`, whitespace, quote,
+// `<` or `>`, so userinfo punctuation such as `;@` stays in it: theme2), and a bare `host:port` standing alone
 // (not in a path, not inside a longer name). Escaped spellings (HTML or
 // JSON escapes in text, percent-encoded URLs) are a known limit (§10).
 const ADDRESSES = new RegExp(
-  String.raw`(?<![\w+.\-:\/\\%])(?<scheme>(?:https?|wss?):)?\/\/(?<auth>[^\s"'<>\x60\/?#\\(){}|^,;]+)`
+  String.raw`(?<![\w+.\-:\/\\%])(?<scheme>(?:https?|wss?):)?\/\/(?<auth>[^\s"'<>\x60\/?#\\]+)`
   + String.raw`|(?<![\w.\-\/\\%@:\[])(?<bare>\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.\-]*[a-z0-9])?\.?):(?<port>\d{1,5})(?![\w\-]|\.\w)`, 'gi');
 
 /** The rewriting of loopback addresses for a canvas client: the loop's own
@@ -146,15 +147,20 @@ const ADDRESSES = new RegExp(
  * that is JSON as JSON. */
 export function rewriter(loop, origin) {
   const from = new URL(loop), to = new URL(origin);
-  const port = from.port || '80';
+  const port = from.port || (from.protocol === 'https:' ? '443' : '80');
   const text = t => t.replace(ADDRESSES, (m, ...args) => {
     const g = args.at(-1);
     if (g.auth !== undefined) {
       const scheme = (g.scheme ?? '').toLowerCase();
-      const p = loopbackPort(g.auth, scheme || 'http:');
+      // The whole authority as WHATWG reads it; only one that doesn't parse
+      // at all (a list's `;` or `,`, a sentence's `)` after it) is read again
+      // without that trailing punctuation, which stays in the text.
+      let auth = g.auth, tail = '';
+      if (!parses(auth, scheme || 'http:')) [, auth, tail] = /^(.*?)([;,)}]*)$/.exec(auth);
+      const p = loopbackPort(auth, scheme || 'http:');
       if (p == null) return m;
-      if (p !== port) return `${scheme}//${PLACEHOLDER}`;
-      return `${!scheme ? '' : scheme.startsWith('ws') ? 'wss:' : to.protocol}//${to.host}`;
+      if (p !== port) return `${scheme}//${PLACEHOLDER}${tail}`;
+      return `${!scheme ? '' : scheme.startsWith('ws') ? 'wss:' : to.protocol}//${to.host}${tail}`;
     }
     const p = loopbackPort(`${g.bare}:${g.port}`);
     return p == null ? m : p === port ? to.host : PLACEHOLDER;
@@ -251,7 +257,7 @@ export function canvasGateway({ loop, pairing, origin, toolOrigin = null, now = 
   const mints = limiter({ ...MINT_RATE, clock: now });
   // Every canvas request is remote: never the local token's `local`.
   const may = (scope, need) => allows(scope, need, false);
-  const loopOrigin = new URL(loop).origin, loopHost = new URL(loop).host, loopPort = new URL(loop).port || '80';
+  const loopOrigin = new URL(loop).origin, loopHost = new URL(loop).host, loopPort = new URL(loop).port || (new URL(loop).protocol === 'https:' ? '443' : '80');
   origin = new URL(origin).origin;
   if (toolOrigin) {
     toolOrigin = new URL(toolOrigin).origin;

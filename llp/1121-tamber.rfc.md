@@ -4269,12 +4269,18 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
 - **Downstream:**
   - Set-Cookie, CORS, HSTS and hop-by-hop headers are dropped, with `cache-control: no-store`.
   - Loopback addresses are rewritten (theme2's ruling: D12's "no loopback URL handed out" is functional, not a
-    security boundary). A candidate is a web or scheme-relative URL, or a bare `host:port` standing alone, and it is
-    decided by WHATWG URL's parse of it, nothing decoded first: a host that parses as loopback (127/8, localhost
-    and `*.localhost`, [::1], one trailing dot dropped) at any port, the default included.
-    - The loop's own (a loopback host at its port) becomes the canvas origin; any other loopback authority becomes
-      `loopback.invalid`, which never resolves. No other host is ever touched: `http://127.0.0.1%2F@evil.test/a`
-      is evil.test's and passes byte for byte.
+    security boundary). A candidate is a web or scheme-relative URL, or a bare `host:port` standing alone.
+    - A URL's authority runs to the first `/`, `?`, `#`, `\`, whitespace, quote, `<` or `>`, so userinfo punctuation
+      (`;`, `,`, `(`, `)`) stays in it. Only an authority that doesn't parse at all with a trailing `;`, `,`, `)` or
+      `}` (a CSP's or a list's separator, a sentence's bracket) is read again without that punctuation, which stays
+      in the text.
+    - WHATWG URL's parse of it decides, nothing decoded first: a host that parses as loopback (127/8, localhost and
+      `*.localhost`, [::1], one trailing dot dropped) at any port, the default included.
+    - The loop's own origin (a loopback host at its port) maps to the canvas origin, in headers and in every body,
+      text ones included. theme2's ruling point 2 blanks only OTHER loopback URLs: any other loopback authority
+      becomes `loopback.invalid`, which never resolves.
+    - No other host is ever touched: `http://127.0.0.1%2F@evil.test/a` and `http://127.0.0.1;@evil.test/a` are
+      evil.test's and pass byte for byte.
     - Headers (Location, Link, CSP) and text bodies (HTML, JS, CSS, plain) by those candidates; JSON bodies (an
       envelope's type too) by parsing and rewriting each string, keys included, the bytes unchanged when nothing
       is; SSE a line at a time, a `data:` line that is JSON as JSON.
@@ -4377,3 +4383,16 @@ Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions afte
   - Tests: the address cases in headers, HTML, JS, CSS, JSON and SSE, the evil.test URL untouched in each; a JSON
     body with no loopback byte for byte; a JSON key and a `\u`-escaped value rewritten; the known limits passing as
     they came; Range and If-Range not reaching the loop.
+- **After review round 3 (Astra, Grok):**
+  - A URL's authority now runs to the first `/`, `?`, `#`, `\`, whitespace, quote, `<` or `>` before WHATWG URL decides
+    (theme2's ruling). `http://127.0.0.1;@evil.test/a` (evil.test's) passes byte for byte, and
+    `http://user;name@localhost:<port>/a` is the loop's and is rewritten. Trailing `;`, `,`, `)` or `}` is set aside
+    only when the authority doesn't parse with it, so a CSP's `http://127.0.0.1:<port>;` and a sentence's
+    `(at http://localhost:<port>)` are still caught (Astra 1).
+  - Astra 2 is answered by theme2: the loop's own origin keeps mapping to the canvas origin in text bodies, and ruling
+    point 2 blanks only other loopback URLs (the downstream bullet says so).
+  - Tests: `;`, `,`, `(` and `)` in userinfo, both a non-loopback host (byte for byte) and a loopback one (rewritten),
+    in a header, HTML, JS, CSS, JSON and SSE; a CSP's and a list's separator and a sentence's bracket after a
+    loopback authority.
+
+  - Grok's nits: an https loop on its default port (no port written) is the loop's own origin, not another loopback (the port defaults from the scheme); addPort's same-origin check on the canvas port is C2's (its `origins`).
