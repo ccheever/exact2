@@ -114,7 +114,7 @@ test('a small radius on a fractional edge, a covered left edge, an unnamed child
   expect(edges(covered, box, red, white)).toBeNull();
 });
 
-test('a base name expected is the kernel table\'s in the host\'s column, or the design\'s own', async () => {
+test('a length named is the design\'s own, else a base name\'s in the kernel table\'s column for the host', async () => {
   const { baseLength, overridesOf, RADIUS_FULL } = await import('./scale-check.mjs');
   const schema = JSON.parse(await Bun.file(new URL('../kernel/tables/schema.json', import.meta.url)).text());
   const none = {};
@@ -122,20 +122,42 @@ test('a base name expected is the kernel table\'s in the host\'s column, or the 
   expect([baseLength(schema, none, 'space.md', 'macos'), baseLength(schema, none, 'space.md', 'linux')]).toEqual([10, 16]);
   // A neutral-only metric row (the neutral look's control radius), every web build and Linux.
   expect([baseLength(schema, none, 'radius.md', 'web'), baseLength(schema, none, 'radius.md', 'linux')]).toEqual([8, 8]);
+  // A metric row with no Material cell reads the web's first look's there.
+  expect(baseLength(schema, none, 'space.sm', 'android')).toBe(8);
   // A measured cell, a guideline's, radius.full's one length.
   expect(baseLength(schema, none, 'space.xs', 'ios')).toBe(5);
   expect(baseLength(schema, none, 'space.lg', 'android')).toBe(24);
   expect(baseLength(schema, none, 'radius.full', 'ios')).toBe(RADIUS_FULL);
-  // The terminal's spacings are cells; a name that is no base name; a host with no column.
-  expect(baseLength(schema, none, 'space.sm', 'host')).toBeUndefined();
+  // A name neither has; a host with no column (the terminal has no agent host yet; `host` is the Mac's sample).
   expect(baseLength(schema, none, 'space.header', 'web')).toBeUndefined();
-  expect(baseLength(schema, none, 'space.md', 'windows')).toBeUndefined();
-  // The design's own wins, on every host; one with a `when` line is refused.
+  expect(baseLength(schema, none, 'space.md', 'host')).toBeUndefined();
+  // The design's own, as the compiler reads it (`contract tamber ir`), wins on every host.
   const names = schema.scale.map(r => r[0]);
-  // (space.header is the app's, with a `when` line of its own: not a base name, not read.)
-  const own = overridesOf('tamber t\n\ntheme\n  space.md = 12px\n  space.header = 44px\n    when density=compact: 40px\n', names);
+  const ir = (tokens) => ({ tokens });
+  const own = overridesOf(ir([
+    { name: 'space.md', kind: 'length', values: ['12px'] },
+    { name: 'space.header', kind: 'length', values: ['44px', '40px'] },
+    { name: 'probe.fill', kind: 'color', values: ['#0000ff'] },
+  ]), names);
   expect(own).toEqual({ 'space.md': 12 });
   expect(baseLength(schema, own, 'space.md', 'macos')).toBe(12);
-  expect(() => overridesOf('tamber t\n\ntheme\n  space.md = 12px\n    when density=compact: 8px\n', names)).toThrow('one length in px');
-  expect(() => overridesOf('tamber t\n\ntheme\n  radius.lg = gap\n', names)).toThrow('one length in px');
+  // A base name the design varies, or sets in another unit, is refused.
+  expect(() => overridesOf(ir([{ name: 'space.md', kind: 'length', values: ['12px', '8px'] }]), names)).toThrow('not one length in px');
+  expect(() => overridesOf(ir([{ name: 'radius.lg', kind: 'length', values: ['1rem'] }]), names)).toThrow('not one length in px');
+});
+
+test('a box\'s gap, height and named lengths are checked through the names given', () => {
+  const layout = { viewport: { w: 100 }, nodes: [
+    { id: 1, x: 0, y: 0, w: 100, h: 40, testId: 'row' }, { id: 2, x: 0, y: 0, w: 20, h: 10, testId: 'a' },
+    { id: 3, x: 32, y: 0, w: 20, h: 10, testId: 'b' }, { id: 4, x: 0, y: 50, w: 20, h: 44, testId: 'header' },
+  ] };
+  const image = drawn(100, 100, { x: 0, y: 0, w: 1, h: 1 }, 0, red);
+  const names = { 'space.md': 12, 'space.header': 44 };
+  const rows = check('linux', layout, image, { boxes: [
+    { testId: 'row', between: ['a', 'b'], gap: 'space.md' },
+    { testId: 'header', height: 'space.header' },
+    { testId: 'row', between: ['a', 'b'], gap: 'space.lg' },
+  ] }, (name) => names[name]);
+  expect(rows.map(r => r.ok)).toEqual([true, true, false]);
+  expect(rows[2].why).toContain('is no number');
 });

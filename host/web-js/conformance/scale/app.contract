@@ -1,7 +1,8 @@
 // linux: layout
 // Synthetic conformance plan: the base spacing and radius scale (LLP 1121
 // stage 11, D11). Boxes whose padding and gap are space.xs to space.xl, and
-// corners radius.sm to radius.full, inline and through a style; radius.full
+// corners radius.sm to radius.full, inline and through a style, and rows
+// whose gaps are space.xs to space.xl; radius.full
 // on a wide and a tall box, a pill on each (every host clamps the one
 // oversized length by CSS's corner overlap rule, theme2's stage 11 C ruling);
 // the design's own space.md (an app's override, ruling 4) and space.header
@@ -17,27 +18,39 @@ component App
   action flip
     round = !round
   view
-    column testId="root" width=420 gap="space.sm" background-color="#ffffff"
+    column testId="root" width=420 gap="space.sm" background-color="probe.ground"
       button testId="flip" press=flip
         text "Flip"
-      column testId="xs" padding="space.xs" background-color="#0000ff"
-        view testId="xs-inner" width=20 height=10 background-color="#ffffff"
-      column testId="sm" padding="space.sm" background-color="#0000ff"
-        view testId="sm-inner" width=20 height=10 background-color="#ffffff"
-      column testId="md" padding="space.md" background-color="#0000ff"
-        view testId="md-inner" width=20 height=10 background-color="#ffffff"
-      column testId="lg" padding="space.lg" background-color="#0000ff"
-        view testId="lg-inner" width=20 height=10 background-color="#ffffff"
-      column testId="xl" padding="space.xl" background-color="#0000ff"
-        view testId="xl-inner" width=20 height=10 background-color="#ffffff"
-      row testId="gapped" gap="space.md"
-        view testId="g1" width=20 height=10 background-color="#0000ff"
-        view testId="g2" width=20 height=10 background-color="#0000ff"
-      view testId="r-sm" width=120 height=48 border-radius="radius.sm" background-color="#0000ff"
-      view testId="r-md" width=120 height=48 border-radius="radius.md" background-color="#0000ff"
-      column testId="r-lg" class=Card width=120 height=80 background-color="#0000ff"
-        view testId="r-lg-inner" width=20 height=10 background-color="#ffffff"
-      view testId="pill-wide" width=120 height=32 border-radius="radius.full" background-color="#0000ff"
-      view testId="pill-tall" width=40 height=96 border-radius="radius.full" background-color="#0000ff"
-      view testId="bound" width=120 height=40 border-radius=(round ? "radius.full" : "radius.md") background-color="#0000ff"
-      view testId="header" width=120 height="space.header" background-color="#0000ff"
+      view testId="r-sm" width=120 height=48 border-radius="radius.sm" background-color="probe.fill"
+      view testId="r-md" width=120 height=48 border-radius="radius.md" background-color="probe.fill"
+      column testId="r-lg" class=Card width=120 height=80 background-color="probe.fill"
+        view testId="r-lg-inner" width=20 height=10 background-color="probe.ground"
+      view testId="pill-wide" width=120 height=32 border-radius="radius.full" background-color="probe.fill"
+      view testId="pill-tall" width=40 height=96 border-radius="radius.full" background-color="probe.fill"
+      view testId="bound" width=120 height=40 border-radius=(round ? "radius.full" : "radius.md") background-color="probe.fill"
+      view testId="header" width=120 height="space.header" background-color="probe.fill"
+      column testId="xs" padding="space.xs" background-color="probe.fill"
+        view testId="xs-inner" width=20 height=10 background-color="probe.ground"
+      column testId="sm" padding="space.sm" background-color="probe.fill"
+        view testId="sm-inner" width=20 height=10 background-color="probe.ground"
+      column testId="md" padding="space.md" background-color="probe.fill"
+        view testId="md-inner" width=20 height=10 background-color="probe.ground"
+      column testId="lg" padding="space.lg" background-color="probe.fill"
+        view testId="lg-inner" width=20 height=10 background-color="probe.ground"
+      column testId="xl" padding="space.xl" background-color="probe.fill"
+        view testId="xl-inner" width=20 height=10 background-color="probe.ground"
+      row testId="gap-xs" gap="space.xs"
+        view testId="gap-xs-a" width=20 height=10 background-color="probe.fill"
+        view testId="gap-xs-b" width=20 height=10 background-color="probe.fill"
+      row testId="gap-sm" gap="space.sm"
+        view testId="gap-sm-a" width=20 height=10 background-color="probe.fill"
+        view testId="gap-sm-b" width=20 height=10 background-color="probe.fill"
+      row testId="gap-md" gap="space.md"
+        view testId="gap-md-a" width=20 height=10 background-color="probe.fill"
+        view testId="gap-md-b" width=20 height=10 background-color="probe.fill"
+      row testId="gap-lg" gap="space.lg"
+        view testId="gap-lg-a" width=20 height=10 background-color="probe.fill"
+        view testId="gap-lg-b" width=20 height=10 background-color="probe.fill"
+      row testId="gap-xl" gap="space.xl"
+        view testId="gap-xl-a" width=20 height=10 background-color="probe.fill"
+        view testId="gap-xl-b" width=20 height=10 background-color="probe.fill"

@@ -1,17 +1,136 @@
 {
-  "background": "#ffffff",
-  "boxes": [
-    {"testId": "xs", "child": "xs-inner", "padding": "space.xs"},
-    {"testId": "sm", "child": "sm-inner", "padding": "space.sm"},
-    {"testId": "md", "child": "md-inner", "padding": "space.md"},
-    {"testId": "lg", "child": "lg-inner", "padding": "space.lg"},
-    {"testId": "xl", "child": "xl-inner", "padding": "space.xl"},
-    {"testId": "r-lg", "child": "r-lg-inner", "padding": "space.lg"},
-    {"testId": "r-sm", "radius": "radius.sm", "fill": "#0000ff"},
-    {"testId": "r-md", "radius": "radius.md", "fill": "#0000ff"},
-    {"testId": "r-lg", "radius": "radius.lg", "fill": "#0000ff"},
-    {"testId": "pill-wide", "radius": "radius.full", "fill": "#0000ff"},
-    {"testId": "pill-tall", "radius": "radius.full", "fill": "#0000ff"},
-    {"testId": "bound", "radius": "radius.md", "fill": "#0000ff"}
-  ]
+ "background": "#ffffff",
+ "boxes": [
+  {
+   "testId": "xs",
+   "child": "xs-inner",
+   "padding": "space.xs"
+  },
+  {
+   "testId": "sm",
+   "child": "sm-inner",
+   "padding": "space.sm"
+  },
+  {
+   "testId": "md",
+   "child": "md-inner",
+   "padding": "space.md"
+  },
+  {
+   "testId": "lg",
+   "child": "lg-inner",
+   "padding": "space.lg"
+  },
+  {
+   "testId": "xl",
+   "child": "xl-inner",
+   "padding": "space.xl"
+  },
+  {
+   "testId": "r-lg",
+   "child": "r-lg-inner",
+   "padding": "space.lg"
+  },
+  {
+   "testId": "gap-xs",
+   "between": [
+    "gap-xs-a",
+    "gap-xs-b"
+   ],
+   "gap": "space.xs"
+  },
+  {
+   "testId": "gap-sm",
+   "between": [
+    "gap-sm-a",
+    "gap-sm-b"
+   ],
+   "gap": "space.sm"
+  },
+  {
+   "testId": "gap-md",
+   "between": [
+    "gap-md-a",
+    "gap-md-b"
+   ],
+   "gap": "space.md"
+  },
+  {
+   "testId": "gap-lg",
+   "between": [
+    "gap-lg-a",
+    "gap-lg-b"
+   ],
+   "gap": "space.lg"
+  },
+  {
+   "testId": "gap-xl",
+   "between": [
+    "gap-xl-a",
+    "gap-xl-b"
+   ],
+   "gap": "space.xl"
+  },
+  {
+   "testId": "header",
+   "height": "space.header"
+  },
+  {
+   "testId": "r-sm",
+   "radius": "radius.sm",
+   "fill": "#0000ff"
+  },
+  {
+   "testId": "r-md",
+   "radius": "radius.md",
+   "fill": "#0000ff"
+  },
+  {
+   "testId": "r-lg",
+   "radius": "radius.lg",
+   "fill": "#0000ff"
+  },
+  {
+   "testId": "pill-wide",
+   "radius": "radius.full",
+   "fill": "#0000ff"
+  },
+  {
+   "testId": "pill-tall",
+   "radius": "radius.full",
+   "fill": "#0000ff"
+  },
+  {
+   "testId": "bound",
+   "radius": "radius.md",
+   "fill": "#0000ff"
+  }
+ ],
+ "then": [
+  {
+   "steps": [
+    "tap flip"
+   ],
+   "boxes": [
+    {
+     "testId": "bound",
+     "radius": "radius.full",
+     "fill": "#0000ff"
+    }
+   ]
+  },
+  {
+   "steps": [
+    "tap flip",
+    "tap flip"
+   ],
+   "boxes": [
+    {
+     "testId": "bound",
+     "radius": "radius.md",
+     "fill": "#0000ff"
+    }
+   ]
+  }
+ ]
 }

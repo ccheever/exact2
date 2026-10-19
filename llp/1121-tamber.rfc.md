@@ -5070,31 +5070,36 @@ draws nothing new: stage 11 C draws and conforms on top.
 Built to theme2's 15:32 approval, on B1 and B2.
 
 - **The conform target `host/web-js/conformance/scale/`** (`// linux: layout`):
-  - padding and gap by `space.xs` to `space.xl`;
   - corners by `radius.sm` to `radius.full`, inline and through a `style`;
   - `radius.full` on a 120×32 box and a 40×96 box: the cross-host pill check, which holds every host's
     corner-overlap clamp of the one oversized length;
+  - padding by `space.xs` to `space.xl`, and a row for each gap, `space.xs` to `space.xl`;
   - the design's own `space.md = 12px` (ruling 4) and `space.header = 44px`, a name the scale does not reserve
-    (ruling 5);
-  - a bound corner that moves between `radius.md` and `radius.full` (`scale.steps`).
-
-  The wasm page, the JS page and the Linux host draw the neutral column, and they agree: 5 of 5 steps, Linux 5 of 5.
-- **Each host against its own column:** `scripts/scale-check.mjs` takes base names as expectations
+    (ruling 5), as a box's height;
+  - a bound corner that moves between `radius.md` and `radius.full` (`scale.steps`);
+  - the probe's colours as tokens fixed in either scheme.
+- **conform result.** The wasm page and the JS page agree on all 5 compares: boot, the two scripted taps,
+  conform's own extra tap, and `clock +60000`. Linux's boxes agree on all 5 too. Linux compares boxes only, so its
+  corners are held by scale-check below.
+- **Each host against its own column:** `scripts/scale-check.mjs` takes lengths by name as expectations
   (`scale/expect.json`).
-  - It reads each name's length from `kernel/tables/schema.json`'s `scale` in the host's column (a metric's reference
-    read in that column), and from the plan's own `app.tamber`. Nothing is copied.
-  - Columns: web and Linux neutral, iOS, the Mac, the Android reader's Material, the terminal's cells.
-  - On 2026-10-19 every padding and corner matched its column, within 0.2 pt:
+  - A base name is read from `kernel/tables/schema.json`'s `scale` in the host's column (a metric's reference read
+    in that column). The design's own token comes from `contract tamber ir`, which finds the design as a build does.
+    Nothing is copied.
+  - It checks paddings, gaps, the header's height and corners, and the bound corner again after one and two taps,
+    each from a fresh launch.
+  - On 2026-10-19 all 20 checks passed on each host. Paddings and gaps were within 0.5 pt, corners within 0.2 pt:
 
-    | Host | Paddings xs/sm/md/lg/xl | Corners sm/md/lg | Pills |
-    |---|---|---|---|
-    | web (wasm) | 4/8/12/24/32 | 4/8/12 | 16 and 20 |
-    | Linux | 4/8/12/24/32 | 4.1/8.1/12.2 | 16.1 and 20 |
-    | macOS 27 | 6/8/12/20/30 | 5.1/6.1/10.2 | 16 and 20.1 |
-    | iOS 27 simulator | 5/8/12/20/35 | 5.6/17/26 | 16 and 20 |
+    | Host | Paddings and gaps xs/sm/md/lg/xl | Corners sm/md/lg | Pills | Bound, after one tap |
+    |---|---|---|---|---|
+    | web (wasm) | 4/8/12/24/32 | 4/8/12 | 16 and 20 | 8, 20 |
+    | Linux | 4/8/12/24/32 | 4.1/8.1/12.2 | 16.1 and 20 | 8.1, 20 |
+    | macOS 27 | 6/8/12/20/30 | 5.1/6.1/10.2 | 16 and 20.1 | 6.1, 20 |
+    | iOS 27 simulator | 5/8/12/20/35 | 5.6/17/26 | 16 and 20 | 17, 20 |
 
-    md is the design's 12 on every host.
+    md is the design's 12 on every host, and the header is 44.
+  - The neutral and Material columns have the same px for every name. The Material column is held only by the
+    Android reader's run.
 - **Still to come, before E's gate:**
-  - the Android reader, from a small scale fixture app with an android crate (theme2's ruling), for the Material
-    column;
-  - the terminal (cells, square corners).
+  - the Android reader, from a small scale fixture app with an android crate (theme2's ruling);
+  - the terminal (cells, square corners), which has a column but no agent host yet.
