@@ -490,3 +490,33 @@ test('round 7: a mode the person added stays through a pull, and a collection ho
   await expect(send({ type: 'apply', text: TEXT }, 'applied')).rejects.toThrow('no collections today');
   expect(undos).toBe(0);
 });
+
+test('round 8: an unchanged pull changes nothing and undoes nothing; check lists the variables a pull removes or makes again; a person\'s mode in the way is named', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  let undos = 0;
+  const trigger = f.figma.triggerUndo;
+  f.figma.triggerUndo = () => { undos++; trigger(); };
+  const set = f.figma.root.setSharedPluginData;
+  f.figma.root.setSharedPluginData = () => { throw new Error('read-only file'); };
+  const values = JSON.stringify(f.variables.map(v => v.valuesByMode));
+  // Nothing to write: the kept export is as it was, so no write is tried, and nothing is undone.
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  expect(undos).toBe(0);
+  f.figma.root.setSharedPluginData = set;
+  expect(JSON.stringify(f.variables.map(v => v.valuesByMode))).toBe(values);
+  const dropped = variant(doc => { for (const c of Object.values<any>(doc.modifiers.mode.contexts)) delete c[0].accent.fill; });
+  const checked = await send({ type: 'check', text: dropped }, 'checked');
+  expect(checked.drops).toEqual([{ token: 'accent.fill', variable: 'accent/fill', why: 'the design dropped it' }]);
+  // Two modes a collection: one light context Tamber holds, and a mode of the person's own; the dark context can't come.
+  await load(2);
+  const only = (names: string[]) => variant(d => {
+    const contexts = d.modifiers.mode.contexts, all = { ...contexts };
+    for (const c of Object.keys(contexts)) delete contexts[c];
+    for (const n of names) contexts[n] = all[n];
+    d.modifiers.mode.default = names[0];
+  });
+  await send({ type: 'apply', text: only(['dark-style=black, light']) }, 'applied');
+  f.collections[0].addMode('Local review');
+  await expect(send({ type: 'apply', text: only(['dark-style=black, light', 'dark-style=black, dark']) }, 'applied')).rejects.toThrow(/Local review/);
+});

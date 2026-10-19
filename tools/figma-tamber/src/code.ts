@@ -15,12 +15,14 @@ const KEY = 'exact';
 // The pulled export and its plan, on the file: an entry holds at most 100 KB,
 // so each is kept in parts (`name#0`, `name#1`, …, their count in `name#n`).
 const PART = 30_000; // characters: 100 KB at three bytes a character
+// Each part written only when it differs, the step marked dirty once one is.
+const put = (key: string, value: string) => { if (figma.root.getSharedPluginData(KEY, key) !== value) { figma.root.setSharedPluginData(KEY, key, value); dirty = true; } };
 const keep = (name: string, text: string) => {
   const n = Math.ceil(text.length / PART);
-  for (let i = 0; i < n; i++) figma.root.setSharedPluginData(KEY, `${name}#${i}`, text.slice(i * PART, (i + 1) * PART));
+  for (let i = 0; i < n; i++) put(`${name}#${i}`, text.slice(i * PART, (i + 1) * PART));
   const was = Number(figma.root.getSharedPluginData(KEY, `${name}#n`) || 0);
-  for (let i = n; i < was; i++) figma.root.setSharedPluginData(KEY, `${name}#${i}`, '');
-  figma.root.setSharedPluginData(KEY, `${name}#n`, String(n));
+  for (let i = n; i < was; i++) put(`${name}#${i}`, '');
+  put(`${name}#n`, String(n));
 };
 const kept = (name: string) => {
   const n = Number(figma.root.getSharedPluginData(KEY, `${name}#n`) || 0);
@@ -154,7 +156,9 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
       if (ids[mode]) continue;
       try { ids[mode] = did(col.addMode(temp())); } catch (e: any) {
         const limit = /\blimited to (\d+) modes?\b/i.exec(String(e?.message ?? e));
-        throw limit ? Object.assign(new Error(String(e?.message ?? e)), { capacity: Number(limit[1]) }) : e;
+        // (with the collection, and the modes in it a person added, for the refusal to name)
+        const personal = col.modes.filter((m: any) => !ours.has(m.modeId) && !Object.values(ids).includes(m.modeId)).map((m: any) => m.name);
+        throw limit ? Object.assign(new Error(String(e?.message ?? e)), { capacity: Number(limit[1]), collection: col.name, personal }) : e;
       }
     }
     const idOf = (mode: string, slot: string) => (slot === '' && parked ? parked[1] : ids[mode]);
@@ -197,8 +201,10 @@ figma.ui.onmessage = async (msg: any) => {
         // Before a pull: what both Figma and the design moved since the last
         // one, by token and context; and the contexts the design added or dropped.
         // And what it could not read there (an alias to nowhere, a mode gone), which a pull overwrites.
+        // And the variables a pull removes or makes again (a token the design dropped, a type changed): their bindings go.
         const { plan } = stored(), doc = JSON.parse(msg.text), held = plan ? await holding(plan) : { now: {}, unread: [] };
-        say({ type: 'checked', conflicts: plan ? conflicts(plan, doc, held.now) : [], unread: held.unread, contexts: plan ? contextsMoved(plan, doc) : { added: [], removed: [] } });
+        const fresh = new Map(pull(doc, Infinity).collections[0].variables.map(v => [v.token, v.type])), drops = (plan?.collections ?? []).flatMap(c => c.variables).filter((v, i, all) => all.findIndex(w => w.token === v.token) === i && fresh.get(v.token) !== v.type).map(v => ({ token: v.token, variable: v.name, why: fresh.has(v.token) ? 'its type changed: it is made again' : 'the design dropped it' }));
+        say({ type: 'checked', conflicts: plan ? conflicts(plan, doc, held.now) : [], unread: held.unread, drops, contexts: plan ? contextsMoved(plan, doc) : { added: [], removed: [] } });
         break;
       }
       case 'apply': {
@@ -228,7 +234,9 @@ figma.ui.onmessage = async (msg: any) => {
               // away; a surviving context keeps its mode, and the pull is refused.
               if (!tooManyModes(e2)) throw e2;
               const kept = (before?.collections ?? []).flatMap(c => Object.keys(c.contextIds ?? {})).filter(ctx => !moved?.removed.includes(ctx));
-              if (kept.length) throw new Error(`this file allows ${limitOf(e2)} modes a collection, and a default mode Figma can't remove holds one: to pull, remove the collection with the mode ${kept[0]} (what is bound to it, and any variables you added there, go with it)`);
+              if (kept.length) throw new Error(e2.personal?.length
+                ? `this file allows ${limitOf(e2)} modes a collection, and \`${e2.collection}\` has modes Tamber did not make (${e2.personal.join(', ')}) in the places its contexts need: remove one, then pull`
+                : `this file allows ${limitOf(e2)} modes a collection, and a default mode Figma can't remove holds one in \`${e2.collection}\`: to pull, remove that collection (what is bound to it, and any variables you added there, go with it)`);
               undo();
               figma.commitUndo();
               await write(plan, before, true);
@@ -249,7 +257,6 @@ figma.ui.onmessage = async (msg: any) => {
             old.remove();
             dirty = true;
           }
-          dirty = true; // (the kept export and plan change with every pull)
           keep('baseline', msg.text);
           keep('plan', JSON.stringify(plan));
           figma.commitUndo();

@@ -50,7 +50,7 @@ async function pair() {
 
 async function pullDesign() {
   const { text } = await call(paired, '/__tamber', { method: 'export', kind: 'dtcg', client: 'figma' });
-  const { conflicts, contexts, unread } = await ask({ type: 'check', text }, 'checked');
+  const { conflicts, contexts, unread, drops } = await ask({ type: 'check', text }, 'checked');
   const lines = conflicts.map((c: any) => `${c.collection}: ${c.variable} (${c.mode})${c.gone ? ', which the design no longer has' : ''}`);
   const moved = [...contexts.added.map((c: string) => `+ ${c}`), ...contexts.removed.map((c: string) => `- ${c}`)];
   const gone = conflicts.some((c: any) => c.gone), kept = conflicts.some((c: any) => !c.gone);
@@ -59,6 +59,8 @@ async function pullDesign() {
   // Values the plugin could not read (an alias to nowhere, a mode or collection gone): a pull writes over them unseen.
   if (unread.length && !confirm(`${unread.length} value(s) in Figma could not be read, so a pull can't tell whether they changed:\n${unread.map((u: any) => `${u.variable}${u.mode ? ` (${u.mode})` : ''}: ${u.why}`).join('\n')}\n\nOK writes the design's over them.`)) { show('not pulled: values that could not be read'); return; }
   if (moved.length && !confirm(`The design's contexts changed since the last pull:\n${moved.join('\n')}\n\nOK rewrites the Tamber collections: a mode or collection the design no longer has goes, and what is bound to it in this file loses it.`)) { show('not pulled: the contexts changed'); return; }
+  // Variables a pull removes or makes again: what is bound to them in this file loses them.
+  if (drops.length && !confirm(`${drops.length} variable(s) go or are made again with this pull, and what is bound to them loses them:\n${drops.map((d: any) => `${d.variable}: ${d.why}`).join('\n')}\n\nOK pulls.`)) { show('not pulled: variables would go'); return; }
   const done = await ask({ type: 'apply', text }, 'applied');
   show(`pulled into ${done.collections.join(', ')}${done.skipped.length ? `; no variable for ${done.skipped.length} token(s): ${done.skipped.map((s: any) => s.token).join(', ')}` : ''}`);
 }
