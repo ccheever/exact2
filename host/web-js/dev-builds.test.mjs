@@ -191,8 +191,7 @@ test("the JS loop: an edit to theme-fixture's `when` token builds with setMode a
     // The default's light side alone, which `under scheme=dark` refuses:
     // the build says so, and not that the design declares no axes.
     writeFileSync(join(dir, 'app.tamber'), design.replace(page, page.replace('#ffffff, #000000', '#fefefe, #000000')));
-    await until(() => said().includes('build failed'), 300_000);
-    await new Promise(ok => setTimeout(ok, 500));
+    await until(() => said().includes('build failed') && said().includes('[tamber-'), 300_000);
     expect(said()).toContain('tamber-under-light');
     expect(said()).not.toContain('declares no axes');
   } finally {

@@ -800,6 +800,17 @@ fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
     let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
     assert!(ids.iter().any(|id| id == "tamber-under-light"), "{ids:?}");
     assert!(!ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    // An axis declared twice: its refusal is said, beside a `setMode` that
+    // names a value of the second only.
+    std::fs::write(path.with_file_name("app.tamber"), MODES.replace("\ntheme\n", "  dark-style = black | grey  under scheme=dark\n\ntheme\n")).unwrap();
+    std::fs::write(&path, contract.replace("\"dim\")", "\"grey\")")).unwrap();
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("an axis declared twice builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert!(ids.iter().any(|id| id == "tamber-duplicate"), "{ids:?}");
+    assert!(ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    std::fs::write(&path, contract).unwrap();
     // The `when` line's own dark side edited: it builds, setMode and its pin
     // intact.
     let edited = MODES.replace("#161e27", "#171f28");

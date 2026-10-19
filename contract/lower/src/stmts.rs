@@ -113,8 +113,12 @@ impl Lowerer<'_> {
             // the next statement. No call opcode: the plan never sees one.
             Stmt::Call { body, .. } => self.block(asm, body, scope, locals)?,
             Stmt::Command { name, args, span } => {
+                // Said beside the rest, not in their place: a design's own
+                // refusal (an axis declared twice) comes first.
                 if name == "setMode" {
-                    crate::theme::set_mode_args(args, *span)?;
+                    if let Err(e) = crate::theme::set_mode_args(args, *span) {
+                        self.push(e);
+                    }
                 }
                 if name == "share" {
                     share_pictures(&self.root.view, args)?;
