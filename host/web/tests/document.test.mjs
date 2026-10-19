@@ -148,7 +148,7 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {}, hints = false } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {}, hints = false, needs = [] } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
     const page = tamper(html ?? renderedPage(location));
@@ -166,7 +166,7 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
-  const { cdp, lines } = await browser();
+  const { cdp, lines } = await browser(needs.length ? chromium({ needs }).executable : chrome);
   lines.length = 0;
   // A browser context of its own: no cookie, storage, cache or history of another test's
   const { browserContextId } = await cdp.send('Target.createBrowserContext');
@@ -210,15 +210,15 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
   }
 }
 
-/** The file's one Chrome, launched at its first document and again after it exits (Bun kills it when a test times out): a
- * launch per test cost 0.17 s each. `lines` holds the stderr received since the current test reset it, which can include the
- * end of the previous test's. */
-let launched = null;
-function browser() {
-  if (launched) return launched;
-  const started = launched = (async () => {
+/** The file's one Chrome for each executable, launched at its first document and again after it exits (Bun kills it when a
+ * test times out): a launch per test cost 0.17 s each. `lines` holds the stderr received since the current test reset it,
+ * which can include the end of the previous test's. */
+const launched = new Map();
+function browser(executable) {
+  if (launched.has(executable)) return launched.get(executable);
+  const started = (async () => {
     const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-    const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
+    const child = spawn(executable, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
       DESKTOP_INPUT,
       `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
       '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
@@ -226,7 +226,7 @@ function browser() {
     const lines = [];
     child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
     const exited = new Promise((ok) => child.on('exit', ok));
-    exited.then(() => { if (launched === started) launched = null; });
+    exited.then(() => { if (launched.get(executable) === started) launched.delete(executable); });
     const close = async () => {
       try { process.kill(-child.pid, 'SIGKILL'); } catch {}
       await Promise.race([exited, Bun.sleep(2000)]);
@@ -234,9 +234,10 @@ function browser() {
     };
     return { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines, close };
   })();
+  launched.set(executable, started);
   return started;
 }
-afterAll(async () => { if (launched) await (await launched).close(); });
+afterAll(async () => { for (const started of launched.values()) await (await started).close(); });
 
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 
@@ -371,7 +372,7 @@ check(`Back from the bfcache downloads the runtime a link stopped`, async () => 
     release();
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
-  }, { wasmAfter, answers: { '/elsewhere': [200, '<!doctype html><p>elsewhere</p>'] } });
+  }, { wasmAfter, answers: { '/elsewhere': [200, '<!doctype html><p>elsewhere</p>'] }, needs: ['bfcache'] });
 }, 180000);
 
 /** An app's render server (LLP 1048.000 D10) over its dist, on loopback —

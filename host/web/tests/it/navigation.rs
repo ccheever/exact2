@@ -54,15 +54,9 @@ fn browser_session_history_on_the_js_target() {
 
 fn sweep(js: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     let dist = std::env::var_os("EXACT_ROUTER_DIST")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join("host/web/dist"));
-    assert!(
-        Path::new(&chrome).exists(),
-        "Chrome is required: set CHROME"
-    );
     assert!(
         js || dist.join("app.wasm").exists(),
         "build the web dist first"
@@ -179,7 +173,6 @@ fn sweep(js: bool) {
     let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/navigation.mjs")
         .env("EXACT_ROUTER_DIST", dist)
-        .env("CHROME", chrome)
         .env("EXACT_ROUTER_TEST", &dir)
         .env("EXACT_ROUTER_TARGET", if js { "js" } else { "wasm" })
         .current_dir(root)

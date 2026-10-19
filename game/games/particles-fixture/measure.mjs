@@ -5,12 +5,13 @@ import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {Cdp} from '../../../scripts/agent.mjs';
 import {serveStatic} from '../../../host/web/serve.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 const name=process.argv[2] ?? 'particles-fixture', root=resolve(import.meta.dir,'../../..');
 if(!['particles-fixture','sprites-fixture'].includes(name)) throw Error('Use particles-fixture or sprites-fixture');
 const server=createServer((req,res)=>serveStatic(resolve(root,'game/games',name,'dist'),req,res));
 await new Promise(ok=>server.listen(0,'127.0.0.1',ok));
 const profile=mkdtempSync('/tmp/p1-chrome-');
-const child=spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--remote-debugging-pipe',`--user-data-dir=${profile}`,'--no-first-run','--no-default-browser-check','--enable-unsafe-webgpu','--disable-background-networking','about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
+const child=spawn(chromium({ needs: ['gpu', 'perf'] }).executable,['--headless=new','--remote-debugging-pipe',`--user-data-dir=${profile}`,'--no-first-run','--no-default-browser-check','--enable-unsafe-webgpu','--disable-background-networking','about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
 console.log('Chrome PID',child.pid);
 const exited=new Promise(ok=>child.on('exit',ok)), cdp=new Cdp(child.stdio[3],child.stdio[4]);
 function observe(){

@@ -118,6 +118,29 @@ its time counts too.
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.
 
+## Browsers
+
+- **Launch Chromium through `chromium()`, never by a path.** It
+  (`scripts/agent-launch.mjs`) answers `CHROME` when it is set (a browser that
+  is not there is reported as unavailable), else the Chromium that Playwright
+  pins in `package.json`: by default its headless shell, which on an M5 Pro
+  launched in 74 ms against the full build's 185 ms and used 263 MB of memory
+  against 939 MB (the medians of 7 launches, every process of the browser
+  counted). Install both builds with `bunx playwright@<version> install
+  chromium chromium-headless-shell`.
+- **Name a need when the shell lacks what the test uses.**
+  `chromium({ needs })` answers the full build (Chrome for Testing, run with
+  `--headless=new`) for `gpu` (WebGPU and WebGL on the GPU: the shell has only
+  SwiftShader, whose fallback adapter a GPU app takes and then draws wrong),
+  `pdf` (the PDF viewer), `hevc`, `bfcache` (the shell restores no page from the
+  back/forward cache) and `perf` (timings that should match a person's
+  browser). A web drive of an app with a GPU module asks for `gpu` itself
+  (`webNeeds`).
+- **Wait for the event, not for its first sign.** The shell is faster than the
+  full build, so a test that reads a state while the browser still changes it
+  fails there first. `document.fullscreenElement` is set before the
+  display-mode media changes are sent; `fullscreenchange` comes after them.
+
 ## Pixels
 
 - **Downsample and crop.** Compare at 1x or lower, cropped to the region the

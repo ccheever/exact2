@@ -192,8 +192,8 @@ cargo test -p markdown-stress-data
 cargo test -p markdown-stress-data --test it fixtures:: -- --ignored
 cargo clippy -p markdown-stress-data -p markdown-stress-web -p markdown-stress-apple -p markdown-stress-linux --all-targets -- -D warnings
 
-# Start the local web server first; set CHROME to an installed Chrome binary
-# if it is not at the shared driver's default /Applications/Google Chrome.app.
+# Start the local web server first. The driver uses Playwright's Chromium;
+# set CHROME to use another browser.
 bun apps/markdown-stress/smoke.mjs web
 # Build each native host first, and run Linux on a Linux machine for Linux evidence.
 bun apps/markdown-stress/smoke.mjs macos

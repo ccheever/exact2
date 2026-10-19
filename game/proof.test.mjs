@@ -509,7 +509,7 @@ test('hidden placed-child refusal uses observed camera visibility and names layo
 });
 
 test('automatic no-web fallback is only a missing configured browser, never a failed proof', () => {
-  expect(webUnavailable('web carrier unavailable: /missing/chrome: ENOENT; set CHROME to an installed browser')).toBe(true);
+  expect(webUnavailable('web carrier unavailable: /missing/chrome: ENOENT; install Playwright\'s Chromium (docs/testing.md, Browsers), or set CHROME')).toBe(true);
   for (const log of ['asset ENOENT', 'Chrome exited (1)', 'web carrier unavailable: chrome: EACCES;', 'FAIL web pixel assertion']) expect(webUnavailable(log)).toBe(false);
 });
 

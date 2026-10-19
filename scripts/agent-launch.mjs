@@ -8,12 +8,13 @@ import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
-import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -323,20 +324,46 @@ export function launchFailure(error, log, { alive, chrome, env = process.env }) 
 // Blink's ui::PointerType fine is 4; ui::HoverType hover is 2. CDP emulation can override them.
 export const DESKTOP_INPUT = '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2';
 
-/** One browser lookup for the agent and its tests: an explicit override,
- * otherwise the platform's ordinary Chromium installation. A bare CHROME
- * name is resolved through PATH before a test decides whether to skip. */
-export function chromium(environment = process.env, platform = process.platform) {
-  const named = environment.CHROME ? [environment.CHROME] : platform === 'win32' ? [
-    resolve(environment.ProgramFiles ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'),
-    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
-    ...(environment.LOCALAPPDATA ? [resolve(environment.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe')] : []),
-    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe'),
-  ] : [platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'];
-  const candidates = named.flatMap(name => /[/\\]/.test(name) ? [resolve(name)]
-    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, name)));
-  const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
-  return { executable: executable ?? named[0], unavailable: executable ? null : `Chromium is missing at ${named.join(', ')}; set CHROME to an installed browser` };
+/** The needs that take Playwright's full Chromium (Chrome for Testing, run with `--headless=new`) in place of its
+ * headless shell: WebGPU and WebGL on the GPU (the shell has only SwiftShader, whose fallback adapter a GPU app takes
+ * silently and then draws wrong), the PDF viewer, HEVC, the back/forward cache (the shell restores no page
+ * from it), and timings that should match a person's browser. */
+export const CHROMIUM_NEEDS = ['gpu', 'pdf', 'hevc', 'bfcache', 'perf'];
+const SHELL = { 'darwin-arm64': 'chrome-headless-shell-mac-arm64', 'darwin-x64': 'chrome-headless-shell-mac-x64',
+  'linux-x64': 'chrome-headless-shell-linux64', 'linux-arm64': 'chrome-headless-shell-linux-arm64', 'win32-x64': 'chrome-headless-shell-win64' };
+/** Playwright's two Chromium builds, from its full build's path: the headless shell is the same revision, beside it in
+ * the same browsers directory (Playwright has no public path for the shell). */
+export function chromiumBuilds(full, platform = process.platform, arch = process.arch) {
+  const at = /^(.*)([/\\])chromium-(\d+)\2/.exec(full), dir = SHELL[`${platform}-${arch}`];
+  if (!at || !dir) return { full, shell: null };
+  const [, browsers, separator, revision] = at, exe = platform === 'win32' ? '.exe' : '';
+  return { full, shell: [browsers, `chromium_headless_shell-${revision}`, dir, `chrome-headless-shell${exe}`].join(separator) };
+}
+let pinned;
+const playwrightFull = () => pinned ??= createRequire(import.meta.url)('playwright-core').chromium.executablePath();
+const playwrightVersion = () => JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies['playwright-core'];
+const executableAt = (path) => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } };
+/** What a web drive of `app` (resolveApp's) needs of Chromium: the GPU when the app has a GPU module. */
+export const webNeeds = app => app?.hasGpu || (app?.manifest && gpuModules(app.manifest).length) ? ['gpu'] : [];
+/** The Chromium a drive or test launches: CHROME when it is set (a bare name is resolved through PATH; one that names
+ * no browser is `unavailable`), else the build Playwright pins (package.json): its headless shell, or its full build for a need in CHROMIUM_NEEDS. A browser
+ * that is not there is no error: `unavailable` says why and how to install it, so a test can skip on it. `environment`,
+ * `platform`, `arch` and `full` (the full build's path) are the machine's unless a test of this function names them. */
+export function chromium({ needs = [], environment = process.env, platform = process.platform, arch = process.arch, full } = {}) {
+  const unknown = needs.filter((need) => !CHROMIUM_NEEDS.includes(need));
+  if (unknown.length) throw new Error(`chromium: unknown need ${unknown.join(', ')} (${CHROMIUM_NEEDS.join(', ')})`);
+  if (environment.CHROME) {
+    const name = environment.CHROME, candidates = /[/\\]/.test(name) ? [resolve(name)]
+      : (environment.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => resolve(dir, name));
+    const executable = candidates.find(executableAt);
+    return { executable: executable ?? name, unavailable: executable ? null : `CHROME names no browser: ${name}` };
+  }
+  const builds = chromiumBuilds(full ?? playwrightFull(), platform, arch), wantsFull = needs.length > 0;
+  const executable = wantsFull ? builds.full : builds.shell;
+  if (executable && executableAt(executable)) return { executable, unavailable: null };
+  const [what, browser] = wantsFull ? ['Chromium', 'chromium'] : ['Chromium headless shell', 'chromium-headless-shell'];
+  const where = executable ? `at ${executable}` : `for ${platform}-${arch}`;
+  return { executable: executable ?? builds.full, unavailable: `${what} is missing ${where}; install it with bunx playwright@${playwrightVersion()} install ${browser}, or set CHROME to a browser` };
 }
 
 export function parseFlags(argv) {

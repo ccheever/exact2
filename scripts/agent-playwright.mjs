@@ -36,8 +36,8 @@ function unavailable(name, error) {
   return new Error(`web carrier unavailable: ${name}: ${message.replace(/\s+/g, ' ').trim()}`);
 }
 
-/** Why the engine `name` (chromium, firefox, webkit) cannot be driven here, or null: Chrome as agent.mjs
- * finds it, Firefox and WebKit as Playwright installs them. For tests to choose themselves (scripts/coverage.mjs). */
+/** Why the engine `name` (chromium, firefox, webkit) cannot be driven here, or null: Chromium as agent-launch.mjs
+ * `chromium` finds it, Firefox and WebKit as Playwright installs them. For tests to choose themselves (scripts/coverage.mjs). */
 export async function browserMissing(name) {
   if (name === 'chromium') return chromium().unavailable;
   const playwright = await import('playwright-core');

@@ -87,7 +87,7 @@ import { fileURLToPath } from 'node:url';
 import { conformArgs } from './conform-args.mjs';
 import { parseStep } from './conform-steps.mjs';
 import { open } from '../../scripts/agent.mjs';
-import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
+import { refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
 import { poolBrowsers, probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
@@ -144,8 +144,8 @@ if (knownByKey.size !== exact.length) throw new Error(`known-${crossBrowser}.jso
 const only = options['--only'];
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
-// The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
-process.env.CHROME ??= chromium().executable;
+// Each drive picks the Chrome oracle with agent-launch.mjs `chromium` (`webNeeds`): CHROME, else Playwright's headless
+// shell, or its full build for an app with a GPU module.
 // The outside servers the apps ask are answered locally (conformance/net.mjs): every browser, build
 // and child process this run starts inherits the route and its trust, and an outside request nothing answers is
 // a failure (an app catches a failed fetch and shows its fallback, so it would otherwise pass).
