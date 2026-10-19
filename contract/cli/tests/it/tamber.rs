@@ -786,6 +786,30 @@ fn set_mode_sets_the_windows_slice_in_its_actions_commit() {
     assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-mode");
 }
 
+/// A design whose fold refuses a token keeps its axes for `setMode` and the
+/// pins: the build says the refusal, not that the design declares no axes
+/// (a `when` token's light side edited on its own, in the JS loop).
+#[test]
+fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
+    let contract = "component App\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      column -exact-mode=\"dark-style=black\" testId=\"pinned\" background-color=\"page\"\n        text \"p\"\n";
+    let edited = MODES.replace("page = light-dark(#ffffff, #000000)", "page = light-dark(#fefefe, #000000)");
+    let path = app("refused-axes", &[("app.tamber", &edited), ("app.contract", contract)]);
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("a refused token builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert!(ids.iter().any(|id| id == "tamber-under-light"), "{ids:?}");
+    assert!(!ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    // The `when` line's own dark side edited: it builds, setMode and its pin
+    // intact.
+    let edited = MODES.replace("#161e27", "#171f28");
+    std::fs::write(path.with_file_name("app.tamber"), edited).unwrap();
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    press(&mut r, "dim");
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("light-dark(#ffffff, #171f28)"));
+    assert_eq!(row(&r, "pinned", StyleId::BackgroundColor), parsed("light-dark(#ffffff, #000000)"));
+}
+
 #[test]
 fn set_mode_takes_one_axis_and_value_and_the_last_of_an_action_wins() {
     let path = app(
