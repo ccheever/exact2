@@ -193,8 +193,8 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
     );
     assert!(batch.contains("\"kind\":\"button\"") && batch.contains("\"handlers\":[\"press\"]"));
     assert!(
-        batch.contains("\"kind\":\"scroll\"") && count(&batch, "content") == 1,
-        "one scroll container, one content size"
+        batch.contains("\"kind\":\"scroll\"") && count(&batch, "content") == 2,
+        "a content size for the one scroll container and the root"
     );
     assert!(
         batch.contains("\"font_size\":24,\"font_weight\":700"),

@@ -403,14 +403,15 @@ package final class Presenter {
         videoVisibility?.reset()
     }
 
-    /// Size the document to its roots, never smaller than the page's area,
-    /// at the area's origin inside the viewport's page margins.
+    /// Size the document to its roots and what overflows one that does not clip (`content`), never smaller
+    /// than the page's area, at the area's origin inside the viewport's page margins.
     func fitDocument() {
         let m = pageMargins
         var size = viewportSize
         for r in root.subviews {
-            size.width = max(size.width, r.frame.maxX)
-            size.height = max(size.height, r.frame.maxY)
+            let v = r as? NodeView, extent = v.flatMap { $0.scrollView == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
+            let reach = extent.map { r.convert(CGRect(origin: .zero, size: $0), to: root) } ?? .zero // through the root's transform
+            size = CGSize(width: max(size.width, r.frame.maxX, reach.maxX), height: max(size.height, r.frame.maxY, reach.maxY))
         }
         let frame = CGRect(origin: CGPoint(x: m.left, y: m.top), size: size)
         if root.frame != frame { root.frame = frame }
