@@ -164,11 +164,6 @@ fn native_paint_is_materials_filled_field() {
     assert_eq!([c.red(), c.green(), c.blue()], [0, 0, 0]);
 }
 
-fn look_fade(mut c: [u8; 4], alpha: f32) -> [u8; 4] {
-    c[3] = (c[3] as f32 * alpha).round() as u8;
-    c
-}
-
 #[test]
 fn focused_bare_fields_ring_the_outer_box() {
     let mut p = boot();

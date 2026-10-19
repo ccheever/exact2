@@ -81,7 +81,6 @@ mod tests {
     use super::*;
     use crate::presenter::PainterChoice;
     use exact_kernel::PropId;
-    use exact_runner::{DataError, Value};
     use std::path::PathBuf;
     /// An evdev key press (1 Escape, 45 x).
     fn press(code: u16) -> InputEvent {
