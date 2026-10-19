@@ -11,7 +11,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
-import { groupOf, shippedOf, sourceOf } from './base';
+import { baseColumns, groupOf, shippedOf, sourceOf } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { GONE, wire, type Reply } from './wire';
@@ -393,6 +393,8 @@ let commitsTold = 0;
 const scrubsOpen = new Set<string>();
 // Each scrub opened or ended (two in one answer still move it); each client paired or gone (the list read again).
 let scrubMoves = 0, clientMoves = 0;
+// The scale columns the app ships, as the last design read named them (stage 11).
+let shippedNow: string[] = [];
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -607,7 +609,8 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
   if (!app(file) || !snap || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
   return rescopeOf(op as { op: string; name: string; when: When[]; value: string }, snap.params, snap.tokenOf, async name => {
     const { error, reply } = await call('/__tamber', { method: 'explain', token: name }, 15000, token);
-    return error ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[]; files?: Record<string, string> });
+    // (A base name's explain, stage 11, has no branches to re-scope: none offered.)
+    return error || !Array.isArray(reply.ok?.whens) ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[]; files?: Record<string, string> });
   }, key);
 }
 
@@ -642,6 +645,7 @@ const sources: Sources = {
       // fallback (no running app reports it until T2).
       const stored = new Map<string, Stored[][]>();
       const baseRows = new Map<string, any>((read.base ?? []).map((r: any) => [String(r.name), r])), targets = shippedOf(read.targets);
+      shippedNow = targets;
       const tokens = ir.tokens.map((t: { name: string; kind: string; dials: string[]; role: string | null }, i: number) => {
         const tuples = (resolved[i].tuples ?? []) as any[];
         const sides = tuples.map(r => [false, true].map(dark => {
@@ -737,8 +741,11 @@ const sources: Sources = {
     const raw = reply.ok as { value?: string; whens?: { when: When[]; value: string }[]; dials?: string[]; names?: string[]; files?: Record<string, string>; kind?: string; package?: string; file?: string; base?: { override?: { text?: string } | null; columns?: Record<string, { value?: string }> } };
     // A base name (stage 11, `kind: 'base'`): its override is the app's line, edited as one; with none, the
     // base's value, read only (no per-tuple fold: each platform's, the first the app ships said).
-    const based = raw.kind === 'base', overridden = based && !!raw.base?.override;
-    const x = { value: based ? String(raw.base?.override?.text ?? Object.values(raw.base?.columns ?? {})[0]?.value ?? '') : String(raw.value ?? ''), whens: based ? [] : raw.whens ?? [], dials: raw.dials ?? [], names: raw.names ?? [], files: raw.files };
+    // An override with its branches (`whens`, as an app token's explain gives them) is edited as one; a base
+    // reply that names the override's text alone shows it read only, since its branches can't be read back.
+    const based = raw.kind === 'base', overridden = based && !!raw.base?.override, branched = Array.isArray(raw.whens);
+    const first = baseColumns(raw.base, shippedNow)[0]?.value ?? '';
+    const x = { value: based && !branched ? String(raw.base?.override?.text ?? first) : String(raw.value ?? ''), whens: branched ? raw.whens! : [], dials: raw.dials ?? [], names: raw.names ?? [], files: raw.files };
     // Of the revision the grid shows, or it is read again with the grid.
     if (x.files && digestKey(x.files) !== snap.digests) return { ...none, ok: false, error: 'The design changed while this cell was read; it is read again with the grid.' };
     const kind = snap.kinds.get(token) ?? (based ? 'length' : 'color');
@@ -754,7 +761,7 @@ const sources: Sources = {
       ok: true, error: '', token, kind, column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, param: snap.params.has(token), answer,
       // (Stage 11: the base's or a package's value is theirs; the app sets its own, from the grid.)
-      readOnly: based && !overridden ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : raw.package && raw.file !== designFile ? `The ${raw.package} package's, read only: Set for this app (in the grid) to change it here.` : '',
+      readOnly: based && !overridden ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : based && !branched ? 'Set for this app: the server names its line without its branches, so edit it in the app\'s design here once it does.' : raw.package && raw.file !== designFile ? `The ${raw.package} package's, read only: Set for this app (in the grid) to change it here.` : '',
     };
   },
   // The branch editor's typed fields for a value (parts.ts), the names in

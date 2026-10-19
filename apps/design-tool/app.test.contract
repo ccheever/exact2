@@ -1872,6 +1872,8 @@ test "stage 11: the base scale's rows are read-only, with each platform the app 
   tap "cell-space.md-0-light"
   clock data
   expect tree missing "branch-readonly"
+  expect text "branch-value" == "16px"
+  expect enabled "branch-value"
   tap "back-radius.md"
   clock data
   expect state editKind == "remove-token"
@@ -1884,4 +1886,23 @@ test "stage 11: the base scale's rows are read-only, with each platform the app 
   clock data
   expect tree has "set-for-app-radius.md"
   expect tree missing "token-over-radius.md"
+  // A package's token set for this app: the app's line over the package's, and back to the package.
+  tap "set-for-app-reading.measure"
+  clock data
+  expect state editKind == "set-token"
+  expect state editValue == "640px"
+  tap "apply"
+  clock data
+  clock +1
+  clock data
+  expect text "token-over-reading.measure" == "Set for this app, over the reading package's value."
+  expect tree missing "set-for-app-reading.measure"
+  tap "back-reading.measure"
+  clock data
+  expect state editKind == "remove-token"
+  tap "apply"
+  clock data
+  clock +1
+  clock data
+  expect tree has "set-for-app-reading.measure"
   request POST "/__stub/restart" {} as ada

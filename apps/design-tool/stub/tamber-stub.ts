@@ -291,7 +291,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // Stage 11 D's rows, as a test turns them on (`/__stub/scale`): length tuples like space.gap's.
       const scaled = SCALE ? SCALE_TOKENS.find(t => t.name === request.token) : undefined, baseRow = SCALE ? BASE_ROWS.find(r => r.name === request.token) : undefined;
       if (baseRow && !baseRow.override && request.method === 'resolve') return send({ ok: { name: baseRow.name, base: baseRow, files: FILES } });
-      if (baseRow && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, base: baseRow, files: FILES } });
+      // (An overridden base name explains as the app's line, its branches, with the base row: the shape asked of theme2.)
+      if (baseRow && !baseRow.override && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, base: baseRow, files: FILES } });
+      if (baseRow && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, token: baseRow.name, value: baseRow.override.text, whens: [], dials: [], names: [], base: baseRow, files: FILES } });
       if (scaled && request.method === 'resolve') return send({ ok: { token: scaled.name, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>) => ({ ...u, value: scaled.values[0], amount: parseFloat(scaled.values[0]) }))), ...(baseRow ? { base: baseRow } : {}) } });
       if (scaled && request.method === 'explain') return send({ ok: { token: scaled.name, value: scaled.values[0], whens: [], dials: [], names: [], files: FILES, ...(scaled.package ? { package: scaled.package, file: scaled.file } : {}) } });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
@@ -313,7 +315,11 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (SCALE && request.method === 'transaction') for (const o of request.ops ?? []) {
         const row = BASE_ROWS.find(r => r.name === o.name);
         if (row && o.op === 'set-token' && !row.override) { row.override = { file: 'app.tamber', line: 41, col: 3, text: String(o.value) }; SCALE_TOKENS.push({ name: row.name, kind: 'length', role: null, dials: [], entries: null, values: [String(o.value)], fallback: [String(o.value), String(o.value)] }); }
-        if (row && o.op === 'remove-token') { row.override = null; SCALE_TOKENS.splice(SCALE_TOKENS.findIndex(t => t.name === row.name), 1); }
+        if (row && o.op === 'remove-token') { row.override = null; const at = SCALE_TOKENS.findIndex(t => t.name === row.name); if (at >= 0) SCALE_TOKENS.splice(at, 1); }
+        // A package's token set for this app, or back to the package's: its row's file moves (A2 part 2).
+        const pkg = SCALE_TOKENS.find(t => t.name === o.name && t.package);
+        if (pkg && o.op === 'set-token' && pkg.file !== 'app.tamber') { pkg.file = 'app.tamber'; pkg.values = [String(o.value)]; }
+        if (pkg && o.op === 'remove-token') { pkg.file = 'reading.tamber'; pkg.values = ['640px']; }
       }
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
