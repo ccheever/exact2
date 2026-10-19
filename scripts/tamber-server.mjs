@@ -146,9 +146,10 @@ function spawnContract(appDir) {
  * design it serves now (a live edit's) as `{digest, source}`, `source` the
  * SHA-256 of the design file it was made from, or null for the plan's own.
  * `pairTtlMs` is a paired token's lifetime (`--pair-ttl`), `clock` the
- * pairing's time (tests). The returned `pairing` is the run's paired
- * clients, for stage 10 C's gateway (`lookup`, `onEnd`). */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now }) {
+ * pairing's time (tests), `remote()` the run's open remote doors (stage 10
+ * B's `list()`), shown with each pairing code. The returned `pairing` is the
+ * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`). */
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [] }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -649,7 +650,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!allows(scope, need, local)) return refusal(request.method, scope, need);
     // Presence is also checked as requests come, not only every 5 s.
     absent();
-    if (request.method === 'pair-code') return pairs.mint({ scope: request.scope, name: request.name });
+    if (request.method === 'pair-code') {
+      // Beside the code, where a remote client reaches this server and the certificate it checks (1.13).
+      const minted = pairs.mint({ scope: request.scope, name: request.name }), doors = minted.ok ? remote() : [];
+      return doors.length ? { ...minted, ok: { ...minted.ok, remote: doors } } : minted;
+    }
     if (request.method === 'clients') return { ok: { clients: [{ client: 'local', local: true, scope: 'write' }, ...pairs.list()] } };
     if (request.method === 'revoke') {
       if (typeof request.client !== 'string' || !pairs.has(request.client)) return { status: 404, error: { message: `no paired client \`${request.client}\`` } };
@@ -1160,9 +1165,10 @@ export async function serveAlone(argv) {
   try { asked = remoteArgs(argv); } catch (e) { console.error(`tamber serve: ${e.message}`); return 2; }
   const ttl = argv.includes('--pair-ttl') ? parseDuration(at('--pair-ttl')) : PAIR_TTL_MS;
   if (ttl == null) { console.error(`tamber serve: --pair-ttl ${at('--pair-ttl')}: a duration from 1m to 30d, as 90m, 12h or 2d`); return 2; }
-  const tamber = tamberServer({ appDir: dir, pairTtlMs: ttl });
+  let doors = null;
+  const tamber = tamberServer({ appDir: dir, pairTtlMs: ttl, remote: () => doors?.list() ?? [] });
   // The remote doors first: one that cannot bind leaves nothing listening.
-  const doors = await openRemote(tamber, asked).catch(async e => { console.error(`tamber serve: ${e.message}`); await tamber.close(); process.exit(1); });
+  doors = await openRemote(tamber, asked).catch(async e => { console.error(`tamber serve: ${e.message}`); await tamber.close(); process.exit(1); });
   const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: async () => { await Promise.all([tamber.close(), doors?.close()]); } })
     .catch(async e => { console.error(`tamber serve: cannot listen: ${e.code ?? e.message}`); await Promise.all([tamber.close(), doors?.close()]); process.exit(1); });
   console.log(origins.map(o => `${o.origin}/__tamber`).join('\n'));

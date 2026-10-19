@@ -89,7 +89,8 @@ on macOS and Linux.
 - `tamber/1.13` (LLP 1121 stage 10, commit A1) checks every request's scope in one place (see
   Scopes, under Authentication): `hello` says the client's `scope` and whether its token is the
   local one (`local`), and a request above its client's scope is 403 naming both (`scope`,
-  `needs`). Stage 10's later wire changes add under the same version.
+  `needs`). Stage 10's later wire changes add under the same version: A2's pairing, clients and
+  revoke; `pair-code`'s `remote`, the remote doors open (B).
 
 ## Where it runs
 
@@ -192,9 +193,12 @@ statuses:
 
 ### Pairing (*1.13*)
 
-- **A code:** `pair-code {scope, name?}` (the local token only) answers `{code, scope, expires}`.
-  `bun exact.mjs tamber pair <url> --scope read|propose|write [--name <name>]` mints one from this
-  machine. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
+- **A code:** `pair-code {scope, name?}` (the local token only) answers `{code, scope, expires,
+  remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
+  code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
+  checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
+  local end. It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
+  read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
   `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
   oldest.
 - **`POST /__tamber/pair {code, name?}`** needs no token, and is the one path a remote request

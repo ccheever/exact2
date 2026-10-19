@@ -412,3 +412,53 @@ test('a head sent late gains no time for its body', async () => {
     expect(closed).toBeLessThan(600);
   } finally { await remote.close(); }
 });
+
+test('pairing end to end: the code names the doors and the fingerprint; the other machine pairs over TLS and its token works there', async () => {
+  let doors = null;
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  const warned = [];
+  doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 }, tunnel: 0 }, { say: () => {}, warn: l => warned.push(l) });
+  try {
+    const { origin, fingerprint } = doors.info();
+    const port = Number(new URL(origin).port), tunnelPort = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+    // This machine: the local token, then a code.
+    const local = async (body) => {
+      let status = 0, text = '';
+      const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+      const res = { writeHead(s) { status = s; }, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } };
+      queueMicrotask(() => req.end(JSON.stringify(body)));
+      await wire.handle(req, res, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+      return { status, body: JSON.parse(text) };
+    };
+    let token = null;
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const minted = await local({ method: 'pair-code', scope: 'propose', name: 'laptop' });
+    expect(minted.status).toBe(200);
+    expect(minted.body.ok.remote).toEqual([{ origin, fingerprint }, { origin: `http://127.0.0.1:${tunnelPort}`, tunnel: true }]);
+    // The other machine, over TLS: the certificate is the one named, the code gives a token, the token works.
+    const paired = await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: minted.body.ok.code, name: 'laptop' }) });
+    expect(paired.fingerprint).toBe(fingerprint);
+    expect(paired.status).toBe(200);
+    const { token: paired_token, scope } = JSON.parse(paired.text).ok;
+    expect(scope).toBe("propose");
+    const hello = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired_token, 'content-type': 'application/json' }, body: '{"method":"hello"}' });
+    expect(hello.status).toBe(200);
+    expect(JSON.parse(hello.text).ok.scope).toBe("propose");
+    // The local token is still nothing there.
+    expect((await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).status).not.toBe(200);
+  } finally { await doors.close(); await wire.close(); }
+});
+
+test('with no door open, pair-code names none', async () => {
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  try {
+    let token = null, text = '';
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read' })));
+    await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+    const ok = JSON.parse(text).ok;
+    expect(typeof ok.code).toBe('string');
+    expect('remote' in ok).toBe(false);
+  } finally { await wire.close(); }
+});

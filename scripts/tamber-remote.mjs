@@ -240,7 +240,7 @@ export async function openRemote(wire, { remote, tunnel = null }, { say = consol
       throw Object.assign(new Error(`${flag} ${host.includes(':') ? `[${host}]` : host}:${port}: ${e.code ?? e.message}`), { code: e.code });
     }
   };
-  let certificate = null, origin = null, names = [];
+  let certificate = null, origin = null, names = [], tunnelOrigin = null;
   if (remote) {
     names = remoteNames(remote.host, interfaces);
     certificate = selfSignedCertificate(names);
@@ -263,10 +263,14 @@ export async function openRemote(wire, { remote, tunnel = null }, { say = consol
       // (No IPv6 loopback on this machine: nothing to hold. Anything else fails.)
       if (!['EADDRNOTAVAIL', 'EAFNOSUPPORT'].includes(e.code)) { await close(); throw Object.assign(new Error(`--trust-tunnel [::1]:${port}: ${e.code ?? e.message}`), { code: e.code }); }
     }
+    tunnelOrigin = `http://127.0.0.1:${port}`;
     warn(`TRUSTED TUNNEL ON: http://127.0.0.1:${port} takes a tunnel's requests (--trust-tunnel). Only paired tokens work through it, never this machine's local token; point only a tunnel you run at it.`);
   }
   return {
     info: () => certificate && { origin, fingerprint: certificate.fingerprint },
+    // What a local client shows beside a pairing code (pair-code's `remote`):
+    // each open door, the TLS one with its fingerprint to check.
+    list: () => [...(certificate ? [{ origin, fingerprint: certificate.fingerprint }] : []), ...(tunnelOrigin ? [{ origin: tunnelOrigin, tunnel: true }] : [])],
     async addPort({ host, port, handler }) {
       if (!certificate) throw new Error('addPort needs the TLS listener (--remote)');
       const server = secure(certificate, (req, res) => {
