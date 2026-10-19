@@ -12,7 +12,7 @@ use crate::tree::{
 };
 use crate::tree::{LayoutFlexboxContainer, LayoutPartialTreeExt, NodeId};
 use crate::compute::common::absolute::AbsolutePass;
-use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized, Ratio};
+use crate::compute::ratio::{container_sizes_through_ratio, sizes_through_ratio, transfer_into_unsized, Ratio};
 use crate::util::debug::debug_log;
 use crate::util::sys::{f32_max, f32_min, floor, new_vec_with_capacity, Vec};
 use crate::util::MaybeMath;
@@ -346,7 +346,9 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         inputs.known_dimensions_are_definite,
         parent_size,
         available_space,
+        inputs.sizing_mode,
     );
+    let known_dimensions = constants.node_outer_size;
 
     // 9. Flex Layout Algorithm
 
@@ -593,6 +595,7 @@ fn compute_constants(
     known_dimensions_are_definite: Size<bool>,
     parent_size: Size<Option<f32>>,
     available_space: Size<AvailableSpace>,
+    sizing_mode: SizingMode,
 ) -> AlgoConstants {
     let dir = style.flex_direction();
     let is_row = dir.is_row();
@@ -636,28 +639,37 @@ fn compute_constants(
         Direction::Rtl => content_box_inset.left += scrollbar_gutter.x,
     };
 
+    // EXACT PATCH 56: transfer the incoming dimensions during measurement.
+    // ContentSize omits preferred sizes; final dimensions must not regain a
+    // ratio floor derived from an authored size that flexing has replaced.
+    let ratio_height = if known_dimensions.height.is_none() {
+        crate::compute::ratio::percentage_height(&style, padding_border_sum, known_dimensions.width)
+    } else {
+        None
+    };
+    let (known_dimensions, min_size, max_size) = container_sizes_through_ratio(
+        &style,
+        padding_border_sum,
+        known_dimensions,
+        style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        sizing_mode,
+    );
     let node_outer_size = known_dimensions;
-    let node_inner_size = node_outer_size.map_height(|height| height.or_else(||
-        crate::compute::ratio::percentage_height(&style, padding_border_sum, node_outer_size.width)))
+    let node_inner_size = node_outer_size.map_height(|height| height.or(ratio_height))
         .maybe_sub(content_box_inset.sum_axes());
     let known_main_size_is_definite = known_dimensions_are_definite.main(dir);
     let has_definite_main_size = known_main_size_is_definite && known_dimensions.main(dir).is_some();
-    let has_definite_cross_size = known_dimensions_are_definite.cross(dir) && known_dimensions.cross(dir).is_some();
+    // EXACT PATCH 56: a ratio height from a definite width is definite for
+    // item sizing even when content can exceed its floor (CSS Sizing 4 §4.2).
+    let has_definite_cross_size = (known_dimensions_are_definite.cross(dir) && known_dimensions.cross(dir).is_some())
+        || (is_row && known_dimensions_are_definite.width && ratio_height.is_some());
     let cross_axis_available_space_is_definite =
         has_definite_cross_size || matches!(available_space.cross(dir), AvailableSpace::Definite(_));
     let gap = style.gap().resolve_or_zero(node_inner_size.or(Size::zero()), |val, basis| tree.calc(val, basis));
 
     let container_size = Size::zero();
     let inner_container_size = Size::zero();
-
-    // EXACT PATCH 12: the container's own limits through the ratio (`compute::ratio`).
-    let (_, min_size, max_size) = sizes_through_ratio(
-        &style,
-        padding_border_sum,
-        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-    );
 
     AlgoConstants {
         dir,
@@ -949,6 +961,12 @@ fn determine_available_space(
         None => outer_available_space
             .height
             .maybe_sub(constants.content_box_inset.vertical_axis_sum()),
+    };
+
+    let height = if constants.is_row && constants.has_definite_cross_size {
+        constants.node_inner_size.height.map(AvailableSpace::Definite).unwrap_or(height)
+    } else {
+        height
     };
 
     Size { width, height }

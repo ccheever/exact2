@@ -1635,12 +1635,100 @@ component Metronome
 The shapes are flat and positional, as `playSounds`'s hit is: "none" is `""` or
 `-1`. Keep the tracks in a `derive`, so a commit that changes nothing else
 compares them at once. `exactTransport()` says what plays (`state`, `reason`,
-`bpm`, `anchorAt`, `anchorBeat`); a playhead is `anchorBeat + (performanceNow() -
-anchorAt) * bpm / 60000` in a frame task gated on it being shown. The gate turning
+`bpm`, `anchorAt`, `anchorBeat`); the beat now is `anchorBeat + (performanceNow() -
+anchorAt) * bpm / 60000`. A playhead or beat light follows it as an animation, not a
+frame task: a loop whose opacity is a computed `linear()` curve on a clock timeline,
+re-read by a task keyed on the anchor ("Following the transport", below), so no app
+code runs while it plays. A frame task is for text that changes
+with the beat, gated on it being shown. The gate turning
 false stops it; `stopSounds()` silences what sounds and the next steps still play.
 For one or two scheduled hits, `playSounds(hits)` with `at=` is enough (a list of a
 shape whose fields are, in order, `src`, `at`, `gain` and `group`, then optionally
 `playbackRate` and then `pan`).
+
+**Following the transport.** A playhead or a beat light that follows `exactTransport()`
+is an animation, not a frame task: each light loops over its cycle (a bar, a lane) and
+Core Animation or the browser plays it, so no app code runs while the music plays.
+`level` passes a `linear()` curve's output through as the opacity, so a computed curve
+says when in the cycle the light is lit; a negative delay puts the cycle where the
+transport is; a clock timeline keeps a light mounted later in the same phase.
+
+```contract
+timeline Transport
+keyframes level
+  from opacity=0
+  to opacity=1
+
+shape Transport
+  state: string
+  reason: string
+  bpm: number
+  anchorAt: number
+  anchorBeat: number
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+fn pct(t: number, cycle: number): string = `${round(t / cycle * 10000) / 100}%`
+// Lit through the first `span` ms of each `cycle`, a cycle starting `start` ms along the
+// beat grid; `pos` is where the transport was when the loop mounted.
+fn lit(span: number, cycle: number, start: number, pos: number): string = `level ${cycle}ms linear(1 0% ${pct(span, cycle)}, 0 ${pct(span, cycle)} 100%) ${0 - (((pos - start) % cycle) + cycle) % cycle}ms infinite`
+
+component Beats
+  state playing = false
+  state pos = 0
+  state synced = ""
+  resource transport = exactTransport() as shape Transport
+  derive anchor = `${transport.anchorAt} ${transport.anchorBeat} ${transport.bpm}`
+  derive beat = 60000 / transport.bpm
+  sequence click when playing
+    play([Track(beats=1, loops=0, offset=0, output="", steps=[])], bpm=120)
+  // Where the transport is, read once per play, seek or tempo change.
+  task follow when transport.state == "playing" key=anchor
+    after(1, sync)
+  action sync
+    pos = transport.anchorBeat * beat + performanceNow() - transport.anchorAt
+    synced = anchor
+  action toggle
+    playing = not playing
+  view
+    column padding=16 gap=8
+      button press=toggle testId="toggle"
+        text (playing ? "Stop" : "Play")
+      row gap=8 role="img" aria-label="Beat"
+        for i in range(4) key=i
+          view flex=1 padding=4 border-radius=4 position="relative" background-color="-exact-tertiary-fill"
+            if transport.state == "playing" and synced == anchor
+              for g in [synced] key=g
+                view position="absolute" inset=0 border-radius=4 background-color="AccentColor" opacity=0
+                  animation=lit(beat, 4 * beat, i * beat, pos) animation-timeline=Transport
+```
+
+- **What stays a frame task:** text that changes with the beat ("Count-in 3"), and only while
+  it shows. Read the position in an action (a pause's) as `anchorBeat + (performanceNow() -
+  anchorAt) * bpm / 60000` beats.
+- **A light that is not just on or off** puts every stop in the curve. Over a four-step cycle,
+  a trail ember lit the step after the head and fading from 0.4 to 0.18 through it is
+  `linear(0 0% 25%, 0.4 25%, 0.18 50%, 0 50% 100%)`; a fade after the beat is a few stops
+  sampled from its easing.
+- **A one-off change at a beat** (dim two beats after a touch) is a finite animation whose delay
+  is that beat's distance from now; a second, identical `keyframes` name restarts it, as CSS
+  restarts an animation only when its name changes.
 
 Tests read the runner's record: `expect sound has "assets/ding.wav" at 0`, with any
 of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|edit`, or
