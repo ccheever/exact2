@@ -862,7 +862,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // A live `time` the runner formatted shows that text; its children are
     // the fallback for a host that cannot (docs/reference.md, Live time):
     // they stay views, hidden (index.html).
-    if node.props.str(PropId::SemanticTag) == Some("time") && node.props.str(PropId::Text).is_some() {
+    if node.props.str(PropId::SemanticTag) == Some("time") && node.props.str(PropId::Text).is_some()
+    {
         out.insert("data-time-shown".into(), String::new());
     }
     if node.node_type == NodeType::List {
