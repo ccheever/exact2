@@ -11,13 +11,14 @@
 // holds the turn (named in EXACT_PORT_TURNS, which its children inherit)
 // has it already.
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 
 /** The checkout `root`'s own port for the design tool's test runs
  * (EXACT_TOOL_PORT's default there): one of 200 above 17740, by the
- * checkout's path, so two checkouts share one only by chance and then take
- * turns on it; never a person's 7740. */
-export const checkoutPort = (root) => 17741 + (parseInt(createHash('sha256').update(root).digest('hex').slice(0, 8), 16) % 200);
+ * checkout's real path (however it is named), so two checkouts share one
+ * only by chance and then take turns on it; never a person's 7740. */
+export const checkoutPort = (root) => 17741 + (parseInt(createHash('sha256').update(realpathSync(root)).digest('hex').slice(0, 8), 16) % 200);
 
 /** The port that holds `port`'s turn. */
 export const turnPort = (port) => (port + 10000 <= 65535 ? port + 10000 : port - 10000);

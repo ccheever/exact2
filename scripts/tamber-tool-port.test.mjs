@@ -51,3 +51,35 @@ test('another port moves the tool\'s origin, the frame-ancestors (that origin al
   const plain = JSON.parse(spawnSync(process.execPath, ['-e', `const m = await import(${JSON.stringify(resolve(ROOT, 'scripts/tamber-server.mjs'))}); console.log(JSON.stringify({ origin: m.TOOL_ORIGIN, frame: m.FRAME_ANCESTORS, dist: m.TOOL_DIST }))`], { env, encoding: 'utf8' }).stdout.trim().split('\n').at(-1));
   expect(plain).toEqual({ origin: 'http://127.0.0.1:7740', frame: "frame-ancestors 'self' http://127.0.0.1:7740", dist: resolve(ROOT, 'target/design-tool-web') });
 });
+
+// One module load at `port` (TOOL_PORT is read once), running `body` with the module as `m`; its JSON line, or its error.
+const at = (port, body) => {
+  const r = spawnSync(process.execPath, ['-e', `const m = await import(${JSON.stringify(resolve(ROOT, 'scripts/tamber-tool-port.mjs'))}); console.log(JSON.stringify(await (async () => { ${body} })()))`], { cwd: ROOT, env: { ...process.env, EXACT_TOOL_PORT: String(port) }, encoding: 'utf8' });
+  return r.status === 0 ? JSON.parse(r.stdout.trim().split('\n').at(-1)) : { error: r.stderr };
+};
+
+test('the contract tests\' stage: a file or glob named in the tool\'s sources is the stage\'s, its own dist, a port the tests use for a page refused, the stub pruned', () => {
+  const src = resolve(ROOT, 'apps/design-tool');
+  const r = at(17998, `return m.stageToolTests(${JSON.stringify(src)}, ['web', 'apps/design-tool/app.test.contract', ${JSON.stringify(resolve(src, '*.test.contract'))}, '--size', '390x844', 'tests/elsewhere.test.contract'])`);
+  const stage = resolve(ROOT, 'target/design-tool-test-17998');
+  expect(r.dir).toBe(stage);
+  expect(r.args).toEqual(['web', resolve(stage, 'app.test.contract'), resolve(stage, '*.test.contract'), '--size', '390x844', 'tests/elsewhere.test.contract']);
+  expect(at(17998, 'm.stageToolTests(' + JSON.stringify(src) + ', []); return process.env.EXACT_WEB_DIST')).toBe(resolve(ROOT, 'target/design-tool-test-web-17998'));
+  // Another app, or 7740 itself: run as it is.
+  expect(at(17998, `return m.stageToolTests(${JSON.stringify(resolve(ROOT, 'apps/theme-fixture'))}, ['web'])`)).toBe(null);
+  expect(at(7740, `return m.stageToolTests(${JSON.stringify(src)}, ['web'])`)).toBe(null);
+  // The tests' own dev-loop page is on 8765: that port for the tool would make it the tool's own.
+  expect(at(8765, 'return m.stageTool({ tests: true })').error).toContain('names port 8765 for a page of its own');
+  // A file gone from the stub goes from the stage's, whatever its kind.
+  writeFileSync(resolve(stage, 'stub/gone.txt'), 'x');
+  at(17998, 'return m.stageTool({ tests: true }).dir');
+  expect(existsSync(resolve(stage, 'stub/gone.txt'))).toBe(false);
+});
+
+test('a build is current only for the stage it was made from: one staged since, by any process, differs', () => {
+  const r = at(17997, 'const a = m.stageTool(), b = m.stageTool(); m.builtFrom(a.dist, a.signature); return { same: a.signature === b.signature, built: m.builtFrom(a.dist), sig: a.signature }');
+  expect(r.same).toBe(true);
+  expect(r.built).toBe(r.sig);
+  // (What tamber-server.mjs buildTool compares before it accepts the build.)
+  expect(at(17997, `m.builtFrom(m.TOOL_DIST, 'a build made from another stage'); return m.builtFrom(m.TOOL_DIST) === m.stageTool().signature`)).toBe(false);
+});
