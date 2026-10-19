@@ -63,14 +63,6 @@ pub(crate) struct Item<T> {
     pub value: T,
     revision: u64,
 }
-/// The pipeline a quad draw bound (`Quads::bind`): `8 × direct +` its kind's
-/// index (a particle's `4 × soft + 2 × textured + additive`, a sprite's alpha
-/// mode, 4 for a placed child), and whether it writes depth.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct QuadPipeline {
-    pub variant: usize,
-    pub depth: bool,
-}
 struct Quad {
     words: [f32; 20],
 }
@@ -164,7 +156,7 @@ pub(crate) struct Quads {
 }
 #[path = "quad_coverage.rs"]
 mod coverage;
-pub(crate) use coverage::QuadFact;
+pub(crate) use coverage::{QuadFact, QuadPipeline};
 impl Quads {
     #[cfg(test)]
     pub fn pipeline_count(&self) -> u64 {

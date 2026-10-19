@@ -264,7 +264,8 @@ fn bounds_follow_a_moving_model_where_the_frame_drew_it() {
         };
         let mut s = poses(&gpu, args, direct);
         let (now, alpha) = {
-            let (w, alpha) = s.world_and_alpha_for_test();
+            let sim = s.sim().unwrap();
+            let (w, alpha) = (sim.world(), sim.alpha());
             let mover = w.resolve("mover").unwrap();
             (w.get::<Transform>(mover).unwrap().position.x, alpha)
         };
