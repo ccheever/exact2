@@ -1471,6 +1471,30 @@ Android's reader and the terminal.
     **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
     clients of stage 10. **Gate:** a changed accent in Figma Variables is proposed as a dial
     change and a changed folded value as a pinned override.
+    **10c. A hosted relay** (Charlie, 2026-10-19: "We will prob need one yes"; design to
+    follow, its own plan): remote pairing for a team that shares no machine or LAN. What
+    stage 10 already fixes, and the relay must keep (theme2's check, 2026-10-19):
+    - **End to end, not terminated.** The relay forwards the client's TLS to the developer's
+      server unopened (a blind pass-through), so the per-run certificate's fingerprint, shown
+      with the pairing code and pinned by the client, still authenticates the developer's
+      server, and the relay never sees a token, a design or a canvas. A relay that terminated
+      TLS would break pinning and see every secret: ruled out.
+    - **The developer's server dials out.** Stage 10's listener only accepts; behind a NAT the
+      server must hold an outbound connection to the relay that the relay hands client streams
+      down. A new connector beside `--remote`, with the same routing and the same
+      `access.remote`.
+    - **Peers are the relay's.** The socket's peer is the relay for every relayed client, so
+      stage 10's per-peer pairing limit would lump them together: relayed pairing leans on the
+      per-code burn rule and a per-relay-session limit; a peer address the relay reports is
+      never trusted for anything but display.
+    - **Origins.** The relay's public host names become the tool's and the canvas's origins
+      (two, as stage 10's two ports; the canvas stays a different origin from the tool and the
+      cookie stays server-bound), and the Origin check and `remote.info()` name them.
+    - **Tokens unchanged.** Pairing codes, scoped in-memory tokens, revoke and the method table
+      work as in stage 10; the relay adds no credential of its own to the protocol (it may
+      have an account for the developer's server to connect, outside `tamber/1`).
+    **Gate:** set by its plan; at least stage 10's three lines through the relay, and the relay
+    shown unable to read a token or a design.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.
@@ -1548,6 +1572,9 @@ the implementation follows until Charlie rules otherwise.
    attributed tokens, and leaves a hosted relay out. Is that the model, and does a team
    relay belong in this program? *Provisional default:* local clients only; pairing as D13
    proposes when stage 10 comes; no relay.
+   **Answered (Charlie, 2026-10-19):** pairing as D13 is the model (stage 10, local and LAN);
+   a hosted relay is wanted ("We will prob need one yes"), design to follow: §5 stage 10c,
+   end to end through the relay, the developer's server dialing out.
 5. **Persistence and contrast.** Should `setMode` and the root-size percentage persist and
    apply before the first frame (so Dim never flashes Black)? Is an authored contrast
    variant for app colours wanted (D5)? *Provisional default:* neither persists, as
