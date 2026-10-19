@@ -252,10 +252,10 @@ export function push(baseline: string, plan: Plan, now: Record<string, Record<st
   const byContext = tokensOf(doc);
   // One light side (theme2's 18:54 (2)): in the split layout each tuple's
   // collection has a Light mode for it; the person's choice (`prefer`, a
-  // token's collection) is written to every one of them.
+  // token and light side's collection, by `token@context`) is written to every one of them.
   now = structuredClone(now);
   for (const clash of lightClashes(doc, plan, now)) {
-    const chosen = prefer[clash.token];
+    const chosen = prefer[clash.key];
     const value = chosen === undefined ? undefined : clash.values[chosen];
     if (value === undefined) continue;
     for (const [collection, variable, mode] of clash.at) now[collection][variable][mode] = value;
@@ -281,10 +281,10 @@ export function push(baseline: string, plan: Plan, now: Record<string, Record<st
 /** In the split layout, the tokens whose Light modes (one per tuple's
  * collection, one light side in the design: theme2's 18:54 (2)) hold
  * different values: each the values by collection, and where they are. */
-export function lightClashes(doc: Json, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>): { token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] {
+export function lightClashes(doc: Json, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>): { key: string; token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] {
   const contexts = plan.collections.flatMap(c => Object.values(c.contexts));
   const light = lightTwins(doc, contexts);
-  const out: { token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] = [];
+  const out: { key: string; token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] = [];
   for (const [kept, twins] of light.twins) {
     if (!twins.length) continue;
     const group = new Set([kept, ...twins]);
@@ -301,7 +301,8 @@ export function lightClashes(doc: Json, plan: Plan, now: Record<string, Record<s
         }
       }
       const all = Object.values(values);
-      if (all.some(x => !same(x, all[0]))) out.push({ token, values, at });
+      // (one choice a token and light side: `token@context`, the side's first context)
+      if (all.some(x => !same(x, all[0]))) out.push({ key: `${token}@${kept}`, token, values, at });
     }
   }
   return out;

@@ -93,7 +93,7 @@ async function pushDesign() {
     for (const c of collected.clashes) {
       const pick = c.collections.find((name: string) => confirm(`${c.token.replaceAll('.', '/')} has different Light values in ${c.collections.join(' and ')}, and the design has one light side.\n\nOK takes ${name}'s for all; Cancel looks at the next.`));
       if (!pick) { show(`not pushed: pick one Light value for ${c.token}, or make them equal`); return; }
-      prefer[c.token] = pick;
+      prefer[c.key] = pick;
     }
     collected = await ask({ type: 'collect', prefer }, 'collected');
   }

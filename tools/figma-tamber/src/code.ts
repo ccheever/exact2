@@ -331,8 +331,9 @@ figma.ui.onmessage = async (msg: any) => {
         if (!baseline || !plan) { say({ type: 'error', message: 'pull first: this file has no Tamber variables from a pull' }); break; }
         const { now, unread } = await holding(plan);
         // A token whose Light modes differ (the split layout, one light side): asked first, the person's choice sent.
-        const clashes = lightClashes(JSON.parse(baseline), plan, now).filter(c => !msg.prefer?.[c.token]);
-        if (clashes.length) { say({ type: 'collected', clashes: clashes.map(c => ({ token: c.token, collections: Object.keys(c.values) })), unread }); break; }
+        // (a choice counts only for its own token and light side, and only naming one of that side's collections)
+        const clashes = lightClashes(JSON.parse(baseline), plan, now).filter(c => !(msg.prefer?.[c.key] in c.values));
+        if (clashes.length) { say({ type: 'collected', clashes: clashes.map(c => ({ key: c.key, token: c.token, collections: Object.keys(c.values) })), unread }); break; }
         say({ type: 'collected', source: push(baseline, plan, now, msg.prefer ?? {}), baseline, unread });
         break;
       }

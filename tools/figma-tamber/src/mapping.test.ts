@@ -2,7 +2,7 @@
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { conflicts, contextsMoved, doorOf, families, familiesOf, newEnough, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
 // The fixture's export as read (its dark-style axis under scheme=dark: one light mode), and the
 // same with that axis an ordinary one (a mode for each context), which most tests use.
@@ -149,4 +149,23 @@ test('the plugin builds (its main thread and its UI, as Figma loads them)', asyn
     const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife' });
     expect([entry, built.success, built.logs.map(String)]).toEqual([entry, true, []]);
   }
+});
+
+test('one choice a token and light side: two light sides of one token are asked and written apart', () => {
+  const ctx = (d: string, s: string, scheme: string) => `density=${d}, dark-style=${s}, ${scheme}`;
+  const contexts: Record<string, any> = {}, info: Record<string, any> = {};
+  const hex = (h: string) => ({ c: { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], hex: h } } });
+  for (const d of ['a', 'b']) for (const s of ['black', 'dim']) for (const scheme of ['light', 'dark']) {
+    contexts[ctx(d, s, scheme)] = [hex('#000000')];
+    info[ctx(d, s, scheme)] = { modes: { density: d, 'dark-style': s }, scheme };
+  }
+  const doc = { modifiers: { mode: { contexts, default: ctx('a', 'black', 'light') } }, sets: { exact: { sources: [{ $extensions: { exact: { axes: [{ name: 'density', values: ['a', 'b'] }, { name: 'dark-style', values: ['black', 'dim'], under: 'dark' }], contexts: info } } }] } } };
+  const plan = pull(doc, 2);
+  expect(plan.collections.length).toBe(4);
+  const red = { r: 1, g: 0, b: 0, a: 1 }, blue = { r: 0, g: 0, b: 1, a: 1 };
+  const now = held(plan, (c, _v, m, x) => (m === 'Light' && c.endsWith('density=a, dark-style=black') ? red : m === 'Light' && c.endsWith('density=b, dark-style=dim') ? blue : x));
+  const clashes = lightClashes(doc, plan, now);
+  expect(clashes.map(c => c.key)).toEqual(['c@density=a, dark-style=black, light', 'c@density=b, dark-style=black, light']);
+  const out = tokensOf(JSON.parse(push(JSON.stringify(doc), plan, now, { [clashes[0].key]: 'Tamber · density=a, dark-style=black', [clashes[1].key]: 'Tamber · density=b, dark-style=dim' })));
+  expect([ctx('a', 'black', 'light'), ctx('a', 'dim', 'light'), ctx('b', 'black', 'light'), ctx('b', 'dim', 'light')].map(k => out[k].c.$value.hex)).toEqual(['#ff0000', '#ff0000', '#0000ff', '#0000ff']);
 });

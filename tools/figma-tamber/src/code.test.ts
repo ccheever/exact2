@@ -730,9 +730,12 @@ test('theme2 18:54: in the split layout, Light values that differ for a token ar
   const fill = f.variables.find(v => v.name === 'accent/fill' && v.variableCollectionId === black.id);
   fill.valuesByMode[black.modes[0].modeId] = { r: 1, g: 0, b: 0, a: 1 };
   const asked = await send({ type: 'collect' }, 'collected');
-  expect(asked.clashes).toEqual([{ token: 'accent.fill', collections: ['Tamber · dark-style=black', 'Tamber · dark-style=dim'] }]);
+  expect(asked.clashes).toEqual([{ key: 'accent.fill@dark-style=black, light', token: 'accent.fill', collections: ['Tamber · dark-style=black', 'Tamber · dark-style=dim'] }]);
   expect(asked.source).toBeUndefined();
-  const chosen = await send({ type: 'collect', prefer: { 'accent.fill': 'Tamber · dark-style=black' } }, 'collected');
+  // A choice for another light side, or naming a collection not of this one, decides nothing.
+  expect((await send({ type: 'collect', prefer: { 'accent.fill@elsewhere': 'Tamber · dark-style=black' } }, 'collected')).clashes.length).toBe(1);
+  expect((await send({ type: 'collect', prefer: { 'accent.fill@dark-style=black, light': 'Tamber' } }, 'collected')).clashes.length).toBe(1);
+  const chosen = await send({ type: 'collect', prefer: { 'accent.fill@dark-style=black, light': 'Tamber · dark-style=black' } }, 'collected');
   const out = tokensOf(JSON.parse(chosen.source));
   expect([out['dark-style=black, light']['accent.fill'].$value.hex, out['dark-style=dim, light']['accent.fill'].$value.hex]).toEqual(['#ff0000', '#ff0000']);
 });
