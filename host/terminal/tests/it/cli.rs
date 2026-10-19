@@ -1012,16 +1012,16 @@ fn layout_and_plan_answer_as_json() {
         ),
         "{layout}"
     );
-    // A ch of padding is the cell's width, both ways; its corners resolved.
+    // A ch of padding is a column across and, half a row, none down (the
+    // terminal's space rule, LLP 1121 stage 11 (c)): the box is its child's
+    // two rows; its corners resolved.
     assert!(
-        layout.contains("\"x\":0,\"y\":0,\"w\":176,\"h\":48,\"cells\":{\"x\":0,\"y\":0,\"w\":22,\"h\":3},\"radius\":[8,8,8,8],\"testId\":\"box\""),
+        layout.contains("\"x\":0,\"y\":0,\"w\":176,\"h\":32,\"cells\":{\"x\":0,\"y\":0,\"w\":22,\"h\":2},\"radius\":[8,8,8,8],\"testId\":\"box\""),
         "{layout}"
     );
-    // (The ch down is half a row: the painter's rows put the child one row
-    // below the box's top and none above its bottom.)
     assert!(
         layout.contains(
-            "\"x\":8,\"y\":8,\"w\":160,\"h\":32,\"cells\":{\"x\":1,\"y\":1,\"w\":20,\"h\":2}"
+            "\"x\":8,\"y\":0,\"w\":160,\"h\":32,\"cells\":{\"x\":1,\"y\":0,\"w\":20,\"h\":2}"
         ),
         "{layout}"
     );

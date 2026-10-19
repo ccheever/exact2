@@ -116,6 +116,15 @@ impl Kernel {
         let _ = self.replace_env(next);
     }
 
+    /// Lay spaces out as a terminal does: a padding, margin or gap in points
+    /// is whole cells on its axis (LLP 1101 §4, LLP 1121 stage 11 (c)). The
+    /// terminal host sets it beside [`Self::set_cell_borders`]; it is this
+    /// kernel's alone.
+    pub fn set_cell_spaces(&mut self, on: bool) {
+        let next = self.arena.env().with_cell_spaces(on);
+        let _ = self.replace_env(next);
+    }
+
     pub(super) fn replace_env(&mut self, env: Env) -> Result<bool, KernelError> {
         if *self.arena.env() == env {
             return Ok(false);

@@ -216,11 +216,37 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
     { testId: 'box', radius: 'radius.full' },
     { testId: 'round', radius: 'radius.md' },
   ] }, base);
-  expect(rows.map(r => r.ok)).toEqual([true, false, true, false]);
+  // (Half a row of padding laid out and painted as a row above and none
+  // below, as before stage 11 (c): not whole cells, nor even.)
+  expect(rows.map(r => r.ok)).toEqual([false, false, true, false]);
   expect(rows[0].margins).toEqual({ top: 1, bottom: 0, left: 1, right: 1 });
   expect(rows[0].box.cells).toEqual({ x: 0, y: 0, w: 22, h: 3 });
+  expect(rows[0].why).toContain('expected 0 rows and 1 columns');
   expect(rows[1].why).toContain('not the same on opposite edges');
   expect(rows[3].why).toContain('radii 8, 8, 8, 8, expected 0');
+  // As the kernel lays a terminal's spaces out, in whole cells (stage 11
+  // (c)): half a row of padding is none, the box its child's two rows.
+  const rounded = { ...layout, nodes: layout.nodes.map(n => (
+    n.testId === 'inner' ? { ...n, y: 0, cells: { x: 1, y: 0, w: 20, h: 2 } }
+      : n.testId === 'box' ? { ...n, h: 32, cells: { x: 0, y: 0, w: 22, h: 2 } } : n)) };
+  const evened = check('terminal', rounded, null, { boxes: [{ testId: 'box', child: 'inner', padding: 'space.sm', even: true }] }, base);
+  expect(evened.map(r => r.ok)).toEqual([true]);
+  // A gap, in whole cells on its axis: 8 px down is none, 16 px a row, 24
+  // px (a row and a half) a row, the tie toward zero; one laid out at 24 px
+  // and painted two rows is refused twice over.
+  const listed = { ...layout, nodes: [
+    { id: 1, x: 0, y: 0, w: 40, h: 16, cells: { x: 0, y: 0, w: 5, h: 1 }, testId: 'a' },
+    { id: 2, x: 0, y: 16, w: 40, h: 16, cells: { x: 0, y: 1, w: 5, h: 1 }, testId: 'b' },
+    { id: 3, x: 0, y: 48, w: 40, h: 16, cells: { x: 0, y: 3, w: 5, h: 1 }, testId: 'c' },
+    { id: 4, x: 0, y: 88, w: 40, h: 16, cells: { x: 0, y: 6, w: 5, h: 1 }, testId: 'd' },
+  ] };
+  const gaps = check('terminal', listed, null, { boxes: [
+    { testId: 'a', between: ['a', 'b'], gap: 8 },
+    { testId: 'b', between: ['b', 'c'], gap: 16 },
+    { testId: 'c', between: ['c', 'd'], gap: 24 },
+  ] }, base);
+  expect(gaps.map(r => r.ok)).toEqual([true, true, false]);
+  expect(gaps[2].why).toBe('gap 24, expected 16; its gap paints 2 cells, expected 1');
   // A reply missing what is measured fails: no cells for an even box, radii not four lengths (an elliptical corner's pair).
   const thin = { ...layout, nodes: layout.nodes.map(n => ({ ...n, cells: undefined, radius: n.testId === 'round' ? [[8, 4], 8, 8, 8] : n.radius })) };
   const missing = check('terminal', thin, null, { boxes: [

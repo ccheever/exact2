@@ -5125,10 +5125,30 @@ Built to theme2's 15:32 approval, on B1 and B2.
     for E's gate;
   - a step's text stays one argument (`type <id> <text…>`).
 
-  On 2026-10-19 it passed 20 of 21. The one failure is the assertion theme2 asked for: a box padded `space.sm` whose
-  child fills it paints 1 row above and 0 below. `1ch` down is half a row, so the painter's rounding drifts between
-  the edges. Whether the terminal column's vertical spaces should be rows (`lh`) is theme2's for stage 11 E (QUEUE:
-  "The terminal column's vertical spaces"). Paddings and gaps hold the kernel's px: xs 0, sm 8, md 12 (the design's),
-  lg 16, xl 16; the header 44; corners 0.
+  On 2026-10-19 it first passed 20 of 21. The one failure was the assertion theme2 asked for: a box padded `space.sm`
+  whose child fills it painted 1 row above and 0 below, since `1ch` down is half a row and the painter rounded each
+  edge's position.
+- **The terminal's spaces in whole cells** (theme2's 19:09 ruling, option (2), superseding the painter half of 18:35):
+  the column stays in `ch`, and the kernel lays a terminal's spaces out in whole cells. Under the terminal's space rule
+  (`Env::cell_spaces`, set only by the terminal host beside `cell_borders`; LLP 1101 §4's row), a padding, margin or
+  gap that resolves to points (a `calc()` that resolves to points included) is rounded before layout to whole cells
+  on its axis, rows down and columns across, to the nearest with a tie toward zero (`cells::space`). A percentage,
+  or a `calc()` with one, is not rounded: the rule's limit.
+  - The numbers: down, space.xs, sm and md (0, 8 and 8 px) are 0 rows and space.lg and xl (16 px) 1 row; the clone's
+    14, 12 and 10 px are 1 row each; across, a `ch` is a column (12 px, a column and a half, is one).
+  - px and cells agree by construction, so the painter, scroll, `scrollIntoView`, follow-end, the collections' windows
+    and the inline transcript need no change. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
+    not landed); Astra's round 1 found it drifted from px cumulatively (item k of a gap-sm list at px 24k, painted on
+    row k).
+  - The visible change, accepted: a box padded `space.sm` shrinks to its content (the `even` box is its child's two
+    rows, 0 rows of padding each side), and a gap-sm list has no blank row between items.
+  - scale-check: the terminal's paddings and gaps are expected in whole cells on each axis, in px and in cells, and
+    the `even` box paints equal rows above and below. Every other host is unchanged (the rule is off).
+  - Tests: `kernel/src/style/cells.rs` (`space`, and the engine's style with and without the rule),
+    `host_scale_tests.rs` `spaces_are_whole_cells_so_rows_follow_the_layout` (item k of a gap-sm list on row k,
+    where its px frame is; revealing item 30 in a ten-row scroller shows items 21 to 30), `layout_and_plan_answer_as_json`
+    (`1ch` of padding: a column across, none down) and `scale-check.test.mjs`.
+  - The run: terminal 21/21 (even 0/1/0/1 cells top/right/bottom/left; sm padding 8, 0 px; md 8, 16; lg and xl 16,
+    16; gaps 0, 8, 8, 16, 16 px across; the header 44; corners 0).
 - The other hosts run the same plan, now 21 checks with the `even` box: 21/21 each on web, Linux, macOS, iOS and the
   reader. conform: 5/5, and Linux 5/5.

@@ -231,6 +231,8 @@ impl<D: DataSource> Host<D> {
         exact_kernel::style::metrics::set_column(exact_kernel::style::metrics::Column::Terminal);
         let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer::default()));
         kernel.set_cell_borders(true);
+        // And its spaces in whole cells (LLP 1121 stage 11 (c)).
+        kernel.set_cell_spaces(true);
         // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
         let font = exact_kernel::ControlFont {
             family: "ui-monospace".into(),

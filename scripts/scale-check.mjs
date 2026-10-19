@@ -106,6 +106,9 @@ export function fitRadius(starts, limit) {
 
 /** A box's expected radius once CSS reduces it to the box. */
 export const reduced = (radius, w, h) => Math.min(radius, w / 2, h / 2);
+// A length in whole cells as the terminal paints it (LLP 1121 stage 11 (c)):
+// to the nearest cell, a tie toward zero.
+export const cellsOf = (px, cell) => Math.sign(px) * Math.max(0, Math.ceil(Math.abs(px / cell) - 0.5));
 
 /** A host's column in the base scale's table (LLP 1121 stage 11 B): every
  * web build and the Linux desktop draw the neutral look; `terminal` is the
@@ -241,8 +244,11 @@ export function check(host, layout, image, expect, base = () => undefined) {
       if (!child) fail(`its child ${want.child ?? '(unnamed)'} is not in the layout`);
       else {
         row.padding = [child.x - box.x, child.y - box.y];
-        row.expectedPadding = padding;
-        if (row.padding.some(p => Math.abs(p - padding) > 0.5)) fail(`padding ${row.padding.join(', ')}, expected ${padding}`);
+        // In a grid of cells (the terminal's), the kernel lays each space out
+        // in whole cells on its axis (LLP 1121 stage 11 (c)): across, then down.
+        const wantPx = layout.cell ? [cellsOf(padding, layout.cell.w) * layout.cell.w, cellsOf(padding, layout.cell.h) * layout.cell.h] : [padding, padding];
+        row.expectedPadding = layout.cell ? wantPx : padding;
+        if (row.padding.some((p, i) => Math.abs(p - wantPx[i]) > 0.5)) fail(`padding ${row.padding.join(', ')}, expected ${wantPx.join(', ')}`);
         // In a grid of cells (the terminal's): the padding as the painter
         // rounds it; for a box `even` (a child filling it, but for its
         // padding), the same whole number of rows above and below, of
@@ -254,6 +260,13 @@ export function check(host, layout, image, expect, base = () => undefined) {
           const [b, c] = [box.cells, child.cells];
           row.margins = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
           if (want.even && (row.margins.top !== row.margins.bottom || row.margins.left !== row.margins.right)) fail(`its padding paints ${row.margins.top}/${row.margins.right}/${row.margins.bottom}/${row.margins.left} cells (top/right/bottom/left): not the same on opposite edges`);
+          // Each edge a length in whole cells on its axis (stage 11 (c)):
+          // the leading edges always, the far ones for a box `even`.
+          if (layout.cell) {
+            const [down, across] = [cellsOf(padding, layout.cell.h), cellsOf(padding, layout.cell.w)];
+            const m = row.margins;
+            if (m.top !== down || m.left !== across || (want.even && (m.bottom !== down || m.right !== across))) fail(`its padding paints ${m.top}/${m.right}/${m.bottom}/${m.left} cells (top/right/bottom/left), expected ${down} rows and ${across} columns`);
+          }
         }
       }
     }
@@ -270,7 +283,16 @@ export function check(host, layout, image, expect, base = () => undefined) {
         if (axis !== 'row' && axis !== 'column') fail('its children are aligned on neither axis: name its `axis` (row or column)');
         else {
           row.gap = axis === 'row' ? b.x - (a.x + a.w) : b.y - (a.y + a.h);
-          if (Math.abs(row.gap - gap) > 0.5) fail(`gap ${row.gap}, expected ${gap}`);
+          const cell = layout.cell && (axis === 'row' ? layout.cell.w : layout.cell.h);
+          const wantGap = cell ? cellsOf(gap, cell) * cell : gap;
+          if (Math.abs(row.gap - wantGap) > 0.5) fail(`gap ${row.gap}, expected ${wantGap}`);
+          // In a grid of cells, the gap as a length in whole cells.
+          if (layout.cell && a.cells && b.cells) {
+            const cells = axis === 'row' ? b.cells.x - (a.cells.x + a.cells.w) : b.cells.y - (a.cells.y + a.cells.h);
+            const wantCells = cellsOf(gap, axis === 'row' ? layout.cell.w : layout.cell.h);
+            row.gapCells = cells;
+            if (cells !== wantCells) fail(`its gap paints ${cells} cells, expected ${wantCells}`);
+          }
         }
       }
     }

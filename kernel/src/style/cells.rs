@@ -27,6 +27,19 @@ pub fn border(widths: [f32; 4]) -> [f32; 4] {
     std::array::from_fn(|i| if widths[i] > 0.0 { cell[i] } else { 0.0 })
 }
 
+/// A space (a padding, margin or gap) of `px` as a terminal lays it out,
+/// whole cells of `cell` (a [`ROW`] down, a [`COLUMN`] across): to the
+/// nearest, a tie toward zero, so half a cell of space is none (LLP 1101 §4,
+/// a declared deviation beside [`border`]; LLP 1121 stage 11 (c)). Applied
+/// only under a kernel's terminal space rule ([`crate::Env::cell_spaces`]).
+pub fn space(px: f32, cell: f32) -> f32 {
+    let n = ((px / cell).abs() - 0.5).ceil().max(0.0);
+    match n == 0.0 {
+        true => 0.0,
+        false => (n * cell).copysign(px),
+    }
+}
+
 /// `<number>ch` or `<number>lh` in pixels, or `None` when the text is neither.
 pub fn parse(text: &str) -> Option<f32> {
     let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
@@ -91,5 +104,56 @@ mod tests {
         s.set_dynamic(StyleId::PaddingTop, &StyleValue::Text("1lh".into()))
             .unwrap();
         assert_eq!(s.padding_top, crate::Dimension::Points(16.0));
+    }
+
+    #[test]
+    fn a_space_is_whole_cells_on_its_axis_under_the_terminal_rule() {
+        // Down, a row: space.xs, sm, md (0, 8, 8 px) none, lg and xl (16) one;
+        // an app's 14, 12 and 10 px one each; a tie toward zero.
+        for (px, rows) in [
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (8.0, 0.0),
+            (10.0, 1.0),
+            (12.0, 1.0),
+            (14.0, 1.0),
+            (16.0, 1.0),
+            (24.0, 1.0),
+            (25.0, 2.0),
+        ] {
+            assert_eq!(space(px, ROW), rows * ROW, "{px}");
+        }
+        // Across, a column: a ch is one; a negative margin by its size.
+        assert_eq!(space(8.0, COLUMN), 8.0);
+        assert_eq!(space(12.0, COLUMN), 8.0);
+        assert_eq!(space(-24.0, ROW), -16.0);
+        assert_eq!(space(-8.0, ROW).to_bits(), 0.0f32.to_bits());
+        // The engine's style: padding, margin and gap in points, each on its
+        // axis; a percentage as it is; nothing changes without the rule.
+        let mut s = StyleProps::default();
+        for (id, v) in [
+            (StyleId::PaddingTop, "8px"),
+            (StyleId::PaddingLeft, "8px"),
+            (StyleId::MarginBottom, "14px"),
+            (StyleId::MarginRight, "12px"),
+            (StyleId::PaddingRight, "10%"),
+            (StyleId::RowGap, "8px"),
+            (StyleId::ColumnGap, "12px"),
+        ] {
+            s.set_dynamic(id, &StyleValue::Text(v.into())).unwrap();
+        }
+        let env = crate::Env::default();
+        let plain = s.to_taffy(crate::NodeType::View, &env);
+        let celled = s.to_taffy(crate::NodeType::View, &env.with_cell_spaces(true));
+        use taffy::style::{LengthPercentage as Lp, LengthPercentageAuto as Lpa};
+        assert_eq!(plain.padding.top, Lp::length(8.0));
+        assert_eq!(celled.padding.top, Lp::length(0.0));
+        assert_eq!(celled.padding.left, Lp::length(8.0));
+        assert_eq!(celled.padding.right, Lp::percent(0.1));
+        assert_eq!(celled.margin.bottom, Lpa::length(16.0));
+        assert_eq!(celled.margin.right, Lpa::length(8.0));
+        assert_eq!(celled.gap.height, Lp::length(0.0));
+        assert_eq!(celled.gap.width, Lp::length(8.0));
+        assert_eq!(plain.gap.width, Lp::length(12.0));
     }
 }

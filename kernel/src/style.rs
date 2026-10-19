@@ -201,6 +201,16 @@ impl Dimension {
         }
     }
 
+    /// A space (padding, margin, gap) under `env`'s terminal space rule: a
+    /// length that resolves to points is whole cells of `cell` on its axis
+    /// ([`cells::space`]); a percentage or a `calc()` with one is as it is.
+    pub(crate) fn spaced(self, env: &Env, cell: f32) -> Dimension {
+        match (env.cell_spaces, self.resolve(env)) {
+            (true, Dimension::Points(v)) => Dimension::Points(cells::space(v, cell)),
+            _ => self,
+        }
+    }
+
     /// Whether a padding lowers to zero as the engine compares lengths, by
     /// bits: `auto`, or `+0` points or percent — never `-0`.
     fn lp_is_zero(self, env: &Env) -> bool {
@@ -1171,11 +1181,12 @@ impl StyleProps {
     /// without building the engine's style: a kernel that mirrors no engine
     /// tree checks content regions too (LLP 1047 §10).
     pub(crate) fn unpadded(&self, env: &Env) -> bool {
+        let (down, across) = (cells::ROW, cells::COLUMN);
         [
-            self.padding_top,
-            self.padding_right,
-            self.padding_bottom,
-            self.padding_left,
+            self.padding_top.spaced(env, down),
+            self.padding_right.spaced(env, across),
+            self.padding_bottom.spaced(env, down),
+            self.padding_left.spaced(env, across),
         ]
         .into_iter()
         .all(|p| match p.resolve(env) {
@@ -1326,17 +1337,19 @@ impl StyleProps {
                 left: self.left.to_lpa(env),
             }
         };
+        // Under a terminal's space rule, each in whole cells on its axis.
+        let (down, across) = (cells::ROW, cells::COLUMN);
         s.margin = taffy::geometry::Rect {
-            top: self.margin_top.to_lpa(env),
-            right: self.margin_right.to_lpa(env),
-            bottom: self.margin_bottom.to_lpa(env),
-            left: self.margin_left.to_lpa(env),
+            top: self.margin_top.spaced(env, down).to_lpa(env),
+            right: self.margin_right.spaced(env, across).to_lpa(env),
+            bottom: self.margin_bottom.spaced(env, down).to_lpa(env),
+            left: self.margin_left.spaced(env, across).to_lpa(env),
         };
         s.padding = taffy::geometry::Rect {
-            top: self.padding_top.floor_lp(env, 0.0),
-            right: self.padding_right.floor_lp(env, 0.0),
-            bottom: self.padding_bottom.floor_lp(env, 0.0),
-            left: self.padding_left.floor_lp(env, 0.0),
+            top: self.padding_top.spaced(env, down).floor_lp(env, 0.0),
+            right: self.padding_right.spaced(env, across).floor_lp(env, 0.0),
+            bottom: self.padding_bottom.spaced(env, down).floor_lp(env, 0.0),
+            left: self.padding_left.spaced(env, across).floor_lp(env, 0.0),
         };
         let [top, right, bottom, left] = self.border_widths_in(env);
         s.border = taffy::geometry::Rect {
@@ -1356,9 +1369,13 @@ impl StyleProps {
         s.align_self = align_self(self.align_self);
         s.align_content = align_content(self.align_content);
         s.justify_items = justify_items(self.justify_items, self.direction);
+        let gap = |v: f32, cell: f32| match env.cell_spaces {
+            true => cells::space(v, cell),
+            false => v,
+        };
         s.gap = taffy::geometry::Size {
-            width: length(self.column_gap),
-            height: length(self.row_gap),
+            width: length(gap(self.column_gap, across)),
+            height: length(gap(self.row_gap, down)),
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
