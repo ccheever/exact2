@@ -70,16 +70,30 @@ export function stageTool({ tests = false } = {}) {
  * this checkout's tool: on the checkout's own port (`checkoutPort`, unless
  * EXACT_TOOL_PORT names one), from a stage with its stub and tests, built
  * into its own dist; the stage's dir, and `args` with each test file or glob
- * (`….test.contract`) in the tool's sources, by its real path, the stage's,
- * and nothing else (a URL, an op, a flag's value); null to run as it is
- * (another app, or EXACT_TOOL_PORT=7740). */
-export function stageToolTests(dir, args) {
+ * in the tool's sources, by its real path, the stage's. `tested(i)` says
+ * which arguments are test files (app-cli knows each one's role: a test
+ * verb's operand, `--test`'s value); nothing else maps (a URL, an op, a
+ * flag's value). Null to run as it is (another app, or EXACT_TOOL_PORT=7740). */
+export function stageToolTests(dir, args, tested = () => false) {
   const from = resolve(ROOT, 'apps/design-tool');
   if (!existsSync(from) || realpathSync(dir) !== realpathSync(from) || TOOL_PORT === 7740) return null;
   const staged = stageTool({ tests: true }), real = realpathSync(from);
   process.env.EXACT_WEB_DIST = staged.dist;
   // (A glob's real path is its directory's, up to its first wildcard.)
   const realOf = a => { const at = resolve(a), glob = at.search(/[*?[]/); if (glob < 0) return existsSync(at) ? realpathSync(at) : at; const head = dirname(at.slice(0, glob + 1)); return existsSync(head) ? realpathSync(head) + at.slice(head.length) : at; };
-  const into = a => { if (!/\.test\.contract$/.test(a)) return a; const at = realOf(a); return at === real || at.startsWith(`${real}/`) ? resolve(staged.dir, relative(real, at)) : a; };
-  return { dir: staged.dir, args: args.map(a => (a.startsWith('-') ? a : into(a))) };
+  const into = a => { const at = realOf(a); return at === real || at.startsWith(`${real}/`) ? resolve(staged.dir, relative(real, at)) : a; };
+  return { dir: staged.dir, args: args.map((a, i) => (tested(i) ? into(a) : a)) };
+}
+
+/** Which of a verb's arguments (after the verb) are test files: a test verb's
+ * operands after its host, and `--test`'s value; `valued` is help.mjs
+ * `knownFlags(verb)` (each flag, and whether it takes a value). */
+export function testFiles(verb, rest, valued) {
+  const tested = new Set();
+  for (let i = 0, operands = 0; i < rest.length; i++) {
+    const flag = rest[i].startsWith('-') ? rest[i].split('=')[0] : null;
+    if (flag) { if (valued.get(flag) && !rest[i].includes('=')) { if (flag === '--test') tested.add(i + 1); i++; } continue; }
+    if (verb === 'test' && operands++ > 0) tested.add(i);
+  }
+  return tested;
 }
