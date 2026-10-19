@@ -514,6 +514,30 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertFalse(fab.isFirstResponder)
     }
 
+    /// A field its autofocus focused, then taken out of the window in the
+    /// same turn (a sheet's route going into the controller UIKit presents,
+    /// a grouped row into a cell not yet in one; grocery-list, round 24):
+    /// its autofocus runs again where it lands. Taken out a turn later, it
+    /// has had its autofocus, and coming back takes nothing.
+    func testAnAutofocusMovedOutOfTheWindowInItsTurnRunsWhereItLands() throws {
+        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "input", ["autofocus": "true"], w: 300, h: 34)
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        p.syncAccessibility()
+        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.field)
+        XCTAssertTrue(field.isFirstResponder, "its autofocus focused it")
+        let home = try XCTUnwrap(node.superview), elsewhere = UIView(frame: window.bounds)
+        elsewhere.addSubview(node)
+        XCTAssertFalse(field.isFirstResponder, "out of the window, UIKit resigned it")
+        window.addSubview(elsewhere)
+        p.syncAccessibility()
+        XCTAssertTrue(field.isFirstResponder, "where it landed, its autofocus focused it again")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        elsewhere.removeFromSuperview()
+        home.addSubview(node)
+        p.syncAccessibility()
+        XCTAssertFalse(field.isFirstResponder, "a turn later, it had had its autofocus")
+    }
+
     /// A FAB that asked for focus (a tabindex) keeps the focus its tap gave
     /// it against an autofocus mounted after the press, by work the press
     /// did not start (a timer's), as Chrome and AppKit keep it.
