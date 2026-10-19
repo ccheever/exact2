@@ -346,18 +346,21 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     connector = connectRelay(relay, {
       warn,
       ...(connect ? { connect } : {}),
+      named: served => { names ??= served; },
       client: (sni, address, stream) => {
         // (the tool's name only, until the canvas comes through the relay too)
-        if (!names || sni !== names.tool) return stream.destroy();
+        if (!names || sni !== names.tool) return false;
         const socket = new TLSSocket(stream, { isServer: true, secureContext: context });
         socket.relayed = address;
         socket.on('error', () => socket.destroy());
         door.emit('connection', socket);
-        if (!socket.destroyed) http.emit('connection', socket);
+        // Its requests only once its own ClientHello named the tool: the
+        // relay's word for the name is checked against the client's.
+        socket.once('secure', () => { if (socket.servername !== names.tool) socket.destroy(); else if (!socket.destroyed) http.emit('connection', socket); });
+        return true;
       },
     });
-    connector.ready.then(served => {
-      names ??= served;
+    connector.ready.then(() => {
       relayed = { origin: `https://${names.tool}`, fingerprint: cert.fingerprint, relay: true };
       say(`  relay ${relay.host}: ${relayed.origin}, its clients' TLS ending here (certificate SHA-256 ${cert.fingerprint})`);
       say('  until the relay\'s domain is a public suffix, another account\'s names there are same-site to yours: nothing here trusts that');

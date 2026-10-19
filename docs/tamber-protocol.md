@@ -202,8 +202,9 @@ statuses:
   `Host` is its own scheme's default, never the other's. Any `forwarded` or `x-forwarded-*` header
   keeps a request off the main loopback port's sandboxed path, as the dev gate's local test has it.
 - **A sandboxed page** (stage 10b: a Figma plugin's UI is an iframe whose origin is `null`) may call
-  the wire only with `--allow-plugin-origin`, on the tunnel door and on the main loopback port
-  (from this machine, naming a loopback host), never the TLS door. There, `Origin: null` on
+  the wire only with `--allow-plugin-origin`, on the tunnel door, on a relay's door (its
+  certificate a real one: stage 10c) and on the main loopback port (from this machine, naming a
+  loopback host), never the TLS door, whose certificate no page can pin. There, `Origin: null` on
   `/__tamber`, `/__tamber/subscribe`, `/__tamber/events` and `/__tamber/pair` gets CORS
   (`Access-Control-Allow-Origin: null`; a preflight `OPTIONS` answered 204, `POST` with
   `content-type` and `x-exact-tamber-token`); every such request is a remote one, so only a
@@ -223,7 +224,11 @@ statuses:
   (certificate transparency publishes them), and until that domain is a public suffix another
   account's names there are same-site to yours: nothing here relies on site isolation. The
   canvas through the relay is R1's follow-up; until then its name is closed unanswered. The
-  connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
+  relay's word for a client's name is checked against the client's own ClientHello before any
+  request is read; a relay's refusal at any time stops the connector and cuts every stream
+  (a revoked account); at most 64 relayed streams are carried at once, a client not taken costs
+  the relay a doubling wait, and each connection has 10 s to verify the relay and be greeted.
+  The connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
 
 ### Pairing (*1.13*)
 
