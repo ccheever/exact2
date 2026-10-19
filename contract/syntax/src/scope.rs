@@ -216,6 +216,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         // The theme's names are the app's, as roles are (LLP 1095 D4).
         theme: _,
         design: _,
+        package_designs: _,
         fns,
         modules,
         tests,

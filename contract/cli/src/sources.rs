@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod packages;
 mod refused;
 mod uses;
 
@@ -213,6 +214,8 @@ impl Loader<'_> {
         // The design, read before scoping: its motion tokens, and the params of
         // those kinds, are written into the views first (`contract_lower::motion`).
         let design = design(path, &mut self.sources).map_err(|e| vec![e])?;
+        let package_designs =
+            packages::designs(&mut self.sources, code_beside(path)).map_err(|e| vec![e])?;
         // The design's components that aren't Contract, named and checked as
         // Contract params are (D15).
         if let Some(d) = &design {
@@ -233,12 +236,14 @@ impl Loader<'_> {
             .collect();
         self.motion = contract_lower::motion::tokens(
             design.as_ref().map(|d| d.text.as_str()),
+            &package_designs,
             &params,
             &identities,
         );
         match self.scope() {
             Ok(mut file) => {
                 file.design = design;
+                file.package_designs = package_designs;
                 crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
                 Ok(file)
             }
@@ -416,6 +421,7 @@ fn design(
         text,
         source_id: (sources.paths.len() - 1) as u32,
         bindable: code_beside(root),
+        package: None,
     }))
 }
 
@@ -601,8 +607,15 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         Some(text) => Some(text),
         None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
     };
+    // With its packages' tokens, which an app token may name (D11).
+    let package_designs: Vec<_> = packages::read(&loader.sources, false)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(d, _)| d)
+        .collect();
     let icons: Vec<PathBuf> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
+        .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
         .and_then(|mut d| {
             let identities: Vec<String> = loader
                 .units
@@ -629,6 +642,11 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         path,
         origin: Origin::App,
     }));
+    // Each linked package's design too (D11); one not there yet is looked
+    // for, so adding it rebuilds.
+    let (designs, unmade) = packages::sources(&loader.sources);
+    sources.extend(designs);
+    let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
     sources.extend(icons.into_iter().map(|path| Source {
         path,
         origin: Origin::App,
@@ -1289,6 +1307,7 @@ impl Loader<'_> {
             theme: files[0].theme.take(),
             // The design is the app's, read beside its root (`design`).
             design: None,
+            package_designs: Vec::new(),
             fns: all!(fns),
             modules: all!(modules),
             components: all!(components),
