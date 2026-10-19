@@ -106,10 +106,10 @@ export function keptGameCrates({ root, env, profile, triple, flags, strip = fals
         if (!paths.plain || !newest) return;
         const kept = resolve(store, kind, newest);
         let units = 0;
-        const skipped = [];
+        const skipped = [profile, `${triple}/${profile}`].filter(dir => existsSync(resolve(target, dir)));
         for (const dir of profileDirs(kept)) {
           const here = resolve(target, dir);
-          if (existsSync(here)) { skipped.push(dir); continue; }
+          if (skipped.includes(dir)) continue;
           clone(PARTS.map(part => resolve(kept, dir, part)).filter(existsSync), here);
           for (const file of depInfo(here)) rewrite(resolve(kept, dir, file), resolve(here, file), paths.take);
           units += names(resolve(here, '.fingerprint')).length;

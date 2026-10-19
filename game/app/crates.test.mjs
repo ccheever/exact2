@@ -94,6 +94,14 @@ test('host and target profiles seed independently without retaining an unrelated
     cache.take(metadata(d),'native');
     expect(existsSync(resolve(d,'gpu-dev/deps','libleaf-'+hash(2)+'.rlib'))).toBe(true);
     expect(readdirSync(resolve(d,profile,'.fingerprint'))).toEqual(['leaf-'+hash(5)]);
+    // A generation without host units must not adopt an existing private host.
+    const sparse=keptGameCrates({root,env:process.env,...facts,directory:resolve(dir,'sparse-cache')});
+    const e=resolve(dir,'e'), f=resolve(dir,'f'), g=resolve(dir,'g');
+    unit(e,'leaf',6); sparse.keep(metadata(e),'native',lock);
+    const privateHost=unit(f,'leaf',7,'gpu-dev'); sparse.take(metadata(f),'native');
+    unit(f,'leaf',8); sparse.keep(metadata(f),'native',lock); sparse.take(metadata(g),'native');
+    expect(existsSync(resolve(g,'gpu-dev/.fingerprint',privateHost.id))).toBe(false);
+
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
