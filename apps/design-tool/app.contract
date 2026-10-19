@@ -58,6 +58,9 @@ shape Canvas
   // The gateway's own page, without the grant.
   root: string
 
+shape CanvasIn
+  entered: bool
+
 shape Client
   client: string
   name: string
@@ -675,7 +678,14 @@ component DesignTool
   // Its canvas, read once a server run, and again when it is opened again
   // or asked for again (a grant enters once).
   state canvasTick = 0
-  resource canvasAt = loadCanvas(hello.local, hello.client, hello.epoch, canvasTick) as shape Canvas else empty(ok=true)
+  // Its entry page's word that it entered (C2), asked each second while the
+  // frame's URL holds the grant: then the canvas comes back as its gateway
+  // page, the grant gone from the frame and this state.
+  state canvasPoll = 0
+  // (Asked for the grant's 30 s life, and a little more: an entry page that never says so is not asked for ever.)
+  state canvasPollsLeft = 40
+  resource canvasIn = canvasEntered(canvasTick, canvasPoll) as shape CanvasIn else empty()
+  resource canvasAt = loadCanvas(hello.local, hello.client, hello.epoch, canvasTick, canvasIn.entered) as shape Canvas else empty(ok=true)
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
@@ -809,6 +819,8 @@ component DesignTool
     after(3000, advance)
   // A clients read refused while the poll goes on is asked again, each 3 s
   // (its own count: the poll's answers would put it off for ever).
+  task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 and canvasPollsLeft > 0 and not pending(canvasIn) key=canvasPoll
+    after(1000, pollCanvas)
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
 
@@ -834,8 +846,12 @@ component DesignTool
     if not pending(pairedWith) and remoteAt.trim() != "" and remoteCode.trim() != ""
       send pairedWith = pairRemote(remoteAt, remoteCode, person)
       remoteCode = ""
+  action pollCanvas
+    canvasPoll = canvasPoll + 1
+    canvasPollsLeft = canvasPollsLeft - 1
   action reloadCanvas
     canvasTick = canvasTick + 1
+    canvasPollsLeft = 40
   action reloadClients
     clientsTries = clientsTries + 1
     refresh clients
@@ -864,6 +880,7 @@ component DesignTool
     draftName = v
   action saveName
     canvasTick = canvasTick + 1
+    canvasPollsLeft = 40
     if draftName.trim() != ""
       person = draftName.trim()
       renaming = false

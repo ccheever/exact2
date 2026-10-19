@@ -39,8 +39,19 @@ export function canvasFrame(url: string, grant: string, door: string, client: st
   return { frame: `${u.origin}/canvas/${encodeURIComponent(client)}/#g=${grant}`, root: `${u.origin}/`, error: '' };
 }
 
+// The canvas the tool last framed (its frame URL, grant and all), and whether
+// its entry page has said it entered (C2: `{type: 'exact-canvas-entered'}`,
+// posted to this page's origin, from that canvas's origin alone); once it
+// has, the grant leaves the frame's URL and the tool's state.
+let minted = { key: '', frame: '', root: '' }, entered = '';
+const page = globalThis as { addEventListener?: (type: string, listener: (e: { origin?: string; data?: { type?: unknown } }) => void) => void };
+page.addEventListener?.('message', e => {
+  if (e?.data?.type !== 'exact-canvas-entered' || !minted.frame) return;
+  if (e.origin === new URL(minted.frame).origin) entered = minted.frame;
+});
+
 /** The pairing sources, over the tool's one `tamber/1` client; `door` the paired server's origin ("" while local). */
-export function pairingSources(call: Call, pairWith: PairWith, door: () => string): Pick<Sources, 'mintCode' | 'loadClients' | 'revokeClient' | 'pairRemote' | 'loadCanvas'> {
+export function pairingSources(call: Call, pairWith: PairWith, door: () => string): Pick<Sources, 'mintCode' | 'loadClients' | 'revokeClient' | 'pairRemote' | 'loadCanvas' | 'canvasEntered'> {
   return {
     // A paired tool's canvas (stage 10 C): the app through the server's
     // gateway, on its own origin, entered with a single-use grant (30 s)
@@ -48,13 +59,23 @@ export function pairingSources(call: Call, pairWith: PairWith, door: () => strin
     // the gateway's entry page (C2) strips before any request (theme2's
     // 09:09Z ruling). Asked once a server run, and again when the canvas
     // is opened again (`tick`: a spent grant never enters twice).
-    loadCanvas: async ([local, client, epoch]) => {
+    // One grant a key (client, server run, tick): asked again (its page's
+    // word `done` moving), the same canvas comes back, as its gateway page
+    // once it has entered, the grant gone: no new grant, one load of that page.
+    loadCanvas: async ([local, client, epoch, tick]) => {
       if (local || !client || !epoch || !door()) return { ok: true, error: '', frame: '', root: '' };
+      const key = JSON.stringify([client, epoch, tick]);
+      if (minted.key === key) return { ok: true, error: '', frame: entered === minted.frame ? minted.root : minted.frame, root: minted.root };
       const { error, reply } = await call('/__tamber', { method: 'canvas' });
       if (error) return { ok: false, error: `No canvas: ${error}`, frame: '', root: '' };
       const made = canvasFrame(String(reply.ok?.url ?? ''), String(reply.ok?.grant ?? ''), door(), client);
-      return made.error ? { ok: false, error: `No canvas: ${made.error}.`, frame: '', root: '' } : { ok: true, error: '', frame: made.frame, root: made.root };
+      if (made.error) return { ok: false, error: `No canvas: ${made.error}.`, frame: '', root: '' };
+      minted = { key, frame: made.frame, root: made.root };
+      return { ok: true, error: '', frame: made.frame, root: made.root };
     },
+    // Whether the canvas minted last has said it entered (asked each second
+    // while the frame's URL holds its grant).
+    canvasEntered: async () => ({ entered: !!minted.frame && entered === minted.frame }),
     // This tool paired with another machine's server (remote mode): the
     // address it typed and the code that machine showed, its name the
     // person's; the code is sent once, to that door, and kept nowhere.

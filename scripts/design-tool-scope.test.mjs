@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test';
 import { METHOD_SCOPE } from './tamber-pairing.mjs';
 import { above, doorOf, GONE, NEEDS, needOf, wire } from '../apps/design-tool/wire.ts';
-import { canvasFrame } from '../apps/design-tool/pairing.ts';
+import { canvasFrame, pairingSources } from '../apps/design-tool/pairing.ts';
 
 test('the tool\'s scope table is the server\'s, method for method', () => {
   expect(NEEDS).toEqual({ ...METHOD_SCOPE });
@@ -139,4 +139,30 @@ test('a canvas frame only on the paired door\'s host, over https, another port, 
   // Nor through a TLS door on loopback (a tunnel's far end, say): any other port there may be another service.
   for (const host of ['127.0.0.1', 'localhost', '[::1]']) expect(canvasFrame(`https://${host}:8443${at}`, grant, `https://${host}:7743`, client).frame).toBe('');
   expect(canvasFrame(`https://192.168.1.20:7745${at}`, 'x#y'.repeat(10), door, client).frame).toBe('');
+});
+
+test('the canvas entry page\'s word (C2) from the minted canvas\'s origin alone drops the grant from the frame, with no new grant', async () => {
+  let mints = 0;
+  const grant = 'B'.repeat(43);
+  const call = async () => { mints += 1; return { error: '', reply: { ok: { url: 'https://192.168.1.20:7745/canvas/remote%3AAda%231/', grant: mints === 1 ? grant : 'C'.repeat(43), expires: 0 } }, used: 'run-1' }; };
+  const src = pairingSources(call, async () => ({ ok: false, error: '', client: '', scope: '' }), () => 'https://192.168.1.20:7743');
+  const first = await src.loadCanvas([false, 'remote:Ada#1', 'epoch-1', 0, false]);
+  expect(first.frame).toBe(`https://192.168.1.20:7745/canvas/remote%3AAda%231/#g=${grant}`);
+  expect((await src.canvasEntered([0, 0])).entered).toBe(false);
+  // Another origin, or another message, is not the entry page's word.
+  globalThis.dispatchEvent(new MessageEvent('message', { data: { type: 'exact-canvas-entered' }, origin: 'https://evil.example:7745' }));
+  globalThis.dispatchEvent(new MessageEvent('message', { data: { type: 'something-else' }, origin: 'https://192.168.1.20:7745' }));
+  expect((await src.canvasEntered([0, 1])).entered).toBe(false);
+  globalThis.dispatchEvent(new MessageEvent('message', { data: { type: 'exact-canvas-entered' }, origin: 'https://192.168.1.20:7745' }));
+  expect((await src.canvasEntered([0, 2])).entered).toBe(true);
+  // The same canvas back as its gateway page, the grant gone, no second grant asked.
+  const after = await src.loadCanvas([false, 'remote:Ada#1', 'epoch-1', 0, true]);
+  expect(after.frame).toBe('https://192.168.1.20:7745/');
+  expect(JSON.stringify(after)).not.toContain(grant);
+  expect(mints).toBe(1);
+  // Opened again (another tick): a fresh grant, not yet entered.
+  const again = await src.loadCanvas([false, 'remote:Ada#1', 'epoch-1', 1, true]);
+  expect(again.frame).toContain('#g=');
+  expect(mints).toBe(2);
+  expect((await src.canvasEntered([1, 3])).entered).toBe(false);
 });
