@@ -183,16 +183,24 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
 }
 
-/** A real drag's clock while its finger is held: until the local time `until` (`realTap` passes when the finger
- *  lifts, less its `TICK_MARGIN`) the clock moves with real time toward `to`, then the rest at once. What the drag's
- *  `during` ops moved it already counts, so a hold is never counted twice. Input is refused meanwhile. */
-export const heldTick = (s, to, target) => async (until) => {
+/** A real drag's clock while its finger is held: `realTap` passes `until`, when the finger lifts less its
+ *  `TICK_MARGIN`, and `down`, which reads the dispatch log. While the finger is down the clock moves with real time
+ *  toward `to` in steps of at most `TICK_STEP` ms until `until`, then the rest at once; once it has lifted, or the
+ *  runner has ended, nothing more. What the drag's `during` ops moved it already counts, so a hold is never counted
+ *  twice. Input is refused meanwhile. */
+export const heldTick = (s, to, target) => async (until, down) => {
   s.held = target;
   try {
-    for (let left; s.now < to && (left = Math.floor(Math.min(to - s.now, until - Date.now()))) > 0;) await s.clock(`+${left} real`);
-    if (s.now < to) await s.clock(`+${to - s.now}`);
+    for (let left; s.now < to && (left = Math.floor(Math.min(to - s.now, until - Date.now(), TICK_STEP))) > 0;) {
+      if (!await down()) return;
+      await s.clock(`+${left} real`);
+    }
+    if (s.now < to && await down()) await s.clock(`+${to - s.now}`);
   } finally { s.held = null; }
 };
+
+/** The longest real-time clock step of a hold (`heldTick`) between two reads that the finger is still down. */
+export const TICK_STEP = 100;
 
 /** How much longer than its holds a played contact with steps inside stays down: `HELD_LEAD` to see the touch begin
  *  in the dispatch log and to end the clock's real run, `REACH_MS` for the longest wait for it to reach its view (the
