@@ -14,28 +14,41 @@
 //   bun scripts/smoke-touch.mjs [--build] [--sim <udid|name>]
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
 import { HOST_DEV, resolveApp } from './app.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
+import { chooseSimulator } from '../host/apple/devices.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') + 1];
 const shell = (command, args) => {
   const result = spawnSync(command, args, {cwd: ROOT, encoding: 'utf8'});
   if (result.status !== 0) throw Error(`${command} ${args.join(' ')}: ${result.stderr || result.stdout}`);
   return result.stdout.trim();
 };
 const simctl = (...args) => shell('xcrun', ['simctl', ...args]);
-if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') + 1];
+let ownedSim;
+try {
+  if (!process.env.EXACT_SIM) {
+    const sdk = shell('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-version']);
+    const version = (a, b) => a.localeCompare(b, undefined, {numeric:true});
+    const runtime = JSON.parse(simctl('list', 'runtimes', '-j')).runtimes.filter(r => r.isAvailable && r.identifier.includes('.iOS-') && version(r.version, sdk) <= 0).sort((a, b) => version(b.version, a.version))[0];
+    if (!runtime) throw Error(`ios-touch needs an available iOS runtime supported by the selected simulator SDK ${sdk}`);
+    ownedSim = simctl('create', `exact-ios-touch-${process.pid}`, 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro', runtime.identifier);
+    process.env.EXACT_SIM = ownedSim;
+  }
+  const device = chooseSimulator(process.env.EXACT_SIM);
+  if (device.type !== 'iPhone-17-Pro') throw Error(`ios-touch refuses ${device.name} (${device.type}): the Island hold and Lock Screen swipe points were measured on iPhone 17 Pro`);
+  console.log(`ios-touch: ${device.name} ${device.udid}, ${device.runtime}`);
 if (argv.includes('--build')) {
-  const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple'], { cwd: ROOT, stdio: 'inherit' });
-  if (built.status !== 0) { console.error('FAIL ios-touch build: host/apple/build.mjs --ios caltrain-apple'); process.exit(1); }
+  const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--widget-gallery', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
+  if (built.status !== 0) throw Error('FAIL ios-touch build: host/apple/build.mjs --ios caltrain-apple --widget-gallery --no-install');
   // WP9's refusal scan uses this iOS app, its extension and its packaged arm.
   const bundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator' }).bundle;
   const refused = spawnSync('bun', ['test', 'host/apple/link.test.mjs'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ACTIVITY_APP: bundle } });
-  if (refused.status !== 0) { console.error('FAIL ios-touch activity refusals'); process.exit(1); }
+  if (refused.status !== 0) throw Error('FAIL ios-touch activity refusals');
 }
 const failures = [];
 const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
@@ -83,7 +96,7 @@ for (const timing of ['agent', 'platform']) {
     const up = await s.pointer('up');
     check(down.delivery === 'platform' && up.delivery === 'platform' && up.touch?.type === 'direct' && up.touch.ended - up.touch.began > 0.5, `${timing}: a held contact was not one real touch held 600 ms: ${JSON.stringify({ down, up })}`);
     console.log(`${timing}: taps ${taps.join(', ')} ms`);
-    if (timing === 'agent') await archiveActivities(s, process.env.EXACT_SIM);
+    if (timing === 'agent') await archiveActivities(s, device.udid);
   } catch (error) {
     check(false, `${timing}: ${error.message}`);
   } finally { await s.close(); }
@@ -92,7 +105,7 @@ for (const timing of ['agent', 'platform']) {
 // A grouped list's rows under real touches: each tap aims at what UIKit
 // draws (the switch, the detail button, the cell) and does what a finger does.
 {
-  const plan = resolve(mkdtempSync(resolve(tmpdir(), 'exact-touch-')), 'grouped-touch.plan');
+  const plan = resolve(mkdtempSync(resolve(ROOT, 'target/exact-touch-')), 'grouped-touch.plan');
   const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/grouped-touch.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   let s;
   if (check(c.status === 0, `grouped: the fixture did not compile: ${c.stderr}`)) {
@@ -117,7 +130,14 @@ for (const timing of ['agent', 'platform']) {
 
 console.log(`touch smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const f of failures) console.error(`FAIL ios-touch ${f}`);
-process.exit(failures.length ? 1 : 0);
+process.exitCode = failures.length ? 1 : 0;
+} finally {
+  if (ownedSim) {
+    spawnSync('xcrun', ['simctl', 'shutdown', ownedSim]);
+    simctl('delete', ownedSim);
+    delete process.env.EXACT_SIM;
+  }
+}
 
 // LLP 1126.001 WP14: compare the system archive on the touch step's own session.
 async function archiveActivities(s, udid) {
