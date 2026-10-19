@@ -24,8 +24,8 @@ const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') + 1];
 const shell = (command, args) => {
-  const result = spawnSync(command, args, {cwd: ROOT, encoding: 'utf8'});
-  if (result.status !== 0) throw Error(`${command} ${args.join(' ')}: ${result.stderr || result.stdout}`);
+  const result = spawnSync(command, args, {cwd: ROOT, encoding: 'utf8', timeout:15_000});
+  if (result.status !== 0) throw Error(`${command} ${args.join(' ')}: ${result.error?.message || result.stderr || result.stdout}`);
   return result.stdout.trim();
 };
 const simctl = (...args) => shell('xcrun', ['simctl', ...args]);

@@ -43,8 +43,7 @@ import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// A completed operation must release its deadline too, so an otherwise closed
-// driver does not stay alive until a losing timeout expires.
+// Release completed operations' deadlines so a closed driver does not wait for a losing timeout.
 async function waitAtMost(operation, ms, onTimeout) {
   let timer;
   const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
