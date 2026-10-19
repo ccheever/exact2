@@ -45,7 +45,8 @@ export const commands = say => ({
   },
   // `:root { font-size }` (LLP 1069.000 D3): the stylesheet's `rem` rows
   // follow it; checked here, where no runner checked it first.
-  setRootFontSize: v => asked('rootFontSize', v, () => appRootFontSize(v, say)),
+  // (A size the app may not set is no choice: the last one stands, and the call refuses as ever.)
+  setRootFontSize: v => v === "medium" || (typeof v === "number" && v > 0 && Number.isFinite(v)) || (typeof v === "string" && /^\+?(\d+|\d*\.\d+)%$/.test(v) && parseFloat(v) > 0) ? asked('rootFontSize', v, () => appRootFontSize(v, say)) : appRootFontSize(v, say),
   // The window's app modes (LLP 1121 D5, D7): modes.js's, which an app with
   // axes loads; any other refuses it, as the runner does.
   setMode: (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`),

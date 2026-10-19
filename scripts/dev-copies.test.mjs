@@ -183,6 +183,9 @@ async function copies(wasm) {
     const held = await until(status1, st => st?.app?.mode?.['dark-style'] === 'dim' && (wasm || (st.app.scheme === 'dark' && st.app.rootFontSize === '24')), 'copy 1 says what the app asked');
     expect([held.mode['dark-style'], held.scheme, wasm || held.rootFontSize]).toEqual(['black', pinned.scheme, wasm || 18]);
     expect(await host1.evaluate(() => document.documentElement.getAttribute('data-x-modes') ?? 'none')).not.toContain('dim');
+    // A pin that holds less: the mode it drops is the app's latest choice at once; the scheme stays held.
+    await call({ method: 'pin', client: 'copies', build: c1, pin: { scheme: pinned.scheme } });
+    await until(status1, st => st?.mode?.['dark-style'] === 'dim' && st?.scheme === pinned.scheme, 'copy 1, its mode released, takes the app\'s dim');
     await call({ method: 'pin', client: 'copies', build: c1, pin: null });
     const back = await until(status1, st => st?.mode?.['dark-style'] === 'dim' && (wasm || (st.scheme === 'dark' && st.rootFontSize === 24)), 'copy 1 handed back takes the app\'s latest');
     expect(back.app ?? null).toBe(null);

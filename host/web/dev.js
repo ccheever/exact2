@@ -450,7 +450,17 @@ if (es) {
     if (Object.keys(mode).length) out.mode = mode;
     return Object.keys(out).length ? out : null;
   }
-  const holdFacts = async (text) => { if (!copy) return; const out = await wasmCall("exact_hold_facts", globalThis.exact.writeIn(text)); if (out?.asked) asked = out.asked; return out; };
+  // (A question applies no batch, so asking is never a commit that asks again.)
+  const holdFacts = async (text) => {
+    const x = globalThis.exact;
+    if (!copy) return;
+    await x.ready;
+    if (typeof x.wasm?.exact_hold_facts !== "function") return;
+    const n = x.wasm.exact_hold_facts(x.writeIn(text)), out = JSON.parse(x.readOut(n));
+    if (text !== "?") x.send(n);
+    if (out?.asked) asked = out.asked;
+    return out;
+  };
   const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
   // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
@@ -524,7 +534,9 @@ if (es) {
     channel.before ??= { fontSize: root.fontSize, hostFont: root.getPropertyValue("--exact-host-font-size"), mode: await modes() };
     const x = globalThis.exact, pins = (m) => Object.entries(m).map(([a, v]) => `${a}=${v}`).join(",");
     // (A copy's held facts first: the app's own root size gives way before the pinned one is set.)
-    if (p) { const held = await holdFacts(`${p.scheme ? "s" : ""}${p.rootFontSize ? "r" : ""}:${pins(p.mode ?? {})}`); if (held?.error) report({ kind: "unsupported", what: "pin.hold", detail: String(held.error).slice(0, 1024), revision: frame.revision }); }
+    // (Facts held before and not now take the app's latest choice; a hold refused for its modes holds the rest.)
+    const flags = p ? `${p.scheme ? "s" : ""}${p.rootFontSize ? "r" : ""}` : "";
+    if (p) { const held = await holdFacts(`${flags}:${pins(p.mode ?? {})}`); if (held?.error) { report({ kind: "unsupported", what: "pin.hold", detail: String(held.error).slice(0, 1024), revision: frame.revision }); await holdFacts(`${flags}:`); } }
     // The scheme is the system's, beneath the app's `setScheme` (the root's
     // own style): a rule over the page's `light dark`, and the system scheme
     // the runner's `prefers-color-scheme` reads (navigation.js
@@ -543,7 +555,9 @@ if (es) {
     else root.removeProperty("--exact-host-font-size");
     await wasmCall("exact_set_root_font_size", hostSize());
     // (Handed back, only the axes the last pin set go back: the app's own on any other stands.)
-    const last = channel.held?.pin?.mode ?? {}, mode = pins(p ? { ...(channel.before.mode ?? {}), ...(p.mode ?? {}) } : Object.fromEntries(Object.entries(channel.before.mode ?? {}).filter(([a]) => a in last)));
+    // (In a copy only the pinned axes are set, and an axis the last pin set and this one doesn't goes back; elsewhere a pin is the whole set over the first's snapshot.)
+    const last = channel.held?.pin?.mode ?? {}, back = Object.fromEntries(Object.entries(channel.before.mode ?? {}).filter(([a]) => a in last && !(a in (p?.mode ?? {})) && !(copy && asked.mode?.[a] !== undefined)));
+    const mode = pins(p ? (copy ? { ...back, ...(p.mode ?? {}) } : { ...(channel.before.mode ?? {}), ...(p.mode ?? {}) }) : back);
     if (mode) {
       // A mode refused leaves the modes before the first pin, not the last pin's.
       const out = await wasmCall("exact_set_mode", x.writeIn(mode));

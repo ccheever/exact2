@@ -148,6 +148,7 @@ mod tamber_binding;
 mod tamber_binding_kinds;
 mod tamber_cli;
 mod tamber_gen;
+mod tamber_held;
 mod tamber_icons;
 mod tamber_measures;
 mod tamber_motion;
