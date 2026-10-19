@@ -201,7 +201,8 @@ fn positioned_boxes_roots_and_ratios_match_chrome() {
 }
 
 /// The same Chrome frames hold when the ratio container is the root in a
-/// 50px offer. This also exercises the root's ratio-floor relayout path.
+/// 50px offer, where the first layout already reaches the ratio height and
+/// passes it to the item as a definite cross size.
 #[test]
 fn ratio_roots_in_a_definite_offer_match_chrome() {
     let mut wrong = Vec::new();
