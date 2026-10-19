@@ -1,7 +1,7 @@
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
-import { mobilePendingTaskDraftAdopt as adopt, mobilePendingTaskDraftBuildRecord as build,
+import { mobilePendingTaskDraftAdopt as adopt, mobilePendingTaskDraftBuildRecord as buildRecord,
   mobilePendingTaskDraftCleanup as cleanup, mobilePendingTaskDraftFingerprint as fingerprint,
   mobilePendingTaskDraftCleanupDocument as cleanupDocument } from './mobile-pending-task-draft';
 import { mobileNewTaskDraftStore as store, mobileNewTaskDraftPresentation as presentation,
@@ -14,6 +14,8 @@ import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
 import { mobilePendingTaskEditorsCreate, type MobilePendingTaskMarker } from './mobile-pending-task-state';
+const build = (client: Parameters<typeof buildRecord>[0], marker: MobilePendingTaskMarker) =>
+  buildRecord(client, marker, { kind: 'preserve-captured' });
 
 const imageId = '11111111-1111-4111-8111-111111111111', fileId = '22222222-2222-4222-8222-222222222222';
 const extraId = '33333333-3333-4333-8333-333333333333';

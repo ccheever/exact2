@@ -1,7 +1,7 @@
 // Pinned365aa87982 new-task-flow-provider: hydrate once; rebuild under original task IDs.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
-import { obj, str, type Obj } from './shared/domain';
+import { arr, obj, str, type Obj } from './shared/domain';
 import { draftFiles, setDraftFiles, type DraftFile } from './shared/composer-editor-files';
 import { branchState } from './shared/r4-git-branch';
 import { mobileDraftAttachmentIds, mobileDraftAttachmentRecord } from './draft-attachment-order';
@@ -10,6 +10,7 @@ import { mobileNewTaskDraftCreate, mobileNewTaskDraftPresentation, mobileNewTask
 import { mobileCaptureNewTaskOutbox } from './mobile-outbox-capture';
 import { mobileOutboxDecode, mobileOutboxEncode, type MobileOutboxRecord } from './mobile-outbox-model';
 import { mobilePendingTaskEditorKey, type MobilePendingTaskMarker } from './mobile-pending-task-state';
+import { mobileQueuedEditOrigin } from './queued-edit-origin';
 
 const keyFor = (record: MobileOutboxRecord) => `new-task:pending-${record.messageId}`;
 const reasonOf = (error: unknown) => error instanceof Error ? error.message : 'The pending task draft could not be read.';
@@ -87,9 +88,37 @@ export function mobilePendingTaskDraftAdopt(client: T3Client, input: MobileOutbo
   } catch (error) { return refused(reasonOf(error)); }
 }
 export type MobilePendingTaskDraftBuild = { status: 'ready'; record: MobileOutboxRecord; fingerprint: string } | { status: 'blocked'; reason: string };
+export interface MobilePendingTaskPreferences { ready: boolean; serialized: string }
+export type MobilePendingTaskModePolicy = { kind: 'preserve-captured' } |
+  { kind: 'recapture'; owner: string; selection: string; interactionMode: 'default' | 'plan' };
+const selection = (draft: NonNullable<ReturnType<typeof mobileNewTaskDraftPresentation>>) =>
+  JSON.stringify([draft.choices?.providerId, draft.choices?.modelId, draft.choices?.modelOptions ?? [], draft.choices?.interactionMode]);
+/** Device preferences and provider status are captured by the current route, not
+ * inferred from the shared draft loader or its legacy device-setting mirror. */
+export function mobilePendingTaskDraftRecapturePolicy(client: T3Client, marker: MobilePendingTaskMarker,
+  preferences: MobilePendingTaskPreferences): MobilePendingTaskModePolicy {
+  const draft = mobileNewTaskDraftPresentation(client, marker.draftKey), environment = str(obj(client.config.environment).environmentId);
+  if (!draft || draft.origin !== marker.owner.origin || draft.environmentId !== marker.owner.environmentId
+    || client.environmentId !== marker.owner.environmentId || mobileQueuedEditOrigin(client) !== marker.owner.origin
+    || environment && environment !== marker.owner.environmentId)
+    throw new Error('The pending task settings no longer belong to this environment.');
+  let enabled = false;
+  if (preferences.ready) {
+    const saved: unknown = JSON.parse(preferences.serialized);
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved) || obj(saved).ready !== true || typeof obj(saved).planModeEnabled !== 'boolean')
+      throw new Error('Read the current device preferences before saving this task.');
+    enabled = obj(saved).planModeEnabled === true;
+  }
+  const provider = arr(client.config.providers).find(value => value.instanceId === draft.choices?.providerId);
+  const mode = provider?.showInteractionModeToggle === false ? 'default' : preferences.ready
+    ? enabled ? draft.choices?.interactionMode ?? 'default' : 'default' : marker.baseline.record.interactionMode ?? 'default';
+  if (mode !== 'default' && mode !== 'plan') throw new Error('The pending task mode is invalid.');
+  return { kind: 'recapture', owner: mobilePendingTaskEditorKey(marker.owner), selection: selection(draft), interactionMode: mode };
+}
 /** Pure recapture uses stored editor picks and original queue identity. The caller
  * separately owns current marker/session admission, native CAS and byte verification. */
-export function mobilePendingTaskDraftBuildRecord(client: T3Client, marker: MobilePendingTaskMarker): MobilePendingTaskDraftBuild {
+export function mobilePendingTaskDraftBuildRecord(client: T3Client, marker: MobilePendingTaskMarker,
+  policy: MobilePendingTaskModePolicy): MobilePendingTaskDraftBuild {
   const blocked = (reason: string): MobilePendingTaskDraftBuild => ({ status: 'blocked', reason });
   try {
     const decoded = mobileOutboxDecode(marker.baseline.record);
@@ -102,6 +131,8 @@ export function mobilePendingTaskDraftBuildRecord(client: T3Client, marker: Mobi
     const draft = mobileNewTaskDraftPresentation(client, marker.draftKey);
     if (!draft || draft.origin !== baseline.origin || draft.environmentId !== baseline.environmentId || draft.projectId !== creation.projectId || draft.createdAt !== baseline.createdAt)
       return blocked('The pending editor destination changed.');
+    if (policy.kind === 'recapture' && (policy.owner !== mobilePendingTaskEditorKey(marker.owner) || policy.selection !== selection(draft)))
+      return blocked('The pending task settings changed before they were saved.');
     // Validate the raw context before the presentation's JSON copy can normalize it.
     draft.context = mobileNewTaskDraftStore(client).records[marker.draftKey].context;
     const workspace = draft.workspace;
@@ -132,6 +163,8 @@ export function mobilePendingTaskDraftBuildRecord(client: T3Client, marker: Mobi
     if (baseline.dispatchMode !== undefined) record.dispatchMode = baseline.dispatchMode;
     if (draft.choices?.runtimeMode === undefined && baseline.runtimeMode === undefined) delete record.runtimeMode;
     if (draft.choices?.interactionMode === undefined && baseline.interactionMode === undefined) delete record.interactionMode;
+    if (policy.kind === 'recapture' && (draft.choices?.interactionMode !== undefined || baseline.interactionMode !== undefined || policy.interactionMode !== 'default'))
+      record.interactionMode = policy.interactionMode;
     if (record.modelSelection && baseline.modelSelection?.options === undefined && !record.modelSelection.options?.length) delete record.modelSelection.options;
     return { status: 'ready', record: mobileOutboxEncode(record), fingerprint };
   } catch (error) { return blocked(reasonOf(error)); }

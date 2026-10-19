@@ -13,6 +13,7 @@ import { mobilePendingTaskEditorOpen, mobilePendingTaskEditorSave, mobilePending
 import { mobileNewTaskDraftBind, mobileNewTaskDraftOwned, mobileNewTaskDraftBoundKey, mobileNewTaskDraftChoicesRestore,
   mobileNewTaskDraftUnbind, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
 import type { MobileOutboxWireOwner } from './mobile-outbox-wire';
+import { mobilePendingTaskDraftRecapturePolicy, type MobilePendingTaskPreferences } from './mobile-pending-task-draft';
 
 export interface MobileNewTaskPendingRoute { environmentId: string; projectId: string; pendingTaskId: string }
 export interface MobileNewTaskPendingInput { flowOwner: string; current(): boolean }
@@ -102,11 +103,12 @@ export async function mobileNewTaskPendingOpen(client: MobileDraftClient, native
 /** Save while bound, then finish under a new unbound scope. Only finished permits
  * navigation. A late answer never rebinds a successor flow. */
 export async function mobileNewTaskPendingClose(client: MobileDraftClient, native: Native, storage: Files,
-  marker: MobilePendingTaskMarker, input: MobileNewTaskPendingInput): Promise<MobilePendingTaskEditorResult> {
+  marker: MobilePendingTaskMarker, input: MobileNewTaskPendingInput & { preferences: MobilePendingTaskPreferences }): Promise<MobilePendingTaskEditorResult> {
   const selected = stamp(client), current = () => input.current() && stamp(client) === selected;
   const bound = () => current() && mobileNewTaskDraftOwned(client, marker.draftKey, input.flowOwner);
   if (!bound()) throw stale();
-  const saved = await mobilePendingTaskEditorSave(client, native, storage, { owner: marker.owner, expected: marker, current: bound });
+  const policy = mobilePendingTaskDraftRecapturePolicy(client, marker, input.preferences);
+  const saved = await mobilePendingTaskEditorSave(client, native, storage, { owner: marker.owner, expected: marker, current: bound, policy });
   if (!bound()) throw stale();
   if (saved.status !== 'saved' || !saved.marker || !saved.fingerprint) return saved;
   mobileNewTaskDraftUnbind(client, input.flowOwner);
@@ -115,7 +117,7 @@ export async function mobileNewTaskPendingClose(client: MobileDraftClient, nativ
   let repair = true;
   try {
     return await mobilePendingTaskEditorFinish(client, native, storage,
-      { owner: saved.marker.owner, expected: saved.marker, fingerprint: saved.fingerprint, current: unbound });
+      { owner: saved.marker.owner, expected: saved.marker, fingerprint: saved.fingerprint, current: unbound, policy });
   } catch (error) {
     if (letGo(error)) repair = false;
     throw error;

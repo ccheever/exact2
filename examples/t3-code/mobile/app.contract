@@ -1181,7 +1181,7 @@ component App
     after(1, redirectNewTask)
   action prepareNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared)
-      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + performanceNow())
+      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized)
   action redirectNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)
       nav = open(nav, newTaskFlow.nextLocation)
@@ -1232,7 +1232,7 @@ component App
   action taskAction(kind: string, id: string, value: string)
     if not pending(taskChanged) and not pending(taskPrepared)
       newTaskOperation = kind
-      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + performanceNow())
+      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized)
   action didTaskChange
     let result = taskReplyPlan(taskChanged, newTaskOperation)
     if not result.hasReply
@@ -1252,7 +1252,7 @@ component App
       else if result.navigation == "back"
         nav = back(nav)
   action editNewDraft(value: string, owner: string)
-    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value, wallTime.epochAtZero + performanceNow())
+    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value, wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized)
   mutation taskDraftChanged as shape NewTaskFlowResult refreshes data, newTaskData
   action editNewQuery(value: string)
     newTaskQuery = value

@@ -252,7 +252,7 @@ const sources: Sources = {
   },
   newTaskAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('newTaskAction', args, nativeInput);
-    return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!, mobileClient, fleet, Number(args[5]));
+    return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!, mobileClient, fleet, Number(args[5]), { ready: args[6] === true, serialized: str(args[7]) });
   },
   threadPreferences: (args, _store, storage, nativeInput) => {
     const native = sourceNative('threadPreferences', args, nativeInput);

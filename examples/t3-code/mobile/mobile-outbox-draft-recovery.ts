@@ -94,7 +94,7 @@ export async function mobileOutboxDraftRecover(client: MobileDraftClient, handle
           return reply('retained', 'The queued task changed or has an open editor.');
         const source = editor && mobilePendingTaskEditorsSnapshot(client).markers.find(marker => identity(marker.owner) === identity(owner))!;
         if (source) {
-          const content = mobilePendingTaskDraftBuildRecord(client, source);
+          const content = mobilePendingTaskDraftBuildRecord(client, source, { kind: 'preserve-captured' });
           if (mobilePendingTaskDraftFingerprint(client, source.draftKey) !== editor!.fingerprint || content.status !== 'ready'
             || canonical(content.record) !== canonical(row.record) || canonical(source.baseline) !== canonical({ record: row.record, token: row.token, revision: row.nativeRevision }))
             return reply('retained', 'Save the latest pending editor before recovering its destination.');
