@@ -674,7 +674,7 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let checked_attr = if attr == "selectionchange" && control == Some("field") {
+        let checked_attr = if attr == "selectionchange" && contract_syntax::edits_text(control) {
             "beforeinput"
         } else {
             attr
