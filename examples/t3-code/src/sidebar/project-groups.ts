@@ -1,4 +1,4 @@
-// Logical project names across the focused environment and the
+// T3 Code 9c161462c9 (MIT): logical project names across the focused environment and the
 // fleet's background environments, adapted from T3 Code (MIT; see LICENSE-T3):
 // packages/client-runtime/src/state/projectGrouping.ts (deriveLogicalProjectKey,
 // deriveProjectGroupLabel, buildProjectGroups) and apps/web/src/components/Sidebar.tsx
@@ -13,12 +13,17 @@ type Grouping = { environmentId: string; shell: { projects: Obj[] }; local?: { g
 const projectPath = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 const unique = (values: string[]) => [...new Set(values.map(value => value.trim()).filter(Boolean))];
 
+/** RepositoryIdentity: group by a fork's own remote; PR routing keeps the canonical identity. */
+export const repositoryGroupingKey = (identity: Obj): string => str(obj(identity.origin).canonicalKey, str(identity.canonicalKey));
+export const repositoryGroupingName = (identity: Obj): string => identity.origin
+  ? str(obj(identity.origin).displayName, str(obj(identity.origin).canonicalKey)) : str(identity.displayName);
+
 /** deriveProjectGroupLabel: a shared title unless it is only the repository's name, then the display name, then the repository name. */
 export function groupLabel(members: Obj[]): string {
   const representative = str(members[0]?.title);
   if (members.length < 2) return representative;
   const titles = unique(members.map(member => str(member.title)));
-  const displayNames = unique(members.map(member => str(obj(member.repositoryIdentity).displayName)));
+  const displayNames = unique(members.map(member => repositoryGroupingName(obj(member.repositoryIdentity))));
   const names = unique(members.map(member => str(obj(member.repositoryIdentity).name)));
   if (titles.length === 1 && !displayNames.includes(titles[0]!) && !names.includes(titles[0]!)) return titles[0]!;
   if (displayNames.length === 1) return displayNames[0]!;
@@ -30,10 +35,10 @@ export function groupLabel(members: Obj[]): string {
 export function logicalKey(client: Grouping, environmentId: string, project: Obj): string {
   const physical = `${environmentId}:${projectPath(project.workspaceRoot)}`;
   const mode = client.local?.groupingOverrides?.[physical] || client.local?.groupingMode || 'repository';
-  const identity = obj(project.repositoryIdentity), canonical = str(identity.canonicalKey);
+  const identity = obj(project.repositoryIdentity), canonical = repositoryGroupingKey(identity);
   const root = projectPath(identity.rootPath), path = projectPath(project.workspaceRoot);
   const relative = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : '';
-  return mode === 'separate' || !canonical ? physical : canonical + (mode === 'repository_path' && relative ? `::${relative}` : '');
+  return mode === 'separate' || !canonical || canonical.includes('\0') ? physical : canonical + (mode === 'repository_path' && relative ? `::${relative}` : '');
 }
 
 /**

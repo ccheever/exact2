@@ -22,7 +22,7 @@ functions: call -> result
   formatDecimal(units, digits) -> string  (cents to "12.34"; literal digits)
   formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
-  frame(id) -> Geometry  (in an action)
+  frame(id) -> Geometry  (action)
   go(router, location) -> Router
   s.includes(x) -> bool  (text or list)
   s.indexOf(x) -> number  (-1 for none)
@@ -31,7 +31,7 @@ functions: call -> result
   s.length -> number  (text or list)
   xs.map(x => U) -> U[]
   max(a, b) -> number
-  measure("id") -> Geometry  (in an action)
+  measure("id") -> Geometry  (action)
   min(a, b) -> number
   open(router, location) -> Router
   params(router, parameterName) -> string[]
@@ -40,6 +40,7 @@ functions: call -> result
   push(router, location) -> Router
   querySelectorAll(selector) -> string[]
   range(n) -> number[]
+  rangeFrame(id, start, end) -> Geometry  (action)
   replace(router, location) -> Router
   text.replaceAll(find, with) -> string
   round(n) -> number  (half up)

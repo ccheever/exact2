@@ -49,7 +49,7 @@ export interface RowInput {
   root: string; rollback: boolean;
 }
 
-const STANDALONE = new Set(['fork', 'handoff', 'run_interrupt_request', 'run_interrupt_result', 'subagent']);
+const STANDALONE = new Set(['fork', 'handoff', 'run_interrupt_request', 'run_interrupt_result', 'subagent', 'secret_request']);
 const PERSISTENT = new Set(['fork', 'thread_created']);
 export function rowKey(row: Obj): string { return JSON.stringify([row.sourceThreadId, row.sourceItemId]); }
 

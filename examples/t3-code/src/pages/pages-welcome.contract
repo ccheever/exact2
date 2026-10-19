@@ -40,7 +40,6 @@ shape WelcomeSetupTerminal
   dark: string
   open: bool
   ready: bool
-  skipped: string
   retry: bool
   status: string
   environmentId: string

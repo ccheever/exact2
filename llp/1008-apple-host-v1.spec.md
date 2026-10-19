@@ -304,7 +304,9 @@ the same rows as `input`. Contract lowers it to `TextInput` with the existing
 `semanticTag="textarea"`, emitted as a real `<textarea>` on the web. The
 HTML `readonly` lowers to the inverse of the existing `editable` prop,
 keeping the text selectable while refusing edits. The app gives this bounded
-editor its width and height; rich text is outside this control.
+editor its width and height. LLP 1114.007 admits named decorations over its plain
+string, including inline and block styling, hidden source and atomic chips;
+a rich value type remains outside this control.
 UIKit textarea line spacing uses the authored `line-height` through paragraph
 minimum/maximum heights; clearing it restores TextKit's natural spacing. Storage
 and typing attributes update in place, preserving text and selection. TextKit's

@@ -23,14 +23,28 @@ pub(super) fn range_text_args(
     if matches!(
         types.as_slice(),
         [Ty::String, Ty::String]
+            | [Ty::String, Ty::String, Ty::String]
             | [Ty::String, Ty::String, Ty::Number, Ty::Number]
             | [Ty::String, Ty::String, Ty::Number, Ty::Number, Ty::String]
+            | [
+                Ty::String,
+                Ty::String,
+                Ty::Number,
+                Ty::Number,
+                Ty::String,
+                Ty::String
+            ]
     ) {
+        if let Some(mode) = args.get(if args.len() == 3 { 2 } else { 5 }) {
+            if matches!(mode, Expr::Str(word, _) if word != "undo") {
+                return err("type-set-range-text", "an explicit edit mode is \"undo\"; omit it for the DOM's existing non-undoable replacement", mode.span());
+            }
+        }
         return Ok(());
     }
     err(
         "type-set-range-text",
-        "`setRangeText(id, text[, start, end[, selectionMode]])`: the field's id and replacement strings, optional UTF-16 offsets, and optionally `select`, `start`, `end` or `preserve` (default)",
+        "`setRangeText(id, text[, start, end[, selectionMode[, \"undo\"]]])`: optional UTF-16 offsets and `select`, `start`, `end` or `preserve`; `setRangeText(id, text, \"undo\")` replaces the current selection as one undo step",
         span,
     )
 }
@@ -130,6 +144,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
         vec![
             ("oldState".into(), Ty::String),
             ("newState".into(), Ty::String),
+            ("start".into(), Ty::Number),
+            ("end".into(), Ty::Number),
         ],
     );
     shapes.map.insert(

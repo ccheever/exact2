@@ -159,7 +159,7 @@ pub fn style(
     hold_json(json, out, count)
 }
 
-fn hold_json(json: String, out: *mut *const u8, count: *mut usize) -> u64 {
+pub(crate) fn hold_json(json: String, out: *mut *const u8, count: *mut usize) -> u64 {
     let handle = NEXT.with_borrow_mut(|n| {
         let h = *n;
         *n += 1;
@@ -267,6 +267,16 @@ pub fn free(handle: u64) {
 #[macro_export]
 macro_rules! markup_exports {
     () => {
+        /// Shared source reconciliation and CSS rows for the native editor.
+        #[no_mangle]
+        pub extern "C" fn exact_decorations(
+            input: *const u8,
+            len: usize,
+            out: *mut *const u8,
+            count: *mut usize,
+        ) -> u64 {
+            $crate::decorations::read(input, len, out, count)
+        }
         /// Expand Markdown source into display pieces.
         #[no_mangle]
         pub extern "C" fn exact_markup_pieces(

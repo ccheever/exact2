@@ -6,11 +6,41 @@ import { rowTips, bubbleWidth } from '../../src/sidebar/sidebar-tips';
 import { highlight } from '../../src/highlight/timeline-highlight';
 import { probeKey } from '../../src/composer/composer-menus';
 import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
+import { fleet } from '../../src/connections/settings-b-fleet';
+import { T3Client } from '../../src/client/client';
+import { NO_PROJECT_SCOPE, partition, projectScopes } from '../../src/sidebar/sidebar-view';
+import { sidebarPrefs } from '../../src/sidebar/sidebar-state';
 
 const repo = (title: string, root: string, extra: Record<string, unknown> = {}) => ({ id: title + root, title, workspaceRoot: root,
   repositoryIdentity: { canonicalKey: 'git.example.invalid/acme/shared', displayName: 'acme/shared', name: 'shared', owner: 'acme', rootPath: root }, ...extra });
 
 describe('repository display names (deriveProjectGroupLabel)', () => {
+  test('a fork follows its origin, while repository canonical identity remains available for PR routing', () => {
+    const client = new T3Client(); client.environmentId = 'env-a';
+    const upstream = repo('shared', '/upstream', { id: 'upstream' });
+    const fork = repo('shared', '/fork', { id: 'fork', repositoryIdentity: { ...upstream.repositoryIdentity, origin: { canonicalKey: 'git.example.invalid/me/shared', displayName: 'me/shared' } } });
+    client.shell.projects = [upstream, fork, { ...fork, id: 'fork-two', workspaceRoot: '/fork-two' }];
+    expect(client.projectGroups().map(group => [group.key, group.name, group.members.length])).toEqual([
+      ['git.example.invalid/acme/shared', 'shared', 1], ['git.example.invalid/me/shared', 'me/shared', 2],
+    ]);
+    expect(fork.repositoryIdentity.canonicalKey).toBe('git.example.invalid/acme/shared');
+  });
+  test('No project merges scratch filters across environments without merging their mutable projects', () => {
+    const client = new T3Client(); client.environmentId = 'env-a'; client.config = {};
+    client.shell.projects = [{ id: 'a', title: 'Scratch A', workspaceRoot: '/a', isScratch: true }, { id: 'repo', title: 'Named', workspaceRoot: '/repo' }];
+    client.shell.threads = [{ id: 'local', projectId: 'a', status: 'idle' }];
+    const key = 'panel-scope-fixture';
+    fleet.entries.set(key, { key, origin: 'http://fixture.invalid', environmentId: 'env-b', phase: 'connected', message: '', traceId: '', generation: 1, synchronized: 1, lastEvent: 0,
+      subscriptions: {}, config: {}, shell: { projects: [{ id: 'b', title: 'Scratch B', workspaceRoot: '/b', isScratch: true }], threads: [{ id: 'remote', projectId: 'b', status: 'idle' }] } as never, scopes: [], error: '', requested: true });
+    try {
+      sidebarPrefs(client).scope = 'env-a:/a';
+      const scratch = projectScopes(client).find(group => group.key === NO_PROJECT_SCOPE)!;
+      expect(scratch.name).toBe('No project'); expect([...scratch.ids]).toEqual(['a', 'fleet:env-b:b']);
+      expect(sidebarPrefs(client).scope).toBe(NO_PROJECT_SCOPE);
+      expect(partition(client, 0).active.map(thread => thread.id).sort()).toEqual(['fleet:env-b:remote', 'local']);
+      expect(client.projectGroups()).toHaveLength(2); expect(client.shell.projects).toHaveLength(2);
+    } finally { fleet.entries.delete(key); }
+  });
   test('a shared title that is only the repository name reads as the display name', () => {
     expect(groupLabel([repo('shared', '/a/shared'), repo('shared', '/b/shared')])).toBe('acme/shared');
     expect(groupLabel([repo('Payments', '/a/shared'), repo('Payments', '/b/shared')])).toBe('Payments');
