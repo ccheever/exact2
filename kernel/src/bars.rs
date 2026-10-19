@@ -160,11 +160,14 @@ impl Bar {
     }
 }
 
-/// Whether any node under `node` is a heading.
+/// Whether any node under `node` is a heading, a `popover` or `dialog`
+/// written there left out as `walk` leaves it: its heading is the top
+/// layer's, so a button wrapping one is an item, not the title's tap.
 fn holds_heading<T: Tree>(tree: &T, node: T::Node) -> bool {
-    tree.children(node)
-        .into_iter()
-        .any(|child| tree.facts(child) & fact::HEADING != 0 || holds_heading(tree, child))
+    tree.children(node).into_iter().any(|child| {
+        let facts = tree.facts(child);
+        facts & fact::LAYER == 0 && (facts & fact::HEADING != 0 || holds_heading(tree, child))
+    })
 }
 
 struct Walk<N> {

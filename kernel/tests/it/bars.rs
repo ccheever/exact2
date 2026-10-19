@@ -432,6 +432,57 @@ fn a_menu_written_inside_the_header_is_its_buttons_menu_not_more_items() {
 }
 
 #[test]
+fn a_header_button_wrapping_a_popover_with_a_heading_is_an_item_not_the_titles_tap() {
+    // header > [heading "Library", button press=sort > popover > heading
+    // "Order"]: the popover's heading is the top layer's, so the button is
+    // a bar item, not the pressable around the title.
+    const POPOVER: Props = &[(PropId::Popover, "auto")];
+    let tree = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![
+                text(12, H1),
+                Node(
+                    41,
+                    NodeType::Pressable,
+                    &[],
+                    vec![Node(60, NodeType::View, POPOVER, vec![text(61, HEADING)])],
+                ),
+            ],
+        )],
+    ));
+    let shape = tree.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!(shape.heading, 12);
+    assert_eq!(shape.tap, None);
+    assert_eq!(shape.items, vec![41]);
+    assert_eq!(shape.trailing, vec![41]);
+    // A dialog wrapped the same way is the top layer's too.
+    const DIALOG: Props = &[(PropId::SemanticTag, "dialog")];
+    let tree = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![
+                text(12, H1),
+                Node(
+                    41,
+                    NodeType::Pressable,
+                    &[],
+                    vec![Node(60, NodeType::View, DIALOG, vec![text(61, HEADING)])],
+                ),
+            ],
+        )],
+    ));
+    let shape = tree.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!((shape.tap, shape.items), (None, vec![41]));
+}
+
+#[test]
 fn a_route_that_says_no_bar_or_hides_its_header_has_none() {
     let mut kernel = shelf();
     assert!(kernel.header_shape(10, None, false, &pressed).is_some());
