@@ -199,6 +199,7 @@ shape Approval
   mono: bool
   detail: string
   canRespond: bool
+  operable: bool
   live: bool
   responding: bool
   responseReason: string

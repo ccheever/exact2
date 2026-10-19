@@ -2,7 +2,8 @@
 import AppKit
 
 /// Retains OS focus/paste routing and toolbar geometry around the shared field.
-/// Contract owns Return, formatting and the command menus.
+/// Contract owns Return and formatting; an open command menu's keys press its
+/// hidden key buttons (T3ComposerEditor.menuCommand).
 final class T3Composer {
     /// The surface launcher (hatch `t3-launcher`): its letters are its rows' `aria-keyshortcuts`, which Exact's key
     /// route presses (shell-panels.contract SurfaceRow), so type-to-focus leaves them alone (`launcherLetter`).
