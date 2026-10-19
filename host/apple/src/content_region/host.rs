@@ -562,7 +562,7 @@ impl<D: DataSource> Host<D> {
                         && h.kind == n.header.kind
                         && h.inline_owner == n.header.inline_owner
                         && h.handlers == n.header.handlers
-                        && self.mirror.get(&h.id) == Some(&n.mirror)
+                        && self.mirror.get(&h.id).map(|m| &**m) == Some(&n.mirror)
                 })
             {
                 return Ok(());
@@ -743,7 +743,8 @@ impl<D: DataSource> Host<D> {
         }
         for node in candidate.nodes {
             headers.push(node.header);
-            self.mirror.insert(headers.last().unwrap().id, node.mirror);
+            self.mirror
+                .insert(headers.last().unwrap().id, Box::new(node.mirror));
         }
         self.mirror.entry(owner_id).or_default().children = owner_children;
         self.collections_json = collections_json;

@@ -258,8 +258,12 @@ extension Agent {
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
-        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
+        var env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
             .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
+        // The title-bar area, only where it is defined, as a browser names it.
+        if let area = presenter.titlebarArea, area.count == 4 {
+            for (name, value) in zip(["x", "y", "width", "height"], area) { env["titlebar-area-" + name] = Agent.r2(value) }
+        }
         // The page scrolls too, and it is the one whose overscroll drags the
         // app's own chrome (LLP 1033 D4).
         let (px, py) = Agent.overscroll(of: presenter.viewport)

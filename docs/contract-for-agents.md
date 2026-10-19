@@ -3055,7 +3055,9 @@ order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min, max)`.
 Native hosts resolve percentages during layout and update calculations when
 insets or viewport dimensions change. The web uses CSS functions directly.
 Sizes, padding and radii clamp negative results to zero; margins and insets keep
-them. Unsupported: `rem`/`em`, a unitless number where a length goes
+them. `env(titlebar-area-x|y|width|height)` is the title bar beside a Mac window's
+traffic lights under `viewport-fit="cover"` and is undefined elsewhere, so give it a
+fallback (`contract vocab titlebar-area`). Unsupported: `rem`/`em`, a unitless number where a length goes
 (write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
 "Comparisons").
 
