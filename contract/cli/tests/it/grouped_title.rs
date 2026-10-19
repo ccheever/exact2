@@ -145,8 +145,9 @@ fn columns_the_author_sized_keep_their_words_width() {
 /// it grows, and the text after it is the value at the far edge, not a
 /// second title sharing the row (grocery-list's quantity mid-row, round 24).
 /// At the largest text size the value keeps its words beside the title, and
-/// a word longer than the title's line breaks, as a cell's label breaks it,
-/// rather than running over the value.
+/// a word that does not fit the title's line breaks between syllables, as a
+/// cell's label hyphenates (round 26's "Anderso/n", broken at a letter, was
+/// a tell), or anywhere rather than running over the value.
 #[test]
 fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
     let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row press=go testId=\"item\" gap=10 align-items=\"center\"\n      input type=\"checkbox\" checked=false change=flip aria-label=\"Tomatoes\"\n      column flex=1 min-width=0 testId=\"title\"\n        text \"Extraordinarily long heirloom tomatoes\" testId=\"name\"\n      text \"× 6\" testId=\"qty\"";
@@ -170,15 +171,17 @@ fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
             title.x + title.width <= qty.x && name.x + name.width <= qty.x + 0.5,
             "{root}: the title stops at the value: {title:?} {name:?} {qty:?}"
         );
-        let wrap = k
+        let style = k
             .node(id(&r, "name"))
             .unwrap()
-            .computed_style(StyleMask::ALL)
-            .overflow_wrap;
+            .computed_style(StyleMask::ALL);
         assert_eq!(
-            wrap,
-            exact_kernel::OverflowWrap::BreakWord,
-            "a long word breaks"
+            (style.hyphens, style.overflow_wrap),
+            (
+                exact_kernel::Hyphens::Auto,
+                exact_kernel::OverflowWrap::BreakWord
+            ),
+            "a long word breaks between syllables"
         );
     }
 }

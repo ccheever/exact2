@@ -946,8 +946,12 @@ fn row(node: &Node, separated: bool) -> Node {
         s("font-size", BODY, span),
         attr("color", tint(ink), span),
         s("text-align", "left", span),
-        // A word longer than its line breaks, as a cell's label breaks it,
-        // rather than running over the value beside it.
+        // A cell's labels hyphenate (UIListContentConfiguration's text has a
+        // hyphenationFactor of 1, iOS 27): a word that does not fit its line
+        // breaks between syllables ("Alice Ander-son"), and one with no
+        // syllable that fits breaks anywhere rather than running over the
+        // value beside it.
+        s("hyphens", "auto", span),
         s("overflow-wrap", "break-word", span),
     ];
     if field.is_some() {
