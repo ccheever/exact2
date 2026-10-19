@@ -64,6 +64,27 @@ final class MIDIMacTests: XCTestCase {
         timer.cancel()
     }
 
+    /// How late the main queue runs a strict timer's handler while it runs:
+    /// the most any 10 ms beat came late. A loaded machine delays every
+    /// handler on main, a batch's drain among them; a coalesced drain is late
+    /// past what this measures, so a bound that adds it still catches one.
+    private final class MainLag {
+        private let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+        private var due = CACurrentMediaTime()
+        private(set) var most = 0.0
+        init() {
+            timer.schedule(deadline: .now() + 0.010, repeating: 0.010, leeway: .nanoseconds(0))
+            due += 0.010
+            timer.setEventHandler { [unowned self] in
+                let now = CACurrentMediaTime()
+                most = max(most, now - due)
+                due = max(due + 0.010, now - 0.010)
+            }
+            timer.resume()
+        }
+        func stop() -> Double { timer.cancel(); return most }
+    }
+
     private func wait(_ seconds: Double, until done: () -> Bool = { false }) {
         let end = Date(timeIntervalSinceNow: seconds)
         while Date() < end, !done() { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005)) }
@@ -321,8 +342,10 @@ final class MIDIMacTests: XCTestCase {
             }
             self.lock.withLock { finished = true }
         }
+        let lag = MainLag()
         wait(5) { self.lock.withLock { finished } }
         wait(0.2)
+        let late = lag.stop()
         let got = messages(deliveries), all = got.flatMap(\.list), want = lock.withLock { sent.filter { $0.status != 0xFE } }
         XCTAssertEqual(all.map(\.status), want.map(\.status), "every tick, Start and Stop, in order; no Active Sensing")
         for (m, s) in zip(all, want) { XCTAssertEqual(m.ms, (s.at - ExactEnv.t0) * 1000, accuracy: 0.5, "stamped from its packet") }
@@ -331,8 +354,9 @@ final class MIDIMacTests: XCTestCase {
         XCTAssertLessThan(ticks.count, 30, "batched")
         for (a, b) in zip(ticks, ticks.dropFirst()) { XCTAssertGreaterThan(b.at - a.at, 0.040, "ticks alone no more often than 50 ms") }
         // A main queue busy with the parallel test run adds its own latency
-        // (83 ms seen): the bound is that no batch is held a second time.
-        for d in ticks { XCTAssertLessThan(d.at - (ExactEnv.t0 + d.list[0].ms / 1000), 0.100, "nor held past a second batch") }
+        // (83 ms seen; 470 ms at load 85): the bound is that no batch is held
+        // a second time past what main's own lag explains.
+        for d in ticks { XCTAssertLessThan(d.at - (ExactEnv.t0 + d.list[0].ms / 1000), 0.100 + late, "nor held past a second batch (main \(late) s late)") }
         let start = try XCTUnwrap(got.first { $0.list.contains { $0.status == 0xFA } })
         let fa = try XCTUnwrap(want.first { $0.status == 0xFA })
         XCTAssertLessThan(start.at - fa.at, 0.010, "Start at once")
@@ -393,15 +417,23 @@ final class MIDIMacTests: XCTestCase {
         wait(2) { deliveries.contains { $0.json.contains(input) } }
         wait(0.2)
         for _ in 0..<3 {
+            // Main's lag is measured before and after, never while the tick
+            // waits: a wakeup of main then would run a late drain with it.
+            let before = MainLag()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+            var late = before.stop()
             deliveries.removeAll()
             let at = CACurrentMediaTime()
             system(0xF8, at: at)
             // One idle sleep of the main run loop, to its next timer.
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.4))
+            let after = MainLag()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+            late = max(late, after.stop())
             let tick = try XCTUnwrap(messages(deliveries).first { $0.list.contains { $0.status == 0xF8 } })
             XCTAssertGreaterThan(tick.at - at, 0.040, "a lone tick waits for its batch")
-            // The clock test's bound: a busy run adds its own latency (83 ms seen).
-            XCTAssertLessThan(tick.at - at, 0.100, "and goes when its 50 ms are up, not a coalesced 150 later")
+            // The clock test's bound: a busy run adds its own latency.
+            XCTAssertLessThan(tick.at - at, 0.100 + late, "and goes when its 50 ms are up, not a coalesced 150 later (main \(late) s late)")
         }
         output.shutdown()
     }
