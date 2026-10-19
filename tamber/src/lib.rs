@@ -17,6 +17,7 @@ mod css;
 mod edit;
 pub mod export;
 mod export_batch;
+pub use export_batch::own_digest;
 mod export_dials;
 mod export_kinds;
 mod fmt;

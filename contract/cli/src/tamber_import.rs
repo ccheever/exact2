@@ -277,7 +277,7 @@ pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Va
             // Else the design's own export, inside a re-import's budget: a
             // design too large for one is refused with its message.
             let known = known
-                || exact_tamber::export::own_digest(current, &contract_lower::tamber_vocab())
+                || exact_tamber::own_digest(current, &contract_lower::tamber_vocab())
                     .map_err(|all| json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| json!({"id": d.id, "message": d.message})).collect::<Vec<_>>()}))?
                     .as_deref()
                     == Some(&digest);

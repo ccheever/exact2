@@ -176,7 +176,7 @@ fn the_budget_takes_a_design_near_its_limit_and_refuses_one_past_it() {
     );
     assert!(took < Duration::from_secs(BOUND_NEAR), "{took:?}");
     // And the server's check of a baseline against it, likewise.
-    let refused = exact_tamber::export::own_digest(&src, &vocab()).unwrap_err();
+    let refused = exact_tamber::own_digest(&src, &vocab()).unwrap_err();
     assert!(refused.iter().any(|d| d.message.contains("expands past")));
 }
 

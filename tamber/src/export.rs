@@ -386,13 +386,7 @@ pub fn dtcg(f: &Folding, vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
                 1,
             ));
         }
-        // Inside an import's budget (a re-import exports the design to
-        // compare), each context's tree is charged as it is built: a design
-        // too large for one import is refused here, before its export is
-        // whole (LLP 1121 §10).
-        let tree = Value::Object(tree);
-        crate::budget::copy(&tree).map_err(|m| vec![Diagnostic::new("tamber-export", m, 1, 1)])?;
-        map.insert(c.name.clone(), json!([tree]));
+        map.insert(c.name.clone(), json!([crate::budget::tree(tree)?]));
     }
     if !errors.is_empty() {
         return Err(errors);
@@ -717,22 +711,6 @@ pub fn reimport(
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
     reimport_against(incoming, None, kept, current, vocab)
-}
-
-/// The digest of the design's own export, built inside a re-import's
-/// budget (each context's tree charged as it is built), so a design too
-/// large for one re-import is refused with the budget's message instead of
-/// exported whole first; `None` for a design that does not check or export.
-pub fn own_digest(current: &str, vocab: &Vocab) -> Result<Option<String>, Vec<Diagnostic>> {
-    let Ok(f) = crate::check(current, vocab) else {
-        return Ok(None);
-    };
-    let _work = crate::budget::Work::begin(crate::budget::REIMPORT);
-    match dtcg(&f, vocab) {
-        Ok(text) => Ok(digest(&text)),
-        Err(all) if all.iter().any(|d| d.message.contains("expands past")) => Err(all),
-        Err(_) => Ok(None),
-    }
 }
 
 /// [`reimport`] against `explicit`, the export a client says it pulled

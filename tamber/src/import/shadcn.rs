@@ -263,7 +263,9 @@ pub fn import(
     // Each variable's declarations read once: whether any is a colour where
     // it wins, and the one other kind its no-colour ones all are (`None`
     // when they differ; none of them, any kind).
-    let mut seen_as: HashMap<&str, (bool, Option<Option<Option<&'static str>>>)> = HashMap::new();
+    // (Coloured; then none read yet, `Some(None)` kinds that differ, or the one kind.)
+    type Seen = (bool, Option<Option<Option<&'static str>>>);
+    let mut seen_as: HashMap<&str, Seen> = HashMap::new();
     for ((_, v, x, _), f) in decls.iter().zip(&fates) {
         let e = seen_as.entry(v.as_str()).or_insert((false, None));
         e.0 |= !matches!(f, Fate::NotColour | Fate::Superseded);

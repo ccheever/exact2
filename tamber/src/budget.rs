@@ -93,3 +93,13 @@ pub fn copy(v: &Value) -> Result<(), String> {
 pub fn members(m: &serde_json::Map<String, Value>) -> Result<(), String> {
     spend(m.iter().map(|(k, v)| k.len() as u64 + size(v)).sum())
 }
+
+/// A context's tree of an export, charged as it is built: inside an
+/// import's budget (a re-import exports the design to compare), a design
+/// too large for one import is refused here, before its export is whole
+/// (LLP 1121 §10). Outside one, nothing is counted.
+pub(crate) fn tree(tree: serde_json::Map<String, Value>) -> Result<Value, Vec<crate::Diagnostic>> {
+    let tree = Value::Object(tree);
+    copy(&tree).map_err(|m| vec![crate::Diagnostic::new("tamber-export", m, 1, 1)])?;
+    Ok(tree)
+}
