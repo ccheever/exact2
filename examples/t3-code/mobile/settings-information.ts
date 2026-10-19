@@ -145,7 +145,7 @@ export async function mobileInformationPrepare(route:string,native:Native|null|u
 }
 export function mobileInformationSnapshot(query='',entryKey='',environments:readonly MobileStorageEnvironment[]=[],clearing=false,danger=mobileTheme('light').colors.dangerForeground){
   const terms=query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const rows=(entries??[]).filter(entry=>terms.every(term=>[entry.name,entry.version,entry.license,...entry.bundles as string[]].join(' ').toLowerCase().includes(term))).map(entry=>({id:str(entry.id),name:str(entry.name),metadata:[str(entry.version),str(entry.license)].filter(Boolean).join(' · ')}));
+  const rows=(entries??[]).filter(entry=>terms.every(term=>[entry.name,entry.version,entry.license,...entry.bundles as string[]].join(' ').toLowerCase().includes(term))).map(entry=>({id:str(entry.id),name:str(entry.name),accessibilityLabel:`${str(entry.name)}, ${str(entry.license)}`,metadata:[str(entry.version),str(entry.license)].filter(Boolean).join(' · ')}));
   const found=entries?.find(entry=>entry.id===entryKey),detail=found?{available:true,id:str(found.id),name:str(found.name),metadata:[str(found.version),str(found.license),(found.bundles as string[]).map(bundle=>bundleNames[bundle]??bundle).join(', ')].filter(Boolean).join(' · '),sourceURL:str(found.sourceUrl),notice:str(found.noticeText)}:{available:false,id:'',name:'',metadata:'',sourceURL:'',notice:''};
   return {revision,version:version||'Unavailable',build,identityError,licensesReady:entries!==null,licenseMessage:noticeError||'No licenses match that search.',coverage,licenses:rows,detail,
     storage:clientStorage.snapshot(environments,clearing,danger),
