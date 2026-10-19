@@ -1100,8 +1100,11 @@ export function docs(words, say = console.log) {
     const f = { path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) };
     for (const h of f.heads) {
       const counts = res.map(re => { let n = 0; for (let i = h.from; i < h.own; i++) n += mentions(f.lines[i], f.kinds[i], re); return n; });
-      // The query's own section (TOPICS) is a match however it says the words.
-      if (counts.some(n => n === 0) && topic !== h.title) continue;
+      // The words written together are the phrase, a CSS name's hyphens included (`text overflow` is `text-overflow`,
+      // whose pieces alone are not the words); the query's own section (TOPICS) is a match however it says the words.
+      let joined = 0;
+      if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
+      if (counts.some(n => n === 0) && !joined && topic !== h.title) continue;
       // A heading is on the words when they are half its own words or more ("Tabular numbers", "Recipe: motion"), or
       // when it is a recipe's title that holds them all ("Recipe: files, SQLite and grants"); not when a section's
       // heading only says one ("Before you call it done").
@@ -1113,12 +1116,10 @@ export function docs(words, say = console.log) {
       let last = first;
       while (last < h.own && !(f.kinds[last] === 'text' && f.lines[last].trim() === '')) last++;
       const opens = res.every(re => f.lines.slice(first, last).some((line, i) => mentions(line, f.kinds[first + i], re)));
-      let joined = 0;
-      if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
       const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
       // A heading that is the words ("Tabular numbers") weighs more again; the query's own section comes first.
       const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).join(' ');
-      units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) });
+      units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) * (joined ? 3 : 1) });
     }
   }
   if (!units.length) return say(`docs: no section of the guides holds ${words.map(w => `"${w}"`).join(' and ')} as words; try fewer, or bun exact.mjs contract vocab <name>`);
