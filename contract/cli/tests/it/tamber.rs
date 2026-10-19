@@ -792,14 +792,8 @@ fn set_mode_sets_the_windows_slice_in_its_actions_commit() {
 #[test]
 fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
     let contract = "component App\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      column -exact-mode=\"dark-style=black\" testId=\"pinned\" background-color=\"page\"\n        text \"p\"\n";
-    let edited = MODES.replace(
-        "page = light-dark(#ffffff, #000000)",
-        "page = light-dark(#fefefe, #000000)",
-    );
-    let path = app(
-        "refused-axes",
-        &[("app.tamber", &edited), ("app.contract", contract)],
-    );
+    let edited_light = MODES.replace("page = light-dark(#ffffff, #000000)", "page = light-dark(#fefefe, #000000)");
+    let path = app("refused-axes", &[("app.tamber", &edited_light), ("app.contract", contract)]);
     let Err(refused) = contract::compile_path_all(&path, false) else {
         panic!("a refused token builds");
     };
@@ -808,14 +802,7 @@ fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
     assert!(!ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
     // An axis declared twice: its refusal is said, beside a `setMode` that
     // names a value of the second only.
-    std::fs::write(
-        path.with_file_name("app.tamber"),
-        MODES.replace(
-            "\ntheme\n",
-            "  dark-style = black | grey  under scheme=dark\n\ntheme\n",
-        ),
-    )
-    .unwrap();
+    std::fs::write(path.with_file_name("app.tamber"), MODES.replace("\ntheme\n", "  dark-style = black | grey  under scheme=dark\n\ntheme\n")).unwrap();
     std::fs::write(&path, contract.replace("\"dim\")", "\"grey\")")).unwrap();
     let Err(refused) = contract::compile_path_all(&path, false) else {
         panic!("an axis declared twice builds");
@@ -823,10 +810,17 @@ fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
     let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
     assert_eq!(ids[0], "tamber-duplicate", "the design's first: {ids:?}");
     assert!(ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
-    assert_eq!(
-        contract::compile_path(&path).unwrap_err().id,
-        "tamber-duplicate"
-    );
+    assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-duplicate");
+    // A refused token, then a statement that stops lowering (a share of a
+    // picture no element is): both said, the design's first.
+    std::fs::write(path.with_file_name("app.tamber"), &edited_light).unwrap();
+    std::fs::write(&path, contract.replace("    setMode(\"dark-style\", \"dim\")\n", "    setMode(\"dark-style\", \"dim\")\n    share(files=[\"#missing\"])\n")).unwrap();
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("a refused token builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert_eq!(ids[0], "tamber-under-light", "{ids:?}");
+    assert_eq!(ids.len(), 2, "{ids:?}");
     std::fs::write(&path, contract).unwrap();
     // The `when` line's own dark side edited: it builds, setMode and its pin
     // intact.
@@ -834,14 +828,8 @@ fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
     std::fs::write(path.with_file_name("app.tamber"), edited).unwrap();
     let mut r = booted(contract::compile_path(&path).unwrap());
     press(&mut r, "dim");
-    assert_eq!(
-        row(&r, "page", StyleId::BackgroundColor),
-        parsed("light-dark(#ffffff, #171f28)")
-    );
-    assert_eq!(
-        row(&r, "pinned", StyleId::BackgroundColor),
-        parsed("light-dark(#ffffff, #000000)")
-    );
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("light-dark(#ffffff, #171f28)"));
+    assert_eq!(row(&r, "pinned", StyleId::BackgroundColor), parsed("light-dark(#ffffff, #000000)"));
 }
 
 #[test]

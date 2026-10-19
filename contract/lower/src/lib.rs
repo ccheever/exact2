@@ -285,7 +285,6 @@ fn lower_with_sites(
         expanded: ex,
     } = checked;
     let root = &ex.root;
-    let root_types = &types.components[0];
     let is_fn = |name: &str| file.fns.iter().any(|f| f.name == name);
     let shared: Vec<Expr> = file
         .fns
@@ -336,6 +335,45 @@ fn lower_with_sites(
         texts_used: Default::default(),
         profile,
     };
+    // A refusal that stops lowering is said after those collected before it
+    // (a refused token, then a statement no plan can hold), never in their
+    // place.
+    match lower_body(&mut l, checked, asset_root) {
+        Ok(()) => {
+            let plan = l.b.finish().map_err(|e| LowerError {
+                id: "lower-invalid-plan",
+                message: format!("{e:?}"),
+                span: root.span,
+            })?;
+            Ok((plan, l.sites))
+        }
+        Err(fatal) => {
+            let mut all = std::mem::take(&mut l.errors);
+            for e in fatal {
+                if !all.iter().any(|o| o.id == e.id && o.span == e.span && o.message == e.message) {
+                    all.push(e);
+                }
+            }
+            all.truncate(MAX_REFUSALS);
+            Err(all)
+        }
+    }
+}
+
+/// [`lower_with_sites`]'s declarations, bodies and view into `l`, for its
+/// plan: a refusal of its own as `Err`, those collected left in `l.errors`.
+fn lower_body(
+    l: &mut Lowerer<'_>,
+    checked: &Checked<'_>,
+    asset_root: Option<&Path>,
+) -> Result<(), Vec<LowerError>> {
+    let Checked {
+        file,
+        types,
+        expanded: ex,
+    } = checked;
+    let root = &ex.root;
+    let root_types = &types.components[0];
     l.declare_fonts(file, asset_root)?;
     l.declare_sounds(file, asset_root)?;
     // Bound before any style is parsed, the profiles first: an entry may be
@@ -637,8 +675,7 @@ fn lower_with_sites(
     l.nodes(view, None, None, &scope, 0, None)?;
     if !l.errors.is_empty() {
         // Row slots name regions a refused element may not have lowered.
-        l.errors.truncate(MAX_REFUSALS);
-        return Err(l.errors);
+        return Err(Vec::new());
     }
     // Child state (LLP 1017 P4c): each lifted state is initialized where its
     // instance is created — in its owning arm's scope, now that the arms
@@ -674,19 +711,13 @@ fn lower_with_sites(
     l.bake_texts()?;
     // A refusal said after the elements' (none yet): never a plan beside it.
     if !l.errors.is_empty() {
-        l.errors.truncate(MAX_REFUSALS);
-        return Err(l.errors);
+        return Err(Vec::new());
     }
     // @ref LLP 1121 D10 — the icons a computed source may name.
     for icon in icons::kept() {
         l.b.icon(&icon.name, &icon.sf, &icon.view_box, &icon.path, &icon.svg);
     }
-    let plan = l.b.finish().map_err(|e| LowerError {
-        id: "lower-invalid-plan",
-        message: format!("{e:?}"),
-        span: root.span,
-    })?;
-    Ok((plan, l.sites))
+    Ok(())
 }
 
 impl<'a> Lowerer<'a> {
