@@ -44,13 +44,15 @@ describe('composer source edit rules', () => {
     expect(result(blank, key(blank, 8, 'Enter'))).toEqual({ source: '```ts\n\n```\n', start: 11, end: 11 });
     expect(codeAt(composerMarkdown('```ts\n\n```\n').blocks, { start: 6, end: 6 })?.close).toEqual({ start: 7, end: 10 });
   });
-  test('a restored fence without a body line stays whole at its closing line', () => {
+  test('a restored fence without a body line keeps its closing line whole while it is typed in', () => {
     const source = '```ts\n```';
     // Text there opens the body line instead of joining the closing fence.
     expect(result(source, composerCodeInput(source, { start: 6, end: 6 }, 'x'))).toEqual({ source: '```ts\nx\n```', start: 7, end: 7 });
     expect(result(source, composerCodeInput(source, { start: 6, end: 6 }, '```'))).toEqual({ source: '````ts\n```\n````', start: 10, end: 10 });
-    // Backspace keeps the fence; Tab and Enter open the body line.
-    expect(key(source, 6, 'Backspace')).toEqual({ kind: 'handled' });
+    // Backspace unwraps the empty code, its language line included; Tab and Enter open the body line.
+    expect(result(source, key(source, 6, 'Backspace'))).toEqual({ source: '', start: 0, end: 0 });
+    const between = 'before\n```ts\n```\nafter';
+    expect(result(between, key(between, 13, 'Backspace'))).toEqual({ source: 'before\n\nafter', start: 7, end: 7 });
     expect(result(source, key(source, 6, 'Tab'))).toEqual({ source: '```ts\n  \n```', start: 8, end: 8 });
     expect(key(source, 6, 'Tab', true)).toEqual({ kind: 'handled' });
     expect(result(source, key(source, 6, 'Enter'))).toEqual({ source: '```ts\n\n\n```', start: 7, end: 7 });
