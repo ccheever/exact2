@@ -51,6 +51,7 @@ pub mod decorations;
 mod defaults;
 pub mod delivery;
 mod doc_watch;
+pub mod documents;
 pub mod executor;
 pub mod geometry;
 pub mod gradient;

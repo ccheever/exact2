@@ -242,6 +242,31 @@ impl NodeArena {
         }
         said
     }
+
+    /// [`crate::NodeRef::says`].
+    pub(crate) fn says(&self, slot: u32, id: StyleId) -> bool {
+        let mut current = Some(slot);
+        while let Some(s) = current {
+            let own = self.style(s);
+            if own.written.has(id) {
+                return true;
+            }
+            if own.mask.has(id) || !id.inherited() || self.style_starts(s).any(|t| t.mask.has(id)) {
+                return false;
+            }
+            current = self.parents[s as usize];
+        }
+        false
+    }
+
+    /// Whether a symbol image here would draw in its author's `color`
+    /// ([`crate::NodeRef::symbol_color_said`]) but for its source: the colour
+    /// is said, and the node is no native button's face.
+    pub(crate) fn ink_said(&self, slot: u32) -> bool {
+        self.parents[slot as usize]
+            .is_none_or(|p| self.node_type(p) != crate::generated::NodeType::Control)
+            && self.says(slot, StyleId::TextColor)
+    }
 }
 
 impl crate::NodeRef<'_> {
