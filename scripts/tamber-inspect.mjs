@@ -233,6 +233,8 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   const style = /^class:([A-Za-z_][\w-]*)$/.exec(b.origin ?? '')?.[1] ?? null;
   if (b.origin !== 'own' && !style) return null;
   if (style && b.state) return null;
+  // A layout row (D14, the map's `layout`): the author's, as `set-row` says; a token or param it reads is offered.
+  if (b.layout) return { rung: null, layout: true, reason: `\`${b.attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
   const rel = ownFile(b.at.file, app, own);
   if (!rel) return { rung: null, reason: style ? `a package's style (${style}): read-only here` : 'a package\'s component: read-only here' };
   let lines;
@@ -287,7 +289,8 @@ export function editable(row, origin, params = new Map(), unread = false, state 
   // Else the template or style rung, where the map places the row (T5): the
   // default (D6), the token its whole value is offered beside it.
   if (written?.rung) return one ? { ...written, token: names[0], modes: row.token.modes ?? '' } : written;
-  if (written) return { ...written, link };
+  if (written?.layout && one) return { rung: 'token', token: names[0], modes: row.token.modes ?? '' };
+  if (written) { const { layout, ...why } = written; return { ...why, link }; }
   if (origin.startsWith('class:')) return { rung: null, reason: `a style's row (${origin.slice(6)}) the map gives no place for: the source's to edit`, link };
   if (origin !== 'own') return { rung: null, reason: 'the tag\'s own row: the source\'s to edit', link };
   // @ref LLP 1121 D8 — an `:active` row lowered to the press paint: its part's to edit.

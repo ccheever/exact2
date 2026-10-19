@@ -333,6 +333,8 @@ test('a row its author wrote joins on the template or style rung for set-row, th
       { row: 'text_color', origin: 'class:Panel__card', at: at(7, 'color'), attr: 'color' },
       { row: 'margin_top', origin: 'class:Panel__card', at: at(8, 'margin'), attr: 'margin' },
       { row: 'outline_color', origin: 'own', at: { file: pkg, line: 1, col: 9, end_col: 14 }, attr: 'color' },
+      { row: 'width', origin: 'own', at: at(3, 'padding'), attr: 'width', layout: true },
+      { row: 'gap', origin: 'own', at: at(3, 'padding'), attr: 'gap', layout: true },
     ] };
     // Two copies of this source node (a component called twice).
     const map = { digest: 'p1', sources: [{ file: card, sha256: sha(text) }, { file: pkg, sha256: sha('    box color="blue"') }], nodes: [node, { ...node, chain: [{ file: card, line: 9, col: 1, end_col: 2, component: 'App' }] }] };
@@ -344,6 +346,8 @@ test('a row its author wrote joins on the template or style rung for set-row, th
       { name: 'text_color', value: '#f00', source: 'authored' },
       { name: 'margin_top', value: 8, source: 'authored' },
       { name: 'outline_color', value: '#00f', source: 'authored' },
+      { name: 'width', value: 100, source: 'authored' },
+      { name: 'gap', value: 8, source: 'authored', token: { names: ['space.md'], text: 'space.md', modes: '', implied: false } },
     ];
     const s = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir });
     const template = { rung: 'template', file: 'card.contract', sha256: sha(text), instances: 2 };
@@ -356,6 +360,9 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     expect(s.rows[4].editable).toEqual({ rung: 'style', style: 'Panel', row: 'color', file: 'card.contract', text: 'red' });
     expect(s.rows[5].editable).toEqual({ rung: 'style', style: 'Panel', row: 'margin', file: 'card.contract', text: '8px 4px' });
     expect(s.rows[6].editable).toMatchObject({ rung: null, reason: expect.stringContaining("package") });
+    // A layout row (the map's `layout`, D14): set-row's reason, up front; the token it reads, offered.
+    expect(s.rows[7].editable).toEqual({ rung: null, reason: expect.stringContaining('layout row'), link: null });
+    expect(s.rows[8].editable).toEqual({ rung: 'token', token: 'space.md', modes: '' });
     // A file the server does not count as the app's own: a package's.
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir, own: new Set(['other.contract']) }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('package') });
     // Moved since: read-only, its token still linked.
