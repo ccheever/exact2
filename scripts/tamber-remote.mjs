@@ -333,6 +333,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     async addPort({ host, port, handler }) {
       if (!certificate) throw new Error('addPort needs the TLS listener (--remote)');
       const server = secure(certificate, (req, res) => {
+        if ((req.socket?.writableLength || 0) > 8 << 20) { req.socket.destroy(); return; } // (8 MiB unread: cut, as the main door does)
         // As the design server's door: one of the certificate's names, an origin-form target.
         const at = hostOf(req, 'https'), url = at && names.includes(at.name) ? targetOf(req, 'https', at.host) : null;
         if (!url) return refuse(res, 404, 'not found');

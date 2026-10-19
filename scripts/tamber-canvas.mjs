@@ -267,6 +267,8 @@ const drained = (res, signal) => new Promise(ok => {
 });
 const put = async (res, chunk, signal) => {
   if (signal.aborted) throw new Error('ended');
+  // 8 MiB unread on the socket (behind the TLS door Bun's response drains before its socket does): cut.
+  if ((res.socket?.writableLength || 0) > 8 << 20) { res.destroy(); throw new Error('ended'); }
   if (!res.write(chunk)) await drained(res, signal);
   if (signal.aborted) throw new Error('ended');
 };
