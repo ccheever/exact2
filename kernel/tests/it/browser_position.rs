@@ -79,6 +79,13 @@
 //! measured on 2026-10-19 with Chrome 151.0.7922.34. They cover spanning items
 //! beside fractional tracks on both axes, gaps, normal and stretch alignment,
 //! zero minima, and ratio floors in max-content and shrink-to-fit grids.
+//! `Chrome 151 ratio max-width height` uses that version and date for tall
+//! content under a transferred height maximum in block, absolute and grid
+//! layout. Controls cover short content, flex rows and columns, authored
+//! height bounds, explicit minima, overflow, ratios, insets and nested layouts.
+//! `Chrome 151 ratio column conflicting widths` uses that version and date
+//! for column content caps when min-width exceeds max-width, including
+//! preferred heights, height bounds, reversed columns and non-binding maxima.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
