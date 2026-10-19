@@ -145,3 +145,158 @@ fn a_visible_descendant_presses_its_hidden_ancestor_with_feedback() {
         }
     }
 }
+
+#[test]
+fn mouse_click_uses_the_common_ancestor_of_down_and_release() {
+    common_ancestor_clicks(false);
+}
+
+#[test]
+fn mouse_click_common_ancestor_with_an_acknowledged_display() {
+    common_ancestor_clicks(true);
+}
+
+fn common_ancestor_clicks(attached: bool) {
+    // Chrome 151, Input.dispatchMouseEvent: removal suppresses click; hiding
+    // does not. Pointerup's style changes happen after click target selection.
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for direct in [false, true]
+        .into_iter()
+        .filter(|direct| !attached || !direct)
+    {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            for (down, up, release, press) in [
+                ("fieldDisplay = \"none\"", "", (20., 20.), "parent"),
+                ("fieldVisibility = \"hidden\"", "", (20., 20.), "parent"),
+                ("parentDisplay = \"none\"", "", (20., 20.), "root"),
+                ("parentVisibility = \"hidden\"", "", (20., 20.), "root"),
+                ("fieldShown = false", "", (20., 20.), ""),
+                ("parentShown = false", "", (20., 20.), ""),
+                ("", "", (140., 20.), "parent"),
+                ("", "", (250., 160.), "root"),
+                ("", "fieldDisplay = \"none\"", (20., 20.), "field"),
+                ("", "fieldVisibility = \"hidden\"", (20., 20.), "field"),
+                ("", "parentDisplay = \"none\"", (20., 20.), "field"),
+                ("", "fieldDisplay = \"none\"", (140., 20.), "parent"),
+            ] {
+                let source = format!(
+                    r#"component App
+  state fieldDisplay = "block"
+  state fieldVisibility = "inherit"
+  state parentDisplay = "block"
+  state parentVisibility = "visible"
+  state fieldShown = true
+  state parentShown = true
+  state seen = ""
+  action down
+    {down}
+  action up
+    {up}
+  action pressed(name: string)
+    seen = name
+  view
+    box width=300 height=200 press=pressed("root")
+      if parentShown
+        box width=220 height=100 display=parentDisplay visibility=parentVisibility press=pressed("parent")
+          if fieldShown
+            input testId="field" width=100 height=60 display=fieldDisplay visibility=fieldVisibility pointerdown=down pointerup=up press=pressed("field") {feedback}
+          input testId="sibling" width=100 height=60 position="absolute" left=120 top=0 press=pressed("sibling")
+      text seen testId="seen"
+"#,
+                    down = if down.is_empty() { "seen = seen" } else { down },
+                    up = if up.is_empty() { "seen = seen" } else { up },
+                );
+                let (mut p, error) = Presenter::boot_with(
+                    &crate::test_plan(&source),
+                    (),
+                    (300., 200.),
+                    1.,
+                    PathBuf::new(),
+                    PainterChoice::Cpu,
+                )
+                .unwrap();
+                assert!(error.is_none(), "{error:?}");
+                if attached {
+                    let frame = p.display_frame().unwrap();
+                    assert!(p.display_complete(&frame));
+                }
+                assert_eq!(p.hit(20., 20.), Some(id(&p, "field")));
+                if direct {
+                    p.set_pointer_kind(PointerKind::Touch);
+                }
+                p.pointer_down(20., 20., 1.).unwrap();
+                p.pointer_move(release.0, release.1, 2.).unwrap();
+                p.pointer_up(release.0, release.1, 3.).unwrap();
+                let label =
+                    format!("direct={direct} {feedback} down={down} up={up} release={release:?}");
+                actual.push((
+                    label.clone(),
+                    p.host
+                        .kernel()
+                        .node(id(&p, "seen"))
+                        .unwrap()
+                        .props
+                        .str(PropId::Text)
+                        .unwrap()
+                        .to_string(),
+                ));
+                expected.push((label, if direct { "" } else { press }.to_string()));
+            }
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn captured_mouse_click_bubbles_through_a_child_hidden_by_pointerup() {
+    let mut actual = Vec::new();
+    for hidden in ["display", "visibility"] {
+        for feedback in ["", "-exact-press-opacity=0.5"] {
+            let value = if hidden == "display" {
+                "none"
+            } else {
+                "hidden"
+            };
+            let source = format!(
+                r#"component App
+  state hidden = "inherit"
+  state seen = ""
+  action up
+    hidden = "{value}"
+  action pressed
+    seen = `${{seen}}press `
+  view
+    box width=300 height=200 press=pressed {feedback}
+      box testId="child" width=100 height=60 {hidden}=hidden pointerup=up
+      text seen testId="seen"
+"#
+            );
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(&source),
+                (),
+                (300., 200.),
+                1.,
+                PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none());
+            let frame = p.display_frame().unwrap();
+            assert!(p.display_complete(&frame));
+            p.pointer_down(20., 20., 1.).unwrap();
+            p.pointer_up(20., 20., 2.).unwrap();
+            actual.push(
+                p.host
+                    .kernel()
+                    .node(id(&p, "seen"))
+                    .unwrap()
+                    .props
+                    .str(PropId::Text)
+                    .unwrap()
+                    .to_string(),
+            );
+        }
+    }
+    assert_eq!(actual, vec!["press "; 4]);
+}

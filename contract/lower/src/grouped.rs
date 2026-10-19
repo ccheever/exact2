@@ -961,6 +961,9 @@ fn row(node: &Node, separated: bool) -> Node {
         s("font-size", BODY, span),
         attr("color", tint(ink), span),
         s("text-align", "left", span),
+        // A word longer than its line breaks, as a cell's label breaks it,
+        // rather than running over the value beside it.
+        s("overflow-wrap", "break-word", span),
     ];
     if field.is_some() {
         sheet.push(s("flex-wrap", "wrap", span));
@@ -1292,10 +1295,32 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 n("min-width", 0.0, at),
             ],
         ),
+        // An author's `flex=1` on a menu or date grows it from its own width,
+        // as on a text field: from CSS's 0% basis the row never wrapped it
+        // under its label, and at the accessibility sizes it took a sliver
+        // its title broke into letters in (grocery-list's Aisle, round 24).
         ("input" | "select", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Picker) => {
-            with(child, vec![n("min-width", 0.0, at)])
+            with(
+                &grown_field(child).unwrap_or_else(|| child.clone()),
+                vec![n("min-width", 0.0, at)],
+            )
         }
         ("column", _) if stack => subtitle(child),
+        // A column around the title's one text is the title, as a stack of
+        // lines is: a text after it is the value at the far edge, not a
+        // second title sharing the row's room (grocery-list's quantity
+        // mid-row, and over the name at the accessibility sizes, round 24).
+        _ if !stack && matches!(texts, Count::Known(0)) && one_line(child) => {
+            *texts = Count::Known(1);
+            if sized(child) {
+                child.clone()
+            } else {
+                with(
+                    child,
+                    vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
+                )
+            }
+        }
         _ if !stack && stacks(child) => {
             let mut margins = if lines {
                 vec![
@@ -1390,14 +1415,20 @@ fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
     })
 }
 
-/// Whether a row's part is lines stacked in the row: a shown element that
-/// lays out as a column around two parts or more (a column with nothing in
-/// it is a box, as a cover's placeholder is). `part` reads an `if` through.
 /// Whether the author wrote how wide `node` is in its row.
 fn sized(node: &Node) -> bool {
     matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| matches!(a.name.as_str(), "flex" | "flex-grow" | "flex-basis" | "width" | "min-width")))
 }
 
+/// Whether a row's part is a column of one shown text.
+fn one_line(node: &Node) -> bool {
+    matches!(node, Node::Element { tag, attrs, children, .. }
+        if !hidden(node) && column_row(tag, attrs) && text_lines(children) == Some((1, 1)))
+}
+
+/// Whether a row's part is lines stacked in the row: a shown element that
+/// lays out as a column around two parts or more (a column with nothing in
+/// it is a box, as a cover's placeholder is). `part` reads an `if` through.
 fn stacks(node: &Node) -> bool {
     matches!(node, Node::Element { tag, attrs, children, .. }
         if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
