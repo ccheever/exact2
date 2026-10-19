@@ -80,7 +80,7 @@ on macOS and Linux.
   `layout`'s held answer name the node the state is held on (`node`, `site`, `instance`: the press
   a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
   row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
-  press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
+  press row it lowered to as `row`), and a written row's `layout` (D14); LLP 1122 T4 added the selection's state rung (a style's
   `:active` part row is edited by `set-state`), and T5 the template and style rungs (a row its
   author wrote, edited by `set-row`). Stage 9's later wire changes add under the same
   version: D2's `set-row`, D3's `add-param` and `remove-param`; C1's `explain` of an icon and a
@@ -1124,7 +1124,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
   above). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
-  `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a
+  `padding` for `padding_top`; and `layout: true` where that attribute writes a layout row (LLP
+  1122 D14: `set-row` refuses it, by the same test), so a client offers it no edit. A tag's row, one the compiler derived, a conditional class's, a
   folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
   longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
   (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on

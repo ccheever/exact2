@@ -13,6 +13,14 @@
 mod activities;
 mod excerpt;
 pub use excerpt::excerpt;
+
+/// Whether an attribute writes paint rows alone (LLP 1122 D14): `set-row`
+/// edits one; a layout row, a prop or a handler is the author's. The source
+/// map marks a written row that is not (`layout`).
+pub fn paint_row(a: &contract_syntax::Attr) -> bool {
+    let rows = contract_lower::tags::rows(a);
+    !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
+}
 pub mod functions;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
