@@ -994,7 +994,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // The accent role must inherit, never write a self-reference.
         StyleId::AccentColor => vec![
             with("accent-color", "v=>v"),
-            with("--exact-accent", "v=>v==null||typeof v===\"string\"&&v.trim()===\"var(--exact-accent, AccentColor)\"?null:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
+            with("--exact-accent", "v=>v==null||typeof v===\"string\"&&v.trim()===\"var(--exact-accent, AccentColor)\"?null:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":typeof v===\"string\"&&v.trim()===\"var(--exact-accent-text, AccentColorText)\"?\"AccentColorText\":v"),
         ],
         StyleId::PositionTryFallbacks => vec![with(
             "position-try-fallbacks",

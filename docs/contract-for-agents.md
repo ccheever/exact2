@@ -3394,7 +3394,8 @@ the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
 `GrayText`, `AccentColor`, `AccentColorText`, `Field`, `FieldText`, `ButtonFace`,
 `ButtonText`, `Highlight`, `HighlightText` (`AccentColor` and `LinkText` are the
 tint: the nearest `accent-color` a node or an ancestor sets, else the platform's, as
-UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
+UIKit's inherited `tintColor` is; `AccentColorText` is the ink on that accent, on the web
+black or white by its lightness as a filled button's label), and Exact's `-exact-label`,
 `-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
 `-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
 `-exact-symbol` (what a symbol nobody tinted is, the initial `-exact-tint-color`:
