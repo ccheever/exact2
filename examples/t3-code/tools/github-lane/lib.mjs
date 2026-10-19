@@ -185,12 +185,14 @@ export function ghCallsSince(paths, offset) {
 export const ghLogSize = (paths) => (existsSync(paths.ghLog) ? readFileSync(paths.ghLog).length : 0);
 export const note = (paths, line) => appendFileSync(join(paths.logs, "lane.log"), `${new Date().toISOString()} ${line}\n`);
 
+export const LANE_SCOPES = "orchestration:read orchestration:operate review:write terminal:operate";
+
 /**
  * A lane T3 server's RPC over its WebSocket, after exchanging a pairing token for an access
  * token (the pairing flow the clone uses). `request` resolves the Exit value or rejects with the
  * typed failure; `stream` collects chunks until `until` says stop, then interrupts.
  */
-export async function connect(origin, pairingToken, scopes = "orchestration:read orchestration:operate review:write terminal:operate") {
+export async function connect(origin, pairingToken, scopes = LANE_SCOPES) {
   const form = new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: pairingToken,
     subject_token_type: "urn:t3:params:oauth:token-type:environment-bootstrap", requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
     scope: scopes, client_label: "GitHub lane probe", client_device_type: "desktop", client_os: "macos" });
