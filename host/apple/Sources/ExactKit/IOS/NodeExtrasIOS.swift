@@ -59,6 +59,10 @@ final class NodeExtras {
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: DragInput?
+    var contextTransform = CGAffineTransform.identity
+    var flightLook: FlightLook?
+    var columnRecord: ColumnRecord?
+    var liveText: String?
     var reorderPan: UIPanGestureRecognizer?
     var reorderPress: UILongPressGestureRecognizer?
     var reorderHold: AnyObject?
@@ -186,6 +190,19 @@ extension NodeView {
     package var transformRecognizer: UIPanGestureRecognizer? { get { extras?.transformRecognizer } set { if newValue != nil || extras != nil { more.transformRecognizer = newValue } } }
     package var transformHold: DragInput? { get { extras?.transformHold } set { if newValue != nil || extras != nil { more.transformHold = newValue } } }
     package var transformContact: TransformContact? { get { extras?.transformContact } set { if newValue != nil || extras != nil { more.transformContact = newValue } } }
+    /// A projection's transform over its layout (PresenterIOS), identity for every other node.
+    package var contextTransform: CGAffineTransform {
+        get { extras?.contextTransform ?? .identity }
+        set {
+            if !newValue.isIdentity || extras != nil { more.contextTransform = newValue }
+            if newValue.isIdentity { presenter?.contextNodes.remove(id) } else { presenter?.contextNodes.insert(id) }
+        }
+    }
+    /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
+    var flightLook: FlightLook? { get { extras?.flightLook } set { if newValue != nil || extras != nil { more.flightLook = newValue } } }
+    /// LLP 1093 D7: fragments or columns.
+    var columnRecord: ColumnRecord? { get { extras?.columnRecord } set { if newValue != nil || extras != nil { more.columnRecord = newValue } } }
+    var liveText: String? { get { extras?.liveText } set { if newValue != nil || extras != nil { more.liveText = newValue } } }
     var swipeOrigin: Double { get { extras?.swipeOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.swipeOrigin = newValue } } }
     var contextRecognizer: UILongPressGestureRecognizer? { get { extras?.contextRecognizer } set { if newValue != nil || extras != nil { more.contextRecognizer = newValue } } }
     var doubleRecognizer: UITapGestureRecognizer? { get { extras?.doubleRecognizer } set { if newValue != nil || extras != nil { more.doubleRecognizer = newValue } } }
