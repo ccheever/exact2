@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { codeAt, composerMarkdown } from '../../src/composer/composer-markdown';
+import { codeAt, composerMarkdown, emptyFenceAt } from '../../src/composer/composer-markdown';
 import { codeLanguageLabel, CODE_BLOCK_LANGUAGES, withInfoStringLanguage } from '../../src/composer/composer-code-languages';
 
 // The Markdown field paints the source (LLP 1045); these blocks drive key
@@ -43,8 +43,13 @@ describe('source-backed composer Markdown', () => {
     expect(blocks.map(block => block.kind)).toEqual(['code', 'paragraph']);
   });
   test('empty and unclosed code bodies have valid ranges; two identical fences remain separate occurrences', () => {
+    // No body line: the closing line's start is not inside the code.
     const empty = composerMarkdown('```ts\n```');
-    expect(codeAt(empty.blocks, { start: 6, end: 6 })?.body).toEqual({ start: 6, end: 6 });
+    expect(empty.blocks[0]).toMatchObject({ kind: 'code', body: null, close: { start: 6, end: 9 } });
+    expect(codeAt(empty.blocks, { start: 6, end: 6 })).toBeNull();
+    expect(emptyFenceAt(empty.blocks, { start: 6, end: 6 })?.start).toBe(0);
+    expect(emptyFenceAt(empty.blocks, { start: 6, end: 7 })).toBeNull();
+    expect(codeAt(composerMarkdown('```ts\n\n```').blocks, { start: 6, end: 6 })?.body).toEqual({ start: 6, end: 6 });
     const unclosed = composerMarkdown('~~~py\nx');
     expect(codeAt(unclosed.blocks, { start: 6, end: 7 })?.close).toBeNull();
     const two = composerMarkdown('```\nx\n```\n```\nx\n```');

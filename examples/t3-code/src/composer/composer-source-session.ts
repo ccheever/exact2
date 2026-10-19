@@ -1,5 +1,5 @@
 // Live grammar identity belongs to the composer, independently of its serialized source.
-import { codeAt, composerLines, composerMarkdown, parseOpeningFence, type ComposerBlockOrigin } from './composer-markdown';
+import { codeAt, composerLines, composerMarkdown, emptyFenceAt, parseOpeningFence, type ComposerBlockOrigin } from './composer-markdown';
 import { composerBlockInputRule } from './composer-input-rules';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerEdit, type ComposerKey, type ComposerKeyResult } from './composer-markdown-edit';
 import type { ComposerRange } from './composer-markdown';
@@ -89,7 +89,8 @@ export class ComposerSourceSession {
 
   input(owner: string, value: string, selection: ComposerRange, text: string, paste = false): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
-    const blocks = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks, code = codeAt(blocks, selection);
+    const blocks = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
+    const code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
     const outcome = composerCodeInput(value, selection, text, blocks);
     if (outcome.kind === 'edit') {
       const origins = this.after(outcome.edit);
@@ -107,7 +108,7 @@ export class ComposerSourceSession {
       if (key.command || !key.shift) return { kind: 'send' };
       return this.input(owner, value, selection, '\n');
     }
-    const code = codeAt(composerMarkdown(value, { blockOrigins: this.currentBlocks }).blocks, selection);
+    const blocks = composerMarkdown(value, { blockOrigins: this.currentBlocks }).blocks, code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
     const outcome = composerMarkdownKey(value, selection, key, code ? this.origins.get(code.start) : undefined, this.currentBlocks);
     if (outcome.kind === 'edit') {
       const next = applyComposerEdit(value, outcome.edit), origins = this.after(outcome.edit);
