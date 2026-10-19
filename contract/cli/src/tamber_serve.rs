@@ -47,10 +47,8 @@
 //!   the `files` digests they read (`tamber/1.1`); `describe` each token's
 //!   declared `pairs` (a role's with its fallback) and the design's
 //!   contrast `warnings`.
-//! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
-//!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
-//!   and `import-plan` plans an import from a source's text against the
-//!   design (`tamber_import.rs`). None writes.
+//! - **The wire's own** (LLP 1122 T1, *1.1*): `compare`, `revert-plan` (texts from git); `import-plan`
+//!   marks a held re-import (sources are read alone). None writes. Base names, *1.14*: `tamber_base.rs`.
 //! - **A request** is one JSON object on a line of at most 1 MiB; a field
 //!   of the wrong type is an error, not absent.
 
@@ -63,6 +61,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+#[path = "tamber_base.rs"]
+mod base;
 #[path = "tamber_scrub.rs"]
 mod scrub;
 #[path = "tamber_walk.rs"]
@@ -616,11 +616,11 @@ impl Server {
         };
         match request["method"].as_str() {
             Some("hello") => vec![reply(self.hello(&request))],
-            Some("describe") => vec![reply(self.describe(&request))],
+            Some("describe") => vec![reply(base::describe(self, &request))],
             Some(m @ ("resolve" | "explain" | "uses")) => {
                 let answer = match m {
-                    "resolve" => self.resolve(&request),
-                    "explain" => self.explain(&request),
+                    "resolve" => base::resolve(self, &request),
+                    "explain" => base::explain(self, &request),
                     _ => self.uses(&request),
                 };
                 vec![reply(

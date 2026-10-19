@@ -364,6 +364,23 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   has its `fallback` `{light, dark}` (*1.1*).
 - `warnings`: `[{file, line, col, id, message}]`, the design's `tamber-contrast` warnings, a pair
   below 4.5:1 at its lowest tuple and scheme. They never refuse the design (*1.1*).
+- `base` (*1.14*, LLP 1121 stage 11): the base scale, every base name in the kernel's table's
+  order (`space.xs` to `space.xl`, `radius.sm` to `radius.full`), each a **base row**
+  `{name, kind, columns, override}`:
+  - `kind` is `length` (`space.*`) or `radius` (`radius.*`);
+  - `columns` is all five scale columns, `ios`, `mac`, `neutral`, `material` and `terminal`, each
+    `{value, source}`: `value` a CSS length (`16px`), `full` (radius.full, the pill) or the
+    terminal's `<n>cell` (`0` for none); `source` where it comes from, `{kind: "metric", ref}` (a
+    metrics row), `{kind: "measured", id}` or `{kind: "guideline", cite}` (an entry in
+    docs/scale-measured.md), `{kind: "full"}` or `{kind: "terminal"}` (`stretch`, a metric borrowed
+    for another role, is reserved: emitted once the table carries it). Every cell is the kernel's
+    table's (`style::scale`), never a copy;
+  - `override` is the app's own line for the name, `{file, line, col, text}`, or null. When it is
+    set, the name is the app's token: its folded value is what `resolve` answers.
+- `targets` (*1.14*): `[{target, column}]`, the targets the app ships (the set an icon's `draws` is
+  keyed by), each with the scale column it reads (`ios`, `tvos`, `visionos`, `watchos`: `ios`;
+  `macos`: `mac`; `web`, `linux`, `windows`: `neutral`; `android`: `material`), from the kernel, so
+  a client keeps no map of its own.
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:
@@ -396,6 +413,9 @@ tuple:
 - **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
   `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
   written) and its colour's folded CSS (null for a text shadow's `currentcolor`).
+- **A base name** (*1.14*) the app leaves unset answers `{name, base, files}`, its base row (see
+  `describe`) and no tuples: its value is each column's, not a fold. One the app sets answers its
+  token's tuples as usual, with `base` beside them.
 
 **`explain`** `{token, file?}` answers `{token, value, whens, dials, names, files}`:
 - `value` and each `whens[].value` are source text, as written;
@@ -412,6 +432,12 @@ tuple:
 - **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
   where its line is, its default as written, and `set`, the design's line that sets the app's
   value (`{file, line, value}`), or null.
+- **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
+  sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
+  tool reads and edits its `when` lines.
+- **A token whose values name base names** (*1.14*) adds `bases`, each base name its default or
+  `when` values name, set by the app or not, as strings in the order written (parallel to `names`;
+  a client looks each up in `describe`'s `base`).
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its

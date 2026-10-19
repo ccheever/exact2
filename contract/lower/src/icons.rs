@@ -127,6 +127,12 @@ pub fn draws(icon: &tamber::Icon, root: &Path) -> Vec<(String, Option<&'static s
         .collect()
 }
 
+/// The targets the app at `root` ships, by name, in order (what `draws` is
+/// keyed by).
+pub fn shipped_targets(root: &Path) -> Vec<String> {
+    targets(Some(root)).into_iter().map(|t| t.name).collect()
+}
+
 /// A target the app ships, and each thing in the app that makes it shipped,
 /// so a refusal can say what to remove.
 #[derive(Debug, Clone, PartialEq)]
