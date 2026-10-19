@@ -62,7 +62,7 @@ fn row(name: &str, file: &str, design: &exact_tamber::Design) -> Option<Value> {
     Some(json!({"name": name, "kind": kind, "columns": columns, "override": over}))
 }
 
-/// The base names a token reaches, as strings in the order it folds them:
+/// The base names a token reaches, as strings, each once (no order promised):
 /// the unset ones its own values read bare (every value the checker folds,
 /// a `when` no tuple selects and a type's size included), the set ones it
 /// names, and those of the tokens it names, through any chain.

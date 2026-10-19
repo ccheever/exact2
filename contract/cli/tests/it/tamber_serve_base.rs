@@ -24,6 +24,8 @@ theme
     when density=roomy: 12px
     when density=tight: 8px
   card.inner = card.pad
+  card.outer = card.round
+  card.round = radius.lg
   body.text: type = space.lg
   body.face: family = \"space.md\", serif
 ";
@@ -134,6 +136,9 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
         json!(["space.md", "space.sm"]),
         "{inner}"
     );
+    // Through a token naming an overridden base (radius.lg is the app's).
+    let (outer, _) = s.ask(json!({"method": "explain", "token": "card.outer"}));
+    assert_eq!(outer["ok"]["bases"], json!(["radius.lg"]), "{outer}");
     // An overridden base that names another base says so too.
     let (xl, _) = s.ask(json!({"method": "explain", "token": "space.xl"}));
     assert_eq!(xl["ok"]["kind"], "base");

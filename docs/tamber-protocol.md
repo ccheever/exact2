@@ -438,7 +438,7 @@ tuple:
   tool reads and edits its `when` lines.
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name its values reach as the checker folds them (an unset one bare, a set
-  one as the token it names; never a word in a string), as strings (parallel to `names`; a client
+  one as the token it names, through any chain; never a word in a string), as strings, each once in no promised order (parallel to `names`; a client
   looks each up in `describe`'s `base`). A base name read from a file that is not the design's, or
   a design that is refused, is refused as any token is.
 
