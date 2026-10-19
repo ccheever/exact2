@@ -38,9 +38,11 @@ const same = (rows, pid, start) => start !== undefined && rows.get(pid)?.start =
 
 /** Note every process now below the child or below any process it owns that
  * is still the one noted (pid → start), and forget those that ended. The
- * child is known by the start time it had when spawned. */
+ * child is known by the start time it had when spawned, taken only while its
+ * handle says it has not been reaped (so `rows`, listed before, saw it and no
+ * process that took its pid later). */
 function note(child, rows) {
-  if (child.start === undefined && rows.has(child.pid)) child.start = rows.get(child.pid).start;
+  if (child.start === undefined && child.exitCode === null && child.signalCode === null && rows.has(child.pid)) child.start = rows.get(child.pid).start;
   const roots = [...child.known].filter(([pid, start]) => same(rows, pid, start)).map(([pid]) => pid);
   if (same(rows, child.pid, child.start)) roots.push(child.pid);
   const children = new Map();

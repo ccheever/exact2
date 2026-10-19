@@ -2,7 +2,7 @@
 // the test ends, its body's own way or by bun:test's timeout. POSIX only.
 import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnOwned, stopAll } from './test-children.mjs';
@@ -46,9 +46,9 @@ test.skipIf(!posix)('stop() ends them asynchronously, keeping the event loop fre
 
 test.skipIf(!posix)('a test that times out still ends what it spawned, SIGTERM-deaf', () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-test-children-'));
+  const file = join(dir, 'timeout.test.mjs'), out = join(dir, 'pids');
   let pids = [];
   try {
-    const file = join(dir, 'timeout.test.mjs'), out = join(dir, 'pids');
     writeFileSync(file, `import { afterEach, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { spawnOwned, stopAll } from ${JSON.stringify(resolve(import.meta.dir, 'test-children.mjs'))};
@@ -62,9 +62,10 @@ test('hangs', async () => {
 }, 5000);
 `);
     const run = spawnSync(process.execPath, ['test', file], { encoding: 'utf8', timeout: 60_000 });
+    pids = existsSync(out) ? readFileSync(out, 'utf8').split(' ').map(Number) : [];
     expect(run.error).toBeUndefined();
     expect(`${run.stdout}${run.stderr}`).toMatch(/timed out/i);
-    pids = readFileSync(out, 'utf8').split(' ').map(Number);
+    expect(pids.length).toBe(2);
     const end = Date.now() + 10_000;
     while (pids.some(alive) && Date.now() < end) spawnSync('sleep', ['0.05']);
     expect(pids.filter(alive)).toEqual([]);
