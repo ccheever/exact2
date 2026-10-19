@@ -91,7 +91,7 @@ export function tierTwoChecks() {
   ];
 }
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
-export const gameScaffoldCheck = ['game-scaffold', 'bun', ['test', 'game/proof-game.test.mjs', 'game/new.test.mjs', '--test-name-pattern', 'proof script|drawnShare|AGENTS.md lists vocab|new logic/tests file']];
+export const gameScaffoldCheck = ['game-scaffold', 'bun', ['test', 'game/proof-game.test.mjs', 'game/new.test.mjs', '--test-name-pattern', 'proof script|worldPixels|AGENTS.md lists vocab|new logic/tests file']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 // Glue files that edit an app's checked-in sources while they run
 const EDITS_APPS = /\/dev-scheduler\.test\.mjs$/;

@@ -10,7 +10,7 @@
 // clock: advance deterministic ticks; settle reports what keeps moving.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
-import { proof, axNames, drawnShare } from '../../proof.mjs';
+import { proof, axNames, worldPixels } from '../../proof.mjs';
 
 // How a fresh session reaches the running world: change it with the title screen.
 const play = async session => {
@@ -39,11 +39,14 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const world = await play(first);
   pin(0, await world.snapshot());
   await world.run(500);
-  // The GPU-less Linux host draws no world; every other host's screenshot must.
+  // The GPU-less Linux host draws no world; every other host's renderer must report
+  // itself ready and its canvas, outside the HUD, must not be one cleared colour.
+  let shown;
   if (host !== 'linux') {
-    await first.screenshot(resolve(out, 'game.png'));
-    const share = drawnShare(readFileSync(resolve(out, 'game.png')));
-    check('the GPU host draws the world, not a cleared canvas', share > 0.1, {drawn:share});
+    const shot = await first.screenshot(resolve(out, 'game.png'));
+    shown = worldPixels(readFileSync(resolve(out, 'game.png')), shot, await first.layout());
+    const ready = (await first.state()).world?.[0]?.ready;
+    check('the GPU host presents a completed frame of the world', ready === true && shown.drawn > 0, {ready, ...shown});
   }
   await world.save(resolve(out, 'checkpoint.world'));
   const checkpoint = await world.snapshot();
@@ -62,6 +65,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await restored.close();
 
   // starter: replace these with your game's checks
+  // The starter's scene fills most of its canvas; retune the band to your own scene.
+  if (shown) check('the starter scene covers most of the canvas', shown.share > 0.1, shown);
   const movement = await open();
   const walking = await play(movement);
   await walking.hold('KeyW',1500);
@@ -69,6 +74,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('W for 1.5 s matches the closed-form acceleration series', Math.abs(walked[2]+distance(180,120)) < 0.001, walked);
   await movement.close();
   const s = await open();
+  // Launch work lands first: an Apple host autofocuses the turn after activation.
+  await s.clock('settle');
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const title = await s.tree();
   const titleAx = await axNames(s);

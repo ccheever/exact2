@@ -3,7 +3,7 @@ import {spawnSync} from 'node:child_process';
 import {existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {drawnShare, proofGame} from './proof.mjs';
+import {proofGame, worldPixels} from './proof.mjs';
 import {encodePng} from '../scripts/png.mjs';
 
 // LLP 1132 D7: a proof script need not sit at the game's root.
@@ -50,20 +50,31 @@ await proof(import.meta, async () => { throw new Error('the script never runs fo
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-// The template's first-frame fact: a lit scene passes, a cleared canvas under a HUD fails.
-test('drawnShare tells a drawn world from a cleared canvas under a HUD', () => {
-  const [width, height] = [320, 180];
+// The template's completed-frame fact: a blank world under a large HUD fails, a sparse
+// scene passes, and the screenshot's scale maps layout points to pixels.
+test('worldPixels tells a drawn world from a cleared canvas, whatever covers it', () => {
+  const [width, height, scale] = [640, 360, 2];
+  const clear = [126, 171, 163], hudColour = [32, 39, 49];
+  // A fifth of the canvas under HUD panels, in layout points.
+  const hud = [{x:0, y:0, w:320, h:20}, {x:0, y:160, w:320, h:20}, {x:0, y:20, w:32, h:140}];
+  const layout = {viewport:{w:320, h:180}, nodes:[{id:1, x:0, y:0, w:320, h:180, type:'View'},
+    {id:2, x:0, y:0, w:320, h:180, type:'Canvas', testId:'world'}, ...hud.map((b, i) => ({id:3 + i, ...b, type:'View'}))]};
+  const covered = (x, y) => hud.some(b => x / scale >= b.x && x / scale < b.x + b.w && y / scale >= b.y && y / scale < b.y + b.h);
   const image = paint => {
     const data = new Uint8Array(width * height * 4);
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data.set([...paint(x, y), 255], (y * width + x) * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data.set([...(covered(x, y) ? hudColour : paint(x, y)), 255], (y * width + x) * 4);
     return encodePng({width, height, data});
   };
-  const clear = [126, 171, 163];
-  // Four HUD pills, about 4% of the frame, over the clear colour.
-  const hud = (x, y) => [[8, 8], [270, 8], [8, 140], [270, 140]].some(([px, py]) => x >= px && x < px + 42 && y >= py && y < py + 14);
-  expect(drawnShare(image((x, y) => hud(x, y) ? [32, 39, 49] : clear))).toBeLessThan(0.1);
-  // A ground plane shaded towards the horizon fills the lower two thirds.
-  expect(drawnShare(image((x, y) => y > 60 ? [90, 120 + (y >> 2), 115] : clear))).toBeGreaterThan(0.5);
+  const shot = {w:320, h:180};
+  const blank = worldPixels(image(() => clear), shot, layout);
+  expect(blank.hud).toBe(3);
+  expect(blank.drawn).toBe(0);
+  // One small object: a hundredth of the open canvas.
+  const sparse = worldPixels(image((x, y) => x >= 300 && x < 340 && y >= 160 && y < 200 ? [200, 90, 40] : clear), shot, layout);
+  expect(sparse.drawn).toBe(1600);
+  expect(sparse.share).toBeGreaterThan(0.005);
+  expect(sparse.share).toBeLessThan(0.02);
+  expect(() => worldPixels(image(() => clear), shot, {...layout, nodes:layout.nodes.slice(0, 1)})).toThrow('no canvas world');
 });
 
 test('a proof script run from / names its commands by absolute path', () => {

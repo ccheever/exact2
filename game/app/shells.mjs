@@ -619,6 +619,18 @@ export function sdkFetch({offline = false, source = gameRoot, env = process.env}
   });
 }
 
+/** Bake a game's art/ into assets/ with the GPU shell's own baker (`exact-game-bake
+ * --art`), so a later build writes the same bytes and creates nothing. A game
+ * without art/ (or a manifest to prune) is left alone. */
+export function bakeGameArt(dir, env = process.env) {
+  if (!hasArt(dir)) return false;
+  const result = spawnSync('cargo', ['run', '--manifest-path', resolve(gameRoot, 'Cargo.toml'), '-p', 'exact-game-bake', '--locked', '--offline', '--', '--art', dir], {
+    cwd:gameRoot, env, stdio:['ignore', 'inherit', 'inherit'],
+  });
+  if (result.error || result.status !== 0) throw new Error(`game art bake: ${result.error?.message ?? `cargo exited ${result.status ?? result.signal}`}`);
+  return true;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2), requested = args.find(arg => !arg.startsWith('--'));
   if (args.includes('--test')) {
@@ -634,12 +646,7 @@ if (import.meta.main) {
         // The game's own target, beside the build-dir its config names: the SDK's
         // is shared with the SDK's builds and every other game's.
         const env = {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(dir,'target')};
-        if (hasArt(dir)) {
-          const result=spawnSync('cargo',['run','--manifest-path',resolve(gameRoot,'Cargo.toml'),'-p','exact-game-bake','--locked','--offline','--','--art',dir], {
-            cwd:gameRoot,env,stdio:'inherit',
-          });
-          if (result.error || result.status !== 0) throw new Error(`game art bake: ${result.error?.message ?? `cargo exited ${result.status ?? result.signal}`}`);
-        }
+        bakeGameArt(dir, env);
         try { lintGame(dir, game, {env}); } catch (error) { console.error(error.message); failed = true; }
         // The author's crates only: generated adapters are products, built by bakes.
         const result=spawnSync('cargo',['test',...[game.crate, game.data?.crate, game.render?.crate].filter(Boolean).flatMap(crate => ['-p', crate]),'--locked','--offline','--no-fail-fast'], {

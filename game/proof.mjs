@@ -8,6 +8,7 @@ import { open as openSession, render } from '../scripts/agent.mjs';
 import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
+import { bakeGameArt } from './app/shells.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 import { decodePng } from '../scripts/png.mjs';
 
@@ -663,24 +664,39 @@ export function worldObservations(observations, session) {
   };
 }
 
-/** Whether a screenshot shows a drawn world, not a cleared canvas under a HUD: the
- * share of pixels further than `tolerance` (per channel, 0–255) from its most common
- * colour, which a cleared canvas takes. A HUD over a cleared canvas covers a few
- * percent; a lit scene most of the frame. */
-export function drawnShare(png, tolerance = 8) {
-  const {data} = decodePng(png), counts = new Map();
-  for (let i = 0; i < data.length; i += 4) {
+/** What a screenshot shows of a world canvas: the canvas's box from `layout()`, less
+ * every other box drawn over it (the HUD), and the share of those pixels further than
+ * `tolerance` (per channel, 0–255) from their most common colour, which a cleared
+ * canvas is everywhere. `shot` is the screenshot's reply, whose `w` scales points to
+ * pixels. A world that drew anything at all has a share above zero; how much of the
+ * frame a game fills is the game's own number. */
+export function worldPixels(png, shot, layout, canvas = 'world', tolerance = 8) {
+  const {width, height, data} = decodePng(png), scale = width / (shot?.w || layout.viewport.w);
+  const world = layout.nodes.find(n => n.testId === canvas);
+  if (!world) throw new Error(`no canvas ${canvas} in layout`);
+  const inside = (b, x, y) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
+  const contains = (a, b) => a.x <= b.x && a.y <= b.y && a.x + a.w >= b.x + b.w && a.y + a.h >= b.y + b.h;
+  // Boxes over the canvas: anything but the canvas itself and what encloses it.
+  const over = layout.nodes.filter(n => n !== world && !contains(n, world) && n.w > 0 && n.h > 0
+    && n.x < world.x + world.w && n.x + n.w > world.x && n.y < world.y + world.h && n.y + n.h > world.y);
+  const pixels = [];
+  for (let py = Math.max(0, Math.floor(world.y * scale)); py < Math.min(height, Math.ceil((world.y + world.h) * scale)); py++) {
+    for (let px = Math.max(0, Math.floor(world.x * scale)); px < Math.min(width, Math.ceil((world.x + world.w) * scale)); px++) {
+      const [x, y] = [(px + 0.5) / scale, (py + 0.5) / scale];
+      if (over.some(b => inside(b, x, y))) continue;
+      pixels.push((py * width + px) * 4);
+    }
+  }
+  const counts = new Map();
+  for (const i of pixels) {
     const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   let clear = 0, most = -1;
   for (const [key, n] of counts) if (n > most) { most = n; clear = key; }
   const [r, g, b] = [clear >> 16, (clear >> 8) & 255, clear & 255];
-  let drawn = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    if (Math.max(Math.abs(data[i] - r), Math.abs(data[i + 1] - g), Math.abs(data[i + 2] - b)) > tolerance) drawn++;
-  }
-  return drawn / (data.length / 4);
+  const drawn = pixels.filter(i => Math.max(Math.abs(data[i] - r), Math.abs(data[i + 1] - g), Math.abs(data[i + 2] - b)) > tolerance).length;
+  return {pixels:pixels.length, drawn, share:pixels.length ? drawn / pixels.length : 0, hud:over.length};
 }
 
 /** The game a proof script checks: `--app <dir>`, else the nearest directory at or
@@ -849,6 +865,9 @@ export async function proof(meta, script) {
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
+    // Bake art/ before the first input inventory: the build's own bake then rewrites
+    // the same files and creates none, so a fresh game's first proof completes.
+    if (bakeGameArt(app, {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')})) say(`BAKE ${name} art/ into assets/`);
     let inputs;
     const scanInputs = proofInputReader(root, app, resolve(buildOut, 'input-digests.json'));
     const readInputs = () => inputs = scanInputs();

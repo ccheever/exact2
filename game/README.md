@@ -621,7 +621,8 @@ subset; each version must be the SDK lock's, so bakes, deploys and proofs still 
 lock lacks but exact2's root `Cargo.lock` pins (a core crate's new dependency) is
 admitted at the root lock's version and checksum until the SDK lock is refreshed. A game that adds a
 dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
-`exact-game.workspace = true`) and captures its own `Cargo.lock` with `bun exact.mjs
+`exact-game.workspace = true`; a game with `art/` also lists `exact-game-bake.workspace =
+true` under `[dev-dependencies]` for `sim_with_art!`) and captures its own `Cargo.lock` with `bun exact.mjs
 lock` (from exact2, `bun game/app/shells.mjs ./my-game --lock`): it fetches what the
 graph needs, resolves with the SDK lock's versions first and prints what changed
 (`--update-lock` resolves offline from the cache alone); commit and review that lock.
