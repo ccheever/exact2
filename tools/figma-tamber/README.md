@@ -21,7 +21,10 @@ design server: it reads, and it proposes. It never writes the design.
 ## Pull and push
 
 - **Pull** reads `export dtcg` and writes the variables:
-  - The **Tamber** collection gets one mode per full tuple of the design (its app axes, light and dark).
+  - The **Tamber** collection gets one mode per full tuple of the design (its app axes, light and dark), except that
+    light tuples differing only by an axis `under scheme=dark` share one light mode, since the design has one light
+    side for them (the theme fixture: `light`, `dark-style=black, dark`, `dark-style=dim, dark`). A push writes that
+    mode's value to each of them.
   - If the file's plan allows fewer modes than that, you get one collection per app tuple instead, each with Light
     and Dark modes.
   - Colours become COLOR. Lengths, numbers and durations become FLOAT, in px and ms. Families become STRING.

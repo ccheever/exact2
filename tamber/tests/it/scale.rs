@@ -116,3 +116,70 @@ fn re_importing_every_value_of_a_large_design_takes_each_once() {
 // re-import were far over (3.8 s for 4,000 aliases, 4.2 s for 150 tokens).
 const BOUND_CHAIN: u64 = 5;
 const BOUND_REIMPORT: u64 = 10;
+
+/// A design of `n` colour tokens over 64 contexts (five two-valued axes,
+/// light and dark), each token with a `when` for one of the axes.
+fn contexts_64(n: usize) -> String {
+    let mut s = String::from("tamber t\n\naxes\n");
+    for a in 0..5 {
+        s += &format!("  a{a} = p | q\n");
+    }
+    s += "\ntheme\n";
+    for i in 0..n {
+        s += &format!(
+            "  c{i} = light-dark(#{:06x}, #{:06x})\n    when a{}=q: light-dark(#{:06x}, #{:06x})\n",
+            i,
+            i + 1,
+            i % 5,
+            i,
+            i + 2
+        );
+    }
+    s
+}
+
+/// The design's export, and that export with every colour moved.
+fn exported(src: &str) -> (String, String) {
+    let text = dtcg(&check(src, &vocab()).unwrap(), &vocab()).unwrap();
+    let mut doc: Value = serde_json::from_str(&text).unwrap();
+    moved(&mut doc["modifiers"]);
+    (text, doc.to_string())
+}
+
+#[test]
+fn the_budget_takes_a_design_near_its_limit_and_refuses_one_past_it() {
+    // Near the limits (calibrated to the isolate's 1 GiB, LLP 1121 §10):
+    // 500 tokens over 64 contexts re-import (about 76% of `REIMPORT`), and
+    // 700 import fresh (about 79% of `IMPORT`).
+    let src = contexts_64(500);
+    let (text, incoming) = exported(&src);
+    let (import, took) = timed(|| reimport(&incoming, std::slice::from_ref(&text), &src, &vocab()));
+    assert_eq!(import.unwrap().ops.len(), 1000);
+    assert!(took < Duration::from_secs(BOUND_NEAR), "{took:?}");
+    let (text, _) = exported(&contexts_64(700));
+    let files = vec![("tokens.resolver.json".to_string(), text)];
+    let (import, took) =
+        timed(|| dtcg_import::import(&files, "fresh", &parse("tamber app\n").unwrap()));
+    assert_eq!(import.unwrap().ops.len(), 701);
+    assert!(took < Duration::from_secs(BOUND_NEAR), "{took:?}");
+    // 3,000 tokens over 64 contexts: refused by the budget's message, not
+    // run on into the isolate's RSS limit.
+    // (Its export is never built whole here: a client's file is small, and
+    // the design's own export is what the budget charges, as it is built.)
+    let src = contexts_64(3000);
+    let (_, small) = exported(&contexts_64(10));
+    let (import, took) = timed(|| reimport(&small, &[], &src, &vocab()));
+    let refused = import.unwrap_err();
+    assert!(
+        refused.iter().any(|d| d.message.contains("expands past")),
+        "{refused:?}"
+    );
+    assert!(took < Duration::from_secs(BOUND_NEAR), "{took:?}");
+    // And the server's check of a baseline against it, likewise.
+    let refused = exact_tamber::own_digest(&src, &vocab()).unwrap_err();
+    assert!(refused.iter().any(|d| d.message.contains("expands past")));
+}
+
+// A debug build's, with room for a loaded machine; release is far under
+// (§10: 0.5 s and 0.4 s near the limits, the refusal in about 1 s).
+const BOUND_NEAR: u64 = 30;

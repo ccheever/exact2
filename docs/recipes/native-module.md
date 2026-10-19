@@ -66,6 +66,7 @@ export const answer: Answer = (source, args, store, storage, native) =>
 - **Printing:** `print` (stdout) appears in `agent ios logs` (under `host`) and in `xcrun
   simctl launch --console`; `NSLog` does not.
 - **Exiting:** iOS has no quit. `exit(0)` ends the process without waiting for the app's
-  writes: keep it to a measurement hook, after `fflush(stdout)`.
+  writes: keep it to a measurement hook, after `fflush(stdout)`. Time launches on a simulator
+  no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
 - **A Swift edit rebuilds** (`bun exact.mjs ios`); views from the same module are
   [native-views](native-views.md).

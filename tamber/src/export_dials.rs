@@ -287,6 +287,13 @@ pub(crate) fn marks(
     branch: TokenBranch,
 ) -> Vec<Pin> {
     let mut pins = Vec::new();
+    // Each token by its name, then by its name in any ASCII case: the first
+    // so named, read once for all the operations.
+    let (mut exact, mut folded) = (HashMap::new(), HashMap::new());
+    for (k, t) in cur.design.tokens.iter().enumerate().take(cur.tokens.len()) {
+        exact.entry(t.name.value.as_str()).or_insert(k);
+        folded.entry(t.name.value.to_ascii_lowercase()).or_insert(k);
+    }
     for op in ops {
         let Op::SetToken {
             name, when, value, ..
@@ -294,20 +301,13 @@ pub(crate) fn marks(
         else {
             continue;
         };
-        let Some((checked, decl)) = cur
-            .tokens
-            .iter()
-            .zip(&cur.design.tokens)
-            .find(|(_, t)| t.name.value == *name)
-            .or_else(|| {
-                cur.tokens
-                    .iter()
-                    .zip(&cur.design.tokens)
-                    .find(|(_, t)| t.name.value.eq_ignore_ascii_case(name))
-            })
+        let Some(k) = exact
+            .get(name.as_str())
+            .or_else(|| folded.get(&name.to_ascii_lowercase()))
         else {
             continue;
         };
+        let (checked, decl) = (&cur.tokens[*k], &cur.design.tokens[*k]);
         // The lines that won where it writes, side by side: its own line
         // (the default for no `when`), or for a new `when`, each tuple and
         // scheme where it wins, the line that won there before it (not where
@@ -371,8 +371,12 @@ pub(crate) fn marks(
         let Some(after) = fold(std::slice::from_ref(&set)) else {
             continue;
         };
+        let mut by_name = HashMap::new();
+        for a in &after.tokens {
+            by_name.entry(&a.name).or_insert(a);
+        }
         for t in &cur.tokens {
-            let Some(moved) = after.tokens.iter().find(|a| a.name == t.name) else {
+            let Some(moved) = by_name.get(&t.name) else {
                 continue;
             };
             for (k, (b, a)) in t.values.iter().zip(&moved.values).enumerate() {

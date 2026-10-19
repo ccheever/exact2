@@ -704,3 +704,48 @@ test("a design waiting when its build registers again or goes is never told; the
   time.tick(200);
   expect(told()).toEqual(['d0', 'r0']);
 });
+
+test('navigate (*1.14*, LLP 1122 T7) routes one build to a location on its own origin, its refusal its sender\'s, holding nothing', () => {
+  const events = [];
+  const channel = buildChannel({ send: e => events.push(e), log: () => {} });
+  const a = stream(channel), b = stream(channel);
+  report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'navigate'] });
+  register(channel, b.nonce, 'ios-1', 'ios');
+  // Refused: a scheme, a host, a path a browser reads as a host, a space, too long; a build none such.
+  for (const bad of ['https://evil.example/', '//evil.example/x', '/\\evil.example', 'settings', '/a b', '/caf\u00e9', '/foo/..//evil.example/x', '/%2e%2e//evil.example', '/a/%2E./..//evil.example', `/#${'"'.repeat(700)}`, `/post/${'|'.repeat(700)}#c`, '/post/a%#c', '/post/a b', `/${'x'.repeat(2048)}`, 7, null]) expect(channel.navigate('tool', 'web-1', bad).error).toContain('own origin');
+  expect(channel.navigate('tool', 'none', '/x').error).toContain('no registered build');
+  // A build that can't: said so, sent nothing.
+  expect(channel.navigate('tool', 'ios-1', '/x').unsupported).toContain('cannot navigate');
+  expect(b.frames.some(f => f.kind === 'navigate')).toBe(false);
+  // One build, by a frame of its own, numbered.
+  const first = channel.navigate('tool', 'web-1', '/posts/7?tab=replies#top');
+  expect(a.frames.at(-1)).toEqual({ kind: 'navigate', seq: first.seq, location: '/posts/7?tab=replies#top' });
+  // Its page says where it is in its status.
+  expect(report(channel, { nonce: a.nonce, kind: 'status', location: '/posts/7?tab=replies#top' }).status).toBe(204);
+  expect(events.at(-1)).toMatchObject({ event: 'build-status', build: { id: 'web-1', status: { location: '/posts/7?tab=replies#top' } } });
+  expect(report(channel, { nonce: a.nonce, kind: 'status', location: 'https://evil.example/' }).status).toBe(400);
+  // A refusal of an earlier one is old news; the last one's is its sender's alone, once.
+  const second = channel.navigate('other', 'web-1', '/nowhere');
+  expect(report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'navigate', detail: 'no route', revision: first.seq }).status).toBe(204);
+  expect(events.at(-1).event).toBe('build-status');
+  report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'navigate', detail: '"/nowhere" is no route of this app', revision: second.seq });
+  expect(events.at(-1)).toEqual({ event: 'unsupported', build: 'web-1', what: 'navigate', detail: '"/nowhere" is no route of this app', only: 'other' });
+  const told = events.length;
+  report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'navigate', detail: 'again', revision: second.seq });
+  expect(events.length).toBe(told);
+  expect(channel.list()[0].unsupported).toBe(null);
+  // Nothing held: its client going sends nothing, and a registration again replays none.
+  const before = a.frames.length;
+  channel.clear('other');
+  expect(a.frames.length).toBe(before);
+  a.close();
+  const a2 = stream(channel);
+  report(channel, { nonce: a2.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'navigate'] });
+  expect(a2.frames.some(f => f.kind === 'navigate')).toBe(false);
+  // A polled stream keeps only the latest.
+  const p = channel.openPolled(), read = poller(channel, p.nonce);
+  report(channel, { nonce: p.nonce, kind: 'register', id: 'linux-1', host: 'linux', capabilities: ['navigate'] });
+  read();
+  channel.navigate('tool', 'linux-1', '/a'); channel.navigate('tool', 'linux-1', '/b');
+  expect(read().filter(f => f.kind === 'navigate').map(f => f.location)).toEqual(['/b']);
+});

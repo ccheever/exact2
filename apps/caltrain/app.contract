@@ -204,7 +204,7 @@ component Caltrain
     main testId="caltrain-main" viewport-fit="cover" width="100%" height="100%" font-size=(tv ? 24 : 16) background-color=canvasColor
       // @ref LLP 1020 D6 — the iframe screen is outside the live canvas.
       if screen == "web-deck"
-        section role="region" aria-label="Deck fixture" testId="deck-screen" padding-top="calc(env(safe-area-inset-top) + 20px)" padding-right="calc(env(safe-area-inset-right) + 20px)" padding-bottom="calc(env(safe-area-inset-bottom) + 20px)" padding-left="calc(env(safe-area-inset-left) + 20px)" gap=12
+        section role="region" aria-label="Deck fixture" testId="deck-screen" padding-top="calc(env(safe-area-inset-top) + 20px)" padding-right="calc(env(safe-area-inset-right) + 20px)" padding-bottom="calc(env(safe-area-inset-bottom) + 20px)" padding-left="calc(env(safe-area-inset-left) + 20px)"
           row align-items="center" justify-content="space-between"
             text "Web deck" font-size="1.25em" font-weight=700 color="#ffffff"
             button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="deck-back" padding=8 background-color="#ffffff"
@@ -378,7 +378,7 @@ component Content
               for s in allStations key=s.id
                 row align-items="center" height="1.25em" testId=`map-${s.id}`
                   view flex=1
-                  view width="0.875em" height="0.875em" align-items="center" justify-content="center"
+                  column width="0.875em" height="0.875em" align-items="center" justify-content="center"
                     if s.id == selectedId
                       view width="0.875em" height="0.875em" border-radius="0.4375em" background-color="#bf382b"
                     else

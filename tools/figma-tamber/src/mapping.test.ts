@@ -2,9 +2,12 @@
 // theme fixture's export (`contract tamber export dtcg apps/theme-fixture`).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { conflicts, contextsMoved, doorOf, families, familiesOf, newEnough, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, plainWhy, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
 
-const TEXT = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
+// The fixture's export as read (its dark-style axis under scheme=dark: one light mode), and the
+// same with that axis an ordinary one (a mode for each context), which most tests use.
+const REAL = readFileSync(new URL('../test/theme-fixture.export.json', import.meta.url), 'utf8');
+const TEXT = (d => { for (const a of d.sets.exact.sources[0].$extensions.exact.axes) delete a.under; return JSON.stringify(d); })(JSON.parse(REAL));
 const DOC = JSON.parse(TEXT);
 
 /** The plan's values as Figma would hold them, edited by `f`. */
@@ -114,4 +117,78 @@ test('a code or a token goes only to an https server or to this machine over htt
     expect([bad, doorOf(bad).error]).not.toEqual([bad, '']);
   expect([newEnough('tamber/1.14'), newEnough('tamber/1.15'), newEnough('tamber/2.0')]).toEqual([true, true, true]);
   expect([newEnough('tamber/1.13'), newEnough('tamber/1.9'), newEnough(undefined), newEnough('x')]).toEqual([false, false, false, false]);
+});
+
+test('light contexts that differ only by an axis under scheme=dark are one light mode; its value goes to each on push', () => {
+  const real = JSON.parse(REAL);
+  const plan = pull(real, 10);
+  expect(plan.collections.map(c => [c.modes, c.also])).toEqual([[['light', 'dark-style=black, dark', 'dark-style=dim, dark'], { light: ['dark-style=dim, light'] }]]);
+  expect(plan.collections[0].contexts.light).toBe('dark-style=black, light');
+  const red = { r: 1, g: 0, b: 0, a: 1 };
+  const text = push(REAL, plan, held(plan, (_c, v, m, x) => (v === 'accent/fill' && m === 'light' ? red : x)));
+  const out = tokensOf(JSON.parse(text));
+  expect([out['dark-style=black, light']['accent.fill'].$value.hex, out['dark-style=dim, light']['accent.fill'].$value.hex]).toEqual(['#ff0000', '#ff0000']);
+  expect(out['dark-style=dim, dark']['accent.fill']).toEqual(tokensOf(real)['dark-style=dim, dark']['accent.fill']);
+  // Contexts the light mode stands for are no context the design dropped.
+  expect(contextsMoved(plan, real)).toEqual({ added: [], removed: [] });
+});
+
+test('quick re-check: a light mode\'s edit is checked against each light context it stands for', () => {
+  const real = JSON.parse(REAL);
+  const plan = pull(real, 10);
+  const red = { r: 1, g: 0, b: 0, a: 1 };
+  const figma = held(plan, (_c, v, m, x) => (v === 'accent/fill' && m === 'light' ? red : x));
+  // The design moves only the twin (dim's light): the light mode's edit conflicts there.
+  const moved = JSON.parse(REAL);
+  tokensOf(moved)['dark-style=dim, light']['accent.fill'].$value = { colorSpace: 'srgb', components: [0, 0, 1], hex: '#0000ff' };
+  expect(conflicts(plan, moved, figma).map(c => [c.mode, c.context, c.figmaOnly ?? false])).toEqual([['light', 'dark-style=black, light', true], ['light', 'dark-style=dim, light', false]]);
+});
+
+test('the plugin builds (its main thread and its UI, as Figma loads them)', async () => {
+  for (const entry of ['code.ts', 'ui.ts']) {
+    const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife' });
+    expect([entry, built.success, built.logs.map(String)]).toEqual([entry, true, []]);
+  }
+});
+
+// What a browser has and Figma's main-thread sandbox does not (Charlie's
+// live push: structuredClone). The UI runs in an iframe, a browser's.
+// `globalThis` and `self` too, so no listed name is reached through them.
+const UNSANDBOXED = ['globalThis', 'self', 'structuredClone', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'crypto', 'queueMicrotask', 'Blob', 'XMLHttpRequest', 'localStorage', 'window', 'document', 'navigator', 'performance', 'setImmediate', 'process', 'Buffer', 'require'];
+
+test('the main thread reads none of the listed globals Figma\'s sandbox lacks', async () => {
+  // The bundler's `define` swaps a free name only (never a property, a key,
+  // a string or a local), so a marker left in the output is a global read.
+  const build = async (entry: string) => {
+    const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife', define: Object.fromEntries(UNSANDBOXED.map(g => [g, `__figma_lacks_${g}`])) });
+    return [...new Set([...(await built.outputs[0].text()).matchAll(/__figma_lacks_(\w+)/g)].map(m => m[1]))];
+  };
+  expect(await build('code.ts')).toEqual([]);
+  // And it sees one: the UI, a browser's, reads `URL` and `document`.
+  expect(await build('ui.ts')).toEqual(expect.arrayContaining(['URL', 'document']));
+});
+
+test('one choice a token and light side: two light sides of one token are asked and written apart', () => {
+  const ctx = (d: string, s: string, scheme: string) => `density=${d}, dark-style=${s}, ${scheme}`;
+  const contexts: Record<string, any> = {}, info: Record<string, any> = {};
+  const hex = (h: string) => ({ c: { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], hex: h } } });
+  for (const d of ['a', 'b']) for (const s of ['black', 'dim']) for (const scheme of ['light', 'dark']) {
+    contexts[ctx(d, s, scheme)] = [hex('#000000')];
+    info[ctx(d, s, scheme)] = { modes: { density: d, 'dark-style': s }, scheme };
+  }
+  const doc = { modifiers: { mode: { contexts, default: ctx('a', 'black', 'light') } }, sets: { exact: { sources: [{ $extensions: { exact: { axes: [{ name: 'density', values: ['a', 'b'] }, { name: 'dark-style', values: ['black', 'dim'], under: 'dark' }], contexts: info } } }] } } };
+  const plan = pull(doc, 2);
+  expect(plan.collections.length).toBe(4);
+  const red = { r: 1, g: 0, b: 0, a: 1 }, blue = { r: 0, g: 0, b: 1, a: 1 };
+  const now = held(plan, (c, _v, m, x) => (m === 'Light' && c.endsWith('density=a, dark-style=black') ? red : m === 'Light' && c.endsWith('density=b, dark-style=dim') ? blue : x));
+  const clashes = lightClashes(doc, plan, now);
+  expect(clashes.map(c => c.key)).toEqual(['c@density=a, dark-style=black, light', 'c@density=b, dark-style=black, light']);
+  const out = tokensOf(JSON.parse(push(JSON.stringify(doc), plan, now, { [clashes[0].key]: 'Tamber · density=a, dark-style=black', [clashes[1].key]: 'Tamber · density=b, dark-style=dim' })));
+  expect([ctx('a', 'black', 'light'), ctx('a', 'dim', 'light'), ctx('b', 'black', 'light'), ctx('b', 'dim', 'light')].map(k => out[k].c.$value.hex)).toEqual(['#ff0000', '#ff0000', '#0000ff', '#0000ff']);
+});
+
+test('a value not proposed for a dark style\'s Light value says which differs from the one kept and what to do, never the rule\'s id', () => {
+  const why = "the design would refuse it (tamber-under-light: the light side `#1df032ff` is not the default's `#1d9bf0ff`: an axis `under scheme=dark` varies the dark side only)";
+  expect(plainWhy(why)).toBe('its Light value here, #1df032ff, is not the one the design keeps for every dark style, #1d9bf0ff: only the Dark side varies by dark style, so put the Light value back to #1d9bf0ff, or change it for every dark style at once (the same in every Light mode), then push (if every Light mode already agrees, the value comes from a token this one names: change it there)');
+  expect(plainWhy('no token of that name')).toBe('no token of that name');
 });

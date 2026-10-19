@@ -585,6 +585,15 @@ impl StyleValue<'_> {
                         expected: "one or two lengths in px or percentages of the box (unitless zero allowed)",
                     })
             }
+            // `translate: -50%`: one percentage, the x's, which the
+            // compiler and the runner pass as a percentage.
+            StyleValue::Percent(p)
+                if p.is_finite()
+                    && (style == StyleId::Translate || style == StyleId::TranslatePercent) =>
+            {
+                let x = if style == StyleId::Translate { 0.0 } else { *p as f32 };
+                Ok(Vec2 { x, y: 0.0 })
+            }
             _ => Err(StyleValueError::WrongKind {
                 style,
                 expected: "vec2",

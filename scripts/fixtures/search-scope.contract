@@ -5,7 +5,8 @@
 // menu), `panel` (tabs naming panels), `painted` (a tab's colour), `faded` (the tablist's opacity), `caption`
 // (a text between the header and the tabs), `six` (six tabs). `stay` keeps
 // the selection when a tab is pressed. The buttons that pick a shape are
-// placed absolutely, out of flow.
+// placed absolutely, out of flow. `plain`: no search, so the filter is the
+// large title's subtitle views (LLP 1135, SearchScopeIOSTests).
 routes nav
   start "/"
 
@@ -30,7 +31,8 @@ component SearchScope
         column navigationKey=`${e.id}` navigationScroll="list" testId="route" position="absolute" inset=0 display="flex" flex-direction="column"
           header
             text "Library" role="heading" aria-level=1
-            input type="search" value=query input=search placeholder="Search" testId="search"
+            if shape != "plain"
+              input type="search" value=query input=search placeholder="Search" testId="search"
           if shape == "caption"
             text "Signed in as Ada" testId="caption" padding="4px 16px"
           row role="tablist" aria-label="Filter" testId="filter" margin="8px 16px" opacity=(shape == "faded" ? 0.5 : 1)
@@ -63,6 +65,6 @@ component SearchScope
             for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] key=i
               text `Book ${i}` padding=16 border-bottom="1px solid -exact-separator"
           column position="absolute" right=0 bottom=120 testId="pickers"
-            for s in ["scope", "stay", "image", "menu", "panel", "painted", "faded", "caption", "six"] key=s
+            for s in ["scope", "plain", "stay", "image", "menu", "panel", "painted", "faded", "caption", "six"] key=s
               button press=pick(s) testId=`pick-${s}`
                 text s

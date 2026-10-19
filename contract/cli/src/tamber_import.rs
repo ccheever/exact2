@@ -268,17 +268,19 @@ pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Va
         Value::String(baseline) => {
             let digest = exact_tamber::export::digest(baseline)
                 .ok_or_else(|| bad("`baseline` is a Tamber export, as `export` gave it"))?;
-            let fresh = exact_tamber::check(current, &contract_lower::tamber_vocab())
-                .ok()
-                .and_then(|f| exact_tamber::export::dtcg(&f, &contract_lower::tamber_vocab()).ok())
-                .and_then(|t| exact_tamber::export::digest(&t));
             let known = request["recognised"]
                 .as_array()
                 .is_some_and(|all| all.iter().any(|d| d.as_str() == Some(&digest)))
                 || kept
                     .iter()
-                    .any(|k| exact_tamber::export::digest(k).as_deref() == Some(&digest))
-                || fresh.as_deref() == Some(&digest);
+                    .any(|k| exact_tamber::export::digest(k).as_deref() == Some(&digest));
+            // Else the design's own export, inside a re-import's budget: a
+            // design too large for one is refused with its message.
+            let known = known
+                || exact_tamber::own_digest(current, &contract_lower::tamber_vocab())
+                    .map_err(|all| json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| json!({"id": d.id, "message": d.message})).collect::<Vec<_>>()}))?
+                    .as_deref()
+                    == Some(&digest);
             if !known {
                 return Err(
                     json!({"message": "pull first: the baseline is no export of this design this server gave out, kept or has now", "stale": true}),
@@ -468,5 +470,39 @@ pub fn op_json(op: &Op) -> Value {
         }
         // No client's to send; an import never makes one.
         Op::Restore { .. } => json!({"op": "restore"}),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A re-import with a baseline the server does not recognise or keep
+    /// checks it against the design's own export, built inside the
+    /// re-import's budget: a design too large for one re-import (3,000
+    /// tokens over 64 contexts) is refused with the budget's message, not
+    /// exported whole first, nor told to pull (LLP 1121 §10).
+    #[test]
+    fn a_baseline_too_large_to_check_is_refused_by_the_budget() {
+        let mut design = String::from("tamber t\n\naxes\n");
+        for a in 0..5 {
+            design += &format!("  a{a} = p | q\n");
+        }
+        design += "\ntheme\n";
+        for i in 0..3000 {
+            design += &format!(
+                "  c{i} = light-dark(#{i:06x}, #{:06x})\n    when a{}=q: #{i:06x}\n",
+                i + 1,
+                i % 5
+            );
+        }
+        let vocab = contract_lower::tamber_vocab();
+        let small = exact_tamber::check("tamber s\n\ntheme\n  ink = #000000\n", &vocab).unwrap();
+        let export = exact_tamber::export::dtcg(&small, &vocab).unwrap();
+        let request =
+            json!({"kind": "dtcg", "name": "s.json", "source": export, "baseline": export});
+        let refused = plan(&request, Some(&design), &[]).unwrap_err();
+        assert_eq!(refused["message"], "the source is refused", "{refused}");
+        assert!(refused.to_string().contains("expands past"), "{refused}");
     }
 }

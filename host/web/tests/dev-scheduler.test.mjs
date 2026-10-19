@@ -271,8 +271,11 @@ test('the wasm page sends its build-channel reports one at a time, in order, and
       await new Promise(ok=>setTimeout(ok,slow[body.what]??0));
       delivered.push(body);return new Response('{}');
     },
-    exact:{ready:Promise.resolve(),designDigest:'d'.repeat(64),compat:{inputs:{app:'fixture'}}},
+    exact:{ready:Promise.resolve(),designDigest:'d'.repeat(64),compat:{inputs:{app:'fixture'}},
+      // One route, /post, which the router's own `go` takes (counted).
+      wasm:{exact_route_match:at=>at==='/post'?1:0},writeIn:at=>at,go:at=>{routed.push(at);return {ops:[{op:'router'}]};}},
   };
+  const routed=[];
   runInNewContext(readFileSync(new URL('../dev.js',import.meta.url),'utf8'),context);
   const send=message=>stream.onmessage({data:JSON.stringify(message)});
   const until=async (ok,ms=3000)=>{const end=Date.now()+ms;while(!ok()){if(Date.now()>end)throw new Error(`reports: ${JSON.stringify(delivered)}`);await new Promise(r=>setTimeout(r,5));}};
@@ -299,6 +302,24 @@ test('the wasm page sends its build-channel reports one at a time, in order, and
   await new Promise(r=>setTimeout(r,250));
   assert.deepEqual(sent('n2'),[],'nothing made on the replaced stream is sent');
   assert.deepEqual(sent('n3'),['status@2'],'the new stream sends its own status, and no report made before it');
+  // (c) A navigation is its stream's (LLP 1122 T7): one that is no route is
+  // refused on it; one a reconnect replaced before it ran (queued behind a
+  // pin) neither routes nor answers, and the new stream's navigation of the
+  // same seq is its own.
+  send({kind:'navigate',seq:5,location:'/nowhere'});
+  await until(()=>sent('n3').includes('unsupported navigate@5'));
+  send({kind:'pin',revision:3,pin:{contrast:'more'}});
+  send({kind:'navigate',seq:6,location:'/post'});
+  send({kind:'navigate',seq:7,location:'/nowhere'});
+  send({hello:1,nonce:'n4',ready:false});
+  await until(()=>held.has('n4'));held.get('n4')();
+  await until(()=>sent('n4').length>=1);
+  await new Promise(r=>setTimeout(r,250));
+  assert.deepEqual(routed,[],'a navigation of a replaced stream routes nothing');
+  assert.deepEqual([...sent('n3'),...sent('n4')].filter(s=>s.includes('@6')||s.includes('@7')),[],'and answers nothing');
+  send({kind:'navigate',seq:6,location:'/post'});
+  await until(()=>routed.length===1);
+  assert.deepEqual(routed,['/post'],'the new stream\'s own routes');
 });
 
 test('dev startup rebuilds changed Rust even when the app identity still matches', async () => {

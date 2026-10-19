@@ -4827,6 +4827,52 @@ E23's round 5 found super-linear paths in the importers. They are fixed in two s
     took 4.5 s for 2,000 before.
   - `judged` alone: 3,000 members all refused on their own lines take 30 ms. Refusals on other tokens' lines are
     found by halving, about two checks for each refused member at each halving.
-- **Left to rt1's entry:**
-  - A 3,000-token, 64-context re-import exceeds the import budget's `LIMIT`. It is refused in 1.4 s, not run.
-  - `marks` still finds tokens through `edit::token_index`.
+- **The rest of rt1's entry** (iosfix, x2/import-rest; theme2's 19:07 ruling; the lead's 18:35Z task):
+  - **The budget, calibrated to the isolate.** An import runs in a child of about 1 GiB (`tamber-isolate.mjs`), and a
+    budget that outruns it turns the budget's refusal into an RSS kill. Measured (release, designs over 64 contexts,
+    one `when` per token): a fresh DTCG import holds about 12 bytes of RSS for each unit, a re-import about 30 (it
+    exports the design to compare, each context's tree now charged as it is built). So `budget.rs` has a limit per
+    path, each refusing before the isolate's kill (at 90% of 1 GiB): `IMPORT` = 3 × 2²⁴ (about 600 MB, 59% of 1
+    GiB) and `REIMPORT` = 3 × 2²³ (about 750 MB, 74%); before, one `LIMIT` of 2²⁶ let a re-import reach about 2.9
+    GB. The server's check of a client's baseline against the design's own export (`contract tamber` `plan`) builds
+    that export inside the re-import's budget too (`export::own_digest`), so a design too large for one re-import is
+    refused there with the budget's message, not exported whole first or told to pull.
+  - **Supported size:** about 650 tokens over 64 contexts re-import, and about 880 import fresh; 3,000 tokens over
+    about 14 contexts re-import (real Figma files: thousands of variables, usually 8 modes or fewer). 3,000 × 64 is
+    refused with the budget's message (re-import: 0.36 s, 470 MB). This is less than the 3,000 × 64 first asked for;
+    making that import is the QUEUE entry "share a context's tree" (the DTCG Resolver Module's sets and modifiers).
+  - Near the limits: 500 tokens × 64 re-import in 0.5 s (76% of `REIMPORT`); 700 import fresh in 0.28 s (79% of
+    `IMPORT`).
+  - **The CSS importers**, each linear and bounded, their output on 162 stylesheets (the fixtures and real Tailwind
+    and shadcn sheets found on the machine) byte-identical before and after:
+    - nested rules (`import/mod.rs` `body`): the stylesheet's marks (`{`, `}`, `;` outside strings and parentheses)
+      are read once and each `{`'s match found once, and each rule reads its own range of them (each level re-read
+      them before, and a custom property's unmatched braces were each matched by a scan to the end). A stray `)` no
+      longer lowers the parenthesis depth below zero, so every rule reads its marks as the whole text does (malformed
+      CSS only; the 162 sheets are unchanged). A rule nested past 64 is not read, and is reported (one value, with its
+      prelude's line), as is a block whose context the blocks would copy past 8 MiB in all, counting the copy in each
+      of its declarations' labels and reports; it was a stack overflow at about 100,000 levels. The context is
+      borrowed down the rules and copied only into a block kept. A custom property's name past 256 bytes, its value
+      past 4 KiB, or a prelude past 4 KiB is reported likewise (one value, its line), so no one string is copied into
+      every token, report or message that reads it (no real stylesheet's is near them);
+    - nested selectors (`engine::nested`): a selector past 1 KiB makes the chain none, checked before it is built, and
+      a list past 1,024 likewise; `& &` at each of 40 levels ran past two minutes;
+    - colour aliases (`engine.rs`): each block's chain followed once and remembered, cycles found once (Tarjan's),
+      and a failure carried down its chain a step at a time; a chain past 256 links is reported ("an alias chain
+      longer than 256", as the DTCG importer's), each block's walk stopping there, so blocks that share a long
+      chain cost at most 256 steps each. 20,000 aliases in 80 chains took 28 s in debug, now 1.3 s;
+    - shadcn's other kinds: each variable's last declaration and its declarations read once, a reference chain past
+      256 none (no name's kind standing in); the other-kind tokens grouped by variable once; each token's sources
+      (shadcn and Tailwind) and the themes found by name;
+    - the kinds' fold check (`kinds::unfolded`, shared): tokens and the design's found by name through indexes, the
+      probe's lines counted as it is written (it recounted the whole text per token), a diagnostic's token found by
+      binary search;
+    - Tailwind (`written_out`, `other_kinds`): each key written out once at each depth, with its chain's 16-deep
+      refusal as before; one value past 64 KiB is refused ("its `var()`s write out past 64 KiB"), and all of them past
+      16 MiB; the theme's keys held by name (a reset of one name looks it up; a namespace's clears a range of names,
+      passing over the names it keeps, in the order they are held), owners and redefinitions looked up by index, and what reads a redefined `inline` key found once through
+      its readers. 5,000 type keys took 38 s in debug, now 0.3 s; 20,000 keys and a 2,000-key `inline` chain 0.4 s.
+  - **`marks`**: each token found by one index (its name, then in any ASCII case, the first so named, as before), and
+    a dial's moved tokens by a name map. 3,000 set tokens and a dial take 0.14 s in debug (it was not slow there).
+  - Tests: `tests/it/scale_css.rs` (each path on a large valid input in time, and the shapes that multiply cut off) and
+    `scale.rs` `the_budget_takes_a_design_near_its_limit_and_refuses_one_past_it`.

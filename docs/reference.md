@@ -929,7 +929,8 @@ A native one is kept between drives until a drive passes `--reset-storage`, whic
 empties all of it (`app:/` files, SQLite, kept state, secrets) at the app's boot
 and refuses a store reached through a symbolic link; one drive holds a native store
 at a time. On the web it is Chrome's profile for the name and its page's origin,
-empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own); an authored test gets a fresh
+empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own). A drive that compares with a
+reference starts empty on every host unless `--keep-storage`. An authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary

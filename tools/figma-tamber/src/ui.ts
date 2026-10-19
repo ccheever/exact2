@@ -5,7 +5,7 @@
 // request: a pull (export) and a push (import, held as a proposal for a person
 // to accept; the plugin never writes the design).
 
-import { doorOf, newEnough } from './mapping';
+import { doorOf, newEnough, plainWhy } from './mapping';
 
 const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
 // The server and its token, together: a token goes only to the server it was
@@ -79,19 +79,31 @@ async function pullDesign() {
   // Values on a mode Tamber kept unused whose context comes back: written over.
   if (revived.length && !confirm(`${revived.length} value(s) on a mode Tamber kept unused are replaced by the design's (their context comes back) or may go (the collection is rewritten):\n${revived.map((r: any) => `${r.collection}: ${r.variable} (${r.mode})`).join('\n')}\n\nOK pulls.`)) { show('not pulled: values on an unused mode would be replaced'); return; }
   // Variables a pull removes or makes again: what is bound to them in this file loses them.
-  if (drops.length && !confirm(`${drops.length} variable(s) go or are made again with this pull, and what is bound to them loses them:\n${drops.map((d: any) => `${d.variable}: ${d.why}`).join('\n')}\n\nOK pulls.`)) { show('not pulled: variables would go'); return; }
+  if (drops.length && !confirm(`${drops.length} variable(s) go or are made again with this pull, and what is bound to them loses them:\n${drops.map((d: any) => `${d.collection}: ${d.variable} (${d.token}): ${d.why}`).join('\n')}\n\nOK pulls.`)) { show('not pulled: variables would go'); return; }
   const done = await ask({ type: 'apply', text }, 'applied');
   show(`pulled into ${done.collections.join(', ')}${done.skipped.length ? `; no variable for ${done.skipped.length} token(s): ${done.skipped.map((s: any) => s.token).join(', ')}` : ''}`);
 }
 
 async function pushDesign() {
   await speaks();
-  const { source, baseline, unread } = await ask({ type: 'collect' }, 'collected');
+  let collected = await ask({ type: 'collect' }, 'collected');
+  // A token whose Light modes differ (one per tuple's collection, one light side in the design): the person picks.
+  if (collected.clashes?.length) {
+    const prefer: Record<string, string> = {};
+    for (const c of collected.clashes) {
+      const pick = c.collections.find((name: string) => confirm(`${c.token.replaceAll('.', '/')} has different Light values in ${c.collections.join(' and ')}, and the design has one light side.\n\nOK takes ${name}'s for all; Cancel looks at the next.`));
+      if (!pick) { show(`not pushed: pick one Light value for ${c.token}, or make them equal`); return; }
+      prefer[c.key] = pick;
+    }
+    collected = await ask({ type: 'collect', prefer }, 'collected');
+    if (collected.clashes?.length) { show('not pushed: a Light value changed while you chose; push again'); return; }
+  }
+  const { source, baseline, unread } = collected;
   const got = await call(paired, '/__tamber', { method: 'import', kind: 'dtcg', client: 'figma', source, baseline });
   const r = got.review ?? {};
   // What the design could not take, and why (a length changed in Light only, say: both schemes take one value).
   const unmapped = [
-    ...(r.unmapped ?? []).map((u: any) => `not proposed: ${u.name}${u.block ? ` (${u.block})` : ''}: ${u.why}`),
+    ...(r.unmapped ?? []).map((u: any) => `not proposed: ${u.name}${u.block ? ` (${u.block})` : ''}: ${plainWhy(u.why)}`),
     // Values the plugin could not read (an alias to nowhere, a cycle): sent as they were pulled.
     ...unread.map((u: any) => `not read: ${u.variable} (${u.mode}): ${u.why}`),
   ];

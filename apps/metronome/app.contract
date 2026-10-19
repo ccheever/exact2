@@ -131,7 +131,7 @@ component Metronome
     every(frame, draw)
 
   view
-    main accent-color="-exact-system-orange" align-items="center" justify-content="center" flex=1 gap=24 padding=24 testId="app"
+    main accent-color="-exact-system-orange" display="flex" flex-direction="column" align-items="center" justify-content="center" flex=1 gap=24 padding=24 testId="app"
       column align-items="center" gap=8 max-width=420
         column id="card" align-items="center" gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="card"
           text `${tempo}` font="-exact-large-title" testId="bpm"

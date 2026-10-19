@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planAlone } from './tamber-isolate.mjs';
+import { planAlone, stopImports } from './tamber-isolate.mjs';
 
 const DESIGN = 'tamber t\n\ntheme\n  primary = #000000\n';
 const withApp = async f => {
@@ -101,5 +101,40 @@ test('one client holds at most two imports; another is still taken', async () =>
     const slow = sh('sleep 0.3; echo \'{"ok":{}}\'');
     const three = await Promise.all([1, 2, 3].map(() => planAlone({}, design, { spawnPlan: slow }, app, 'figma')).concat(planAlone({}, design, { spawnPlan: slow }, app, 'tool')));
     expect(three.map(r => r.status ?? 200)).toEqual([200, 200, 503, 200]);
+  });
+}, 60_000);
+
+test('an import whose request or client goes leaves the queue at once, or is stopped while it runs; the server\'s close cancels them all', async () => {
+  await withApp(async (design, app) => {
+    const slow = sh('sleep 0.5; echo \'{"ok":{}}\'');
+    // A planner that says when it started, and when it ended.
+    const watched = script => { let child; const started = new Promise(ok => { watched.start = ok; }); return { started, ended: () => new Promise(ok => (child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok))), spawn: () => { child = sh(script)(); watched.start(); return child; } }; };
+    // Running: stopped (its planner's sleep would take 30 s), its process ended.
+    const run = new AbortController(), t0 = Date.now(), p1 = watched('sleep 30');
+    const running = planAlone({}, design, { signal: run.signal, spawnPlan: p1.spawn }, app);
+    await p1.started;
+    run.abort();
+    expect([(await running).status, (await running).error.message, Date.now() - t0 < 5000]).toEqual([503, 'the import was cancelled', true]);
+    await p1.ended();
+    await new Promise(ok => setTimeout(ok, 200)); // (its planner reaped: its permit back)
+    // Waiting: answered at once, its place given back (a queue of one takes another).
+    const first = planAlone({}, design, { spawnPlan: slow }, app);
+    const wait = new AbortController();
+    const second = planAlone({}, design, { waiting: 1, signal: wait.signal, spawnPlan: slow }, app);
+    wait.abort();
+    expect((await second).error.message).toBe('the import was cancelled');
+    const third = planAlone({}, design, { waiting: 1, spawnPlan: slow }, app);
+    expect((await first).ok).toEqual({});
+    expect((await third).ok).toEqual({});
+    // Already gone: never queued.
+    expect((await planAlone({}, design, { signal: AbortSignal.abort(), spawnPlan: slow }, app)).error.message).toBe('the import was cancelled');
+    // The server's close: the running one stopped, the waiting one cancelled.
+    const p2 = watched('sleep 30');
+    const a = planAlone({}, design, { spawnPlan: p2.spawn }, app), b = planAlone({}, design, { spawnPlan: slow }, app);
+    await p2.started;
+    stopImports();
+    const [ra, rb] = await Promise.all([a, b]);
+    expect([ra.error.message, rb.error.message]).toEqual(['the import was cancelled', 'the import was cancelled']);
+    await p2.ended();
   });
 }, 60_000);

@@ -35,6 +35,10 @@ export interface Collection {
   modes: string[];
   /** The export context each mode is. */
   contexts: Record<string, string>;
+  /** Other contexts a mode stands for too, written with its value on push:
+   * light contexts that differ only by an axis `under scheme=dark` (one
+   * light side in the design, so one light mode). */
+  also?: Record<string, string[]>;
   variables: Variable[];
   /** Once written: the collection's id and each context's mode id, so a
    * collection or mode renamed in Figma is still the plan's (a mode's
@@ -152,9 +156,11 @@ export function pull(doc: Json, modeLimit: number): Plan {
   const contexts = Object.keys(byContext).sort((a, b) => Number(b === first) - Number(a === first));
   if (!contexts.length) throw new Error('the export has no contexts');
   const tuples = [...new Set(contexts.map(c => split(c).tuple))];
-  let groups: { name: string; contexts: Record<string, string> }[];
-  if (contexts.length <= modeLimit) {
-    // A mode's name is the context, cut to Figma's 40 characters (and told apart) when longer.
+  let groups: { name: string; contexts: Record<string, string>; also?: Record<string, string[]> }[];
+  const light = lightTwins(doc, contexts);
+  if (light.kept.length <= modeLimit) {
+    // A mode's name is the context, cut to Figma's 40 characters (and told apart) when longer;
+    // one light mode for light contexts that differ only by an axis under scheme=dark.
     const used = new Set<string>();
     const named = (c: string) => {
       let n = c.length <= 40 ? c : `${c.slice(0, 39)}…`;
@@ -162,7 +168,9 @@ export function pull(doc: Json, modeLimit: number): Plan {
       used.add(n);
       return n;
     };
-    groups = [{ name: 'Tamber', contexts: Object.fromEntries(contexts.map(c => [named(c), c])) }];
+    const modes = light.kept.map(c => [named(light.label.get(c) ?? c), c] as const);
+    const also = Object.fromEntries(modes.filter(([, c]) => light.twins.get(c)?.length).map(([m, c]) => [m, light.twins.get(c)!]));
+    groups = [{ name: 'Tamber', contexts: Object.fromEntries(modes), ...(Object.keys(also).length ? { also } : {}) }];
   } else if (modeLimit >= 2) {
     if (contexts.some(c => !/, (light|dark)$/.test(`, ${c}`))) throw new Error('a context that is not light or dark: one collection a tuple needs Light and Dark');
     groups = tuples.map(t => ({
@@ -190,9 +198,33 @@ export function pull(doc: Json, modeLimit: number): Plan {
       }
       if (type) variables.push({ name: token.replaceAll('.', '/'), token, type, values });
     }
-    return { name: g.name, modes, contexts: g.contexts, variables };
+    return { name: g.name, modes, contexts: g.contexts, ...(g.also ? { also: g.also } : {}), variables };
   });
   return { collections, skipped: [...skipped].map(([token, why]) => ({ token, why })) };
+}
+
+/** The export's light contexts that differ only by axes `under scheme=dark`
+ * (its header says which): the first of each such set kept, the others its
+ * twins, and the kept one's name without those axes (`light`, or
+ * `density=tight, light`). Dark contexts, and an export with no header,
+ * are kept as they are. */
+export function lightTwins(doc: Json, contexts: string[]): { kept: string[]; twins: Map<string, string[]>; label: Map<string, string> } {
+  const header = doc?.sets?.exact?.sources?.[0]?.$extensions?.exact;
+  const under = new Set<string>((header?.axes ?? []).filter((a: Json) => a?.under === 'dark').map((a: Json) => a.name));
+  const kept: string[] = [], twins = new Map<string, string[]>(), label = new Map<string, string>(), by = new Map<string, string>();
+  for (const c of contexts) {
+    const info = header?.contexts?.[c];
+    if (!under.size || !info || info.scheme !== 'light') { kept.push(c); continue; }
+    const rest = Object.entries<string>(info.modes ?? {}).filter(([a]) => !under.has(a)).map(([a, v]) => `${a}=${v}`);
+    const key = rest.join(', ');
+    const first = by.get(key);
+    if (first) { twins.get(first)!.push(c); continue; }
+    by.set(key, c);
+    kept.push(c);
+    twins.set(c, []);
+    label.set(c, [...rest, 'light'].join(', '));
+  }
+  return { kept, twins, label };
 }
 
 /** A Figma value back as the export writes its kind, or null to keep the old. */
@@ -215,23 +247,65 @@ function fromFigma(old: Json, value: FigmaValue): Json {
 /** The export pulled (`baseline`, its text), with each variable's values as
  * Figma has them (`now`, by collection name, then variable name, then mode),
  * as the text `import` takes. */
-export function push(baseline: string, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>): string {
+export function push(baseline: string, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>, prefer: Record<string, string> = {}): string {
   const doc = JSON.parse(baseline);
   const byContext = tokensOf(doc);
+  // One light side (theme2's 18:54 (2)): in the split layout each tuple's
+  // collection has a Light mode for it; the person's choice (`prefer`, a
+  // token and light side's collection, by `token@context`) is written to every one of them.
+  now = JSON.parse(JSON.stringify(now)); // (Figma's sandbox has no structuredClone; plain values)
+  for (const clash of lightClashes(doc, plan, now)) {
+    const chosen = prefer[clash.key];
+    const value = chosen === undefined ? undefined : clash.values[chosen];
+    if (value === undefined) continue;
+    for (const [collection, variable, mode] of clash.at) now[collection][variable][mode] = value;
+  }
   for (const c of plan.collections) {
     for (const v of c.variables) {
       for (const mode of c.modes) {
         const value = now[c.name]?.[v.name]?.[mode];
-        const context = c.contexts[mode];
-        const old = byContext[context]?.[v.token];
-        if (value === undefined || !old) continue;
-        const was = toFigma(old);
-        if (!('why' in was) && same(was.value, value)) continue;
-        old.$value = fromFigma(old, value);
+        // (a light mode's value goes to each light context it stands for)
+        for (const context of [c.contexts[mode], ...(c.also?.[mode] ?? [])]) {
+          const old = byContext[context]?.[v.token];
+          if (value === undefined || !old) continue;
+          const was = toFigma(old);
+          if (!('why' in was) && same(was.value, value)) continue;
+          old.$value = fromFigma(old, value);
+        }
       }
     }
   }
   return JSON.stringify(doc);
+}
+
+/** In the split layout, the tokens whose Light modes (one per tuple's
+ * collection, one light side in the design: theme2's 18:54 (2)) hold
+ * different values: each the values by collection, and where they are. */
+export function lightClashes(doc: Json, plan: Plan, now: Record<string, Record<string, Record<string, FigmaValue>>>): { key: string; token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] {
+  const contexts = plan.collections.flatMap(c => Object.values(c.contexts));
+  const light = lightTwins(doc, contexts);
+  const out: { key: string; token: string; values: Record<string, FigmaValue>; at: [string, string, string][] }[] = [];
+  for (const [kept, twins] of light.twins) {
+    if (!twins.length) continue;
+    const group = new Set([kept, ...twins]);
+    const tokens = new Set(plan.collections.flatMap(c => c.variables.map(v => v.token)));
+    for (const token of tokens) {
+      const values: Record<string, FigmaValue> = {}, at: [string, string, string][] = [];
+      for (const c of plan.collections) {
+        const v = c.variables.find(x => x.token === token);
+        for (const mode of v ? c.modes : []) {
+          const value = now[c.name]?.[v!.name]?.[mode];
+          if (!group.has(c.contexts[mode]) || value === undefined) continue;
+          values[c.name] = value;
+          at.push([c.name, v!.name, mode]);
+        }
+      }
+      const all = Object.values(values);
+      // (one choice a token and light side: `token@context`, the side's first context)
+      if (all.some(x => !same(x, all[0]))) out.push({ key: `${token}@${kept}`, token, values, at });
+    }
+  }
+  return out;
 }
 
 export interface Conflict {
@@ -258,12 +332,15 @@ export function conflicts(plan: Plan, fresh: Json, now: Record<string, Record<st
   for (const c of plan.collections) {
     for (const v of c.variables) {
       for (const mode of c.modes) {
-        const context = c.contexts[mode], was = v.values[mode], figma = now[c.name]?.[v.name]?.[mode];
+        const was = v.values[mode], figma = now[c.name]?.[v.name]?.[mode];
         if (figma === undefined || same(was, figma)) continue;
-        const t = design[context]?.[v.token], f = t && toFigma(t);
-        const value = f && !('why' in f) ? f.value : undefined;
-        if (value === undefined) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: true });
-        else if (!same(figma, value)) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: false, ...(same(was, value) ? { figmaOnly: true } : {}) });
+        // (a light mode stands for its twins too: each is a context the pull writes)
+        for (const context of [c.contexts[mode], ...(c.also?.[mode] ?? [])]) {
+          const t = design[context]?.[v.token], f = t && toFigma(t);
+          const value = f && !('why' in f) ? f.value : undefined;
+          if (value === undefined) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: true });
+          else if (!same(figma, value)) out.push({ token: v.token, context, collection: c.name, variable: v.name, mode, gone: false, ...(same(was, value) ? { figmaOnly: true } : {}) });
+        }
       }
     }
   }
@@ -272,7 +349,7 @@ export function conflicts(plan: Plan, fresh: Json, now: Record<string, Record<st
 
 /** The contexts a new export adds and drops beside the pull's plan. */
 export function contextsMoved(plan: Plan, fresh: Json): { added: string[]; removed: string[] } {
-  const had = new Set(plan.collections.flatMap(c => Object.values(c.contexts))), now = new Set(Object.keys(tokensOf(fresh)));
+  const had = new Set(plan.collections.flatMap(c => [...Object.values(c.contexts), ...Object.values(c.also ?? {}).flat()])), now = new Set(Object.keys(tokensOf(fresh)));
   return { added: [...now].filter(c => !had.has(c)), removed: [...had].filter(c => !now.has(c)) };
 }
 
@@ -293,4 +370,15 @@ export function doorOf(text: string): { origin: string; error: string } {
 export function newEnough(protocol: unknown): boolean {
   const m = /^tamber\/(\d+)\.(\d+)$/.exec(String(protocol));
   return !!m && (Number(m[1]) > 1 || (Number(m[1]) === 1 && Number(m[2]) >= 14));
+}
+
+/** A server's reason a value was not proposed, in the person's words where
+ * the design's rule is one a Figma edit trips (the live test: two Light
+ * values of one token): which value differs and what to make equal, never
+ * the rule's id. Any other reason as the server gave it. */
+export function plainWhy(why: string): string {
+  const light = /tamber-under-light: the light side `([^`]+)` is not the default's `([^`]+)`/.exec(why);
+  // (a dark style's branch whose Light side is not the default's: only the Dark side varies by dark style)
+  if (light) return `its Light value here, ${light[1]}, is not the one the design keeps for every dark style, ${light[2]}: only the Dark side varies by dark style, so put the Light value back to ${light[2]}, or change it for every dark style at once (the same in every Light mode), then push (if every Light mode already agrees, the value comes from a token this one names: change it there)`;
+  return why;
 }

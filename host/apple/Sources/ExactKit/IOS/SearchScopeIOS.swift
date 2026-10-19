@@ -12,10 +12,15 @@ extension NavigationHost {
     /// The scope bar's segmented control and the segment drawn for `tab`.
     func scopeSegment(_ tab: NodeView) -> (control: UIControl, segment: CGRect)? {
         #if os(iOS)
-        guard let c = controllers.values.first(where: { $0.search?.scopeTabs.contains(tab.id) == true }), c.navigationController?.topViewController === c,
-              let search = c.search, let index = search.scopeTabs.firstIndex(of: tab.id), let control = search.scopeControl, control.window != nil else { return nil }
+        let found: (RouteController, [UInt32], UISegmentedControl?)? = controllers.values.lazy.compactMap { c in
+            if let search = c.search, search.scopeTabs.contains(tab.id) { return (c, search.scopeTabs, search.scopeControl) }
+            if #available(iOS 26.0, *), let s = c.subtitleSegments, s.tabs.contains(tab.id) { return (c, s.tabs, s.shown) }
+            return nil
+        }.first
+        guard let (c, tabs, shown) = found, c.navigationController?.topViewController === c, let control = shown, control.window != nil,
+              let index = tabs.firstIndex(of: tab.id) else { return nil }
         let views = control.segmentViews
-        guard views.count == search.scopeTabs.count else { return nil }
+        guard views.count == tabs.count else { return nil }
         return (control, views[index].convert(views[index].bounds, to: control))
         #else
         return nil
@@ -33,10 +38,39 @@ extension NavigationHost {
     /// again (its cover goes with the next `reportCovers`).
     func scope(_ c: RouteController, shape: HeaderShape?) {
         let next = shape.flatMap { scopeFilter(after: $0, in: c) }
-        guard next !== c.scoped else { return }
-        c.scoped?.isHidden = false
-        c.scoped = next
-        next?.isHidden = true
+        if next !== c.scoped {
+            c.scoped?.isHidden = false
+            c.scoped = next
+            next?.isHidden = true
+        }
+        // LLP 1135: under a large title with no search, the item's subtitle views.
+        if #available(iOS 26.0, *) { subtitles(c, shape?.search == nil ? next : nil) }
+    }
+
+    /// LLP 1135 D2: `list` as the segmented control under the large title
+    /// and under the inline one, or neither.
+    @available(iOS 26.0, *)
+    private func subtitles(_ c: RouteController, _ list: NodeView?) {
+        let item = c.navigationItem
+        guard let list else {
+            if let mine = c.subtitleSegments {
+                // Only its own: a hatch's views stay.
+                if item.largeSubtitleView === mine.large { item.largeSubtitleView = nil }
+                if item.subtitleView === mine.inline { item.subtitleView = nil }
+                c.subtitleSegments = nil
+                SubtitleSegments.resample(c)
+            }
+            return
+        }
+        let segments = c.subtitleSegments ?? {
+            let made = SubtitleSegments(host: self, route: c)
+            c.subtitleSegments = made
+            item.largeSubtitleView = made.large
+            item.subtitleView = made.inline
+            SubtitleSegments.resample(c)
+            return made
+        }()
+        segments.apply(list)
     }
 
     /// D1: the next child the author shows in flow after a header the bar
@@ -44,12 +78,25 @@ extension NavigationHost {
     /// five text tabs, one selected, none disabled, naming no panel, and no
     /// look of the author's on it or them.
     private func scopeFilter(after shape: HeaderShape, in c: RouteController) -> NodeView? {
-        guard UIDevice.current.userInterfaceIdiom == .phone, shape.authored.isEmpty, shape.search != nil else { return nil }
+        // A search's scope bar (LLP 1134), or a large title's subtitle views (LLP 1135 D1).
+        // Not under a title the bar draws with more than its words (a subtitle, an
+        // avatar, segments), whose subtitle views it would take.
+        let large: Bool = {
+            guard #available(iOS 26.0, *) else { return false }
+            // Nor where a hatch set a subtitle, or a subtitle view of its own.
+            let item = c.navigationItem, mine = c.subtitleSegments
+            let free = item.subtitle == nil && item.largeSubtitle == nil
+                && (item.largeSubtitleView == nil || item.largeSubtitleView === mine?.large) && (item.subtitleView == nil || item.subtitleView === mine?.inline)
+            return shape.level == 1 && shape.segments == nil && shape.group == nil && item.largeTitleDisplayMode == .always && free
+        }()
+        guard UIDevice.current.userInterfaceIdiom == .phone, shape.authored.isEmpty, shape.search != nil || large else { return nil }
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
         // What the host hides (this filter, a segmented control's tabs) is still the author's.
         let shown = { (v: NodeView) in v.style["display"]?.string != "none" && Self.inFlow(v) }
         guard let at = kids.firstIndex(where: { $0 === shape.header }),
               let list = kids[(at + 1)...].first(where: shown),
+              // Under a large title it is the list's filter, right above it (LLP 1135 D1).
+              shape.search != nil || kids.firstIndex(where: { $0 === list }).flatMap({ kids[($0 + 1)...].first(where: shown) })?.scrollView != nil,
               list.props["accessibilityRole"] == "tablist", list.props["accessibilityOrientation"] != "vertical", !Self.writesLook(list) else { return nil }
         // One that takes no input stays the page's, where it shows so (SegmentHost's `available`).
         var up: UIView? = list
@@ -155,5 +202,88 @@ extension HeaderSearch {
         if let list = scopeList, presenter.views[list.id] === list { scope(list) }
     }
     func didPresentSearchController(_ search: UISearchController) { showScopes() }
+}
+/// LLP 1135: a filter as the segmented controls under a large title and
+/// under the inline title it collapses to, kept in step.
+@available(iOS 26.0, *)
+final class SubtitleSegments: NSObject {
+    let large = LabelledSegmentedControl(), inline = LabelledSegmentedControl()
+    private(set) var tabs: [UInt32] = []
+    private weak var host: NavigationHost?
+    private weak var list: NodeView?
+    /// The segment last chosen or set (LLP 1134 D3).
+    private var settled = UISegmentedControl.noSegment
+    init(host: NavigationHost, route: RouteController) {
+        self.host = host
+        super.init()
+        for control in [large, inline] { control.addTarget(self, action: #selector(changed(_:)), for: .valueChanged) }
+        // A text size or Bold Text changes their height, and so the bar's.
+        MainActor.assumeIsolated {
+            large.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self]) { [weak route] (_: UISegmentedControl, _: UITraitCollection) in
+                if let route { Self.resample(route) }
+            }
+        }
+    }
+
+    /// The bar's height moves with them: the collapse scroller keeps its
+    /// place (CSS `scrollTop`, read with the insets it had) and its insets
+    /// are sampled afresh (`reportCovers`).
+    static func resample(_ c: RouteController) {
+        guard let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView else { return }
+        node.retainScrollPosition(from: sv)
+        node.scrollOrigin = 0
+        node.scrollCollapsed = 0
+    }
+
+    /// The one the bar shows now: under the large title while it is out.
+    var shown: UISegmentedControl? {
+        let visible = { (v: UIView) in v.window != nil && v.bounds.height > 1 && sequence(first: v, next: \.superview).allSatisfy { !$0.isHidden && $0.alpha > 0.01 } }
+        return visible(large) ? large : visible(inline) ? inline : nil
+    }
+
+    func apply(_ list: NodeView) {
+        self.list = list
+        let members = list.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
+        tabs = members.map(\.id)
+        let titles = members.map { tab in if case .title(let words)? = tab.segmentFace { return words }; return tab.accessibleName }
+        let selected = members.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
+        // A finger on either, or a choice UIKit has not reported yet, stays (`SegmentHost.sync`).
+        let pending = [large, inline].contains { $0.isTracking || $0.selectedSegmentIndex != settled }
+        for control in [large, inline] {
+            // Rebuilt when no choice is pending: a pending one is read first.
+            if !pending, control.numberOfSegments != titles.count || titles.indices.contains(where: { control.titleForSegment(at: $0) != titles[$0] }) {
+                // Settled first: a change the removal raises is no person's.
+                settled = UISegmentedControl.noSegment
+                control.removeAllSegments()
+                for (i, t) in titles.enumerated() { control.insertSegment(withTitle: t, at: i, animated: false) }
+            }
+            // The settled index first, so a change UIKit raises presses nothing.
+            if !pending, control.selectedSegmentIndex != selected { settled = selected; control.selectedSegmentIndex = selected }
+            control.accessibilityLabel = list.props["accessibilityLabel"]
+            control.segmentIDs = members.map { $0.props["testId"] }
+        }
+        if !pending, large.selectedSegmentIndex == selected { settled = selected }
+    }
+
+    /// A person's choice presses its tab now; its answer is read back.
+    @objc private func changed(_ control: UISegmentedControl) {
+        let i = control.selectedSegmentIndex
+        guard i != settled else { return }
+        settled = i
+        for other in [large, inline] where other !== control { other.selectedSegmentIndex = i }
+        guard tabs.indices.contains(i), let presenter = host?.presenter, let tab = presenter.views[tabs[i]], !tab.disabled, !tab.ariaUnavailable else { return }
+        presenter.press(tab.id)
+        if let list, presenter.views[list.id] === list { apply(list) }
+    }
+}
+
+private var subtitleSegmentsKey: UInt8 = 0
+extension RouteController {
+    /// LLP 1135's controls, while the route's filter is them.
+    @available(iOS 26.0, *)
+    var subtitleSegments: SubtitleSegments? {
+        get { objc_getAssociatedObject(self, &subtitleSegmentsKey) as? SubtitleSegments }
+        set { objc_setAssociatedObject(self, &subtitleSegmentsKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
 }
 #endif

@@ -33,6 +33,10 @@ pub struct Checked {
     /// The tokens its values name, the default's and every `when` line's,
     /// by their names here, in declaration order.
     pub names: Vec<String>,
+    /// The base names its own values read unset, bare (a length, a type's
+    /// size), the default's and every `when` line's, a value no tuple
+    /// selects included, first time each (stage 11 D's `bases`).
+    pub bases: Vec<String>,
     /// Marked `scheme=fixed`: one colour in every scheme by design, which the
     /// one-scheme warning leaves alone.
     pub fixed: bool,
@@ -72,6 +76,8 @@ struct Checker<'a> {
     used: Vec<BTreeSet<usize>>,
     /// Per token, the tokens its values named as they folded.
     refs: Vec<BTreeSet<usize>>,
+    /// Per token, the unset base names its values read, in fold order.
+    based: Vec<Vec<String>>,
     /// Each token's dials its own values name, by index.
     reads: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
@@ -117,6 +123,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
         bases: &vocab.bases,
         used: vec![BTreeSet::new(); design.tokens.len()],
         refs: vec![BTreeSet::new(); design.tokens.len()],
+        based: vec![Vec::new(); design.tokens.len()],
         reads: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
         refused: vec![false; design.tokens.len()],
@@ -168,6 +175,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
                 dials: Vec::new(),
                 reads: Vec::new(),
                 names: Vec::new(),
+                bases: Vec::new(),
                 fixed,
                 pairs,
             },
@@ -190,6 +198,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
                 .iter()
                 .map(|&d| design.dials[d].name.value.clone())
                 .collect();
+            token.bases = c.based[i].clone();
             token.names = c.refs[i]
                 .iter()
                 .map(|&j| {
@@ -1090,7 +1099,23 @@ impl<'a> Checker<'a> {
             _ => measure::number(&items, &mut scope).map(Value::Number),
         };
         match folded {
-            Ok(v) => Some(v),
+            Ok(v) => {
+                // An unset base name it reads bare, noted on the token folding.
+                let named = match &v {
+                    Value::Length(Length::Named(n)) => Some(n),
+                    Value::Type(t) => match &t.size {
+                        Length::Named(n) => Some(n),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let (Some(n), Some(&i)) = (named, self.stack.last()) {
+                    if self.bases.contains(n) && !self.based[i].contains(n) {
+                        self.based[i].push(n.clone());
+                    }
+                }
+                Some(v)
+            }
             Err(e) if e.id.is_empty() => None,
             Err(e) => {
                 self.at(value, e.id, e.message);
