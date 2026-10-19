@@ -4551,6 +4551,34 @@ C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
 - **On main with the plain-LAN fix (81f2d32e8f):** the rule that a paired credential is taken only from this machine or through one of B's doors is one helper, `viaDoor(access)` in scripts/tamber-request.mjs, which the wire's check and the canvas gateway both call; dispatch's own `plain` flag is gone (the wire refuses such a request before dispatch).
 - **After the re-check (Astra):** the tool origin is written into the entry page as an escaped attribute value, and `serve()` refuses a `toolOrigin` that isn't a plain https origin (a host name or address and a port), so neither the attribute nor the CSP header can be misread.
 
+### Stage 10's gate: met (2026-10-19; the run is `~/x2theme/stage10-gate-run.txt`)
+
+exact2 main at `29ec5ae613`, the clone at `baf8b6b` (a signed-out copy), a second Chrome profile as the remote
+client trusting only the listener's certificate. Stage 10's commits: B `e85fb5c4d1`, `8f44ea2b8c` (and
+pair-code's doors, `250ce13108`..`417d8c48f7`); A1 `98d26391ca`, A2 `1dbf03d789`; the plain-HTTP fix
+`ae9e86e1ca`; C1 `f7ffce5644`..`78a7202c2b`; C2 `ec5c69fb0f`..`c92dace86a`; D (LLP 1122 T6)
+`cd6300a22a`..`2ca911ea7f`. Wire: `tamber/1.13`.
+
+| Gate line | Result |
+|---|---|
+| A second browser pairs over TLS, the fingerprint checked before anything is sent; a used code is refused and five misses burn the live codes | **Met** (1), both by the server and by the tool's own pair panel (1, D). |
+| A paired `propose` client reads, inspects read-only and proposes; writes and commands are refused with its scope named; a `write` client writes and the event names it | **Met** (2); the tool greys what writes for a `propose` client and says why (2, D). |
+| Revoke closes the client's subscription and held long poll at once and refuses its next request; separately, its canvas through the gateway, on both ports | **Met** (3), (3, C); the running tool says Revoked, its canvas goes, and it sends no more (3, D). |
+| No wire auth reads a cookie; a cookie page code sets with the gateway's name grants nothing on either port | **Met** (4), (4, C). |
+| The canvas on its own origin: entered through the gateway by the `#g=` fragment, which leaves the frame's address before any request and is in no URL or history entry; framed script can't read the tool origin's DOM, storage or token | **Met** (3, C), (5, C) ×3, and the tool frames it so and drops the grant once entered (5, D). |
+| An unencrypted remote connection is refused, pairing included; the trusted tunnel takes paired tokens and pairing, never the local token; no non-loopback peer reaches the loopback-bound listener | **Met** (6) ×3. |
+| Local clients unchanged; a release build has no Tamber endpoint; the server and tool suites green | **Met** (7) ×3: pairing 15, pairing-server 14, remote 27, canvas 31, tamber-server 30, dev-builds 3, design-tool 18. |
+
+**Found by the gate's dry run and fixed in stage 10:** with `--lan`, a plain-HTTP LAN peer could pair. A paired
+credential is now honoured only from this machine or through one of B's doors (`ae9e86e1ca`; one helper since C2).
+**First final run:** 21 of 22; (5, D) read the frame's first `src` after the entry word had already dropped the
+grant, a timing fault in the gate's check, not the tool. The check records each `src` as the tool sets it, and
+the re-run met every line.
+**Rulings written into LLP 1122 D12 with this close:** the canvas is on its own origin; `inspect` needs `read`;
+the loopback rewrite is functional, not a security boundary; the hosted relay is stage 10c.
+
+**Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
+
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 
 Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57

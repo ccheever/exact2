@@ -350,7 +350,8 @@ socket frames (LLP 1121 D13). So D4 adds both directions.
   command and batch on both streams.
 
 The tool drives no input into an app (no taps, no typing), takes no pictures and launches no
-sessions. Commands need `write` scope and are journaled with their client.
+sessions. `inspect` needs `read` scope and the other three commands need `write` (D12); all are
+journaled with their client.
 
 ### D5 — Inspect: tap the real screen
 
@@ -664,20 +665,32 @@ is undone in one step.
   - A paired client reads, proposes or writes through `tamber/1` as its scope allows, and
     receives selections and outlines' sources like any client. Its access ends when its
     token is revoked or expires.
-    - **Seeing the app** remotely goes through an **authenticated canvas gateway**: the Tamber
-    server proxies the app's dev URL, same-origin, under the paired client's token, over the
-    encrypted transport.
+  - **Seeing the app** remotely goes through an **authenticated canvas gateway**: the Tamber
+    server proxies the app's dev URL under the paired client's token, over the encrypted
+    transport, on **its own origin** (a second TLS port on the same listener and certificate),
+    so script in the framed canvas can't read the tool's DOM, storage or token (LLP 1121 stage
+    10 C; theme2's ruling, 2026-10-19).
+    - The tool enters the canvas with a single-use grant carried in the frame's `#g=` fragment;
+      the gateway trades it for a session cookie bound server-side to the token, and the
+      fragment leaves the frame's address before any request. No wire request reads a cookie,
+      and a cookie that page code sets with the gateway's name grants nothing.
+    - The gateway needs `read`.
     - A remote frame whose `src` was the developer's loopback URL would load the remote
-      browser's own loopback.
+      browser's own loopback, so the gateway rewrites the app's loopback URLs to itself. That
+      rewrite is functional, not a security boundary: it never touches a non-loopback host,
+      and exotic encodings are a known limit. The boundary is the token and the origin.
     - The dev gate checks host, origin and peer, never a paired credential
       (`scripts/install-page.mjs`).
-    - Revoking the token ends canvas access too.
+    - Revoking the token ends canvas access too, on both ports, separately from the socket.
 
     Without the gateway, a remote client works on the design and sees selections, but has no
     canvas.
-  - Control messages (D4) need `write`: inspect, outline, hold and pin change what the
-    developer's screens show.
-- **No team relay** (§9 Q6, ruled): remote use is pairing only.
+  - Control messages (D4): `inspect` needs `read`, since it only reports what is under the
+    pointer, so a `propose` client inspects read-only; `outline`, `hold` and `pin` need `write`,
+    since they change what the developer's screens show (LLP 1121 stage 10 A's scope table).
+- **No relay in v1** (§9 Q6): remote use is pairing only. A hosted relay is LLP 1121 stage
+  10c, later: a blind pass-through of the client's TLS to the developer's server, which changes
+  nothing here (the same pairing, tokens, scopes and gateway).
 
 ### D13 — Security
 
@@ -687,9 +700,9 @@ is undone in one step.
   verified-local request (LLP 1121 D13). Paired clients have scoped, revocable tokens, only
   over an encrypted transport (D12).
 - **No driving.** The tool sends no taps, keystrokes or file answers into an app. Its only
-  control is D4's four commands, which need `write`, are journaled with their client, and
-  are cleared when that client goes. Inspect mode takes input only while it is on, with a
-  banner and a local way out.
+  control is D4's four commands (`inspect` needs `read`, the rest `write`; D12), which are
+  journaled with their client and cleared when that client goes. Inspect mode takes input only
+  while it is on, with a banner and a local way out.
 - **Reports are bound to their build.** A `status` or `selected` POST must carry the nonce
   from that build's stream hello. The dev loop accepts other POSTs with no token
   (`host/web-js/dev.mjs`), so without it a page that can reach the dev server could forge a
@@ -726,7 +739,7 @@ is undone in one step.
 | inspect mode in each host's development build, and the `selected` report | this RFC D5 → the hosts | proposed |
 | the build channel: registration with a nonce, four commands down, `status`, `selected` and `unsupported` reports up | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
 | devices launched connected to the dev URL, one `--wasm` loop for frame and devices | this RFC D3, D4 → `host/apple/build.mjs`, the dev loops | proposed |
-| the canvas gateway for paired clients | this RFC D12 → the Tamber server | proposed |
+| the canvas gateway for paired clients | this RFC D12 → the Tamber server | built (LLP 1121 stage 10 C) |
 | `iframe` embedding stated as a second document, not a second session | this RFC D3 → LLP 1121 D14 | proposed |
 | the held state, as `hold` and as a form of `tap` | this RFC D8 → the hosts, LLP 1012 | ruled yes (§9 Q4) |
 | a held state's overlay rows, and a `boundary` row source, in the node explanation | this RFC D5, D8 → LLP 1035.002, LLP 1121 D7 | proposed |
@@ -884,7 +897,9 @@ lands with or after the Tamber stage it needs.
    app, updated by the live table and the hot reload. Several live copies come in T7.
 6. **People who share no machine or network with the developer.** **Ruled (Charlie,
    2026-10-13): no hosted relay.** Remote use is pairing only, over an encrypted connection
-   (D12).
+   (D12). **Revisited (Charlie, 2026-10-19): "We will prob need one yes."** A hosted relay is
+   LLP 1121 stage 10c, later: blind TLS pass-through, so the relay never sees a token,
+   a design or a canvas, and the tool's side is unchanged.
 7. **How the tool controls running apps.** **Ruled (Charlie, 2026-10-13): yes, for now.** The
    tool sends four commands (inspect, outline, hold, pin) and receives three reports
    (status, a selection, unsupported), and it never drives an app (D4). Taps and typing
