@@ -102,6 +102,9 @@ private final class NativeTable {
     static let major: UInt32 = 3
     /// The hatch words the module handles, or nil for one that does not say.
     var hatchWords: Set<String>?
+    /// Whether its `tabContainer` takes a tab Exact holds without a
+    /// navigation controller (HeldStackIOS.swift); an older module's does not.
+    var heldStacks = false
     /// The modules' extensions the artifact composes (LLP 1133.001 D4).
     var extensions: [String] = []
     static let size: UInt32 = 104
@@ -186,7 +189,8 @@ private final class NativeTable {
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path): unreadable roster")) }
         // The hatch words the module was built to handle, under a key no tag
         // can take (LLP 1075.003.000.001 §4.3); an older module names none.
-        let hatchWords = (roster.removeValue(forKey: "hatches")?["words"] as? [String]).map(Set.init)
+        let hatches = roster.removeValue(forKey: "hatches")
+        let hatchWords = (hatches?["words"] as? [String]).map(Set.init)
         let extensions = roster.removeValue(forKey: "extensions")?["names"] as? [String] ?? []
         guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
               let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88),
@@ -203,6 +207,7 @@ private final class NativeTable {
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
             moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
         loaded.hatchWords = hatchWords
+        loaded.heldStacks = hatches?["heldStacks"] as? Bool == true
         loaded.extensions = extensions
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
@@ -536,6 +541,8 @@ final class NativeViews {
     /// The hatch words the loaded module was built to handle (LLP
     /// 1075.003.000.001 §4.3), or nil when it does not say: then every word is called.
     var handledHatches: Set<String>? { if case .success(let t) = NativeProcess.table { t.hatchWords } else { nil } }
+    /// Whether the loaded module's `tabContainer` takes held tabs (HeldStackIOS.swift).
+    var takesHeldStacks: Bool { if case .success(let t) = NativeProcess.table { t.heldStacks } else { false } }
     var onHatchesConnected: (() -> Void)?
     var hatchCalls: (navigation: HatchNavigationFn, route: HatchRouteFn)?
     var tabCalls: (HatchTabsFn, HatchTabContainerFn)?

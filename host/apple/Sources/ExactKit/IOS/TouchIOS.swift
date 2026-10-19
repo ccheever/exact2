@@ -160,8 +160,8 @@ extension Agent {
         if nav.tabController != nil, !nav.tablistAppearanceNone, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
             return "is in the authored tablist \(shown) UIKit's tab bar"
         }
-        for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
-            for case let route as RouteController in controller.viewControllers {
+        for routes in nav.barStackRoutes {
+            for case let route as RouteController in routes {
                 guard let shape = HeaderShape.bar(of: route.node) else { continue }
                 let replaced = shape.authored.isEmpty ? [shape.header] : shape.placed
                 if replaced.contains(where: { v === $0 || v.isDescendant(of: $0) }) {

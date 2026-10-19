@@ -172,6 +172,15 @@ final class RouteController: UIViewController {
         view.addSubview(snapshot)
         snapshot.setPaintForeground()
     }
+
+    /// The stack it is in: its navigation controller, or a tab's held stack.
+    var stack: UIViewController? { navigationController ?? (parent as? HeldStack) }
+
+    // A held stack's tab bar follows the route's scroll views as a navigation controller's follows its top's.
+    override func setContentScrollView(_ scrollView: UIScrollView?, for edge: NSDirectionalRectEdge) {
+        super.setContentScrollView(scrollView, for: edge)
+        (parent as? HeldStack)?.setContentScrollView(scrollView, for: edge)
+    }
 }
 
 final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureRecognizerDelegate {
@@ -194,7 +203,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var modalNavigation: UINavigationController? { presentedNavigations.last }
     private var navigation: UINavigationController? { modalNavigation ?? primaryNavigation }
     /// The route on top of the stack in front: the one the person sees.
-    var activeRoute: RouteController? { navigation?.topViewController as? RouteController }
+    var activeRoute: RouteController? { (navigation?.topViewController ?? primaryHeld?.route) as? RouteController }
     private(set) var syncing = false
     private var mounting = false
     private(set) weak var container: NodeView?
@@ -211,6 +220,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tabOwner: UIViewController?
     var tabsHatched = false, tabContainerAsked = false, routerTab = -1
     var tabNavigations: [UInt32: UINavigationController] = [:]
+    /// The tabs whose stacks have no navigation controller yet (HeldStackIOS).
+    var heldTabs: [UInt32: HeldStack] = [:]
     var tabPanels: [UInt32] = []
     /// How many routes the selected stack declared at the last projection.
     private var selectedRouteCount = 0
@@ -225,7 +236,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tabItems: [String] = []
     /// The tabs and stacks the items were last made from, made again when
     /// the size class (a path glyph's size) changes.
-    var tabItemsSource: (NavigationTabs, [UINavigationController])?
+    var tabItemsSource: (NavigationTabs, [UIViewController])?
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()
@@ -413,7 +424,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     private func installPrimary(_ p: Projection, first: [RouteController]) {
-        guard primaryNavigation == nil else { return }
+        guard primaryOwner == nil else { return }
         // Find the containing controller before installing our child.
         guard let parent = ViewPresentation.controller(for: p.root) else { return }
         if let tabs = p.tabs {
@@ -455,7 +466,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Initial containment is ready before child frames. It does not present
     /// a sheet or flush focus commands from the partially applied batch.
     func installInitialOwner(_ batch: Batch) {
-        guard primaryNavigation == nil, !syncing, presenter.session?.view?.window != nil else { giveBackBootCover(); return }
+        guard primaryOwner == nil, !syncing, presenter.session?.view?.window != nil else { giveBackBootCover(); return }
         syncing = true
         defer { syncing = false }
         guard let p = projection(batch) else { giveBackBootCover(); return }
@@ -552,11 +563,18 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let common = zip(boundaries, mounted).prefix {
             $0.0 === $0.1.node && $0.0.props["navigationPresentation"] == $0.1.kind
         }.count
+        // The selected tab while it is held (HeldStackIOS): `syncTabs` built its
+        // navigation controller if this batch pushes onto it or shows its bar.
+        if let held = primaryHeld {
+            show(Array(wanted[parts[0]]), in: held)
+            held.view.layoutIfNeeded()
+        }
         // Mount the destination under a departing presentation before starting
         // dismissal, so its editor can accept the batch's focus handoff.
-        let owners = [primaryNavigation].compactMap { $0 } + presentedNavigations
+        let owners: [UINavigationController?] = (primaryHeld != nil ? [nil] : [primaryNavigation].compactMap { $0 }) + presentedNavigations
         for index in 0...common where index < owners.count {
-            let nav = owners[index], stack = Array(wanted[parts[index]])
+            guard let nav = owners[index] else { continue }
+            let stack = Array(wanted[parts[index]])
             prepareRoutes(stack, in: nav)
             let same = nav.viewControllers.count == stack.count && zip(nav.viewControllers, stack).allSatisfy { $0 === $1 }
             if !same {
@@ -656,12 +674,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard presenter.session?.natives.hatchesConnected == true else { return }
         replayingHatches = true
         defer { replayingHatches = false }
-        let navs = allNavigations
-        for nav in navs { hatchNavigation(nav) }
+        for nav in allNavigations { hatchNavigation(nav) }
         replayTabs()
-        for nav in navs {
-            prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
-            nav.view.layoutIfNeeded()
+        // (Held stacks too, whose routes' hatches have not run either; a tab
+        // container the app took built every tab's navigation controller.)
+        for stack in primaryStacks + presentedNavigations {
+            prepareRoutes(stack.stackRoutes.compactMap { $0 as? RouteController }, in: stack)
+            stack.view.layoutIfNeeded()
         }
         reportCovers()
         refitForBars()
@@ -785,7 +804,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
     func observation() -> [String: Any] {
-        let stack = (navigation?.viewControllers ?? []).compactMap { ($0 as? RouteController)?.key }
+        let stack = (navigation?.viewControllers ?? primaryHeld?.stackRoutes ?? []).compactMap { ($0 as? RouteController)?.key }
         let transition: [String: Any] = ["interactive": navigation?.transitionCoordinator?.isInteractive ?? false,
                                          "phase": changing || pendingSync || presenter.modals.inTransition ? "in-progress" : lastTransition]
         let root = container ?? presenter.root.subviews.first as? NodeView
