@@ -1376,9 +1376,9 @@ component T3Code
       else
         match e.data
           case some(text)
-            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and b.bodyStart == b.bodyEnd and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyEnd).length > 0)
+            if e.inputType == "insertFromPaste"
               preventDefault()
-              composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
+              composerIntentRequest("paste", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
     composerSelectionObserved(e, e.isComposing)
     composerComposing = e.isComposing
