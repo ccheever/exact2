@@ -470,7 +470,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
 | `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
 | `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
-| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below); nothing when the same style has `overflow: "hidden"`, which iOS draws without its shadow |
 | `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
@@ -551,6 +551,14 @@ screen, 2026-10-16.)
   a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
   `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
   capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A capsule with a rim is a few points larger than the original's, and grows when the
+  rim thickens.** euxy's was 184 × 68 points where the original's was 180 × 64, its keys
+  2 points further in. Cause: the original drew the rim as `borderWidth` on a fixed-size
+  shell and gave the keys' padding to a child row as wide as the shell, so the rim lay
+  over the padding; its thicker armed rim was an overlay. A box with `padding=8` and
+  `border="2px solid …"` puts its content 10 points in, as CSS does, and a border whose
+  width changes with state moves the content. Fix: a rim that takes no room,
+  `box-shadow="inset 0 0 0 2px <colour>"`, with the original's padding.
 - **A glow on a tiny LED is barely there.** Cause: a blur spreads a small source thin, so
   `box-shadow="0 0 7px …"` on a 5-pt dot is at most an eighth of its colour beside the
   dot, in Chrome and on every host alike; the original's halo was a larger disc blurred
