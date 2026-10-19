@@ -399,6 +399,8 @@ shape TokenRow
   kind: string
   follows: string
   cells: Cell[]
+  // The value "Set for this app" starts from: a base row's first column's (the app ships it first), else its first cell's.
+  start: string
   // Where its value comes from (stage 11 D): "app", "base" (Exact's scale)
   // or "package" (read-only; the app overrides it in its own file); for an
   // app line over a base or package name, what it replaces and the way back.
@@ -1721,7 +1723,7 @@ component DesignTool
                               button press=openBase(t.name) testId=`token-base-more-${t.name}`
                                 text "Other platforms"
                             if t.source != "app"
-                              button press=setForApp(t.name, match t.cells.at(0) { case some(c) => c.css, case none => "" }) disabled=(not canPropose) testId=`set-for-app-${t.name}`
+                              button press=setForApp(t.name, t.start) disabled=(not canPropose) testId=`set-for-app-${t.name}`
                                 text "Set for this app"
                             if t.over != ""
                               text t.over font="-exact-caption1" color="-exact-secondary-label" testId=`token-over-${t.name}`

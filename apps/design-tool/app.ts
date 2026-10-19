@@ -11,7 +11,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
-import { groupOf, sourceOf } from './base';
+import { groupOf, sourceOf, targetsOf } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { GONE, wire, type Reply } from './wire';
@@ -105,7 +105,7 @@ let liveTable = false;
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. `wanted`: false once
  * a newer read overtakes it, which then asks for nothing more. */
-async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
+async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
@@ -140,7 +140,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
       const col = tuples.find(c => c.tuple === i);
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
-    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs };
+    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets };
   }
   return { error: wanted() ? 'The design kept changing while it was read. Try again.' : 'overtaken by a newer read' };
 }
@@ -641,6 +641,7 @@ const sources: Sources = {
       // Each token's stored value per tuple and scheme, a residual as its
       // fallback (no running app reports it until T2).
       const stored = new Map<string, Stored[][]>();
+      const baseRows = new Map<string, any>((read.base ?? []).map((r: any) => [String(r.name), r])), targets = targetsOf(ir, read.targets);
       const tokens = ir.tokens.map((t: { name: string; kind: string; dials: string[]; role: string | null }, i: number) => {
         const tuples = (resolved[i].tuples ?? []) as any[];
         const sides = tuples.map(r => [false, true].map(dark => {
@@ -659,8 +660,10 @@ const sources: Sources = {
           const shadow = t.kind === 'box-shadow' || t.kind === 'text-shadow' ? String(v.value ?? '') : '';
           return { scheme: c.dark ? 'dark' : 'light', column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: t.kind !== 'color' ? 'transparent' : v.residual ? v.srgb : v.css, residual: v.residual, note: v.note, kind: t.kind, shadow, pairs: [] as { name: string; ratio: string; low: boolean }[] };
         });
-        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells, ...sourceOf(t) };
+        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells, start: cells[0]?.css ?? '', ...sourceOf(t, baseRows.get(t.name), targets) };
       });
+      // Exact's base names the app does not override (stage 11): per platform, no fold, so no cells.
+      for (const row of baseRows.values()) if (!row.override && !tokens.some((t: { name: string }) => t.name === row.name)) { const src = sourceOf(null, row, targets); tokens.push({ name: row.name, kind: 'length', follows: '', cells: [], start: src.columns[0]?.value ?? '', ...src }); }
       // Each declared pair's contrast per cell (LLP 1121 D3, `pair=`): the
       // token over what it is drawn on, a token's stored value or a role's
       // fallback; below 4.5:1, WCAG's for text, it is marked low.
@@ -730,7 +733,7 @@ const sources: Sources = {
     if (!token || !col || !snap || snap.file !== file) return none;
     const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
     if (error) return { ...none, ok: false, error };
-    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string>; source?: string; package?: string };
+    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string>; kind?: string; package?: string };
     // Of the revision the grid shows, or it is read again with the grid.
     if (x.files && digestKey(x.files) !== snap.digests) return { ...none, ok: false, error: 'The design changed while this cell was read; it is read again with the grid.' };
     const b = branchOf(snap.axes, col, x.whens, snap.kinds.get(token) ?? 'color');
@@ -745,7 +748,7 @@ const sources: Sources = {
       ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, param: snap.params.has(token), answer,
       // (Stage 11: the base's or a package's value is theirs; the app sets its own, from the grid.)
-      readOnly: x.source === 'base' ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : x.source === 'package' ? `The ${x.package ?? ''} package's, read only: Set for this app (in the grid) to change it here.` : '',
+      readOnly: x.kind === 'base' ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : x.package ? `The ${x.package} package's, read only: Set for this app (in the grid) to change it here.` : '',
     };
   },
   // The branch editor's typed fields for a value (parts.ts), the names in

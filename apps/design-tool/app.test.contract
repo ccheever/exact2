@@ -1834,23 +1834,25 @@ test "stage 11: the base scale's rows are read-only, with each platform the app 
   clock data
   clock +1
   clock data
-  expect tree has "token-space.gap"
   expect text "token-group-Base scale (Exact)" == "Base scale (Exact)"
   expect text "token-source-space.md" == "Exact's base, per platform"
+  // The columns this app's targets draw (iOS, the Mac, the web's neutral), then the rest one expand away.
   expect text "token-base-space.md-ios" == "iOS 16px · grouped-row-inset"
   expect text "token-base-space.md-mac" == "Mac 10px · grouped-row-inset"
-  expect tree missing "token-base-space.md-neutral"
+  expect text "token-base-space.md-neutral" == "neutral 16px · grouped-row-inset"
+  expect tree missing "token-base-space.md-material"
   tap "token-base-more-space.md"
-  expect text "token-base-space.md-material" == "Android 16px · grouped-row-inset"
-  expect text "token-base-radius.md-mac" == "Mac 6px (a stretch) · control-radius"
+  expect text "token-base-space.md-material" == "Android 16px · M3 spacing"
+  expect text "token-base-space.md-terminal" == "terminal 1cell · cells"
+  expect text "token-base-radius.md-mac" == "Mac 6px (a stretch) · control-radius, the Mac draws no larger control"
   expect text "token-group-reading package" == "reading package"
   expect text "token-source-reading.measure" == "From the reading package"
   expect text "token-over-radius.md" == "Set for this app, over Exact's base (iOS 8px)."
   expect tree missing "set-for-app-radius.md"
-  // Its cell opens read-only: the base's value is theirs.
-  tap "cell-space.md-0-light"
+  // A package's value opens read-only in the branch editor.
+  tap "cell-reading.measure-0-light"
   clock data
-  expect text "branch-readonly" == "Exact's base, read only: Set for this app (in the grid) to change it here."
+  expect text "branch-readonly" == "The reading package's, read only: Set for this app (in the grid) to change it here."
   expect disabled "branch-value"
   tap "set-for-app-space.md"
   clock data

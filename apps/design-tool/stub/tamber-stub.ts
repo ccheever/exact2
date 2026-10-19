@@ -13,14 +13,17 @@ import { allows, needs, refusal } from '../../../scripts/tamber-pairing.mjs';
 import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
-// Stage 11 D's rows (LLP 1121 stage 11; the shape proposed to rt1), as a test turns them on: two base
-// scale names, one the app overrides, and a package's token.
+// Stage 11 D's rows (LLP 1121 stage 11; theme2's 16:17Z 1.14 shape), as a test turns them on: describe's
+// `base` rows (two names, one the app overrides), the app's override as its token, and a package's token.
 let SCALE = false;
-const BASE = (ios: string, mac: string, neutral: string, material: string, terminal: string, from: string) => ({ columns: { ios: { value: ios, from }, mac: { value: mac, from, ...(from === 'control-radius' ? { stretch: true } : {}) }, neutral: { value: neutral, from }, material: { value: material, from }, terminal: { value: terminal, from: 'cells' } }, ships: ['ios', 'mac'] });
+const metric = (ref: string) => ({ kind: 'metric', ref });
+const BASE_ROWS: Record<string, any>[] = [
+  { name: 'space.md', kind: 'length', columns: { ios: { value: '16px', source: metric('grouped-row-inset') }, mac: { value: '10px', source: metric('grouped-row-inset') }, neutral: { value: '16px', source: metric('grouped-row-inset') }, material: { value: '16px', source: { kind: 'guideline', cite: 'M3 spacing' } }, terminal: { value: '1cell', source: { kind: 'terminal' } } }, override: null },
+  { name: 'radius.md', kind: 'radius', columns: { ios: { value: '8px', source: metric('control-radius') }, mac: { value: '6px', source: { kind: 'stretch', ref: 'control-radius', why: 'the Mac draws no larger control' } }, neutral: { value: '8px', source: metric('control-radius') }, material: { value: '8px', source: { kind: 'measured', id: 'm3-shape-small' } }, terminal: { value: '0', source: { kind: 'terminal' } } }, override: { file: 'app.tamber', line: 40, col: 3, text: '12px' } },
+];
 const SCALE_TOKENS: Record<string, any>[] = [
-  { name: 'space.md', kind: 'length', role: null, dials: [], entries: null, values: ['16px'], fallback: ['16px', '16px'], source: 'base', base: BASE('16px', '10px', '16px', '16px', '1', 'grouped-row-inset') },
-  { name: 'radius.md', kind: 'length', role: null, dials: [], entries: null, values: ['12px'], fallback: ['12px', '12px'], source: 'app', base: BASE('8px', '6px', '8px', '8px', '0', 'control-radius'), overrides: { source: 'base', value: '8px' } },
-  { name: 'reading.measure', kind: 'length', role: null, dials: [], entries: null, values: ['640px'], fallback: ['640px', '640px'], source: 'package', package: 'reading', file: 'reading.tamber' },
+  { name: 'radius.md', kind: 'length', role: null, dials: [], entries: null, values: ['12px'], fallback: ['12px', '12px'] },
+  { name: 'reading.measure', kind: 'length', role: null, dials: [], entries: null, values: ['640px'], fallback: ['640px', '640px'], package: 'reading', file: 'reading.tamber' },
 ];
 // A run's token: a restart issues another, as the server does.
 let TOKEN = 'stub-token';
@@ -273,7 +276,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir: SCALE ? { ...ir, tokens: [...ir.tokens, ...SCALE_TOKENS] } : ir, files: FILES } }); }
+      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir: SCALE ? { ...ir, tokens: [...ir.tokens, ...SCALE_TOKENS] } : ir, ...(SCALE ? { base: BASE_ROWS, targets: ['ios', 'macos', 'web'] } : {}), files: FILES } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
@@ -284,9 +287,11 @@ Bun.serve({ hostname, port: Number(port), routes: {
         return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, unknown>) => ({ ...t, dark: `#${FILES['app.tamber'].slice(0, 6)}ff` })) } });
       }
       // Stage 11 D's rows, as a test turns them on (`/__stub/scale`): length tuples like space.gap's.
-      const scaled = SCALE ? SCALE_TOKENS.find(t => t.name === request.token) : undefined;
-      if (scaled && request.method === 'resolve') return send({ ok: { token: scaled.name, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>) => ({ ...u, value: scaled.values[0], amount: parseFloat(scaled.values[0]) }))) } });
-      if (scaled && request.method === 'explain') return send({ ok: { token: scaled.name, value: scaled.values[0], whens: [], dials: [], names: [], files: FILES, source: scaled.source, ...(scaled.base ? { base: scaled.base } : {}), ...(scaled.package ? { package: scaled.package } : {}), ...(scaled.overrides ? { overrides: scaled.overrides } : {}) } });
+      const scaled = SCALE ? SCALE_TOKENS.find(t => t.name === request.token) : undefined, baseRow = SCALE ? BASE_ROWS.find(r => r.name === request.token) : undefined;
+      if (baseRow && !baseRow.override && request.method === 'resolve') return send({ ok: { name: baseRow.name, base: baseRow, files: FILES } });
+      if (baseRow && !baseRow.override && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, base: baseRow, files: FILES } });
+      if (scaled && request.method === 'resolve') return send({ ok: { token: scaled.name, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>) => ({ ...u, value: scaled.values[0], amount: parseFloat(scaled.values[0]) }))), ...(baseRow ? { base: baseRow } : {}) } });
+      if (scaled && request.method === 'explain') return send({ ok: { token: scaled.name, value: scaled.values[0], whens: [], dials: [], names: [], files: FILES, ...(scaled.package ? { package: scaled.package, file: scaled.file } : {}) } });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       // A write is not applied: canned answers in its shape, enough for the
