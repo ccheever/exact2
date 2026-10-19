@@ -891,7 +891,7 @@ package final class Presenter {
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
-                if flats.isFlat(id) { if FlatLeaves.onlyData(op) { continue }; flats.promote(id) }
+                if flats.isFlat(id) { if flats.props(id, op) { continue }; flats.promote(id) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
                 elements.propsChanged(id)
             case .flow:
@@ -914,7 +914,7 @@ package final class Presenter {
                     session?.noteAppearance(v)
                 }
             case .children:
-                if flats.isFlat(id) { if op.ids.isEmpty { continue }; flats.promote(id) }
+                if flats.isFlat(id) { if flats.adopt(id, op.ids) { continue }; flats.promote(id) }
                 guard let parent = views[id] else { continue }
                 placeChildren(parent, op.ids)
             case .surface:

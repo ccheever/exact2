@@ -58,8 +58,7 @@ impl<D: DataSource> Host<D> {
     fn face_box_size(&self, id: ViewId) -> Option<String> {
         let kernel = self.runner.kernel();
         let node = kernel.node(id)?;
-        // A childless box is decoration (a dot), not a face, and stays a
-        // flat leaf (`FlatLeavesIOS` admits no props but `dataset`).
+        // A childless box is decoration (a dot), not a face.
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
