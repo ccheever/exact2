@@ -28,6 +28,7 @@ pub mod asm;
 pub mod builder;
 pub mod bytes;
 mod entry;
+pub mod pool;
 pub use entry::entry_identifier;
 /// ActivityKit's ordered placement identities (LLP 1126.001 WP8).
 pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
@@ -838,11 +839,13 @@ impl Plan {
     /// Declare a hatch word and the platforms that handle it, after
     /// lowering: the row comes from `app.json`, not from Contract.
     pub fn add_hatch(&mut self, word: &str, platforms: u16) {
-        let id = match self.strings.iter().position(|s| s == word) {
+        let found = self.strings.iter().position(|s| s == word);
+        let id = match found {
             Some(i) => StrId(i as u32),
             None => {
-                self.strings.push(word.to_string());
-                StrId(self.strings.len() as u32 - 1)
+                let id = StrId(self.strings.len() as u32);
+                self.strings.push(word);
+                id
             }
         };
         self.hatches.push(HatchesRow {

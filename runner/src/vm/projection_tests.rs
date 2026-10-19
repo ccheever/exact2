@@ -50,7 +50,7 @@ fn row_projections_match_the_machine_values_traps_and_reused_storage() {
         ];
         let env = Env {
             plan: &plan,
-            strings: &[],
+            strings: &Strings::of([]),
             router: None,
             lists: None,
             format: None,
@@ -188,14 +188,14 @@ fn projected_string_defaults_match_both_branches_and_all_refusals() {
         ["", "sentinel", "a literal longer than inline text"].map(|text| builder.str(text));
     let replacement = builder.str("replacement text");
     let plan = builder.finish().unwrap();
-    let strings: Vec<_> = plan.strings.iter().map(|text| Value::str(text)).collect();
+    let strings: Vec<_> = plan.strings.iter().map(Value::str).collect();
     let mut nontext = strings.clone();
     nontext[literals[0].0 as usize] = Value::Number(7.0);
     let caches = [
-        strings.as_slice(),
-        &strings[..literals[0].0 as usize],
-        &strings[..replacement.0 as usize],
-        nontext.as_slice(),
+        Strings::of(strings.clone()),
+        Strings::of(strings[..literals[0].0 as usize].to_vec()),
+        Strings::of(strings[..replacement.0 as usize].to_vec()),
+        Strings::of(nontext),
     ];
     let mut scratch = Scratch::default();
     let mut oracle = Scratch::default();
@@ -219,7 +219,7 @@ fn projected_string_defaults_match_both_branches_and_all_refusals() {
             ..Frame::default()
         };
         let frames = [frame.clone(), frame];
-        for strings in caches {
+        for strings in &caches {
             let env = Env {
                 plan: &plan,
                 strings,
@@ -264,7 +264,9 @@ fn projected_string_defaults_match_both_branches_and_all_refusals() {
                             let code = asm.finish();
                             if value.is_str()
                                 && strings.len() == plan.strings.len()
-                                && strings[literal.0 as usize].is_str()
+                                && strings
+                                    .get(&plan, literal.0 as usize)
+                                    .is_some_and(Value::is_str)
                             {
                                 assert!(projected_string_default(&code, &env, &value).is_some());
                             }
@@ -394,14 +396,14 @@ fn prepared_conditionals_preserve_branch_laziness_argument_order_and_traps() {
     let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let literals = ["yes yes", "yes no", "no yes", "no no"].map(|s| builder.str(s));
     let plan = builder.finish().unwrap();
-    let strings: Vec<_> = plan.strings.iter().map(|s| Value::str(s)).collect();
+    let strings: Vec<_> = plan.strings.iter().map(Value::str).collect();
     let mut nontext = strings.clone();
     nontext[literals[0].0 as usize] = Value::Number(7.0);
     let pools = [
-        strings.as_slice(),
-        &strings[..0],
-        &strings[..literals[1].0 as usize],
-        nontext.as_slice(),
+        Strings::of(strings.clone()),
+        Strings::of([]),
+        Strings::of(strings[..literals[1].0 as usize].to_vec()),
+        Strings::of(nontext),
     ];
     let values = [
         Value::Bool(true),
@@ -443,7 +445,7 @@ fn prepared_conditionals_preserve_branch_laziness_argument_order_and_traps() {
                     ..Frame::default()
                 },
             ];
-            for strings in pools {
+            for strings in &pools {
                 let env = Env {
                     plan: &plan,
                     strings,

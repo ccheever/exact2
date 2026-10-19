@@ -129,7 +129,7 @@ struct Harness {
     plan: Plan,
     slots: Vec<Value>,
     /// The plan's interned strings and site index, built once as a runner builds them
-    strings: &'static [Value],
+    strings: &'static crate::vm::Strings,
     sites: crate::instance::SiteIndex,
     tree: Tree,
     ids: Ids,
@@ -138,13 +138,9 @@ struct Harness {
 }
 fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
     // Test harnesses outlive every Env they build; leak one table per call.
-    env_with(
-        plan,
-        slots,
-        Box::leak(crate::vm::intern(plan).into_boxed_slice()),
-    )
+    env_with(plan, slots, Box::leak(Box::new(crate::vm::intern(plan))))
 }
-fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a [Value]) -> Env<'a> {
+fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a crate::vm::Strings) -> Env<'a> {
     Env {
         plan,
         strings,
@@ -188,7 +184,7 @@ impl Harness {
     fn try_from_parts(plan: Plan, slots: Vec<Value>) -> Result<Self, InstanceError> {
         let mut ids = Ids::default();
         let mut kernel = Kernel::with_monospace();
-        let strings: &'static [Value] = Box::leak(crate::vm::intern(&plan).into_boxed_slice());
+        let strings: &'static crate::vm::Strings = Box::leak(Box::new(crate::vm::intern(&plan)));
         let sites = crate::instance::SiteIndex::new(&plan);
         let mut u = Update::new(env_with(&plan, &slots, strings), &sites, &mut ids);
         let tree = Tree::create(&mut u)?;

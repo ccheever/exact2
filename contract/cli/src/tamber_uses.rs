@@ -83,7 +83,7 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
                     .u32()
                     .map(|v| {
                         if op == Opcode::Str {
-                            pushed = plan.strings.get(v as usize).map(String::as_str);
+                            pushed = plan.strings.get(v as usize);
                         }
                     })
                     .is_ok(),

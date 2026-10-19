@@ -100,7 +100,7 @@ impl PlanBuilder {
             .strings
             .iter()
             .enumerate()
-            .map(|(i, s)| (s.clone(), StrId(i as u32)))
+            .map(|(i, s)| (s.to_owned(), StrId(i as u32)))
             .collect();
         PlanBuilder {
             plan,

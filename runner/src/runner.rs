@@ -362,8 +362,8 @@ type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
-    /// The plan's string pool, interned once (`vm::intern`).
-    strings: Vec<Value>,
+    /// The plan's strings as values, made as they are read (`vm::intern`).
+    strings: vm::Strings,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
