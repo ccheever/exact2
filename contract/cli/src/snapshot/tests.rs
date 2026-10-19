@@ -455,6 +455,9 @@ fn images_are_local_and_clock_reads_are_refused_even_on_live_leaves() {
         "\"assets/train.png\"",
         "\"app:/widgets/train.png\"",
         "\"symbol:sf/train\"",
+        // An empty name is no symbol, the host's as an empty `sf/` one is.
+        "\"symbol:\"",
+        "\"symbol:sf/\"",
         "`app:/widgets/${title}.png`",
     ] {
         compile(

@@ -572,8 +572,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 for (const scenario of ['report','repin','external-repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
   const native=process.platform==='win32'?'windows':'linux';
-  // A sibling checkout is external without Bun's expensive /tmp ancestor search.
-  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
+  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(tmpdir(), 'prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
@@ -593,7 +592,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       if(process.env.R15_DRIFT==='1' && process.env.EXACT_GAME_PROOF_PROFILE==='release') row.pins.ticks[1]='0x'+'d'.repeat(16);
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
-      process.exit(failed?1:0);
+      process.exit(failed?1:status==='UNVERIFIED'?3:0);
       }
     `);
     const run=async(args,extra={},current=false)=>{
@@ -623,10 +622,9 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(here.calls).toEqual([{host:native,build:false,mode:'0'}]);
     }
     if (selected('failure')) {
-    const started = performance.now();
     const failed=await run(['--hosts','linux','--report'],{R8B_FAIL:'1'});
-    // A fake external proof needs neither Cargo metadata nor Bun's external entrypoint search.
-    if (directory) expect(performance.now() - started).toBeLessThan(1000);
+    // Time the proof child's entrypoint; SDK snapshotting precedes this leg.
+    if (directory) expect(Object.values(JSON.parse(readFileSync(resolve(failed.root,'legs.json'))).legs)[0].durationMs).toBeLessThan(1000);
     expect(failed.code).toBe(1); expect(failed.text).toContain('REPORT linux 0: state unused');
     const summary=JSON.parse(readFileSync(resolve(failed.root,'summary.json'),'utf8'));
     expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
@@ -634,7 +632,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     for (const status of ['UNVERIFIED','PASS'].filter(selected)) {
       const completed=await run(['--hosts','linux','--report','--compare-saves'],{R8B_UNVERIFIED:status==='UNVERIFIED'?'1':'0'});
-      expect(completed.code).toBe(status === 'PASS' ? 0 : 1);
+      expect(completed.code).toBe(status === 'PASS' ? 0 : 3);
       expect(completed.text).toContain(`| identical | ${status} |`);
       expect(completed.text).toContain(`PROOF ${status} ${name}`);
       expect(JSON.parse(readFileSync(resolve(completed.root,'summary.json'),'utf8')).status).toBe(status);
@@ -654,7 +652,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(mixed.calls.slice(0,2)).toEqual([{host:'linux',build:true,mode:'0'},{host:'web',build:true,mode:'0'}]);
       expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
       expect(mixed.calls.slice(2).every(call=>!call.build)).toBe(true);
-      expect(mixed.code).toBe(1);
+      expect(mixed.code).toBe(3);
       const summary=JSON.parse(readFileSync(resolve(mixed.root,'summary.json'),'utf8'));
       expect(summary.rows.map(row=>row.status)).toEqual(['PASS','UNVERIFIED']);
       expect(summary.status).toBe('UNVERIFIED');
@@ -1084,10 +1082,10 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
               stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
             });
             const code=await child.exited, log=readFileSync(resolve(out,'run.log'),'utf8');
-            const expected=phase==='fresh'?1:0;
-            if(code !== expected) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
+            const firstFailure=phase==='fresh' && code===1;
+            if(code !== 0 && !firstFailure) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
             const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
-            if(phase==='fresh') {
+            if(firstFailure) {
               expect(row.status).toBe('FAIL');
               expect(row.failures).toEqual(['proof interrupted']);
               expect(log).toContain('app or asset directories changed during build; rerun the proof');
@@ -1096,12 +1094,12 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
             } else {
               expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
               if(phase==='stable') { stable=row; rows.push(row); }
-              else {
+              else if(phase==='cached') {
                 expect(log).toContain('BUILD cached');
                 expect(row.worlds).toEqual(stable.worlds); expect(row.pins).toEqual(stable.pins);
               }
             }
-            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}${phase==='fresh'?' (required rerun)':''}`);
+            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}${firstFailure?' (required rerun)':''}`);
           }
         } finally {rmSync(app,{recursive:true,force:true});}
       }
@@ -1109,9 +1107,9 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
       expect(rows[0].pins).toEqual(rows[1].pins);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
-// Four fresh-output builds, each followed by exactly one stable rerun and a
-// cache hit. This checks hash equivalence and receipt policy, not build latency.
-},1200000);
+// A clean first build may pass; generated-input churn must require a rerun.
+// Every profile then proves a stable run and a cache hit against the same pins.
+},600000);
 
 
 test('proof commands quote the actual script and every argument', async () => {
@@ -1191,9 +1189,9 @@ test('concurrent prove runs keep their save artifacts and web builds separate', 
       const owner=process.env.PROOF_TEST_OWNER, out=process.env.EXACT_PROOF_OUT, dist=process.env.EXACT_WEB_DIST;
       mkdirSync(out,{recursive:true});writeFileSync(out+'/owner',owner);
       if(dist) {mkdirSync(dist,{recursive:true});writeFileSync(dist+'/owner',owner);}
-      writeFileSync('./ready-'+owner,'');
+      writeFileSync(${JSON.stringify(resolve(dir,'ready-'))}+owner,'');
       const deadline=Date.now()+5000;
-      while(!existsSync('./ready-'+(owner==='a'?'b':'a'))) {
+      while(!existsSync(${JSON.stringify(resolve(dir,'ready-'))}+(owner==='a'?'b':'a'))) {
         if(Date.now()>deadline) throw new Error('peer proof never arrived');
         await Bun.sleep(10);
       }

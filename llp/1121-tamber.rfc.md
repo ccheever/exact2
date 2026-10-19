@@ -1460,10 +1460,17 @@ Android's reader and the terminal.
    node names its rows' tokens; an authored transition does not time a look on the web; an
    iPad pointer shows a `:hover` look; no regressions (release unchanged where unused, conform
    clean, LLP 1061's press corpus unchanged).
-10. **External clients and remote authentication** (D13, D14). A Figma plugin bridge, a Paper
-    or Pencil client, pairing. Waits on §9 Q4. **Gate:** a changed accent in Figma Variables
-    is proposed as a dial change and a changed folded value as a pinned override; a paired
-    client with `propose` scope cannot write; revoking a client cuts it off at once.
+10. **Remote authentication: pairing** (D13; with LLP 1122 T6, D12). Split 2026-10-19 (the
+    lead's acceptance of theme2's stage 10 brief): pairing codes and scoped, in-memory tokens
+    (12 h, revocable at once; `inspect` needs `read`, `hold`/`pin`/`outline` need `write`), a
+    TLS-only remote listener with a per-run self-signed certificate whose fingerprint the paired
+    client pins (or an explicit `--trust-tunnel`), and the canvas gateway; local and LAN only, no
+    hosted relay (§9 Q4's default). Wire: `tamber/1.13`. **Gate:** a paired `propose` client
+    cannot write or send commands; revocation cuts off its socket and, separately, its canvas
+    through the gateway; an unencrypted remote connection is refused.
+    **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
+    clients of stage 10. **Gate:** a changed accent in Figma Variables is proposed as a dial
+    change and a changed folded value as a pinned override.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.

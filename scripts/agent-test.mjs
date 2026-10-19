@@ -325,7 +325,7 @@ const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
 const peekedWorldLogs = new WeakMap();
 export function resetLogs(s) {
   peekedWorldLogs.delete(s);
-  s.logCursor = 0;
+  s.logCursor = 0; s.hostLogCursor = 0;
 }
 export async function peekLogs(s, since) {
   let sessions = peekedWorldLogs.get(s);

@@ -674,3 +674,14 @@ test('a plain screenshot in an app that keeps reference pictures names compare; 
     assert.equal(note(['screenshot .exact/a.apng over 600 every 50']), '');
   } finally { rmSync(app, { recursive: true, force: true }); }
 });
+
+test('logs after reload include the new document host diagnostics', async () => {
+  const {reloadWeb}=await import('./agent-test.mjs');
+  const carrier={host:'web',browser:'chrome',hostLines:['before'],launchFacts:launchFacts({}),
+    reset(){this.hostLines.length=0;this.hostLines.push('after');},
+    async ask(req){return req.op==='logs'?{lines:[],from:0,next:0}:{};}};
+  const s=await open({reuse:carrier}); carrier.hostLines.length=0; carrier.hostLines.push('before');
+  assert.deepEqual((await s.logs()).host,['before']);
+  await reloadWeb(s);
+  assert.deepEqual((await s.logs()).host,['after']);
+});

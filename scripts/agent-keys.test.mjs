@@ -113,3 +113,13 @@ test('a held state is a form of tap, by its own word (LLP 1122 D8)', () => {
   expect(tapWords(['post', 'hold-state', 'none'])).toEqual(['post', { holdState: null }]);
   expect(() => tapWords(['post', 'hold-state', 'pressed'])).toThrow(/hold-state takes/);
 });
+
+test('typed host refusals precede driver frames for arbitrary messages and native keys', async () => {
+  const {hostReply, refusalMessage} = await import('./agent-keys.mjs');
+  const reply = {error:'new refusal', refused:{host:'linux', subsystem:'gpu', message:'module blue: digest mismatch'}};
+  expect(refusalMessage(reply)).toBe('host linux refused (gpu): module blue: digest mismatch');
+  expect(refusalMessage({error:'GPU digest mismatch'})).toBeNull();
+  try { hostReply(reply); throw new Error('accepted'); }
+  catch (error) { expect(error.reply).toBe(reply); expect(error.stack.split('\n')[0]).toBe(refusalMessage(reply)); }
+  await expect(nativeKey({id:2, opts:{key:'Enter'}, ask:async () => reply})).rejects.toThrow(refusalMessage(reply));
+});

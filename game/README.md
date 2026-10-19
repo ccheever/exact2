@@ -61,7 +61,14 @@ bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. It serves on 8765, or on the next free port when
+Open the dev server's printed URL. It answers with a building page before compiling.
+`bun exact.mjs status` lists each web/prove invocation, its phase and elapsed time.
+Start `web` in one terminal, then `bun exact.mjs web --ready --timeout 600` in another
+to wait for that invocation's current build. It refuses a failed rebuild even when
+the server still shows the previous game. A dead process is reported as `unknown`;
+`running` means the process exists, not that the compiler is making progress.
+
+The dev loop serves on 8765, or on the next free port when
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. `bun exact.mjs check` (or `bun game/app/shells.mjs <game> --check`) checks the logic
@@ -414,8 +421,9 @@ shipping web. A profile disagreement, failed proof or missing requested browser
 leaves the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
-execution-input tree, including baked assets and `.baked-assets.json`;
-`sourceInputs` identifies portable authored sources. The latter omits the bake's
+execution-input tree, including runtime files under `assets/` and `.baked-assets.json`,
+even when Git ignores those generated products;
+`sourceInputs` identifies portable authored sources. The latter follows authored-input tracking and omits the bake's
 manifest-owned outputs and the manifest itself, and names app and SDK files
 relative to their own roots. Rust crate `tests/` and `examples/` directories are
 excluded only when their parent contains `Cargo.toml`, inside or outside the SDK.
@@ -439,8 +447,30 @@ seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
-screenshot alone is not a verified simulation. `prove.mjs` prints its unique
-`ARTIFACTS` directory; direct `proof.mjs` runs use `artifacts/<host>/`.
+screenshot alone is not a verified simulation. Proof exits are **0 PASS**, **1 FAIL**
+and **3 UNVERIFIED**, including build-only, pixel-only and baseline-collection legs.
+Each verdict names its reason. `prove` accepts exit 3 from a collecting leg; it writes
+pins only after the complete matrix agrees. Callers that treated UNVERIFIED as exit 1,
+or build/collection runs as exit 0, must handle 3 explicitly. `diff` retains exit 2
+for a refused capture. `prove.mjs` prints its unique
+`ARTIFACTS` directory. Its `src/` copy supplies the game inputs and proof program;
+edits to the original game do not change a running proof. `legs.json` records each
+host/mode/profile result. Resume with `bun game/prove.mjs <game> --continue <run-directory>`;
+completed legs are reused and failed or interrupted legs rerun. Continuation refuses
+changed game/SDK inputs, changed proof helpers, a changed matrix (including
+`--compare-saves`) or damaged receipts. Keep the original comparison flags when resuming.
+The SDK stays in its checkout and must remain unchanged throughout the run.
+Proof imports and declared `export const proofData = ["relative/file.json"];` data
+are checked separately from bake inputs; game-local dependencies are copied into
+`src/`. SDK helpers remain live and are checked before and after every leg.
+Snapshots share the original game’s `target/` for compilation and validated receipts
+under `artifacts/build/`. A target lock covers proof build validation and copying;
+each Linux proof then executes private products under its source copy's
+`artifacts/build/`, checked against their input and product digests by the driver.
+Linux GPU receipt hits restore the surface declaration and generated runtime assets.
+Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
+`proofData` declaration is refused by name.
+Direct `proof.mjs` runs use `artifacts/<host>/`.
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an
 accessible development signing key. Direct proofs accept `ios --device --phone
@@ -529,6 +559,12 @@ milliseconds; `perf world:world during "clock +1000"` measures that drive.
 In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
+
+Linux GPU loading and surface/asset refusals, and web GPU/surface refusals, carry
+`{refused:{host,subsystem,message}}`. The driver prints the host and subsystem first;
+`EXACT_AGENT_DEBUG=1` or `--json` includes its stack. Browser console diagnostics
+remain available through `logs --all` after a wasm trap, including the panic hook's
+message. This does not make a trapped world usable again; reload it before driving.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
 `layout`, `snapshot` and `save`. A held key is released on the same carrier even
