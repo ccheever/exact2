@@ -1076,3 +1076,54 @@ fn field_texts_name_where_the_label_and_the_value_were_painted() {
     assert_eq!(empty.value, None);
     assert!(empty.label.unwrap().rect.1 > label.rect.1, "{empty:?}");
 }
+
+#[test]
+fn mouse_common_ancestor_click_focuses_the_down_targets_focusable_node() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for child_focus in ["tabindex=0", ""] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, other) = boot_source(&format!(
+                r#"component App
+  state seen = ""
+  action pressed
+    seen = `${{seen}}press `
+  view
+    box width=400 height=600
+      input testId="field" value="other" width=100 height=40
+      box testId="parent" tabindex=0 position="absolute" top=60 width=220 height=100 press=pressed {feedback}
+        box testId="a" width=100 height=60 {child_focus}
+        box testId="b" position="absolute" left=120 top=0 width=100 height=60 {child_focus}
+      text seen testId="log" position="absolute" top=200
+"#
+            ));
+            let wanted = if child_focus.is_empty() {
+                "parent"
+            } else {
+                "a"
+            };
+            let k = p.host.kernel();
+            let wanted = k.node_by_key(k.find_by_test_id(wanted)[0]).unwrap().id;
+            p.set_focus(Some(other), 0.);
+            p.pointer_down(20., 80., 1.).unwrap();
+            let down = p.focus();
+            p.pointer_move(140., 80., 2.).unwrap();
+            p.pointer_up(140., 80., 3.).unwrap();
+            actual.push((
+                child_focus,
+                feedback,
+                down,
+                p.focus(),
+                contact_log(&p).to_string(),
+            ));
+            expected.push((
+                child_focus,
+                feedback,
+                Some(wanted),
+                Some(wanted),
+                "press ".to_string(),
+            ));
+        }
+    }
+    assert_eq!(actual, expected);
+}

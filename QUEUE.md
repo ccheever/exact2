@@ -1,5 +1,6 @@
 # Queue
 
+- **Strict clippy for `exact-linux` fails outside the default gate** (2026-10-19). `cargo clippy -p exact-linux --all-targets -- -D warnings` rejects the nested held-reload type in `display.rs:376` and the eight-argument constructor in `paint/field.rs:36`. Allowing those lints exposes unused imports, dead test code, items after test modules and a clone of a Copy glyph in the existing tests. These failures predate the mouse click review fixes.
 - D2 quiet measurement: three cold `gpu-dev` runs under load 5 with `game/bench/cold-build/probe.py`; wire `keptGameCrates` into `buildBake` if the eligible registry chain is over a quarter (LLP 1132 D2).
 
 - **Game baseline release builds remain dominated by path compilation and LTO.** LLP 1132.A2 measured 902.1 s under load 71–222; the cache-eligible registry dependency chain was 62.6 s (6.9%), so release does not use the registry cache. Measure those path/LTO phases on a quiet machine before choosing the next build change. The web dev producer's profile measurement belongs with LLP 1127.001 D1.

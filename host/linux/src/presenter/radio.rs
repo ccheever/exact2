@@ -32,16 +32,21 @@ impl<D: DataSource> Presenter<D> {
     /// disabled; else its group's unbound radios show it alone checked, and
     /// its `input` then `change` carry its value.
     pub(crate) fn check_radio(&mut self, id: ViewId, now_ms: f64) {
+        self.activate_radio(id, now_ms, false);
+    }
+
+    pub(super) fn activate_radio(&mut self, id: ViewId, now_ms: f64, press: bool) {
         let disabled = self
             .host
             .kernel()
             .node(id)
             .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true));
-        if disabled || self.radio_checked(id) {
+        let changed = !self.radio_checked(id);
+        if disabled || (!press && !changed) {
             return;
         }
         let kernel = self.host.kernel();
-        for member in kernel.radio_group(id) {
+        for member in kernel.radio_group(id).into_iter().filter(|_| changed) {
             let bound = kernel
                 .node(member)
                 .is_some_and(|n| n.props.bool(PropId::Checked).is_some());
@@ -50,12 +55,15 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         let value = kernel.radio_value(id);
-        self.dirty = true;
-        let mut dispatched = false;
+        self.dirty |= changed;
+        let mut dispatched = press && self.dispatch_control_press(id, now_ms);
         for (event, kind) in [
             (Event::Input(value.as_str().into()), EventKind::Input),
             (Event::Change(value.as_str().into()), EventKind::Change),
-        ] {
+        ]
+        .into_iter()
+        .filter(|_| changed)
+        {
             if self.host.runner().handlers_of(id).contains(&kind) {
                 if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
                     eprintln!("exact: {e}");

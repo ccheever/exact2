@@ -88,7 +88,7 @@ impl<D: DataSource> Presenter<D> {
         if exact_kernel::ControlKind::of(node.node_type, node.props)
             == Some(exact_kernel::ControlKind::Radio)
         {
-            self.check_radio(id, now_ms);
+            self.activate_radio(id, now_ms, true);
             return true;
         }
         let bound = node.props.bool(PropId::Checked);
@@ -99,26 +99,8 @@ impl<D: DataSource> Presenter<D> {
             self.controls.insert(id, on);
         }
         self.dirty = true;
-        let mut dispatched = false;
-        // A click on a checkbox is heard before its `input` and `change` (HTML
-        // dispatches `click`, then fires those as its activation behaviour).
-        if self
-            .host
-            .runner()
-            .handlers_of(id)
-            .contains(&EventKind::Press)
-        {
-            let held = self.modifiers();
-            let press = if held == Default::default() {
-                Event::Press
-            } else {
-                Event::PressWith(held)
-            };
-            if let Some(e) = self.host.dispatch_at(id, press, now_ms) {
-                eprintln!("exact: {e}");
-            }
-            dispatched = true;
-        }
+        // HTML checks the control before click, then emits input and change.
+        let mut dispatched = self.dispatch_control_press(id, now_ms);
         for (event, kind) in [
             (Event::Input(on.into()), EventKind::Input),
             (Event::Change(on.into()), EventKind::Change),
@@ -134,6 +116,22 @@ impl<D: DataSource> Presenter<D> {
             if let Some(e) = self.after_commit() {
                 eprintln!("exact: {e}");
             }
+        }
+        true
+    }
+
+    pub(super) fn dispatch_control_press(&mut self, id: ViewId, now_ms: f64) -> bool {
+        let Some(target) = self.handler_target(id, EventKind::Press) else {
+            return false;
+        };
+        let held = self.modifiers();
+        let press = if held == Default::default() {
+            Event::Press
+        } else {
+            Event::PressWith(held)
+        };
+        if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
+            eprintln!("exact: {e}");
         }
         true
     }

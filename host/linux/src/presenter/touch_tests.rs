@@ -330,12 +330,15 @@ fn pointerdown_defaults_decide_focus_for_mouse_taps_and_held_contacts() {
             if held {
                 let before = p.focus;
                 p.pointer_down(x, y, 0.).unwrap();
-                let after_down = if name == "field" {
+                let after_down = if matches!(name, "plain" | "field") {
                     Some(id(&p, name))
                 } else {
                     before
                 };
-                assert_eq!(p.focus, after_down, "{name}: down focuses only fields");
+                assert_eq!(
+                    p.focus, after_down,
+                    "{name}: ordinary mouse focus is decided on down"
+                );
                 p.pointer_up(x, y, 0.).unwrap();
             } else {
                 p.press_at(x, y, 0.);
@@ -405,7 +408,7 @@ fn a_pan_does_not_focus_its_inner_button_even_with_the_default_mouse_kind() {
 }
 
 #[test]
-fn agent_contacts_focus_at_lift_and_use_the_mouse_flag_for_the_ring() {
+fn agent_contacts_use_the_mouse_flag_for_focus_timing_and_the_ring() {
     for mouse in [false, true] {
         let mut p = boot(PRESS_FOCUS);
         let scale = id(&p, "scale");
@@ -414,7 +417,7 @@ fn agent_contacts_focus_at_lift_and_use_the_mouse_flag_for_the_ring() {
             &format!(r#"{{"op":"tap","phase":"down","id":{scale},"mouse":{mouse}}}"#),
         );
         assert!(!down.contains("error"), "{down}");
-        assert_eq!(p.focus, None);
+        assert_eq!(p.focus, mouse.then_some(scale));
         let up = crate::agent::handle(
             &mut p,
             &format!(r#"{{"op":"tap","phase":"up","mouse":{mouse}}}"#),
@@ -508,7 +511,8 @@ fn drag_bindings_prevent_focus_but_their_inner_buttons_and_a_swipe_do_not() {
         let (x, y) = middle(&p, name);
         let prevented = matches!(name, "height" | "transform");
         p.pointer_down(x, y, 0.).unwrap();
-        assert_eq!(p.focus, None, "{name}: down");
+        let ordinary_button = matches!(name, "height-button" | "transform-button");
+        assert_eq!(p.focus, ordinary_button.then_some(target), "{name}: down");
         p.pointer_up(x, y, 0.).unwrap();
         assert_eq!(p.focus, (!prevented).then_some(target), "{name}: up");
     }
@@ -542,7 +546,14 @@ fn a_focus_handler_moving_a_sibling_under_the_pointer_does_not_press_it() {
                 p.press_at(x, y, 0.);
             }
             assert_eq!(p.focus, Some(a), "{held:?}, {scale}");
-            assert_eq!(log(&p), "A", "{held:?}, {scale}: only the touched button");
+            // Chrome focuses on down, so a mouse releases over B and clicks
+            // the common parent, which has no press handler here.
+            let pressed = if held == Some(PointerKind::Mouse) {
+                ""
+            } else {
+                "A"
+            };
+            assert_eq!(log(&p), pressed, "{held:?}, {scale}");
             assert_eq!(p.hit(x, y), Some(id(&p, "b")), "B moved under the pointer");
         }
     }

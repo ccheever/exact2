@@ -148,11 +148,23 @@ fn a_visible_descendant_presses_its_hidden_ancestor_with_feedback() {
 
 #[test]
 fn mouse_click_uses_the_common_ancestor_of_down_and_release() {
+    common_ancestor_clicks(false);
+}
+
+#[test]
+fn mouse_click_common_ancestor_with_an_acknowledged_display() {
+    common_ancestor_clicks(true);
+}
+
+fn common_ancestor_clicks(attached: bool) {
     // Chrome 151, Input.dispatchMouseEvent: removal suppresses click; hiding
     // does not. Pointerup's style changes happen after click target selection.
     let mut actual = Vec::new();
     let mut expected = Vec::new();
-    for direct in [false, true] {
+    for direct in [false, true]
+        .into_iter()
+        .filter(|direct| !attached || !direct)
+    {
         for feedback in ["", "-exact-press-scale=0.9"] {
             for (down, up, release, press) in [
                 ("fieldDisplay = \"none\"", "", (20., 20.), "parent"),
@@ -205,6 +217,10 @@ fn mouse_click_uses_the_common_ancestor_of_down_and_release() {
                 )
                 .unwrap();
                 assert!(error.is_none(), "{error:?}");
+                if attached {
+                    let frame = p.display_frame().unwrap();
+                    assert!(p.display_complete(&frame));
+                }
                 assert_eq!(p.hit(20., 20.), Some(id(&p, "field")));
                 if direct {
                     p.set_pointer_kind(PointerKind::Touch);

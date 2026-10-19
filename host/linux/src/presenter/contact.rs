@@ -73,8 +73,8 @@ pub(super) struct Contact {
     pan_velocity: VelocityTracker,
     retained: Option<super::retained_action::RetainedContact>,
     press: Option<(NodeKey, PaintedBox)>,
-    /// A mouse field decided focus on down; its prior focus, possibly none.
-    field_focus_before_down: Option<Option<ViewId>>,
+    /// Mouse focus was decided on down; its prior focus, possibly none.
+    focus_before_down: Option<Option<ViewId>>,
     /// The canvas that owns this contact and sees its down, moves and up.
     canvas: Option<ViewId>,
 }
@@ -431,20 +431,21 @@ impl<D: DataSource> Presenter<D> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         let result = match self.contact_down(x, y, now_ms) {
             Ok(taken) => {
-                // Keep the field's identity before pointerdown can remove it.
-                let field = self.contact.as_ref().and_then(|c| {
+                // Keep the down target's identity before its handler can remove it.
+                let focus = self.contact.as_ref().and_then(|c| {
                     let node = self.host.kernel().node_by_key(c.hit)?;
+                    let field = node.node_type == NodeType::TextInput;
                     (c.canvas.is_none()
                         && c.retained.is_none()
-                        && node.node_type == NodeType::TextInput
-                        && !crate::fields::hosts(&node))
-                    .then_some((c.hit, c.origin))
+                        && !crate::fields::hosts(&node)
+                        && (field || (c.candidate.is_none() && !c.group)))
+                        .then_some((c.hit, c.origin, field))
                 });
                 match self.pointer_pressed(x, y, now_ms) {
                     Some(error) => Err(error),
                     None => {
-                        if let Some((key, point)) = field {
-                            self.focus_field_on_down(key, point, now_ms);
+                        if let Some((key, point, field)) = focus {
+                            self.focus_on_down(key, point, now_ms, field);
                         }
                         Ok(taken)
                     }
@@ -456,19 +457,21 @@ impl<D: DataSource> Presenter<D> {
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
         result
     }
-    fn focus_field_on_down(&mut self, key: NodeKey, point: (f32, f32), now_ms: f64) {
+    fn focus_on_down(&mut self, key: NodeKey, point: (f32, f32), now_ms: f64, field: bool) {
         if self.contact_is_direct() || self.menu.is_some() {
             return;
         }
         let hit = self.host.kernel().node_by_key(key).map(|n| n.id);
         if let Some(contact) = self.contact.as_mut().filter(|c| c.hit == key) {
-            contact.field_focus_before_down = Some(self.focus);
+            contact.focus_before_down = Some(self.focus);
         }
         if hit.is_some_and(|id| self.pointerdown_prevents_focus(id)) {
             return;
         }
         if hit.is_none_or(|id| {
-            !self.input_live(key) || !self.focusable(id) || self.focus_refusal(id).is_some()
+            !self.input_live(key)
+                || (field && !self.focusable(id))
+                || self.focus_refusal(id).is_some()
         }) {
             // A field hidden, disabled or removed by pointerdown still blurs
             // the old editor. Keep any surviving contact for up or cancellation.
@@ -512,7 +515,7 @@ impl<D: DataSource> Presenter<D> {
                     group: false,
                     retained: Some(retained),
                     press: None,
-                    field_focus_before_down: None,
+                    focus_before_down: None,
                     canvas: None,
                     panning: false,
                     pan_velocity: VelocityTracker::new(),
@@ -566,7 +569,7 @@ impl<D: DataSource> Presenter<D> {
                 pan_velocity: VelocityTracker::new(),
                 retained: None,
                 press: None,
-                field_focus_before_down: None,
+                focus_before_down: None,
                 canvas: Some(canvas),
             });
             return Ok(true);
@@ -606,7 +609,7 @@ impl<D: DataSource> Presenter<D> {
             pan_velocity,
             retained: None,
             press,
-            field_focus_before_down: None,
+            focus_before_down: None,
             canvas: None,
         });
         self.set_collection_interaction(Some(view));
@@ -1004,10 +1007,9 @@ impl<D: DataSource> Presenter<D> {
                 .and_then(|key| self.host.kernel().node_by_key(key))
             {
                 let (id, key) = (hit.id, hit.key);
-                // A click on an ancestor does not focus it. Fields already
-                // decided focus on down, even when down hid the field.
+                // Click targeting does not change the focus decided on down.
                 let focus = contact
-                    .field_focus_before_down
+                    .focus_before_down
                     .or_else(|| (key != contact.hit).then_some(self.focus));
                 self.press_hit_after_down(id, (x, y), now_ms, focus);
             }
@@ -1043,10 +1045,9 @@ impl<D: DataSource> Presenter<D> {
                     self.note_press_from(
                         hit,
                         false,
-                        contact.field_focus_before_down.unwrap_or(self.focus),
+                        contact.focus_before_down.unwrap_or(self.focus),
                     );
-                    if contact.field_focus_before_down.is_none()
-                        && !self.pointerdown_prevents_focus(hit)
+                    if contact.focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit)
                     {
                         self.focus_for_press(hit, (x, y), now_ms, self.contact_is_direct());
                     }
@@ -1064,7 +1065,7 @@ impl<D: DataSource> Presenter<D> {
                         self.retained_press_target(target, now_ms);
                     }
                 } else {
-                    self.press_at_after_down(x, y, now_ms, contact.field_focus_before_down);
+                    self.press_at_after_down(x, y, now_ms, contact.focus_before_down);
                 }
             }
             Ok(false)
@@ -1085,7 +1086,10 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let down = contact.hit;
-        let up = self.hit(x, y)?;
+        let up = self.hit_after_pointerdown(x, y)?;
+        if self.brush.region_blocks_action(up) {
+            return None;
+        }
         let kernel = self.host.kernel();
         // A removed down node cancels the click; there is no surviving-parent
         // fallback. Walk from the original node, including it, toward the root.
@@ -1094,7 +1098,7 @@ impl<D: DataSource> Presenter<D> {
             if id == up || self.is_inside(up, id) {
                 return kernel.node(id).map(|n| n.key);
             }
-            at = self.display.parent(kernel, id);
+            at = kernel.node(id)?.parent;
         }
         None
     }
