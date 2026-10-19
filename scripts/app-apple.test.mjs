@@ -611,7 +611,7 @@ test('Mac versioned runtime publication serves both bare products (LLP 1126.001 
       run(path, []);
     }
     run('codesign', ['--verify', '--strict', resolve(namespace, 'Frameworks/ExactCore.framework')]);
-    assert.equal(realpathSync(resolve(namespace, 'Frameworks/ExactCore.framework/ExactCore')), resolve(namespace, 'Frameworks/ExactCore.framework/Versions/A/ExactCore'));
+    assert.equal(realpathSync(resolve(namespace, 'Frameworks/ExactCore.framework/ExactCore')), realpathSync(resolve(namespace, 'Frameworks/ExactCore.framework/Versions/A/ExactCore')));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -640,8 +640,8 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
         writeFileSync(resolve(path, 'fixture'), `module ${version}`);
       }
       sharedWidgetCore({ app: { id: 'com.exact.test', manifest: {} }, prepared, libDir: dir, crate: 'fixture', env: process.env, runApple });
-      assert.equal(realpathSync(resolve(slice, 'ExactCore')), resolve(slice, 'Versions/A/ExactCore'));
-      assert.equal(realpathSync(resolve(slice, 'Resources')), resolve(slice, 'Versions/A/Resources'));
+      assert.equal(realpathSync(resolve(slice, 'ExactCore')), realpathSync(resolve(slice, 'Versions/A/ExactCore')));
+      assert.equal(realpathSync(resolve(slice, 'Resources')), realpathSync(resolve(slice, 'Versions/A/Resources')));
       assert.equal(readFileSync(resolve(slice, 'Modules/ExactCore.swiftmodule/fixture'), 'utf8'), `module ${version}`);
       assert.deepEqual(readFileSync(resolve(slice, 'ExactCore')), readFileSync(resolve(prepared.framework, 'ExactCore')));
       writeFileSync(resolve(dir, 'app.c'), `extern int exact_value(void); int main(void) { return exact_value() == ${version} ? 0 : 1; }`);
