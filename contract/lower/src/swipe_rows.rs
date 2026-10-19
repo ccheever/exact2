@@ -250,7 +250,19 @@ fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
     ]
     .iter()
     .any(|p| last(attrs, p).is_some());
-    if tag != "scroll" || padded || children.iter().filter(|c| named(c)).count() != 1 {
+    // The content may stand in a wrapper (a row holding leading actions and
+    // the content, as Messages' inbox writes it): it is found through elements.
+    fn count(nodes: &[Node], named: &dyn Fn(&Node) -> bool) -> usize {
+        nodes
+            .iter()
+            .map(|n| match n {
+                _ if named(n) => 1,
+                Node::Element { children, .. } => count(children, named),
+                _ => 0,
+            })
+            .sum()
+    }
+    if tag != "scroll" || padded || count(children, &named) != 1 {
         return None;
     }
     let mark = |name: &str| format!("{}{name}", crate::grouped::MARK);
@@ -261,17 +273,41 @@ fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
         s(&mark("flex-direction"), "row", *span),
         s(&mark("box-sizing"), "border-box", *span),
     ];
-    let children = children
-        .iter()
-        .map(|c| {
-            if !named(c) {
-                return c.clone();
-            }
-            let (content, rows) = swiped(c, row, *span);
-            outer.extend(rows);
-            content
-        })
-        .collect();
+    fn styled(
+        nodes: &[Node],
+        named: &dyn Fn(&Node) -> bool,
+        row: &dyn Fn(&Node) -> Node,
+        span: Span,
+        outer: &mut Vec<Attr>,
+    ) -> Vec<Node> {
+        nodes
+            .iter()
+            .map(|c| match c {
+                _ if named(c) => {
+                    let (content, rows) = swiped(c, row, span);
+                    outer.extend(rows);
+                    content
+                }
+                Node::Element {
+                    tag,
+                    positional,
+                    attrs,
+                    children,
+                    span: at,
+                    instance,
+                } if count(children, named) == 1 => Node::Element {
+                    tag: tag.clone(),
+                    positional: positional.clone(),
+                    attrs: attrs.clone(),
+                    children: styled(children, named, row, span, outer),
+                    span: *at,
+                    instance: *instance,
+                },
+                other => other.clone(),
+            })
+            .collect()
+    }
+    let children = styled(children, &named, row, *span, &mut outer);
     outer.extend(attrs.iter().cloned());
     Some(Node::Element {
         tag: tag.clone(),
