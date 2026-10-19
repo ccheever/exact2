@@ -111,6 +111,8 @@ async function live() {
     const settle = ['clock +3000 real', 'clock data', 'clock +3000 real', 'clock data'];
     drive = spawn(process.execPath, [join(ROOT, 'scripts/agent.mjs'), 'web', '--url', base, '--storage', `stage11-gate-${process.pid}`, '--json', 'layout', ...settle, 'layout', ...settle, 'layout'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const replies = [], edits = [];
+    let heard = '';
+    drive.stderr.on('data', c => { heard = (heard + c).slice(-2000); });
     await new Promise((ok, no) => {
       let buf = '';
       drive.stdout.on('data', async c => {
@@ -125,7 +127,7 @@ async function live() {
           if (replies.length === 2) edits.push(await edit({ op: 'remove-token', name: 'space.md' }));
         }
       });
-      drive.on('exit', code => (code === 0 ? ok() : no(new Error(`the drive exited ${code}`))));
+      drive.on('exit', code => (code === 0 ? ok() : no(new Error(`the drive exited ${code}: ${(heard || buf).trim().split('\n').slice(-4).join(' / ')}`))));
     });
     const [first, moved, back] = replies.map(paddings);
     const evidence = [`paddings (cards, notes): ${JSON.stringify(first)} at 20px; ${JSON.stringify(moved)} after set-token space.md 28px; ${JSON.stringify(back)} after remove-token (the web's base)`,
@@ -296,7 +298,7 @@ export function lines(opts) {
       return r.ok && got === said ? pass(...evidence) : fail(...evidence, r.out.split('\n').slice(-4).join(' / '));
     }],
     ['no-regressions', 'Release output unchanged for apps using none of this; the clone\'s space.header keeps its meaning; conform clean', () => {
-      const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(homedir(), 'x2ios/apps-wasm'), '--out', join(WORK, 'conform')]);
+      const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(WORK, 'wasm'), '--out', join(WORK, 'conform')]);
       const summary = conform.out.split('\n').find(l => /failures across/.test(l)) ?? conform.out.trim().split('\n').slice(-1)[0];
       const header = run('cargo', ['test', '-q', '-p', 'contract', '--test', 'it', 'tamber_base_scale']);
       const evidence = [`conform --synthetic --strict --linux: ${summary}`, `an app's own space.* names (tamber_base_scale): ${header.ok ? 'pass' : 'FAIL'}`, 'release identity: B2\'s 14/14 (theme2 22:07); E re-runs it on main after B2, C2 and A2'];
