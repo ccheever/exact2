@@ -148,14 +148,24 @@ impl Levels {
     }
     /// Put back the levels `saved` holds, by slot, as `set` keeps them across
     /// a rebatch, and mark them for the cull and skinning to read again.
+    /// Linear while the entries are those saved, in their order (the usual
+    /// case); otherwise by a map of the saved slots.
     pub fn restore(&mut self, saved: &[(u32, Option<u8>)]) {
         if self.entries.is_empty() {
             return;
         }
-        for (e, selected) in self.entries.iter().zip(&mut self.selected) {
-            *selected = saved.iter().find(|(s, _)| *s == e.slot).and_then(|s| s.1);
-            for i in e.record as usize..(e.record + e.count) as usize {
-                self.hidden[i] = selected.is_some_and(|level| self.records[i] != level);
+        let mut by_slot: Option<BTreeMap<u32, Option<u8>>> = None;
+        for (i, (e, selected)) in self.entries.iter().zip(&mut self.selected).enumerate() {
+            *selected = match saved.get(i) {
+                Some(&(slot, level)) if slot == e.slot => level,
+                _ => by_slot
+                    .get_or_insert_with(|| saved.iter().copied().collect())
+                    .get(&e.slot)
+                    .copied()
+                    .flatten(),
+            };
+            for r in e.record as usize..(e.record + e.count) as usize {
+                self.hidden[r] = selected.is_some_and(|level| self.records[r] != level);
             }
         }
         self.changed = true;
@@ -223,6 +233,34 @@ mod tests {
         levels.changed = false;
         levels.select(|_| 15.5);
         assert!(!levels.changed, "the same level is no change");
+    }
+    #[test]
+    fn restore_puts_back_each_slots_level_in_or_out_of_order() {
+        let near = Lod { slot: 3, ..lod() };
+        let far = Lod {
+            slot: 7,
+            record: 3,
+            ..lod()
+        };
+        let records = [0, 1, 2, 0, 1, 2];
+        let mut levels = Levels::default();
+        levels.set(&records, &[near, far]);
+        levels.select(|e| if e.slot == 3 { 15. } else { 25. });
+        let saved = levels.saved();
+        levels.select(|_| 50.);
+        assert_eq!(levels.hidden, [true; 6]);
+        levels.changed = false;
+        levels.restore(&saved);
+        assert!(levels.changed);
+        assert_eq!(levels.hidden, [true, false, true, true, true, false]);
+        // The same slots in another order take theirs by slot.
+        let mut other = Levels::default();
+        let near = Lod { record: 3, ..near };
+        let far = Lod { record: 0, ..far };
+        other.set(&records, &[far, near]);
+        other.restore(&saved);
+        assert_eq!(other.selected(), [Some(2), Some(1)]);
+        assert_eq!(other.hidden, [true, true, false, true, false, true]);
     }
     #[test]
     fn invalid_levels_are_refused_by_name() {

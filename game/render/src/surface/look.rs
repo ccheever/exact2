@@ -69,7 +69,8 @@ struct Pending {
     /// The frame's size in points, for the picture's reply, and its scale.
     points: (f32, f32),
     scale: f32,
-    /// Drawn at the canvas's whole resolution: only such a frame is judged.
+    /// Drawn at the canvas's whole resolution: only such a frame from the
+    /// game's camera is judged.
     whole: bool,
     /// A camera frame read only for the scene's bounds, which another view
     /// is drawn within next (`answer_look`).
@@ -505,14 +506,17 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let w = sim.world();
         let stats = crate::tells::FrameStats::of(&read.rgba);
         let drawn = crate::look::drawn(&p.records, &p.facts, &read);
-        // A reduced frame (a contact sheet's) is a picture: it is not judged.
-        let judged = if p.whole {
+        // Only a whole frame from the game's camera is judged; a reduced frame
+        // (a contact sheet's) and an orbit or plan view are pictures.
+        let camera = !matches!(p.ask, Ask::Picture(view) if view != View::Camera);
+        let judging = p.whole && camera;
+        let judged = if judging {
             crate::tells::judge(&stats, &drawn)
         } else {
             crate::tells::Judgement::default()
         };
         // `logs` gets each tell once per change between judged frames.
-        if p.whole {
+        if judging {
             for tell in self.look.logged.fresh(&judged) {
                 (self.look.unread).push(format!("tick={} {}", p.tick, tell.line));
             }

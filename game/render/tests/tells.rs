@@ -330,6 +330,98 @@ fn a_casterless_look_after_a_lit_one_counts_no_texels() {
     }
 }
 
+/// An unlit black world before the game's camera, and behind it a lit cube
+/// that an orbit of the scene sees: the camera's frame is near-black, the
+/// orbit's is not.
+struct Behind;
+impl Game for Behind {
+    const ID: &'static str = "Behind";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.insert_resource(Environment {
+            background: Some(Color::hex("black")),
+            zenith: [0.; 3],
+            horizon: [0.; 3],
+            ground: [0.; 3],
+            ambient: 0.,
+            fog: None,
+            bloom: None,
+            ..Environment::default()
+        });
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(0., 0., 0.).looking_at(Vec3::new(0., 0., -1.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn_named(
+            "lamp",
+            (
+                Transform::at(0., 0., 10.),
+                Mesh::cube(6.),
+                Material {
+                    emissive: [0.5; 3],
+                    ..Material::rgb(0., 0., 0.)
+                },
+            ),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn an_orbit_neither_logs_a_tell_nor_forgets_the_cameras() {
+    let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    for drawing in [Some(&gpu), None] {
+        let mut s = WorldSurface::<Behind>::default();
+        s.bind(&[], None).unwrap();
+        match drawing {
+            Some(gpu) => {
+                for now_ms in [0., 100.] {
+                    let frame = Frame {
+                        width: SIZE.0,
+                        height: SIZE.1,
+                        scale: 1.,
+                        now_ms,
+                        seekable: true,
+                        period_ms: 0.,
+                        children_generation: 0,
+                        shader_generation: 0,
+                        headroom: 1.,
+                    };
+                    fixture::render(gpu, &mut s, &frame).unwrap();
+                }
+            }
+            None => {
+                s.agent(r#"{"op":"clock","now":0}"#).unwrap();
+                s.agent(r#"{"op":"clock","now":100}"#).unwrap();
+            }
+        }
+        let size = format!(r#""width":{},"height":{}"#, SIZE.0, SIZE.1);
+        let look = |s: &mut WorldSurface<Behind>, view: &str| {
+            let request = format!(r#"{{"op":"screenshot","form":"look",{size}{view}}}"#);
+            let reply: serde_json::Value =
+                serde_json::from_str(&s.agent(&request).unwrap()).unwrap();
+            reply["look"]["tells"].clone()
+        };
+        let camera = look(&mut s, "");
+        assert_eq!(camera[0]["name"], "near-black", "{camera}");
+        let orbit = look(&mut s, r#","yaw":0,"pitch":-10,"distance":14"#);
+        assert_eq!(orbit, serde_json::json!([]), "an orbit is a picture");
+        look(&mut s, "");
+        let logs: serde_json::Value =
+            serde_json::from_str(&s.agent(r#"{"op":"logs"}"#).unwrap()).unwrap();
+        let told: Vec<_> = (logs["lines"].as_array().unwrap().iter())
+            .filter(|l| l.as_str().unwrap().contains("look: "))
+            .collect();
+        assert_eq!(told.len(), 1, "{logs}");
+        assert!(told[0].as_str().unwrap().ends_with("near black"), "{logs}");
+    }
+}
+
 fn field(reply: &str, key: &str) -> serde_json::Value {
     let value: serde_json::Value = serde_json::from_str(reply).unwrap();
     value[key].clone()

@@ -598,14 +598,17 @@ pub(crate) fn visible(
             );
         }
     }
-    // The frame's level selection, from where it drew the entity.
+    // The frame's level selection, from where it drew the entity; it hides
+    // records on the paths that read it (below).
     let index = entity.index();
-    if let Some(lod) = (facts.lods.iter()).find(|l| l.slot == index && l.hidden) {
-        return (
-            format!("lod-hidden {:.0} m", lod.distance),
-            format!("ModelLod hides it beyond {} m", lod.hide),
-        );
-    }
+    let lod_hidden = (facts.lods.iter())
+        .find(|l| l.slot == index && l.hidden)
+        .map(|lod| {
+            (
+                format!("lod-hidden {:.0} m", lod.distance),
+                format!("ModelLod hides it beyond {} m", lod.hide),
+            )
+        });
     // An entity's slots: its own (primitives) and its model records'.
     let slots: Vec<u32> = std::iter::once(index)
         .chain(
@@ -623,6 +626,10 @@ pub(crate) fn visible(
         .map(|(i, _)| i)
         .collect();
     if groups.is_empty() {
+        // Blended models are ordered on the CPU, which skips a hidden level.
+        if let Some(word) = lod_hidden {
+            return word;
+        }
         let blended: Vec<bool> = (facts.blended.iter())
             .filter(|(slot, _)| slots.contains(slot))
             .map(|&(_, kept)| kept)
@@ -636,17 +643,31 @@ pub(crate) fn visible(
             ),
         };
     }
-    if groups.iter().any(|&g| facts.groups[g].keep_all) {
-        return (
-            "custom-material".into(),
-            "never culled: a game's vertex shader may move it".into(),
-        );
-    }
+    let custom = (
+        "custom-material".into(),
+        "never culled: a game's vertex shader may move it".into(),
+    );
+    let keep_all = groups.iter().any(|&g| facts.groups[g].keep_all);
     if facts.direct {
-        return (
-            "drawn".into(),
-            "submitted unculled: a direct frame tests nothing against the view".into(),
-        );
+        // A direct frame draws each group whole, its finest level's included,
+        // and its cull hides no level (`Cull::hide_records`).
+        return if keep_all {
+            custom
+        } else {
+            (
+                "drawn".into(),
+                "submitted unculled: a direct frame tests nothing against the view, \
+                 its level of detail included"
+                    .into(),
+            )
+        };
+    }
+    // The GPU cull drops a hidden level's records.
+    if let Some(word) = lod_hidden {
+        return word;
+    }
+    if keep_all {
+        return custom;
     }
     let kept_in = |v: usize| {
         groups.iter().any(|&g| {

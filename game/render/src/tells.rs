@@ -123,8 +123,7 @@ pub struct Tell {
     /// The name `game.look.silence` uses.
     pub name: &'static str,
     /// Which tell it is from one frame to the next: its name, and for a
-    /// particle tell its draw's batch (and which of that batch's uncovered
-    /// draws, when several share it).
+    /// particle tell its draw's batch and which of that batch's draws it is.
     pub key: String,
     /// The line `logs` gets, `look: …`.
     pub line: String,
@@ -192,16 +191,17 @@ pub fn judge(stats: &FrameStats, drawn: &Drawn) -> Judgement {
     }
     match &drawn.particles {
         Measure::Taken(draws) => {
-            let uncovered: Vec<_> = (draws.iter())
-                .filter(|d| d.live > 0 && d.covered == 0)
-                .collect();
-            for (i, d) in uncovered.iter().enumerate() {
+            for (i, d) in draws.iter().enumerate() {
+                if d.live == 0 || d.covered > 0 {
+                    continue;
+                }
                 let line = format!(
                     "look: {} particles live, 0 pixels covered ({})",
                     d.live, d.batch
                 );
-                // Its batch, and which of that batch's uncovered draws.
-                let same = uncovered[..i].iter().filter(|e| e.batch == d.batch).count();
+                // Its batch, and which of that batch's draws: a neighbour of
+                // the batch that recovers does not renumber it.
+                let same = draws[..i].iter().filter(|e| e.batch == d.batch).count();
                 let key = format!("particles-uncovered {} {same}", d.batch);
                 tell("particles-uncovered", Some(key), line);
             }
@@ -213,7 +213,7 @@ pub fn judge(stats: &FrameStats, drawn: &Drawn) -> Judgement {
         Measure::Taken(0) => tell(
             "no-shadow-casters",
             None,
-            "look: sun shadow pass drew no casters".into(),
+            "look: sun shadow maps hold no texel nearer than their clear depth".into(),
         ),
         Measure::Unmeasured(why) => out
             .gaps
@@ -368,5 +368,17 @@ mod tests {
             log(&good, &fewer),
             ["look: 8 particles live, 0 pixels covered (dots)"]
         );
+        // The first of them recovers; the second, unchanged, is not logged again.
+        let recovered = Drawn {
+            particles: Measure::Taken(vec![
+                ParticleDraw {
+                    covered: 30,
+                    ..draw("dots", 40)
+                },
+                draw("dots", 8),
+            ]),
+            ..Default::default()
+        };
+        assert!(log(&good, &recovered).is_empty());
     }
 }

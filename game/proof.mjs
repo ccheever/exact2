@@ -496,7 +496,7 @@ export async function paranoidRuns(run, restore = async () => 0, host = 'web') {
 // The look oracle's tells (LLP 1127.000 D1; game/render/src/tells.rs), by the
 // words of their `look:` lines, and the ones a game's app.json silences.
 export const TELLS = {'near-black':/near black$/, 'near-white':/near white$/, 'clipped':/% of pixels clipped$/,
-  'particles-uncovered':/particles live, 0 pixels covered \(.*\)$/, 'no-shadow-casters':/sun shadow pass drew no casters$/};
+  'particles-uncovered':/particles live, 0 pixels covered \(.*\)$/, 'no-shadow-casters':/sun shadow maps hold no texel nearer than their clear depth$/};
 export function tellOf(line) {
   const at = typeof line === 'string' ? line.indexOf('look: ') : -1;
   if (at < 0) return null;

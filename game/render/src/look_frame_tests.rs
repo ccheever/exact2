@@ -324,17 +324,22 @@ fn an_attached_model_is_bounded_and_levelled_where_its_joint_holds_it() {
 
 /// A model whose level of detail hides it beyond 100 m, 99 m from the game's
 /// camera: within the selection's 5% band, where hysteresis keeps whatever
-/// level it drew last.
+/// level it drew last; or, `far`, 120 m from it and hidden.
+#[derive(Default, Args)]
+struct BandArgs {
+    far: bool,
+}
 struct Band;
 impl Game for Band {
     const ID: &'static str = "look-lod-band";
     const ASSETS: &'static [&'static str] = &["crate.model"];
-    type Args = ();
-    fn setup(w: &mut World, _: &()) {
+    type Args = BandArgs;
+    fn setup(w: &mut World, args: &BandArgs) {
+        let z = if args.far { 120. } else { 99. };
         w.spawn_named(
             "camera",
             (
-                Transform::at(0., 0., 99.).looking_at(Vec3::ZERO, Vec3::Y),
+                Transform::at(0., 0., z).looking_at(Vec3::ZERO, Vec3::Y),
                 Camera::default(),
             ),
         );
@@ -345,7 +350,61 @@ impl Game for Band {
         let at = Transform::default().with_scale(10.);
         w.spawn_named("crate", (at, Mesh::asset("crate.model"), lod));
     }
-    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &BandArgs) {}
+}
+
+type BandSurface = WorldSurface<Band, crate::ModelExecutor, true>;
+
+/// A `Band` surface after three frames; `direct`, drawn as a device without
+/// indirect draws draws: every group whole, with no per-instance cull.
+fn band(gpu: &Gpu, far: bool, direct: bool) -> BandSurface {
+    let mut model: asset::Model =
+        bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
+    model.materials.fill(Default::default());
+    model.textures.clear();
+    let mut s = BandSurface::default();
+    s.device_ready(wgpu::Features::empty());
+    s.bind(&BandArgs { far }.values(), None).unwrap();
+    s.asset("crate.model", Ok(&bin::to_vec(&model)));
+    fixture::render(gpu, &mut s, &frame(0.)).unwrap();
+    if direct {
+        let r = s.renderer_for_test().unwrap();
+        r.cull.indirect_execution = false;
+        r.cull.epoch += 1;
+    }
+    for ms in [20., 40.] {
+        fixture::render(gpu, &mut s, &frame(ms)).unwrap();
+    }
+    assert!(s.error().is_none(), "{:?}", s.error());
+    assert_eq!(s.renderer_for_test().unwrap().cull.direct, direct);
+    s
+}
+
+fn crate_visible(s: &mut BandSurface) -> String {
+    let reply = s
+        .agent(r#"{"op":"state","entity":"crate","visible":true,"width":320,"height":180}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    value["visible"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{reply}"))
+        .to_owned()
+}
+
+#[test]
+fn a_direct_frame_draws_the_finest_level_beyond_its_hide_distance_and_says_so() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    // The GPU cull hides it beyond 100 m; a direct frame draws level 0 whole.
+    let mut culled = band(&gpu, true, false);
+    let (hidden, _) = fixture::render(&gpu, &mut culled, &frame(60.)).unwrap();
+    assert_eq!(crate_visible(&mut culled), "lod-hidden 120 m");
+    let mut direct = band(&gpu, true, true);
+    let (drawn, _) = fixture::render(&gpu, &mut direct, &frame(60.)).unwrap();
+    let shown = (drawn.data.chunks(4).zip(hidden.data.chunks(4))).filter(|(a, b)| a != b);
+    assert!(shown.count() > 50, "the direct frame draws the model");
+    assert_eq!(crate_visible(&mut direct), "drawn");
 }
 
 #[test]
@@ -353,29 +412,9 @@ fn an_inspection_from_beyond_a_hide_distance_leaves_the_live_levels_as_they_were
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
-    let mut model: asset::Model =
-        bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
-    model.materials.fill(Default::default());
-    model.textures.clear();
-    let mut s = WorldSurface::<Band, crate::ModelExecutor, true>::default();
-    s.device_ready(wgpu::Features::empty());
-    s.bind(&[], None).unwrap();
-    s.asset("crate.model", Ok(&bin::to_vec(&model)));
-    for ms in [0., 20., 40.] {
-        fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
-    }
-    let visible = |s: &mut WorldSurface<Band, crate::ModelExecutor, true>| {
-        let reply = s
-            .agent(r#"{"op":"state","entity":"crate","visible":true,"width":320,"height":180}"#)
-            .unwrap();
-        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
-        value["visible"]
-            .as_str()
-            .unwrap_or_else(|| panic!("{reply}"))
-            .to_owned()
-    };
+    let mut s = band(&gpu, false, false);
     let (before, _) = fixture::render(&gpu, &mut s, &frame(60.)).unwrap();
-    assert_eq!(visible(&mut s), "drawn");
+    assert_eq!(crate_visible(&mut s), "drawn");
     // From 110 m the inspection's own frame hides it.
     let orbit = s
         .agent(r#"{"op":"screenshot","form":"look","yaw":0,"pitch":0,"distance":110,"width":320,"height":180}"#)
@@ -384,7 +423,7 @@ fn an_inspection_from_beyond_a_hide_distance_leaves_the_live_levels_as_they_were
     let (after, _) = fixture::render(&gpu, &mut s, &frame(80.)).unwrap();
     let changed = (after.data.chunks(4).zip(before.data.chunks(4))).filter(|(a, b)| a != b);
     assert_eq!(changed.count(), 0, "pixels the next live frame changed");
-    assert_eq!(visible(&mut s), "drawn");
+    assert_eq!(crate_visible(&mut s), "drawn");
     let camera = s
         .agent(r#"{"op":"screenshot","form":"look","width":320,"height":180}"#)
         .unwrap();
