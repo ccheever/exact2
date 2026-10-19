@@ -564,6 +564,42 @@ pub(crate) fn record_source(
     Ok(())
 }
 
+/// A curried action reference, `action(args)`: the leading parameters
+/// bound, the rest left to the event; its type is what remains.
+pub(crate) fn action_call(
+    name: &str,
+    params: &[Ty],
+    args: &[Expr],
+    span: Span,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    if args.len() > params.len() && !params.is_empty() {
+        return err(
+            "type-arity",
+            format!(
+                "`{name}` takes at most {} argument(s), given {}",
+                params.len(),
+                args.len()
+            ),
+            span,
+        );
+    }
+    for (arg, pt) in args.iter().zip(params.iter()) {
+        let t = infer(arg, scope, shapes)?;
+        if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
+            return err(
+                "type-argument",
+                format!("`{name}` expects `{pt}`, given `{t}`"),
+                arg.span(),
+            );
+        }
+    }
+    Ok(Ty::Action(
+        params.iter().skip(args.len()).cloned().collect(),
+    ))
+}
+
 /// A checked component file and the exact expansion its types describe.
 /// Later passes borrow this result instead of repeating component expansion.
 pub struct Checked<'a> {
@@ -857,29 +893,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 .lookup(name)
                 .filter(|_| !routes::value_call(name, args, scope, shapes))
             {
-                // A curried action reference: `action(args)` binds the leading parameters.
-                if args.len() > params.len() && !params.is_empty() {
-                    return err(
-                        "type-arity",
-                        format!(
-                            "`{name}` takes at most {} argument(s), given {}",
-                            params.len(),
-                            args.len()
-                        ),
-                        *span,
-                    );
-                }
-                for (arg, pt) in args.iter().zip(params.iter()) {
-                    let t = infer(arg, scope, shapes)?;
-                    if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
-                        return err(
-                            "type-argument",
-                            format!("`{name}` expects `{pt}`, given `{t}`"),
-                            arg.span(),
-                        );
-                    }
-                }
-                Ty::Action(params.iter().skip(args.len()).cloned().collect())
+                action_call(name, params, args, *span, scope, shapes)?
             } else if let Some(f) = Stdlib::from_name(name).filter(|f| lists::is_list_op(*f)) {
                 return lists::infer_call(f, args, *span, scope, shapes);
             } else if let Some(f) = Stdlib::from_name(name) {

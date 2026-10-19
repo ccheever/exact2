@@ -1831,8 +1831,8 @@ component A
   view
     button "t" press=toggle
 ---
-== type-action-hidden-by-fn
-# `pick(…)` in B would call the fn, never the prop.
+== type-prop-hides-fn
+# In B a call `pick(…)` could be the prop or the fn.
 fn pick(xs: string[], i: number): string = match xs.at(i) { case some(s) => s, case none => "" }
 component A
   state chosen = ""

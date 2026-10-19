@@ -1158,3 +1158,32 @@ component Leaf
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(all.len(), 1, "{all:#?}");
 }
+
+/// A handler names an action, as lowering binds it, though an app `fn` of
+/// the same name is what a call in an expression reaches.
+#[test]
+fn a_handler_calls_the_action_an_app_fn_shares_a_name_with() {
+    let src = "fn pick(xs: string[], i: number): string = match xs.at(i) { case some(s) => s, case none => \"\" }\ncomponent App\n  state v = \"\"\n  action pick(s: string)\n    v = s\n  view\n    column\n      text v testId=\"v\"\n      text pick([\"a\", \"b\"], 1) testId=\"fn\"\n      button \"pick\" press=pick(\"x\") testId=\"pick\"\n";
+    let mut r = boot(src);
+    assert_eq!(text_of(&r, "fn"), "b");
+    press(&mut r, "pick");
+    assert_eq!(text_of(&r, "v"), "x");
+    // An argument the action does not take is refused as the action's.
+    let e = refused(&src.replace("press=pick(\"x\")", "press=pick(1)"));
+    assert_eq!(e.message, "`pick` expects `string`, given `number`", "{e}");
+}
+
+/// An action prop named like an app `fn` is refused where it is declared:
+/// inlined, every `pick(…)` in its component would be the bound action's,
+/// the fn's value calls too (the euxy port's `pick`).
+#[test]
+fn an_action_prop_named_like_an_app_fn_is_refused() {
+    let src = "fn pick(xs: string[], i: number): string = match xs.at(i) { case some(s) => s, case none => \"\" }\ncomponent App\n  state v = \"\"\n  action choose(s: string)\n    v = s\n  view\n    Seg(labels=[\"a\", \"b\"], pick=choose)\ncomponent Seg\n  props\n    labels: string[]\n    pick: action\n  view\n    row\n      for o, i in labels key=o\n        button press=pick(o)\n          text pick(labels, i)\n";
+    let e = refused(src);
+    assert_eq!(e.id, "type-prop-hides-fn", "{e}");
+    assert_eq!(
+        e.message,
+        "rename the action prop `pick` (as in `onPick`) or `fn pick`: in `Seg` a call `pick(…)` cannot be both the prop and the fn"
+    );
+    assert_eq!(e.span.line, 11);
+}

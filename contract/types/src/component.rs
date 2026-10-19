@@ -92,13 +92,28 @@ pub(crate) fn check_component(
                 p.span,
             )),
         };
-        if matches!(ty, Ty::Action(_)) {
-            hidden_by_fn("action prop", &p.name, p.span, shapes, sink);
+        // An action prop named like an app `fn`: inlining makes every call
+        // of that name in the component the bound action's, where the
+        // checker and every other component call the fn.
+        if matches!(ty, Ty::Action(_)) && shapes.fns.contains_key(&p.name) {
+            let name = &p.name;
+            let mut chars = name.chars();
+            let on: String = chars
+                .next()
+                .map(|c| c.to_ascii_uppercase())
+                .into_iter()
+                .chain(chars)
+                .collect();
+            sink.push(TypeError {
+                id: "type-prop-hides-fn",
+                message: format!(
+                    "rename the action prop `{name}` (as in `on{on}`) or `fn {name}`: in `{}` a call `{name}(…)` cannot be both the prop and the fn",
+                    c.name
+                ),
+                span: p.span,
+            });
         }
         ct.props.push(ty);
-    }
-    for a in &c.actions {
-        hidden_by_fn("action", &a.name, a.span, shapes, sink);
     }
     for p in &c.injects {
         let ty = match &p.ty {
@@ -480,23 +495,81 @@ impl Scope {
     }
 }
 
-/// An action or action prop named like an app `fn`: a call `name(…)` resolves
-/// to the `fn` first, so the action could never be called by its name.
-fn hidden_by_fn(kind: &str, name: &str, span: Span, shapes: &Shapes, sink: &mut Sink) {
-    if !shapes.fns.contains_key(name) {
-        return;
-    }
-    let mut on = String::from("on");
-    let mut chars = name.chars();
-    on.extend(chars.next().map(|c| c.to_ascii_uppercase()));
-    on.push_str(chars.as_str());
-    sink.push(TypeError {
-        id: "type-action-hidden-by-fn",
-        message: format!(
-            "rename the {kind} `{name}` (as in `{on}`) or `fn {name}`: a call `{name}(…)` calls the fn, so the {kind} would never be called"
-        ),
-        span,
-    });
+/// The attributes whose value is a handler: an action named, or called
+/// with its leading arguments (lowering's `AttrTarget::Handler`).
+pub(crate) fn handler_attr(name: &str) -> bool {
+    matches!(
+        name,
+        "press"
+            | "change"
+            | "input"
+            | "select"
+            | "hover"
+            | "focus"
+            | "blur"
+            | "focusin"
+            | "focusout"
+            | "key"
+            | "keycapture"
+            | "keyup"
+            | "submit"
+            | "load"
+            | "message"
+            | "contextmenu"
+            | "delete"
+            | "dblclick"
+            | "pointerdown"
+            | "pointerup"
+            | "pointermove"
+            | "copy"
+            | "cut"
+            | "paste"
+            | "selectionchange"
+            | "beforeinput"
+            | "beforeunload"
+            | "midimessage"
+            | "wheel"
+            | "drop"
+            | "swiperight"
+            | "refresh"
+            | "reachstart"
+            | "reachend"
+            | "scroll"
+            | "scrollend"
+            | "pan"
+            | "panrelease"
+            | "heightrelease"
+            | "transformgeometry"
+            | "transformrelease"
+            | "reorderdrop"
+            | "loadedmetadata"
+            | "durationchange"
+            | "fullscreenchange"
+            | "timeupdate"
+            | "play"
+            | "playing"
+            | "pause"
+            | "ended"
+            | "waiting"
+            | "seeking"
+            | "seeked"
+            | "ratechange"
+            | "volumechange"
+            | "error"
+            | "canplay"
+            | "seekbackward"
+            | "seekforward"
+            | "seekto"
+            | "previoustrack"
+            | "nexttrack"
+            | "stop"
+            | "navigate"
+            | "cancel"
+            | "close"
+            | "toggle"
+            | "resize"
+            | "intersect"
+    )
 }
 
 /// Derives to a fixpoint, so order does not matter and `?` fills. Each is
@@ -607,78 +680,7 @@ fn refine_params_from_view(
                             && !contract_syntax::text_input_type(&a.value)
                     });
                 for a in attrs {
-                    if matches!(
-                        a.name.as_str(),
-                        "press"
-                            | "change"
-                            | "input"
-                            | "select"
-                            | "hover"
-                            | "focus"
-                            | "blur"
-                            | "focusin"
-                            | "focusout"
-                            | "key"
-                            | "keycapture"
-                            | "keyup"
-                            | "submit"
-                            | "load"
-                            | "message"
-                            | "contextmenu"
-                            | "delete"
-                            | "dblclick"
-                            | "pointerdown"
-                            | "pointerup"
-                            | "pointermove"
-                            | "copy"
-                            | "cut"
-                            | "paste"
-                            | "selectionchange"
-                            | "beforeinput"
-                            | "beforeunload"
-                            | "midimessage"
-                            | "wheel"
-                            | "drop"
-                            | "swiperight"
-                            | "refresh"
-                            | "reachstart"
-                            | "reachend"
-                            | "scroll"
-                            | "scrollend"
-                            | "pan"
-                            | "panrelease"
-                            | "heightrelease"
-                            | "transformgeometry"
-                            | "transformrelease"
-                            | "reorderdrop"
-                            | "loadedmetadata"
-                            | "durationchange"
-                            | "fullscreenchange"
-                            | "timeupdate"
-                            | "play"
-                            | "playing"
-                            | "pause"
-                            | "ended"
-                            | "waiting"
-                            | "seeking"
-                            | "seeked"
-                            | "ratechange"
-                            | "volumechange"
-                            | "error"
-                            | "canplay"
-                            | "seekbackward"
-                            | "seekforward"
-                            | "seekto"
-                            | "previoustrack"
-                            | "nexttrack"
-                            | "stop"
-                            | "navigate"
-                            | "cancel"
-                            | "close"
-                            | "toggle"
-                            | "resize"
-                            | "intersect"
-                    ) {
+                    if handler_attr(&a.name) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
                             Expr::Call(n, args, _) => (n, args),

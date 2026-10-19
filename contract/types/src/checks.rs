@@ -1324,6 +1324,15 @@ fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError>
     if a.name == "glassGroup" {
         return glass_group_value(&a.value, scope, shapes).map(|_| ());
     }
+    // A handler names an action, as lowering binds it, even where an app
+    // `fn` shares the name, which a call elsewhere reaches first.
+    if let Expr::Call(name, args, span) = &a.value {
+        if super::component::handler_attr(&a.name) && shapes.fns.contains_key(name) {
+            if let Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(params))) = scope.lookup(name) {
+                return super::action_call(name, params, args, *span, scope, shapes).map(|_| ());
+            }
+        }
+    }
     infer(&a.value, scope, shapes).map(|_| ())
 }
 
