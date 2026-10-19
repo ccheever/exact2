@@ -153,9 +153,10 @@ test('the plugin builds (its main thread and its UI, as Figma loads them)', asyn
 
 // What a browser has and Figma's main-thread sandbox does not (Charlie's
 // live push: structuredClone). The UI runs in an iframe, a browser's.
-const UNSANDBOXED = ['structuredClone', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'crypto', 'queueMicrotask', 'Blob', 'XMLHttpRequest', 'localStorage', 'window', 'document', 'navigator', 'performance', 'setImmediate', 'process', 'Buffer', 'require'];
+// `globalThis` and `self` too, so no listed name is reached through them.
+const UNSANDBOXED = ['globalThis', 'self', 'structuredClone', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'crypto', 'queueMicrotask', 'Blob', 'XMLHttpRequest', 'localStorage', 'window', 'document', 'navigator', 'performance', 'setImmediate', 'process', 'Buffer', 'require'];
 
-test('the main thread names no global Figma\'s sandbox lacks', async () => {
+test('the main thread reads none of the listed globals Figma\'s sandbox lacks', async () => {
   // The bundler's `define` swaps a free name only (never a property, a key,
   // a string or a local), so a marker left in the output is a global read.
   const build = async (entry: string) => {
