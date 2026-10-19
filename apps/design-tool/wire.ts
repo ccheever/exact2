@@ -29,6 +29,7 @@ export const NEEDS: Record<string, string> = {
   propose: 'propose', import: 'propose', revert: 'propose', drop: 'propose',
   transaction: 'write', undo: 'write', commit: 'write', accept: 'write', pin: 'write', preview: 'write', outline: 'write', hold: 'write', scrub: 'write', 'scrub-release': 'write', 'scrub-cancel': 'write',
   clients: 'local', revoke: 'local', 'pair-code': 'local',
+  canvas: 'read',
 };
 const SCOPES = ['read', 'propose', 'write'];
 /** What a request needs, as the server reads it: inspect other than a
