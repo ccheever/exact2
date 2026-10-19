@@ -93,7 +93,8 @@ on macOS and Linux.
   revoke; `pair-code`'s `remote`, the remote doors open (B).
 - `tamber/1.14` (LLP 1121 stage 10b, after stage 10 closed) adds `import`'s `baseline`, a
   re-import's `dials` and `pins`, `export`'s `digest`, and an import read in a process of its own
-  (413/503 past its cost). Stage 11's wire changes add under the same version.
+  (413/503 past its cost). Stage 11's wire changes add under the same version, and so do LLP 1122
+  T7's: the `navigate` method and command, and a `status`'s `location`.
 
 ## Where it runs
 
@@ -263,11 +264,11 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
 | `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
-`preview`, `outline` and `hold` are `write` because they change what the developer's screens show.
+`preview`, `outline`, `hold` and `navigate` are `write` because they change what the developer's screens show.
 `inspect` reads: below `write`, `refresh: true` answers `{selections}`, the selection each build
 last reported (as its `selection` event gave it), asking no build again, since a build's answer
 outlines on the developer's screens; turning inspect mode on or off takes the builds' input, and
@@ -1103,6 +1104,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
+  - A web page in a frame its parent names (the design tool's copies, *1.14*, LLP 1122 T7)
+    keeps its id under that name, since a tab's same-origin frames share its storage; the page
+    only reads the name, which never enters the app's URL. A framed page posts `{type:
+    "exact-build", id}` to its parent each time it registers, so the page framing it finds which
+    frame is which build by the message's source (the id grants nothing without the nonce).
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
     no plan, sends none), and `design` its design digest. Before accepting a dev generation,
     Apple reports the digest of its running embedded or cached plan.
@@ -1140,7 +1146,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 - **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
   - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
     the facts that paint, the `plan` and `design` digests (and `planDigest`, *1.9*, as it moves),
-    and the pin `revision` it applied.
+    and the pin `revision` it applied. The web pages also say their `location` (*1.14*, LLP 1122
+    T7): the path, query and fragment they show, on their own origin (at most 2 KiB; no scheme or
+    host), reported when it moves.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn). A scrub's frames move the design without a
     status each: the web pages report it once, about 150 ms after the drag rests. A native host
@@ -1225,6 +1233,23 @@ The tool drives no input into an app; a command changes only what `prefer` would
     again itself under the same plan, unsaid; a frame that comes while it swaps waits for it, and a
     clear always applies. A revision a host ended itself is not taken again
     when its frame is resent; a lower revision is a new server's.
+  - `navigate` (*1.14*, LLP 1122 T7) `{seq, location}`: route to `location`, a path with its
+    query and fragment on the build's own origin, in place, as a link to it would: the app's
+    navigation root's `navigate` handler, else the router's own `go`, with no reload, so the
+    app's state is kept. A fragment that differs is then set as the page's own. A location that
+    is no route of the app, or a page with no router, answers `unsupported` with `what:
+    "navigate"` and that `seq` as its `revision`. It moves the page's `location`, which its next
+    `status` says. A build that can says `navigate` among its `capabilities` (the wasm and JS web
+    pages; the native hosts don't yet). It is navigation, not input: no tap or key is driven.
+- **Navigation at the server** (*1.14*). `{method: "navigate", client, build, location}` needs
+  write scope and a present client, and names a registered build (else 400) that can navigate
+  (else 409 with `unsupported: "navigate"`; the design tool then reloads that copy's frame at
+  the location instead). `location` must start with one `/` (not `//` or `/\`) and hold no
+  space or control character, at most 2 KiB; any other is 400. Each is journaled with its client
+  and answered `{navigated: true, build, seq}`. A navigation holds nothing on the build: there is
+  nothing to replay when it registers again or to clear when its client goes. Only the latest
+  waits in a polled stream's queue. A build's `unsupported` for it is its sender's event alone
+  (`only`), and only for the last `seq` sent that build.
 - **Holds at the server** (*1.11*). `{method: "hold", client, build, site, instance, state}`
   (`state` null to let it go) needs write scope and a present client, and names a registered
   build that holds states (else 409, said so). The hold is its client's: let go on that build when

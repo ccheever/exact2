@@ -89,7 +89,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
 export { stageTool, TOOL_DIST, TOOL_ORIGIN, TOOL_PORT } from './tamber-tool-port.mjs';
-import { buildChannel } from './tamber-builds.mjs';
+import { buildChannel, navigateRequest } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
 import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
@@ -113,7 +113,7 @@ const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, 
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
 const GONE = 'this paired client was revoked or its token expired';
-export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
+export const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'navigate', 'scrub', 'scrub-release', 'scrub-cancel', 'clients', 'revoke', 'pair-code', 'canvas']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -727,7 +727,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
     if (request.method === 'outline') return needsClient(request) ?? outline(request);
-    if (request.method === 'hold') return needsClient(request) ?? holdState(request);
+    if (request.method === 'hold' || request.method === 'navigate') return needsClient(request) ?? (request.method === 'hold' ? holdState(request) : navigateRequest(channel, present, request));
     if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request);
     if (request.method === 'revert') return needsClient(request) ?? revert(request, scope);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request, scope, signal);

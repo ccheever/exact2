@@ -193,6 +193,15 @@ export function router(slot, history) {
   // `projectRoots`' projection, so publish those initial visits now.
   history.project(document.getElementById("exact-root"), say);
 }
+/** `location` (a path and query) routed in place as a link to it is: the navigation root's `navigate` handler, else the
+ * router's own `go` (the development page's `navigate` command, LLP 1122 T7). Why not, or "". */
+export function goTo(location) {
+  const m = matchRoute(canonical(location));
+  if (m === null || Routes[m[0]].notfound) return `${JSON.stringify(location)} is no route of this app`;
+  const before = RouterSlot?.n?.v;
+  if (Navigate) Navigate(location); else hostGo(location);
+  return RouterSlot?.n?.v === before ? `the app's router took no step to ${JSON.stringify(location)}` : "";
+}
 export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;
 // ---------------------------------------------------------------- validity
