@@ -20,6 +20,10 @@
 //   {"op":"foreground"}          → {"state":"runningForeground"|…}
 //   {"op":"orientation","to":O}  turns the device (portrait, portraitUpsideDown,
 //                                landscapeLeft, landscapeRight) → {"device":O}
+//   {"op":"springboard","action":"home"|"lock"|"tap"|"hold"|"swipe"|"tree"|"find",
+//    "point":[x,y]?,"to":[x,y]?,"seconds":s?,"label":exactLabel?}
+//                                → {"done":true}, {"tree":snapshot} or {"elements":[snapshot,…]}
+//                                snapshot: label, identifier, type, frame [x,y,w,h], children
 //   {"op":"quit"}                ends the test
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`), and a
@@ -62,7 +66,7 @@ final class ExactTouches: XCTestCase {
             }
             // Socket reads block this run loop. Deliver pending lifecycle notifications before
             // XCTest reads app state, including a fresh launch after Home or the Lock Screen.
-            while CFRunLoopRunInMode(.defaultMode, 0, true) == .handledSource {}
+            for _ in 0..<64 { if CFRunLoopRunInMode(.defaultMode, 0, true) != .handledSource { break } }
             // Fresh each request: the app is launched after the runner starts.
             let target = XCUIApplication(bundleIdentifier: app)
             switch op {
@@ -156,8 +160,8 @@ final class ExactTouches: XCTestCase {
         case "tree": return ["tree": tree(try spring.snapshot())]
         case "find":
             guard let label = request["label"] as? String else { throw refuse("SpringBoard find needs an exact label") }
-            let element = spring.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
-            return ["elements": element.exists ? [tree(try element.snapshot())] : []]
+            let elements = spring.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex
+            return ["elements": try elements.map { tree(try $0.snapshot()) }]
         default: throw refuse("unknown SpringBoard action")
         }
         return ["done": true]

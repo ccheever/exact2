@@ -11,6 +11,8 @@
 // grouped list (LLP 1084, `contract/corpus/grouped-touch.contract`, in
 // Caltrain's bundle): a real tap on a row's switch, detail button or row
 // lands on the cell or accessory UIKit draws, not the hidden authored node.
+// The final activity archive phase requires --build for its gallery variant;
+// without it, an installed app without the gallery skips that phase with a reason.
 //   bun scripts/smoke-touch.mjs [--build] [--sim <udid|name>]
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -19,6 +21,7 @@ import { open } from './agent.mjs';
 import { HOST_DEV, resolveApp } from './app.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { chooseSimulator } from '../host/apple/devices.mjs';
+import { openTouches } from '../host/apple/touches.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -29,7 +32,10 @@ const shell = (command, args) => {
   return result.stdout.trim();
 };
 const simctl = (...args) => shell('xcrun', ['simctl', ...args]);
-let ownedSim;
+const failures = [];
+const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
+const t0 = Date.now();
+let ownedSim, usedTouches = false;
 try {
   if (!process.env.EXACT_SIM) {
     const sdk = shell('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-version']);
@@ -43,22 +49,18 @@ try {
   if (device.type !== 'iPhone-17-Pro') throw Error(`ios-touch refuses ${device.name} (${device.type}): the Island hold and Lock Screen swipe points were measured on iPhone 17 Pro`);
   console.log(`ios-touch: ${device.name} ${device.udid}, ${device.runtime}`);
 if (argv.includes('--build')) {
-  const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--widget-gallery', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
-  if (built.status !== 0) throw Error('FAIL ios-touch build: host/apple/build.mjs --ios caltrain-apple --widget-gallery --no-install');
+  const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
+  if (built.status !== 0) throw Error('FAIL ios-touch build: host/apple/build.mjs --ios caltrain-apple --no-install');
   // WP9's refusal scan uses this iOS app, its extension and its packaged arm.
   const bundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator' }).bundle;
   const refused = spawnSync('bun', ['test', 'host/apple/link.test.mjs'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ACTIVITY_APP: bundle } });
   if (refused.status !== 0) throw Error('FAIL ios-touch activity refusals');
 }
-const failures = [];
-const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
-const t0 = Date.now();
-
 for (const timing of ['agent', 'platform']) {
   const opened = Date.now();
   let s;
-  try { s = await open({ host: 'ios', app: 'caltrain', touch: 'platform', timing }); }
+  try { s = await open({ host: 'ios', app: 'caltrain', touch: 'platform', timing }); usedTouches = true; }
   catch (error) { check(false, `${timing}: the session did not open: ${error.message}`); continue; }
   try {
     console.log(`${timing}: opened in ${Date.now() - opened} ms (the runner's start, then the app's)`);
@@ -109,7 +111,7 @@ for (const timing of ['agent', 'platform']) {
   let s;
   if (check(c.status === 0, `grouped: the fixture did not compile: ${c.stderr}`)) {
     try {
-      s = await open({ host: 'ios', app: 'caltrain', plan, touch: 'platform' });
+      s = await open({ host: 'ios', app: 'caltrain', plan, touch: 'platform' }); usedTouches = true;
       // Settle the launch first: a real tap during it can land on a switch that does not act yet
       await s.clock('settle');
       const facts = async () => byTestId(await s.tree(), 'facts')?.props.text;
@@ -127,19 +129,35 @@ for (const timing of ['agent', 'platform']) {
   }
 }
 
-// No foreground drive follows the archive: each kind ends from a fresh app launch.
+// No foreground drive follows the archive: only this phase needs the gallery build.
+if (argv.includes('--build')) {
+  const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple', '--widget-gallery', '--no-install'], { cwd: ROOT, stdio: 'inherit' });
+  if (built.status !== 0) throw Error('activity archive: the gallery build failed');
+}
 await archiveActivities(device.udid, check);
-
-console.log(`touch smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-for (const f of failures) console.error(`FAIL ios-touch ${f}`);
-process.exitCode = failures.length ? 1 : 0;
+} catch (error) {
+  check(false, error.message);
 } finally {
   if (ownedSim) {
-    spawnSync('xcrun', ['simctl', 'shutdown', ownedSim]);
-    simctl('delete', ownedSim);
+    if (usedTouches) {
+      let runner;
+      try {
+        runner = await openTouches({udid:ownedSim, appId:resolveApp('caltrain').id});
+        const reply = await runner.ask({op:'quit'});
+        check(reply.done === true, `owned simulator touch runner quit: ${reply.error ?? JSON.stringify(reply)}`);
+      } catch (error) { check(false, `owned simulator touch runner quit: ${error.message}`); }
+      finally { if (runner) { const error = await runner.end(); if (error) check(false, `owned simulator touch runner end: ${error.message}`); } }
+    }
+    try { simctl('shutdown', ownedSim); }
+    catch (error) { check(false, `owned simulator shutdown: ${error.message}`); }
+    try { simctl('delete', ownedSim); }
+    catch (error) { check(false, `owned simulator delete: ${error.message}`); }
     delete process.env.EXACT_SIM;
   }
 }
+console.log(`touch smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+for (const f of failures) console.error(`FAIL ios-touch ${f}`);
+process.exitCode = failures.length ? 1 : 0;
 
 // LLP 1126.001 WP14: compare through the touch step's runner, then end from a fresh app.
 async function archiveActivities(udid, check) {
@@ -155,54 +173,85 @@ async function archiveActivities(udid, check) {
     return label ? [label] : [];
   });
   const record = (name, value) => writeFileSync(resolve(dir, `${name}.json`), JSON.stringify(value, null, 2));
-  async function archive(name, expected, locked = false) {
+  async function archive(name, expected, {cover = false, locked = false, islandLabel} = {}) {
     if (!expected.length) throw Error(`${name}: no stable gallery labels to compare`);
     const deadline = performance.now() + 12_000;
-    let tree, missing, lockMissing;
+    let tree, missing, coverMissing, lockMissing, islandMissing;
     do {
       ({tree} = await spring('tree'));
       const nodes = elements(tree);
       missing = expected.filter(label => !nodes.some(node => node.label === label));
-      lockMissing = locked && (!nodes.some(n => n.identifier === 'SBCoverSheetWindow') || !nodes.some(n => n.identifier === 'proud-lock') || !nodes.some(n => n.label === 'Swipe up to unlock'));
-      if (!missing.length && !lockMissing) break;
+      coverMissing = (cover || locked) && !nodes.some(n => n.identifier === 'SBCoverSheetWindow');
+      lockMissing = locked && (!nodes.some(n => n.identifier === 'proud-lock') || !nodes.some(n => n.label === 'Swipe up to unlock'));
+      islandMissing = islandLabel && !nodes.some(n => n.identifier.startsWith('jindo-container-view:') && elements(n).some(label => label.label === islandLabel && inside(label.frame, n.frame)));
+      if (!missing.length && !coverMissing && !lockMissing && !islandMissing) break;
       await Bun.sleep(100);
     } while (performance.now() < deadline);
     record(name, tree);
     simctl('io', udid, 'screenshot', resolve(dir, `${name}.png`));
-    if (missing.length || lockMissing) throw Error(`${name}: after 12 s, missing exact element labels ${JSON.stringify(missing)}${lockMissing ? '; locked cover sheet was not exposed' : ''}`);
-    comparisons.push({name, labels:expected});
+    const valid = !missing.length && !coverMissing && !lockMissing && !islandMissing;
+    check(valid, `${name}: after 12 s, missing exact element labels ${JSON.stringify(missing)}${coverMissing ? '; cover sheet was not exposed' : ''}${lockMissing ? '; locked state was not exposed' : ''}${islandMissing ? `; leading label ${JSON.stringify(islandLabel)} has no frame inside the Island` : ''}`);
+    if (valid) comparisons.push({name, labels:expected});
     return tree;
   }
+  const alive = activity => ['active','stale'].includes(activity.activityState);
+  const inside = ([x,y,w,h], [left,top,width,height]) => w > 0 && h > 0 && x >= left && y >= top && x + w <= left + width && y + h <= top + height;
+  async function waitActivities(session, accepts, failure) {
+    const deadline = performance.now() + 12_000;
+    let timer;
+    try {
+      return await Promise.race([
+        (async () => {
+          while (performance.now() < deadline) {
+            const clock = await session.clock('data'), activities = (await session.state()).resources.activities.activities;
+            if (clock.settled !== false && accepts(activities)) return activities;
+            await Bun.sleep(100);
+          }
+          throw Error(failure);
+        })(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(Error(failure)), 12_000); }),
+      ]);
+    } finally { clearTimeout(timer); }
+  }
+  async function endActivity(session, id) {
+    const activities = await waitActivities(session, list => list.some(a => a.id === id && ['active','stale','ended','dismissed'].includes(a.activityState)), `activity ${id} never appeared in the fresh launch within 12 s`);
+    const activity = activities.find(a => a.id === id);
+    if (!alive(activity)) return {id, observed:activity.activityState, ended:0, final:activity.activityState};
+    // Caltrain's end button addresses the first live activity of its kind.
+    if (activities.find(a => a.kind === activity.kind && alive(a))?.id !== id) throw Error(`activity ${id} is not the one Caltrain's end button addresses`);
+    await session.tap(activity.kind === 'departure' ? 'end-activity' : 'end-alert');
+    const remaining = await waitActivities(session, list => !list.some(a => a.id === id && alive(a)), `activity ${id} is still active or stale, or its end did not settle within 12 s`);
+    return {id, observed:activity.activityState, ended:1, final:remaining.find(a => a.id === id)?.activityState ?? 'absent'};
+  }
   async function endActivities(session) {
-    await session.clock('data');
-    const active = state => state.resources.activities.activities.filter(a => ['active','stale'].includes(a.activityState));
-    const activities = active(await session.state());
-    for (const activity of activities) {
-      await session.tap(activity.kind === 'departure' ? 'end-activity' : 'end-alert');
-      const deadline = performance.now() + 12_000;
-      while (true) {
-        await session.clock('data');
-        if (!active(await session.state()).some(a => a.id === activity.id)) break;
-        if (performance.now() >= deadline) throw Error(`activity ${activity.id} did not end within 12 s`);
-        await Bun.sleep(100);
-      }
-    }
-    const remaining = active(await session.state());
-    if (remaining.length) throw Error(`Caltrain did not end activities: ${JSON.stringify(remaining)}`);
-    return activities.length;
+    const activities = await waitActivities(session, () => true, 'opening activity read did not settle within 12 s');
+    const live = activities.filter(alive);
+    for (const activity of live) await endActivity(session, activity.id);
+    return live.length;
   }
   for (const kind of ['departure', 'service-alert']) {
     s = null;
+    let started;
     try {
       // App controls use agent activation; the existing drag mode also opens the SpringBoard runner.
-      s = await open({host:'ios', app:'caltrain', touch:'drag'});
-      await endActivities(s);
+      s = await open({host:'ios', app:'caltrain', touch:'drag'}); usedTouches = true;
+      if (!argv.includes('--build')) {
+        try { await s.op({op:'state', activity:{entry:kind}, availability:true}); }
+        catch (error) {
+          if (!error.message.includes('widget gallery is unavailable')) throw error;
+          console.log('activity archive: skipped; the installed app has no gallery (--build is required for the archive phase)');
+          return;
+        }
+      }
+      const opening = await endActivities(s);
+      if (opening) throw Error(`${kind}: opening cleanup ended ${opening} unexpected activities`);
+      console.log(`${kind}: opening cleanup found no live activities`);
       await s.tap('change-station');
       await s.type('station-search', 'Palo');
       await s.tap('station-paloalto');
       await s.tap(kind === 'departure' ? 'start-activity' : 'start-alert');
       await s.clock('data');
-      const started = (await s.state()).resources.activities.activities.find(a => a.kind === kind && ['active','stale'].includes(a.activityState));
+      started = (await s.state()).resources.activities.activities.find(a => a.kind === kind && ['active','stale'].includes(a.activityState));
       if (!started) throw Error(`${kind}: Caltrain did not start the activity`);
       const gallery = {};
       for (const placement of ['lockScreen','compactLeading','compactTrailing','minimal','expanded']) {
@@ -213,31 +262,44 @@ async function archiveActivities(udid, check) {
       }
       await spring('home');
       const leading = labels(gallery.compactLeading), trailing = labels(gallery.compactTrailing);
-      await archive(`${kind}-compact`, [...leading, ...trailing]);
+      await archive(`${kind}-compact`, [...leading, ...trailing], {islandLabel:kind === 'departure' ? leading[0] : undefined});
       const found = await spring('find', {label:leading[0]});
-      if (!found.elements.some(n => n.label === leading[0] && n.frame[1] < 100)) throw Error(`${kind}: no compact Island element labelled ${JSON.stringify(leading[0])}`);
+      if (!found.elements.some(n => n.label === leading[0] && n.frame[2] > 0 && n.frame[3] > 0 && n.frame[1] < 100)) throw Error(`${kind}: no compact Island element labelled ${JSON.stringify(leading[0])}`);
       await spring('hold', {point:[201,32], seconds:1.2});
       await archive(`${kind}-expanded`, labels(gallery.expanded));
       await spring('tap', {point:[20,400]});
       await spring('swipe', {point:[15,2], to:[15,650]});
-      await archive(`${kind}-lockScreen`, labels(gallery.lockScreen));
+      await archive(`${kind}-lockScreen`, labels(gallery.lockScreen), {cover:true});
       await spring('lock'); await spring('home');
-      await archive(`${kind}-locked`, labels(gallery.lockScreen), true);
-      await spring('swipe', {point:[200,850], to:[200,200]});
+      await archive(`${kind}-locked`, labels(gallery.lockScreen), {locked:true});
     } catch (error) {
       check(false, `${kind} archive: ${error.message}`);
     } finally {
       if (s) {
+        let restored = false;
+        try {
+          const covered = tree => elements(tree).some(n => n.identifier === 'SBCoverSheetWindow');
+          if (covered((await spring('tree')).tree)) await spring('swipe', {point:[200,850], to:[200,200]});
+          else await spring('home');
+          const tree = (await spring('tree')).tree;
+          if (covered(tree)) throw Error('SBCoverSheetWindow is still present after the unlock swipe');
+          if (!elements(tree).some(n => n.identifier === 'Home screen icons')) throw Error('the Home Screen was not exposed');
+          restored = true;
+          console.log(`${kind}: SpringBoard restored to Home Screen`);
+        } catch (error) { check(false, `${kind} archive restore SpringBoard: ${error.message}`); }
         try { simctl('terminate', udid, resolveApp('caltrain').id); }
         catch (error) { check(false, `${kind} archive terminate: ${error.message}`); }
         try { await s.close(); }
         catch (error) { check(false, `${kind} archive close: ${error.message}`); }
         let fresh;
         try {
-          fresh = await open({host:'ios', app:'caltrain'});
-          const ended = await endActivities(fresh);
-          cleanups.push({kind, ended});
-          console.log(`${kind}: fresh launch ended ${ended} activities`);
+          if (started) {
+            if (!restored) throw Error(`activity ${started.id}: fresh cleanup requires the Home Screen`);
+            fresh = await open({host:'ios', app:'caltrain'});
+            const result = await endActivity(fresh, started.id);
+            cleanups.push({kind, ...result});
+            console.log(`${kind}: fresh launch cleanup ${JSON.stringify(result)}`);
+          }
         } catch (error) { check(false, `${kind} archive cleanup: ${error.message}`); }
         finally { await fresh?.close(); }
       }
