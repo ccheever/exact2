@@ -1104,9 +1104,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
-  - A web page in a frame its parent names `exact-copy-<n>` (the design tool's copies, *1.14*,
-    LLP 1122 T7) keeps its id under that name, since a tab's same-origin frames share its
-    storage. The page only reads the name, which never enters the app's URL, is never sent, and
+  - A web page in a frame its parent names `exact-copy-<n>` (`n` of one or two digits; the
+    design tool's copies, *1.14*, LLP 1122 T7) keeps its id under that name, since a tab's
+    same-origin frames share its storage. The page only reads the name, which never enters the app's URL, is never sent, and
     ties nothing; a frame of any other name keeps the tab's one id. A framed page posts `{type:
     "exact-build", id}` to its parent each time it registers, so the page framing it finds which
     frame is which build by the message's source (the id grants nothing without the nonce).
@@ -1247,7 +1247,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
   (else 409 with `unsupported: "navigate"`; the design tool then reloads that copy's frame at
   the location instead). `location` must start with one `/` (not `//` or `/\`) and be
   printable ASCII with no backslash (percent-encoded, as a page's own location is), at most
-  2 KiB; any other is 400. Each is journaled with its client
+  2 KiB as given and as a URL spells it once resolved (no dot segment may make it `//…`); any
+  other is 400. Each is journaled with its client
   and answered `{navigated: true, build, seq}`. A navigation holds nothing on the build: there is
   nothing to replay when it registers again or to clear when its client goes. Only the latest
   waits in a polled stream's queue. A build's `unsupported` for it is its sender's event alone

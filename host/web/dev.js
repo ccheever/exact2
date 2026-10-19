@@ -480,18 +480,21 @@ if (es) {
       // (A path that resolves to `//…` is scheme-relative to the history API: no location of this page.)
       if (url.origin !== location.origin || url.pathname.startsWith("//")) return refuse("the location is no path on this page's origin");
       // There once the router's entry is the route (an agent's launch keys
-      // ride on its address, history.state.url has none) or the address is it.
-      const to = url.pathname + url.search, there = () => pages?.state?.url === to || location.pathname + location.search === to;
+      // ride on its address, history.state.url has none) or the address is
+      // it, either as the router spells it (it encodes what a URL may not).
+      const to = url.pathname + url.search, spelled = (at) => { try { return decodeURI(at ?? "") === decodeURI(to); } catch { return at === to; } };
+      const there = () => spelled(pages?.state?.url) || spelled(location.pathname + location.search), before = pages?.state?.url;
       if (!there()) {
         if (typeof x.wasm?.exact_route_match !== "function" || x.wasm.exact_route_match(x.writeIn(to)) !== 1) return refuse(`${said(to)} is no route of this app`);
         const nav = document.getElementById("exact-root")?.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
         const batch = heard ? x.navigate(to) : x.go?.(to);
         if (!batch?.ops?.some((op) => op.op === "router")) return refuse(batch?.error ?? `the app's router took no step to ${said(to)}`);
       }
-      // (The router writes the history after its commit: the fragment once
-      // it is there, on the entry it wrote, its address otherwise kept. One
-      // the app's handler sent elsewhere keeps the app's place, no fragment.)
-      for (let i = 0; i < 100 && !there(); i++) await new Promise((ok) => setTimeout(ok, 10));
+      // (The router writes the history after its commit, at once unless a
+      // traversal is under way: the fragment once it is there, on the entry
+      // it wrote, its address otherwise kept. One the app's handler sent
+      // elsewhere keeps the app's place, no fragment, and no wait.)
+      for (let i = 0; i < 100 && !there() && pages?.state?.url === before; i++) await new Promise((ok) => setTimeout(ok, 10));
       if (mine() && there() && url.hash !== location.hash) pages?.replaceState(pages.state, "", location.origin + location.pathname + location.search + url.hash);
     } catch (error) { return refuse(String(error)); }
     committed();

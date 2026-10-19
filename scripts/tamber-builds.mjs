@@ -62,9 +62,14 @@ const KINDS = new Set(['register', 'status', 'unsupported', 'selected', 'held'])
 // a path a browser reads as one (`//`, `/\`), at most 2 KiB, in printable
 // ASCII (percent-encoded, as a page's own location is), no backslash.
 const LOCATION = /^\/(?![/\\])[\x21-\x5b\x5d-\x7e]*$/;
-// (Resolved, it stays a path: no dot segment makes it `//…`, which the
-// history API reads as another host.)
-const located = v => typeof v === 'string' && v.length <= 2048 && LOCATION.test(v) && !new URL(v, 'http://h.invalid').pathname.startsWith('//');
+// (Resolved, it stays a path, within the bound as a page then spells it: no
+// dot segment makes it `//…`, which the history API reads as another host,
+// and no character it escapes takes it past 2 KiB.)
+const located = v => {
+  if (typeof v !== 'string' || v.length > 2048 || !LOCATION.test(v)) return false;
+  const u = new URL(v, 'http://h.invalid');
+  return !u.pathname.startsWith('//') && (u.pathname + u.search + u.hash).length <= 2048;
+};
 // The states a hold names (LLP 1122 D8), and why a build lets one go.
 const HELD = ['active', 'hover', 'focus-visible'], DROPS = ['input', 'disabled', 'gone', 'replaced'];
 

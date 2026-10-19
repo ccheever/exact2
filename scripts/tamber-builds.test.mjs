@@ -712,7 +712,7 @@ test('navigate (*1.14*, LLP 1122 T7) routes one build to a location on its own o
   report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'navigate'] });
   register(channel, b.nonce, 'ios-1', 'ios');
   // Refused: a scheme, a host, a path a browser reads as a host, a space, too long; a build none such.
-  for (const bad of ['https://evil.example/', '//evil.example/x', '/\\evil.example', 'settings', '/a b', '/caf\u00e9', '/foo/..//evil.example/x', '/%2e%2e//evil.example', '/a/%2E./..//evil.example', `/${'x'.repeat(2048)}`, 7, null]) expect(channel.navigate('tool', 'web-1', bad).error).toContain('own origin');
+  for (const bad of ['https://evil.example/', '//evil.example/x', '/\\evil.example', 'settings', '/a b', '/caf\u00e9', '/foo/..//evil.example/x', '/%2e%2e//evil.example', '/a/%2E./..//evil.example', `/#${'"'.repeat(700)}`, `/${'x'.repeat(2048)}`, 7, null]) expect(channel.navigate('tool', 'web-1', bad).error).toContain('own origin');
   expect(channel.navigate('tool', 'none', '/x').error).toContain('no registered build');
   // A build that can't: said so, sent nothing.
   expect(channel.navigate('tool', 'ios-1', '/x').unsupported).toContain('cannot navigate');
