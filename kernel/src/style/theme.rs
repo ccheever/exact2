@@ -211,23 +211,37 @@ pub fn declared(text: &str) -> Option<Box<str>> {
 
 /// The text a length or number entry `text` names in the bound theme, and
 /// its kind (LLP 1121 D3, D7): a row's whole value naming one of a kind
-/// `takes` admits, exactly; the read recorded as a colour's is. `None`
-/// when it names none.
+/// `takes` admits, exactly; the read recorded as a colour's is. A base name
+/// no entry defines reads the base scale's length in this process's column
+/// ([`super::scale`]), bound theme or none. `None` when it names none.
 pub fn measure(text: &str, takes: impl Fn(Kind, bool) -> bool) -> Option<(Kind, Box<str>)> {
     let text = text.trim();
     if text.is_empty() || text.contains([' ', '(', '#']) {
         return None;
     }
-    let (kind, name, value) = ENTRIES.with(|e| {
+    let (found, defined) = ENTRIES.with(|e| {
         let e = e.borrow();
-        let e = e
-            .as_ref()?
+        let Some(table) = e.as_ref() else {
+            return (None, false);
+        };
+        let found = table
             .iter()
-            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind, e.varies))?;
-        Some((e.kind, e.name.clone(), e.value.clone()))
-    })?;
-    note(&name);
-    Some((kind, value))
+            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind, e.varies))
+            .map(|e| (e.kind, e.name.clone(), e.value.clone()));
+        (found, table.iter().any(|e| *e.name == *text))
+    });
+    if let Some((kind, name, value)) = found {
+        note(&name);
+        return Some((kind, value));
+    }
+    // A base name no entry defines (LLP 1121 stage 11 B): the scale's length
+    // in this process's column. One the design defines is the design's, even
+    // where this row may not name it.
+    if defined || !super::scale::is_base(text) || !takes(Kind::Length, false) {
+        return None;
+    }
+    note(text);
+    Some((Kind::Length, super::scale::text(text)?.into()))
 }
 
 /// The rows a number token may name (LLP 1121 D3).

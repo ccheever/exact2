@@ -4539,3 +4539,105 @@ C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
 - **After review round 1 (Astra, Grok):** Grok RIGHT, no findings; Astra's one should-fix (proxied pages keep `'self'` in `frame-ancestors`) answered by the lead: `'self'` stays, since code on the canvas origin already is that origin and can do anything a frame of its own page could, and apps frame their own routes. The gateway's `frame-ancestors` is now exactly `'self'` and the tool's remote origin: any other source a page names (a foreign origin, the local tool's) is dropped, so no other origin frames a canvas page (tested with a page naming `https://evil.test`).
 - **On main with the plain-LAN fix (81f2d32e8f):** the rule that a paired credential is taken only from this machine or through one of B's doors is one helper, `viaDoor(access)` in scripts/tamber-request.mjs, which the wire's check and the canvas gateway both call; dispatch's own `plain` flag is gone (the wire refuses such a request before dispatch).
 - **After the re-check (Astra):** the tool origin is written into the entry page as an escaped attribute value, and `serve()` refuses a `toolOrigin` that isn't a plain https origin (a host name or address and a port), so neither the attribute nor the CSP header can be misread.
+
+### Stage 11, commit B1: the base scale table (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57
+ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
+
+- **Nine base names** (ruling 5): `space.xs`, `space.sm`, `space.md`, `space.lg`, `space.xl`, `radius.sm`, `radius.md`,
+  `radius.lg` and `radius.full`. A view reads one with no design defining it. An app may set any of them in its design
+  (ruling 4), and its value wins app-wide, as any token's does. No other name is reserved, so the clone's `space.header`
+  keeps its meaning.
+- **The table:** `scale` in `kernel/tables/schema.json`, a row per name: `[name, ios, mac, web, neutral, material,
+  terminal]`, px (points), never scaled by Dynamic Type (ruling 6).
+
+  | name | iOS | Mac | web | neutral | Material | terminal |
+  |---|---|---|---|---|---|---|
+  | space.xs | 5 M | 6 M | @ios | 4 neutral | 4 G | 0 |
+  | space.sm | 8 =grouped-row-gap | 8 = | 8 = | 8 = | 8 = | 1 cell |
+  | space.md | 16 =grouped-row-inset | 10 = | 16 = | 16 = | 16 = | 1 cell |
+  | space.lg | 20 M | 20 M | @ios | 24 neutral | 24 G | 2 cells |
+  | space.xl | 35 M | 30 =grouped-label-inset (stretch) | @ios | 32 neutral | 32 G | 2 cells |
+  | radius.sm | 5.6 M | 5 M | @ios | 4 =mark-radius | 4 G | 0 |
+  | radius.md | 17 M | 6 M | @ios | 8 =control-radius | 8 G | 0 |
+  | radius.lg | 26 =grouped-card-radius | 10 = | 26 = | 12 =surface-radius | 12 G | 0 |
+  | radius.full | full | full | full | full | full | 0 |
+
+  Material's G cells are Material 3's spacing and shape scales. The neutral look's own steps (4, 24, 32) are its
+  definition (LLP 1115.000 D17), not Material's, though they coincide. Each look's steps are in order.
+- **The cell forms** (theme2 (a)). A cell is never a bare number, and the build (`kernel/build/scale.rs`) refuses
+  anything else: arithmetic, a missing source, a dangling metric or one with no px in that column, `@` outside the web
+  column or to another `@` cell, and `full` outside radius.full or in the terminal.
+  - `=<metric>`: that metrics row's value in the same column, read when the kernel builds, so the cell cannot drift.
+    Used only where the metric names the same role (theme2 (b)): an inset is space.md, a row gap space.sm, a control's
+    corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm. The one exception is a role
+    stretch theme2 ruled, recorded with its reason (the Mac's space.xl, below).
+  - `{px, measured: id}` and `{px, guideline: id}`: `id` is an entry of `docs/scale-measured.md` with what was measured
+    and how (or the citation), the number, and the reason for the choice.
+  - `@ios` (the web column only): the iOS cell's source and value. The web's first look is iOS's (D17).
+  - `full` (radius.full): one oversized length, `style::scale::RADIUS_FULL` (9999), named once in the kernel crate.
+    Every host clamps it into a pill by CSS's corner-overlap rule (stage 11 C), never `50%` (theme2's C ruling).
+  - The terminal: `{cells: n}` for a spacing (`n ch`), `0` for a radius (it draws none).
+- **Measured** (`bun scripts/measure-scale.mjs mac | ios --udid <sim>`, `scripts/measure-scale/{ios,mac}.swift`; raw
+  output in `~/x2theme/s11b/`):
+  - iOS 27.0 simulator: UIKit's own values where its API states them; otherwise the inked corner at 3×, read as the
+    equivalent circular radius along the 45° diagonal. Check: the inset-grouped card measures 26.07 against the table's
+    26.
+  - macOS 27.0: AppKit's API on alignment rects; corners from the window server's composite of the tool's own window
+    (AppKit 27 bezels reach no in-process capture), at 1× on this display (±0.7 pt, recorded as whole points).
+  - Choices theme2 ruled (10:57):
+    - iOS space.xs is a small button's top inset, 5 (UIKit states no 4).
+    - iOS space.lg is a large button's leading inset, 20 (an iPhone's margin is 16, space.md's).
+    - iOS radius.sm is `cornerStyle .small` at 44 points, 5.6, a fixed length recorded with that height. UIKit's
+      `.small` scales with height; iOS 27 has no mark.
+    - iOS radius.md is the medium button's measured corner, 17: iOS 27's controls are capsules, and 17 is a length,
+      not `full`.
+  - **space.xl is the gap between grouped sections without a header, on every look.** iOS's 35 was measured without a
+    header (`.insetGrouped`, no headers), and theme2 then ruled xl headerless on every look. The Mac's headerless gap
+    between a SwiftUI `.grouped` Form's sections measures 10, below its space.lg (20). So the Mac's space.xl is a ruled
+    role stretch: 30, `=grouped-label-inset` (a grouped section label's inset, the Mac's largest grouped spacing in the
+    table), with its reason in `docs/scale-measured.md`. A gap measured with a header (56) was withdrawn, since a header
+    mixes a text height into a spacing.
+- **The fallback** (theme2 (c)): `theme::measure` reads a base name no entry defines as the scale's length in the
+  process's column, bound theme or none.
+  - A name the design defines is the design's, even in a row that can't take it, so the base never stands in silently.
+  - The read is recorded as a token's, so an edit that defines the name later sets the row again.
+  - The column is the host's (`metrics::set_column`). This commit adds `Column::Terminal`: the web's first look's value
+    in every metric (the terminal read the web's before) and the terminal's own in the scale. The hosts set their
+    columns in B2.
+- **theme2's conditions, and where each is held:**
+  - **The compiler knows the nine names** (`contract/lower/src/scale.rs`, `theme::measure_values`). A view reading one
+    compiles with no design. Its values are the px columns', which a row checks as a token's. It varies by column, never
+    by an app axis, so an inherited row reading it is no `tamber-inherited-axis`.
+  - **An app definition must be a length.** `tamber-base-kind` refuses a base name set to a colour, a number or any
+    other kind. A length that varies by an app axis is the app's.
+  - **One table, which describe, resolve and explain read** (`exact_kernel::style::scale`, public, every cell with its
+    source). The wire's half is split out of this commit: the design server's `describe`, `resolve` and `explain` of
+    the base names move to rt1's stage 10 D under `tamber/1.14`, reading this table, never a copy. B1 touches no wire,
+    and `tamber/1.13` is unchanged.
+  - **Retention keeps nothing for an unread base name.** The plan's theme carries no entry for a base name the design
+    leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
+  - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
+    with radius.full left out.
+- **SCHEMA_DIGEST** moves, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x7dbe_77e0_84c0_e38c`
+  (`kernel/src/wire/codec.rs`; the `scale` table and the metrics' terminal column). Nothing else pins it.
+- **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
+- **Tests:**
+  - `kernel/src/style/scale.rs`:
+    - the nine names;
+    - every cell equals its source, re-read from the metrics table, and the web's `@ios` cells are iOS's;
+    - each look in order;
+    - every measured and guideline id has its entry with the number;
+    - the fallback: unbound, a design's own value winning, a defined name a row can't take not falling back, the read
+      recorded.
+  - Every build refusal was checked by hand on a mutated schema.
+  - `contract/cli/tests/it/tamber_base_scale.rs`:
+    - a bare app compiles with no plan entry, and the runner reads the kernel's values;
+    - an app's own `space.md` wins and an unread `space.lg` is not kept;
+    - a colour or number definition is refused, and an axis-varying length accepted;
+    - an inherited row is no axis refusal, a number row is `tamber-kind`, and a name that is no base fails.
+- **radius.full** (theme2): an app that sets `radius.full` sets a length, as for every base name. `full` is the base's
+  own value, the clamped oversized length; an app that wants a pill leaves radius.full unset rather than overriding it.
+- **B2:** the hosts' columns: the JS target's CSS variables (until then a JS-target page does not resolve a base name),
+  Linux and Android wiring, and the terminal host's `set_column(Terminal)`, each with its unit tests.

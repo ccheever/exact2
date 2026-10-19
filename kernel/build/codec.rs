@@ -678,6 +678,7 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
         "    /// In the web's first look, which a process reads until its host says otherwise.\n    pub web: MetricValue,\n",
         "    /// In the neutral look: the web's, and a host's that paints its own controls.\n    pub neutral: MetricValue,\n",
         "    /// In Android's Material look: the web's first look unless the row says otherwise.\n    pub material: MetricValue,\n",
+        "    /// In the terminal (LLP 1121 stage 11 B): the web's first look, which it read before it had a column.\n    pub terminal: MetricValue,\n",
         "}\n",
     ));
     let mut names = BTreeSet::new();
@@ -710,8 +711,9 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
             _ => panic!("schema: metric {name}: a row is its name, its kind and a value for iOS, the Mac, the web and the neutral look (and Android's Material look where it is not the web's), or for the neutral look alone"),
         }
         .map(|cell| metric_cell(name, kind, cell));
+        // The terminal reads the web's first look's value (it did before it had a column).
         rows.push_str(&format!(
-            "Metric {{ name: {name:?}, kind: MetricKind::{variant}, ios: {ios}, macos: {macos}, web: {web}, neutral: {neutral}, material: {material} }},\n"
+            "Metric {{ name: {name:?}, kind: MetricKind::{variant}, ios: {ios}, macos: {macos}, web: {web}, neutral: {neutral}, material: {material}, terminal: {web} }},\n"
         ));
         if kind != "style" {
             ids.push_str(&format!(

@@ -215,6 +215,7 @@ impl Lowerer<'_> {
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
+        crate::scale::declare(Vec::new());
         RETENTION.with(|r| *r.borrow_mut() = None);
         MOTION.with(|m| m.borrow_mut().clear());
         // The components' params, tokens of the design (D15): an app with
@@ -438,6 +439,16 @@ impl Lowerer<'_> {
             };
             let role = synthetic.is_none().then(|| role_named(&name)).flatten();
             let at = &folding.design.tokens[i].name;
+            // A base name the app sets (LLP 1121 stage 11 B, theme2's (c)): a
+            // length, as the scale's own; every package reads the app's.
+            if exact_kernel::style::scale::is_base(&name) && t.kind != tamber::Kind::Length {
+                self.push(LowerError {
+                    id: "tamber-base-kind",
+                    message: format!("`{name}` is a base length (the scale's `{name}`): an app sets it to a length (`{name} = 12px`), not a {}", t.kind.name()),
+                    span: self.token_span(&origin, at.line, at.col),
+                });
+                continue;
+            }
             if synthetic.is_none()
                 && value.color().is_some_and(|v| {
                     !self.admitted(&name, role.as_ref(), v, (at.line, at.col), &origin)
@@ -494,6 +505,7 @@ impl Lowerer<'_> {
                 .map(|e| (e.name.clone(), e.value.clone()))
                 .collect()
         });
+        crate::scale::declare(folding.tokens.iter().map(|t| t.name.clone()).collect());
         MEASURES.with(|m| {
             *m.borrow_mut() = self
                 .theme
@@ -1014,6 +1026,7 @@ pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope 
             entries.iter().map(|n| (n.as_str(), "transparent", false)),
         );
     };
+    crate::scale::declare(folding.tokens.iter().map(|t| t.name.clone()).collect());
     MEASURES.with(|m| {
         *m.borrow_mut() = folding
             .tokens
@@ -1201,13 +1214,17 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
 
 /// The design's length or number token `text` names, while its styles are
 /// lowered: its kind and its distinct values over the app's tuples.
+/// A base name the design leaves unset (LLP 1121 stage 11 B) is the
+/// scale's length, its values every column's that draws in px.
 pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
-    MEASURES.with(|m| {
-        m.borrow()
-            .iter()
-            .find(|(name, ..)| name == text.trim())
-            .map(|(_, kind, values)| (*kind, values.clone()))
-    })
+    MEASURES
+        .with(|m| {
+            m.borrow()
+                .iter()
+                .find(|(name, ..)| name == text.trim())
+                .map(|(_, kind, values)| (*kind, values.clone()))
+        })
+        .or_else(|| crate::scale::values(text).map(|values| (tamber::Kind::Length, values)))
 }
 
 /// The design's length or number token `text` names, while its styles are
@@ -1400,7 +1417,10 @@ pub(crate) fn measure_row(
                     return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` in some app mode, which `{}` does not take: {why}", a.name, a.name));
                 }
             }
-            if values.len() > 1 && rows.iter().any(|r| r.inherited()) {
+            if values.len() > 1
+                && rows.iter().any(|r| r.inherited())
+                && crate::scale::values(text).is_none()
+            {
                 return refuse("tamber-inherited-axis", format!("`{}=\"{text}\"`: `{text}` varies by an app axis, and `{}` is inherited: only a colour is chosen again at a mode boundary, so an inherited row names a token with one value (LLP 1121 D7)", a.name, a.name));
             }
             continue;

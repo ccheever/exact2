@@ -46,6 +46,7 @@ pub mod metrics;
 pub mod profiled;
 pub mod relative;
 pub mod roles;
+pub mod scale;
 mod shadow;
 pub mod sides;
 pub mod space;

@@ -54,6 +54,7 @@ mod nodes;
 mod overflow;
 pub mod params;
 mod routes;
+mod scale;
 mod shorthands;
 mod sites;
 mod sounds;

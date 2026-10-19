@@ -33,6 +33,7 @@ struct Schema {
     text_styles: Vec<TextStyleRow>,
     lengths: Vec<String>,
     metrics: Vec<MetricRow>,
+    scale: Vec<Vec<serde_json::Value>>,
     controls: Vec<[String; 9]>,
 }
 #[derive(Deserialize)]
@@ -124,6 +125,7 @@ include!("build/codec.rs");
 include!("build/validate.rs");
 include!("build/rare.rs");
 include!("build/cold.rs");
+include!("build/scale.rs");
 fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
@@ -234,6 +236,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     write_text_styles(w, &schema.text_style_bodies, &schema.text_styles);
     write_lengths(w, &schema.lengths);
     write_metrics(w, &schema.metrics, &exact_names(schema));
+    write_scale(w, &schema.scale, &schema.metrics);
     write_controls(w, &schema.controls);
     writeln!(
         w,
@@ -1443,6 +1446,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build/codec.rs");
     println!("cargo:rerun-if-changed=build/names.rs");
     println!("cargo:rerun-if-changed=build/validate.rs");
+    println!("cargo:rerun-if-changed=build/scale.rs");
     println!("cargo:rerun-if-changed={SCHEMA_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
     for path in CODEC_PATHS {

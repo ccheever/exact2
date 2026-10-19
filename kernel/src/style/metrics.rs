@@ -23,6 +23,9 @@
 //! switch for that look's colours and its metrics: the web, and a host that
 //! paints its own controls (D17). Any other process reads the web's first
 //! look, as Android's reader does.
+//! The terminal's column (LLP 1121 stage 11 B) is the web's first look's in
+//! every metric, as it read before it had one; it differs in the base scale
+//! (`style::scale`), whose spacings it reads in cells.
 //! @ref LLP 1115.002 D6, D8.4
 //! @ref LLP 1115.000 D17
 
@@ -47,6 +50,10 @@ pub enum Column {
     /// values at the pinned version, and the web's first look's where a row
     /// has none of its own.
     Material,
+    /// The terminal's (LLP 1121 stage 11 B), which its host says: the web's
+    /// first look's in every metric (as it read before it had a column), and
+    /// its own in the base scale (cells; no corners).
+    Terminal,
 }
 
 /// The column this process said. One platform a process, so one switch.
@@ -62,6 +69,7 @@ pub fn set_column(column: Column) {
         Column::Mac => 2,
         Column::Neutral => 3,
         Column::Material => 4,
+        Column::Terminal => 5,
     };
     COLUMN.store(index, Ordering::Release);
 }
@@ -75,6 +83,7 @@ pub fn column() -> Column {
         2 => Column::Mac,
         3 => Column::Neutral,
         4 => Column::Material,
+        5 => Column::Terminal,
         _ if roles::column() == roles::Column::Neutral => Column::Neutral,
         _ => Column::Web,
     }
@@ -98,6 +107,7 @@ pub fn value(metric: &Metric, column: Column) -> MetricValue {
         Column::Mac => metric.macos,
         Column::Neutral => metric.neutral,
         Column::Material => metric.material,
+        Column::Terminal => metric.terminal,
     }
 }
 
