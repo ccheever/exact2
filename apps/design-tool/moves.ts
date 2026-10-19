@@ -63,7 +63,8 @@ export const unread = (error: string, target: string, ops: Record<string, unknow
 const kindOf = (row: string, text: string, kinds: Map<string, string>) =>
   /(^|-)color$|^(background|fill|stroke)$/.test(row) ? 'color'
   : row === 'box-shadow' ? 'box-shadow' : row === 'text-shadow' ? 'text-shadow' : row === 'font-family' ? 'family'
-  : /^(opacity|line-height|flex-grow|font-weight|-exact-press-scale|-exact-press-opacity)$/.test(row) ? 'number'
+  // (A line height takes a length too, where its text is one.)
+  : /^(opacity|line-height|flex-grow|font-weight|-exact-press-scale|-exact-press-opacity)$/.test(row) ? (row === 'line-height' && !NUMBER.test(text) ? 'length' : 'number')
   : /duration$/.test(row) ? 'duration' : /timing-function$|easing$/.test(row) ? 'easing'
   : kinds.get(text) ?? (/^(#|rgba?\(|hsla?\(|oklch\(|oklab\(|lab\(|lch\(|color\(|color-mix\(|light-dark\()/i.test(text) ? 'color' : 'length');
 
