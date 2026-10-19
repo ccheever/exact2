@@ -78,7 +78,7 @@ export const HELP = {
   },
   status: {line:'web/prove status', usage:'bun exact.mjs status', flags:[], body:'Lists web/prove invocations with their phase, elapsed time, previous duration and exit status.', example:'bun exact.mjs status'},
   web: {
-    line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
+    line: 'the web dev loop: serves the app, reloading the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
     common: ['web [--port <n>]    for a person watching: its URL, rebuilt on save'],
     flags: [
@@ -148,8 +148,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     line: 'drive an app: tree, tap, type, state, screenshot, clock …',
     usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
     common: ['agent [web|ios] [--storage <name>] [--size <w>x<h>] [--sim <name>] <op> …',
-      '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>"',
-      '  "state [<name>]" tree "check [both]" "screenshot <png>" "resize <w>x<h>" "prefer <feature> <value>" back'],
+      '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>" "state [<name>]" tree "check [both]" "screenshot <png>" "resize <w>x<h>" "prefer <feature> <value>" back'],
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
@@ -247,7 +246,7 @@ Ports    none. Runs to completion; with --run, until the app quits (^C ends it).
     example: 'bun exact.mjs mac --run',
   },
   linux: {
-    line: 'build the Linux host, which test linux and agent linux drive headless',
+    line: 'build the Linux host (test and agent linux drive it headless)',
     usage: 'bun exact.mjs linux',
     flags: [],
     body: `A development build (cargo profile host-dev); prints the binary's path. It runs headless
@@ -256,7 +255,7 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs linux && bun exact.mjs test linux',
   },
   android: {
-    line: 'build the Linux host for Android, which test android and agent android drive over adb',
+    line: 'build the Linux host for Android (test and agent android drive it over adb)',
     usage: 'bun exact.mjs android',
     flags: [],
     // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
@@ -362,7 +361,7 @@ grants name, until ctrl-c. The rest: none; they run to completion.`,
     example: 'bun exact.mjs tamber eval . --mode dark-style=dim',
   },
   hatch: {
-    line: 'an access hatch: a stub for each target the app builds, and its app.json entry',
+    line: 'an access hatch: a stub per target the app builds, and its app.json entry',
     usage: 'bun exact.mjs hatch <word> | --app | --window',
     flags: [
       ['--app', 'the app-scope hatch, in place of a word'],
@@ -375,7 +374,7 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs hatch avatar',
   },
   update: {
-    line: 'after exact2 moves or changes: rewrite exact.mjs, patches, toolchain and exact2 paths',
+    line: 'after exact2 moves: rewrite exact.mjs, patches, toolchain and exact2 paths',
     usage: 'bun exact.mjs update [--without linux]',
     flags: [
       ['--without <platform>', 'stop building and shipping linux (which Android builds too) or android: removes its crate, workspace member and app.json keys, and re-resolves Cargo.lock'],
@@ -430,7 +429,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs lock',
   },
   windows: {
-    line: 'build the standalone Windows game into dist-windows/ (on Windows)',
+    line: 'build the Windows game into dist-windows/ (on Windows)',
     usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
     flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
     body: 'Needs Windows and the MSVC Rust target.\nPorts    none. Runs to completion; with --run, until the game quits.',
