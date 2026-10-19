@@ -608,3 +608,13 @@ test('activity addresses use the gallery reads and keep state separate from the 
   await widgetStep(session, parsed.flags.activity, 'clock +60000', 'activity');
   expect(calls).toEqual([{op:'tree', activity:parsed.flags.activity}, {op:'state', activity:parsed.flags.activity, availability:true}]);
 });
+
+
+test('permission and bind values do not occupy the gallery command word', async () => {
+  const {widgetArguments} = await import('./agent-widget.mjs');
+  for (const flag of ['--permission', '--bind']) {
+    const parsed = widgetArguments([flag, 'fixture', 'ios', 'activity', 'departure', 'state']);
+    expect(parsed.activity).toEqual({entry:'departure', placement:'lockScreen'});
+    expect(parsed.argv).toEqual([flag, 'fixture', 'ios', 'state']);
+  }
+});
