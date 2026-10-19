@@ -1260,6 +1260,7 @@ public final class ExactSession {
             drainSurfaceWork()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+            Owner.shared.releaseIdleStack() // after the data's batch: the deepest the boot goes
         }
     }
 

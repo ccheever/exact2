@@ -147,6 +147,27 @@ package final class Owner: @unchecked Sendable {
         work.signal()
     }
 
+    /// Give the stack pages under the boot back. A boot's decode, realize
+    /// and first layout reach some 180 KB down this thread's 8 MB stack,
+    /// which then idles near its top, and the pages touched stay dirty, in
+    /// the footprint, until released. Posted as a job, so everything under
+    /// its frame is dead; a later call that reaches as deep gets the pages
+    /// back zero-filled. One page stays under the frame for the red zone and
+    /// `madvise`'s own callees.
+    package func releaseIdleStack() {
+        post {
+            var marker = 0
+            let frame = withUnsafeMutablePointer(to: &marker) { UInt(bitPattern: $0) }
+            let me = pthread_self()
+            let top = UInt(bitPattern: pthread_get_stackaddr_np(me))
+            let low = top - UInt(pthread_get_stacksize_np(me))
+            let page = UInt(vm_page_size)
+            let end = (frame & ~(page - 1)) - page
+            guard end > low, let start = UnsafeMutableRawPointer(bitPattern: low) else { return }
+            _ = madvise(start, Int(end - low), MADV_FREE_REUSABLE)
+        }
+    }
+
     /// A notification (T5): on the owner, now; from anywhere else, queued
     /// in order behind the jobs before it, never waited for.
     package func notify(_ body: @escaping () -> Void) {
