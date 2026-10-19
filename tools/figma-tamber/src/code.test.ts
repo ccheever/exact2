@@ -520,3 +520,16 @@ test('round 8: an unchanged pull changes nothing and undoes nothing; check lists
   f.collections[0].addMode('Local review');
   await expect(send({ type: 'apply', text: only(['dark-style=black, light', 'dark-style=black, dark']) }, 'applied')).rejects.toThrow(/Local review/);
 });
+
+test('round 8 (Grok): a default mode of the person\'s own is never renamed or taken for a context', async () => {
+  await load(10);
+  await send({ type: 'apply', text: TEXT }, 'applied');
+  const col = f.collections[0];
+  // The person's own mode made the default (first), as reordering does.
+  const mine = col.addMode('Local review');
+  col.modes.unshift(col.modes.splice(col.modes.findIndex((m: any) => m.modeId === mine), 1)[0]);
+  const fewer = variant(doc => { delete doc.modifiers.mode.contexts['dark-style=dim, dark']; });
+  await send({ type: 'apply', text: fewer }, 'applied');
+  expect(col.modes[0]).toEqual({ modeId: mine, name: 'Local review' });
+  expect(f.variables.every(v => v.valuesByMode[mine] === undefined)).toBe(true);
+});

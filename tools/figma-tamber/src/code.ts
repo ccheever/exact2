@@ -120,6 +120,7 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
   // any change undoes nothing, never the person's own last edit).
   const did = <T>(r: T): T => { dirty = true; return r; };
   for (let { c, was, col } of cols) {
+    const made = !col;
     if (!col) col = did(figma.variables.createVariableCollection(c.name));
     if (col.getSharedPluginData?.(KEY, 'owned') !== '1') did(col.setSharedPluginData(KEY, 'owned', '1'));
     if (col.name !== c.name) did((col.name = c.name));
@@ -136,11 +137,13 @@ async function write(plan: Plan, before: Plan | null, fresh = false) {
     // a new collection's own first mode takes the first context. The others
     // no context keeps go before any is added, so a full collection takes
     // the new ones.
+    // (a default that is neither a pull's nor a new collection's own is the
+    // person's: left as it is, its name and values theirs)
     let parked: [string, string] | null = null;
     if (!used.has(col.defaultModeId)) {
       const own = Object.keys(prior).find(ctx => prior[ctx] === col.defaultModeId);
-      const take = own === undefined ? c.modes.find(mode => !ids[mode]) : undefined;
-      if (take) { ids[take] = col.defaultModeId; used.add(col.defaultModeId); } else parked = [own ?? '', col.defaultModeId];
+      const take = own === undefined && made ? c.modes.find(mode => !ids[mode]) : undefined;
+      if (take) { ids[take] = col.defaultModeId; used.add(col.defaultModeId); } else if (own !== undefined) parked = [own, col.defaultModeId];
     }
     // Only modes a pull made (the ids it kept for contexts) go; one the person added stays.
     const ours = new Set(Object.values(prior));
