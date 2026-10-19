@@ -1843,8 +1843,6 @@ Controls cover explicit auto columns, start alignment, narrower content,
 no maximum, block parents, authored widths and bounds, zero minima,
 hidden overflow, a minimum height above the maximum, ratio 2, both box-sizing
 modes with padding and borders, no ratio, and a max-width counterpart.
-An automatic height capped by a transferred max-width despite taller content
-remains separate work in `QUEUE.md`.
 
 Explicit inline stretch supplies the grid area's width before resolving the
 ratio, so neither the ratio's automatic inline minimum nor transferred bounds
@@ -1876,6 +1874,35 @@ fractional tracks, a fraction inside the span, a single track, gaps, normal
 alignment and zero minima. Four `Chrome 151 grid ratio minimum floor` cases
 also retain measured 100×100 items with `min-height:100px`, in max-content
 and absolute shrink-to-fit grids, with normal and stretch alignment.
+
+## Patch 59: let automatic ratio heights contain content above a width cap
+
+`Ratio::resolve` retains the height floor derived from the capped width,
+but does not transfer `max-width` into a content-based automatic height's
+maximum. This lets block, absolute and grid layout measure taller content
+instead of treating equal transferred bounds as a known height or clamping
+the final height to the ratio. Authored `max-height` still caps content;
+explicit minima, scroll containers and replaced elements retain their bounds.
+See [CSS Sizing 4 §4.3](https://www.w3.org/TR/css-sizing-4/#auto-min-size)
+and [§4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers).
+
+A flex container's ratio-derived percentage basis does not determine its
+automatic main size. Its content can exceed the ratio floor. Flex item
+sizing still transfers constraints independently: a column's content size
+suggestion is capped by the ratio-converted `max-width`, including when the
+item also has a preferred height or `max-height`
+([CSS Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto)).
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+66 literal `Chrome 151 ratio max-width height` cases, measured with Chrome
+151.0.7922.34 on 2026-10-19. The first 65 cases failed with 21 differing
+frames before the patch. The reported grid remains 60×50 while its item
+changes from 60×60 to 60×120; block and absolutely positioned items grow
+likewise. Controls retain 60×60 for short content, 60×50 in a flex row and
+60×60 in a flex column. They cover authored height bounds, explicit minima,
+hidden overflow, a second ratio, padding and borders under both box-sizing
+modes, and block, flex and grid contents. The existing replaced-element
+constraint tests retain their ratio caps.
 
 ## Cargo workspace boundary
 
