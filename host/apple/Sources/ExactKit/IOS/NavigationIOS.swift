@@ -248,6 +248,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var covers: [UInt32: HostCover] = [:]
     /// The covers the kernel was last told (`deliverCovers`).
     var delivered: [UInt32: HostCover] = [:]
+    /// Whether the first batch's install looked for the tablist the boot
+    /// covered (`adoptBootCover`).
+    private var bootCoverSeen = false
     var ownedReported: Set<String> = []
     var replayingHatches = false
     private var coversPending = false
@@ -452,10 +455,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Initial containment is ready before child frames. It does not present
     /// a sheet or flush focus commands from the partially applied batch.
     func installInitialOwner(_ batch: Batch) {
-        guard primaryNavigation == nil, !syncing, presenter.session?.view?.window != nil else { return }
+        guard primaryNavigation == nil, !syncing, presenter.session?.view?.window != nil else { giveBackBootCover(); return }
         syncing = true
         defer { syncing = false }
-        guard let p = projection(batch) else { return }
+        guard let p = projection(batch) else { giveBackBootCover(); return }
+        // After the projection, whose first `reset` clears the covers.
+        _ = adoptBootCover()
         let parts = NavigationRules.segments(presentations: p.routes[...p.selected].map { $0.props["navigationPresentation"] })
         installPrimary(p, first: Array(p.chosen[parts[0]]))
         primaryOwner?.view.layoutIfNeeded()
@@ -463,6 +468,27 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // the first frame (LLP 1075.003 Q3 (c)).
         reportCovers()
         refitForBars()
+    }
+
+    /// The root's tablist the runtime covered before the first layout,
+    /// for the tab bar it expects to take its place (host/apple/src/closed.rs
+    /// `cover_root_tablist`), becomes one of the presenter's covers, which
+    /// `reportCovers` keeps while the bar shows and gives back otherwise.
+    /// Once, at the first batch's install.
+    private func adoptBootCover() -> Bool {
+        guard !bootCoverSeen else { return false }
+        bootCoverSeen = true
+        guard let root = presenter.root.subviews.first as? NodeView,
+              let tabs = presenter.session?.runtime.rootTabs(root.id), tabs.covered, covers[tabs.tablist] == nil else { return false }
+        covers[tabs.tablist] = .whole
+        delivered[tabs.tablist] = .whole
+        return true
+    }
+
+    /// No containers at the first batch: the tablist the boot covered is
+    /// laid out again (`adoptBootCover`).
+    private func giveBackBootCover() {
+        if adoptBootCover() { reportCovers() }
     }
 
     /// A native primary container coming or going changes the view the
