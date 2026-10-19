@@ -230,7 +230,10 @@ statuses:
   64 relayed streams are carried at once; only a client whose TLS settled lets the next connection
   be dialled at once, anything else (a client not taken, one dropped unsettled, a connection that
   fails) costs a doubling wait; the idle connections are dialled again as carried ones close; each
-  connection has 10 s to verify the relay and be greeted, and as long for any line it starts.
+  connection has 10 s to verify the relay and be greeted, and as long from a line's first byte;
+  dials are budgeted (20 a second, a burst of 40) whatever the relay does. The relay's names are
+  served only when the certificate covers them, and no word of the relay's that carries the token
+  becomes a name, an address or a log line.
   The connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
 
 ### Pairing (*1.13*)

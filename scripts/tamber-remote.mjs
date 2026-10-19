@@ -346,7 +346,9 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     connector = connectRelay(relay, {
       warn,
       ...(connect ? { connect } : {}),
-      named: served => { names ??= served; },
+      // The relay's names only when this server's certificate covers them (never an origin the relay alone chose).
+      named: served => { const x = new X509Certificate(cert.cert); if (!x.checkHost(served.tool) || !x.checkHost(served.canvas)) return false; names ??= served; return true; },
+      ended: () => { relayed = null; },
       client: (sni, address, stream, settled) => {
         // (the tool's name only, until the canvas comes through the relay too)
         if (!names || sni !== names.tool) return false;
@@ -358,7 +360,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
         // only then; failed, if it closes first.
         socket.once('close', () => settled(false));
         socket.once('secure', () => {
-          if (socket.servername !== names.tool || socket.destroyed) return socket.destroy();
+          if (socket.servername !== names.tool || socket.destroyed || connector.closed) return socket.destroy();
           settled(true);
           http.emit('connection', socket);
         });
@@ -367,6 +369,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       },
     });
     connector.ready.then(() => {
+      if (connector.closed) return;
       relayed = { origin: `https://${names.tool}`, fingerprint: cert.fingerprint, relay: true };
       say(`  relay ${relay.host}: ${relayed.origin}, its clients' TLS ending here (certificate SHA-256 ${cert.fingerprint})`);
       say('  until the relay\'s domain is a public suffix, another account\'s names there are same-site to yours: nothing here trusts that');

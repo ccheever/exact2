@@ -26,7 +26,7 @@ afterEach(async () => { for (const c of closing.splice(0)) await c(); });
  * connectors, its public port clients, each handed to an idle connector
  * with `CLIENT <sni> <address>` (the SNI as the client sent it, read by the
  * test from its own record), every byte between them kept. */
-async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, label = null, address = '203.0.113.9', drop = false } = {}) {
+async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, label = null, address = '203.0.113.9', drop = false, token = TOKEN } = {}) {
   const idle = [], ungreeted = [], seen = { hellos: [], bytes: [], dials: 0, carried: [] };
   const control = createTLS({ cert: relayCert.cert, key: relayCert.key }, conn => {
     seen.dials++;
@@ -37,7 +37,7 @@ async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, l
       conn.off('data', onData);
       seen.hellos.push(head);
       if (refuse) { conn.end(`REFUSED ${refuse}\n`); return; }
-      if (!head.startsWith('EXACT-RELAY/1 acct\r\n') || !head.includes(`authorization: Bearer ${TOKEN}\r\n`)) { conn.end('REFUSED no such account\n'); return; }
+      if (!head.startsWith('EXACT-RELAY/1 acct\r\n') || !head.includes(`authorization: Bearer ${token}\r\n`)) { conn.end('REFUSED no such account\n'); return; }
       if (greet === null) { ungreeted.push(conn); return; } // (a relay that greets nothing, until a client comes)
       conn.write(greet);
       // (a relay that hands each connection the tool's name and drops it, at once, every time)
@@ -308,6 +308,42 @@ test('round 1: the real wire through the relay: a code names the relay\'s sessio
   expect(tries.map(t => t.status)).toEqual([...Array(9).fill(403), 429]);
   expect(json(tries[9].body).error.message).toMatch(/^pairing is limited through the relay: try again in \d+ s$/);
   expect(logged.some(l => /^tamber: relayed pairing limited \(10 a minute\): try again in \d+ s$/.test(l))).toBe(true);
+  // A paired client's long poll, held through the relay: open until the relay revokes the account
+  // (told on an idle connection), then cut by the connector itself.
+  const held = (port, tok) => {
+    let open = true;
+    const body = JSON.stringify({ after: 0, wait: true });
+    const s = connectTLS({ host: '127.0.0.1', port, servername: TOOL, ca: devCert.cert }, () => s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${TOOL}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${tok}\r\n\r\n${body}`));
+    const closed = new Promise(ok => { for (const e of ['close', 'end', 'error']) s.on(e, () => { open = false; ok(); }); });
+    return { closed, get open() { return open; } };
+  };
+  const poll = held(relay.pub, pt);
+  await new Promise(ok => setTimeout(ok, 300));
+  expect(poll.open).toBe(true);
+  relay.refuseIdle('this account was revoked');
+  await poll.closed;
+});
+
+test('round 3: closing the server ends a relayed client\'s long poll', async () => {
+  const relay = await fakeRelay();
+  let doors = null;
+  const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemote(w, { relay: relayOf(relay.control) }, { connect: toRelay(relay.control), say: () => {}, warn: () => {} });
+  closing.push(async () => { await w.close(); });
+  await until(() => relay.idle.length === POOL);
+  let token = null, text = '';
+  await w.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+  const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+  queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read' })));
+  await w.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+  const out = await ask(relay.pub, TOOL, { path: '/__tamber/pair', body: JSON.stringify({ code: JSON.parse(text).ok.code }) });
+  const pt = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)).ok.token;
+  const body = JSON.stringify({ after: 0, wait: true });
+  const s = connectTLS({ host: '127.0.0.1', port: relay.pub, servername: TOOL, ca: devCert.cert }, () => s.write(`POST /__tamber/events HTTP/1.1\r\nHost: ${TOOL}\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nx-exact-tamber-token: ${pt}\r\n\r\n${body}`));
+  const closed = new Promise(ok => { for (const e of ['close', 'end', 'error']) s.on(e, ok); });
+  await new Promise(ok => setTimeout(ok, 300));
+  await doors.close();
+  await closed;
 });
 
 test('round 2: a relay that hands the tool a client and drops it costs a doubling wait; a line started after the greeting has a deadline', async () => {
@@ -346,4 +382,51 @@ test('round 2: at most 64 clients carried; as they close the pool is dialled aga
   for (const s of clients) s.destroy();
   for (const s of held) s.destroy();
   await until(() => c.carried === 0 && busy.idle.length === POOL, 5000);
+});
+
+test('round 3: dials are budgeted whatever the relay does; a relay word carrying the token, or names the certificate does not cover, are never shown', async () => {
+  // A relay that hands the tool's name and drops it, its TLS "settled" each time: still no faster than the budget.
+  const looper = await fakeRelay({ drop: true });
+  const c = connectRelay(relayOf(looper.control), { client: (sni, address, stream, settled) => { settled(true); return true; }, connect: toRelay(looper.control), warn: () => {} });
+  closing.push(() => c.close());
+  await new Promise(ok => setTimeout(ok, 1000));
+  // (a burst of 40 and 20 a second after it, never a loop)
+  expect(looper.seen.dials).toBeLessThanOrEqual(POOL + 40 + 20 + 4);
+  // The token in a greeted name: refused, never ready.
+  const label = 'relaytoken0123456789abcdef'; // (a token that can be a host name's label)
+  const hexed = await fakeRelay({ greet: `READY ${label}.acct.relay.test ${CANVAS}\n`, token: label });
+  const h = connectRelay({ ...relayOf(hexed.control), token: label }, { client: () => true, connect: toRelay(hexed.control), warn: () => {}, pool: 1, backoffMs: 10_000 });
+  await until(() => hexed.seen.hellos.length >= 1); // (greeted by the relay that knows it, not refused)
+  await until(() => h.live === 0, 2000);
+  let readied = false;
+  h.ready.then(() => { readied = true; }, () => {});
+  await new Promise(ok => setTimeout(ok, 50));
+  expect(readied).toBe(false);
+  h.close();
+  // Names the certificate for them does not cover: stopped, the session never shown.
+  const stranger = await fakeRelay({ greet: `READY s9-tool.other.relay.test s9-canvas.other.relay.test\n` }), warned = [];
+  const doors = await openRemote(wire(), { relay: relayOf(stranger.control) }, { connect: toRelay(stranger.control), say: () => {}, warn: l => warned.push(l) });
+  closing.push(() => doors.close());
+  await until(() => warned.some(l => l.includes('does not cover')));
+  expect(doors.list()).toEqual([]);
+});
+
+test('round 3: a line trickled a byte at a time is cut at its deadline from its first byte; an address carrying the token is shown as unknown', async () => {
+  const trickle = await fakeRelay();
+  const c = connectRelay(relayOf(trickle.control), { client: () => true, connect: toRelay(trickle.control), warn: () => {}, pool: 1, greetMs: 300, backoffMs: 10_000 });
+  closing.push(() => c.close());
+  await until(() => trickle.idle.length === 1);
+  const conn = trickle.idle[0], t0 = Date.now();
+  const drip = setInterval(() => { if (!conn.destroyed) conn.write('C'); }, 100);
+  await until(() => conn.destroyed, 3000);
+  clearInterval(drip);
+  expect(Date.now() - t0).toBeLessThan(1000);
+  // An address that is the token (hex, as an address might look): unknown.
+  const hex = 'abcdef0123456789abcdef', w = wire();
+  const sly = await fakeRelay({ address: hex, token: hex });
+  const doors = await openRemote(w, { relay: { ...relayOf(sly.control), token: hex } }, { connect: toRelay(sly.control), say: () => {}, warn: () => {} });
+  closing.push(() => doors.close());
+  await until(() => sly.idle.length === POOL);
+  expect(await ask(sly.pub, TOOL)).toContain('{"ok":true}');
+  expect(w.got.map(g => g.access.reported)).toEqual(['unknown']);
 });

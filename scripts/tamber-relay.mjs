@@ -17,6 +17,7 @@
 // address is the client's as the relay reports it, shown, never trusted.
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Duplex } from 'node:stream';
@@ -79,11 +80,13 @@ function streamOf(conn, rest) {
 /** A host name as the relay may name a session's (lowercase, dotted, at
  * most 253 characters), and an address as it may report one. */
 const NAME = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
-const ADDRESS = /^[0-9a-f.:]{2,45}$/i;
+/** Dials a second at most, and a burst: whatever a relay does, the token
+ * goes out no faster (a dial a client is far below it). */
+const DIALS = { rate: 20, burst: 40 };
 /** Streams handed down at once, at most (as the TLS door's 64 connections). */
 export const STREAMS = 64;
 /** A relay's words, shown: printable, at most 120 characters, the token never. */
-const shown = (text, token) => text.split(token).join('[token]').replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
+const shown = (text, token) => text.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '[token]').replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
 
 /** The connector: `POOL` idle connections to the relay at `host:port`,
  * each client the relay hands down given to `client(sni, address, stream,
@@ -101,9 +104,13 @@ const shown = (text, token) => text.split(token).join('[token]').replace(/[^\x20
  * any closes. Each connection has `greetMs` to verify the relay and be
  * greeted, and as long for any line it starts. `close()` ends every
  * connection, idle or carrying a client. */
-export function connectRelay({ host, port, account, token, names = null }, { client, named: told = () => {}, warn = console.error, connect = connectTLS, pool = POOL, backoffMs = BACKOFF_MS, greetMs = 10_000 } = {}) {
+export function connectRelay({ host, port, account, token, names = null }, { client, named: told = () => true, ended = () => {}, warn = console.error, connect = connectTLS, pool = POOL, backoffMs = BACKOFF_MS, greetMs = 10_000, clock = Date.now } = {}) {
   const live = new Set();
   let closed = false, idle = 0, carried = 0, wait = 250, timer = null, served = null;
+  // (a relay's word that carries the token is never shown, logged or an origin)
+  const clean = word => !word.toLowerCase().includes(token.toLowerCase());
+  let tokens = DIALS.burst, at = clock();
+  const mayDial = () => { const now = clock(); tokens = Math.min(DIALS.burst, tokens + (now - at) * DIALS.rate / 1000); at = now; if (tokens < 1) return false; tokens -= 1; return true; };
   let ready, refused;
   const named = new Promise((ok, fail) => { ready = ok; refused = fail; });
   named.catch(() => {});
@@ -113,14 +120,20 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
     clearTimeout(timer);
     for (const c of live) c.destroy();
     refused(new Error(why));
+    ended(why);
   };
   const again = () => {
     if (closed || timer) return;
     timer = setTimeout(() => { timer = null; fill(); }, wait);
     wait = Math.min(wait * 2, backoffMs);
   };
-  // (dialled only while the pool is short and no wait is running)
-  const fill = () => { while (!closed && !timer && idle < pool) dial(); };
+  // (dialled only while the pool is short, no wait is running and the dial budget has one)
+  const fill = () => {
+    while (!closed && !timer && idle < pool) {
+      if (!mayDial()) { timer = setTimeout(() => { timer = null; fill(); }, Math.ceil(1000 / DIALS.rate)); return; }
+      dial();
+    }
+  };
   const dial = () => {
     idle++;
     let handed = false, buf = Buffer.alloc(0), greeted = false, once = false;
@@ -132,9 +145,10 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
     // relay whose certificate verified.
     const conn = connect({ host, port, servername: host, minVersion: 'TLSv1.2', rejectUnauthorized: true });
     live.add(conn);
-    // Until greeted, and while a line is started and unfinished: `greetMs`.
+    // Until greeted, and from a line's first byte until its end: `greetMs`
+    // (never put off by the line's later bytes).
     let late = setTimeout(() => conn.destroy(), greetMs);
-    const due = () => { clearTimeout(late); late = buf.length ? setTimeout(() => conn.destroy(), greetMs) : null; };
+    const due = () => { if (!buf.length) { clearTimeout(late); late = null; } else if (!late) late = setTimeout(() => conn.destroy(), greetMs); };
     conn.once('close', () => {
       clearTimeout(late);
       live.delete(conn);
@@ -160,13 +174,16 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
         if (word === 'REFUSED') { const why = shown(line.slice(8), token); warn(`tamber: the relay refused this server: ${why}`); return stop(`the relay refused: ${why}`); }
         if (!greeted) {
           // Its names: well formed, and the developer's own when given.
-          if (word !== 'READY' || !NAME.test(a) || !NAME.test(b) || a === b || (names && (a !== names.tool || b !== names.canvas))) return conn.destroy();
+          if (word !== 'READY' || !NAME.test(a) || !NAME.test(b) || a === b || !clean(a) || !clean(b) || (names && (a !== names.tool || b !== names.canvas))) return conn.destroy();
           greeted = true;
+          clearTimeout(late);
+          late = null;
           due();
-          if (!served) { served = { tool: a, canvas: b }; told(served); ready(served); }
+          // (names the server can't serve, its certificate not covering them: stopped, never shown)
+          if (!served) { served = { tool: a, canvas: b }; if (!told(served)) { warn(`tamber: the relay names a session (${a}) this server's certificate for it does not cover`); return stop('the relay\'s names are not the certificate\'s'); } ready(served); }
           continue;
         }
-        if (word !== 'CLIENT' || !NAME.test(a)) return conn.destroy();
+        if (word !== 'CLIENT' || !NAME.test(a) || !clean(a)) return conn.destroy();
         // Handed down: no longer idle, and no deadline of the connector's
         // (the TLS listener's own run from here). The next connection is
         // dialled at once only when this one's TLS settles; otherwise after
@@ -177,12 +194,12 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
         clearTimeout(late);
         conn.off('data', onData);
         conn.pause();
-        if (carried > STREAMS || !client(a, ADDRESS.test(b) ? b : 'unknown', streamOf(conn, buf), settled)) { conn.destroy(); settled(false); }
+        if (carried > STREAMS || !client(a, isIP(b) && clean(b) ? b : 'unknown', streamOf(conn, buf), settled)) { conn.destroy(); settled(false); }
         return;
       }
     };
     conn.on('data', onData);
   };
   fill();
-  return { ready: named, close: () => stop('closed'), get idle() { return idle; }, get live() { return live.size; }, get carried() { return carried; } };
+  return { ready: named, close: () => stop('closed'), get closed() { return closed; }, get idle() { return idle; }, get live() { return live.size; }, get carried() { return carried; } };
 }
