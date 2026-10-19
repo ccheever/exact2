@@ -1105,7 +1105,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `readOnly` too; with none named they are shown, not offered. A row its author wrote (the map's
   `at` and `attr`, D1's address) answers, unless it reads a param (the param rung, above), the
   **template** rung (origin `own`) `{rung: "template", file, at: {line, col}, sha256, row, state?,
-  instances, text, token?, modes?}` (*1.12*, LLP 1122 T5; a held state's row too, where it is
+  instances, text, component?, token?, modes?}` (*1.12*, LLP 1122 T5; `component` the one whose
+  view it is in, by the name its file declares it with; a held state's row too, where it is
   written under the node in that state and the build names the held node: its `instances` that
   node's) or the **style** rung (origin a single
   `class:<Name>`; a conditional class, `class:A/B`, is refused) `{rung: "style", style, row, file,
@@ -1120,7 +1121,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   value is, offered beside it, never the default. Only a plain value is offered, as `set-row`'s
   `plain` takes one: a string (its escapes decoded) or a bare `#…` colour, a number (an exponent
   and a minus included), inside any parentheses, then the line's end, a comment, another
-  attribute or a positional argument (a string, a template or one in parentheses; read at the
+  attribute or a positional argument (a string, a template, one in parentheses or a name; read at the
   map's UTF-8 byte column, the attribute's name checked there): an
   expression or a name in scope answers a reason, as does a file outside the app's own Contract
   sources, and a layout row (its `layout`, D14: `set-row`'s reason, up front; the selection's row
@@ -1131,7 +1132,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   expression, a boundary, or an expression over tokens links its token, never this node's edit).
   A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
-  above). A row its author wrote on the node or in its class's `style` (*1.12*)
+  above for a style's part, the template rung with `state` for one written under the node). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`; and `layout: true` where that attribute writes a layout row (LLP

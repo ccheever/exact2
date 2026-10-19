@@ -226,7 +226,7 @@ function opsOf(file: string, kind: string, target: string, when: string, value: 
   return p && p.set === null ? [{ op: 'set-param', name: lineName(target), when: [], value: p.default }, op] : [op];
 }
 // Whether `opsOf` read the params of the design these digests are of.
-const paramsOf = (kind: string, when: string, files: Record<string, string>) => !((kind === 'set-param' && when) || kind === 'detach-param') || appParamsKey === digestKey(files);
+const paramsOf = (kind: string, when: string, files: Record<string, string>, key = appParamsKey) => !((kind === 'set-param' && when) || kind === 'detach-param') || key === digestKey(files);
 function opOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown> {
   const on = file ? { file } : {};
   switch (kind) {
@@ -819,7 +819,7 @@ const sources: Sources = {
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, scrubbable: false, review: '' };
     if (!kind || !target) return idle;
     if (kind !== 'remove-token' && kind !== 'unset-param' && kind !== 'detach-param' && !value) return { ...idle, ok: false, error: kind.startsWith('promote') ? 'Give it a name.' : 'Give it a value.' };
-    let ops = opsOf(file, kind, target, when, value);
+    let ops = opsOf(file, kind, target, when, value), paramsAt = appParamsKey; // (the params read these ops were made from)
     if (!ops.length && kind === 'detach-param') return { ...idle, ok: false, error: 'This param is set by the app\'s design, or its default reads another param: unset it, or give it a value of its own, before detaching it.' };
     if (!ops.length) return { ...idle, ok: false, error: `${lineName(target)}'s default reads another param, which its line can't: give it a value of its own first, then Only this mode.` };
     let { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
@@ -828,7 +828,7 @@ const sources: Sources = {
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // A param's first `when` line was planned from the params of another revision than this proposal's: asked again once the design is read.
-    if (!paramsOf(kind, when, ok.files)) return { ...idle, ok: false, error: 'The design changed: reading it again before this is proposed.' };
+    if (!paramsOf(kind, when, ok.files, paramsAt)) return { ...idle, ok: false, error: kind === 'detach-param' && file && file !== designFile ? 'The app\'s params are from an older read: open the app\'s design, which reads them again, then detach.' : 'The design changed: reading it again before this is proposed.' };
     if (/^(set-state|set-row|promote-|detach-)/.test(kind) && selectionNow?.files !== digestKey(ok.files)) return { ...idle, ok: false, error: 'The files moved since this copy was selected: select it again.' }; // (the selected copy's source edited as reported, T4/T5)
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal

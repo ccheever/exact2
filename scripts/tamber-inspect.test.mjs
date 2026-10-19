@@ -91,7 +91,7 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
       ['press_color', 'active', 10, 'template'],
     ]);
     // Written on the node itself (no style): set-row at its place, with its state, the row as its author wrote it (T5).
-    expect(s.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 9, col: 9 }, sha256: sha(text), row: 'background-color', state: 'active', instances: 1, text: 'accent.soft', token: 'accent.soft', modes: '' });
+    expect(s.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 9, col: 9 }, sha256: sha(text), row: 'background-color', state: 'active', instances: 1, text: 'accent.soft', component: 'App', token: 'accent.soft', modes: '' });
     expect(s.rows[1].editable).toMatchObject({ row: 'color', state: 'active', text: '#f00' });
     // With no app named, the join can't tell its files from a package's: read-only, its token still offered.
     expect(join({ id: 'web-1' }, selected, map).rows[0].editable).toEqual({ rung: 'token', token: 'accent.soft', modes: '' });
@@ -110,7 +110,13 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     // Held where the build names the press (its held site): the held inline row is set-row's at its place, with
     // its state and the press's own copies (one; the label's chain is not counted for it).
     const offered = join({ id: 'web-1' }, label, inner, { app: dir });
-    expect(offered.held.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 9, col: 9 }, sha256: sha(text), row: 'background-color', state: 'active', instances: 1, text: 'accent.soft', token: 'accent.soft', modes: '' });
+    expect(offered.held.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 9, col: 9 }, sha256: sha(text), row: 'background-color', state: 'active', instances: 1, text: 'accent.soft', component: 'App', token: 'accent.soft', modes: '' });
+    // Its instances are the press's own copies: a second call of the press's component, none of the label's.
+    const twice = { ...inner, nodes: [...inner.nodes, { ...inner.nodes[0], chain: [{ file: app, line: 3, col: 5, end_col: 9, component: 'Page' }] }] };
+    expect(join({ id: 'web-1' }, label, twice, { app: dir }).held.rows[0].editable.instances).toBe(2);
+    // A held row reading a param this server has not read yet is refused, as the selected node's own rows are.
+    const unreadHeld = { ...label, held: { ...label.held, rows: [{ name: 'press_background_color', value: '#00f', token: { names: ['param.f01234567.App.fill'], text: 'param.f01234567.App.fill', modes: '', implied: false } }] } };
+    expect(join({ id: 'web-1' }, unreadHeld, inner, { app: dir }).held.rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
     // A held hover's row (a base binding, no state place) is not set-row's: the look is not written there.
     const hover = { ...label, held: { state: 'hover', node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#f00' }] } };
     const based = { ...inner, nodes: [{ ...inner.nodes[0], bindings: [...inner.nodes[0].bindings, { row: 'background_color', origin: 'own', at: part, attr: 'background-color' }] }, inner.nodes[1]] };
@@ -366,7 +372,7 @@ test('a row its author wrote joins on the template or style rung for set-row, th
       { name: 'gap', value: 8, source: 'authored', token: { names: ['space.md'], text: 'space.md', modes: '', implied: false } },
     ];
     const s = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir });
-    const template = { rung: 'template', file: 'card.contract', sha256: sha(text), instances: 2 };
+    const template = { rung: 'template', file: 'card.contract', sha256: sha(text), instances: 2, component: 'Card' };
     expect(s.rows[0].editable).toEqual({ ...template, at: { line: 3, col: col(3, 'background-color') }, row: 'background-color', text: 'surface.card', token: 'surface.card', modes: '' });
     // A longhand of the shorthand written there: the shorthand, whole.
     expect(s.rows[1].editable).toEqual({ ...template, at: { line: 3, col: col(3, 'border-radius') }, row: 'border-radius', text: '12' });
@@ -399,6 +405,7 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     expect(['opacity=5e-1', 'opacity=((0.5))', 'opacity=-(0.5)', 'color=#1f9d62', 'color="red" "Hi"'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual(['5e-1', '0.5', '-0.5', '#1f9d62', 'red']);
     expect(['color=alpha', 'opacity=0.5 - 1', 'color=(c ? "a" : "b")', 'opacity=(0.5'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual([null, null, null, null]);
     // A string's escapes as the lexer decodes them, one by one; a positional in parentheses after.
+    expect(['color="red" label', 'color="param.ink" label opacity=1', 'opacity=0.5 and x'].map(l => plainAt(`    text ${l}`, 10, l.split('=')[0]))).toEqual(['red', 'param.ink', null]);
     expect(['marker-end="url(#a\\\\u{62})"', 'marker-end="url(#a\\$b)"', 'color="red\\u{9}"', 'color="x\\`y"', 'opacity=0.5 ("hello")', 'color="\\q"'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual(['url(#a\\u{62})', 'url(#a$b)', 'red\t', 'x`y', '0.5', null]);
     // Moved since: read-only, its token still linked.
     writeFileSync(card, `${text}// edited\n`);

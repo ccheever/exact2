@@ -47,9 +47,9 @@ const rowRefusal = (o: Record<string, unknown>) => o.op !== 'set-row' ? '' : o.s
 // Card.fill that leaves Card.fade unread, said by its diagnostic, as the compile says it.
 const moveRefusal = (ops: Record<string, unknown>[]) => {
   if (ops.some(o => o.op === 'add-param' && o.name === 'taken')) return 'a param `taken` exists on `Card` already: give it another name';
-  // (MapCard.zoom is read by another row too: removing it leaves that row naming no param.)
-  if (ops.some(o => o.op === 'remove-param' && o.component === 'MapCard' && o.name === 'zoom')) return { message: 'refused', diagnostics: [{ file: 'app.tamber', line: 40, id: 'tamber-param-unknown', message: '`param.zoom` names no param of `MapCard`' }] };
   const gone = ops.filter(o => o.op === 'remove-param' && o.component === 'Card').map(o => o.name);
+  // (Card.fade is read by another row too: removed alone, that row names no param, as the compile says it.)
+  if (gone.includes('fade') && !gone.includes('fill')) return { message: 'refused', diagnostics: [{ file: 'app.contract', line: 14, id: 'tamber-param-unknown', message: '`param.fade`: `Card` declares no param `fade`' }] };
   return gone.includes('fill') && !gone.includes('fade') ? { message: 'refused', diagnostics: [{ file: 'app.contract', line: 12, id: 'tamber-param-unused', message: 'param `app.contract#Card.fade` is read by no row of `Card` (`param.fade`)' }] } : null;
 };
 const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op === 'set-state' || o.op === 'set-row' || o.op === 'add-param' || o.op === 'remove-param' || REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';

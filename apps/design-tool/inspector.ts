@@ -59,7 +59,7 @@ const rowOf = (x: any, component: string) => x?.rung === 'template' || x?.rung =
   ? { edit: JSON.stringify(at(x)), editLabel: x.rung === 'style' ? `Edit style ${x.style}` : `Edit this template · ${x.instances === 1 ? '1 instance' : `${x.instances} instances`}`, editText: String(x.text ?? ''),
       // (The editor's heading names the attribute it writes: a shorthand's whole, for a longhand of it.)
       editWords: `${x.rung === 'style' ? `Style ${x.style}` : `This template · ${x.instances === 1 ? '1 instance' : `${x.instances} instances`}`}: ${x.state ? `:${x.state} ` : ''}${x.row}`,
-      promote: x.rung === 'template' && x.text ? JSON.stringify({ addr: at(x), component, text: x.text }) : '', tokenize: x.rung === 'template' && x.text && !x.state, detach: '' }
+      promote: x.rung === 'template' && x.text ? JSON.stringify({ addr: at(x), component: x.component ?? component, text: x.text }) : '', tokenize: x.rung === 'template' && x.text && !x.state, detach: '' }
   : { edit: '', editLabel: '', editText: '', editWords: '', promote: '', tokenize: false, detach: x?.rung === 'param' && x.template ? JSON.stringify({ addr: at(x.template), param: x.param }) : '' };
 const stateOf = (x: any) => x?.style ? { state: [x.style, x.state, x.row, x.file].join('|'), stateLabel: `Edit ${x.style} :${x.state} ${x.row}`, stateText: String(x.text ?? '') } : { state: '', stateLabel: '', stateText: '' };
 const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '' };

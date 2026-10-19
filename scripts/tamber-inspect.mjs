@@ -258,7 +258,10 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   }
   const sha256 = (map?.sources ?? []).find(x => x.file === b.at.file)?.sha256;
   if (!sha256) return null;
-  return { rung: 'template', file: rel, at: { line: b.at.line, col: b.at.col }, sha256, row: attr, ...(b.state ? { state: b.state } : {}), instances, text };
+  // (The component by the name its file declares it with, above the row: a promotion's `add-param` names it.)
+  let component = null;
+  for (let i = b.at.line - 2; i >= 0 && !component; i--) component = /^component\s+([A-Za-z_][\w-]*)/.exec(lines[i] ?? '')?.[1] ?? null;
+  return { rung: 'template', file: rel, at: { line: b.at.line, col: b.at.col }, sha256, row: attr, ...(b.state ? { state: b.state } : {}), instances, text, ...(component ? { component } : {}) };
 }
 
 /** A Contract string's text, its escapes decoded one by one as the lexer does (lexer.rs `escape`):
@@ -307,7 +310,8 @@ export function plainAt(line, col, attr) {
   else return null;
   rest = rest.slice(m[0].length);
   for (; open > 0; open--) { const c = /^\s*\)/.exec(rest); if (!c) return null; rest = rest.slice(c[0].length); }
-  return /^(\s*$|\s*\/\/|\s+[\w-]+\s*=|\s+["`(])/.test(rest) ? text : null;
+  // (A positional after: a string, a template, one in parentheses, or a name, not an operator word.)
+  return /^(\s*$|\s*\/\/|\s+[\w-]+\s*=|\s*["`(]|\s+(?!(and|or|not|in|is)\b)[A-Za-z_][\w.]*\s*($|\/\/|["`(]|[\w-]+\s*=|[A-Za-z_]))/.test(rest) ? text : null;
 }
 
 /** Each row's editability: the token or param rung, or why not (D5, D6). Fails
@@ -389,14 +393,15 @@ export function join(build, selected, map, { read = readFileSync, served = null,
     const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [] };
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
     const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
-    base.held = { ...base.held, rows: (base.held.rows ?? []).map(r => {
+    base.held = { ...base.held, rows: (base.held.rows ?? []).map((r, i) => {
       const b = ownerBound.get(r.name);
       // An `:active` row is named as its author wrote it, under its part (theme2's 16:13 (2)), the press row it
       // lowered to beside it (`row`).
       const authored = b?.state ? AUTHORED[r.name] ?? null : null;
       // (A held look's row is set-row's only where it is written under the node in that state: a hover's row
       // with no place of its own is the base row's binding, not the look's.)
-      const unread = named(r.token, params).unread;
+      // (Whether it reads a param not yet read: from the host's own report, before its names were scrubbed.)
+      const unread = named(selected.held.rows?.[i]?.token, params).unread;
       const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
       return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state ? b.at ?? null : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
     }) };

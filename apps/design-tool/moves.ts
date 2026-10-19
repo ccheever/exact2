@@ -6,15 +6,17 @@ import type { ParamInfo } from './rescope';
 /** A value the server takes as a number (else a Contract string). */
 export const NUMBER = /^-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
 
-// A param named in full, as `describe` gives a default that reads one: `card.contract#Card.fill`.
+// A param named in full, as `describe` gives a default that reads one: `card.contract#Card.fill`; and a
+// param's own full name, whole (its file's path may hold any character, a space too).
 const FULL = /([\w./-]+\.(?:contract|tamber))#([A-Za-z_][\w-]*)\.([A-Za-z_][\w-]*)/;
+const PARAM = /^(.+\.(?:contract|tamber))#([A-Za-z_][\w-]*)\.([A-Za-z_][\w-]*)$/;
 
 /** A param's value as a literal a row can take: its default where the design sets none; through a
  * default that is one other param, that one's (a chain `b → a`, whose closure the detach removes);
  * null where the design sets it or the default is an expression over another param, said by the
  * proposal. */
 const literalOf = (param: string, params: Map<string, ParamInfo>, depth = 0): string | null => {
-  const p = params.get(param), [, file, component] = FULL.exec(param) ?? [];
+  const p = params.get(param), [, file, component] = PARAM.exec(param) ?? [];
   if (!p || p.set !== null || depth > 4) return null;
   const whole = new RegExp(`^${FULL.source}$`).exec(p.default.trim()), short = /^param\.([A-Za-z_][\w-]*)$/.exec(p.default.trim());
   if (whole || short) return literalOf(whole ? whole[0] : `${file}#${component}.${short![1]}`, params, depth + 1);
@@ -32,10 +34,10 @@ const literalOf = (param: string, params: Map<string, ParamInfo>, depth = 0): st
 export function moveOps(file: string, kind: string, t: any, name: string, params: Map<string, ParamInfo>, kinds: Map<string, string>): Record<string, unknown>[] {
   const as = (v: string) => (NUMBER.test(v) ? Number(v) : v);
   const k = kindOf(t.addr?.row ?? '', t.text ?? '', kinds), value = k === 'length' && NUMBER.test(t.text ?? '') ? `${t.text}px` : t.text;
-  // (The component by the name its file declares it with: the compiler renames a second `Card`.)
-  if (kind === 'promote-param') return [{ op: 'add-param', component: String(t.component).replace(/__[\w-]+$/, ''), name, kind: k, default: value, file: t.addr.file }, { op: 'set-row', ...t.addr, value: `param.${name}` }];
+  // (`component` is the name its file declares it with, which the join read above the row.)
+  if (kind === 'promote-param') return [{ op: 'add-param', component: t.component, name, kind: k, default: value, file: t.addr.file }, { op: 'set-row', ...t.addr, value: `param.${name}` }];
   if (kind === 'promote-token') return [{ op: 'add-token', name, kind: k, value, ...(file ? { file } : {}) }, { op: 'set-row', ...t.addr, value: name }];
-  const [, from, component, short] = FULL.exec(t.param) ?? [], literal = literalOf(t.param, params);
+  const [, from, component, short] = PARAM.exec(t.param) ?? [], literal = literalOf(t.param, params);
   if (literal == null || !component) return [];
   const gone = [...(t.keep ? [] : [short]), ...(t.extra ?? [])];
   return [{ op: 'set-row', ...t.addr, value: as(literal) }, ...gone.map(n => ({ op: 'remove-param', component, name: n, file: from }))];
@@ -46,9 +48,9 @@ export function moveOps(file: string, kind: string, t: any, name: string, params
  * yet removed; and whether the detached param is still read by another row (`tamber-param-unknown`
  * for it once removed), so it is kept. */
 export const unread = (error: string, target: string, ops: Record<string, unknown>[]) => {
-  const [, file, component, short] = FULL.exec(JSON.parse(target).param) ?? [];
+  const [, file, component, short] = PARAM.exec(JSON.parse(target).param) ?? [];
   const gone = new Set(ops.filter(o => o.op === 'remove-param').map(o => String(o.name)));
-  const named = (line: string) => [...line.matchAll(/`(?:([\w./-]+)#)?([A-Za-z_][\w-]*)\.([A-Za-z_][\w-]*)`/g)].filter(m => m[2] === component && (!m[1] || m[1] === file)).map(m => m[3]);
+  const named = (line: string) => [...line.matchAll(/`(?:([^`#]+)#)?([A-Za-z_][\w-]*)\.([A-Za-z_][\w-]*)`/g)].filter(m => m[2] === component && (!m[1] || m[1] === file)).map(m => m[3]);
   const lines = error.split('\n');
   return {
     more: [...new Set(lines.filter(l => l.includes('tamber-param-unused')).flatMap(named))].filter(n => !gone.has(n)),
@@ -56,13 +58,14 @@ export const unread = (error: string, target: string, ops: Record<string, unknow
   };
 };
 
-/** A new param's or token's kind: the row's (LLP 1121 D15's kinds), else a token value's own. */
+/** A new param's or token's kind: the row's (LLP 1121 D15's kinds); for a row the names don't say, a
+ * token value's own, or a colour's where its text is one. */
 const kindOf = (row: string, text: string, kinds: Map<string, string>) =>
   /(^|-)color$|^(background|fill|stroke)$/.test(row) ? 'color'
   : row === 'box-shadow' ? 'box-shadow' : row === 'text-shadow' ? 'text-shadow' : row === 'font-family' ? 'family'
   : /^(opacity|line-height|flex-grow|font-weight|-exact-press-scale|-exact-press-opacity)$/.test(row) ? 'number'
   : /duration$/.test(row) ? 'duration' : /timing-function$|easing$/.test(row) ? 'easing'
-  : kinds.get(text) ?? 'length';
+  : kinds.get(text) ?? (/^(#|rgba?\(|hsla?\(|oklch\(|oklab\(|lab\(|lch\(|color\(|color-mix\(|light-dark\()/i.test(text) ? 'color' : 'length');
 
 /** Where a `set-row` writes, in words: a style's row, or a row at its file and line. */
 const rowAt = (a: any) => (a.style ? `${a.style} ${a.row} (${a.file})` : `${a.row} at ${a.file}:${a.at?.line}`);
