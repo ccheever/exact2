@@ -11,7 +11,8 @@ import { mobileAppLink } from './navigation-links';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
-import { draftContext } from './shared/composer-controls-branch';
+import { draftContext, patchDraftContext } from './shared/composer-controls-branch';
+import { branchState } from './shared/r4-git-branch';
 import { mobileComposerTarget } from './composer-target';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTaskFlowView as view, mobileNewTaskFlowAction as act, mobileNewTaskFlowOwns as owns, mobileNewTaskRoute } from './new-task-flow';
@@ -39,6 +40,33 @@ async function fixture() {
   const snapshot = (location: string, visit = 'visit', session = 'flow', ready = true, groupingMode = 'repository') => view(session, visit, location, true, ready, client, fleet, groupingMode);
   const action = (owner: string, kind: string, id = '', value = '', visit = 'visit') => act(owner, visit, kind, id, value, native, files, client, fleet);
   return { client, fleet, files, native, calls, snapshot, action };
+}
+
+
+for (const choice of [
+  { name: 'current checkout', mode: 'local', branch: 'main', origin: false, path: '', label: 'main' },
+  { name: 'current checkout with origin enabled', mode: 'local', branch: 'feature/mobile', origin: true, path: '', label: 'feature/mobile' },
+  { name: 'existing worktree', mode: 'local', branch: 'feature/mobile', origin: true, path: '/a-worktree', label: 'feature/mobile' },
+  { name: 'local worktree base', mode: 'worktree', branch: 'main', origin: false, path: '', label: 'From main' },
+  { name: 'origin worktree base', mode: 'worktree', branch: 'main', origin: true, path: '', label: 'From origin/main' },
+  { name: 'remote-named local checkout', mode: 'local', branch: 'origin/topic', origin: true, path: '', label: 'origin/topic' },
+  { name: 'remote-named worktree base', mode: 'worktree', branch: 'origin/topic', origin: false, path: '', label: 'From origin/topic' },
+  { name: 'remote-named origin worktree base', mode: 'worktree', branch: 'origin/topic', origin: true, path: '', label: 'From origin/origin/topic' },
+  { name: 'empty local branch', mode: 'local', branch: '', origin: false, path: '', label: 'Choose branch' },
+  { name: 'empty worktree base', mode: 'worktree', branch: '', origin: true, path: '', label: 'Choose branch' },
+]) {
+  test(`New Task branch control labels ${choice.name}`, async () => {
+    const f = await fixture(), chooser = f.snapshot('/new');
+    expect(await f.action(chooser.owner, 'project', '["env","a"]')).toMatchObject({ message: '' });
+    expect(f.client.draftKey.startsWith('new-task:')).toBe(true);
+    const context = { envMode: choice.mode, branch: choice.branch, worktreePath: choice.path };
+    patchDraftContext(f.client, context);
+    branchState(f.client).origin.set(f.client.draftKey, choice.origin);
+    const before = { ...draftContext(f.client) }, calls = f.calls.length;
+    expect(mobileNewTask('', f.client, f.fleet).branchLabel).toBe(choice.label);
+    expect(draftContext(f.client)).toEqual(before);
+    expect(f.calls).toHaveLength(calls);
+  });
 }
 
 test('Choose project never adopts the prior thread or even a sole project automatically', async () => {

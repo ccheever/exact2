@@ -114,6 +114,7 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     composer.canSend = !!client.draft.trim() && !!client.providerId && !!client.modelId && !client.busy;
     composer.sendLabel = 'Save changes'; composer.showReadOnlyNotice = false; composer.blockedReason = '';
   }
+  const originOn = startFromOrigin(client);
   return { pendingEditor: !!pendingEditor, revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
     projectTitle: pendingEditor?.title ?? (str(project?.title) || restored?.title || ''), environmentLabel,
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,
@@ -122,7 +123,8 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     canStartScratch: !!mobileScratchTarget(client, background), scratchTarget: mobileScratchTarget(client, background), hasProjects,
     draft: !client.threadId && (!!project || !!pendingEditor || !!restored), scratch, workspaceMode: scratch ? 'local' : context.envMode,
     workspaceLabel: context.envMode === 'worktree' ? 'New worktree' : context.worktreePath ? 'Current worktree' : 'Current checkout',
-    branchLabel: context.branch || 'Select branch', originOn: startFromOrigin(client), composer };
+    branchLabel: !context.branch ? 'Choose branch' : context.envMode === 'local' ? context.branch
+      : `From ${originOn ? `origin/${context.branch}` : context.branch}`, originOn, composer };
 }
 
 function newTaskProjectIcon(environmentId: string, project?: Obj, title = str(project?.title)): NewTaskProjectIcon {
