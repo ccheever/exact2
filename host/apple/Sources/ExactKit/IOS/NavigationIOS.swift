@@ -248,9 +248,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var covers: [UInt32: HostCover] = [:]
     /// The covers the kernel was last told (`deliverCovers`).
     var delivered: [UInt32: HostCover] = [:]
-    /// Whether the first batch's install looked for the tablist the boot
-    /// covered (`adoptBootCover`).
-    private var bootCoverSeen = false
+    /// Whether this boot's first batch looked for the tablist the boot
+    /// covered (`adoptBootCover`); every boot covers its own.
+    private(set) var bootCoverSeen = false
     var ownedReported: Set<String> = []
     var replayingHatches = false
     private var coversPending = false
@@ -490,6 +490,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private func giveBackBootCover() {
         if adoptBootCover() { reportCovers() }
     }
+
+    /// The runtime restarts (`Presenter.reset`): its next boot covers the
+    /// tablist again, for its first batch to adopt or give back.
+    func rebooting() { bootCoverSeen = false }
 
     /// A native primary container coming or going changes the view the
     /// session takes (ExactViewIOS `fit`, LLP 1123 D1), whatever its bars
