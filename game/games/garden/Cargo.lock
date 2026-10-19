@@ -1264,6 +1264,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "garden-bake"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "garden-logic",
+]
+
+[[package]]
 name = "garden-gpu"
 version = "0.1.0"
 dependencies = [

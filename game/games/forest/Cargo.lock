@@ -1275,6 +1275,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "forest-bake"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "forest-logic",
+]
+
+[[package]]
 name = "forest-gpu"
 version = "0.1.0"
 dependencies = [

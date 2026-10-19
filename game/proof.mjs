@@ -648,6 +648,11 @@ function cacheBakedAssets(app, cache) {
 function restoreBakedAssets(cache, app) {
   const files = JSON.parse(readFileSync(resolve(cache,'files.json')));
   const manifest = resolve(app,'.baked-assets.json');
+  // Art was baked before the input scan. An older manifest must not remove ownership
+  // of a new model, restore a removed one, or replace its current bytes.
+  const cachedManifest = resolve(cache,'.baked-assets.json');
+  if (existsSync(cachedManifest) !== existsSync(manifest)
+      || existsSync(manifest) && !readFileSync(manifest).equals(readFileSync(cachedManifest))) return false;
   const generated = existsSync(manifest) ? JSON.parse(readFileSync(manifest)) : {};
   const writes = [];
   for (const name of files) {
@@ -663,11 +668,6 @@ function restoreBakedAssets(cache, app) {
       throw new Error(`cached asset \`${name}\` would overwrite a file the bake does not own; move the authored file or delete the cached build (artifacts/build)`);
     writes.push([destination,bytes]);
   }
-  // Art was baked before the input scan. An older manifest must not remove ownership
-  // of a new model, restore a removed one, or replace its current bytes.
-  const cachedManifest = resolve(cache,'.baked-assets.json');
-  if (existsSync(cachedManifest) !== existsSync(manifest)
-      || existsSync(manifest) && !readFileSync(manifest).equals(readFileSync(cachedManifest))) return false;
   for (const [destination,bytes] of writes) { mkdirSync(dirname(destination),{recursive:true}); writeFileSync(destination,bytes); }
   return true;
 }

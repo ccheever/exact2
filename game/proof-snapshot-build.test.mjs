@@ -2,11 +2,12 @@ import {test, expect} from 'bun:test';
 import {spawn} from 'node:child_process';
 import {cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
+import {tmpdir} from 'node:os';
 import {createGame} from './new.mjs';
 
 // One scaffold and its shared Cargo target exercise the whole snapshot/build boundary.
 test('a proof leaves ordinary builds usable and repins changed logic and added art', async () => {
-  const parent = realpathSync(mkdtempSync(resolve(import.meta.dir, '../../proof-build-'))), app = resolve(parent, 'tidal-proof');
+  const parent = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-build-'))), app = resolve(parent, 'tidal-proof');
   const env = {...process.env, EXACT_UPDATE_TRUST:'development'};
   for (const name of ['EXACT_APP_DIR','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_PROOF_BUILD_OUT','EXACT_PROOF_OUT','EXACT_WEB_DIST']) delete env[name];
   const run = args => new Promise((ok, fail) => {
@@ -21,10 +22,12 @@ test('a proof leaves ordinary builds usable and repins changed logic and added a
     const root = log.match(/^ARTIFACTS (.+)$/m)[1];
     return {root, pins:JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))};
   };
+  let passed = false;
   try {
     createGame(app, undefined, {assets:true});
     // Keep the regression about build identity; the starter's gameplay has its own proof.
     writeFileSync(resolve(app,'proof.mjs'), `import {resolve} from 'node:path';
+import {tmpdir} from 'node:os';
 import {proof} from ${JSON.stringify(resolve(import.meta.dir,'proof.mjs'))};
 if (import.meta.main) await proof(import.meta, async ({open,pin,pinSave,out}) => {
   const session = await open(); await session.tap('play');
@@ -45,5 +48,9 @@ if (import.meta.main) await proof(import.meta, async ({open,pin,pinSave,out}) =>
     const added = await prove(['--repin']);
     expect(Object.keys(JSON.parse(readFileSync(resolve(added.root,'src/.baked-assets.json'),'utf8')))).toContain('second.model');
     await run(['exact.mjs','web-build']);
-  } finally {rmSync(parent,{recursive:true,force:true});}
+    passed = true;
+  } finally {
+    if (passed) rmSync(parent,{recursive:true,force:true});
+    else console.error(`Retained failed snapshot proof: ${parent}`);
+  }
 }, 1800000);

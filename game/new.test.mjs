@@ -937,7 +937,7 @@ test('generated logic targets rebuild from each snapshot sharing a Cargo target'
 
 test('a snapshot GPU build script reports its SDK watch independently of the invoking workspace', async () => {
   const {gameDefaults,gameShells} = await import('./app/shells.mjs');
-  const root = realpathSync(mkdtempSync(resolve(import.meta.dir,'../../snapshot-watch-'))), app = resolve(root,'tidal');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(),'snapshot-watch-'))), app = resolve(root,'tidal');
   try {
     createGame(app);
     const snapshot = resolve(app,'artifacts/prove/run/src');

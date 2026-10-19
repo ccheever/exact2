@@ -6,7 +6,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, isAbsolute, relative, resolve} from 'node:path';
 import {equal, agreePins, nativeProofHost, pinInputs, pinSourceInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand, lookAcrossRuns, lookOnlyFailure} from './proof.mjs';
-import {bakeGameArt, gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
+import {prepareProofTree, gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
 const local = destination === '.' || (destination && isAbsolute(destination)) || destination?.includes('/') || destination?.includes('\\');
@@ -56,7 +56,7 @@ const buildTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(sourceApp,'t
 const buildEnvironment = {CARGO_TARGET_DIR:buildTarget, CARGO_BUILD_BUILD_DIR:resolve(process.env.CARGO_BUILD_BUILD_DIR ?? buildTarget)};
 // A game without Git can include its generated assets in the captured tree.
 // Finish that bake before recording immutable copies, including after adding art.
-if (!saved && gameDefaults(sourceApp)?.game) bakeGameArt(sourceApp, {...process.env, ...buildEnvironment});
+if (!saved && gameDefaults(sourceApp)?.game) prepareProofTree(sourceApp, {...process.env, ...buildEnvironment});
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
 app = record.snapshot.src;
 const checkSDK = () => {

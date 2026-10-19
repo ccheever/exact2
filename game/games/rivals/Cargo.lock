@@ -3086,6 +3086,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rivals-bake"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "rivals-logic",
+]
+
+[[package]]
 name = "rivals-gpu"
 version = "0.1.0"
 dependencies = [
