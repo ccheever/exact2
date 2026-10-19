@@ -453,6 +453,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        holdGone() // out of the map: a hold on it is let go (HeldState.swift)
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
         invalidateText()
@@ -775,7 +776,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// names whatever is drawing at that instant, and colours are not all
     /// applied inside a draw — a field's `textColor` is assigned in
     /// `applyStyle`. @ref LLP 1034 D2
-    package var drawsDark: Bool {
+    var drawsDark: Bool {
         effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
@@ -800,7 +801,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the colours assigned outside a draw are re-applied. @ref LLP 1034 D2
     package override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        presenter?.tables.appearanceChanged(self)
+        presenter?.tables.appearanceChanged(self); refreshGroupedSeparator()
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
         presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
@@ -933,7 +934,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         for k in clear { next.removeValue(forKey: k) }
         for (k, v) in set { next[k] = v }
         props = next
-        if set["symbolEffectValue"] != nil { updateSymbol() }
+        if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten") { updateSymbol() }
         applyTextArea()
         remakeFieldIfNeeded()
         if let f = field {
@@ -1141,7 +1143,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-            f.textColor = color("text_color", SystemColor.canvasText)
+            f.textColor = fieldInk
             applyPlaceholder(f)
             styleNativeField()
             updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)

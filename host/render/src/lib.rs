@@ -300,7 +300,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
             // would have refused: the page renders again, with a kernel,
             // which writes it or reports the refusal as ever.
             Err(why) if projection == Projection::Auto => {
-                println!("render {location}: with a kernel ({why})");
+                crate::log(format_args!("render {location}: with a kernel ({why})"));
                 retire(page, data);
                 return render_with_at(
                     plan,
@@ -1062,19 +1062,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 return ExitCode::FAILURE;
             }
         };
-        println!("serving http://{}/", server.addr());
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        drain_on_signal(server.stopper());
-        return match server.run(data) {
-            Ok(()) => {
-                println!("drained");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("render: serve: {e}");
-                ExitCode::FAILURE
-            }
-        };
+        return run_server(server, data);
     }
     if build {
         match build_locations(&decoded) {
@@ -1176,6 +1164,33 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
     }
 }
 
+// Losing the log reader must not interrupt a response or SIGTERM's drain.
+fn log(line: std::fmt::Arguments<'_>) {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{line}");
+    let _ = stdout.flush();
+}
+
+fn run_server<D: DataSource + 'static>(server: Server, data: fn() -> D) -> std::process::ExitCode {
+    use std::process::ExitCode;
+    log(format_args!("serving http://{}/", server.addr()));
+    drain_on_signal(server.stopper());
+    match server.run(data) {
+        Ok(()) => {
+            log(format_args!("drained"));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("render: serve: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod stdout_tests;
+
 /// SIGTERM or SIGINT drains the server (D10): a restart loses no render
 /// in flight.
 fn drain_on_signal(stopper: Stopper) {
@@ -1195,8 +1210,7 @@ fn drain_on_signal(stopper: Stopper) {
             while !SIGNALLED.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            println!("draining");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
+            log(format_args!("draining"));
             stopper.stop();
         });
 }

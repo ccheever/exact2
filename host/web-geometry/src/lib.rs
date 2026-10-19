@@ -29,8 +29,8 @@ fn page_range_frame(
     _: &Kernel,
     _: &Scrolled,
     view: ViewId,
-    start: f64,
-    end: f64,
+    start: u32,
+    end: u32,
 ) -> GeometryAnswer {
     #[link(wasm_import_module = "exact_geometry")]
     extern "C" {
@@ -38,12 +38,12 @@ fn page_range_frame(
     }
     let mut out = [0.0; 4];
     // SAFETY: the synchronous page reader writes four f64 values to this buffer.
-    let flags = unsafe { range(view, start as u32, end as u32, out.as_mut_ptr()) };
+    let flags = unsafe { range(view, start, end, out.as_mut_ptr()) };
     answer(flags, out)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn page_range_frame(_: &Kernel, _: &Scrolled, _: ViewId, _: f64, _: f64) -> GeometryAnswer {
+fn page_range_frame(_: &Kernel, _: &Scrolled, _: ViewId, _: u32, _: u32) -> GeometryAnswer {
     GeometryAnswer::UNAVAILABLE
 }
 

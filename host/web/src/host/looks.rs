@@ -22,18 +22,33 @@ pub fn declarations(
 
 /// The looks' [`declarations`] for the element `at` selects, as page rules,
 /// empty for none: `:hover` (where the pointer hovers), then
-/// `:focus-visible`, the last winning; a disabled node takes none.
+/// `:focus-visible`, the last winning, each also where it is held; a
+/// disabled node takes none.
 pub fn rules(at: &str, looks: &[(u8, String)]) -> String {
     let mut out = String::new();
     // A disabled box says `disabled` (a bool's text; none, or "false", is enabled).
     let enabled = ":not(:disabled,[disabled]:not([disabled=\"false\"]))";
     for (state, css) in looks {
-        let rows: String = (css.split_terminator(';'))
+        let mut rows: String = (css.split_terminator(';'))
             .map(|row| format!("{row}!important;"))
             .collect();
+        // A hover look is the whole hover, as `:active` is the whole press: it
+        // replaces the neutral look's unsaid wash on this node (neutral.css,
+        // LLP 1129), and no image of the author's.
+        if *state == LOOK_HOVER {
+            rows.push_str("--exact-hover-wash:none!important;");
+        }
         match *state {
-            LOOK_HOVER => write!(out, "@media (hover:hover){{{at}:hover{enabled}{{{rows}}}}}"),
-            _ => write!(out, "{at}:focus-visible{enabled}{{{rows}}}"),
+            // A held state (LLP 1122 D8, `data-exact-held`) is the state's own
+            // rule, whatever the pointer (the input glue's `hold`).
+            LOOK_HOVER => write!(
+                out,
+                "@media (hover:hover){{{at}:hover{enabled}{{{rows}}}}}{at}[data-exact-held~=hover]{enabled}{{{rows}}}"
+            ),
+            _ => write!(
+                out,
+                "{at}:focus-visible{enabled},{at}[data-exact-held~=focus-visible]{enabled}{{{rows}}}"
+            ),
         }
         .expect("a String");
     }
@@ -77,8 +92,21 @@ mod tests {
             &declarations(&looks, |l| crate::css::css_text(l, &[]).0),
         );
         let at = |s: &str| css.find(s).unwrap_or_else(|| panic!("{s} in {css}"));
-        assert!(at(":hover") < at(":focus-visible"), "{css}");
+        assert!(at(":hover") < at("[data-exact-held~=hover]"), "{css}");
+        assert!(
+            at("[data-exact-held~=hover]") < at(":focus-visible"),
+            "{css}"
+        );
+        assert!(
+            css.contains("[data-exact-held~=focus-visible]"),
+            "a held state's rule: {css}"
+        );
         assert!(css.contains("opacity:0.5!important"), "{css}");
+        assert_eq!(
+            css.matches("--exact-hover-wash:none!important").count(),
+            2,
+            "the hover replaces the unsaid wash, held too, and the focus does not: {css}"
+        );
         assert!(
             !css.contains("transition"),
             "the rules add no transition: {css}"

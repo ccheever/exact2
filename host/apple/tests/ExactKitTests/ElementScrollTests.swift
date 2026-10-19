@@ -45,42 +45,30 @@ final class ElementScrollTests: XCTestCase {
         let prior = DisplayPreferences.agent
         DisplayPreferences.agent = (false, false)
         defer { DisplayPreferences.agent = prior }
+        // UIKit animates only in a scene's window: its motion is
+        // `testUIKitRevealsAnimateAndAReplacementEndsThem`.
         #if os(macOS)
         sv.contentView.scroll(to: .zero)
         window.orderFront(nil)
-        #else
-        sv.setContentOffset(.zero, animated: false)
-        window.makeKeyAndVisible()
-        #endif
-        var ended = 0
-        #if os(macOS)
-        var intermediate = false
-        #endif
+        var ended = 0, intermediate = false
         p.onScrollend = { _ in ended += 1 }
         p.scrollElementIntoView(["target", "start", "nearest", "smooth"])
-        #if os(macOS)
         if ExactEnv.agentFreezes {
             XCTAssertEqual(offset(), 368, accuracy: 0.5, "the frozen agent lands authored motion immediately")
         } else {
             XCTAssertLessThan(offset(), 368, "a smooth element jump must not land synchronously")
         }
-        #else
-        XCTAssertEqual(offset(), 368, accuracy: 0.5, "UIKit falls back to an instant element jump (LLP 1070.000 §14)")
-        #endif
         let limit = Date().addingTimeInterval(10)
         while ended == 0 && Date() < limit {
-            #if os(macOS)
             if offset() > 1 && offset() < 367 { intermediate = true }
-            #endif
             _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
-        #if os(macOS)
         if !ExactEnv.agentFreezes {
             XCTAssertTrue(intermediate, "the real-time scroll has intermediate frames")
         }
-        #endif
         XCTAssertEqual(offset(), 368, accuracy: 0.5)
         XCTAssertEqual(ended, 1)
+        #endif
         DisplayPreferences.agent = (true, false)
         #if os(macOS)
         sv.contentView.scroll(to: .zero)
@@ -291,6 +279,150 @@ final class ElementScrollTests: XCTestCase {
         return (first, intermediate, offset())
     }
     #else
+    /// A scroller with `scrollend`, `target` at 368 and `home` at 0, in a
+    /// shown window of the test host's scene.
+    private func revealFixture(_ scene: UIWindowScene) throws -> (Presenter, UIScrollView, UIWindow) {
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["scrollend"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "target"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["id": "home"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 368.0, "w": 100.0, "h": 50.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 100.0, "h": 50.0],
+        ]))
+        let window = UIWindow(windowScene: scene)
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let sv = try XCTUnwrap(p.views[1]?.scrollView)
+        sv.contentSize = CGSize(width: 200, height: 1000)
+        return (p, sv, window)
+    }
+
+    /// Run the main loop until `done`, noting whether the offset passed
+    /// strictly between `from` and `to`.
+    private func run(_ sv: UIScrollView, from: CGFloat, to: CGFloat, until done: () -> Bool) -> Bool {
+        var intermediate = false
+        let limit = Date().addingTimeInterval(10)
+        while !done() && Date() < limit {
+            let y = sv.contentOffset.y
+            if y > min(from, to) + 1 && y < max(from, to) - 1 { intermediate = true }
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(done(), "it settles")
+        return intermediate
+    }
+
+    /// An unsaid behavior reveals with UIKit's animation, as a hand-built
+    /// `setContentOffset(_:animated: true)` does, and ends once, when the
+    /// animation does. An instant request or an authored `scrollTop`
+    /// replaces a running reveal where it is: the old one moves nothing
+    /// after it, and the scroll ends once.
+    func testUIKitRevealsAnimateAndAReplacementEndsThem() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "UIKit animates a scroll only in a scene's window") }
+        guard !ExactEnv.agentFreezes else { return }
+        let prior = DisplayPreferences.agent
+        DisplayPreferences.agent = (false, false)
+        defer { DisplayPreferences.agent = prior }
+
+        let reference = UIScrollView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        reference.contentSize = CGSize(width: 200, height: 1000)
+        let referenceWindow = UIWindow(windowScene: scene)
+        referenceWindow.addSubview(reference)
+        referenceWindow.makeKeyAndVisible()
+        let began = Date()
+        reference.setContentOffset(CGPoint(x: 0, y: 368), animated: true)
+        XCTAssertTrue(run(reference, from: 0, to: 368) { reference.contentOffset.y == 368 }, "a hand-built scroll view has intermediate frames")
+        let uikit = Date().timeIntervalSince(began)
+        referenceWindow.isHidden = true
+
+        let (p, sv, window) = try revealFixture(scene)
+        defer { window.isHidden = true }
+        var ended = 0, endedAt: [CGFloat] = []
+        p.onScrollend = { _ in ended += 1; endedAt.append(sv.contentOffset.y) }
+        p.scrollElementIntoView(["target", "start", "nearest"])
+        XCTAssertLessThan(sv.contentOffset.y, 368, "an unsaid reveal must not land synchronously")
+        XCTAssertTrue(p.elementScrolls.revealsInFlight)
+        XCTAssertTrue(run(sv, from: 0, to: 368) { ended > 0 }, "the reveal has UIKit's intermediate frames")
+        XCTAssertEqual(sv.contentOffset.y, 368, accuracy: 0.5)
+        XCTAssertEqual(endedAt, [368], "one scrollend, once the reveal has arrived")
+        XCTAssertFalse(p.elementScrolls.revealsInFlight)
+
+        for replace in ["instant", "scrollTop"] {
+            p.scrollElementIntoView(["home", "start", "nearest", "instant"])
+            _ = run(sv, from: 0, to: 0) { ended > 0 }
+            ended = 0
+            p.scrollElementIntoView(["target", "start", "nearest", "smooth"])
+            _ = run(sv, from: 0, to: 368) { sv.contentOffset.y > 50 }
+            if replace == "instant" { p.scrollElementIntoView(["home", "start", "nearest", "instant"]) }
+            else { p.apply(wireBatch([["op": "props", "id": 1, "set": ["scrollTop": "120"]]])) }
+            let rest: CGFloat = replace == "instant" ? 0 : 120
+            XCTAssertEqual(sv.contentOffset.y, rest, accuracy: 0.5, "\(replace) lands at once")
+            XCTAssertFalse(p.elementScrolls.revealsInFlight, "\(replace) ends the reveal")
+            _ = run(sv, from: rest, to: rest) { ended > 0 }
+            // Past the replaced animation's own end.
+            let after = Date().addingTimeInterval(uikit)
+            while Date() < after { _ = RunLoop.main.run(mode: .default, before: after) }
+            XCTAssertEqual(sv.contentOffset.y, rest, accuracy: 0.5, "the replaced reveal moves nothing after \(replace)")
+            XCTAssertEqual(ended, 1, "\(replace): one scrollend")
+        }
+    }
+
+    /// Nested scrollers animate together: the outer port aims at where the
+    /// target will be once the inner one arrives, not where it is now.
+    func testANestedUIKitRevealAimsTheOuterPortAtTheInnerDestination() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "UIKit animates a scroll only in a scene's window") }
+        guard !ExactEnv.agentFreezes else { return }
+        let prior = DisplayPreferences.agent
+        DisplayPreferences.agent = (false, false)
+        defer { DisplayPreferences.agent = prior }
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["scrollend"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["scrollend"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["id": "inner-target"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 400.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 300.0, "w": 100.0, "h": 50.0],
+        ]))
+        let window = UIWindow(windowScene: scene)
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let outer = try XCTUnwrap(p.views[1]?.scrollView), inner = try XCTUnwrap(p.views[2]?.scrollView)
+        outer.contentSize = CGSize(width: 200, height: 1000)
+        inner.contentSize = CGSize(width: 200, height: 600)
+        var ended: [UInt32] = []
+        p.onScrollend = { ended.append($0) }
+        p.scrollElementIntoView(["inner-target", "start", "nearest"])
+        XCTAssertEqual(inner.contentOffset.y, 0, "neither lands synchronously")
+        XCTAssertEqual(outer.contentOffset.y, 0)
+        _ = run(outer, from: 0, to: 400) { ended.count >= 2 }
+        XCTAssertEqual(inner.contentOffset.y, 300, accuracy: 0.5)
+        XCTAssertEqual(outer.contentOffset.y, 400, accuracy: 0.5, "the outer port aims at the inner one's destination")
+        XCTAssertEqual(ended.sorted(), [1, 2], "each scroller ends once")
+
+        // Content moving under a running reveal (an anchor's correction)
+        // sends it where the target now is, still one scroll.
+        p.scrollElementIntoView(["inner-target", "start", "nearest", "instant"])
+        inner.setContentOffset(.zero, animated: false)
+        _ = run(inner, from: 0, to: 0) { ended.count >= 3 }
+        ended = []
+        p.scrollElementIntoView(["inner-target", "start", "nearest"])
+        _ = run(inner, from: 0, to: 300) { inner.contentOffset.y > 30 }
+        p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 450.0, "w": 100.0, "h": 50.0]]))
+        XCTAssertTrue(p.elementScrolls.retarget(inner), "the reveal heads for the moved target")
+        _ = run(inner, from: 0, to: 450) { ended.contains(2) }
+        XCTAssertEqual(inner.contentOffset.y, 450, accuracy: 0.5)
+        XCTAssertEqual(ended.filter { $0 == 2 }.count, 1, "the retargeted reveal ends once")
+    }
+
     /// A strip of chips in a horizontal scroller (euxy's New Pattern icons):
     /// `chip-a` at x 300, `chip-b` at 600, and `chip-c`, made but not yet
     /// attached (a sheet's subtree before UIKit mounts it).

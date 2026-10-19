@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { composerMarkdown } from '../../src/composer/composer-markdown';
+import { codeAt, composerMarkdown } from '../../src/composer/composer-markdown';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerKeyResult } from '../../src/composer/composer-markdown-edit';
 
 const key = (source: string, start: number, name: string, shift = false, end = start, command = false) => composerMarkdownKey(source, { start, end }, { name, shift, command });
@@ -8,12 +8,16 @@ function result(source: string, outcome: ComposerKeyResult): { source: string; s
   return { source: applyComposerEdit(source, outcome.edit), ...outcome.edit.selection };
 }
 describe('composer source edit rules', () => {
-  test('Enter creates the canonical empty fence and first insertion preserves its closing fence', () => {
+  test('Enter opens a fence with an empty body line, where typed text stays inside the fence', () => {
     const entered = result('```ts title=x', key('```ts title=x', 13, 'Enter'));
-    expect(entered).toEqual({ source: '```ts title=x\n```', start: 14, end: 14 });
-    const inserted = result(entered.source, composerCodeInput(entered.source, entered, 'const x = 1'));
-    expect(inserted).toEqual({ source: '```ts title=x\nconst x = 1\n```', start: 25, end: 25 });
-    expect(result('~~~py', key('~~~py', 5, 'Enter'))).toEqual({ source: '~~~py\n~~~', start: 6, end: 6 });
+    expect(entered).toEqual({ source: '```ts title=x\n\n```', start: 14, end: 14 });
+    // The field's own typing at the caret, without an app edit.
+    const typed = entered.source.slice(0, 14) + 'const x = 1' + entered.source.slice(14);
+    expect(codeAt(composerMarkdown(typed).blocks, { start: 25, end: 25 })?.close).toEqual({ start: 26, end: 29 });
+    // A canonical empty fence from elsewhere: a pasted first line still adds the closing line's own newline.
+    const canonical = '```ts title=x\n```';
+    expect(result(canonical, composerCodeInput(canonical, { start: 14, end: 14 }, 'const x = 1'))).toEqual({ source: '```ts title=x\nconst x = 1\n```', start: 25, end: 25 });
+    expect(result('~~~py', key('~~~py', 5, 'Enter'))).toEqual({ source: '~~~py\n\n~~~', start: 6, end: 6 });
     expect(key('- ```ts', 7, 'Enter')).toEqual({ kind: 'send' });
     expect(key('> ```ts', 7, 'Enter')).toEqual({ kind: 'send' });
   });
@@ -30,6 +34,31 @@ describe('composer source edit rules', () => {
     expect(result(blank, key(blank, blank.indexOf('\n```'), 'Enter'))).toEqual({ source: '```ts\nx\n```\n', start: 12, end: 12 });
     const open = '```ts\nx\n\n';
     expect(result(open, key(open, open.length, 'Enter')).source).toBe('```ts\nx\n```\n');
+  });
+  test('an exit that leaves the code empty keeps its body line, as Enter does', () => {
+    // A pasted closing line made the outer fence longer than the one the person typed (the logical fence).
+    const pasted = '````ts\n```\n````';
+    expect(result(pasted, composerMarkdownKey(pasted, { start: 10, end: 10 }, { name: 'Enter', shift: false, command: false }, '```')))
+      .toEqual({ source: '```ts\n\n```\n', start: 11, end: 11 });
+    const blank = '```ts\n\n\n\n```';
+    expect(result(blank, key(blank, 8, 'Enter'))).toEqual({ source: '```ts\n\n```\n', start: 11, end: 11 });
+    expect(codeAt(composerMarkdown('```ts\n\n```\n').blocks, { start: 6, end: 6 })?.close).toEqual({ start: 7, end: 10 });
+  });
+  test('a restored fence without a body line keeps its closing line whole while it is typed in', () => {
+    const source = '```ts\n```';
+    // Text there opens the body line instead of joining the closing fence.
+    expect(result(source, composerCodeInput(source, { start: 6, end: 6 }, 'x'))).toEqual({ source: '```ts\nx\n```', start: 7, end: 7 });
+    expect(result(source, composerCodeInput(source, { start: 6, end: 6 }, '```'))).toEqual({ source: '````ts\n```\n````', start: 10, end: 10 });
+    // Backspace unwraps the empty code, its language line included; Tab and Enter open the body line.
+    expect(result(source, key(source, 6, 'Backspace'))).toEqual({ source: '', start: 0, end: 0 });
+    const between = 'before\n```ts\n```\nafter';
+    expect(result(between, key(between, 13, 'Backspace'))).toEqual({ source: 'before\n\nafter', start: 7, end: 7 });
+    expect(result(source, key(source, 6, 'Tab'))).toEqual({ source: '```ts\n  \n```', start: 8, end: 8 });
+    expect(key(source, 6, 'Tab', true)).toEqual({ kind: 'handled' });
+    expect(result(source, key(source, 6, 'Enter'))).toEqual({ source: '```ts\n\n\n```', start: 7, end: 7 });
+    expect(key(source, 6, 'Enter', false, 6, true)).toEqual({ kind: 'send' });
+    // Further into the closing line is ordinary text.
+    expect(key(source, 7, 'Backspace')).toEqual({ kind: 'default' });
   });
   test('Backspace at body start unwraps every code line in one edit', () => {
     const source = 'before\n```ts\nx\ny\n```\nafter';
@@ -60,20 +89,10 @@ describe('composer source edit rules', () => {
     expect(key('ordinary', 8, 'Tab')).toEqual({ kind: 'default' });
     expect(key('😀', 99, 'Enter')).toEqual({ kind: 'default' });
   });
-  test('Bold and Italic toggle source markers while retaining the UTF-16 selection', () => {
-    const source = '😀 selected text';
-    const bold = result(source, key(source, 3, 'Bold', false, 11, true));
-    expect(bold).toEqual({ source: '😀 **selected** text', start: 5, end: 13 });
-    expect(result(bold.source, key(bold.source, bold.start, 'Bold', false, bold.end, true)))
-      .toEqual({ source, start: 3, end: 11 });
-    expect(result('**word**', key('**word**', 2, 'Italic', false, 6, true)))
-      .toEqual({ source: '***word***', start: 3, end: 7 });
-    expect(result('***word***', key('***word***', 3, 'Italic', false, 7, true)))
-      .toEqual({ source: '**word**', start: 2, end: 6 });
-    expect(result('', key('', 0, 'Italic', false, 0, true))).toEqual({ source: '**', start: 1, end: 1 });
-    const code = '```\ncode\n```';
-    expect(key(code, 4, 'Bold', false, 8, true)).toEqual({ kind: 'default' });
-    expect(key(code, 0, 'Italic', false, code.length, true)).toEqual({ kind: 'default' });
+  test('Bold and Italic belong to the Markdown field, not the source rules', () => {
+    // format("composer", "bold"|"italic") edits at the field's selection (LLP 1045 D6).
+    expect(key('😀 selected text', 3, 'Bold', false, 11, true)).toEqual({ kind: 'default' });
+    expect(key('word', 0, 'Italic', false, 4, true)).toEqual({ kind: 'default' });
   });
 });
 

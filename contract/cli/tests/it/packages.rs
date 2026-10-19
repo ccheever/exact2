@@ -409,6 +409,65 @@ component App
     );
 }
 
+/// `SummaryCard`'s symbol grows with Dynamic Type beside its label, as an SF
+/// Symbol configured with the label's text style does: round 23's checkmark
+/// and star stayed in a 20-point box beside a label at the largest size. An
+/// unsized symbol is a square of its font size, which the host measures.
+#[test]
+fn summary_card_symbol_follows_its_label_through_dynamic_type() {
+    use exact_kernel::{Dimension, NodeType, RowValue, StyleId};
+    let dir = Dir::new("summary-symbol");
+    let root = dir.write(
+        "app.contract",
+        r#"use SummaryCard from "exact:content"
+component App
+  view
+    column testId="root" width=400
+      SummaryCard(label="Done", value="3", detail="today", progress=none, symbol=some("symbol:checkmark"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let size = |n: &exact_kernel::NodeRef<'_>| match n.computed(StyleId::FontSize) {
+        RowValue::Number(n) => n,
+        other => panic!("{other:?}"),
+    };
+    let mut sizes = Vec::new();
+    // iOS's body at the default size, then at the largest accessibility size.
+    for body in [17.0, 53.0] {
+        r.set_root_font_size(body).unwrap();
+        let k = r.kernel();
+        let nodes = under(k, k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id);
+        let image = nodes
+            .iter()
+            .find(|n| n.node_type == NodeType::Image)
+            .unwrap();
+        let label = nodes
+            .iter()
+            .find(|n| n.props.str(exact_kernel::PropId::Text) == Some("Done"))
+            .unwrap();
+        assert_eq!(
+            size(image),
+            size(label),
+            "{body}: the symbol is the label's size"
+        );
+        assert_eq!(image.style.width, Dimension::Auto, "no fixed box");
+        assert_eq!(image.style.height, Dimension::Auto, "no fixed box");
+        sizes.push(size(image));
+    }
+    assert!(
+        sizes[1] > sizes[0] * 2.0,
+        "it grows with the root: {sizes:?}"
+    );
+}
+
 /// LLP 1116.020 D5: `RowText` straight in a grouped section is the row: its
 /// value at the far edge (round 18's workout-log drew it mid-row) and the
 /// row as tall as the same part in a `row`.
@@ -578,6 +637,99 @@ component App
         value.frame
     );
     assert_eq!(value.frame.x, 0.0, "at the line's start");
+}
+
+/// `RowText`'s value trails its title and detail where they fit on one line
+/// and goes under them where they do not, both wrapping, as UIKit's value
+/// cell stacks its text and secondary text at the accessibility sizes: at
+/// the largest text size a long value squeezed the title to nothing beside
+/// it and ran past the row.
+#[test]
+fn row_text_puts_its_value_under_its_title_when_both_do_not_fit() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("content-row-wrap");
+    let root = dir.write(
+        "app.contract",
+        r#"use RowText from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=800
+      column testId="short" width=400
+        RowText(title="Oat milk", detail="2 in stock", value=some("$3.50"))
+      column testId="long" width=400
+        RowText(title="Oat milk", detail="2 in stock", value=some("Saturday, October 17, 2026 at 7:30 PM"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    // The box of the title and detail, the value beside it in one parent, and that parent.
+    let parts = |t: &str| {
+        let all = under(k, at(k, t));
+        let text = |s: &str| {
+            all.iter()
+                .find(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text) == Some(s))
+                .copied()
+                .unwrap()
+        };
+        let (title, value) = (
+            text("Oat milk"),
+            all.iter()
+                .rev()
+                .find(|n| n.node_type == NodeType::Text)
+                .copied()
+                .unwrap(),
+        );
+        let parent = |id: u32| {
+            all.iter()
+                .find(|n| n.children().contains(&id))
+                .copied()
+                .unwrap()
+        };
+        let lines = parent(title.id);
+        (
+            title.frame,
+            lines.frame,
+            value.frame,
+            parent(value.id).frame,
+        )
+    };
+    let (title, lines, value, row) = parts("short");
+    assert!(
+        value.y < lines.y + lines.height,
+        "beside: {lines:?} {value:?}"
+    );
+    assert_eq!(
+        value.x + value.width,
+        row.width,
+        "the value at the far edge"
+    );
+    assert!(title.width > 0.0);
+    let (title, lines, value, row) = parts("long");
+    assert!(
+        title.width >= 8.0 * 8.0,
+        "the title keeps its words: {title:?}"
+    );
+    assert!(
+        value.y >= lines.y + lines.height && value.x == 0.0,
+        "the value under the title and detail: {lines:?} {value:?}"
+    );
+    assert!(
+        value.width <= row.width,
+        "it wraps in the row: {value:?} {row:?}"
+    );
 }
 
 /// LLP 1116.001 D2: `RingProgress` is a ring around its value, one
@@ -888,6 +1040,84 @@ component App
         assert_eq!(n.props.bool(PropId::Disabled), Some(true), "{t}");
     }
     assert_eq!(tile("Quito").style.text_color, named("-exact-label"));
+}
+
+/// A poll's options as a grouped list's rows (polls): each
+/// tile is the list's own cell, the vote its checkmark accessory rather than
+/// a drawn card inset in the row, and a closed poll's vote (`"chosen"`)
+/// keeps its checkmark while the rest dim; told tiles do not press.
+#[test]
+fn exact_content_answer_tiles_are_a_grouped_lists_cells() {
+    use exact_kernel::{Accessory, Offer, PropId};
+    let dir = Dir::new("content-answer-rows");
+    let root = dir.write(
+        "app.contract",
+        r#"use AnswerTile from "exact:content"
+component App
+  state mine = "Sushi"
+  state closed = false
+  action vote(o: string)
+    mine = o
+  action close
+    closed = true
+  view
+    column testId="root" width=400 height=900
+      list testId="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+        section
+          for o in ["Tacos", "Sushi"] key=o
+            AnswerTile(label=o, status=(mine == o ? (closed ? "chosen" : "selected") : closed ? "dimmed" : "idle"), press=vote(o), testId=o)
+        section
+          button press=close testId="close"
+            text "Close Poll"
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let rows = |r: &mut exact_runner::Runner<NoData>| {
+        let k = r.kernel_mut();
+        let top = at(k, "root");
+        k.compute_layout(top, Offer::definite(400.0, 900.0))
+            .unwrap();
+        let list = k.grouped_list(at(k, "list")).unwrap();
+        list.sections[0]
+            .rows
+            .iter()
+            .map(|row| (row.title.clone(), row.custom, row.accessory, row.disabled))
+            .collect::<Vec<_>>()
+    };
+    let title = |t: &str| Some(t.to_string());
+    assert_eq!(
+        rows(&mut r),
+        [
+            (title("Tacos"), false, Accessory::None, false),
+            (title("Sushi"), false, Accessory::Checkmark, false),
+        ]
+    );
+    let close = at(r.kernel(), "close");
+    r.dispatch(close, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        rows(&mut r),
+        [
+            (title("Tacos"), false, Accessory::None, true),
+            (title("Sushi"), false, Accessory::Checkmark, true),
+        ]
+    );
+    let k = r.kernel();
+    assert_eq!(
+        k.node(at(k, "Sushi"))
+            .unwrap()
+            .props
+            .str(PropId::AccessibilityLabel),
+        Some("Sushi, selected")
+    );
 }
 
 /// LLP 1116.004 D9: a status is a `Badge`, not coloured text: its label in a

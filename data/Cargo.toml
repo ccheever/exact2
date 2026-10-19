@@ -18,6 +18,10 @@ p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 getrandom = "0.3"
 
+# `fstatat`: a kept document's identity read through its retained folder.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # The runner-level tests boot a plan against a kernel.
 exact-kernel = { path = "../kernel" }

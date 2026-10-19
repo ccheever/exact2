@@ -404,7 +404,8 @@ impl Catalog {
                         FontWeight::new(f32::from(face.weight)),
                         parsed.axes(),
                         parsed.charmap_index(),
-                    );
+                    )
+                    .with_pinned_weight();
                     staged.push((face.weight, face.italic, info));
                 }
                 if failed || staged.len() != family.faces.len as usize {

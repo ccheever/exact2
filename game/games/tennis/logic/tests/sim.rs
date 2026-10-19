@@ -9,6 +9,11 @@ use tennis_logic::{Ball, Options, Tennis};
 
 const TICK: f64 = 1000.0 / 120.0;
 
+#[test]
+fn initial_proof_pin() {
+    game(true).assert_pin(include_str!("../../pins.json"));
+}
+
 fn game(offline: bool) -> Sim<Tennis> {
     Sim::<Tennis>::new(Options {
         seed: 7,

@@ -1,7 +1,8 @@
 import type { Answer, Sources, Result } from './app.contract.d.ts';
+import { watchPosition } from '@exact/geolocation';
 
 export const appId = 'com.exact.weatherlight';
-export const grants = 'net.fetch https://api.open-meteo.com\nnet.fetch https://geocoding-api.open-meteo.com';
+export const grants = 'net.fetch https://api.open-meteo.com\nnet.fetch https://geocoding-api.open-meteo.com\ndevice.geolocation-approximate locationPurpose';
 type Forecast = Result<'forecast'>;
 type Hour = Forecast['current'];
 type Outlook = Result<'outlook'>;
@@ -98,12 +99,13 @@ async function forecast(lat: number, lon: number): Promise<Forecast> {
     return {...(previous || empty),lat,lon,stale:!!previous,message:previous ? 'Could not refresh. Showing this city’s last available forecast.' : 'The forecast couldn’t be reached. Check your connection and try again.'};
   }
 }
-function outlook(f: Forecast, units: string, selected: string, lat: number, lon: number): Outlook {
+function outlook(f: Forecast, units: string, selected: string, lat: number, lon: number, following: boolean): Outlook {
   const temp = (n:number) => `${Math.round(units==='F' ? n*9/5+32 : n)}°`;
   const blank: Outlook = {ready:false,temp:'—°',condition:'',feels:'—',wind:'—',humidity:'—',chance:'—',range:'',sunrise:'—',sunset:'—',uv:'—',summary:'',selectedLabel:'RIGHT NOW',cloud:30,rain:0,day:1,hour:12,speed:5,
     hours:Array.from({length:24},(_,i)=>({id:`waiting-${i}`,label:'—',temp:'—°',icon:'—',chance:'—'})),
     days:Array.from({length:7},(_,i)=>({id:`waiting-${i}`,label:i===0?'Today':'—',condition:'Forecast unavailable',icon:'—',chance:'—',low:'—°',high:'—°',left:'0%',span:'0%'}))};
-  if(!f.ready || f.lat!==lat || f.lon!==lon || !f.days.length) return blank;
+  // Following, the forecast is wherever the person is; else only the chosen city's.
+  if(!f.ready || (!following && (f.lat!==lat || f.lon!==lon)) || !f.days.length) return blank;
   const h = f.hours.find(hour=>hour.id===selected) || f.current;
   const day = f.days.find(d=>d.id===h.time.slice(0,10)) || f.days[0];
   const min = Math.min(...f.days.map(d=>d.low)), max = Math.max(...f.days.map(d=>d.high)), spread = Math.max(1,max-min);
@@ -126,9 +128,19 @@ async function places(query: string): Promise<Result<'places'>> {
     return {items,message:items.length ? 'Choose a place to see its forecast.' : 'No places found. Try another city or postal code.'};
   } catch {return {items:[],message:'City search couldn’t connect. Try again, or choose a city below.'};}
 }
+// Following: the forecast where the person is, approximately, asked again when
+// they move five kilometres (LLP 1133.002 §7). Without a position, the last one.
+async function here(lat: number, lon: number): Promise<Forecast> {
+  try {
+    const p = await watchPosition({ maximumAge: 600000, apple: { desiredAccuracy: 'threeKilometers', distanceFilter: 5000 }, android: { quality: 'lowPower', minUpdateDistanceMeters: 5000 } });
+    return forecast(p.coords.latitude, p.coords.longitude);
+  } catch {
+    return forecast(lat, lon);
+  }
+}
 const sources: Sources = {
-  forecast: ([lat,lon,revision]) => revision === 0 ? {...empty,lat,lon} : forecast(lat,lon),
-  outlook: ([f,units,selected,lat,lon]) => outlook(f,units,selected,lat,lon),
+  forecast: ([lat,lon,revision,following]) => revision === 0 ? {...empty,lat,lon} : following ? here(lat,lon) : forecast(lat,lon),
+  outlook: ([f,units,selected,lat,lon,following]) => outlook(f,units,selected,lat,lon,following),
   places: ([query]) => places(query),
 };
 export const answer: Answer = (source,args,store,storage) => sources[source](args,store,storage);

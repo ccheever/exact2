@@ -282,7 +282,7 @@ final class RowCells {
 
     /// The screen a view is on, read before its press can change it.
     func screen(of view: UIView) -> UIViewController? {
-        sequence(first: view as UIResponder, next: { $0.next }).lazy.compactMap { $0 as? UIViewController }.first
+        ViewPresentation.controller(for: view)
     }
 
     /// A route's screen is coming back into view: the row its list kept

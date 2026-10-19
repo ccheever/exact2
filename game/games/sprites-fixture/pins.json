@@ -1,16 +1,18 @@
 {
   "ticks": {
-    "300": "0x04bd5b984fb15ee6"
+    "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "81af51c431c2fd9b0d27f1b9dfd76e49dda6aab431f405ba791fe31a8206320c"
+    "continuation": "e71b02ce78e20d53a090b1f3563a68c61fdfd4ad53181e59d6bdf7d0bb0e1c24"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bbea76faf0acf15ed30b329373387a042ecd54b6d3a9403484b110461f4147dc",
+  "inputs": "0d6320dc1ac4063a48f8c5f8431f795509b0cd28aa1772d0e1ada2ad4cb92a68",
+  "sourceInputs": "b36b17fc9fcc2cb36a6d5c36af3b1035993714482659b39fae6fc7f0180c60f5",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "ef762084afc2f8692a397428bfc76d9c4c61eb0e",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

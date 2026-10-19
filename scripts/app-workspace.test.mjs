@@ -42,7 +42,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/linked-plan.mjs']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -467,14 +467,14 @@ test('ordinary resolution refuses missing and stale locks without writing them',
   write('game/ordinary/plain/app.json',JSON.stringify({name:'Plain',app:{id:'com.exact.plain',name:'Plain'}}));
   write('game/ordinary/plain/app.contract','component App\n  view\n');
   rmSync(resolve(root,'game/Cargo.lock'),{force:true});
-  assert.throws(()=>app('plain').cargoPackage('web'),/update the lock explicitly.*cargo metadata --offline/s);
+  assert.throws(()=>app('plain').cargoPackage('web'),/update the lock explicitly.*bun exact.mjs lock.*cargo metadata --offline/s);
   assert.equal(existsSync(resolve(root,'game/Cargo.lock')),false);
   run('cargo',['metadata','--offline','--format-version','1','--manifest-path','game/Cargo.toml']);
   const before=readFileSync(resolve(root,'game/Cargo.lock'),'utf8');
   assert.equal(app('plain').cargoPackage('web').name,'plain-web');
   const path='game/ordinary/plain/Cargo.toml';
   write(path,readFileSync(resolve(root,path),'utf8').replace('version="0.1.0"','version="0.2.0"'));
-  assert.throws(()=>app('plain').cargoPackage('web'),/Cargo\.lock does not match its Cargo\.toml files.*`cargo metadata --offline --format-version 1`.*\nerror: .*--locked/s);
+  assert.throws(()=>app('plain').cargoPackage('web'),/Cargo\.lock does not match its Cargo\.toml files.*`bun exact.mjs lock`.*`cargo metadata --offline --format-version 1`.*\nerror: .*--locked/s);
   assert.equal(readFileSync(resolve(root,'game/Cargo.lock'),'utf8'),before);
 }), 60_000);
 
@@ -647,3 +647,63 @@ test('native resource snapshot preserves ignored scoped packages, executable bit
     assert.equal(readlinkSync(resolve(staged.app.dir,'server/link')),'helper');
   } finally {disposeSnapshot(snapshot);}
 }),60000);
+
+
+test('app update reports lock drift without changing it, and the app lock verb repairs it', async () => {
+  const { createApp } = await import('../game/new.mjs');
+  const { appVerbs } = await import('./app-cli.mjs');
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-app-lock-'));
+  const dir = resolve(scratch, 'app'); mkdirSync(dir); pinned(dir);
+  const write = (file, text) => { mkdirSync(dirname(resolve(dir, file)), {recursive:true}); writeFileSync(resolve(dir, file), text); };
+  const run = args => spawnSync(process.execPath, ['exact.mjs', ...args], { cwd: dir, encoding: 'utf8' });
+  try {
+    write('Cargo.toml', '[workspace]\nmembers=["web"]\nresolver="2"\n');
+    write('app.contract', 'component App\n  view\n');
+    write('web/Cargo.toml', '[package]\nname="lock-app-web"\nversion="0.1.0"\nedition="2021"\n');
+    write('web/src/lib.rs', '');
+    const initial = createApp(dir, {update:true});
+    assert.match(initial, /Cargo.lock/);
+    assert.deepEqual(appVerbs('lock-app', dir).lock, ['scripts/app-cli.mjs', '--lock', dir]);
+    let locked = run(['lock']);
+    assert.equal(locked.status, 0, locked.stderr);
+    const before = readFileSync(resolve(dir, 'Cargo.lock'), 'utf8');
+    write('web/Cargo.toml', '[package]\nname="lock-app-web"\nversion="0.2.0"\nedition="2021"\n');
+    const updated = createApp(dir, {update:true});
+    assert.match(updated, /Cargo.lock: does not match the app manifests; run `bun exact.mjs lock`/);
+    assert.equal(readFileSync(resolve(dir, 'Cargo.lock'), 'utf8'), before);
+    locked = run(['lock']);
+    assert.equal(locked.status, 0, locked.stderr);
+    assert.match(locked.stdout, /lock-app-web 0.1.0.*0.2.0/);
+    assert.notEqual(readFileSync(resolve(dir, 'Cargo.lock'), 'utf8'), before);
+    assert.doesNotMatch(createApp(dir, {update:true}), /does not match the app manifests/);
+    const again = run(['lock']);
+    assert.equal(again.status, 0, again.stderr);
+    assert.match(again.stdout, /current; no changes/);
+  } finally { rmSync(scratch, {recursive:true,force:true}); }
+}, 60_000);
+
+// LLP 1133.001 D9: what is installed is what bun.lock says. A registry package installed at another
+// version, or missing, is named; a workspace's, a platform's own, and a nested install are not compared.
+test('a node_modules that differs from bun.lock is named by package', async () => {
+  const { lockMismatches } = await import('./filesystem.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-lock-'));
+  try {
+    writeFileSync(resolve(dir, 'bun.lock'), `{
+  "lockfileVersion": 1,
+  "packages": {
+    "@exact/reading": ["@exact/reading@workspace:packages/reading"],
+    "left": ["left@1.2.3", "", {}, "sha512-x"],
+    "gone": ["gone@2.0.0", "", {}, "sha512-y"],
+    "same": ["same@1.0.0", "", {}, "sha512-z"],
+    "tool-linux-x64": ["tool-linux-x64@1.0.0", "", { "os": "linux", "cpu": "x64" }, "sha512-w"],
+    "same/nested": ["nested@9.9.9", "", {}, "sha512-v"],
+  },
+}
+`);
+    for (const [name, version] of [['left', '1.0.0'], ['same', '1.0.0']]) {
+      mkdirSync(resolve(dir, 'node_modules', name), { recursive: true });
+      writeFileSync(resolve(dir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version }));
+    }
+    assert.deepEqual(lockMismatches(dir), ['left 1.0.0, bun.lock 1.2.3', 'gone missing, bun.lock 2.0.0']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

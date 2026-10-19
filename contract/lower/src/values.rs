@@ -148,7 +148,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
-        StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated flip-block/flip-inline combinations; flip-start and named rules are not implemented".into(),
+        StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated attempts, each one to three of flip-block, flip-inline and flip-start, applied in order; flip-x, flip-y and named rules are not implemented".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
@@ -1059,6 +1059,11 @@ pub(crate) fn check_prop_value(
 ) -> Result<(), LowerError> {
     media::check(name, value, span)?;
     let want = tags::prop_ty(prop);
+    if prop == PropId::Popover
+        && matches!(ty, Ty::Option(inner) if matches!(**inner, Ty::String | Ty::Enum(_) | Ty::Unknown))
+    {
+        return Ok(());
+    }
     // An app's browsing contexts are its window and new ones: `_parent` and
     // `_top` name frames an app does not have, a name one it cannot open.
     if prop == PropId::Target

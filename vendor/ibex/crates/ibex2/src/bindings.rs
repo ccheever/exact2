@@ -25,8 +25,18 @@ pub const HARDEN_SOURCE: &str = include_str!(env!("IBEX2_HARDEN_SOURCE_PATH"));
 pub const HARDEN_SOURCE_PATH: &str = env!("IBEX2_HARDEN_SOURCE_PATH");
 /// Filesystem path to hardening bytecode compiled by the matching `hermesc`.
 pub const HARDEN_BYTECODE_PATH: &str = env!("IBEX2_HARDEN_BYTECODE_PATH");
+/// Bytecode linked into the binary at a 16-byte boundary, which Hermes reads
+/// where it is instead of copying (an `include_bytes!` alone has no alignment).
+macro_rules! aligned_bytecode {
+    ($path:expr) => {{
+        #[repr(C, align(16))]
+        struct Aligned<B: ?Sized>(B);
+        static BYTES: &Aligned<[u8]> = &Aligned(*include_bytes!($path));
+        &BYTES.0
+    }};
+}
 /// Hardening bytecode compiled from [`HARDEN_SOURCE`].
-pub const HARDEN_BYTECODE: &[u8] = include_bytes!(env!("IBEX2_HARDEN_BYTECODE_PATH"));
+pub const HARDEN_BYTECODE: &[u8] = aligned_bytecode!(env!("IBEX2_HARDEN_BYTECODE_PATH"));
 /// Digest of the full VM archive in the one `hermes-lean-sys` resolution.
 pub const ENGINE_DIGEST: &str = env!("IBEX2_BINDINGS_ENGINE_DIGEST");
 /// Digest of the lean VM archive in that resolution, when present. If the
@@ -402,29 +412,29 @@ pub fn compiled_scripts(groups: Groups) -> Result<Vec<CompiledBinding>, GroupErr
 
 fn compiled_script(name: &str) -> &'static [u8] {
     match name {
-        "headers" => include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc")),
-        "timers" => include_bytes!(concat!(env!("OUT_DIR"), "/timers.hbc")),
-        "url" => include_bytes!(concat!(env!("OUT_DIR"), "/url.hbc")),
-        "domexception" => include_bytes!(concat!(env!("OUT_DIR"), "/domexception.hbc")),
-        "crypto" => include_bytes!(concat!(env!("OUT_DIR"), "/crypto.hbc")),
-        "events" => include_bytes!(concat!(env!("OUT_DIR"), "/events.hbc")),
-        "abort" => include_bytes!(concat!(env!("OUT_DIR"), "/abort.hbc")),
-        "websocket" => include_bytes!(concat!(env!("OUT_DIR"), "/websocket.hbc")),
-        "blob" => include_bytes!(concat!(env!("OUT_DIR"), "/blob.hbc")),
+        "headers" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/headers.hbc")),
+        "timers" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/timers.hbc")),
+        "url" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/url.hbc")),
+        "domexception" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/domexception.hbc")),
+        "crypto" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/crypto.hbc")),
+        "events" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/events.hbc")),
+        "abort" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/abort.hbc")),
+        "websocket" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/websocket.hbc")),
+        "blob" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/blob.hbc")),
         "structured_clone" => {
-            include_bytes!(concat!(env!("OUT_DIR"), "/structured_clone.hbc"))
+            aligned_bytecode!(concat!(env!("OUT_DIR"), "/structured_clone.hbc"))
         }
-        "fetch" => include_bytes!(concat!(env!("OUT_DIR"), "/fetch.hbc")),
-        "sqlite" => include_bytes!(concat!(env!("OUT_DIR"), "/sqlite.hbc")),
+        "fetch" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/fetch.hbc")),
+        "sqlite" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/sqlite.hbc")),
         #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_number_format" => {
-            include_bytes!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc"))
+            aligned_bytecode!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc"))
         }
         #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
-        "intl_case" => include_bytes!(concat!(env!("OUT_DIR"), "/intl_case.hbc")),
+        "intl_case" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/intl_case.hbc")),
         #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_datetime" => {
-            include_bytes!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc"))
+            aligned_bytecode!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc"))
         }
         _ => unreachable!("scripts returned an unknown binding"),
     }

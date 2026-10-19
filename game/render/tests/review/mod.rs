@@ -233,7 +233,8 @@ fn resize_buckets_preserve_logical_pixels_and_never_shrink() {
             first = Some(pixels.data.clone());
         }
         if index == 1 {
-            assert_eq!(stats.texture_creations, previous_creations + 9);
+            // The scene's three targets and bloom's eight (six octaves, two tap grids).
+            assert_eq!(stats.texture_creations, previous_creations + 11);
         }
         if index >= 2 {
             assert_eq!(stats.texture_creations, previous_creations);
@@ -347,7 +348,7 @@ fn primitive_camera_depth_preserves_the_far_clip_boundary() {
     let mut f = frame();
     f.view = glam::Mat4::IDENTITY;
     f.proj = glam::Mat4::IDENTITY;
-    f.environment.background = Some([0.; 3]);
+    f.environment.background = Some([0.; 3].into());
     for z in [0.999, f32::from_bits(1f32.to_bits() - 1), 1., 1.001] {
         let mut images = Vec::new();
         for prepass in [false, true] {

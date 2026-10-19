@@ -11,7 +11,7 @@ import { createApp } from '../game/new.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'feedback'];
+const APP_VERBS = ['status', 'web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -99,7 +99,7 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
 function parsed(...sources) {
   const flags = new Set();
   for (const source of sources) {
-    for (const re of [/\b(?:args|argv|rest|process\.argv)\.(?:includes|indexOf)\('(--[a-z-]+)'\)/g, /\barg\('(--[a-z-]+)'/g, /argv\[i\] === '(--[a-z-]+)'/g]) for (const [, flag] of source.matchAll(re)) flags.add(flag);
+    for (const re of [/\b(?:args|argv|rest|process\.argv)\.(?:includes|indexOf)\('(--[a-z-]+)'\)/g, /\barg\('(--[a-z-]+)'/g, /argv\[i\] === '(--[a-z-]+)'/g, /\bvalue\('(--[a-z-]+)'\)/g]) for (const [, flag] of source.matchAll(re)) flags.add(flag);
     for (const [, list] of source.matchAll(/\[((?:'--[a-z-]+'(?:, )?)+)\]\.(?:find|includes)\(/g)) for (const [, flag] of list.matchAll(/'(--[a-z-]+)'/g)) flags.add(flag);
   }
   return [...flags].sort();
@@ -108,16 +108,23 @@ function parsed(...sources) {
 test('each verb\'s help names exactly the flags its script parses, in a short text', () => {
   const read = (file) => readFileSync(resolve(ROOT, file), 'utf8');
   const exact = read('scripts/exact.mjs'), between = (from, to) => exact.slice(exact.indexOf(from), exact.indexOf(to, exact.indexOf(from)));
-  const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'));
+  const appCLI = read('scripts/app-cli.mjs');
+  const readiness = appCLI.slice(appCLI.indexOf("if (verb === 'status'"), appCLI.indexOf('if (!verbs[verb]'));
+  // The dev loops read `--pair-ttl` through stage 10 A's pairTtlOf; the rest of that module is `tamber pair`'s.
+  const pairing = read('scripts/tamber-pairing.mjs'), from = pairing.indexOf('export function pairTtlOf('), to = pairing.indexOf('\n}\n', from);
+  assert.ok(from >= 0 && to > from, 'scripts/tamber-pairing.mjs has pairTtlOf, where the dev loops read --pair-ttl');
+  const pairTtl = pairing.slice(from, to);
+  const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'), read('host/apple/bundle.mjs'));
   for (const [verb, flags] of [
-    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'))],
+    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'), read('scripts/tamber-remote.mjs'), pairTtl, readiness)],
     ['web-build', parsed(read('host/web/build.mjs'))],
-    ['agent', parsed(read('scripts/agent-launch.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'))], ['verify', parsed(read('scripts/verify.mjs'))],
+    ['agent', parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'))], ['verify', parsed(read('scripts/verify.mjs'))],
     ['ios', apple], ['mac', apple],
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],
     ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
-    ['pattern', parsed(between('export function pattern(', '\nasync function main('))],
+    ['pattern', parsed(between('export function pattern(', '\n/** The guides'))],
+    ['docs', parsed(between('export function docs(', '\nasync function main('))],
     ['new', parsed(between("if (verb === 'new')", '\n  }'))],
   ]) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
   for (const verb of Object.keys(HELP)) {
@@ -152,6 +159,7 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
 // The index is the one read: each verb, then the forms a build uses, in one screen, and every flag a form names is one its
 // verb's script parses (a form never names a flag that does not exist).
 test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
+  assert.doesNotMatch(helpText('status'), /undefined/);
   const text = indexText({ verbs: Object.keys(HELP).filter((v) => v !== 'new') });
   assert.ok(text.split('\n').length <= 36, `the index is ${text.split('\n').length} lines`);
   assert.ok(Buffer.byteLength(text) <= 2800, `the index is ${Buffer.byteLength(text)} bytes`);

@@ -514,6 +514,30 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertFalse(fab.isFirstResponder)
     }
 
+    /// A field its autofocus focused, then taken out of the window in the
+    /// same turn (a sheet's route going into the controller UIKit presents,
+    /// a grouped row into a cell not yet in one; grocery-list, round 24):
+    /// its autofocus runs again where it lands. Taken out a turn later, it
+    /// has had its autofocus, and coming back takes nothing.
+    func testAnAutofocusMovedOutOfTheWindowInItsTurnRunsWhereItLands() throws {
+        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "input", ["autofocus": "true"], w: 300, h: 34)
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        p.syncAccessibility()
+        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.field)
+        XCTAssertTrue(field.isFirstResponder, "its autofocus focused it")
+        let home = try XCTUnwrap(node.superview), elsewhere = UIView(frame: window.bounds)
+        elsewhere.addSubview(node)
+        XCTAssertFalse(field.isFirstResponder, "out of the window, UIKit resigned it")
+        window.addSubview(elsewhere)
+        p.syncAccessibility()
+        XCTAssertTrue(field.isFirstResponder, "where it landed, its autofocus focused it again")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        elsewhere.removeFromSuperview()
+        home.addSubview(node)
+        p.syncAccessibility()
+        XCTAssertFalse(field.isFirstResponder, "a turn later, it had had its autofocus")
+    }
+
     /// A FAB that asked for focus (a tabindex) keeps the focus its tap gave
     /// it against an autofocus mounted after the press, by work the press
     /// did not start (a timer's), as Chrome and AppKit keep it.
@@ -569,12 +593,17 @@ final class PressFocusIOSTests: XCTestCase {
         }
         let session = try fixture()
         let p = session.presenter
+        // The agent's clock, stopped till the sheet is up: the answer (a
+        // second's timer) lands after it, however long it takes to come up.
+        let agent = Agent(session: session)
+        let from = try XCTUnwrap(agent.clock(["take": true])["clock"] as? Double)
         let opener = try XCTUnwrap(fixtureNode(p, "open-focused-note"))
         tap(opener)
         until { self.window.rootViewController?.presentedViewController?.isBeingPresented == false }
         let sheet = try XCTUnwrap(window.rootViewController?.presentedViewController, "the note is a sheet")
         XCTAssertNil(fixtureNode(p, "note-text"), "the textarea is not there yet: the sheet is up first")
         XCTAssertNotNil(p.pressHandoff, "the sheet's route still hands on its first autofocus")
+        XCTAssertNil(agent.clock(["to": from + 1500])["error"])
         func text() -> UITextView? { fixtureNode(p, "note-text")?.textArea }
         until { text()?.isFirstResponder == true }
         XCTAssertTrue(try XCTUnwrap(text(), "the note's textarea mounted").isDescendant(of: sheet.view))
@@ -591,10 +620,17 @@ final class PressFocusIOSTests: XCTestCase {
         }
         let session = try fixture()
         let p = session.presenter
+        // The agent's clock, stopped: the note's answer (a second's timer)
+        // stays unanswered however long the sheet takes to come up. Under
+        // load it could land mid-presentation, and the sync it deferred
+        // would hold the handoff (still the press's work) past the dismissal.
+        _ = Agent(session: session).clock(["take": true])
         let opener = try XCTUnwrap(fixtureNode(p, "open-focused-note"))
         tap(opener)
         until { self.window.rootViewController?.presentedViewController?.isBeingPresented == false }
         let sheet = try XCTUnwrap(window.rootViewController?.presentedViewController)
+        XCTAssertNil(fixtureNode(p, "note-text"), "dismissed before the answer")
+        XCTAssertNotNil(p.pressHandoff, "the sheet's route holds the handoff till then")
         let controller = try XCTUnwrap(sheet.presentationController)
         // A finished swipe: UIKit dismisses the sheet, then tells its delegate.
         sheet.presentingViewController?.dismiss(animated: false)

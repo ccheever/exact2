@@ -220,7 +220,7 @@ fn rigid_node_animation_moves_pixels_and_glow_dims_baked_emission() {
             ));
             w.insert_resource(Environment {
                 fog: None,
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 ..Default::default()
             });
         }

@@ -12,6 +12,16 @@ impl<D: DataSource> Bridge<D> {
         self.give_clock();
     }
 
+    /// What a boot is told at launch: the date and place last told, and the
+    /// page's clock now, where a fresh runner's clock starts (a checkpoint
+    /// keeps its own).
+    pub(super) fn launch(&self) -> exact_runner::time::Launch {
+        exact_runner::time::Launch {
+            clock: self.live_clock.map(|now| now()),
+            ..self.launch_facts.clone()
+        }
+    }
+
     pub(super) fn give_clock(&mut self) {
         let sample = self
             .live_clock

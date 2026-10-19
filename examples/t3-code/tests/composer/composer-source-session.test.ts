@@ -67,7 +67,7 @@ describe('composer live source identity', () => {
     session.observe('one', '```', 'deleteContentBackward');
     expect(session.blockOrigins).toEqual([]);
     const opened = apply(session, 'one', '```', session.key('one', '```', { start: 3, end: 3 }, enter));
-    expect(opened.source).toBe('```\n```');
+    expect(opened.source).toBe('```\n\n```');
     expect(block(session, opened.source)).toMatchObject({ kind: 'code', fence: '```' });
     session.observe('one', '- [```', 'historyUndo');
     expect(block(session, '- [```')?.kind).toBe('paragraph');

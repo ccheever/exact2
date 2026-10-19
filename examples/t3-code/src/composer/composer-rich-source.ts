@@ -29,12 +29,9 @@ export function composerRichSource(client: T3Client, input: {
   const session = composerSourceSession(client, preview ? 'preview' : 'composer');
   if (current) session.observe(input.owner, input.value, input.inputType, literal ? 'literal' : styling ? 'rich' : 'plain');
   const chips = current ? session.chips : [];
-  const appearances = composerChipFaces(client, input.value, chips, preview);
   const projection = composerRichProjection({
     owner: current ? input.owner : '', value: input.value,
     styling, literal,
-    skills: {}, chipFaces: appearances,
-    literalRanges: current ? session.literalRanges : [],
     blockOrigins: current ? session.blockOrigins : [],
     chips,
   });

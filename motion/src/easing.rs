@@ -323,26 +323,37 @@ fn steps(count: u16, position: StepPosition, x: f64) -> f64 {
     current / jumps
 }
 
-/// CSS Easing Level 2 `linear()`: interpolate between the two stops that
-/// bracket `x`; before the first or after the last stop, hold that stop.
+/// CSS Easing 2 §2.1.2's `linear()` output (Editor's Draft, 2026-02-23): at
+/// a stop's input, the last stop there; before the first stop or past the
+/// last, the line through the two outermost stops, extrapolated; between,
+/// the last stop below `x` to the first above it.
+///
+/// One case follows Chrome (155) instead of the draft, because the web host
+/// plays the browser's: before the first stop, when the first two share an
+/// input, Chrome holds the second's output where the draft says the first's.
 fn piecewise(stops: &[LinearStop], x: f64) -> f64 {
-    let first = stops[0];
-    let last = stops[stops.len() - 1];
-    if x <= first.input {
+    let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
+        return x;
+    };
+    if stops.len() == 1 {
         return first.output;
     }
-    if x >= last.input {
-        return last.output;
+    if let Some(at) = stops.iter().rev().find(|s| s.input == x) {
+        return at.output;
     }
-    for pair in stops.windows(2) {
-        let (a, b) = (pair[0], pair[1]);
-        if x >= a.input && x <= b.input {
-            if b.input == a.input {
-                return b.output;
-            }
-            let p = (x - a.input) / (b.input - a.input);
-            return a.output + (b.output - a.output) * p;
-        }
+    let (a, b) = if x < first.input {
+        (stops[0], stops[1])
+    } else if x > last.input {
+        (stops[stops.len() - 2], stops[stops.len() - 1])
+    } else {
+        let b = stops
+            .iter()
+            .position(|s| s.input > x)
+            .expect("x is below the last stop");
+        (stops[b - 1], stops[b])
+    };
+    if a.input == b.input {
+        return b.output;
     }
-    last.output
+    a.output + (b.output - a.output) * (x - a.input) / (b.input - a.input)
 }

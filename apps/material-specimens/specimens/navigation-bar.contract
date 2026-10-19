@@ -1,3 +1,5 @@
+// The page draws a line far from the bar, outside every crop: a reader whose page draws
+// nothing never tells a driver it is ready (`oracle.mjs --phone`).
 routes nav
   tab home "/"
   tab starred "/starred"
@@ -14,6 +16,7 @@ component App
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key = e.id
               column navigationKey=`${e.id}` position="absolute" inset=0
+                text "Page" margin-top=300
       row role="tablist" testId="specimen"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") flex=1
           image "symbol:home"

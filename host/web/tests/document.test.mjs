@@ -729,6 +729,25 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
   }, {html});
 });
 
+// LLP 1121 stage 9 B (D10): a symbol nobody tinted whose `color` its author
+// wrote (`data-symbol-color`, element.rs) draws in that colour, a
+// `light-dark()` one by its scheme and a later one at once; an authored tint
+// still wins, and an unmarked symbol stays the accent. Both targets' sheets.
+for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`a symbol draws in its written colour (${sheet})`, async () => {
+  const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
+  const img = (id, css = '', marked = true) => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z"${marked ? ' data-symbol-color' : ''} style="width:16px;height:16px;${css}">`;
+  const html = SHIPPED.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root" style="--exact-accent:rgb(102, 82, 197)"><div id="ink" style="color:rgb(10, 20, 30)">${img('written')}${img('authored', '--exact-tint:rgb(255, 0, 0)')}${img('unmarked', '', false)}${['light', 'dark'].map(scheme => `<div style="color-scheme:${scheme};color:light-dark(rgb(1, 2, 3), rgb(4, 5, 6))">${img(scheme)}</div>`).join('')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'symbol fixture');
+    const read = `(() => Object.fromEntries(['written', 'authored', 'unmarked', 'light', 'dark'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor])))()`;
+    const tint = await page(read);
+    expect(tint).toEqual({ written: 'rgb(10, 20, 30)', authored: 'rgb(255, 0, 0)', unmarked: 'rgb(102, 82, 197)', light: 'rgb(1, 2, 3)', dark: 'rgb(4, 5, 6)' });
+    await page(`document.getElementById('ink').style.color = 'rgb(0, 128, 0)'`);
+    expect((await page(read)).written).toBe('rgb(0, 128, 0)');
+  }, {html});
+});
+
 // LLP 1115.000 D3.8: an SVG shape nobody filled is its text's colour, where
 // the browser's own initial `fill` is black. The page's sheet says it on the
 // outermost `svg`, so a `fill` on a shape or on a group wins and reaches a

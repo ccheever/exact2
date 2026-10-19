@@ -48,6 +48,13 @@ private:
   size_t size_;
 };
 
+// Bytecode the caller keeps for the runtime's life: lent when aligned, else copied.
+static std::shared_ptr<jsi::Buffer> kept_bytecode(const uint8_t *data, size_t len) {
+  if (reinterpret_cast<uintptr_t>(data) % 16 == 0)
+    return std::make_shared<BorrowedBytes>(data, len);
+  return std::make_shared<OwnedBytes>(std::vector<uint8_t>(data, data + len));
+}
+
 // (ctx, op, a, b, out) -> 0 with `out` null (undefined) or a malloc'd string.
 typedef int (*HostFn)(void *ctx, uint32_t op, const char *a, const char *b, char **out);
 // (ctx, op, a, bytes, len, out): the host door for byte input (LLP 1069.005:
@@ -301,12 +308,7 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
 int exact_js_load(void *h, const uint8_t *data, size_t len, char **out) {
   auto *state = static_cast<State *>(h);
   try {
-    std::shared_ptr<jsi::Buffer> buffer;
-    if (reinterpret_cast<uintptr_t>(data) % 16 == 0)
-      buffer = std::make_shared<BorrowedBytes>(data, len);
-    else
-      buffer = std::make_shared<OwnedBytes>(std::vector<uint8_t>(data, data + len));
-    state->rt->evaluateJavaScript(buffer, "app.hbc");
+    state->rt->evaluateJavaScript(kept_bytecode(data, len), "app.hbc");
     return 0;
   } catch (const jsi::JSError &e) {
     return fail(out, e.getMessage(), 1);
@@ -320,9 +322,7 @@ int exact_js_install_storage(void *h, const uint8_t *sqlite, size_t sqlite_len, 
   auto *state = static_cast<State *>(h);
   auto &rt = *state->rt;
   try {
-    auto factory_bytes = std::make_shared<OwnedBytes>(
-        std::vector<uint8_t>(sqlite, sqlite + sqlite_len));
-    auto factory = rt.evaluateJavaScript(factory_bytes, "storage-sqlite.hbc")
+    auto factory = rt.evaluateJavaScript(kept_bytecode(sqlite, sqlite_len), "storage-sqlite.hbc")
                        .getObject(rt).getFunction(rt);
     rt.global().setProperty(rt, "__exact_storage", state->adapter->storage(state->grants, factory));
     rt.global().getPropertyAsFunction(rt, "__exact_install_storage").call(rt);

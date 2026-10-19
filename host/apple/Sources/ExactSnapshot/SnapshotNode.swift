@@ -29,7 +29,7 @@ struct SnapshotNodeView: View {
     /// border box, `clip-path` over all of it, then its semantics.
     @ViewBuilder
     private var decorated: some View {
-        let nested = !isRoot && [.systemMedium, .systemLarge, .systemExtraLarge].contains(environment.family)
+        let nested = !isRoot && environment.takesLinks
         let link = nested && !environment.placeholder ? SnapshotLinks.url(node.props["href"], base: environment.linkBase) : nil
         content
             .frame(width: node.frame.width, height: node.frame.height, alignment: .topLeading)
@@ -39,14 +39,10 @@ struct SnapshotNodeView: View {
             .overlay { paint.border(in: bounds) }
             .modifier(PathClip(path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
-            .modifier(Privacy(public: publicContent && !environment.placeholder))
+            .modifier(Privacy(word: environment.placeholder ? nil : SnapshotData.words(node)["privacy"]))
             .modifier(Semantics(node: node))
             .modifier(Linked(url: link))
     }
-
-    /// `data-privacy="public"` (the node's `dataset`): not account content,
-    /// so it stays while the Lock Screen redacts the rest (D8).
-    private var publicContent: Bool { SnapshotData.words(node)["privacy"] == "public" }
 
     @ViewBuilder
     private var content: some View {
@@ -55,7 +51,7 @@ struct SnapshotNodeView: View {
         case "image": SnapshotImageView(node: node, environment: environment)
         default:
             if node.props["type"] == "progress" {
-                SnapshotProgressView(node: node)
+                SnapshotProgressView(node: node, environment: environment)
             } else {
                 let children = node.children.compactMap { tree.nodes[$0] }
                 FrameLayout(frames: children.map(\.frame), size: node.frame.size) {
@@ -90,10 +86,18 @@ private struct PathClip: ViewModifier {
     }
 }
 
+/// `data-privacy` (the node's `dataset`), in a widget and in a Live Activity
+/// alike (D8): `public` is not account content, so it stays while the Lock
+/// Screen redacts the rest; `private` is redacted inside a public container.
+/// Neither applies to the placeholder, where any value would undo its redaction.
 private struct Privacy: ViewModifier {
-    let `public`: Bool
+    let word: String?
     func body(content: Content) -> some View {
-        if `public` { content.privacySensitive(false) } else { content }
+        switch word {
+        case "public": content.privacySensitive(false)
+        case "private": content.privacySensitive(true)
+        default: content
+        }
     }
 }
 

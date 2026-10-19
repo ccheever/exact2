@@ -1,0 +1,36 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/geolocation@^1.0",
+  "platform": "android",
+  "targets": ["android"],
+  "shapes": {
+    "AndroidLocation": {
+      "provider": "string",
+      "isMock": "option<bool>",
+      "mslAltitudeMeters": "option<number>"
+    },
+    "AndroidStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    }
+  },
+  "options": {
+    "getCurrentPosition": {
+      "quality": "enum<highAccuracy|balancedPowerAccuracy|lowPower>",
+      "provider": "enum<fused|gps|network|passive>"
+    },
+    "watchPosition": {
+      "quality": "enum<highAccuracy|balancedPowerAccuracy|lowPower>",
+      "provider": "enum<fused|gps|network|passive>",
+      "intervalMillis": "number",
+      "minUpdateIntervalMillis": "number",
+      "maxUpdateDelayMillis": "number",
+      "minUpdateDistanceMeters": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": ["locationManager"],
+  "sources": { "kotlin": ["."] },
+  "artifacts": []
+}

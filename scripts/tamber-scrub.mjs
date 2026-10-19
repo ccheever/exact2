@@ -70,7 +70,7 @@ function traced() {
  * carries `frame` (a refused write restores); `opened(e)` is told a scrub's first preview,
  * `ended(e)` each end of one that previewed.
  */
-export function scrubSessions({ ask, write, patch = null, verify = null, preview, restore, released = () => {}, opened = () => {}, ended = () => {}, idleMs = SCRUB_IDLE_MS, paceMs = PACE_MS, verifyMs = VERIFY_MS }) {
+export function scrubSessions({ ask, write, patch = null, verify = null, preview, restore, released = () => {}, opened = () => {}, ended = () => {}, allowed = () => true, idleMs = SCRUB_IDLE_MS, paceMs = PACE_MS, verifyMs = VERIFY_MS }) {
   // The scrub open (from its first update: one opening is open, and ends
   // as one does) and `ends`, a count of ends, by which a preview that
   // lands after one is taken back.
@@ -116,32 +116,37 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
   async function show(request, id, arrived = null) {
     if (open?.id !== id) return refused(409, 'the scrub ended');
     const at = ends;
-    const gone = () => ends !== at || open?.id !== id;
+    // Its client ended (a paired client revoked or past its deadline):
+    // the scrub ends, before any work and after each wait.
+    const gone = () => { if (open?.id === id && !allowed(request.client)) end('disconnected'); return ends !== at || open?.id !== id; };
+    // Why it stopped: its client gone (401), else the scrub ended (409).
+    const stopped = () => (allowed(request.client) ? refused(409, 'the scrub ended') : refused(401, 'this paired client was revoked or its token expired'));
+    if (gone()) return stopped();
     let planned = null, shown = null;
     const t = trace && [arrived ?? performance.now(), performance.now()];
     if (patch) {
       planned = await ask({ method: 'scrub-fold', ops: request.ops, files: open.files, open: !open.folded });
       t?.push(performance.now());
-      if (gone()) return refused(409, 'the scrub ended');
+      if (gone()) return stopped();
       if (!planned.ok) { failed(id); return planned; }
       if (planned.ok.class !== 'live') { failed(id); return refused(409, REBUILD); }
       open.folded = true;
       shown = await patch(planned.ok.values ?? [], mark(id), planned.ok.files);
       t?.push(performance.now());
-      if (gone()) { void restore(mark(id)); return refused(409, 'the scrub ended'); }
+      if (gone()) { void restore(mark(id)); return stopped(); }
       if (shown?.fallback) shown = null;
     }
     const patched = shown != null;
     if (!shown) {
       planned = await ask({ method: 'propose', ops: request.ops, files: open.files, texts: true });
-      if (gone()) return refused(409, 'the scrub ended');
+      if (gone()) return stopped();
       if (!planned.ok) { failed(id); return planned; }
       if (planned.ok.class !== 'live') { failed(id); return refused(409, REBUILD); }
       // Texts that change nothing preview the committed design.
       shown = await preview(planned.ok.texts ?? {}, mark(id));
     }
     // Ended while it previewed: the committed design again, after it.
-    if (gone()) { void restore(mark(id)); return refused(409, 'the scrub ended'); }
+    if (gone()) { void restore(mark(id)); return stopped(); }
     if (shown?.error) { failed(id); return refused(502, `the builds could not preview it: ${shown.error}`); }
     if (!open.shown) opened({ scrub: id, client: open.client });
     open.shown = true;
@@ -222,13 +227,20 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       ends++;
       releasing = true;
       // The builds keep the preview until the build of what it writes.
-      await released(mark(id));
       let result;
-      try { result = await write({ method: 'transaction', client: request.client, files, ops }); } finally { releasing = false; }
-      // Refused (a file moved since it opened; `by` names who moved it):
-      // nothing written, the builds back on the committed design.
-      if (!result.ok) void restore(mark(id));
-      ended({ scrub: id, client: request.client, reason: result.ok ? 'released' : 'refused' });
+      try {
+        await released(mark(id));
+        // Its client ended (a paired client revoked, its token expired) while
+        // the builds took the preview: nothing written (stage 10 A2).
+        result = allowed(request.client) ? await write({ method: 'transaction', client: request.client, files, ops }) : refused(401, 'this paired client was revoked or its token expired');
+      } finally {
+        releasing = false;
+        // Refused (a file moved since it opened; `by` names who moved it), or
+        // the write failed outright: nothing written, the builds back on the
+        // committed design. Its end is told either way.
+        if (!result?.ok) void restore(mark(id));
+        ended({ scrub: id, client: request.client, reason: result?.ok ? 'released' : 'refused' });
+      }
       return result.ok ? { ok: { ...result.ok, scrub: id } } : result;
     },
     /** `scrub-cancel` `{client, scrub}`. */

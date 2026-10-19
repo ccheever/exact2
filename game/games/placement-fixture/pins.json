@@ -1,16 +1,18 @@
 {
   "ticks": {
-    "330": "0x7136b1be5a2f6a8d"
+    "330": "0xce509bd330c6290a"
   },
   "saves": {
-    "continuation": "651e8484f1e638527f0f5aaf000f5647664ce17daca74eadc51a7197be1475c7"
+    "continuation": "c7d8a79036bd71b71917224bc6ef2ee56b986458a887cc68a08e73e6eed4c1ef"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "622db92e4920630b523838ca26bf38e7c49682b29467c6c5ab6dac25e6d767f0",
+  "inputs": "2751060ef029e55dfbd0429978477afc89ee24927f253eeb073992199faa6145",
+  "sourceInputs": "66f5215eb125bd76f8b83670acd1ddc6b84e4fb076747fa821b3f81ae2b375b3",
   "game": "placement-fixture",
   "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "b8f5e9c2a0e105063472c9427db1c535f9846ad6",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

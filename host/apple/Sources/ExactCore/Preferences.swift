@@ -25,13 +25,24 @@ public struct Preferences: OptionSet, Sendable {
         case standalone, browser, fullscreen, minimalUI, windowControlsOverlay, pictureInPicture, tabbed
     }
     public static func displayMode(_ mode: DisplayMode) -> Self { Self(rawValue: mode.rawValue << 11) }
+    /// CSS's `pointer` and `hover` for the primary input (Media Queries 4
+    /// §7.1–7.2): a mouse or trackpad is `fine` and hovers, a finger is
+    /// `coarse` and does not, a remote's focus engine points at nothing. A
+    /// touch screen with a pointing device attached (an iPad with a trackpad
+    /// or mouse) answers as the pointing device.
+    public static func primaryInput(touchScreen: Bool, focusEngine: Bool = false, pointingDevice: Bool = false) -> Self {
+        if focusEngine { return [.noPointer, .noHover] }
+        if touchScreen && !pointingDevice { return [.coarsePointer, .noHover] }
+        return []
+    }
+    /// The device class's input with no pointing device attached.
     public static var platformInput: Self {
         #if os(tvOS)
-        [.noPointer, .noHover]
+        primaryInput(touchScreen: false, focusEngine: true)
         #elseif os(iOS) || os(watchOS)
-        [.coarsePointer, .noHover]
+        primaryInput(touchScreen: true)
         #else
-        []
+        primaryInput(touchScreen: false)
         #endif
     }
     public init(reducedMotion: Bool, reducedTransparency: Bool, contrast: String,

@@ -632,8 +632,9 @@ pub struct SiteIndex {
     resolve_keyframes: bridge::KeyframesLink,
     /// A binding that reads nothing (a literal style row in a list row's
     /// template) has one value for the plan's life: evaluated once, by
-    /// binding index, instead of once per instance.
-    constants: Vec<std::cell::OnceCell<Value>>,
+    /// binding index, instead of once per instance; kept for the bindings
+    /// evaluated (a plan has thousands, a screen evaluates hundreds).
+    constants: RefCell<BTreeMap<u32, Value>>,
     projections: Vec<vm::Prepared>,
 }
 
@@ -681,9 +682,7 @@ impl SiteIndex {
             deps: Deps::default(),
             keyframes: bridge::keyframes(plan),
             resolve_keyframes: keyframes,
-            constants: (0..plan.bindings.len())
-                .map(|_| Default::default())
-                .collect(),
+            constants: RefCell::default(),
             projections: plan
                 .bindings
                 .iter()
@@ -1003,12 +1002,13 @@ impl NodeInst {
             let reads = &deps.bindings[b.0 as usize];
             let evaluated = u.work.bindings_evaluated;
             let value = if reads.is_constant() {
-                match u.sites.constants[b.0 as usize].get() {
-                    Some(value) => value.clone(),
+                let known = u.sites.constants.borrow().get(&b.0).cloned();
+                match known {
+                    Some(value) => value,
                     None => {
                         u.work.bindings_evaluated += 1;
                         let value = u.eval_binding(b, binding.expr, frames)?;
-                        u.sites.constants[b.0 as usize].get_or_init(|| value.clone());
+                        u.sites.constants.borrow_mut().insert(b.0, value.clone());
                         value
                     }
                 }

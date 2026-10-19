@@ -3,7 +3,8 @@ use super::*;
 use exact_kernel::PropId;
 use serde_json::{json, Map, Value};
 
-/// Reject a competing editor owner even when its markup is computed.
+/// Refuse `decorations` on any field but a plain `textarea`, even when its
+/// `markup` is computed.
 pub(super) fn check_field(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
     let Some(decoration) = attrs.iter().find(|a| a.name == "decorations") else {
         return Ok(());
@@ -15,7 +16,7 @@ pub(super) fn check_field(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
     {
         return err(
             "lower-decoration-field",
-            "`decorations` belongs to a plain `textarea`; remove `markup` or write `markup=\"none\"`",
+            "`decorations` paints a plain `textarea`; an `input` takes none, and a `markup=\"markdown\"` field's paint is its Markdown editor's (LLP 1045)",
             decoration.span,
         );
     }
@@ -27,24 +28,12 @@ impl Lowerer<'_> {
         for declaration in &file.decorations {
             let mut rows = Vec::new();
             for attr in &declaration.attrs {
+                if !PAINT.contains(&attr.name.as_str()) {
+                    return unsupported(attr);
+                }
                 let expanded: Vec<(StyleId, Expr)> = match tags::attr(&attr.name) {
                     Some(tags::AttrTarget::Styles(ids)) => {
-                        let sides = if values::four_sided(ids) {
-                            values::sides(&attr.name, &attr.value)?
-                        } else {
-                            None
-                        };
-                        ids.iter()
-                            .enumerate()
-                            .map(|(index, &id)| {
-                                (
-                                    id,
-                                    sides
-                                        .as_ref()
-                                        .map_or_else(|| attr.value.clone(), |s| s[index].clone()),
-                                )
-                            })
-                            .collect()
+                        ids.iter().map(|&id| (id, attr.value.clone())).collect()
                     }
                     Some(tags::AttrTarget::Shorthand) => shorthands::rows(&attr.name)
                         .iter()
@@ -56,26 +45,26 @@ impl Lowerer<'_> {
                         .collect::<Result<_, _>>()?,
                     _ => return unsupported(attr),
                 };
-                for (id, mut value) in expanded {
-                    if !supported(id) {
-                        return unsupported(attr);
-                    }
-                    if id == StyleId::FontFamily {
-                        value = self.family_stacks(&value)?;
-                    }
+                for (id, value) in expanded {
                     let ty = match value {
                         Expr::Number(..) => Ty::Number,
                         Expr::Str(..) => Ty::String,
-                        _ => return unsupported(attr),
+                        _ => {
+                            return err(
+                                "lower-decoration-style",
+                                format!(
+                                    "`decoration {}`'s `{}` takes a literal value",
+                                    declaration.name, attr.name
+                                ),
+                                attr.span,
+                            )
+                        }
                     };
                     let component = Attr {
                         value: value.clone(),
                         ..attr.clone()
                     };
-                    // Font families have already been resolved into plan stack ids.
-                    if id != StyleId::FontFamily {
-                        self.check_style(&component, &[id], &ty, &[], &Scope::default())?;
-                    }
+                    self.check_style(&component, &[id], &ty, &[], &Scope::default())?;
                     let literal = match value {
                         Expr::Number(number, _) => json!(number),
                         Expr::Str(text, _) => json!(text),
@@ -110,7 +99,7 @@ impl Lowerer<'_> {
         if tag != "textarea" {
             return err(
                 "lower-decoration-field",
-                "`decorations` belongs to a plain `textarea`",
+                "`decorations` paints a plain `textarea`",
                 attr.span,
             );
         }
@@ -148,34 +137,24 @@ impl Lowerer<'_> {
     }
 }
 
-fn unsupported<T>(attr: &Attr) -> Result<T, LowerError> {
-    err("lower-decoration-style", format!("`{}` is not a decoration row: use literal font, colour, text-decoration, block margin, left padding/border, radius or line-height properties", attr.name), attr.span)
-}
+/// What CSS's `::highlight()` admits (CSS Pseudo-Elements 4 §3.2) and the
+/// kernel has rows for: nothing that moves a line break, so a decorated field
+/// measures, wraps and edits as it does without decorations.
+const PAINT: [&str; 5] = [
+    "color",
+    "background-color",
+    "text-decoration",
+    "text-decoration-line",
+    "text-shadow",
+];
 
-fn supported(id: StyleId) -> bool {
-    use StyleId::*;
-    matches!(
-        id,
-        FontFamily
-            | FontSize
-            | FontWeight
-            | FontStyle
-            | FontVariantNumeric
-            | TextColor
-            | BackgroundColor
-            | TextDecorationLine
-            | LineHeight
-            | MarginTop
-            | MarginBottom
-            | MarginLeft
-            | MarginRight
-            | PaddingLeft
-            | BorderWidthLeft
-            | BorderStyleLeft
-            | BorderColorLeft
-            | BorderRadiusTopLeft
-            | BorderRadiusTopRight
-            | BorderRadiusBottomLeft
-            | BorderRadiusBottomRight
+fn unsupported<T>(attr: &Attr) -> Result<T, LowerError> {
+    err(
+        "lower-decoration-style",
+        format!(
+            "`{}` cannot style a decoration: a decoration paints and never moves text, so it takes what CSS's `::highlight()` admits: `color`, `background-color`, `text-decoration`, `text-decoration-line` or `text-shadow` (LLP 1114.007)",
+            attr.name
+        ),
+        attr.span,
     )
 }

@@ -60,13 +60,23 @@ pub struct Declared {
     pub instance: u32,
 }
 
+/// The attribute an author wrote that a row came from (LLP 1122 D6): its
+/// span, and its name as written (a shorthand's for an expansion).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Written {
+    /// The attribute's span.
+    pub span: Span,
+    /// Its name as written.
+    pub name: String,
+}
+
 /// Where a bound row came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
-    /// The node's own attribute.
-    Own,
-    /// A `class=Name` style's row.
-    Class(String),
+    /// The node's own attribute; none where the compiler derived the row.
+    Own(Option<Written>),
+    /// A `class=Name` style's row, and the style's attribute.
+    Class(String, Option<Written>),
     /// The tag's fixed row (`row` sets `flex_direction`).
     Tag,
     /// A state part's row lowered onto the node (LLP 1121 D8: `:active`'s
@@ -86,10 +96,20 @@ impl Origin {
     /// its node's or class's).
     pub fn label(&self) -> String {
         match self {
-            Origin::Own => "own".into(),
-            Origin::Class(name) => format!("class:{name}"),
+            Origin::Own(_) => "own".into(),
+            Origin::Class(name, _) => format!("class:{name}"),
             Origin::Tag => "tag".into(),
             Origin::State { of, .. } => of.label(),
+        }
+    }
+
+    /// The attribute the author wrote for it, where there is one: an own
+    /// row's or its class's (LLP 1122 D6). A state part's row says its own
+    /// place (`State::span`).
+    pub fn written(&self) -> Option<&Written> {
+        match self {
+            Origin::Own(w) | Origin::Class(_, w) => w.as_ref(),
+            Origin::Tag | Origin::State { .. } => None,
         }
     }
 }

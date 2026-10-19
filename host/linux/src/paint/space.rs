@@ -50,7 +50,7 @@ fn rotate(axis: [f32; 3], deg: f32) -> M4 {
 
 /// `a` after `b`, two 3×3 maps row-major: what a point goes through when it
 /// is mapped by `b` and then by `a`.
-fn mul3(a: &[f32; 9], b: &[f32; 9]) -> [f32; 9] {
+pub(crate) fn mul3(a: &[f32; 9], b: &[f32; 9]) -> [f32; 9] {
     let mut out = [0.0; 9];
     for i in 0..3 {
         for j in 0..3 {
@@ -134,7 +134,7 @@ fn reach(
 
 /// The bounds of `r`'s corners mapped through `h`; `None` when a corner is
 /// behind the viewer.
-fn mapped_bounds(h: &[f32; 9], r: Rect4) -> Option<Rect4> {
+pub(crate) fn mapped_bounds(h: &[f32; 9], r: Rect4) -> Option<Rect4> {
     let mut b = (
         f32::INFINITY,
         f32::INFINITY,
@@ -156,6 +156,70 @@ fn mapped_bounds(h: &[f32; 9], r: Rect4) -> Option<Rect4> {
     Some((b.0, b.1, b.2 - b.0, b.3 - b.1))
 }
 
+fn spatial_matrix(
+    kernel: &Kernel,
+    node: &exact_kernel::NodeRef<'_>,
+    p: &Presented,
+    (x, y, w, h): Rect4,
+    offset: (f32, f32),
+) -> M4 {
+    let s = node.style;
+    let axis = s.rotate_axis.0;
+    // The box's own transform about `transform-origin`, as CSS orders
+    // the individual properties: translate, rotate, scale.
+    let (ox, oy) = s.transform_origin.resolve(w, h);
+    let (cx, cy) = (x + ox, y + oy);
+    let [dx, dy, ..] = p.layout;
+    let (tx, ty) = p.translate_at(w, h);
+    let mut m = translate(cx + dx + tx, cy + dy + ty, s.translate_z);
+    m = mul(&m, &rotate(axis, p.rotate));
+    m = mul(&m, &scale(p.scale * p.press));
+    m = mul(&m, &translate(-cx, -cy, 0.0));
+    // Its parent's `perspective`, about the parent's `perspective-origin`.
+    if let Some(parent) = node.parent.and_then(|id| kernel.node(id)) {
+        let d = parent.style.perspective;
+        if d > 0.0 {
+            let (px, py, pw, ph) = paint_rect(parent.frame, offset);
+            let (pox, poy) = parent.style.rare.perspective_origin.resolve(pw, ph);
+            let (ax, ay) = (px + pox, py + poy);
+            let mut persp = translate(ax, ay, 0.0);
+            persp = mul(
+                &persp,
+                &[
+                    [1., 0., 0., 0.],
+                    [0., 1., 0., 0.],
+                    [0., 0., 1., 0.],
+                    [0., 0., -1.0 / d, 1.],
+                ],
+            );
+            persp = mul(&persp, &translate(-ax, -ay, 0.0));
+            m = mul(&persp, &m);
+        }
+    }
+    m
+}
+
+pub(crate) fn mapping(
+    kernel: &Kernel,
+    node: &exact_kernel::NodeRef<'_>,
+    p: &Presented,
+) -> [f32; 9] {
+    let f = node.frame;
+    let rect = (f.x, f.y, f.width, f.height);
+    if node.style.rotate_axis.is_3d() || node.style.translate_z != 0. {
+        plane(&spatial_matrix(kernel, node, p, rect, (0., 0.)))
+    } else {
+        let transform = p.transform(rect, node.style.transform_origin.resolve(f.width, f.height));
+        crate::placement::compose([1., 0., 0., 0., 1., 0., 0., 0., 1.], transform, 0., 0.)
+    }
+}
+
+fn plane(m: &M4) -> [f32; 9] {
+    [
+        m[0][0], m[0][1], m[0][3], m[1][0], m[1][1], m[1][3], m[3][0], m[3][1], m[3][3],
+    ]
+}
+
 impl Painter {
     /// Paint `node` through its plane's homography when it is turned or
     /// moved in space; `false` when it is not, and the caller paints it.
@@ -171,44 +235,13 @@ impl Painter {
         clip: Option<Rect4>,
     ) -> bool {
         let s = node.style;
-        let axis = s.rotate_axis.0;
         if self.flatten == Some(node.id) || !(s.rotate_axis.is_3d() || s.translate_z != 0.0) {
             return false;
         }
         if w <= 0.0 || h <= 0.0 {
             return true;
         }
-        // The box's own transform about `transform-origin`, as CSS orders
-        // the individual properties: translate, rotate, scale.
-        let (ox, oy) = s.transform_origin.resolve(w, h);
-        let (cx, cy) = (x + ox, y + oy);
-        let [dx, dy, ..] = p.layout;
-        let (tx, ty) = p.translate_at(w, h);
-        let mut m = translate(cx + dx + tx, cy + dy + ty, s.translate_z);
-        m = mul(&m, &rotate(axis, p.rotate));
-        m = mul(&m, &scale(p.scale * p.press));
-        m = mul(&m, &translate(-cx, -cy, 0.0));
-        // Its parent's `perspective`, about the parent's `perspective-origin`.
-        if let Some(parent) = node.parent.and_then(|id| walk.scene.kernel.node(id)) {
-            let d = parent.style.perspective;
-            if d > 0.0 {
-                let (px, py, pw, ph) = paint_rect(parent.frame, offset);
-                let (pox, poy) = parent.style.rare.perspective_origin.resolve(pw, ph);
-                let (ax, ay) = (px + pox, py + poy);
-                let mut persp = translate(ax, ay, 0.0);
-                persp = mul(
-                    &persp,
-                    &[
-                        [1., 0., 0., 0.],
-                        [0., 1., 0., 0.],
-                        [0., 0., 1., 0.],
-                        [0., 0., -1.0 / d, 1.],
-                    ],
-                );
-                persp = mul(&persp, &translate(-ax, -ay, 0.0));
-                m = mul(&persp, &m);
-            }
-        }
+        let m = spatial_matrix(walk.scene.kernel, node, p, (x, y, w, h), offset);
         // The island covers what the box paints past itself: its outer
         // shadows and any overflowing descendant (nothing past a clip).
         let cap = (2.0 * w.max(h).max(64.0)).max(self.viewport.0.max(self.viewport.1));
@@ -216,9 +249,7 @@ impl Painter {
         let (iw, ih) = (w + left + right, h + top + bottom);
         // The plane z = 0 of the box, from its island (-left..w+right, …).
         let m = mul(&m, &translate(x - left, y - top, 0.0));
-        let plane = [
-            m[0][0], m[0][1], m[0][3], m[1][0], m[1][1], m[1][3], m[3][0], m[3][1], m[3][3],
-        ];
+        let plane = plane(&m);
         // Turned away from the viewer: `backface-visibility: hidden` paints
         // nothing (the plane's normal is its z column after the turn).
         let facing = m[2][2] * if m[3][3] < 0.0 { -1.0 } else { 1.0 };
@@ -245,6 +276,7 @@ impl Painter {
             scene: walk.scene,
             boxes: Vec::new(),
             text: BTreeMap::new(),
+            fields: HashMap::new(),
             skip: None,
             replay: None,
             ranks: Rc::clone(&walk.ranks),
@@ -260,6 +292,7 @@ impl Painter {
             None,
         );
         walk.text.extend(child_walk.text);
+        walk.fields.extend(child_walk.fields);
         let planes = [[0., 0., 1.]; 2];
         if let Ok(source) = painter.backend.finish() {
             if let Some((pixels, rect)) =

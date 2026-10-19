@@ -96,11 +96,11 @@ function pushTools(app, env, typescript) {
 
 /** A TypeScript app's plan and module pair, baked as its build script bakes
  * them (`exact_js_bake::bake`, production mode). */
-function bakeTypescript(tool, app) {
+function bakeTypescript(tool, app, env) {
   const dir = mkdtempSync(resolve(app.target, 'push-ts-'));
   try {
     rmSync(dir, { recursive: true });
-    const r = spawnSync(tool, [app.dir, '--out', dir], { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+    const r = spawnSync(tool, [app.dir, '--out', dir], { cwd: ROOT, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
     if (r.status !== 0) refuse(r.stderr.trim().split('\n').slice(-6).join('\n'));
     return { plan: readFileSync(resolve(dir, 'app.plan')), receipt: readFileSync(resolve(dir, 'app.module.json')), bytecode: readFileSync(resolve(dir, 'app.hbc')) };
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -129,12 +129,12 @@ function typescriptBundle(bundle, build, baked, cohort) {
   return { bundle: { ...bundle, assets: [...bundle.assets, ...assets] }, build: { ...build, graph: { ...build.graph, artifacts } } };
 }
 
-function planGraph(tool, app, plan, cohort) {
+function planGraph(tool, app, plan, cohort, env) {
   const dir = mkdtempSync(resolve(app.target, 'push-graph-'));
   try {
     writeFileSync(resolve(dir, 'app.plan'), plan);
     writeFileSync(resolve(dir, 'compat.json'), JSON.stringify(cohort.compat));
-    const r = spawnSync(tool, ['graph', resolve(dir, 'app.plan'), resolve(dir, 'compat.json'), cohort.compat.target], { encoding: 'utf8' });
+    const r = spawnSync(tool, ['graph', resolve(dir, 'app.plan'), resolve(dir, 'compat.json'), cohort.compat.target], { env, encoding: 'utf8' });
     if (r.status !== 0) refuse(r.stderr.trim());
     return JSON.parse(r.stdout);
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -182,7 +182,7 @@ export async function pusher(opts) {
   origin.useSigner?.(signer);
   const signingKey = { id: signer.keyId, public: app.manifest.deploy?.signing?.keys?.[signer.keyId] };
   // Release bytes: what `deploy` builds, signed as it signs a macOS module.
-  const env = { ...process.env, EXACT_UPDATE_TRUST: 'production' };
+  const env = { ...process.env, EXACT_UPDATE_TRUST: 'production', EXACT_GAME_PROOF_PROFILE: 'release' };
   const typescript = existsSync(resolve(app.dir, 'app.ts'));
   const tools = pushTools(app, env, typescript);
   const baker = new RustBaker(app, env);
@@ -191,7 +191,7 @@ export async function pusher(opts) {
     const started = performance.now();
     const found = await streams(origin, app, channel, env);
     const native = found.find((s) => ['native', 'tiered'].includes(s.cohort.compat.inputs.rustMode));
-    const built = typescript ? bakeTypescript(tools.typescript, app)
+    const built = typescript ? bakeTypescript(tools.typescript, app, env)
       : await buildRust(app, { compat: found[0].cohort.compat, env, nativeTarget: native?.cohort.compat.target ?? null, profile: 'release', baker });
     if (!built) refuse(`${app.name} has neither a TypeScript module (app.ts) nor a rust.module.package; push carries a plan baked with its module`);
     const bakedIn = seconds(started);
@@ -199,7 +199,7 @@ export async function pusher(opts) {
     const snapshot = { id: gitHead(), commit: gitHead(), dirty: true };
     const results = [];
     for (const { stream, head, cohort, platform, build: binary } of found) {
-      const graph = planGraph(tools.graph, app, built.plan, cohort);
+      const graph = planGraph(tools.graph, app, built.plan, cohort, env);
       const inputs = cohort.compat.inputs;
       const assets = head ? await carriedAssets(origin, app, head) : bakedAssets(app, binary);
       let bundle = { plan: { bytes: built.plan, sha256: sha256(built.plan), formatVersion: inputs.formatVersion, kernelSchema: inputs.kernelSchema }, assets };

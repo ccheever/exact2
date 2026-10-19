@@ -16,7 +16,7 @@ use std::collections::HashMap;
 pub enum Kind {
     /// `component`.
     Component,
-    /// `shape` and `fn`.
+    /// `shape`, `fn`, and a native module's sources and sends.
     Call,
     /// `style`.
     Style,
@@ -99,6 +99,10 @@ pub struct Scope {
     /// a written type of one of these names is refused even when this file
     /// has a `fn` of the name, which is no type.
     pub foreign_shapes: std::collections::HashMap<String, String>,
+    /// The program-unique names that are native modules' sources and sends
+    /// (LLP 1133.001): a resource or a `send` naming one in scope takes its
+    /// name, where a data source's name is left as written.
+    pub modules: std::collections::HashSet<String>,
 }
 
 impl Scope {
@@ -122,6 +126,17 @@ impl Scope {
             });
         }
         Ok(None)
+    }
+
+    /// A resource's or a `send`'s source: a module name in scope takes its
+    /// program-unique name; any other is the data seam's, left as written.
+    fn rename_source(&self, name: &mut String) {
+        if let Some(to) = self
+            .get(Kind::Call, name)
+            .filter(|to| self.modules.contains(*to))
+        {
+            *name = to.to_owned();
+        }
     }
 
     fn rename(&self, kind: Kind, name: &mut String, span: Span) -> Result<(), SyntaxError> {
@@ -202,10 +217,19 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         theme: _,
         design: _,
         fns,
+        modules,
         tests,
         launch: _,
         components,
     } = file;
+    for m in modules {
+        r.scope.rename(Kind::Call, &mut m.name, m.span)?;
+        let words = m.words.iter_mut().flat_map(|w| &mut w.words);
+        for field in m.options.iter_mut().chain(words) {
+            r.ty(&mut field.ty)?;
+        }
+        r.ty(&mut m.answers)?;
+    }
     for shape in shapes {
         r.scope.rename(Kind::Call, &mut shape.name, shape.span)?;
         for field in &mut shape.fields {
@@ -324,6 +348,7 @@ impl Rewriter<'_> {
             self.expr(&mut b.expr)?;
         }
         for res in resources {
+            self.scope.rename_source(&mut res.source);
             self.exprs(&mut res.args)?;
             self.ty(&mut res.shape)?;
             if let Some(p) = &mut res.placeholder {
@@ -456,7 +481,11 @@ impl Rewriter<'_> {
                     self.bind([name.clone()]);
                 }
                 Stmt::Assign { expr, .. } => self.expr(expr)?,
-                Stmt::Command { args, .. } | Stmt::Send { args, .. } => self.exprs(args)?,
+                Stmt::Command { args, .. } => self.exprs(args)?,
+                Stmt::Send { source, args, .. } => {
+                    self.scope.rename_source(source);
+                    self.exprs(args)?
+                }
                 Stmt::Refresh { .. } => {}
                 Stmt::If {
                     cond,
