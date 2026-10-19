@@ -15,6 +15,15 @@ use std::process::ExitCode;
 const USAGE: &str =
     "usage: contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or directory> | astryx <resolved theme json> [--app <app dir>] [--prefix <prefix>]";
 
+/// A request the serve may plan: a held re-import's marks, and nothing of
+/// a source (a source is read alone, `plan_alone`).
+pub(crate) fn marks_only(request: &Value) -> bool {
+    request["marks"].is_array()
+        && ["source", "sources", "baseline"]
+            .iter()
+            .all(|k| request[*k].is_null())
+}
+
 /// One import planned in a process of its own (stage 10b; the lead's
 /// 12:31Z ruling): a paired client's file is read here, never in the shared
 /// `tamber serve`, so whatever it costs, the wire's watchdog can stop it.

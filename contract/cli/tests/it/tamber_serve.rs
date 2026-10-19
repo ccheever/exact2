@@ -639,6 +639,14 @@ fn compare_revert_plan_and_import_plan() {
             .contains("no method"),
         "{refused}"
     );
+    let (riding, _) = s.ask(json!({"method": "import-plan", "marks": [], "source": css}));
+    assert!(
+        riding["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no method"),
+        "{riding}"
+    );
     let (astryx, _) = plan_alone(&dir, json!({"kind": "astryx", "source": "{}"}));
     assert!(astryx["error"]["message"]
         .as_str()

@@ -1121,9 +1121,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // (planned in a process of its own, watched: scripts/tamber-isolate.mjs)
       const planned = await planAlone({ kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix, ...(request.baseline !== undefined ? { baseline: request.baseline, recognised: exported } : {}) }, target, importLimits, appDir);
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
+      if (!planned.ok.digest) return { status: 409, error: { message: 'the design file is not there: create it, then import' } }; // (no digest, no guard)
       const { ops, review } = importReview(planned.ok);
       if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
-      const held = await hold(request.client, ops, planned.ok.digest ? { [relative(appDir, target)]: planned.ok.digest } : undefined, undefined, review, undefined, scope);
+      const held = await hold(request.client, ops, { [relative(appDir, target)]: planned.ok.digest }, undefined, review, undefined, scope);
       if (held.ok) proposals.get(held.ok.proposal).reimport = true; else if (held.error?.conflict && tries < 2) continue; return held;
     }
   }

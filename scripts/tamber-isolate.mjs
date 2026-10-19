@@ -30,12 +30,12 @@ function contract(args) {
   // resident memory (an allocator reserves ahead), so it is generous: the
   // resident watch is the bound, this the backstop.
   const kb = LIMITS.rssKb * 4;
-  return spawn('sh', ['-c', `ulimit -v ${kb} && exec "$0" "$@"`, cmd, ...argv], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+  return spawn('sh', ['-c', `ulimit -H -v ${kb} && ulimit -S -v ${kb} && exec "$0" "$@"`, cmd, ...argv], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
 }
 
 /** A process's resident KiB, by `ps`, or null when it can't be read. */
 const residentKb = pid => new Promise(done => {
-  execFile('ps', ['-o', 'rss=', '-p', String(pid)], { timeout: 1000 }, (e, out) => done(e ? null : Number(out) || 0));
+  execFile('ps', ['-o', 'rss=', '-p', String(pid)], { timeout: 1000 }, (e, out) => done(e || !/^\s*\d+\s*$/.test(out) ? null : Number(out)));
 });
 
 // The one planner's permit: the next starts once the last has exited (an
@@ -97,7 +97,8 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
   if (!child) return [Promise.resolve({ status: 503, error: { message: 'the compiler is not built yet: try again once the design server is up' } }), Promise.resolve()];
   const exited = new Promise(ok => child.on('close', ok));
   return [new Promise(done => {
-    let out = '', bytes = 0, err = '', settled = false, probing = false;
+    let out = '', bytes = 0, err = '', settled = false, probing = false, gone = false;
+    child.on('exit', () => { gone = true; });
     const finish = reply => {
       if (settled) return;
       settled = true;
@@ -115,17 +116,20 @@ function planOnce(request, design, text, { rssKb, ms, outBytes, spawnPlan = cont
     };
     const costly = why => ({ status: 413, error: { message: `the source is too costly to read: ${why}` } });
     const timer = setTimeout(() => stop({ status: 503, error: { message: `the source is too costly to read: reading it took more than ${ms / 1000} s` } }), ms);
-    // One probe at a time; one that can't read the planner stops it (never an import unwatched).
-    const watch = setInterval(() => {
+    // One probe at a time, the first at once; one that can't read the
+    // planner while it runs stops it (never an import unwatched).
+    const sample = () => {
       if (probing || settled) return;
       probing = true;
       probe(child.pid).then(kb => {
         probing = false;
-        if (settled) return;
+        if (settled || gone) return;
         if (kb === null) stop({ status: 503, error: { message: 'the import could not be watched: try again' } });
         else if (kb > rssKb) stop(costly(`reading it took more than ${Math.round(rssKb / 1024)} MiB`));
       });
-    }, 50);
+    };
+    const watch = setInterval(sample, 50);
+    sample();
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', d => {

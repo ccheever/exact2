@@ -639,7 +639,7 @@ impl Server {
                     crate::tamber_history::revert_plan(&request, &now)
                 }))]
             }
-            Some("import-plan") if request["marks"].is_array() => vec![reply(self.texts().and_then(|now| {
+            Some("import-plan") if crate::tamber_import::marks_only(&request) => vec![reply(self.texts().and_then(|now| {
                 let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
                 crate::tamber_import::plan(&request, design.map(String::as_str), &[])
             }))],
