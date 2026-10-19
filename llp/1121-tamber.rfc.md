@@ -4876,3 +4876,55 @@ E23's round 5 found super-linear paths in the importers. They are fixed in two s
     a dial's moved tokens by a name map. 3,000 set tokens and a dial take 0.14 s in debug (it was not slow there).
   - Tests: `tests/it/scale_css.rs` (each path on a large valid input in time, and the shapes that multiply cut off) and
     `scale.rs` `the_budget_takes_a_design_near_its_limit_and_refuses_one_past_it`.
+
+
+    factor, which the table doesn't mark, so a `style` reference must end in `-gap`, `-inset`, `-radius`, `-width` or
+    `-height`, the endings the kernel's row test maps to length properties. `=grouped-header-weight` stops the build,
+    checked by hand.
+
+
+
+### Stage 11, commit B2: the hosts' columns (draft for theme2)
+
+Built on B1, under the plan's §3 columns. Each host resolves the base names in its own column of the kernel's table and
+draws nothing new: stage 11 C draws and conforms on top.
+
+- **The web's JS target**, which keeps no kernel at run time (`host/web-js/src/base_scale.rs`):
+  - Its one look is the neutral one. Every build path says so with the role table's switch, which is the metrics'
+    column too, so its column is `metrics::column()` at build time.
+  - A static row naming a base name is that column's length: the kernel reads the literal while the sheet is
+    projected (B1's fallback).
+  - The sheet declares each base name the plan names, and its design does not define, once on `:root`, as
+    `--exact-<name>` (`--exact-space-md:16px`). The values come from the kernel's table, never copied numbers, and a
+    plan naming none declares nothing.
+  - A bound row whose value may name a base name maps it to that property's `var()` (`measures::map`). An SVG
+    attribute row, which reads no property, maps it to the length.
+  - A design that defines a base name makes it its own token, which the token path writes, and no base property is
+    declared for it.
+  - The web has no iOS or Mac look class to declare a second column under; one would add its rules in the same place.
+    `emit.rs` stays at its cap: its one change joins the base sheet to the theme's.
+- **The wasm web** reads the kernel's column, which its boot already sets to the neutral look's (`host.rs`). A test
+  boots the bridge and finds a base name's neutral length in the batch, one that differs from the web's first look's
+  (`@ios`) there (space.xs: 4 against 5).
+- **The terminal:** the host says `metrics::set_column(Terminal)` at boot (`host.rs`).
+  - Its metrics read as before (the web's first look's), its base spacings as cells (`n ch`, on the grid) and its base
+    radii as 0.
+  - The terminal check (`contract/cli/src/terminal.rs`) admits a base name as a terminal length, since it is cells in
+    that column.
+  - A design that redefines a base name in px is not seen by that check, as it does not see any other token's value: a
+    known limit, as for every token on the terminal.
+- **Linux and Android's reader**, through their own switches (`exact_linux::app::show_neutral_look`, the role table's;
+  `show_material_look`, the metrics'): every base name reads that column's cell. Material's cells are Material 3's
+  (`m3-spacing`, `m3-shape`). Their values coincide with the neutral look's own steps, which a test tells apart by
+  source.
+- **Tests:**
+  - `host/web-js/src/base_scale_tests.rs`:
+    - a static row is the column's length, and the sheet declares only the named bases, once, from the table;
+    - a bound row's values map to their properties;
+    - with no base named, nothing is declared; a design's own `space.md` is its token, and the others stay base.
+  - `host/web/tests/base_scale.rs`: a web boot reads the neutral column.
+  - `host/terminal/src/host_scale_tests.rs`: the terminal's column; space.lg is two cells (16 px inline, 16 px on top)
+    and radius.md and radius.full are 0.
+  - `contract/cli/src/terminal.rs`: base names pass the terminal check.
+  - `host/linux/tests/base_scale.rs`: the desktop's neutral column and the reader's Material one, every base name, and
+    a booted row.

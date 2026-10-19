@@ -376,6 +376,12 @@ pub fn map(
             Some(format!("{}:{value}", serde_json::to_string(name).unwrap()))
         })
         .collect();
+    // The base scale's names the plan names (LLP 1121 stage 11 B2), in a row
+    // that takes a length: their properties (`base_scale`).
+    let mut pairs = pairs;
+    if exact_kernel::style::theme::admits(Kind::Length, id) {
+        pairs.extend(crate::base_scale::pairs(plan, attribute));
+    }
     // A text shadow is a colour channel a mode boundary writes again: a row
     // that read a token says so, as the colour map's does (`$th`, modes.js).
     let read = if id == StyleId::TextShadow && crate::modes::active(plan) {

@@ -226,6 +226,9 @@ impl<D: DataSource> Host<D> {
     ) -> Result<Host<D>, String> {
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
+        // The terminal's own column (LLP 1121 stage 11 B2): the web's in every
+        // metric, cells for the base scale's spacings, no corners.
+        exact_kernel::style::metrics::set_column(exact_kernel::style::metrics::Column::Terminal);
         let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer::default()));
         kernel.set_cell_borders(true);
         // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
@@ -1122,3 +1125,7 @@ mod invocation_tests;
 #[cfg(test)]
 #[path = "host_clock_tests.rs"]
 mod clock_tests;
+
+#[cfg(test)]
+#[path = "host_scale_tests.rs"]
+mod scale_tests;
