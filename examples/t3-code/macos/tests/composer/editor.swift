@@ -83,14 +83,24 @@ final class EditorFixture {
     /// One event-loop turn: the undo manager closes its event group, as between keystrokes.
     func tick() { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005)) }
 
-    func send(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = []) {
+    /// Through the event queue, so the key is NSApp.currentEvent while the text view handles it, as a typed key is;
+    /// then another event is current, as by the next drop or paste (droppedFolders and isPaste read it).
+    func send(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [], ignoringModifiers: String? = nil) {
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
-            context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
-        window.sendEvent(event)
+            context: nil, characters: characters, charactersIgnoringModifiers: ignoringModifiers ?? characters, isARepeat: false, keyCode: code)!
+        NSApp.postEvent(event, atStart: true)
+        window.sendEvent(NSApp.nextEvent(matching: .keyDown, until: .distantPast, inMode: .default, dequeue: true) ?? event)
+        NSApp.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: true)
+        _ = NSApp.nextEvent(matching: .applicationDefined, until: .distantPast, inMode: .default, dequeue: true)
         tick()
     }
-    func down() { send("\u{F701}", 125, [.numericPad, .function]) }
-    func up() { send("\u{F700}", 126, [.numericPad, .function]) }
+    func down(_ flags: NSEvent.ModifierFlags = []) { send("\u{F701}", 125, flags.union([.numericPad, .function])) }
+    func up(_ flags: NSEvent.ModifierFlags = []) { send("\u{F700}", 126, flags.union([.numericPad, .function])) }
+    func control(_ letter: Character) {
+        let scalar = letter.asciiValue! - 96 // ⌃N is U+000E, ⌃P U+0010
+        send(String(UnicodeScalar(scalar)), letter == "n" ? 45 : 35, .control, ignoringModifiers: String(letter))
+    }
     func left() { send("\u{F702}", 123, [.numericPad, .function]) }
     func right() { send("\u{F703}", 124, [.numericPad, .function]) }
     func returnKey(_ flags: NSEvent.ModifierFlags = []) { send("\r", 36, flags) }
@@ -167,6 +177,22 @@ final class ComposerEditorTests: XCTestCase {
         pressedNodes = []
         XCTAssertEqual(fixture.editor.delegate?.textView?(fixture.editor, doCommandBy: #selector(NSResponder.insertNewline(_:))), true)
         XCTAssertEqual(pressedNodes, [], "a composition keeps Return")
+    }
+
+    func testMenuArrowsFollowTheKeyWithAnyModifierAndControlNPMoveTheCaret() {
+        let fixture = EditorFixture()
+        fixture.type("@a")
+        fixture.key("ArrowDown", node: 3); fixture.key("ArrowUp", node: 4)
+        fixture.inner.commands = []
+        fixture.down(.shift); fixture.up(.shift); fixture.down(.option); fixture.up(.command)
+        XCTAssertEqual(pressedNodes, [3, 4, 3, 4], "⇧↓, ⇧↑, ⌥↓ (two commands, one press) and ⌘↑ move the highlight")
+        XCTAssertEqual(fixture.inner.commands, [])
+        fixture.control("n"); fixture.control("p")
+        XCTAssertEqual(pressedNodes, [3, 4, 3, 4], "⌃N and ⌃P leave the highlight")
+        XCTAssertEqual(fixture.inner.commands, [#selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:))])
+        // A command with no key event behind it is read by its selector.
+        XCTAssertEqual(T3ComposerEditor.arrow(#selector(NSResponder.moveDown(_:)), nil), 1)
+        XCTAssertNil(T3ComposerEditor.arrow(#selector(NSResponder.moveDownAndModifySelection(_:)), nil))
     }
 
     func testFoldIsOwnerScopedObservedSourceUntilExplicitAcknowledgement() throws {

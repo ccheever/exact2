@@ -5,6 +5,18 @@ import { noteComposerTyping, releaseHeldRequests } from '../../src/composer/comp
 import { pendingRequests, requestPresentation, requestActivity, resolveAnswer } from '../../src/composer/requests';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
+import { readFileSync } from 'node:fs';
+import { appPath } from '../support/app-files';
+import { value } from '../support/contract-action-fixture';
+
+/** The `disabled=(…)` of the requests.contract view line holding `marker`, read over `env`. */
+function viewDisabled(marker: string, env: Record<string, unknown>): boolean {
+  const line = readFileSync(appPath('src/composer/requests.contract'), 'utf8').split('\n').find(line => line.includes(marker))!;
+  const start = line.indexOf('disabled=(') + 'disabled='.length;
+  let depth = 0, end = start;
+  do { if (line[end] === '(') depth++; else if (line[end] === ')') depth--; end++; } while (depth > 0);
+  return Boolean(value(line.slice(start, end), env));
+}
 
 // A connected, writable client over a fake bridge that records dispatched commands.
 function harness(projection: Obj) {
@@ -106,6 +118,26 @@ describe('questions', () => {
     expect(view.questions[0]).toMatchObject({ id: 'r1::scope', header: 'Scope', position: '1/2', last: false, action: 'Next', canAdvance: false, complete: false });
     expect(view.questions[0]!.options.map(option => [option.id, option.shortcut, option.selected])).toEqual([['Workspace', '1', false], ['Session', '2', false]]);
     expect(view.requestKey).toBe('r1::scope');
+  });
+  test('a connection without orchestration:operate shows the question with its answers disabled (canOperateThread)', async () => {
+    const { client, command, committed } = harness(input([question('scope'), question('format')]));
+    const shown = () => requestPresentation(client).questions[0]!;
+    const env = (q: Obj) => ({ q, busy: false });
+    expect(shown()).toMatchObject({ operable: true, canRespond: true });
+    expect(viewDisabled('QuestionChoice(option=option', env(shown()))).toBe(false);
+    client.scopes = ['orchestration:read', 'terminal:read'];
+    expect(shown()).toMatchObject({ operable: false, canRespond: false, live: true, responseReason: 'This connection does not have permission to respond.' });
+    // The options (and so their digit shortcuts) and Submit/Next are disabled; Previous and Dismiss stay as they were.
+    expect(viewDisabled('QuestionChoice(option=option', env(shown()))).toBe(true);
+    expect(viewDisabled('testId=`submit-answers-', env({ ...shown(), canAdvance: true }))).toBe(true);
+    // handleOptionSelection: a pick on the disabled card neither selects nor advances.
+    await command('pick-option', 'r1::scope', 'Session');
+    await command('choice', 'r1::scope', 'Workspace');
+    expect(shown()).toMatchObject({ id: 'r1::scope', index: 0 });
+    expect(shown().options.every(option => !option.selected)).toBe(true);
+    expect(committed).toHaveLength(0);
+    client.scopes = ['orchestration:read', 'orchestration:operate'];
+    expect(viewDisabled('testId=`submit-answers-', env({ ...shown(), canAdvance: true }))).toBe(false);
   });
   test('single choice advances; the last single choice submits every answer', async () => {
     const { client, command, committed } = harness(input([question('scope'), question('format')]));
