@@ -11,7 +11,7 @@
 // sideways range in Reflow's scroller; the two-session host's panes. A failed
 // check leaves one screenshot of the app in the run's directory.
 //
-// Run by hand, like `smoke deploy`: it needs Xcode 27.1 beta and a Duo
+// Run by hand, like `smoke deploy`: it needs Xcode 27.1 or newer and a Duo
 // simulator (`DEVELOPER_DIR`, `EXACT_SIM`), and the bundles built first:
 // `bun host/apple/build.mjs --ios duo-lab` (and `--ios --host` for the host
 // fixture). Without the Duo it prints `duo: unsupported — …` and the smoke
@@ -37,7 +37,7 @@ const near = (a, b, eps = 0.01) => typeof a === 'number' && Math.abs(a - b) < ep
 // grid, so the edge lands on the nearest third of a point at 3x.
 const onGrid = (a, b) => near(a, b, 1 / 3 + 0.01);
 
-// The matrix, and the Duo's geometry under the 27.1 beta (LLP 1008 §9): the
+// The matrix, and the Duo's geometry under iOS 27.1 (LLP 1008 §9): the
 // cover panel 466×678, the inner panel 951×669, the division (455.5, 0, 40, 669)
 // active when partially folded, so the segments are (0, 0, 455.5, 669) and
 // (495.5, 0, 455.5, 669).
@@ -121,7 +121,7 @@ async function suite({ open: openSession, check: record }, reset) {
   if (!check(cc.status === 0, `the hinge helper did not compile: ${cc.stderr || cc.stdout}`)) return;
   const sign = spawnSync('codesign', ['-f', '-s', '-', helper], { encoding: 'utf8' });
   if (!check(sign.status === 0, `the hinge helper was not signed: ${sign.stderr}`)) return;
-  /** Set the hinge. Xcode 27.1 RC's devicectl has no hinge readback (`device motion` is gone), so a pose is judged by what the session reports. */
+  /** Set the hinge. Xcode 27.1's devicectl reads no hinge back (it has no `device motion`), so a pose is judged by what the session reports. */
   const hinge = (deg) => {
     const r = spawnSync('xcrun', ['simctl', 'spawn', udid, helper, 'set', String(deg)], { encoding: 'utf8' });
     check(r.status === 0, `hinge ${deg}: ${r.stderr || r.stdout}`);
@@ -240,8 +240,9 @@ async function suite({ open: openSession, check: record }, reset) {
     return k.l;
   };
   // A fold between the panels with an editor focused: UIKit's keyboard machinery resigns the editor as the scene moves
-  // to the other display and makes it first responder again, but now and then never does, in a plain UIKit app as in
-  // Exact (QUEUE: "A fold that switches panels can end the editing"). The agent's `focus.events` show it: one
+  // to the other display and makes it first responder again. With an earlier iOS 27.1 runtime it now and then never did,
+  // in a plain UIKit app as in Exact; with Xcode 27.1's (24A94425) a plain app kept the focus in 36 of 36 unfolds and the
+  // smoke saw no drop in seven full runs. The agent's `focus.events` would show one
   // resignation of that native editor by UIKit's keyboard machinery and nothing else. Only that is UIKit's drop; the
   // smoke then taps the editor, the same native editor must take the focus, and the fold's checks run. After such a
   // drop UIKit shows no software keyboard in that app again until it is launched anew, a plain UIKit app's neither, so
@@ -373,7 +374,7 @@ async function suite({ open: openSession, check: record }, reset) {
   }
   const labBundle = appleArtifacts(lab, { destination: 'ios-simulator' }).bundle;
   if (!check(existsSync(labBundle), 'duo: build the simulator bundle first: bun host/apple/build.mjs --ios duo-lab')) return;
-  // A bundle linked against the 27.0 SDK finds neither UIKit 27.1 class and reports flat (LLP 1078 §As built, Apple): the fold needs the beta's SDK.
+  // A bundle linked against the 27.0 SDK finds neither UIKit 27.1 class and reports flat (LLP 1078 §As built, Apple): the fold needs the iOS 27.1 SDK.
   const sdk = JSON.parse(readFileSync(resolve(labBundle, 'receipt.json'), 'utf8')).sdk ?? '';
   const sdkVersion = Number(/iPhoneSimulator(\d+\.\d+)\.sdk/.exec(sdk)?.[1] ?? 0);
   if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;
