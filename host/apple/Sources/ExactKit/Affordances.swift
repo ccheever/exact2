@@ -125,7 +125,7 @@ extension NodeView {
     /// hierarchical glyph bakes into the page's image (LLP 1121 D9, stage 9 B).
     /// Any other image is the page's own.
     var faceImage: SymbolImage? {
-        guard symbolInk != nil, style["symbol_rendering"]?.string == "hierarchical", let name = props["symbolName"], !name.isEmpty else { return image }
+        guard props["symbolPath"] == nil, symbolInk != nil, style["symbol_rendering"]?.string == "hierarchical", let name = props["symbolName"], !name.isEmpty else { return image }
         let points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
         return points > 0 ? symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight), face: true)) : nil
     }
