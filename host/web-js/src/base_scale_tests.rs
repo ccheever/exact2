@@ -154,3 +154,80 @@ fn an_apps_own_base_name_wins_and_follows_a_live_edit() {
         release.css
     );
 }
+
+/// An alias to a base name the design leaves unset (B1 round 1,
+/// `card.pad: length = space.md`): the token's CSS is the base's property,
+/// which the sheet declares at the build's column although only the alias
+/// names it. When the design sets the base name the alias folds, so the page
+/// shows the app's value and no base property.
+#[test]
+fn an_alias_to_an_unset_base_reads_its_property_and_one_the_app_sets_folds() {
+    let compile = |design: &str, tag: &str| {
+        let dir =
+            std::env::temp_dir().join(format!("exact-web-js-alias-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.tamber"), design).unwrap();
+        std::fs::write(
+            dir.join("app.contract"),
+            "component App\n  view\n    column padding=\"card.pad\"\n      text \"a\"\n",
+        )
+        .unwrap();
+        let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        plan
+    };
+    let unset = compile(
+        "tamber t\n\ntheme\n  card.pad: length = space.md\n",
+        "unset",
+    );
+    assert_eq!(
+        crate::measures::css(exact_kernel::style::theme::Kind::Length, "space.md"),
+        "var(--exact-space-md)"
+    );
+    for dev in [false, true] {
+        let out = crate::emit::emit(&unset, false, dev).unwrap();
+        assert!(
+            out.css
+                .contains(&format!("--exact-space-md:{};", kernel("space.md"))),
+            "dev {dev}: {}",
+            out.css
+        );
+        assert!(!out.css.contains("padding-top:space.md"), "{}", out.css);
+    }
+    // A development build: the alias is a property whose value is the base's.
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&unset)
+    };
+    let token = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "card.pad")
+        .unwrap()
+        .clone();
+    assert_eq!(
+        token["css"],
+        serde_json::json!(["var(--exact-space-md)"]),
+        "{token}"
+    );
+    let dev = crate::emit::emit(&unset, false, true).unwrap();
+    assert!(
+        dev.css.contains("--x-card-pad:var(--exact-space-md)")
+            || dev.css.contains("padding-top:var(--x-card-pad)"),
+        "{}",
+        dev.css
+    );
+    // The app sets `space.md`: the alias folds, its value shows, no base property.
+    let own = compile(
+        "tamber t\n\ntheme\n  space.md = 40px\n  card.pad: length = space.md\n",
+        "own",
+    );
+    let out = crate::emit::emit(&own, false, false).unwrap();
+    assert!(
+        out.css.contains("padding-top:40px") && !out.css.contains("--exact-space-md"),
+        "{}",
+        out.css
+    );
+}

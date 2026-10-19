@@ -33,6 +33,11 @@ pub fn css(kind: Kind, value: &str) -> String {
         Kind::Length => {}
         _ => return value.trim().to_string(),
     }
+    // An alias to a base name the design leaves unset (LLP 1121 stage 11 B):
+    // the base's property, which the sheet declares (`base_scale`).
+    if exact_kernel::style::scale::is_base(value.trim()) {
+        return format!("var({})", crate::base_scale::property(value.trim()));
+    }
     match relative::parse(value) {
         Some((unit @ (Unit::TextStyle(_) | Unit::Ramp(_)), n)) => {
             let medium = relative::MEDIUM;

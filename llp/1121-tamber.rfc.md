@@ -4899,6 +4899,10 @@ draws nothing new: stage 11 C draws and conforms on top.
     plan naming none declares nothing.
   - A bound row whose value may name a base name maps it to that property's `var()` (`measures::map`). An SVG
     attribute row, which reads no property, maps it to the length.
+  - An alias to a base name the design leaves unset (B1 round 1, `card.pad: length = space.md`) is the base's property
+    wherever the token's CSS is written (`measures::css`: `var(--exact-space-md)`), and the sheet declares that
+    property although only the alias names it. Once the design sets the base name the alias folds (theme2), so the
+    page shows the app's value and declares no base property.
   - A design that defines a base name makes it its own token, which the token path writes, and no base property is
     declared for it. theme2 accepted `--exact-<name>` on two conditions, each tested:
     - the app's override wins: its own value is what the page shows, inline in a release build;
@@ -4927,7 +4931,10 @@ draws nothing new: stage 11 C draws and conforms on top.
     - with no base named, nothing is declared; a design's own `space.md` is its token, and the others stay base.
     - an app's own `space.md` wins and follows a live edit (40 px to 48 px on the same property), and no base property
       is declared for it.
-  - `host/web/tests/base_scale.rs`: a web boot reads the neutral column.
+  - `host/web/tests/base_scale.rs`: a web boot reads the neutral column, told apart from iOS's cell (space.xs 4
+    against 5; `Column::Web` reads the neutral cell since B1's round, so the boot's switch is what it holds).
+  - `base_scale_tests.rs`: an unset-base alias's CSS is the base property and the sheet declares it, in release and
+    development; an app-set base name folds the alias to the app's value with no base property.
   - `host/terminal/src/host_scale_tests.rs`: the terminal's column; space.lg is two cells (16 px inline, 16 px on top)
     and radius.md and radius.full are 0.
   - `contract/cli/src/terminal.rs`: base names pass the terminal check.
