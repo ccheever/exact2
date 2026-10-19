@@ -35,6 +35,29 @@ describe('composer source edit rules', () => {
     const open = '```ts\nx\n\n';
     expect(result(open, key(open, open.length, 'Enter')).source).toBe('```ts\nx\n```\n');
   });
+  test('an exit that leaves the code empty keeps its body line, as Enter does', () => {
+    // A pasted closing line made the outer fence longer than the one the person typed (the logical fence).
+    const pasted = '````ts\n```\n````';
+    expect(result(pasted, composerMarkdownKey(pasted, { start: 10, end: 10 }, { name: 'Enter', shift: false, command: false }, '```')))
+      .toEqual({ source: '```ts\n\n```\n', start: 11, end: 11 });
+    const blank = '```ts\n\n\n\n```';
+    expect(result(blank, key(blank, 8, 'Enter'))).toEqual({ source: '```ts\n\n```\n', start: 11, end: 11 });
+    expect(codeAt(composerMarkdown('```ts\n\n```\n').blocks, { start: 6, end: 6 })?.close).toEqual({ start: 7, end: 10 });
+  });
+  test('a restored fence without a body line stays whole at its closing line', () => {
+    const source = '```ts\n```';
+    // Text there opens the body line instead of joining the closing fence.
+    expect(result(source, composerCodeInput(source, { start: 6, end: 6 }, 'x'))).toEqual({ source: '```ts\nx\n```', start: 7, end: 7 });
+    expect(result(source, composerCodeInput(source, { start: 6, end: 6 }, '```'))).toEqual({ source: '````ts\n```\n````', start: 10, end: 10 });
+    // Backspace keeps the fence; Tab and Enter open the body line.
+    expect(key(source, 6, 'Backspace')).toEqual({ kind: 'handled' });
+    expect(result(source, key(source, 6, 'Tab'))).toEqual({ source: '```ts\n  \n```', start: 8, end: 8 });
+    expect(key(source, 6, 'Tab', true)).toEqual({ kind: 'handled' });
+    expect(result(source, key(source, 6, 'Enter'))).toEqual({ source: '```ts\n\n\n```', start: 7, end: 7 });
+    expect(key(source, 6, 'Enter', false, 6, true)).toEqual({ kind: 'send' });
+    // Further into the closing line is ordinary text.
+    expect(key(source, 7, 'Backspace')).toEqual({ kind: 'default' });
+  });
   test('Backspace at body start unwraps every code line in one edit', () => {
     const source = 'before\n```ts\nx\ny\n```\nafter';
     expect(result(source, key(source, 13, 'Backspace'))).toEqual({ source: 'before\nx\ny\nafter', start: 7, end: 7 });

@@ -1,5 +1,5 @@
 // Source edits from composer-code-block.ts and list continuation at T3 Code 9c161462c9.
-import { codeAt, composerLines, composerMarkdown, isClosingFence, parseOpeningFence, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
+import { codeAt, composerLines, composerMarkdown, emptyFenceAt, isClosingFence, parseOpeningFence, type ComposerBlockOrigin, type ComposerCodeBlock } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown';
 
 export type ComposerEdit = ComposerRange & { text: string; selection: ComposerRange };
@@ -33,33 +33,33 @@ function serializedCode(fence: string, info: string, body: string, closing: stri
     fence = fence.charAt(0).repeat(longest + 1);
     if (closing !== null) closing = fence;
   }
-  return `${fence}${info}${body ? '\n' + body : ''}${closing === null ? '' : '\n' + closing}`;
+  // A closed fence keeps a body line, empty or not, as Enter opens one.
+  return `${fence}${info}${body || closing !== null ? '\n' + body : ''}${closing === null ? '' : '\n' + closing}`;
 }
 
-/** An empty canonical fence shares its one newline between open and close.
- *  Its first body insertion adds the separate closing newline in the same edit. */
+/** Text at an empty fence's closing line becomes its first body line, with
+ *  the closing line's own newline in the same edit. */
 export function composerCodeInput(source: string, selection: ComposerRange, text: string, blocks = composerMarkdown(source).blocks): ComposerKeyResult {
-  const block = codeAt(blocks, selection);
-  if (block) {
-    const body = source.slice(block.body.start, selection.start) + text + source.slice(selection.end, block.body.end);
+  const block = codeAt(blocks, selection), empty = block ? null : emptyFenceAt(blocks, selection), code = block ?? empty;
+  if (code) {
+    const offset = block ? selection.start - block.body.start : 0;
+    const body = block ? source.slice(block.body.start, selection.start) + text + source.slice(selection.end, block.body.end) : text;
     let longest = 0;
     for (const line of body.split('\n')) {
-      if (isClosingFence(line, block.fence)) longest = Math.max(longest, /^[`~]+/.exec(line)?.[0].length ?? 0);
+      if (isClosingFence(line, code.fence)) longest = Math.max(longest, /^[`~]+/.exec(line)?.[0].length ?? 0);
     }
     if (longest > 0) {
-      const fence = block.fence.charAt(0).repeat(longest + 1);
-      const next = `${fence}${block.info}\n${body}${block.close ? '\n' + fence : ''}`;
-      const caret = block.start + fence.length + block.info.length + 1 + selection.start - block.body.start + text.length;
-      return edit(block.start, block.end, next, { start: caret, end: caret });
+      const fence = code.fence.charAt(0).repeat(longest + 1);
+      const next = `${fence}${code.info}\n${body}${code.close ? '\n' + fence : ''}`;
+      const caret = code.start + fence.length + code.info.length + 1 + offset + text.length;
+      return edit(code.start, code.end, next, { start: caret, end: caret });
     }
   }
-  if (block && block.body.start === block.body.end && block.close?.start === block.body.start && selection.start === selection.end && text) {
-    return edit(selection.start, selection.end, text + '\n', { start: selection.start + text.length, end: selection.start + text.length });
-  }
+  if (empty && text) return edit(selection.start, selection.end, text + '\n', { start: selection.start + text.length, end: selection.start + text.length });
   return edit(selection.start, selection.end, text);
 }
 
-function indentCode(source: string, selection: ComposerRange, block: Extract<ComposerBlock, { kind: 'code' }>, out: boolean): ComposerKeyResult {
+function indentCode(source: string, selection: ComposerRange, block: ComposerCodeBlock & { body: ComposerRange }, out: boolean): ComposerKeyResult {
   if (selection.start === selection.end && !out) return composerCodeInput(source, selection, CODE_BLOCK_INDENT, [block]);
   const content = source.slice(block.body.start, block.body.end);
   const startOffset = selection.start - block.body.start, endOffset = selection.end - block.body.start;
@@ -80,6 +80,13 @@ export function composerMarkdownKey(source: string, selection: ComposerRange, ke
   if (!Number.isInteger(selection.start) || !Number.isInteger(selection.end) || selection.start < 0 || selection.end < selection.start || selection.end > source.length) return DEFAULT;
   const parsed = composerMarkdown(source, { blockOrigins }), block = codeAt(parsed.blocks, selection), collapsed = selection.start === selection.end;
   if (key.name === 'Enter' && key.command) return { kind: 'send' };
+  if (!block && emptyFenceAt(parsed.blocks, selection)) {
+    // A caret at an empty fence's closing line stands for its empty code: Tab
+    // and Enter open the body line, and Backspace leaves the fence whole.
+    if (key.name === 'Tab') return key.shift ? HANDLED : composerCodeInput(source, selection, CODE_BLOCK_INDENT, parsed.blocks);
+    if (key.name === 'Enter') return composerCodeInput(source, selection, '\n', parsed.blocks);
+    return key.name === 'Backspace' ? HANDLED : DEFAULT;
+  }
   if (block) {
     if (key.name === 'Tab') return indentCode(source, selection, block, key.shift);
     if (key.name === 'Backspace' && collapsed && selection.start === block.body.start) {

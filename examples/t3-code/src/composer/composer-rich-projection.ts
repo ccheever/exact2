@@ -5,7 +5,7 @@ import { composerChips, composerChipsInBlocks, type ComposerChip } from './compo
 import type { ComposerMode } from './composer-source-session';
 
 export type ComposerCodeHeader = ComposerRange & { infoStart: number; infoEnd: number; info: string; language: string; label: string };
-export type ComposerSourceBlock = ComposerRange & { kind: string; contentStart: number; bodyStart: number; bodyEnd: number };
+export type ComposerSourceBlock = ComposerRange & { kind: string; contentStart: number; bodyStart: number; bodyEnd: number; bodyLine: boolean };
 export type ComposerRichProjection = { owner: string; value: string; mode: ComposerMode; headers: ComposerCodeHeader[]; chips: ComposerChip[]; blocks: ComposerSourceBlock[] };
 export type ComposerRichInput = {
   owner: string; value: string; styling: boolean; literal: boolean;
@@ -26,9 +26,11 @@ export function composerRichProjection(input: ComposerRichInput): ComposerRichPr
     headers.push({ start: block.open.start, end: block.open.end, infoStart: block.infoRange.start, infoEnd: block.infoRange.end,
       info: block.info, language: codeLanguageEntry(language)?.id ?? language, label: codeLanguageLabel(language) });
   }
-  const blocks = parsed.blocks.map(block => ({ kind: block.kind, start: block.start, end: block.end,
-    contentStart: 'contentStart' in block ? block.contentStart : block.start,
-    bodyStart: block.kind === 'code' ? block.body.start : block.start,
-    bodyEnd: block.kind === 'code' ? block.body.end : block.end }));
+  // A fence without a body line is projected at its closing line's start, where its body would be.
+  const blocks = parsed.blocks.map(block => {
+    const body = block.kind !== 'code' ? block : block.body ?? { start: block.close?.start ?? block.end, end: block.close?.start ?? block.end };
+    return { kind: block.kind, start: block.start, end: block.end, contentStart: 'contentStart' in block ? block.contentStart : block.start,
+      bodyStart: body.start, bodyEnd: body.end, bodyLine: block.kind !== 'code' || block.body !== null };
+  });
   return { owner: input.owner, value: input.value, mode: input.literal ? 'literal' : input.styling ? 'rich' : 'plain', headers, blocks, chips: composerChipsInBlocks(input.value, parsed.blocks, chips) };
 }
