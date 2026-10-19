@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { cancelFreshCitation, chipDecorations, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, pastedPathQueryLength, reconcileComposerChips } from '../../src/composer/composer-source-chips';
+import { cancelFreshCitation, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, reconcileComposerChips } from '../../src/composer/composer-source-chips';
 import { applyComposerEdit } from '../../src/composer/composer-markdown-edit';
 import { composerMarkdown } from '../../src/composer/composer-markdown';
 
@@ -12,7 +12,6 @@ describe('composer source chips and active triggers', () => {
     expect(chips.map(chip => source.slice(chip.start, chip.end))).toEqual(chips.map(chip => chip.source));
     expect(chips[0]?.start).toBe(3);
     expect(chips.at(-1)?.label).toBe('the quote');
-    expect(chipDecorations(chips, { deploy: 'Deploy app' })[1]?.label).toBe('Deploy app');
   });
   test('malformed or incomplete citation metadata stays editable and valid percent encoding is preserved', () => {
     for (const href of [
@@ -46,11 +45,10 @@ describe('composer source chips and active triggers', () => {
     expect(reconcileComposerChips('x' + withoutSpace, changed, shifted).map(chip => chip.start)).toEqual([shifted[0]?.start]);
     expect(reconcileComposerChips(source, '$new ', original).map(chip => chip.label)).toEqual(['new']);
   });
-  test('source content admits references without an atom table and retains repeated payloads', () => {
+  test('source content admits references and retains repeated payloads', () => {
     const context = '[Thread](t3-context://v1/thread/thread_one)', image = '![image](t3-context://v1/image/image_one)';
     const value = `😀 > ${context}\n- [ ] ${context}\n${citation} ${citation}\n${image} [x.ts](src/x.ts) `;
     const parsed = composerMarkdown(value), candidates = composerChips(value);
-    expect(parsed.decorations.atoms).toEqual([]);
     const accepted = composerChipsInBlocks(value, parsed.blocks, candidates);
     expect(accepted).toEqual(candidates);
     expect(accepted.map(chip => chip.source)).toEqual([context, context, citation, citation, image, '[x.ts](src/x.ts)']);
@@ -83,15 +81,6 @@ describe('composer source chips and active triggers', () => {
     const code = '```\n@src/x\n```';
     expect(composerTrigger(code, 10)).toBeNull();
     expect(composerTrigger('[x.ts](src/x.ts) ', 8)).toBeNull();
-  });
-  test('path paste protects only the leading literal prefix of an actual active typed query', () => {
-    expect(pastedPathQueryLength('@src/', '__init__.py next **bold**', true)).toBe(11);
-    expect(pastedPathQueryLength('@src/', '__init__.py', false)).toBe(0);
-    expect(pastedPathQueryLength('[x.ts](src/x.ts) ', '__init__.py', true)).toBe(0);
-    expect(pastedPathQueryLength('@src/', ' __init__.py', true)).toBe(0);
-    const pasted = '__init__.py **bold**', length = pastedPathQueryLength('@src/', pasted, true);
-    const projected = composerMarkdown(pasted, { literal: [{ start: 0, end: length }] });
-    expect(projected.decorations.spans.map(span => pasted.slice(span.start, span.end))).toEqual(['bold']);
   });
 });
 

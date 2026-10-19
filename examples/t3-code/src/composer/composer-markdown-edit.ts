@@ -1,6 +1,6 @@
 // Source edits from composer-code-block.ts and list continuation at T3 Code 9c161462c9.
 import { codeAt, composerLines, composerMarkdown, isClosingFence, parseOpeningFence, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
-import type { ComposerRange } from './composer-markdown-inline';
+import type { ComposerRange } from './composer-markdown';
 
 export type ComposerEdit = ComposerRange & { text: string; selection: ComposerRange };
 export type ComposerKeyResult = { kind: 'edit'; edit: ComposerEdit } | { kind: 'send' } | { kind: 'default' } | { kind: 'handled' };
@@ -79,18 +79,6 @@ function indentCode(source: string, selection: ComposerRange, block: Extract<Com
 export function composerMarkdownKey(source: string, selection: ComposerRange, key: ComposerKey, logicalFence?: string, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerKeyResult {
   if (!Number.isInteger(selection.start) || !Number.isInteger(selection.end) || selection.start < 0 || selection.end < selection.start || selection.end > source.length) return DEFAULT;
   const parsed = composerMarkdown(source, { blockOrigins }), block = codeAt(parsed.blocks, selection), collapsed = selection.start === selection.end;
-  if (key.command && (key.name === 'Bold' || key.name === 'Italic')) {
-    if (parsed.blocks.some(block => block.kind === 'code' && selection.start <= block.end && selection.end >= block.start)) return DEFAULT;
-    const marker = key.name === 'Bold' ? '**' : '*', width = marker.length;
-    const inner = source.slice(selection.start, selection.end);
-    const surrounded = source.slice(Math.max(0, selection.start - width), selection.start) === marker
-      && source.slice(selection.end, selection.end + width) === marker;
-    const bolder = width === 1 && (source.slice(0, selection.start).match(/\*+$/)?.[0].length ?? 0) % 2 === 0;
-    if (surrounded && !bolder) return edit(selection.start - width, selection.end + width, inner,
-      { start: selection.start - width, end: selection.end - width });
-    return edit(selection.start, selection.end, marker + inner + marker,
-      { start: selection.start + width, end: selection.end + width });
-  }
   if (key.name === 'Enter' && key.command) return { kind: 'send' };
   if (block) {
     if (key.name === 'Tab') return indentCode(source, selection, block, key.shift);
