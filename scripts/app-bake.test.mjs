@@ -548,3 +548,30 @@ test.skipIf(!process.env.EXACT_WIDGET_GALLERY_TEST)('a snapshot driver edit make
     assert.match(refused.stderr, /SnapshotDriver.swift/);
   } finally { writeFileSync(source, before); }
 });
+
+test('game web, release and unwired gpu-dev bakes never open registry generations', () => {
+  const dir=mkdtempSync(resolve('/tmp','exact-unwired-cache-'));
+  try {
+    // A child keeps Bun's module mocks out of the other bake tests. Stop at the
+    // real pre-build boundary: the assertion is about orchestration, not Cargo.
+    const script=resolve(dir,'check.mjs');
+    writeFileSync(script, `import {mock} from 'bun:test';
+      import assert from 'node:assert/strict';
+      let calls=0, lints=0;
+      mock.module(${JSON.stringify(resolve(import.meta.dir,'../game/app/crates.mjs'))},()=>({keptGameCrates(){calls++;throw Error('cache opened');}}));
+      mock.module(${JSON.stringify(resolve(import.meta.dir,'../game/app/shells.mjs'))},()=>({gameDefaults(){},prepareGame(){},lintGame(){lints++;}}));
+      const {buildBake}=await import(${JSON.stringify(resolve(import.meta.dir,'app.mjs'))});
+      const dir=${JSON.stringify(dir)};
+      for(const [platform,profile,target] of [['web','web','wasm32-unknown-unknown'],['linux','release',${JSON.stringify(bakeTarget('linux'))}],['linux','gpu-dev',${JSON.stringify(bakeTarget('linux'))}]]) {
+        const pkg={id:'root',name:'fixture-'+platform,targets:[{kind:['bin'],name:'fixture'}]};
+        const metadata={workspace_root:dir,packages:[pkg],resolve:{nodes:[{id:'root',deps:[]}]}};
+        const app={dir,workspace:dir,target:dir+'/target',manifest:{app:{id:'fixture'},rust:false,game:{}},crate:kind=>'fixture-'+kind,prepare:()=>metadata};
+        assert.throws(()=>buildBake(app,platform,target,{kind:platform,profile,part:'stop',output:dir+'/bakes',env:{EXACT_UPDATE_TRUST:'development'}}),
+          profile==='gpu-dev'?/unknown bake part: stop/:/partial bakes require development gpu-dev Linux/);
+      }
+      assert.equal(lints,2); assert.equal(calls,0);
+    `);
+    const result=spawnSync(process.execPath,[script],{cwd:dir,encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});

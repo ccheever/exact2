@@ -39,7 +39,7 @@ subdirectory under the game's excluded `target/`.
 ## Cold web
 
 Command: `D2_LOG=$PWD/.lane/measure/cold-web python3
-.lane/measure/probe.py bun /tmp/exact-1132-a2-cold/exact.mjs web-build`.
+game/bench/cold-build/probe.py bun /tmp/exact-1132-a2-cold/exact.mjs web-build`.
 The probe adds `--timings` to Cargo builds and records rustc timers. Exit 0.
 Elapsed: **1,388.7 s**, load averages before **197.49 / 120.21 / 76.52**,
 after **151.99 / 205.98 / 198.44** (1 / 5 / 15 minutes). Observed one-minute
@@ -82,7 +82,7 @@ D2_LOG=$PWD/.lane/measure/cold-linux \
 CARGO_TARGET_DIR=/private/tmp/exact-1132-a2-cold/target/d2-linux \
 CARGO_BUILD_BUILD_DIR=/private/tmp/exact-1132-a2-cold/target/d2-linux \
 EXACT_GAME_PROOF_PROFILE=gpu-dev \
-python3 .lane/measure/probe.py bun /tmp/exact-1132-a2-cold/proof.mjs linux --build-only
+python3 game/bench/cold-build/probe.py bun /tmp/exact-1132-a2-cold/proof.mjs linux --build-only
 ```
 
 Exit 0, elapsed **537.0 s**. Load before **139.15 / 200.46 / 196.60**,
@@ -96,7 +96,8 @@ PROOF UNVERIFIED exact-1132-a2-cold linux: 0 failures; 536.864 s
 
 The GPU Cargo invocation took 179.2 s; the host invocation took 351.7 s.
 Across their nonoverlapping dependency chains, registry crates account for
-**184.7 s (34.4% of the end-to-end build)**. This crosses D2's quarter gate.
+**184.7 s (34.4% of the end-to-end build)** before excluding path-dependants.
+This loaded run does not satisfy D2's three quiet-run oracle.
 The source classifier matches package **name and version**, preserving
 underscores, so a vendored version and a registry version of `wgpu-hal` do
 not collapse into one category. Local ThinLTO in `gpu-dev` is crate code
@@ -135,15 +136,15 @@ PROOF UNVERIFIED exact-1132-a2-cold linux: 0 failures; 901.848 s
 ```
 
 The native `gpu-dev` registry chain alone is **34.4%** of its complete build,
-so the cache gate is met without counting parallel registry work twice or
-assigning unclassified time to it. A registry-only generation trial follows.
+without counting parallel registry work twice or assigning unclassified time
+to it. This is loaded evidence, not cache admission. A registry-only generation trial follows.
 The initial profile table was completed before the cache trial. The release
 leg spends much more of its chain in path crates and cross-crate LTO.
 
 Dependency-timing audit:
 
 ```sh
-python3 .lane/measure/audit.py /tmp/exact-1132-a2-cold/target/d2-linux \
+python3 game/bench/cold-build/audit.py /tmp/exact-1132-a2-cold/target/d2-linux \
   /tmp/exact-1132-a2-cold/target target
 ```
 
@@ -154,10 +155,37 @@ one second after its dependent starts; the audit rejects it in every report.
 
 The cache excludes every path/git package and any registry package depending
 on one, transitively. That reduces the native `gpu-dev` registry dependency
-chain to **151.7 s, 28.3% of 537.0 s**: the cache still clears the quarter
-gate. The release eligible chain is **62.6 s, 6.9% of 902.1 s**. The entire
-web registry chain is only **17.8%** of its cold build. Consequently only
-native `gpu-dev` is wired to the cache; release and web remain unchanged.
+chain to **151.7 s, 28.3% of 537.0 s** in this single loaded run. The release eligible chain is **62.6 s, 6.9% of 902.1 s**. The entire
+web registry chain is only **17.8%** of its cold build. The orchestrator's round-1 decision leaves the cache built and unwired for all
+profiles, including setup. Three cold `gpu-dev` runs under load 5 must put
+the eligible registry chain over a quarter before any integration is enabled.
+
+The subtraction is checkable from the two native GPU/host HTML chains:
+
+| Native `gpu-dev` registry chain | Seconds |
+|---|---:|
+| All registry segments | 184.723101083 |
+| Exclude `wgpu-core-deps-apple` (depends on path `wgpu-hal`) | −0.130000000 |
+| Exclude `wgpu-core` (transitive path-dependant) | −24.220000000 |
+| Exclude `wgpu` (transitive path-dependant) | −8.640000000 |
+| **Eligible registry segments** | **151.733101083** |
+| End-to-end build | 537.032320976 |
+| **Eligible fraction** | **28.253998%** |
+
+The vendored `wgpu-hal` segment was already classified as Core/vendor path;
+it is not subtracted twice. The shipped SDK lock gives the same exclusions
+as the measured generated shell lock. Recompute with:
+
+```sh
+python3 game/bench/cold-build/audit.py .lane/measure/retained-timings/2/d2-linux \
+  --phases .lane/measure/cold-linux --lock game/app/shells.lock
+```
+
+The round-1 audit reproduced the table and passed its late-predecessor
+negative control on both reports. The executable probe and audit are committed
+under `game/bench/cold-build/`; its README gives fresh-target commands for all
+three legs. The following reuse results describe the earlier integration
+trial; that integration and its setup primer have now been removed.
 
 A fresh generated game took a coherent generation, then built with the same
 Cargo timings and rustc timer wrapper. The wrapper exits 86 if Cargo invokes
@@ -249,12 +277,23 @@ running rustc:
 ```
 
 This is a guard fixture, not a real Cargo rejection tolerated during reuse.
-Timing HTMLs from retired lane-owned targets are retained under
-`.lane/measure/retained-timings/`; unit JSONL, summaries and logs remain in
-each measurement directory. Retiring targets reclaims disk space and does
+Round 1 added a real Cargo negative control. It found that Cargo may clear
+the completed fingerprint before invoking rustc, so the earlier observer can
+miss a rebuild. The committed probe instead refuses any invocation whose
+hash was in the pre-build copied-completed snapshot. Its regression copies
+a completed tiny Cargo target, changes source, and sees observer exit 86
+(Cargo exit 101). The historical zero-rebuild claims above are not conclusive;
+repeat acceptance counts with this observer before enabling the cache.
+Timing HTMLs remain at `.lane/measure/retained-timings/` in this worktree,
+including the native cold reports under `2/d2-linux/cargo-timings/`. They
+are untracked lane evidence; the orchestrator files them with the reviews.
+Unit JSONL, summaries and logs remain under `.lane/measure/`. Retiring targets reclaims disk space and does
 not alter the recorded runs.
 
-## Public setup and live Rust edits
+## Earlier setup trial and live Rust edits
+
+The setup option and primer below were removed in round 1; this section
+records the earlier experiment, not the current CLI.
 
 `PATH="$HOME/.cargo/bin:$PATH" bun scripts/exact.mjs setup --game` exits 0:
 `SDK tools ready.` It built the asset-capable primer's GPU and native host

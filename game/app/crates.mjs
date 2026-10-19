@@ -1,13 +1,14 @@
 // Registry units stay in coherent generations; Cargo validates every copied fingerprint.
+// A rebuilt copied unit is a failed warm, never tolerated.
 // Path packages and their dependants remain private to each game target.
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 
 /** What stands for the target directory in a kept `.d` file. */
-const TOKEN = '@exact-target@';
+const TARGET = '@exact-target@', BUILD = '@exact-build@';
 /** Generations kept: the newest, and the one a build may still be cloning. */
 const GENERATIONS = 2;
 const PARTS = ['build', 'deps', '.fingerprint'];
@@ -18,10 +19,12 @@ const changed = (path) => { try { return statSync(path).mtimeMs; } catch { retur
 const unitOf = (name) => /^(.+)-([0-9a-f]{16})$/.exec(name);
 const hashOf = (file) => /-([0-9a-f]{16})\.[\w.]+$/.exec(file)?.[1];
 /** A dependency-info file with one path prefix swapped for another, its time kept. */
-function rewrite(from, to, was, now) {
+function rewrite(from, to, replacements) {
   const stat = statSync(from);
   mkdirSync(dirname(to), { recursive: true });
-  writeFileSync(to, readFileSync(from, 'utf8').replaceAll(was, now));
+  let content = readFileSync(from, 'utf8');
+  for (const [was, now] of replacements) content = content.replaceAll(was, now);
+  writeFileSync(to, content);
   utimesSync(to, stat.atime, stat.mtime);
 }
 /** Every rustc dep-info file of a profile directory, relative to it: the units' in `deps`, the build scripts' beside each script. */
@@ -51,59 +54,77 @@ export function registryPackages(lock) {
 }
 
 /** Compiler identity and effective flags, without a game's directory or authored inputs. */
-export function gameCrateKey({channel,profile,triple,rustc,flags,env = {}}) {
-  const names = ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC','RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER','RUSTC_BOOTSTRAP','CARGO_INCREMENTAL','CARGO_BUILD_RUSTFLAGS',
+export function gameCrateKey({channel,profile,triple,rustc,flags,strip,env = {}}) {
+  const names = ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC','RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER','RUSTC_BOOTSTRAP','RUSTUP_TOOLCHAIN','CARGO_INCREMENTAL','CARGO_BUILD_RUSTFLAGS',
     ...Object.keys(env).filter(name => name.startsWith('CARGO_PROFILE_') || name.startsWith('CARGO_TARGET_') && name.endsWith('_RUSTFLAGS')).sort()];
-  return createHash('sha256').update(JSON.stringify({channel,profile,triple,rustc,flags,
+  return createHash('sha256').update(JSON.stringify({channel,profile,triple,rustc,flags,strip,
     environment:Object.fromEntries(names.map(name => [name,env[name] ?? null]))})).digest('hex');
 }
 
-/**
- * The kept crates for one build at `profile`. `take(target, kind)` starts a
- * Cargo target directory that has compiled nothing at the profile from the
- * newest generation of its kind.
- * `keep(target, kind, lock)` makes the next generation when this directory
- * may and has something new.
- */
-export function keptGameCrates({ root, env, profile, triple, flags, directory = resolve(homedir(), '.cache/exact/game-crates') }) {
+/** Resolve existing ancestors too: Cargo may spell /tmp as /private/tmp on macOS. */
+function canonical(path) {
+  try { return realpathSync(path); }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    return resolve(canonical(dirname(path)), path.slice(dirname(path).length + 1));
+  }
+}
+/** Cargo metadata, not app.target or an environment override, owns both directories. */
+function placement(metadata) {
+  const target = metadata.target_directory, build = metadata.build_directory;
+  if (!target || !build) throw new Error('Cargo metadata must resolve target_directory and build_directory');
+  const pairs = [[target, TARGET], [canonical(target), TARGET], [build, BUILD], [canonical(build), BUILD]];
+  return { target: canonical(build),
+    keep: pairs.sort(([a], [b]) => b.length - a.length),
+    take: [[BUILD, canonical(build)], [TARGET, canonical(target)]],
+    plain: pairs.every(([path]) => /^[\w./+@-]+$/.test(path)) };
+}
+
+/** Registry generations for a profile. Pass resolved Cargo metadata to take/keep.
+ * Only fresh profile directories are seeded; existing host or target profiles
+ * stay private. Both sides of a split Cargo directory layout are relocated. */
+export function keptGameCrates({ root, env, profile, triple, flags, strip = false, directory = resolve(homedir(), '.cache/exact/game-crates') }) {
   const idle = { take() {}, keep() {} };
   if (typeof Bun === 'undefined') return idle;
   const channel = env.RUSTUP_TOOLCHAIN ?? /channel\s*=\s*"([^"]+)"/.exec(text(resolve(root, 'rust-toolchain.toml')) ?? '')?.[1];
   if (!channel || !/^[\w.+-]+$/.test(channel)) return idle;
   const compiler = spawnSync(env.RUSTC ?? 'rustc', ['-vV'], {cwd:root, env, encoding:'utf8'});
   if (compiler.status !== 0) throw new Error('rustc -vV failed');
-  const key = gameCrateKey({channel,profile,triple,rustc:compiler.stdout,flags,env});
+  const key = gameCrateKey({channel,profile,triple,rustc:compiler.stdout,flags,strip,env});
   const store = resolve(directory, channel, profile, triple, key);
   const generations = (kind) => names(resolve(store, kind)).filter(name => name.startsWith('gen-')).sort();
   // Build dependencies and target units belong to the same generation.
   const profileDirs = (dir) => [profile, `${triple}/${profile}`].filter(d => existsSync(resolve(dir, d, '.fingerprint')));
-  // A path rustc would escape in a `.d` is not worth a second spelling: such a target keeps and takes nothing.
-  const plain = (target) => /^[\w./+@-]+$/.test(target);
   const stampOf = (target) => resolve(target, `kept-game-crates-${key}.json`);
   const warn = (what, error) => console.warn(`game/cache: ${what} (${error.message}); compiling as usual`);
   return {
     store, key,
-    take(target, kind) {
+    take(metadata, kind) {
       try {
+        const paths = placement(metadata), target = paths.target;
         const newest = generations(kind).at(-1);
-        if (!plain(target) || existsSync(resolve(target, profile)) || !newest) return;
+        if (!paths.plain || !newest) return;
         const kept = resolve(store, kind, newest);
         let units = 0;
+        const skipped = [];
         for (const dir of profileDirs(kept)) {
           const here = resolve(target, dir);
-          if (existsSync(here)) continue;
+          if (existsSync(here)) { skipped.push(dir); continue; }
           clone(PARTS.map(part => resolve(kept, dir, part)).filter(existsSync), here);
-          for (const file of depInfo(here)) rewrite(resolve(kept, dir, file), resolve(here, file), TOKEN, target);
+          for (const file of depInfo(here)) rewrite(resolve(kept, dir, file), resolve(here, file), paths.take);
           units += names(resolve(here, '.fingerprint')).length;
         }
-        writeFileSync(stampOf(target), JSON.stringify({ from: newest, saw: {} }));
+        if (!units) return;
+        writeFileSync(stampOf(target), JSON.stringify({ from: newest, saw: {}, skipped }));
         console.log(`game/cache: ${target.replace(root + '/', '')} starts with the ${units} registry units this machine has compiled (${kept.replace(homedir(), '~')})`);
       } catch (error) { warn('no kept crates', error); }
     },
-    keep(target, kind, lock) {
+    keep(metadata, kind, lock) {
       try {
-        if (!plain(target)) return;
-        const stamp = JSON.parse(text(stampOf(target)) ?? '{}'), dirs = profileDirs(target);
+        const paths = placement(metadata), target = paths.target;
+        if (!paths.plain) return;
+        const stamp = JSON.parse(text(stampOf(target)) ?? '{}');
+        const dirs = profileDirs(target).filter(dir => !stamp.skipped?.includes(dir));
         const saw = Object.fromEntries(dirs.map(dir => [dir, changed(resolve(target, dir, '.fingerprint'))]));
         if (dirs.every(dir => stamp.saw?.[dir] === saw[dir])) return;
         const newest = generations(kind).at(-1);
@@ -116,6 +137,10 @@ export function keptGameCrates({ root, env, profile, triple, flags, directory = 
         if (dirs.some(dir => { const kept = has(dir); return mine(dir, kept).some(name => !kept.has(name)); })) {
           const making = resolve(store, kind, `.making-${process.pid}`);
           rmSync(making, { recursive: true, force: true });
+          for (const dir of stamp.skipped ?? []) {
+            const previous = resolve(store, kind, newest, dir);
+            if (existsSync(previous)) clone([previous], resolve(making, dirname(dir)));
+          }
           for (const dir of dirs) {
             const units = mine(dir), taken = new Set(units), hashes = new Set(units.map(name => unitOf(name)[2]));
             const here = resolve(target, dir), files = names(resolve(here, 'deps')).filter(file => hashes.has(hashOf(file)));
@@ -123,7 +148,7 @@ export function keptGameCrates({ root, env, profile, triple, flags, directory = 
             clone(files.filter(file => !file.endsWith('.d')).map(file => resolve(here, 'deps', file)), resolve(making, dir, 'deps'));
             for (const file of depInfo(here)) {
               const [part, name] = file.split('/');
-              if (part === 'deps' ? hashes.has(hashOf(name)) : taken.has(name)) rewrite(resolve(here, file), resolve(making, dir, file), target, TOKEN);
+              if (part === 'deps' ? hashes.has(hashOf(name)) : taken.has(name)) rewrite(resolve(here, file), resolve(making, dir, file), paths.keep);
             }
             clone(units.map(name => resolve(here, '.fingerprint', name)), resolve(making, dir, '.fingerprint'));
           }
@@ -132,7 +157,7 @@ export function keptGameCrates({ root, env, profile, triple, flags, directory = 
           for (const old of generations(kind).slice(0, -GENERATIONS)) rmSync(resolve(store, kind, old), { recursive: true, force: true });
           for (const left of names(resolve(store, kind))) if (left.startsWith('.making-') && Date.now() - changed(resolve(store, kind, left)) > 3_600_000) rmSync(resolve(store, kind, left), { recursive: true, force: true });
         }
-        writeFileSync(stampOf(target), JSON.stringify({ from, saw }));
+        writeFileSync(stampOf(target), JSON.stringify({ from, saw, skipped: stamp.skipped }));
       } catch (error) { warn('this build\'s crates were not kept', error); }
     },
   };

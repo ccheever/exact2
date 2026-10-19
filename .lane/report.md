@@ -1,5 +1,8 @@
 # Lane 1132.A2 — D2
 
+The original implementation record below is superseded by the Round 1 section.
+Its cache-admission and setup claims describe the earlier trial.
+
 2026-10-18. Branch `lane/1132.A2-cold-build`; no pushes.
 
 ## 1. What landed
@@ -225,3 +228,43 @@ The quiet three-run phase oracle remains unverified because the shared
 machine stayed loaded. No quiet performance claim is made. Native Linux
 runs here qualify the headless host on the Mac's native target; they do not
 qualify Linux KMS, window or input behavior on a Linux OS.
+
+
+## Round 1
+
+The orchestrator's decision is to land the cache built and unwired. Removed
+`buildBake`'s cache import/take/keep and the `setup --game` flag and primer;
+there is no retained primer to isolate (fix item 7 is moot). README and Queue
+now require three cold `gpu-dev` runs under load 5 before wiring reuse.
+The loaded 28.254% result is evidence, not admission.
+
+The dormant module now takes Cargo metadata and places intermediates in its
+resolved build directory, relocates both product/build prefixes and their
+realpaths, seeds host/triple profiles independently, and keys strip plus the
+toolchain override. Populated skipped profiles never enter a generation;
+older coherent cached profiles are preserved. Tests cover the requested
+versioned lock and same-name path/registry cases, actual Cargo metadata with
+only `CARGO_TARGET_DIR` overridden, dep-info aliases, cache-free orchestration
+for web/release/native development, and refusal of the removed setup flag.
+
+Committed probe/audit commands are under `game/bench/cold-build/`. The audit
+reproduced 184.723101083 − 0.13 − 24.22 − 8.64 = 151.733101083 s; dividing by
+537.032320976 s gives 28.253998%. The subtraction table is in measurement.md.
+All 22 retained timing HTMLs passed dependency-edge audits and their applicable
+late-predecessor controls. The HTML stays in `.lane/measure/retained-timings/`
+as untracked evidence for the orchestrator to file with the reviews.
+
+The probe's new real-Cargo negative control caught a defect in the earlier
+observer: Cargo can clear the completed fingerprint before invoking rustc.
+The committed probe now checks the pre-build copied-hash snapshot directly.
+`bun test game/bench/cold-build/probe.test.mjs` passed: the cold tiny fixture
+compiled, copying its completed fingerprint then changing its source made
+Cargo invoke rustc, and the observer exited 86 (Cargo/outer command 101).
+This tests the rejection observer, not registry eligibility or a speedup.
+The earlier historical guard's "zero rebuilt" claim is therefore limited;
+a quiet admission trial must use the corrected observer and recheck counts.
+
+The cache tests passed after fixing one failure in independent-profile
+retention. The final standalone cache run passed all six tests and 39
+assertions. The required full command, root and game checks, and fresh native
+build results are appended after the runs complete.

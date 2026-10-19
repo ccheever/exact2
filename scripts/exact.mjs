@@ -39,7 +39,7 @@ import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bakeTarget, buildBake, developmentBuildEnv, cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
+import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
@@ -363,7 +363,7 @@ export function binaryenArchive(version, os = process.platform, cpu = process.ar
 }
 
 /** Install the versions declared by the SDK, once per machine. */
-export function setup({check = false, game = false} = {}) {
+export function setup({check = false} = {}) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const version = BINARYEN.replace(' ', '_');
@@ -419,24 +419,6 @@ export function setup({check = false, game = false} = {}) {
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
     if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
-    if (game) {
-      const directory = resolve(homedir(), '.cache/exact/game-crates');
-      mkdirSync(directory, {recursive: true});
-      const stage = mkdtempSync(resolve(directory, 'primer-'));
-      const previous = process.env.EXACT_APP_DIR;
-      try {
-        const path = resolve(stage, 'game-cache-primer');
-        createGame(path, undefined, {assets: true});
-        process.env.EXACT_APP_DIR = path;
-        const app = resolveApp(), target = bakeTarget('linux');
-        console.log(`game/cache: warming ${target} gpu-dev`);
-        buildBake(app, 'linux', target, {profile: 'gpu-dev', env: developmentBuildEnv()});
-      } finally {
-        if (previous === undefined) delete process.env.EXACT_APP_DIR;
-        else process.env.EXACT_APP_DIR = previous;
-        rmSync(stage, {recursive: true, force: true});
-      }
-    }
   }
   const report = sdkReport();
   printReport(report);
@@ -662,10 +644,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
-  exact setup [--check] [--game] install pinned Rust, wasm-bindgen, Binaryen and
+  exact setup [--check]       install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
                                fetch the crates every bake reads offline
-                               --game also warms native gpu-dev registry crates
   exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds (Kotlin for android/)
                                (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
@@ -1146,8 +1127,8 @@ async function main(argv) {
   if (verb === 'game' && name === 'vocab') return import('../game/vocab.mjs').then(m => m.main(rest));
   if (verb === 'setup') {
     const flags = argv.slice(1);
-    if (flags.some(flag => !['--check','--game'].includes(flag))) throw new Error('Usage: exact setup [--check] [--game]');
-    return setup({check:flags.includes('--check'),game:flags.includes('--game')});
+    if (flags.some(flag => !['--check'].includes(flag))) throw new Error('Usage: exact setup [--check]');
+    return setup({check:flags.includes('--check')});
   }
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).

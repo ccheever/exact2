@@ -54,9 +54,7 @@ wasm-bindgen, Binaryen and Bun dependencies. `setup --check` diagnoses missing o
 mismatched tools. See [offline setup](#offline-setup) for populating Cargo's cache.
 Cargo installs wasm-bindgen into `$CARGO_HOME/bin` (normally `~/.cargo/bin`);
 include that directory in `PATH` for web builds and the dev loop.
-`bun scripts/exact.mjs setup --game` also warms the native game's registry
-cache for `gpu-dev`. This compiles the optional engine during setup;
-ordinary setup only provisions its dependencies.
+Setup provisions source dependencies; it does not compile the optional engine.
 
 ```sh
 bun game/new.mjs ./my-game
@@ -646,16 +644,16 @@ Linux proofs use `gpu-dev` with separate completed host and GPU receipts;
 a logic-only edit can rebuild the GPU alone. Completed development receipts bind
 the whole file. `bun proof.mjs linux --build-only` builds this host/module pair.
 The generic `bun exact.mjs linux` verb builds only the host, under `host-dev`.
-An empty native `gpu-dev` game target can start from `~/.cache/exact/game-crates`.
-The cache separates channel, profile, target triple, rustc and compiler flags;
-Cargo checks each copied fingerprint. It keeps two coherent generations of
-registry units, excluding path crates and their dependants. Cache files are
-not game inputs. A separate `CARGO_BUILD_BUILD_DIR` bypasses this cache.
-Removing the cache costs the next build its compilation time.
-Release builds compile their shipping products without this cache.
-Web builds keep their existing path: their remapping flags name the game's
-workspace and target directory, so a cache with those flags cannot warm a
-different game's first web build.
+The registry cache in `game/app/crates.mjs` is built but not enabled. D2 requires
+three cold `gpu-dev` runs under load 5 with an eligible registry dependency
+chain over a quarter of the total before wiring it into `buildBake` or setup.
+See `game/bench/cold-build/README.md` for the measurement commands.
+The cache separates channel, profile, target triple, rustc, toolchain overrides
+and compiler/profile flags. It keeps two coherent registry generations,
+excluding path/git crates and their dependants, and uses Cargo metadata's
+resolved build and product directories. Cargo validates copied fingerprints;
+a rebuilt copied unit means the warm failed. Cache files are not game inputs.
+Web and release builds do not use it.
 Release/production bakes bind the product digest: a signed 64-bit
 Mach-O leaves out its signature and normalizes the signature and `__LINKEDIT` size
 fields; other files hash whole. Generated profiles disable floating-point contraction; `gpu-dev` disables
