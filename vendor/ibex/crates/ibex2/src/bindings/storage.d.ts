@@ -39,6 +39,28 @@ export interface FileSystem {
    * disk, by any process. Call it inside an answer; it carries no value, so
    * the answer reads again. Needs `fs.read` on the path. */
   watch(path: string, options?: WatchOptions): void;
+  /** Exact patch 15 (exact2 LLP 1069.010.000 D5), the app interface: the
+   * documents the host keeps for this app across launches, most recent
+   * first, without reading them. `watch("doc:/")` asks the answer again when
+   * the list changes. Needs the `doc.keep` grant; a host that keeps nothing
+   * lists nothing. */
+  recentDocuments(): Promise<KeptDocument[]>;
+  /** Exact patch 15: the app's own removal of a kept document (a "Remove
+   * from Recents" item). Rejects with `code` `ENOENT` for a path it does not
+   * keep. Needs the `doc.keep` grant. */
+  forgetDocument(path: string): Promise<void>;
+}
+
+export interface KeptDocument {
+  /** Its `doc:/<n>/<name>`, valid in every launch while it is kept. */
+  readonly path: string;
+  /** Its name when chosen. */
+  readonly name: string;
+  readonly kind: "file" | "directory";
+  /** What the choice granted: `read`, or `readwrite`. */
+  readonly mode: "read" | "readwrite";
+  /** When it was last chosen or opened, in milliseconds since 1970. */
+  readonly opened: number;
 }
 
 export interface WatchOptions {

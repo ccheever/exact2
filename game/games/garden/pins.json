@@ -4,16 +4,16 @@
     "5136": "0xbc5d77669a63bf80"
   },
   "saves": {
-    "continuation": "772c6045728b74b0ab4b5d5c8d16a11903a966a69ebdd1ddc80e28a8d3178d54"
+    "continuation": "4cb9951084a9e2ac00b3fde26c0cca8f112515d6806cf9b81238e414f617d9ff"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d91ebf882d7024ac0cca68a1774f52489dbc02b80b95eff79f5861e270762a6b",
-  "sourceInputs": "acacf66ba9637ab5c827403b62f47c55f446b23bcfcd819a13d8e6b6b696fbe5",
+  "inputs": "3cffd05d89abd9f4dd0b936beb72134ea8f0413b332ad30c60e52cd962ef1d92",
+  "sourceInputs": "a844ac11ee813024f10925e8c0f41ea3496785d6c7ba6e2db368db8b5cd3d765",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "390a4390a7dd132542e0d9b888b6dd618b75c00c",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
+  "at": "06d3351617c03665fdcc23b8bf446140db54c6b1",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

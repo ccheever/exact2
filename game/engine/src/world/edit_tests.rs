@@ -150,7 +150,7 @@ fn only_admitted_edits_poison_pins_and_clean_restore_cannot_clear_them() {
         .err()
         .unwrap()
         .to_string()
-        .contains("EXGAME v4 predates v5"));
+        .contains("EXGAME v4 predates v6"));
 }
 
 fn matching_pin(sim: &Sim<Editable>) -> String {

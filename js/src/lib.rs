@@ -207,6 +207,9 @@ struct HostState {
     /// The engine reaches the documents the person chose (`doc:`), with or
     /// without app storage: the grants name them (LLP 1069.010 D1).
     documents: bool,
+    /// The document owner, when the grants keep documents (`doc.keep`, LLP
+    /// 1069.010.000 D5): `storage.fs.recentDocuments()` reads its app's list.
+    kept: Option<u64>,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
     /// A replacement candidate must answer successfully before it can be installed.
@@ -525,6 +528,8 @@ impl Module {
             io
         };
         self.host.documents = storage::reaches_documents(&io);
+        let keeps = !self.snapshot && self.grants.lines().any(|line| line.trim() == "doc.keep");
+        self.host.kept = keeps.then_some(self.document_owner);
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.

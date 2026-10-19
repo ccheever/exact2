@@ -694,6 +694,89 @@ fn a_write_that_expects_what_it_read_is_refused_once_the_file_changed() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// LLP 1069.010.000 D5: under `doc.keep` the app lists what it keeps and
+/// forgets one; without it both are refused. The app's own atomic save keeps
+/// its document (D4).
+#[test]
+#[cfg(unix)]
+fn the_kept_list_reads_and_forgets_under_doc_keep() {
+    use exact_data::documents::kept;
+    let dir = std::env::temp_dir().join(format!("exact-doc-kept-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("drawing.json");
+    std::fs::write(&file, "one").unwrap();
+    kept::open(9005, "test.storage.kept", &dir.join("kept.json"));
+    let doc = kept::keep(9005, &file, "", "readwrite").unwrap();
+    let run = |grants: &str, op: &str, args: serde_json::Value| {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":args})).unwrap();
+        storage::response(super::native::run(None, grants, &payload, 9005))
+    };
+    let keeps = "fs.read doc:/\nfs.write doc:/\ndoc.keep";
+    let listed = run(keeps, "fs.recentDocuments", serde_json::json!({})).unwrap();
+    assert_eq!(listed[0]["path"], doc.as_str());
+    assert_eq!(listed[0]["kind"], "file");
+    let refused = run("fs.read doc:/", "fs.recentDocuments", serde_json::json!({}));
+    assert!(refused.unwrap_err().contains("needs the doc.keep grant"));
+    let atomic = serde_json::json!({"path": doc, "text": "two"});
+    run(keeps, "fs.atomicWriteFile", atomic).unwrap();
+    kept::held(9005, std::slice::from_ref(&file));
+    assert_eq!(
+        run(keeps, "fs.recentDocuments", serde_json::json!({})).unwrap()[0]["path"],
+        doc.as_str(),
+        "the app's own save is still the document kept"
+    );
+    run(keeps, "fs.forgetDocument", serde_json::json!({"path": doc})).unwrap();
+    let again = run(keeps, "fs.forgetDocument", serde_json::json!({"path": doc}));
+    assert!(again.unwrap_err().starts_with("document ENOENT: "));
+    assert_eq!(
+        run(keeps, "fs.recentDocuments", serde_json::json!({})).unwrap(),
+        serde_json::json!([])
+    );
+    kept::end(9005);
+    exact_data::documents::forget(9005);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1069.010.000 D4: a kept file renamed while the app was closed is
+/// read at its new name through the path it was kept by.
+#[test]
+#[cfg(unix)]
+fn a_kept_file_renamed_between_launches_reads_through_its_kept_path() {
+    use exact_data::documents::kept::{self, Identity};
+    let dir = std::env::temp_dir().join(format!("exact-doc-renamed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    std::fs::write(dir.join("moved.md"), "kept").unwrap();
+    let (identity, _) = Identity::of(&dir.join("moved.md")).unwrap();
+    // What an earlier launch wrote, before the file was renamed.
+    let n = 900_000 + u64::from(std::process::id() % 1000);
+    let set = serde_json::json!({"version": 1, "next": n + 1, "documents": [{
+        "n": n, "name": "chosen.md", "kind": "file", "mode": "readwrite", "opened": 1,
+        "device": identity.device, "inode": identity.inode,
+        "path": dir.join("chosen.md").to_str().unwrap(), "bookmark": ""}]});
+    std::fs::write(dir.join("kept.json"), set.to_string()).unwrap();
+    kept::open(9006, "test.storage.renamed", &dir.join("kept.json"));
+    kept::restore(9006, &[(n, dir.join("moved.md"), None)]);
+    let doc = format!("doc:/{n}/chosen.md");
+    let run = |op: &str, path: &str| {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":{"path": path}}))
+                .unwrap();
+        storage::response(super::native::run(None, "fs.read doc:/", &payload, 9006))
+    };
+    let read = run("fs.readFile", &doc).unwrap();
+    assert_eq!(read["base64"], exact_runner::agent::base64(b"kept"));
+    assert!(run("fs.readFile", &format!("doc:/{n}/moved.md")).is_err());
+    assert!(
+        run("fs.readdir", &doc).is_err(),
+        "still one file, not a folder"
+    );
+    kept::end(9006);
+    exact_data::documents::forget(9006);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// Exercise the activated Rust storage continuation, not only path resolution.
 #[test]
 #[cfg(unix)]

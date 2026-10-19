@@ -805,7 +805,7 @@ fn compile_loaded(
     if !surface.is_empty() {
         return Err(surface);
     }
-    if app_root.join("app.json").is_file() {
+    if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
             id: "app-manifest".into(),
