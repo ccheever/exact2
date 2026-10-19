@@ -35,7 +35,7 @@ const DRIVE = [
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
-  ['--fail-fetch <prefix> · --permission <name>=<state> · --bind <extension>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted) · native hosts but Android: the extension\'s own implementation in place of the agent\'s substitute'],
+  ['--fail-fetch <prefix> · --permission <name>=<state>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted)'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
