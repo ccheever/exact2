@@ -70,8 +70,11 @@ export function measureReservation(e, strings, font = getComputedStyle(e)) {
 }
 
 export function liveTime(e, read, reserve = true) {
-  let values, previous = null, reserved = '', identity = '', model = '', fields = 0;
-  const fallback = [...e.childNodes], timer = { due: Infinity, hatch: true, action: () => { update(); return true; } };
+  // The formatted text is a node before the children, which stay as the
+  // fallback (hidden by index.html's `time[data-time-shown]`): the runner's
+  // tree keeps them, and they show again when the instant cannot format.
+  let values, previous = null, reserved = '', identity = '', model = '', fields = 0, shown = null;
+  const timer = { due: Infinity, hatch: true, action: () => { update(); return true; } };
   clock.timers.push(timer);
   function update() {
     const [datetime, name, start, end] = values;
@@ -89,7 +92,7 @@ export function liveTime(e, read, reserve = true) {
     if (text == null) {
       if (reserve) e.style.minInlineSize = '';
       reserved = ''; identity = '';
-      if (previous != null) e.replaceChildren(...fallback);
+      shown?.remove(); shown = null; e.removeAttribute('data-time-shown');
       previous = null; return;
     }
     e.setAttribute('datetime', new Date(datetime).toISOString());
@@ -110,7 +113,8 @@ export function liveTime(e, read, reserve = true) {
         reserved = stamp;
       }
     }
-    if (text !== previous) e.textContent = previous = text;
+    if (!shown) { shown = document.createTextNode(''); e.prepend(shown); e.setAttribute('data-time-shown', ''); }
+    if (text !== previous) shown.data = previous = text;
     if (format === 'relative') timer.due = clock.now + relativeDelay(datetime, now);
     if ((format === 'timer' || format === 'countdown') && (format !== 'countdown' || datetime > now)) timer.due = clock.now + 1000 - ((now - datetime) % 1000 + 1000) % 1000;
   }
