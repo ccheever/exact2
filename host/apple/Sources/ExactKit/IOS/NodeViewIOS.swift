@@ -360,12 +360,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var press: PressFeedback {
         get { pressing?.feedback ?? PressFeedback() }
         set { if pressing != nil || !newValue.atRest { pressingMade.feedback = newValue } }
-        _modify { let made = pressingMade; yield &made.feedback }
+        _modify {
+            if let pressing { yield &pressing.feedback; return }
+            var feedback = PressFeedback()
+            yield &feedback
+            if !feedback.atRest { pressingMade.feedback = feedback }
+        }
     }
     var pressPaint: PressPaint {
         get { pressing?.paint ?? PressPaint() }
         set { if pressing != nil || !newValue.atRest { pressingMade.paint = newValue } }
-        _modify { let made = pressingMade; yield &made.paint }
+        _modify {
+            if let pressing { yield &pressing.paint; return }
+            var paint = PressPaint()
+            yield &paint
+            if !paint.atRest { pressingMade.paint = paint }
+        }
     }
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
