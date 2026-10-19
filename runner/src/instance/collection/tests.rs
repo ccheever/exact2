@@ -596,6 +596,7 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
         parent: None,
         restored: false,
         seeking: false,
+        follows_end: false,
         revision: (1_u64 << 53) + 1,
         scroll_sequence: u64::MAX - 1,
         count: 3,

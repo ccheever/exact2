@@ -162,6 +162,9 @@ extension CollectionHost {
     /// `portInsets`): nothing moves it.
     func portInsets(_ id: UInt32) -> [Double]? { nil }
     func keepStart(_ id: UInt32, at top: Double) {}
+    /// AppKit's port has no keyboard to end at: nothing to keep.
+    func atFollowedEnd(_ id: UInt32) -> Bool { false }
+    func keepEnd(_ id: UInt32) {}
     /// The contiguous run of mounted rows that reaches into the port, in the
     /// document's coordinates and across its full cross size. Padding
     /// before the first item or after the last counts as covered. Nil when

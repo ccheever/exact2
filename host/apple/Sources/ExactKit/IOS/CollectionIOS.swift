@@ -90,6 +90,24 @@ extension CollectionHost {
         target = Self.reachable(target, in: scroll)
         if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
     }
+    /// Whether a `scrollFollowEnd` list's port is at its end, at rest.
+    func atFollowedEnd(_ id: UInt32) -> Bool {
+        guard entries[id]?.snapshot.followsEnd == true, let node = presenter?.views[id], let scroll = node.scroll,
+              !animating.contains(id), !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return false }
+        let i = scroll.adjustedContentInset
+        if entries[id]?.snapshot.horizontal ?? false {
+            return scroll.contentOffset.x >= scroll.contentSize.width + i.right - scroll.bounds.width - 1
+        }
+        return scroll.contentOffset.y >= scroll.contentSize.height + i.bottom - scroll.bounds.height - 1
+    }
+    /// The port at the end of what it can reach (`atFollowedEnd`).
+    func keepEnd(_ id: UInt32) {
+        guard let node = presenter?.views[id], let scroll = node.scroll else { return }
+        let horizontal = entries[id]?.snapshot.horizontal ?? false
+        let target = Self.reachable(horizontal ? CGPoint(x: .greatestFiniteMagnitude, y: scroll.contentOffset.y)
+                                               : CGPoint(x: scroll.contentOffset.x, y: .greatestFiniteMagnitude), in: scroll)
+        if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
+    }
     /// A row wrapper's size across the list: a vertical list's row width,
     /// a row list's item height.
     func crossSize(_ id: UInt32, horizontal: Bool) -> Double? {

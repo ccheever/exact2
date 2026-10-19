@@ -1175,6 +1175,7 @@ mod tests {
             parent: None,
             restored: false,
             seeking: false,
+            follows_end: false,
             revision: 4,
             scroll_sequence: 2,
             count: 0,

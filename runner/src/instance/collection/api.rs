@@ -153,6 +153,9 @@ pub struct CollectionSnapshot {
     /// authored moves, which a host applies whatever it has sampled since,
     /// until the reader's own input takes the port over.
     pub seeking: bool,
+    /// It follows its end (`scrollFollowEnd`): a host that resizes its port
+    /// while it shows the end keeps the end showing.
+    pub follows_end: bool,
     /// Monotonic revision; old feedback cannot mutate a newer snapshot.
     pub revision: u64,
     /// Last accepted host sequence.
@@ -346,6 +349,9 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         if c.seeking {
             out.push_str("\"seeking\":true,");
         }
+        if c.follows_end {
+            out.push_str("\"followsEnd\":true,");
+        }
         write!(out, "\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
         for (i, row) in c.rows.iter().enumerate() {
             if i > 0 {
@@ -402,6 +408,7 @@ impl super::Collection {
             parent: self.parent,
             restored: self.restored,
             seeking: self.target.is_some(),
+            follows_end: self.follow_end,
             revision: self.revision,
             scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
             count: self.index.len(),

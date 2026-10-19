@@ -133,6 +133,8 @@ struct CollectionSnapshot {
     let count: Int
     /// A limited report left window rows unbuilt: another report is owed.
     let pending: Bool
+    /// It follows its end (`scrollFollowEnd`).
+    let followsEnd: Bool
 
     init?(_ value: [String: Any]) {
         guard let view = Self.viewID(value["view"]), let revision = Self.uint(value["revision"]),
@@ -157,6 +159,7 @@ struct CollectionSnapshot {
         self.extent = extent; self.rows = rows; self.correction = correction
         self.count = Self.uint(value["count"]).map { Int(clamping: $0) } ?? rows.count
         self.pending = (value["pending"] as? NSNumber)?.boolValue ?? false
+        self.followsEnd = (value["followsEnd"] as? NSNumber)?.boolValue ?? false
     }
     private static func uint(_ value: Any?) -> UInt64? {
         // Integral JSON numbers read directly; a fraction or sign refuses.
@@ -211,6 +214,9 @@ package final class CollectionHost {
         /// The platform's insets of the port when the batch began
         /// (`portInsets`): one that changed under it moved the port.
         var batchInsets: [Double]?
+        /// A list following its end was at it when the batch began
+        /// (`atFollowedEnd`).
+        var batchAtEnd = false
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -375,7 +381,12 @@ package final class CollectionHost {
         #endif
     }
     func beginBatch(_ batch: Batch) {
-        if batchDepth == 0 { for (view, entry) in entries { entry.batchInsets = portInsets(view); entry.batchStart = geometry(view)?.offset } }
+        if batchDepth == 0 {
+            for (view, entry) in entries {
+                entry.batchInsets = portInsets(view); entry.batchStart = geometry(view)?.offset
+                entry.batchAtEnd = atFollowedEnd(view)
+            }
+        }
         batchDepth += 1
         for op in batch.ops where op.op == .collections {
             guard let items = op.payload["items"] as? [[String: Any]] else { continue }
@@ -407,7 +418,8 @@ package final class CollectionHost {
             guard let port = geometry(view) else { continue }
             let dimensions = [port.portCross, port.portMain, port.cross]
             let planned = entry.cursor.sequence, jumped = entry.cursor.jumpedAt
-            if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
+            let resized = entry.port.map { $0 != dimensions } ?? false
+            if resized { entry.cursor.jump() }
             entry.port = dimensions
             // The port went under the bar or came out from under it (LLP
             // 1116.000 D1.3): the platform's clamp to the new frame and its
@@ -421,6 +433,18 @@ package final class CollectionHost {
                 correcting = false
             }
             entry.batchInsets = nil
+            // A followed end the batch resized the port under (the keyboard
+            // rising: the home indicator's room goes, then the port ends at
+            // the keyboard's top) stays the end. The platform keeps the
+            // offset, or clamps it to a port that grew; reported, either
+            // reads as the reader leaving the end, and the end would hide
+            // under the composer.
+            if resized, entry.batchAtEnd {
+                correcting = true
+                keepEnd(view)
+                correcting = false
+            }
+            entry.batchAtEnd = false
             if let correction = entry.snapshot.correction, correction.from != nil {
                 // Rows before the anchor changed size in this batch: the
                 // offset moves with them before this frame displays, even

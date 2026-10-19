@@ -273,6 +273,7 @@ impl Tree {
                 parent: c.parent,
                 restored: c.restored,
                 seeking: c.target.is_some(),
+                follows_end: c.follow_end,
                 revision: c.revision,
                 scroll_sequence: c.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
                 count: c.index.len(),
