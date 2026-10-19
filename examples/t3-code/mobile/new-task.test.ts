@@ -18,6 +18,8 @@ import { mobileComposerSettings, mobileComposerSettingsAction } from './composer
 import { mobileNewTaskFlowView as view, mobileNewTaskFlowAction as act, mobileNewTaskFlowOwns as owns, mobileNewTaskRoute } from './new-task-flow';
 import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftLookup, mobileNewTaskDraftCreate, mobileNewTaskDraftBind } from './mobile-new-task-drafts';
 import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
+import { mobileVoiceAction, mobileVoiceBlocksSubmission, mobileVoiceSnapshot } from './voice-data';
+import { resetVoiceInputGlobalsForTests } from './voice-controller';
 
 async function fixture() {
   const client = new MobileDraftClient(), fleet = new EnvironmentFleet(), calls: Obj[] = [];
@@ -1208,4 +1210,42 @@ test('NewTask local interaction admits the bound next draft while a validated ca
   expect((await act(next.owner, 'next', 'interaction', next.draftOwner, 'plan', f.native, f.files, f.client, f.fleet, 0, localInteractionPreferences)).message).toBe('');
   expect(f.client.draftKey).not.toBe(originalKey); expect(f.client.interactionMode).toBe('plan');
   expect(JSON.stringify(f.client.pending)).toBe(before); expect(f.calls.slice(calls)).toEqual([]);
+});
+
+test('NewTask local interaction stays local while another draft owns a recording', async () => {
+  resetVoiceInputGlobalsForTests();
+  const f = await localInteractionStorage(), recordingKey = f.client.draftKey, voiceCalls: Obj[] = [];
+  const native: Native = { ...f.native, async later(input) {
+    const request = obj(input);
+    if (request.op !== 'mobileVoice') return f.native.later(input);
+    voiceCalls.push(request);
+    const value = request.action === 'status' ? { available: true, locale: 'en-US', event: 0, levels: [], elapsed: 0 }
+      : request.action === 'permission' ? { granted: true, canAskAgain: true }
+      : request.action === 'prepare' ? { locale: 'en-US' }
+      : request.action === 'recorder-prepare' || request.action === 'stop' ? { uri: 'file:///new-task-mode-fixture.m4a' } : {};
+    return { ok: true, generation: f.client.generation, value };
+  } };
+  try {
+    const started = await mobileVoiceAction('start', 0, 0, 'Recording draft A', recordingKey, native, f.files, f.client);
+    expect(started.message).toBe(''); expect(started.data).toMatchObject({ phase: 'recording', owner: recordingKey, busy: true, focused: true });
+    const chooser = f.snapshot('/new', 'recording-next', 'recording-next-flow');
+    expect((await f.action(chooser.owner, 'project', '["env","b"]', '', 'recording-next')).message).toBe('');
+    const ready = f.snapshot('/new/draft', 'recording-next', 'recording-next-flow');
+    expect(ready.ready).toBe(true); expect(f.client.draftKey).not.toBe(recordingKey);
+    expect(mobileVoiceBlocksSubmission(f.client)).toBe(true);
+    const voice = mobileVoiceSnapshot(f.client.draftKey, f.client);
+    expect(voice).toMatchObject({ phase: 'recording', owner: recordingKey, busy: true, focused: false, globalVisible: true });
+    const recording = JSON.stringify(mobileNewTaskDraftPresentation(f.client, recordingKey));
+    const requests = f.calls.length, voiceRequests = voiceCalls.length, writes = f.writes.length, key = f.client.draftKey;
+    expect(mobileNewTask('', f.client, f.fleet, localInteractionPreferences).planModeEnabled).toBe(true);
+    expect((await act(ready.owner, 'recording-next', 'interaction', ready.draftOwner, 'plan', native, f.files,
+      f.client, f.fleet, 0, localInteractionPreferences)).message).toBe('');
+    expect(f.client.interactionMode).toBe('plan'); expect(localInteractionChoice(f.writes.at(-1)!, key)).toBe('plan'); expect(f.writes.length - writes).toBe(1);
+    expect(JSON.stringify(mobileNewTaskDraftPresentation(f.client, recordingKey))).toBe(recording);
+    expect(mobileVoiceSnapshot(key, f.client)).toEqual(voice);
+    expect(f.calls.slice(requests)).toEqual([]); expect(voiceCalls.slice(voiceRequests)).toEqual([]);
+  } finally {
+    try { await mobileVoiceAction('cancel', 0, 0, 'Recording draft A', recordingKey, native, f.files, f.client); }
+    finally { resetVoiceInputGlobalsForTests(); }
+  }
 });
