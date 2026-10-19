@@ -444,3 +444,66 @@ fn round_4_a_baseline_whose_references_copy_a_large_tree_is_refused_before_copyi
         "{refused:?}"
     );
 }
+
+/// Judged whole (option B), a dial's change is known before its literal
+/// fallback could stand in the proposal: `a`'s change is the dial's, and
+/// `b`, which reads the dial too, takes its own literal beside it.
+#[test]
+fn a_dials_change_and_another_tokens_literal_land_together() {
+    let design = "tamber t\n\ndials\n  accent: color = #000000\n\ntheme\n  a = accent\n  b = light-dark(accent, #ffffff)\n";
+    let grey =
+        |hex: &str, c: f64| json!({"colorSpace": "srgb", "components": [c, c, c], "hex": hex});
+    let (_, _, import) = edited_in(design, |_, t| {
+        t["a"]["$value"] = grey("#111111", 17.0 / 255.0);
+        t["b"]["$value"] = grey("#222222", 34.0 / 255.0);
+    });
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    assert!(
+        import.ops.contains(&Op::SetDial {
+            name: "accent".into(),
+            value: "#111111".into()
+        }),
+        "{:?}",
+        import.ops
+    );
+    assert!(
+        import.ops.iter().any(
+            |o| matches!(o, Op::SetToken { name, value, .. } if name == "b" && value == "#222222")
+        ),
+        "{:?}",
+        import.ops
+    );
+}
+
+/// Judged whole, a token settled in one round is asked again when a later
+/// round drops another's lines: `a`'s change cannot be made (its dark side
+/// follows `b`), and `c`, which mixes `a` and `b`, was settled on a folding
+/// with `a`'s change in it. Asked again without it, `c` cannot show the file's
+/// colours (its pins keep its light side's expression), so it is reported, not
+/// imported on a folding that will not ship.
+#[test]
+fn a_token_settled_beside_a_dropped_change_is_asked_again() {
+    let design = "tamber t\n\ntheme\n  a = light-dark(#000000, b)\n  b = #ffffff\n  c = light-dark(color-mix(in srgb, a 50%, b), #000000)\n";
+    let hex = |h: &str, c: f64| json!({"colorSpace": "srgb", "components": [c, c, c], "hex": h});
+    let (_, _, import) = edited_in(design, |context, t| {
+        if context.contains("light") {
+            t["a"]["$value"] = hex("#ffffff", 1.0);
+        }
+        t["b"]["$value"] = hex("#000000", 0.0);
+        if context.contains("dark") {
+            t["c"]["$value"] = hex("#111111", 17.0 / 255.0);
+        }
+    });
+    let reported: Vec<&str> = import.unmapped.iter().map(|u| u.name.as_str()).collect();
+    assert_eq!(reported, ["a", "c"], "{:?}", import.unmapped);
+    assert_eq!(
+        import.ops,
+        [Op::SetToken {
+            name: "b".into(),
+            when: Vec::new(),
+            value: "#000000".into(),
+            at: None,
+            comment: None
+        }]
+    );
+}

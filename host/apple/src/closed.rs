@@ -14,6 +14,9 @@
 //! box open inside them needs them. A node that stops being one is given
 //! back here. Other hosts lay closed boxes out as before, hidden by their
 //! views.
+//!
+//! The navigation root's tablist is covered from boot too, where a tab bar
+//! takes its place (`cover_root_tablist`).
 
 use super::*;
 use exact_kernel::HostCover;
@@ -55,6 +58,46 @@ impl<D: DataSource> Host<D> {
     pub(crate) fn close_top_layer(&mut self, order: &[ViewId]) {
         if closed_wait() {
             self.close_boxes(order.iter().copied());
+        }
+    }
+
+    /// At boot, before the first layout: the navigation root's tablist
+    /// (`Kernel::root_tabs`), whose place UIKit's tab bar takes, is covered
+    /// whole, so no layout measures its tabs' symbols and button faces only
+    /// for the presenter to cover it at its first batch (in euxy on iOS,
+    /// 0.5 MB of CoreUI's glyph documents and probe buttons kept). The
+    /// presenter takes the cover over when it installs its containers and
+    /// gives it back where no tab bar shows (`NavigationIOS.swift`,
+    /// `adoptBootCover`). A tablist whose author wrote `appearance: none`
+    /// keeps its box, as the presenter leaves it.
+    pub(crate) fn cover_root_tablist(&mut self) {
+        if !closed_wait() {
+            return;
+        }
+        let kernel = self.runner.kernel();
+        let Some(root) = self.runner.roots().first().copied() else {
+            return;
+        };
+        if kernel
+            .node(root)
+            .and_then(|n| n.props.str(PropId::NavigationBack))
+            .is_none()
+        {
+            return;
+        }
+        let Some(tablist) = kernel.root_tabs(root).map(|t| t.tablist) else {
+            return;
+        };
+        let authored = kernel.node(tablist).is_some_and(|n| {
+            n.style.appearance == exact_kernel::Appearance::None
+                && n.style.written.has(exact_kernel::StyleId::Appearance)
+        });
+        if !authored {
+            // A node the kernel has is always coverable.
+            let _ = self
+                .runner
+                .kernel_mut()
+                .set_host_cover(tablist, Some(HostCover::Whole));
         }
     }
 
@@ -188,5 +231,72 @@ impl<D: DataSource> Host<D> {
                     .set_host_cover(id, Some(HostCover::Whole));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_kernel::MonospaceMeasurer;
+    use exact_plan::Value;
+    use exact_runner::DataError;
+
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+
+    /// Two tabs under a navigation root; `tablist` adds to the tablist's attributes.
+    fn app(tablist: &str) -> String {
+        format!(
+            r#"routes nav
+  tab home "/"
+  tab other "/other"
+component App
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${{top(nav).id}}` navigationBack="back" display="flex" flex-direction="column"
+      column flex=1
+        for t in nav.tabs key = t.name
+          column role="tabpanel" id=`panel-${{t.name}}`
+            for e in t.stack key = e.id
+              column navigationKey=`${{e.id}}`
+                text e.name
+      row role="tablist" testId="tabs"{tablist}
+        button role="tab" aria-controls="panel-home" press=pick("home")
+          image "symbol:home"
+          text "Home"
+        button role="tab" aria-controls="panel-other" press=pick("other")
+          image "symbol:star"
+          text "Other"
+"#
+        )
+    }
+
+    /// Whether the boot left the tablist covered whole, under iOS's policy.
+    fn covered(source: &str) -> bool {
+        CLOSED_WAIT.set(true);
+        let plan = contract::compile(source).unwrap().encode();
+        let measurer = Box::new(MonospaceMeasurer::default());
+        let (host, _) = Host::boot(&plan, NoData, measurer, 390.0, 844.0).unwrap();
+        CLOSED_WAIT.set(false);
+        let kernel = host.runner.kernel();
+        let key = kernel.find_by_test_id("tabs")[0];
+        let id = kernel.node_by_key(key).unwrap().id;
+        let arena = kernel.arena();
+        arena.slot_of(id).and_then(|s| arena.cover(s)) == Some(HostCover::Whole)
+    }
+
+    #[test]
+    fn the_root_tablist_is_covered_from_boot() {
+        assert!(covered(&app("")));
+    }
+
+    #[test]
+    fn a_tablist_its_author_kept_keeps_its_box() {
+        assert!(!covered(&app(r#" appearance="none""#)));
     }
 }

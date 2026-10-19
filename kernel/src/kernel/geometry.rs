@@ -115,7 +115,7 @@ impl Kernel {
     pub fn fit_content_height(&mut self, key: NodeKey) -> Option<f32> {
         use taffy::style::{Dimension, LengthPercentage, LengthPercentageAuto};
         let (frame, _) = self.laid_out_frame(key)?;
-        self.measure_symbols();
+        self.measure_symbols(false);
         let slot = key.index;
         // A block's root stands in its block (LLP 1115.002 D8.2): the block's
         // width is what it is measured in, with no parent and no height, so

@@ -131,6 +131,31 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(tabs.viewControllers?[0] === stacks[0])
     }
 
+    /// The runtime covers the root tablist the bar replaces before the first
+    /// layout, and the presenter holds that cover from its first batch; a
+    /// restart's boot covers it again, and its first batch looks for it again.
+    func testTheBootsTablistCoverIsThePresentersAtEveryBoot() throws {
+        let session = try fixture("boot-tablist")
+        let navigation = session.presenter.navigation
+        let covered = { () throws -> Bool in
+            let root = try XCTUnwrap(session.presenter.root.subviews.first as? NodeView)
+            return try XCTUnwrap(session.runtime.rootTabs(root.id)).covered
+        }
+        var list = try node(session, "tabs")
+        XCTAssertTrue(try covered())
+        XCTAssertEqual(navigation.delivered[list.id], .whole)
+        XCTAssertTrue(navigation.bootCoverSeen)
+        session.presenter.reset()
+        XCTAssertFalse(navigation.bootCoverSeen, "a restart's first batch looks again")
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        spin(0.3)
+        list = try node(session, "tabs")
+        XCTAssertTrue(try covered())
+        XCTAssertTrue(navigation.bootCoverSeen)
+        XCTAssertEqual(navigation.delivered[list.id], .whole)
+    }
+
     /// A style that drops the tablist's `accent-color` (here one sent by
     /// hand, which replaces the whole style) as the bar hides: the bar's
     /// tint, whose fallback was the bar's own tint, recursed until the

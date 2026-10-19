@@ -11,6 +11,7 @@
 use crate::edit::Op;
 use crate::syntax::{DialKind, Token};
 use crate::{Folding, Value, Vocab};
+use std::collections::HashMap;
 
 /// A dial the import moves.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -490,4 +491,18 @@ fn label(f: &Folding, k: usize) -> String {
 
 fn css(v: &Value) -> String {
     v.css()
+}
+
+/// Each context's tokens by name, the last of a name (the resolver's winner).
+pub(crate) type Lasts<'a> = HashMap<&'a str, HashMap<&'a str, &'a serde_json::Value>>;
+pub(crate) fn last_by_name(tokens: &crate::export::ByContext) -> Lasts<'_> {
+    tokens
+        .iter()
+        .map(|(c, all)| {
+            (
+                c.as_str(),
+                all.iter().map(|(n, t)| (n.as_str(), t)).collect(),
+            )
+        })
+        .collect()
 }

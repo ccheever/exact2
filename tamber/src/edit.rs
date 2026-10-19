@@ -459,6 +459,34 @@ fn run(
     Ok(Edited { text, inverse })
 }
 
+/// [`apply_all`] in two halves, for a caller that tries operations one group
+/// at a time on what it has accepted (re-import's transaction): `ops` applied
+/// to `src` with no check (a refused operation is `Err`, as [`apply_all`]
+/// says it), then the check. With no `Restore` among them (which
+/// `apply_all` refuses before any step), `stepped(stepped(src, a), b)` then
+/// the check is `apply_all(src, a ++ b)`: each operation reads only the text
+/// before it.
+pub(crate) fn stepped(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    let mut text = src.to_string();
+    for op in ops {
+        text = step(&text, op, vocab, &crate::params::NONE)?.0;
+    }
+    Ok(text)
+}
+
+/// [`stepped`], many `SetToken` and `SetDial` operations with one parse
+/// (`batch`): the same text and the same refusal, as stepping them one at a
+/// time, which it falls back to for any other operation or any refusal.
+pub(crate) fn stepped_all(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
+    match batch::stepped(src, ops, vocab) {
+        Some(text) => Ok(text),
+        None => stepped(src, ops, vocab),
+    }
+}
+
 /// A refusal with nowhere in the design to point (a name it lacks).
 fn refuse(message: impl Into<String>) -> Vec<Diagnostic> {
     refuse_at(1, message)
@@ -510,6 +538,7 @@ const KEYWORDS: &[&str] = &[
     "currentcolor",
 ];
 
+mod batch;
 mod params;
 
 /// The design's lines, which an edit splices.
@@ -520,6 +549,9 @@ struct Doc {
     /// The schema's roles, by their row spelling, which a role override
     /// answers to in any case.
     roles: Vec<(String, bool)>,
+    /// The design's tokens by name and by role, each the first, when one
+    /// parse serves many operations (`batch`): what [`token_index`] scans for.
+    index: Option<batch::Index>,
 }
 
 impl Doc {
@@ -530,6 +562,7 @@ impl Doc {
             lines: body.split('\n').map(str::to_string).collect(),
             newline,
             roles: Vec::new(),
+            index: None,
         }
     }
 
@@ -617,7 +650,10 @@ impl Doc {
                 at,
                 comment,
             } => {
-                let i = token_index(design, &self.roles, name)?;
+                let i = match &self.index {
+                    Some(index) => index.token(&self.roles, name)?,
+                    None => token_index(design, &self.roles, name)?,
+                };
                 let t = &design.tokens[i];
                 if when.is_empty() {
                     let (indent, code, trailing) = self.parts(t.name.line);

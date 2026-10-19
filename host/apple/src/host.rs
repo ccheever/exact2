@@ -567,6 +567,7 @@ impl<D: DataSource> Host<D> {
         host.native_prepare_candidate().map_err(HostError::Layout)?;
         let order = host.preorder();
         host.close_top_layer(&order);
+        host.cover_root_tablist();
         let handlers = host.runner.handlers();
         for id in &order {
             host.create(*id, handlers.get(id).map_or(&[], Vec::as_slice), &mut batch);
