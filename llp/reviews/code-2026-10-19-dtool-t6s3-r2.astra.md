@@ -1,0 +1,29 @@
+# Code review: design tool T6 step 3 (the canvas through stage 10 C's gateway), round 2, 2026-10-19 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via the Codex CLI, reasoning effort max, read-only sandbox, a throwaway worktree at `078647348b`.
+- **Method:** one brief (sha256 `ca6080cece68ce6e12e15df46fcfb3d53567298015e59e022be02ceabb530bac`), shared by both reviewers, blind to the other review, with a security pass; commit 078647348b (round 1's fixes). The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** request changes (2 BLOCKER, 3 SHOULD-FIX).
+- **Disposition:** taken in the round's fix commit (named in round 3's records): a canvas only through B's TLS door (an https door; a tunnel's loopback host is this machine, so a tunnel has no canvas, as stage 10 says) (Astra BLOCKER 1); paired, the tool is never local whatever the server's hello says, so no page of this machine is framed (Astra BLOCKER 2); the grant exactly as the gateway mints it, 43 base64url characters (Astra 3, Grok 1); the frame mounts only once a fresh grant has settled (Astra 4, Grok 2); Reload Canvas whenever a frame is shown, for an entry slower than its grant (Astra 5); unit cases for the tunnel, a TLS door on loopback, and the grant's length. The tool's own origin is the door's (B's Origin check refuses a pairing from any other page), so the port check against the door is the check against the tool. The frame's entry, the grant leaving the URL (after 10 s) and revoke through the frame are the T6 gate's, on B's TLS door with C2's entry page.
+
+**Changes required: two security blockers remain.**
+
+1. **BLOCKER — A loopback tunnel still permits framing another service on the viewer’s machine.** [pairing.ts:33](/tmp/rv-dt-t6s3r2/apps/design-tool/pairing.ts:33) accepts a canvas whenever its hostname matches the paired door. After pairing through `http://127.0.0.1:7744`, a reply naming `https://127.0.0.1:8443/canvas/remote%3AAda%231/` with a valid-shaped grant passes. A local HTTPS service on 8443 receives that navigation; trusting the tunnel on 7744 did not authorize it. Read-only probes confirmed the same for `localhost` and `[::1]`.
+
+   Also, the port comparison excludes the **door’s** origin, without checking the actual tool origin. If cross-origin pairing succeeds from `https://design.example:7740` to port 7743, a canvas reply naming port 7740 passes. Validate the actual tool origin and reject arbitrary loopback canvas destinations. The new unit test uses only a non-loopback door, missing this case.
+
+2. **BLOCKER — A remote `hello` reply can bypass `canvasFrame` entirely.** [app.ts:623](/tmp/rv-dt-t6s3r2/apps/design-tool/app.ts:623) trusts the reply’s `local` flag, defaulting it to true. A paired server can return `local: true` and `page: "http://127.0.0.1:5173"`; `pageOf` produces `http://localhost:5173`, and [the local canvas branch](/tmp/rv-dt-t6s3r2/apps/design-tool/app.contract:1397) frames the viewer’s dev server. This works independently of the new grant-URL validation. Derive remote/local status from the wire’s pairing state; a remote reply must never enable the local-page branch.
+
+3. **SHOULD-FIX — Grant validation accepts values the gateway necessarily rejects.** [pairing.ts:33](/tmp/rv-dt-t6s3r2/apps/design-tool/pairing.ts:33) accepts any base64url string of at least 16 characters; [gateway entry requires exactly 43](/tmp/rv-dt-t6s3r2/scripts/tamber-canvas.mjs:367). A 36-character UUID therefore produces a supposedly successful frame that cannot enter. Require exactly 43 characters. The stub now generates the correct format, but [the validation tests](/tmp/rv-dt-t6s3r2/scripts/design-tool-scope.test.mjs:134) miss incorrect lengths above 15.
+
+4. **SHOULD-FIX — Reopening still mounts the spent grant while its replacement is pending.** [saveName](/tmp/rv-dt-t6s3r2/apps/design-tool/app.contract:863) increments the tick and immediately leaves the name screen. Resources [retain their previous value during an asynchronous refresh](/tmp/rv-dt-t6s3r2/host/web-js/rt.js:518), while [the iframe condition](/tmp/rv-dt-t6s3r2/apps/design-tool/app.contract:1389) ignores pending state. Consequently, reopening first navigates with the old grant.
+
+   With the stated C2 flow, if that entry page strips the fragment and remains after the refused POST, the later fresh grant can cause only a fragment navigation, without rerunning entry. That consequence follows from the [HTML navigation algorithm](https://html.spec.whatwg.org/multipage/browsing-the-web.html#navigate). Mount only after the fresh result settles. Add a delayed-mint reopening regression; the current tests never exercise this transition.
+
+5. **SHOULD-FIX — “Try Again” cannot recover an entry failure after successful minting.** [app.contract:1394](/tmp/rv-dt-t6s3r2/apps/design-tool/app.contract:1394) shows it only when `canvasAt.error` is populated. If loading the entry page takes longer than the grant’s 30-second lifetime, entry fails but the parent still has `frame != ""` and no error. Offer an explicit remint while the frame exists, disabled while pending.
+
+The remaining checks look sound: client segments use `encodeURIComponent` on both sides; hostname case and equivalent IPv6 spellings normalize correctly; trailing-dot mismatches fail closed. Initial canvas URLs on another host are rejected. Stable hello arguments prevent polling-driven mint churn, and the empty-client/epoch guard removes the bootstrap mint.
+
+Round 1’s accepted deferrals remain: grants persist in parent state and iframe `src` despite child fragment stripping; C2 entry and real-gateway verification remain owed. The new contract test proves refusal and retry rendering, not successful entry or mint counts.
+
+Read-only review with small function probes; no files changed, builds, or test suites run.

@@ -1792,8 +1792,9 @@ test "remote mode: the tool pairs with another machine's server by its address a
   clock data
   expect text "write-note" == "Held for review as held-1: someone with write accepts it."
   expect disabled "undo"
-  // Its canvas comes through the server's gateway (stage 10 C): https, on the door's host, another port.
-  expect tree has "canvas-frame"
+  // Its canvas comes only through the server's TLS door (stage 10 C): through this tunnel there is none.
+  expect text "canvas-remote-none" == "No canvas: the design server named no gateway this tool can frame (its canvas is https, on its TLS door's host and another port)."
+  expect tree missing "canvas-frame"
   // Revoked on the other machine: the next request is refused, and the tool says so and sends no more.
   request POST "/__stub/revoke" {"client": "remote:Ada#1"} as ada
   clock +1
@@ -1803,26 +1804,4 @@ test "remote mode: the tool pairs with another machine's server by its address a
   expect text "no-server-title" == "Revoked"
   expect tree missing "canvas-frame"
   expect text "no-server-message" == "This client was revoked, or its pairing expired: nothing more is sent to the design server. Pair again with a new code."
-  request POST "/__stub/restart" {} as ada
-
-test "a paired tool frames no canvas a server names on another host, and says so, with a way to ask again"
-  fail fetch "http://127.0.0.1:7740/__tamber/token"
-  request POST "/__stub/restart" {} as ada
-  request POST "/__stub/canvas" {"origin": "https://evil.example:7745"} as ada
-  type "name" "Ada"
-  tap "save-name"
-  clock data
-  request POST "/__stub/pair-code" {"scope": "read"} as ada
-  type "remote-at" "http://127.0.0.1:7740"
-  type "remote-code" "7Q2KD-M4X01"
-  tap "remote-pair"
-  clock data
-  clock +3000
-  clock data
-  expect tree missing "canvas-frame"
-  expect text "canvas-remote-none" == "No canvas: the design server named no gateway this tool can frame (its canvas is https, on its own host and another port)."
-  request POST "/__stub/canvas" {"origin": ""} as ada
-  tap "canvas-retry"
-  clock data
-  expect tree has "canvas-frame"
   request POST "/__stub/restart" {} as ada

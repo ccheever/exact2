@@ -616,13 +616,15 @@ const sources: Sources = {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
     const ok = reply.ok ?? {};
+    // Paired, the server is another machine's whatever its hello says: never this machine's pages.
+    const local = remote() === '' && ok.local !== false;
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...(ok.local === false ? { page: '', frame: '' } : pageOf(ok.page, Number(new URL(API).port))), live: liveTable,
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...(local ? pageOf(ok.page, Number(new URL(API).port)) : { page: '', frame: '' }), live: liveTable,
       // Its scope, and whether it is the local tool's token (tamber/1.13): a server before 1.13 has the local one alone.
-      scope: String(ok.scope ?? 'write'), local: ok.local !== false, client: String(ok.client ?? ''), epoch: String(ok.epoch ?? '') };
+      scope: String(ok.scope ?? 'write'), local, client: String(ok.client ?? ''), epoch: String(ok.epoch ?? '') };
   },
   loadDesign: async ([file]) => {
     const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;

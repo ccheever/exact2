@@ -121,7 +121,7 @@ test('an answer from before a pairing, or from an older one, changes nothing: th
 
 test('a canvas frame only on the paired door\'s host, over https, another port, at /canvas/<client>/; the grant only in its fragment', () => {
   const grant = 'A'.repeat(43), door = 'https://192.168.1.20:7743', client = 'remote:Ada#1', at = '/canvas/remote%3AAda%231/';
-  expect(canvasFrame(`https://192.168.1.20:7745${at}`, grant, door, client)).toEqual({ frame: `https://192.168.1.20:7745${at}#g=${grant}`, error: '' });
+  expect(canvasFrame(`https://192.168.1.20:7745${at}`, grant, door, client)).toEqual({ frame: `https://192.168.1.20:7745${at}#g=${grant}`, root: 'https://192.168.1.20:7745/', error: '' });
   for (const url of [
     `http://127.0.0.1:5173${at}`, // the viewer's own dev loop
     `https://127.0.0.1:7745${at}`, // this machine, not the door's host
@@ -132,5 +132,11 @@ test('a canvas frame only on the paired door\'s host, over https, another port, 
     `https://192.168.1.20:7745${at}?x=1`, `https://192.168.1.20:7745${at}#g=other`, `https://u:p@192.168.1.20:7745${at}`, 'not a url',
   ]) expect([url, canvasFrame(url, grant, door, client).frame]).toEqual([url, '']);
   expect(canvasFrame(`https://192.168.1.20:7745${at}`, 'short', door, client).frame).toBe('');
+  expect(canvasFrame(`https://192.168.1.20:7745${at}`, 'A'.repeat(44), door, client).frame).toBe('');
+  expect(canvasFrame(`https://192.168.1.20:7745${at}`, crypto.randomUUID(), door, client).frame).toBe('');
+  // Through a tunnel (plain http to this machine's loopback) there is no canvas: its host is this machine.
+  expect(canvasFrame(`https://127.0.0.1:8443${at}`, grant, 'http://127.0.0.1:7744', client).frame).toBe('');
+  // Through a TLS door on loopback (a test's), the canvas beside it.
+  expect(canvasFrame(`https://127.0.0.1:7745${at}`, grant, 'https://127.0.0.1:7743', client).frame).toBe(`https://127.0.0.1:7745${at}#g=${grant}`);
   expect(canvasFrame(`https://192.168.1.20:7745${at}`, 'x#y'.repeat(10), door, client).frame).toBe('');
 });
