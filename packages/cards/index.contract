@@ -9,4 +9,4 @@ component Card
   view
     column testId="cards-card" padding="cards.pad" border-radius="cards.corner" background-color="cards.fill"
       view testId="cards-inner" width=40 height=16 background-color="cards.ink"
-      text title color="cards.ink"
+      text title color="cards.ink" testId="cards-title"

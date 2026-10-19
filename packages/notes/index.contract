@@ -9,4 +9,4 @@ component Note
   view
     column testId="notes-note" padding="notes.gap" gap="notes.gap" border-radius="notes.corner" background-color="notes.fill"
       view testId="notes-inner" width=40 height=16 background-color="notes.rule"
-      text body color="notes.rule"
+      text body color="notes.rule" testId="notes-body"
