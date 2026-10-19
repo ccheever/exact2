@@ -11,7 +11,7 @@ fn kernel(name: &str) -> String {
 }
 
 #[test]
-fn a_static_row_is_the_columns_length_and_the_sheet_declares_each_named_base_once() {
+fn a_static_row_is_the_columns_length_and_the_sheet_declares_the_scale_once() {
     let plan = contract::compile("component App\n  view\n    column padding=\"space.md\" border-radius=\"radius.lg\" gap=\"space.sm\"\n      text \"a\" border-radius=\"radius.full\"\n").unwrap();
     let out = crate::emit::emit(&plan, false, false).unwrap();
     let css = &out.css;
@@ -24,13 +24,11 @@ fn a_static_row_is_the_columns_length_and_the_sheet_declares_each_named_base_onc
         "{css}"
     );
     assert!(css.contains("border-top-left-radius:9999px"), "{css}");
-    // Declared once, the names the plan names alone.
-    let root = format!(":root{{--exact-space-sm:{};--exact-space-md:{};--exact-radius-lg:{};--exact-radius-full:{};}}", kernel("space.sm"), kernel("space.md"), kernel("radius.lg"), kernel("radius.full"));
-    assert_eq!(css.matches(&root).count(), 1, "{css}");
-    assert!(
-        !css.contains("--exact-space-xs") && !css.contains("--exact-radius-sm"),
-        "{css}"
-    );
+    // Declared once, every base name (theme2's all-nine-or-none, round 2).
+    let root: String = scale::names()
+        .map(|n| format!("{}:{};", crate::base_scale::property(n), kernel(n)))
+        .collect();
+    assert_eq!(css.matches(&format!(":root{{{root}}}")).count(), 1, "{css}");
 }
 
 #[test]
@@ -272,13 +270,16 @@ fn an_alias_in_an_svg_attribute_is_the_bases_length() {
     }
 }
 
-/// theme2's (B) for B2 round 1 (Astra 3): the declared base names are the
-/// plan's length reads, never its string pool. A computed name declares all
-/// nine (and the map holds each, as the kernel reads any); a text that says
-/// `space.md` declares none; a literal length row exactly its own.
+/// theme2's all-nine-or-none (B2 round 2): the sheet declares every base
+/// name when the plan may read any as a length, and none when it can't. A
+/// literal row, an alias, a computed name, a string read: the nine, and the
+/// map holds each. A text or a label that says `space.md`, a condition over
+/// px literals, a number read, a length built with a unit: none, so a release
+/// that uses no base name is unchanged by the scale.
 #[test]
-fn the_declared_bases_are_the_plans_length_reads() {
+fn the_scale_is_declared_whole_when_the_plan_may_read_a_base_name() {
     let all: Vec<&str> = scale::names().collect();
+    let none: Vec<&str> = Vec::new();
     let declared = |view: &str| {
         let plan = contract::compile(view).unwrap();
         let out = crate::emit::emit(&plan, false, false).unwrap();
@@ -292,42 +293,175 @@ fn the_declared_bases_are_the_plans_length_reads() {
             .collect();
         (names, out)
     };
-    let (names, out) = declared("component App\n  state size = \"md\"\n  view\n    column padding=(\"space.\" + size)\n      text \"a\"\n");
+    let app = |state: &str, body: &str| format!("component App\n{state}  view\n    column\n{body}");
+    // (a) A literal base-name row, and one condition's literal leaf.
+    let (names, out) = declared(&app(
+        "",
+        "      column gap=\"space.lg\"\n        text \"a\"\n",
+    ));
     assert_eq!(names, all, "{}", out.css);
-    for n in &all {
-        assert!(
-            out.js.contains(&format!(
-                "\"{n}\":\"var({})\"",
-                crate::base_scale::property(n)
-            )),
-            "{n}: {}",
-            out.js
-        );
+    let (names, _) = declared(&app(
+        "  state wide = false\n",
+        "      column padding=(wide ? \"space.xl\" : \"8px\")\n        text \"a\"\n",
+    ));
+    assert_eq!(names, all);
+    // (d) A computed name, normalised as the page's lookup trims it: the
+    // nine, each in the map.
+    for body in [
+        "      column padding=(\"space.\" + size)\n        text \"a\"\n",
+        "      column padding=(\"space.\" + size + \" \")\n        text \"a\"\n",
+        "      column padding=(\" \" + gap)\n        text \"a\"\n",
+        "      column padding=(gap + \" \")\n        text \"a\"\n",
+        "      column padding=gap\n        text \"a\"\n",
+    ] {
+        let (names, out) = declared(&app(
+            "  state size = \"md\"\n  state gap = \"12px\"\n",
+            body,
+        ));
+        assert_eq!(names, all, "{body}");
+        for n in &all {
+            let entry = format!("\"{n}\":\"var({})\"", crate::base_scale::property(n));
+            assert!(out.js.contains(&entry), "{body} {n}: {}", out.js);
+        }
     }
-    // A string state bound to a length row may be any base an action sets.
-    let (names, _) = declared("component App\n  state size = \"12px\"\n  view\n    column padding=size\n      text \"a\"\n");
-    assert_eq!(names, all);
-    // A list item is typed by its list: a number one is no base, a string
-    // one may be any (and a keyword row whose codec reads no length, as
-    // `font-style`, counts none: `base_scale::reads_length`).
-    let (names, out) = declared("component App\n  state sizes = [12, 16]\n  state style = \"italic\"\n  view\n    column font-style=style\n      for s in sizes key=s\n        column padding=s\n          text \"a\"\n");
-    assert_eq!(names, Vec::<&str>::new(), "{}", out.css);
-    let (names, _) = declared("component App\n  state names = [\"space.md\"]\n  view\n    column\n      for n in names key=n\n        column padding=n\n          text \"a\"\n");
-    assert_eq!(names, all);
-    // Plain text, a label, a literal length that is no base, a condition
-    // over literals, a number state, a length built with a unit: no base
-    // read, nothing declared or mapped (a release unchanged by the scale).
-    let (names, out) = declared("component App\n  state wide = false\n  state w = 12\n  view\n    column padding=(wide ? \"24px\" : \"12px\") aria-label=\"space.md\" gap=w\n      text \"space.md\" width=(w.toString() + \"px\")\n      text (wide ? \"radius.lg\" : \"b\")\n");
-    assert_eq!(names, Vec::<&str>::new(), "{}", out.css);
+    // (b) Plain text, a label, a px condition, a number state, a unit-built
+    // length, a keyword row bound to a string: none, and no map entry.
+    let (names, out) = declared(&app(
+        "  state wide = false\n  state w = 12\n  state style = \"italic\"\n",
+        "      column padding=(wide ? \"24px\" : \"12px\") aria-label=\"space.md\" gap=w font-style=style\n        text \"space.md\" width=(w.toString() + \"px\")\n        text (wide ? \"radius.lg\" : \"b\")\n",
+    ));
+    assert_eq!(names, none, "{}", out.css);
     assert!(
         !out.js.contains("var(--exact-space") && !out.js.contains("var(--exact-radius"),
         "{}",
         out.js
     );
-    // A literal length row, and one condition's literal leaves, exactly.
-    let (names, _) =
-        declared("component App\n  view\n    column gap=\"space.lg\"\n      text \"space.md\"\n");
-    assert_eq!(names, vec!["space.lg"]);
-    let (names, _) = declared("component App\n  state wide = false\n  view\n    column padding=(wide ? \"space.xl\" : \"8px\")\n      text \"a\"\n");
-    assert_eq!(names, vec!["space.xl"]);
+    // Round 2, Astra 5: a region's item or bound value typed as built: a
+    // number list's or option's is none, a string one's may be any.
+    for (body, nine) in [
+        ("      for n in [12, 16] key=n\n        column padding=n\n          text \"a\"\n", false),
+        ("      for n in [\"space.md\"] key=n\n        column padding=n\n          text \"a\"\n", true),
+        ("      match some(w)\n        case some(n)\n          column padding=n\n            text \"a\"\n        case none\n          text \"b\"\n", false),
+        ("      match some(gap)\n        case some(n)\n          column padding=n\n            text \"a\"\n        case none\n          text \"b\"\n", true),
+        ("      for s in sizes key=s\n        column padding=s\n          text \"a\"\n", false),
+    ] {
+        let (names, out) = declared(&app("  state w = 12\n  state gap = \"12px\"\n  state sizes = [12, 16]\n", body));
+        assert_eq!(names, if nine { all.clone() } else { none.clone() }, "{body}: {}", out.css);
+    }
+}
+
+/// Round 2, Astra 1: where the plan declares the scale, a keyword row's map
+/// (which holds no base name, `base_scale::reads_length`) is not a length
+/// row's, whichever is bound first.
+#[test]
+fn a_keyword_rows_map_is_not_a_length_rows() {
+    let dir = std::env::temp_dir().join(format!("exact-web-js-base-key-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), "tamber t\n\ntheme\n  tile = 8px\n").unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state scheme = \"light\"\n  state pad = \"space.md\"\n  view\n    column color-scheme=scheme padding=\"tile\"\n      column padding=pad\n        text \"a\"\n").unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let map = |name: &str| {
+        out.js
+            .split(&format!("const {name}="))
+            .nth(1)
+            .and_then(|m| m.split(';').next())
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(
+        map("$tl").contains("\"space.md\":\"var(--exact-space-md)\""),
+        "{}",
+        out.js
+    );
+    assert!(
+        map("$tk").contains("\"tile\"") && !map("$tk").contains("space.md"),
+        "{}",
+        out.js
+    );
+}
+
+/// Round 2, Astra 3: a bound SVG attribute's map holds an alias as its
+/// length (an attribute reads no property), so the alias is written inline:
+/// a development build's edit of it builds, never a batch that leaves the
+/// attribute's length behind.
+#[test]
+fn an_alias_a_bound_svg_attribute_may_name_is_written_inline() {
+    let dir = std::env::temp_dir().join(format!(
+        "exact-web-js-base-svg-inline-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  card.pad: length = space.md\n  tile = 8px\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state size = \"card.pad\"\n  view\n    column padding=\"tile\"\n      svg viewBox=\"0 0 24 24\" width=24 height=24\n        pattern id=\"p\" width=size height=\"4\"\n          path d=\"M0 0L4 4\"\n").unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    let row = |name: &str| {
+        design["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        row("card.pad")["inline"],
+        serde_json::json!(true),
+        "{}",
+        row("card.pad")
+    );
+    assert_ne!(
+        row("tile")["inline"],
+        serde_json::json!(true),
+        "{}",
+        row("tile")
+    );
+}
+
+/// (c) A live switch between two base names keeps the structure: the nine
+/// are declared either way; only none to nine moves it.
+#[test]
+fn a_switch_between_base_names_keeps_the_structure() {
+    let structure = |design: &str| {
+        let dir = std::env::temp_dir().join(format!(
+            "exact-web-js-base-structure-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.tamber"), design).unwrap();
+        std::fs::write(
+            dir.join("app.contract"),
+            "component App\n  view\n    column padding=\"card.pad\"\n      text \"a\"\n",
+        )
+        .unwrap();
+        let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)["structure"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let md = structure("tamber t\n\ntheme\n  card.pad: length = space.md\n");
+    assert_eq!(
+        md,
+        structure("tamber t\n\ntheme\n  card.pad: length = space.lg\n")
+    );
+    assert_ne!(
+        md,
+        structure("tamber t\n\ntheme\n  card.pad: length = 12px\n")
+    );
 }

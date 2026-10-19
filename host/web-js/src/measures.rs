@@ -123,8 +123,25 @@ pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
                 None => continue,
             };
             // A static row's: the sentinel projection writes it. A bound
-            // value maps through the row's map instead ([`map`]).
+            // value maps through the row's map instead ([`map`]), which
+            // holds an alias to a base name as its length (an attribute
+            // reads no property): such an alias is written inline too, so
+            // an edit of it builds (round 2, Astra 3).
             let Some(literal) = crate::style::literal(plan, plan.code(b.expr)) else {
+                let length =
+                    StyleId::from_bit(u32::from(b.id)).is_some_and(crate::base_scale::reads_length);
+                if writer.contains("SVG") && length {
+                    for r in plan.theme.iter().filter(|r| {
+                        kind(r) == Some(Kind::Length)
+                            && r.slices.len == 0
+                            && exact_kernel::style::scale::is_base(plan.str(r.value).trim())
+                    }) {
+                        let name = plan.str(r.name);
+                        if !out.iter().any(|(n, _)| n == name) {
+                            out.push((name.to_string(), writer.clone()));
+                        }
+                    }
+                }
                 continue;
             };
             let Some(text) = literal.as_str().map(str::trim) else {
@@ -294,11 +311,23 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
 
 /// The name of row `id`'s bound map ([`map`]): one per mix of the kinds it
 /// takes, and an attribute row's of its own.
-pub fn map_name(id: StyleId, attribute: bool, container: bool) -> String {
+pub fn map_name(id: StyleId, attribute: bool, container: bool, bases: bool) -> String {
     use exact_kernel::style::theme::admits;
     format!(
         "$t{}{}{}{}{}{}{}",
-        if admits(Kind::Length, id) { "l" } else { "" },
+        // A keyword row the kernel lets name a length token holds no base
+        // names (`base_scale::reads_length`): where the plan declares them
+        // (`bases`) its map is its own (round 2, Astra 1), or a length row's
+        // could reuse one without them; else the maps are alike, and named
+        // as before.
+        match (
+            admits(Kind::Length, id),
+            crate::base_scale::reads_length(id)
+        ) {
+            (true, false) if bases => "k",
+            (true, _) => "l",
+            _ => "",
+        },
         if admits(Kind::Number, id) { "n" } else { "" },
         if admits(Kind::BoxShadow, id) { "b" } else { "" },
         if admits(Kind::TextShadow, id) {

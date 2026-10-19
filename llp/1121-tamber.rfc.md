@@ -4983,3 +4983,50 @@ draws nothing new: stage 11 C draws and conforms on top.
     loop does (`exact-web-js design`). It checks that the structure and shape hold and that both tokens change, sends
     the batch through the page's `exact.design`, and finds the direct row and the alias's row both moved from 40px to
     48px, on the same page.
+- **After review round 2 (Astra: four blocking, one should-fix; Grok: two should-fix, overlapping):**
+  - **All nine or none** (theme2's yes, 2026-10-19; replaces round 1's per-name set). The sheet declares every base
+    name the design does not define once the plan may read any base name as a length, and none when it can't
+    (`base_scale::named`). It may read one through a length token that aliases one, a length row whose value may be
+    one (its bytecode's constants, trimmed as the page's lookup trims), or a length row whose value may be any
+    string: a string read, a string call, or a concatenation not proven base-free. The maps hold the same set. A
+    switch between two base names then never names a property the sheet lacks, so the design's `structure` moves only
+    between none and nine. This dissolves Astra 2 and 4 and Grok 1 and 2 as filed:
+    - **Whitespace** (Astra 2, Grok 1). A concatenation is base-free only where one of its parts, trimmed, is
+      non-empty and inside no base name. `"space." + size + " "`, `" " + gap` and `gap + " "` declare the nine.
+    - **Scrubs** (Astra 4, Grok 2). `design-serve`'s patch reply now carries the structure:
+      `modes::structure_of`, the held plan's own (patching appends to its pool) with the base names the patched
+      values may read. `dev.mjs`'s `scrubPatch` keeps it, and `scrubShow` refuses a frame whose structure differs, as
+      `sameShape` rebuilds a file edit. A frame that brings the plan its first base name is refused; one between two
+      base names is shown.
+  - **A keyword row's map is its own** (Astra 1). Where the plan declares the scale, a row the kernel lets name a
+    length token but whose codec reads no length (`color-scheme`) gets a `$tk…` map without base names, so a length
+    row's `$tl…` map, which holds them, is never the keyword row's cached one. Where the plan declares none the maps
+    are alike and keep their names, so a release that uses no base name is unchanged.
+  - **A bound SVG attribute and an alias** (Astra 3). A bound attribute's map holds an alias as its length (an
+    attribute reads no property), so an alias such a row may name is written inline (`measures::inline_tokens`). A
+    development build's edit of it builds, and a scrub refuses it, never a batch that leaves the attribute behind. It
+    covers a length alias with one value; one that varies is no attribute map's, as before. Round 1's literal length
+    in the attribute and its test stay.
+  - **Built values in region frames** (Astra 5). The walk keeps a constructed option's or list's element (`Some(x)`,
+    `[12, 16]`), which a `match` or `for` frame then holds, and a bound row returning an option counts its element.
+  - **One reading an emit** (`base_scale::keep`, through `modes::every_for` as `emit.rs` is at its cap). An emit
+    walks the plan once, not once a bound row.
+  - **Tests:**
+    - `base_scale_tests.rs` `the_scale_is_declared_whole_when_the_plan_may_read_a_base_name`:
+      - a literal row, and a condition's leaf, declare the nine;
+      - five computed and whitespace-wrapped names declare the nine, and the map holds each;
+      - plain text, a label, a px condition, a number state, `w.toString() + "px"` and a keyword row bound to a string
+        declare none, with no map entry;
+      - `for n in [12, 16]`, `match some(w)` and a number list state declare none; their string forms declare the
+        nine.
+    - `a_keyword_rows_map_is_not_a_length_rows`: `color-scheme` bound first, then padding; `$tl` holds `space.md` and
+      `$tk` doesn't.
+    - `an_alias_a_bound_svg_attribute_may_name_is_written_inline`: `card.pad` inline, `tile` not.
+    - `a_switch_between_base_names_keeps_the_structure`: space.md and space.lg have the same structure; 12px's is
+      another.
+    - `base-scale-live.test.mjs`, in Chrome:
+      - a scrub patch from 12px to `space.md` moves the structure, and one from `space.md` to `space.lg` doesn't;
+      - the switch compiles with the same structure and shape, goes as a batch, and the page's row moves from 16px to
+        24px with no reload;
+      - the 40px to 48px test stands.
+    - Release output against d7eaafb72a's exact-web-js: all 14 apps byte-identical.

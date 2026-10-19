@@ -4,10 +4,11 @@
 //! build (`metrics::column()`):
 //! - a static row naming a base name is that column's length, as the kernel
 //!   reads the literal while the sheet is projected (`theme::measure`);
-//! - the sheet declares each base name the plan may read as a length
-//!   ([`named`]), and the design does not define, once as a custom property
-//!   on `:root`, `--exact-<name>`
-//!   (`--exact-space-md`), from the kernel's table, never a copied number;
+//! - the sheet declares every base name the design does not define, once
+//!   as a custom property on `:root`, `--exact-<name>` (`--exact-space-md`),
+//!   from the kernel's table, never a copied number, when the plan may read
+//!   any base name as a length, and none when it can't ([`named`]: theme2's
+//!   all-nine-or-none, B2 round 2);
 //! - a bound row's value naming one reads that property (`measures::map`),
 //!   an SVG attribute its length.
 //!
@@ -20,17 +21,56 @@ use exact_kernel::StyleId;
 use exact_plan::{BindingKind, Opcode, Plan};
 use std::collections::BTreeSet;
 
-/// The base names `plan` may read as a length and its design does not
-/// define, in the table's order (B2 round 1, Astra 3; theme2's (B)): the
-/// plan's length reads, as D7's retention keeps a token, never its string
-/// pool (a text that says `space.md` declares nothing):
-/// - each base name a length row's value may be, through `?:`, `match` and
-///   `let` (its bytecode's string constants, [`returns`]);
-/// - each a length token aliases (`card.pad: length = space.md`);
-/// - every one when a length row's value is computed (`"space." + size`, a
-///   state, data), as lowering keeps every length token then
-///   (`computed_measure`): declaring all nine is safe, missing one is not.
+/// The base names the sheet declares and the maps hold: every one the
+/// design does not define when the plan may read any base name as a length,
+/// none when it can't (theme2, B2 round 2: declaring all nine is safe,
+/// missing one is not, and a switch between two base names then never needs
+/// a property the sheet lacks). It may read one when:
+/// - a length token aliases one (`card.pad: length = space.md`);
+/// - a length row's value may be one, through `?:`, `match` and `let` (its
+///   bytecode's string constants, trimmed as the page's lookup trims,
+///   [`returns`]);
+/// - a length row's value may be any string: a string read (a state, a
+///   field, data), a string call, a concatenation not proven base-free.
+///
+/// A text that says `space.md` reads none, so a release that uses no base
+/// name is unchanged by the scale.
 pub fn named(plan: &Plan) -> Vec<&'static str> {
+    let at = plan as *const Plan as usize;
+    if let Some(kept) = KEPT.with(|k| {
+        k.borrow()
+            .as_ref()
+            .filter(|(p, _)| *p == at)
+            .map(|(_, v)| v.clone())
+    }) {
+        return kept;
+    }
+    reads(plan)
+}
+
+thread_local! {
+    /// [`named`]'s answer for the plan an emit is writing ([`keep`]).
+    static KEPT: std::cell::RefCell<Option<(usize, Vec<&'static str>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// [`named`] for `plan` asked once and kept while the guard lives: an emit
+/// asks it once a bound row (`measures::map`, `map_name`).
+pub fn keep(plan: &Plan) -> Kept {
+    let names = reads(plan);
+    Kept(KEPT.with(|k| k.replace(Some((plan as *const Plan as usize, names)))))
+}
+
+/// [`keep`]'s guard: what was kept before, restored.
+pub struct Kept(Option<(usize, Vec<&'static str>)>);
+
+impl Drop for Kept {
+    fn drop(&mut self) {
+        KEPT.with(|k| *k.borrow_mut() = self.0.take());
+    }
+}
+
+/// [`named`], unkept.
+fn reads(plan: &Plan) -> Vec<&'static str> {
     let mut every = false;
     let mut said: BTreeSet<&str> = BTreeSet::new();
     for row in &plan.theme {
@@ -75,8 +115,9 @@ pub fn named(plan: &Plan) -> Vec<&'static str> {
             None => every = true,
         }
     }
+    let reads = every || scale::names().any(|n| said.contains(n));
     scale::names()
-        .filter(|n| every || said.contains(n))
+        .filter(|_| reads)
         .filter(|n| !plan.theme.iter().any(|r| plan.str(r.name) == *n))
         .collect()
 }
@@ -111,6 +152,9 @@ struct Value {
     strings: BTreeSet<u32>,
     unknown: bool,
     ty: Option<exact_plan::TypesId>,
+    /// A constructed option's or list's element (`Some(x)`, `[12, 16]`),
+    /// which a region's frame holds (round 2, Astra 5).
+    item: Option<Box<Value>>,
 }
 
 impl Value {
@@ -141,14 +185,27 @@ impl Value {
         if self.ty != other.ty {
             self.ty = None;
         }
+        self.item = match (self.item.take(), &other.item) {
+            (Some(mut a), Some(b)) => {
+                a.join(b);
+                Some(a)
+            }
+            // One way constructed, another not: its element is unknown.
+            (Some(_), None) | (None, Some(_)) => Some(Box::new(Value::unknown())),
+            (None, None) => None,
+        };
     }
     /// Whether every string it may be holds a part no base name holds, so
     /// no concatenation with it is one (a digit, `px`, `%`).
+    /// Trimmed, as the page's lookup trims (`v.trim()`): a part of only
+    /// whitespace proves nothing (round 2, Astra 2 and Grok 1). No string
+    /// and not unknown, in a concatenation, is an earlier one proven
+    /// base-free.
     fn no_base(&self, plan: &Plan) -> bool {
         !self.unknown
             && self.strings.iter().all(|id| {
-                let text = plan.str(exact_plan::StrId(*id));
-                !scale::names().any(|n| n.contains(text))
+                let text = plan.str(exact_plan::StrId(*id)).trim();
+                !text.is_empty() && !scale::names().any(|n| n.contains(text))
             })
     }
 }
@@ -159,7 +216,13 @@ impl Value {
 /// data), computed (`Concat`, a call), or code this reading does not follow.
 /// A literal's leaves as lowering's `literal` reads them, on the bytecode.
 fn returns(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>) -> Option<BTreeSet<u32>> {
-    let out = walk(plan, code, arm, 0)?;
+    let mut out = walk(plan, code, arm, 0)?;
+    // An option a row is bound to is its value or none: its element counts.
+    while let Some(item) = out.item.take() {
+        out.strings.extend(&item.strings);
+        out.unknown |= item.unknown;
+        out.item = item.item;
+    }
     (!out.unknown).then_some(out.strings)
 }
 
@@ -191,15 +254,21 @@ fn frame_value(
     let elem = || {
         let region = region_at(plan, arm, depth).filter(|r| r.kind == kind)?;
         let subject = walk(plan, plan.code(region.subject), region.arm, nested + 1)?;
+        // A constructed list or option (`[12, 16]`, `Some(size)`): its
+        // element as built (round 2, Astra 5).
+        if let Some(item) = subject.item {
+            return Some(Err(*item));
+        }
         let t = &plan.types[subject.ty?.0 as usize];
         let wants = match kind {
             exact_plan::RegionKind::Each => exact_plan::TypeKind::List,
             _ => exact_plan::TypeKind::Option,
         };
-        (t.kind == wants).then_some(t.elem).flatten()
+        (t.kind == wants).then_some(t.elem).flatten().map(Ok)
     };
     match (nested < 8).then(elem).flatten() {
-        Some(elem) => Value::typed(plan, elem),
+        Some(Ok(elem)) => Value::typed(plan, elem),
+        Some(Err(built)) => built,
         None => Value::unknown(),
     }
 }
@@ -236,7 +305,28 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
                 strings: [ins.args[0] as u32].into(),
                 ..Value::default()
             }),
-            Opcode::Some => {}
+            Opcode::Some => {
+                let v = pop(&mut stack)?;
+                stack.push(Value {
+                    item: Some(Box::new(v)),
+                    ..Value::default()
+                });
+            }
+            // A list literal: its items' join (round 2, Astra 5).
+            Opcode::List => {
+                let mut item: Option<Value> = None;
+                for _ in 0..ins.args[0] {
+                    let v = pop(&mut stack)?;
+                    match &mut item {
+                        Some(i) => i.join(&v),
+                        None => item = Some(v),
+                    }
+                }
+                stack.push(Value {
+                    item: Some(Box::new(item.unwrap_or_default())),
+                    ..Value::default()
+                });
+            }
             Opcode::Unwrap => {
                 let v = pop(&mut stack)?;
                 let elem = v.ty.map(|t| &plan.types[t.0 as usize]).and_then(|t| {
@@ -244,9 +334,14 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
                         .then_some(t.elem)
                         .flatten()
                 });
-                stack.push(match elem {
-                    Some(elem) => Value::typed(plan, elem),
-                    None => Value { ty: None, ..v },
+                stack.push(match (v.item, elem) {
+                    (Some(item), _) => *item,
+                    (None, Some(elem)) => Value::typed(plan, elem),
+                    (None, None) => Value {
+                        ty: None,
+                        item: None,
+                        ..v
+                    },
                 });
             }
             // A read says its type: a string one may be any (a state an

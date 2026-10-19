@@ -754,7 +754,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     if (!next.tokens || design !== base) return { fallback: true };
     // The committed design's rows, those it patched set again.
     const rows = new Map(next.tokens.map((t) => [t.name, t]));
-    return scrubShow({ ...base, digest: next.digest, tokens: base.tokens.map((t) => rows.get(t.name) ?? t) }, frame);
+    return scrubShow({ ...base, digest: next.digest, structure: next.structure ?? base.structure, tokens: base.tokens.map((t) => rows.get(t.name) ?? t) }, frame);
   }
   /** The patched frame shown, against its texts compiled whole: `{mismatch}`
    * naming the first token that differs. */
@@ -786,6 +786,10 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     const from = scrubbed ?? design;
     if (!from || from.shape !== next.shape || from.tokens.length !== next.tokens.length
       || next.tokens.some((t, i) => t.name !== from.tokens[i].name || String(t.accent) !== String(from.tokens[i].accent))) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+    // The plan's structure as a kept build needs it (the base scale's
+    // declarations among it, `modes::structure`): a frame that moves it would
+    // name what the page's sheet lacks.
+    if (from.structure !== next.structure) return { error: 'it changes the plan\'s structure (the base scale\'s declarations): a rebuild applies on release' };
     // A token the page writes inline has no property to preview through.
     const inline = next.tokens.find((t, i) => t.inline && !same(t, from.tokens[i]));
     if (inline) return { error: `\`${inline.name}\` is written inline on this page (${inline.writer ?? 'a font weight, an SVG attribute'}): a rebuild applies on release` };

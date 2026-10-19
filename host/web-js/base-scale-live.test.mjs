@@ -79,40 +79,54 @@ test('a live edit of a base name the app sets moves its row and its alias on the
   }
 }, 60000);
 
-// Review round 1 (Astra 2): an alias to a base name the design leaves unset
-// switched live (`card.pad: length = space.md` to `space.lg`) would name a
-// property the page's sheet never declared. Its structure moves, so the dev
-// loop builds (`sameShape` in dev.mjs), and the build declares it: the page
-// shows space.lg's length in this build's (neutral) column.
-test('an alias switched to a base the sheet lacks rebuilds, and the build shows it', async () => {
+// Round 2 (theme2's all-nine-or-none): the sheet declares every base name
+// once the plan may read one, so an alias switched live between two
+// (`card.pad: length = space.md` to `space.lg`) keeps the structure and goes
+// as a batch: the page's row moves to space.lg's length with no reload. A
+// scrub's patch (`design-serve`) says the structure too, and it moves only
+// when the plan comes to read a base name (none to nine), which the dev
+// loop's scrub refuses (`scrubShow`).
+test('an alias switched between base names goes live; the first base name moves the structure', async () => {
   const root = resolve(import.meta.dir, '../..');
   const target = resolve(root, 'target');
   const app = mkdtempSync(resolve(target, 'base-switch-app-'));
   const dir = mkdtempSync(resolve(target, 'base-switch-out-'));
   const bin = resolve(target, 'debug/exact-web-js');
   const alias = base => `tamber t\n\ntheme\n  card.pad: length = ${base}\n`;
-  let server, browser;
+  let server, browser, serve;
   try {
     writeFileSync(resolve(app, 'app.contract'), `component App\n  view\n    column testId="alias" padding="card.pad"\n      text "a"\n`);
-    writeFileSync(resolve(app, 'app.tamber'), alias('space.md'));
-    const build = () => {
+    const build = (design) => {
+      writeFileSync(resolve(app, 'app.tamber'), design);
       const built = spawnSync(bin, ['js', resolve(app, 'app.contract'), '-o', dir, '--dev-reload'], { encoding: 'utf8' });
       expect(built.status, built.stderr).toBe(0);
       return JSON.parse(readFileSync(resolve(dir, 'dev-design.json'), 'utf8'));
     };
-    const before = build();
-    expect(readFileSync(resolve(dir, 'app.css'), 'utf8')).not.toContain('--exact-space-lg');
+    // A scrub's patch, as the dev loop asks `design-serve` for one.
+    const patch = (before, values) => {
+      const asked = spawnSync(bin, ['design-serve', resolve(app, 'app.contract')], {
+        encoding: 'utf8', input: `${JSON.stringify({ id: 1, key: `${before.shape} ${before.digest}`, patch: values })}\n`,
+      });
+      expect(asked.status, asked.stderr).toBe(0);
+      return JSON.parse(asked.stdout.trim().split('\n').at(-1));
+    };
+    // None to nine: the structure moves, in a build and in a scrub's patch.
+    const plain = build(alias('12px'));
+    expect(readFileSync(resolve(dir, 'app.css'), 'utf8')).not.toContain('--exact-space');
+    expect(patch(plain, [['card.pad', ['space.md']]]).structure).not.toBe(plain.structure);
+    const before = build(alias('space.md'));
+    expect(before.structure).not.toBe(plain.structure);
+    expect(readFileSync(resolve(dir, 'app.css'), 'utf8')).toContain('--exact-space-lg:24px');
+    // Between two base names: the same structure, in a patch and a compile.
+    expect(patch(before, [['card.pad', ['space.lg']]]).structure).toBe(before.structure);
     const edited = resolve(app, 'edited.tamber');
     writeFileSync(edited, alias('space.lg'));
     const read = spawnSync(bin, ['design', resolve(app, 'app.contract'), edited], { encoding: 'utf8' });
     expect(read.status, read.stderr).toBe(0);
     const next = JSON.parse(read.stdout);
-    expect(next.shape).toBe(before.shape);
-    expect(next.structure).not.toBe(before.structure);
-    // The build the dev loop runs then.
-    writeFileSync(resolve(app, 'app.tamber'), alias('space.lg'));
-    expect(build().structure).toBe(next.structure);
-    expect(readFileSync(resolve(dir, 'app.css'), 'utf8')).toContain('--exact-space-lg:24px');
+    expect([next.shape, next.structure]).toEqual([before.shape, before.structure]);
+    const changed = next.tokens.filter((t, i) => JSON.stringify(t) !== JSON.stringify(before.tokens[i]));
+    expect(changed.map(t => t.name)).toEqual(['card.pad']);
     server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname.slice(1);
       if (!path) return new Response(`<link rel="stylesheet" href="/app.css"><div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`,
@@ -126,7 +140,13 @@ test('an alias switched to a base the sheet lacks rebuilds, and the build shows 
     await page.goto(server.url.href);
     const row = page.getByTestId('alias');
     await row.waitFor({ state: 'attached' });
-    expect(await row.evaluate(n => getComputedStyle(n).paddingTop)).toBe('24px');
+    const padding = () => row.evaluate(n => getComputedStyle(n).paddingTop);
+    expect(await padding()).toBe('16px');
+    await page.evaluate(() => (window.__kept = 1));
+    const batch = { kind: 'tamber-batch', structure: next.shape, base: before.digest, design: next.digest, tokens: changed };
+    expect(await page.evaluate(b => globalThis.exact.design(b).live, batch)).toBe('applied');
+    expect(await padding()).toBe('24px');
+    expect(await page.evaluate(() => window.__kept)).toBe(1);
   } finally {
     await browser?.close();
     server?.stop(true);

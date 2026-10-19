@@ -197,7 +197,7 @@ const HOST_FACTS: &[&str] = &[
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
     // A development build makes every token a property (LLP 1121 stage 4).
-    let _every = crate::modes::every(dev_reload);
+    let _every = crate::modes::every_for(plan, dev_reload);
     // And every overridden role its sheet's property (stage 5).
     let _live = exact_kernel::style::roles::live_properties(dev_reload);
     // @ref LLP 1095 D4 — the roles the theme replaces, as the runner sets them.
