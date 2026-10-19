@@ -80,9 +80,11 @@ final class RecentMenu: NSObject, NSMenuDelegate {
             item.image = icon
         }
         if !urls.isEmpty { menu.addItem(.separator()) }
-        let clear = menu.addItem(withTitle: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
-        clear.target = NSDocumentController.shared
+        // Clearing ends what each app keeps too (LLP 1069.010.000 D6).
+        menu.addItem(withTitle: "Clear Menu", action: #selector(clear(_:)), keyEquivalent: "").target = self
     }
+
+    @objc func clear(_ sender: Any?) { KeptDocuments.clear() }
 
     @objc func open(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }

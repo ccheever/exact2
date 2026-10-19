@@ -160,6 +160,15 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, call, ctx));
         }
 
+        /// Where a document the app forgot goes (LLP 1069.010.000 D5): off
+        /// the platform's recents, by the Swift host.
+        #[no_mangle]
+        pub extern "C" fn exact_on_document_forgotten(forgotten: Option<extern "C" fn(u64, u64)>) {
+            if let Some(forgotten) = forgotten {
+                $crate::documents::on_forgotten(forgotten);
+            }
+        }
+
         /// The app module announced a topic (LLP 1016.002), on this thread.
         #[no_mangle]
         pub extern "C" fn exact_app_changed(rt: u32, topic: *const u8, len: usize) {
