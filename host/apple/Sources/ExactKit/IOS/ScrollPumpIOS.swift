@@ -137,6 +137,9 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
         presenter?.stickies.scrolled(nil); scrolled(nil)
     }
+    // The page's element reveals (`IntoView.swift`).
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { presenter?.elementScrolls.userScrolled(scrollView) }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { presenter?.elementScrolls.revealEnded(scrollView) }
 
     func batchApplied() {
         // A list that never scrolls, or whose rows change in place (live

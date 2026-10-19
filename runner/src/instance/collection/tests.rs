@@ -1381,3 +1381,31 @@ fn bounded_snapshots_equal_ordinary_and_refuse_before_owned_rows() {
     );
     assert_ne!(current, ordinary);
 }
+
+/// The keyboard going down grows a transcript's port in two frames between
+/// reports (UIKit: its frame without, then with, the bottom safe area). The
+/// host clamped the port to the end of the first, which is short of the
+/// second's end; a reader at the end before the resize is still there.
+#[test]
+fn an_unreported_resize_the_reader_did_not_make_keeps_the_end() {
+    let mut h = Harness::new(100, false, true);
+    h.send(h.feedback(2880.0));
+    let mut hidden = h.feedback(2500.0);
+    hidden.port_main = 660.0;
+    h.send(hidden);
+    assert_eq!(h.snapshot().correction.unwrap().offset, 2540.0);
+    // A reader moving the port as it resizes (an interactive dismissal)
+    // chose where it is.
+    let mut h = Harness::new(100, false, true);
+    h.send(h.feedback(2880.0));
+    let mut dragged = h.feedback(2500.0);
+    dragged.port_main = 660.0;
+    h.send_filled(
+        dragged,
+        CollectionFill {
+            velocity: -400.0,
+            ..CollectionFill::default()
+        },
+    );
+    assert!(h.snapshot().correction.is_none());
+}

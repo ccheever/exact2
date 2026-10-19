@@ -9,6 +9,9 @@
 //!
 //! An engine fault is never a panic: it is recorded, reported as
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
+mod absolute;
+#[cfg(test)]
+mod absolute_tests;
 mod alert;
 mod buttons;
 #[cfg(test)]
@@ -162,6 +165,9 @@ pub struct LayoutTree {
     // parent's is stale: a position or a child list changed since it was made.
     absolutes: IdSet<NodeId>,
     hoists_stale: bool,
+    // What changed since the last layout that decides whether a change is
+    // confined to absolutely positioned boxes (`absolute.rs`).
+    absolute: absolute::Changes,
     // The static boxes between such a box and its containing block. None is
     // a replay boundary: laying its subtree out alone would not place a box
     // that something above it contains. `hoist_paths_prior` holds the record
@@ -188,6 +194,12 @@ fn boundary_style(s: &taffy::Style) -> bool {
             s.overflow.y,
             taffy::Overflow::Hidden | taffy::Overflow::Scroll
         )
+}
+
+/// Whether the engine keeps a box's final layout to replay: a clipping box's,
+/// and a positioned one's, which contains absolutely positioned boxes.
+fn replayable(s: &taffy::Style) -> bool {
+    boundary_style(s) || s.position != taffy::Position::Static
 }
 
 /// A hash of the rows most styles differ in; equality decides the rest.
@@ -398,6 +410,7 @@ impl LayoutTree {
             shared: Interner::default(),
             absolutes: IdSet::default(),
             hoists_stale: false,
+            absolute: Default::default(),
             hoist_paths: IdSet::default(),
             hoist_paths_prior: IdSet::default(),
             fitting: IdSet::default(),
@@ -458,7 +471,7 @@ impl LayoutTree {
 
     /// Allocate a leaf; `measured` leaves carry their slot for the measure closure.
     pub fn new_leaf(&mut self, style: taffy::style::Style, slot: u32, measured: bool) -> NodeId {
-        let boundary = boundary_style(&style);
+        let boundary = replayable(&style);
         let absolute = style.position == taffy::Position::Absolute;
         let style = self.share(style);
         let result = if measured {
@@ -475,6 +488,7 @@ impl LayoutTree {
         match result {
             Ok(node) => {
                 self.slots.insert(node, slot);
+                self.made(node);
                 self.taffy.track_layout_input(node, boundary);
                 if absolute {
                     self.absolutes.insert(node);
@@ -547,9 +561,10 @@ impl LayoutTree {
                 self.absolutes.remove(&node);
             }
             self.hoists_stale = true;
+            self.repositioned(node);
         }
         self.clear_measurements(node);
-        self.taffy.track_layout_input(node, boundary_style(&style));
+        self.taffy.track_layout_input(node, replayable(&style));
         let style = self.share(style);
         self.taffy.set_style_unmarked(node, style);
         self.deferred.insert(node, true);
@@ -627,6 +642,7 @@ impl LayoutTree {
     /// Replace a node's ordered children. A child taken from another parent
     /// invalidates both at once; otherwise this is the parent's content.
     pub fn set_children(&mut self, parent: NodeId, children: &[NodeId]) {
+        self.children_changing(parent);
         self.hoists_stale |= !self.absolutes.is_empty();
         self.clear_measurements(parent);
         if self.taffy.set_children_unmarked(parent, children) {
@@ -646,6 +662,7 @@ impl LayoutTree {
 
     /// Mark a node (and its ancestors) dirty.
     pub fn mark_dirty(&mut self, node: NodeId) {
+        self.dirtied(node);
         self.clear_measurements(node);
         self.deferred.entry(node).or_insert(false);
     }
@@ -757,12 +774,25 @@ impl LayoutTree {
         // first: one stopping at a box a local walk had already cleared would
         // leave that box's ancestors clean.
         let mut boundaries = IdSet::default();
+        let mut blocks = IdSet::default();
         let mut contained = Vec::new();
+        // A source under another root waits for that root's layout, where it
+        // may stay local, unless the hoists moved (their prior paths go now).
+        let keep = self.hoist_paths_prior.is_empty();
+        let mut others = Vec::new();
         for &node in deferred.keys() {
-            match local
+            if keep && self.under_another(node, root) {
+                others.push((node, deferred[&node]));
+                continue;
+            }
+            let held = local
                 .then(|| self.boundary_for(node, root, &deferred, &mut walks))
-                .flatten()
-            {
+                .flatten();
+            let block = (local && held.is_none())
+                .then(|| self.absolute_boundary(node, root, &deferred))
+                .flatten();
+            blocks.extend(block);
+            match held.or(block) {
                 Some(boundary) => {
                     contained.push((node, boundary));
                     boundaries.insert(boundary);
@@ -778,8 +808,12 @@ impl LayoutTree {
         }
         deferred.clear();
         walks.clear();
+        deferred.extend(others);
         self.deferred = deferred;
         self.walks = walks;
+        if self.deferred.is_empty() {
+            self.absolute.clear();
+        }
         // An unrelated source may have invalidated the root (a list whose
         // rows moved, a change no box contains): the root pass that follows
         // handles those, and each boundary is still replayed first. Its
@@ -806,8 +840,7 @@ impl LayoutTree {
         let mut replays: Vec<(usize, NodeId, LayoutInput, taffy::tree::LayoutOutput)> = boundaries
             .into_iter()
             .filter_map(|node| {
-                self.taffy
-                    .last_layout_input(node)
+                self.replay_record(node, blocks.contains(&node))
                     .map(|(input, output)| (depth(node), node, input, output))
             })
             .collect();
@@ -1289,7 +1322,13 @@ impl LayoutTree {
                 .compute_boundary_with_measure(node, input, &mut measure);
             // Both axes clip here; the changed internal extent is published on
             // this box but cannot contribute to an ancestor's scrollable extent.
-            output.scrollable_overflow_rect = previous.scrollable_overflow_rect;
+            // A containing block that does not clip (`absolute.rs`) contributes
+            // only where its overflow passes its border box.
+            if self.taffy.style(node).is_ok_and(boundary_style)
+                || absolute::same_reach(&output, &previous)
+            {
+                output.scrollable_overflow_rect = previous.scrollable_overflow_rect;
+            }
             if baselines_unread.contains(&node) {
                 output.baselines = previous.baselines;
             }

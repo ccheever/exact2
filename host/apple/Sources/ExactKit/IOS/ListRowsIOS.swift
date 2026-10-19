@@ -1,14 +1,15 @@
-// Which batches touch only a virtualized list's rows (iOS, tvOS): a fling's
-// fills build, move and drop rows many times a second, and the route and
-// bar projection reads nothing in them.
+// Which batches touch only the rows of a virtualized list or the content of a
+// scroll view (iOS, tvOS): a fling's fills build, move and drop rows many
+// times a second, a playhead redraws its strip eight, and the route and bar
+// projection reads nothing in them.
 #if os(iOS) || os(tvOS)
 import UIKit
 
 extension Presenter {
     /// Whether every op in `batch` is a list snapshot or lands in a
-    /// virtualized list's rows: on a node under one, on a node the batch
-    /// places under one, or on the list's own children, content size, frame
-    /// or rank. A node on the way up to the list that the projection reads
+    /// virtualized list's rows or a scroll view's content: on a node under
+    /// one, on a node the batch places under one, or on its own children,
+    /// content size, frame or rank. A node on the way up to the list that the projection reads
     /// (a header, a tab, tablist or tabpanel, a route, the stack's Back
     /// control), a list that is a route or a routes' owner, or one inside a
     /// header, a tab or the Back control makes the op count. Read before the batch applies,
@@ -63,12 +64,15 @@ extension Presenter {
         let targets = invoked.reduce(into: Set<UInt32>()) { $0.formUnion(chrome.named[$1] ?? []) }
         read.formUnion(navigation.controllers.keys)
         var lists: [ObjectIdentifier: Bool] = [:]
-        /// A virtualized list that is not a route or a routes' owner, that no
-        /// header, tab or Back control holds, and that holds nothing the
-        /// projection reads.
+        /// A virtualized list, or a scroll view: what a page's changing
+        /// content lives in (a list's fills, a sequencer's step strips).
+        func holdsRows(_ view: NodeView) -> Bool { view.kind == "list" || view.kind == "scroll" }
+        /// A virtualized list or scroll view that is not a route or a routes'
+        /// owner, that no header, tab or Back control holds, and that holds
+        /// nothing the projection reads.
         func rowsList(_ list: NodeView) -> Bool {
             if let known = lists[ObjectIdentifier(list)] { return known }
-            var result = list.kind == "list" && collections.owns(list.id) && !projected(list) && navigation.container !== list
+            var result = (list.kind == "scroll" || (list.kind == "list" && collections.owns(list.id))) && !projected(list) && navigation.container !== list
             var up = list.superview
             while result, let u = up { if let n = u as? NodeView, readsInside(n) { result = false }; up = u.superview }
             for id in read where result {
@@ -88,12 +92,12 @@ extension Presenter {
                 while let u = up {
                     if let n = u as? NodeView {
                         if projected(n) { break }
-                        if n !== view, n.kind == "list" { result = rowsList(n); break }
+                        if n !== view, holdsRows(n) { result = rowsList(n); break }
                     }
                     up = u.superview
                 }
             } else if depth < 64, let parent = placed[id] ?? flats.parent(of: id) {
-                if !createdProjected.contains(id) { result = views[parent].map { $0.kind == "list" ? rowsList($0) : inRows(parent, depth + 1) } ?? inRows(parent, depth + 1) }
+                if !createdProjected.contains(id) { result = views[parent].map { holdsRows($0) ? rowsList($0) : inRows(parent, depth + 1) } ?? inRows(parent, depth + 1) }
             } else if !created.contains(id), !flats.isFlat(id), leaving[id] == nil {
                 // A node with no view (a layout box the presenter never
                 // makes): an op on it does nothing here.
@@ -118,7 +122,7 @@ extension Presenter {
                 // It places something the projection reads (a named scroller, a tablist).
                 return false
             case .children, .content, .frame, .rank:
-                if let list = views[op.id], list.kind == "list" { return rowsList(list) }
+                if let list = views[op.id], holdsRows(list) { return rowsList(list) }
                 return inRows(op.id)
             case .create, .props:
                 // What it sets may make it projected: a route, a tab, the Back control.
@@ -130,7 +134,7 @@ extension Presenter {
                 var up: UIView? = view
                 while let u = up { if let n = u as? NodeView, readsInside(n) { return false }; up = u.superview }
                 return true
-            case .destroy, .style, .paragraph, .flow:
+            case .destroy, .style, .paragraph, .flow, .animations:
                 return inRows(op.id)
             default:
                 return false

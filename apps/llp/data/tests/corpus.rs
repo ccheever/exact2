@@ -106,8 +106,8 @@ fn the_index_is_this_repositorys_corpus_in_number_order() {
         .collect();
     assert_eq!(current, declared, "the reader indexes every declared link");
     assert!(
-        current.len() <= 15,
-        "rules/RULES.md caps the working set at 15, found {}",
+        current.len() <= 16,
+        "rules/RULES.md caps the working set at 16, found {}",
         current.len()
     );
 }

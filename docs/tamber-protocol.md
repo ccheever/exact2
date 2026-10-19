@@ -80,8 +80,11 @@ on macOS and Linux.
   `layout`'s held answer name the node the state is held on (`node`, `site`, `instance`: the press
   a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
   row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
-  press row it lowered to as `row`). Stage 9's later wire changes add under the same version: D2's
-  `set-row`, D3's `add-param` and `remove-param`.
+  press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
+  `:active` part row is edited by `set-state`). Stage 9's later wire changes add under the same
+  version: D2's `set-row`, D3's `add-param` and `remove-param`; C1's `explain` of an icon and a
+  param, and `describe`'s icon `draws`; C2's `uses` of an icon and a motion token's sites by
+  instance.
 
 ## Where it runs
 
@@ -181,8 +184,9 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
-  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its last `held`
-  report's `{state, reason}`, *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
+  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its `held`
+  report's `{state, reason}` on the last hold frame sent it (null until it reports on that frame),
+  *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -208,7 +212,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `fallback` (a length's or number's is its default tuple's value, twice);
   - `exports`;
   - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
-    written, null where unwritten (D10).
+    written, null where unwritten (D10), and `draws` (*1.12*): `{target: source}` for each target the
+    app ships, the source that target draws (`sf`, `svg`) or null for none, by D10's rule (the one
+    `tamber-icon-missing` checks).
   - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
@@ -225,10 +231,11 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
   - `resolve`, `explain` and `uses` take a param's full or short name as `token` and answer by its
-    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`.
+    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`,
+    and since *1.12* through `explain` and `uses` too (below).
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
-  `describe` and `resolve` only.
+  `describe` and `resolve`, and since *1.12* `explain` and `uses`.
 - `files`;
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
@@ -277,6 +284,15 @@ tuple:
 - `dials` lists the dials it depends on, and `names` the tokens its values name, as the checker
   resolved them;
 - `files` gives the digests it read (*1.1*).
+- **An icon** (*1.12*) answers `{token, kind: "icon", value, whens: [], dials: [], names, icon,
+  files}`: `value` its line's value as written (an `icon(…)`, or another icon's name), `names` the
+  icon that value names (empty for an `icon(…)`), `icon` its `describe` entry (`draws` included:
+  what it draws, the named icon's sources for an alias). An icon param answers the same by its full name, its
+  `value` its default as written, `names` the icon or param that default names, and `param`
+  (below).
+- **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
+  where its line is, its default as written, and `set`, the design's line that sets the app's
+  value (`{file, line, value}`), or null.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
@@ -300,13 +316,30 @@ read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliase
 - `aliases`: the tokens whose values name it, directly or through another;
 - `files`: the digests it read.
 
-A duration or easing token (*1.9*) is written into its rows at build, so the plan has no node
-for it: `plan` is null, and each site is a source literal, `{site: null, row, file, line, col,
-end_col, argument?, via?}`. These are the literals of a motion row the build wrote it into
-(`row` is that row's name, `-` as `_`) in every source the app loads, a package's too, and the
-component arguments whose literals name it (`row` null, `argument: {component, name}`), which an
-expansion writes into a row. `via: {token}` says when the literal names the token through
-another token. A comment is no site.
+A duration or easing token (*1.9*) is written into its rows at build, so its sites are found
+through its source literals: the literals of a motion row the build wrote it into (`row` is that
+row's name, `-` as `_`) in every source the app loads, a package's too, and the component
+arguments whose literals name it (`row` null, `argument: {component, name}`), which an expansion
+writes into a row. `via: {token}` says when the literal names the token through another token. A
+comment is no site. Since *1.12* (stage 9 C2) the answer's `plan` is the digest, and each plan node
+declared at the element whose attribute holds a literal (in any part of its value: a condition's
+arm, a `+`'s side), or whose row the source map says is written at a `style`'s attribute holding
+it, is its own site: `site` that node, located as the map has it (`file`, `line`, `col`, `end_col`,
+`component`, `chain`), and `literal` `{file, line, col, end_col}` the literal's place, so a
+component used twice gives two sites for its one literal. A literal no node is declared or written
+at (a component no one uses, a component argument's) keeps the older shape, `{site: null, row,
+file, line, col, end_col, argument?, via?}` at the literal's place; before 1.12 every site had that
+shape and `plan` was null.
+
+An icon (*1.12*) is read where an `image`'s source names it (a string, a template with no `${}`,
+either arm of a condition or a `match`, a list's items): each plan node of such an image,
+located as the map has it, `row` `symbol` (the image's source, not a style row). Through an icon
+param of the image's component (by its identity) whose value (the design's line, by its full name
+or by its short name where only one component has it; else its default) resolves to the icon, to a
+fixed point, the site says `via: {token: <param>}`, and `aliases` lists those params; a source
+that is the thing asked about has no `via`. Asked about an icon param, `uses` answers by its full
+name with the images that read it (or a param resolving to it). A node that shares its element's span
+with another (a button's text child) is a motion site only where it binds the row's kind.
 
 A `file` that is not the design the app builds has no sites. The JS target's plan and a native
 bake of the same sources have the same sites. How many instances of each site are mounted on a
@@ -1012,9 +1045,24 @@ The tool drives no input into an app; a command changes only what `prefer` would
   the client goes. A build that registers again is sent it again under the same plan (or `hold:
   null` when the server holds none for it); one that runs another plan (a `status` whose
   `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
-  the old site's source location, and when there is not exactly one, the build is sent `hold:
-  null` and every client told (`hold-cleared {build, client, reason}`). Each frame, a replay
-  included, has a new revision. Only a report naming the last hold frame's revision counts (an
+  the old site's source location and call-site chain: a component called at two places is two
+  copies there, one copy a chain (its sites, such as a `button "…"` and its label, told apart by
+  their order). With the same calls in both plans, the copy with that chain; with as many copies,
+  the copy of the same rank in source order where each pair has the same calls' files and
+  components, the copies share calls alike, and each file's calls moved as one edit there moves
+  them (those above it by none, those below by one count of lines), else the unmoved copies kept and the rest so among
+  themselves (one call moved: the one left over); with copies added or removed, the copy whose
+  calls did not move. The correspondence is by places alone (the map
+  carries no other identity of a call or an element), so it is a guess wherever places are
+  reused: calls reordered with their spacing kept, a call or element moved onto another's old
+  place (a line or a column), or a copy added or removed while one keeps its line, can carry
+  the hold to the other copy (where the copies' instance paths differ, the host finds no view
+  for it and lets it go, `gone`); and a slot filled at two outlets is one copy, its outlets told
+  apart by their order. A call moved past another with the lines between them changed clears
+  the hold. When there is not exactly one, the build is sent `hold: null` and every client
+  told (`hold-cleared {build, client, reason}`). Each frame, a replay included, has a new
+  revision, and the build's `held` in a listing is null until it reports on that frame. Only a
+  report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
   and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no
@@ -1043,11 +1091,23 @@ The tool drives no input into an app; a command changes only what `prefer` would
   app's files change, for a new plan, and after a failed read) is left out, and the row is
   read-only, said so; while a new plan's read is out the names stand and no `token` is offered. A
   row whose one name is a param (an inherited or dynamic one) links it by its full name. A client
-  that knows no `param` rung offers no edit for it. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  that knows no `param` rung offers no edit for it. A row a style's state part writes (its map `state` and
+  `at`, the origin `class:<Name>`) answers `{rung: "state", style, state, row, file, text?, token?}`
+  (*1.12*, LLP 1122 T4), the default: the style by the name its file declares it with, the state,
+  the row as its author wrote it under the state (`background-color`, not the press paint's
+  `press_background_color`), the style's file relative to the app (what `set-state` takes), the
+  row's value as written there, and the token its whole value is, offered beside it, never the
+  default (D6). A style outside the app's own Contract sources as the server counts them (a
+  package's, a vendored or linked one included) answers a reason. A held state's rows carry the
+  same where the build names the held node (its `held.site`), whose parts' files count toward
+  `readOnly` too; with none named they are shown, not offered. A state row a node writes itself (no style) is read-only, pointing at
+  `set-row`, unless its whole value is a token, which the token rung offers. Only an `:active`
+  part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
+  `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
-  the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
-  unless it is one token. A row its author wrote on the node or in its class's `style` (*1.12*)
+  the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
+  above). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a

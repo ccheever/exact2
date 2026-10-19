@@ -314,7 +314,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertEqual(padded[5], before[5], accuracy: 0.5, "content padding does not reduce clientHeight")
         XCTAssertEqual(padded[3] - before[3], 95, accuracy: 0.5, "both padding edges increase scrollHeight")
         p.apply(wireBatch([["op": "props", "id": 20, "set": ["id": "padded-row"]]]))
-        p.scrollElementIntoView(["padded-row", "start", "nearest"])
+        p.scrollElementIntoView(["padded-row", "start", "nearest", "instant"])
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let revealed = try cell(p, 20)
         XCTAssertEqual(revealed.convert(revealed.bounds, to: l.collection).minY - l.collection.contentOffset.y,
@@ -558,7 +558,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertEqual(l.collection.contentOffset, outer)
         var scrolled: [UInt32] = []
         p.onScrolled = { id, _, _ in if let id { scrolled.append(id) } }
-        p.scrollElementIntoView(["nested-target", "start", "nearest"])
+        p.scrollElementIntoView(["nested-target", "start", "nearest", "instant"])
         XCTAssertEqual(scroll.contentOffset.y, 260, accuracy: 0.5, "the inner port moves first")
         XCTAssertGreaterThan(l.collection.contentOffset.y, outer.y, "the native outer port then reveals the carried target")
         XCTAssertLessThan(try XCTUnwrap(scrolled.firstIndex(of: 30)), try XCTUnwrap(scrolled.firstIndex(of: 1)))
@@ -583,7 +583,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertEqual(projected, estimated.frame, "an offscreen row uses UIKit's current estimate")
         XCTAssertNil(l.cell(21), "the target is offscreen")
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["id": "last-row"]]]))
-        p.scrollElementIntoView(["last-row", "start", "nearest"])
+        p.scrollElementIntoView(["last-row", "start", "nearest", "instant"])
         l.collection.layoutIfNeeded()
         XCTAssertGreaterThan(l.collection.contentOffset.y, 0)
         XCTAssertNotNil(l.cell(21), "reveal uses the native row frame, not the hidden authored row")
@@ -617,7 +617,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
             ["op": "content", "id": 100, "w": 402.0, "h": 1000.0],
         ]))
         let outer = try XCTUnwrap(p.views[100]?.scroll), before = l.collection.contentOffset
-        p.scrollElementIntoView(["grouped-owner", "start", "nearest"])
+        p.scrollElementIntoView(["grouped-owner", "start", "nearest", "instant"])
         XCTAssertEqual(outer.contentOffset.y, 600, accuracy: 0.5)
         XCTAssertEqual(l.collection.contentOffset, before, "the list's own port is not an ancestor of its owner")
     }
@@ -640,7 +640,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertNil(l.cell(21), "the custom target starts in the retained authored hierarchy")
         var scrolled: [UInt32] = []
         p.onScrolled = { id, _, _ in if let id { scrolled.append(id) } }
-        p.scrollElementIntoView(["offscreen-target", "start", "nearest"])
+        p.scrollElementIntoView(["offscreen-target", "start", "nearest", "instant"])
         l.collection.layoutIfNeeded()
         XCTAssertEqual(inner.contentOffset.y, 260, accuracy: 0.5, "a native row box does not replace the inner target's authored geometry")
         XCTAssertGreaterThan(l.collection.contentOffset.y, 0)

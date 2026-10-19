@@ -45,6 +45,43 @@ pub(crate) fn commands(name: &str) -> Option<(String, &str)> {
     (!out.is_empty()).then_some((out, path.view_box))
 }
 
+/// `,"symbolPath":…,"symbolViewBox":…` after a control face's symbol in
+/// its JSON (a button face, a grouped row) when `source` (after `symbol:`)
+/// is an icon Apple draws by its path (stage 9 A2): the face makes a
+/// template image of it its control tints as a symbol. Nothing otherwise.
+pub(crate) fn push_json(source: Option<&str>, json: &mut String) {
+    let Some((d, view_box)) = source.and_then(commands) else {
+        return;
+    };
+    let quote = exact_runner::agent::quote;
+    json.push_str(",\"symbolPath\":");
+    quote(&d, json);
+    json.push_str(",\"symbolViewBox\":");
+    quote(view_box, json);
+}
+
+/// The icon token's name as its author wrote it (`icon.reply`) for the
+/// source form `source` (after `symbol:`), from the plan's icons table,
+/// which keeps every icon a literal or a computed source names. The form
+/// carries no name (the compiler and the runner's bridge expand the name
+/// away), so two tokens with the same source (`icon.reply` and
+/// `icon.respond` on one SVG) are told apart by nothing the host gets: the
+/// first declared is the best known. Keeping the chosen name would move the
+/// source form or the plan (theme2's to rule). `None` for no icon or no row.
+pub(crate) fn icon_name<'a>(plan: &'a exact_plan::Plan, source: &str) -> Option<&'a str> {
+    let icon = exact_kernel::Icon::parse(source)?;
+    let s = |id| plan.strings.get(id as usize).map_or("", String::as_str);
+    plan.icons
+        .iter()
+        .find(|i| {
+            s(i.sf.0) == icon.sf
+                && s(i.view_box.0) == icon.view_box
+                && s(i.path.0) == icon.path
+                && s(i.svg.0) == icon.svg
+        })
+        .map(|i| s(i.name.0))
+}
+
 /// A coordinate, the shortest text that reads back as the same `f32` (no
 /// fixed precision: a viewBox may be any size).
 fn n(v: f32) -> String {
@@ -57,7 +94,81 @@ fn n(v: f32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::commands;
+    use super::{commands, icon_name, push_json};
+
+    #[test]
+    fn an_icons_name_is_the_plans_row_for_its_source_form() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.icon(
+            "icon.reply",
+            "",
+            "0 0 24 24",
+            "M2 2 L22 2 Z",
+            "icons/reply.svg",
+        );
+        b.icon(
+            "icon.heart",
+            "heart",
+            "0 0 24 24",
+            "M2 2 L22 2 Z",
+            "icons/reply.svg",
+        );
+        let plan = b.finish().unwrap();
+        assert_eq!(
+            icon_name(&plan, "icon||0 0 24 24|M2 2 L22 2 Z|icons/reply.svg"),
+            Some("icon.reply")
+        );
+        assert_eq!(
+            icon_name(&plan, "icon|heart|0 0 24 24|M2 2 L22 2 Z|icons/reply.svg"),
+            Some("icon.heart")
+        );
+        assert_eq!(icon_name(&plan, "icon||0 0 24 24|M0 0 Z|icons/x.svg"), None);
+        // Two tokens on one SVG have one source form: the first declared is the best known.
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.icon(
+            "icon.reply",
+            "",
+            "0 0 24 24",
+            "M2 2 L22 2 Z",
+            "icons/reply.svg",
+        );
+        b.icon(
+            "icon.respond",
+            "",
+            "0 0 24 24",
+            "M2 2 L22 2 Z",
+            "icons/reply.svg",
+        );
+        let both = b.finish().unwrap();
+        assert_eq!(
+            icon_name(&both, "icon||0 0 24 24|M2 2 L22 2 Z|icons/reply.svg"),
+            Some("icon.reply")
+        );
+        assert_eq!(icon_name(&plan, "star"), None);
+    }
+
+    #[test]
+    fn a_faces_json_carries_an_svg_only_icons_path_and_no_other() {
+        let mut json = String::new();
+        push_json(
+            Some("icon||0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg"),
+            &mut json,
+        );
+        assert_eq!(
+            json,
+            r#","symbolPath":"M 2 2 L 22 2 L 12 20 Z","symbolViewBox":"0 0 24 24""#
+        );
+        for source in [
+            Some("icon|heart|0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg"),
+            Some("sf/lock"),
+            Some("star"),
+            None,
+        ] {
+            let mut json = String::new();
+            push_json(source, &mut json);
+            assert_eq!(json, "", "{source:?}");
+        }
+    }
 
     #[test]
     fn an_svg_only_icon_sends_its_path_and_an_sf_icon_none() {

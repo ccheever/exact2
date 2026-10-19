@@ -236,28 +236,13 @@ fn cancelled_mouse_field_contact_keeps_focus_and_never_presses() {
 
 #[test]
 fn field_down_revalidates_after_authored_pointerdown() {
-    for (down, visibility, feedback_focus, feedback_log) in [
-        ("shown = false", "", Some("other"), "down "),
-        ("disabled = true", "", Some("other"), "down "),
-        (
-            "fieldDisplay = \"none\"",
-            "",
-            Some("field"),
-            "down focus press ",
-        ),
-        (
-            "parentDisplay = \"none\"",
-            "",
-            Some("field"),
-            "down focus press ",
-        ),
-        (
-            "fieldVisibility = \"hidden\"",
-            "visibility=fieldVisibility",
-            None,
-            "down press ",
-        ),
-        ("parentVisibility = \"hidden\"", "", None, "down press "),
+    for (down, visibility) in [
+        ("shown = false", ""),
+        ("disabled = true", ""),
+        ("fieldDisplay = \"none\"", ""),
+        ("parentDisplay = \"none\"", ""),
+        ("fieldVisibility = \"hidden\"", "visibility=fieldVisibility"),
+        ("parentVisibility = \"hidden\"", ""),
     ] {
         for feedback in ["", "-exact-press-scale=0.9"] {
             let (mut p, id) = contact_field("input", &format!("{feedback} {visibility}"), down);
@@ -266,60 +251,89 @@ fn field_down_revalidates_after_authored_pointerdown() {
             p.set_focus(Some(other), 0.);
             let (x, y) = second_character(&mut p, id, false);
             p.pointer_down(x, y, 1.).unwrap();
-            assert_eq!(p.focus, Some(other), "{down} {feedback}: down");
+            assert_eq!(p.focus, None, "{down} {feedback}: down");
             assert_eq!(contact_log(&p), "down ", "{down} {feedback}: down");
             p.pointer_up(x, y, 2.).unwrap();
-            // Press feedback retains its release target even when hit-testing hides it.
-            let (focus, log) = if feedback.is_empty() {
-                (Some(other), "down ")
-            } else {
-                let k = p.host.kernel();
-                let focus = feedback_focus
-                    .map(|name| k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id);
-                (focus, feedback_log)
-            };
-            assert_eq!(p.focus, focus, "{down} {feedback}: up");
-            assert_eq!(contact_log(&p), log, "{down} {feedback}: up");
+            assert_eq!(p.focus, None, "{down} {feedback}: up");
+            assert_eq!(contact_log(&p), "down ", "{down} {feedback}: up");
         }
     }
 }
 
 #[test]
 fn context_preview_field_prevents_mouse_focus_and_caret() {
-    for feedback in ["", "-exact-press-scale=0.9"] {
-        let (mut p, id) = boot_source(&format!(
-            r#"component Fields
+    for down in [
+        "shown = shown",
+        "preview = false",
+        "panelPosition = \"static\"",
+        "fieldDisplay = \"none\"",
+        "fieldVisibility = \"hidden\"",
+        "shown = false",
+        "disabled = true",
+    ] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, id) = boot_source(&format!(
+                r#"component Fields
   state seen = ""
+  state shown = true
+  state preview = true
+  state panelPosition = "absolute"
+  state disabled = false
+  state fieldDisplay = "block"
+  state fieldVisibility = "visible"
+  action down
+    {down}
   action record(phase: string)
     seen = `${{seen}}${{phase}}`
   view
     column width=400 height=600
       input id="editor" testId="editor" value="other" width=180 height=40
-      box position="absolute" top=100 width=300 height=220
-        box contextTarget="editor" width=300 height=40
+      box position=panelPosition top=100 width=300 height=220
+        if preview
+          box contextTarget="editor" width=300 height=40
         button press=record("press ") {feedback}
-          input id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" focus=record("focus ")
+          if shown
+            input id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" focus=record("focus ") display=fieldDisplay visibility=fieldVisibility disabled=disabled pointerdown=down
       text seen testId="log"
 "#
-        ));
-        let k = p.host.kernel();
-        let editor = k.node_by_key(k.find_by_test_id("editor")[0]).unwrap().id;
-        p.set_focus(Some(editor), 0.);
-        p.mark_field(editor, "other", FieldSelection::caret(2), false);
-        p.mark_field(id, "abcd", FieldSelection::caret(3), false);
-        let (x, y) = second_character(&mut p, id, false);
-        assert_eq!(p.hit(x, y), Some(id));
-        assert!(p.pointerdown_prevents_focus(id));
-        p.pointer_down(x, y, 1.).unwrap();
-        assert_eq!(p.focus, Some(editor));
-        assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
-        assert_eq!(p.field_selection(id), FieldSelection::caret(3));
-        assert_eq!(contact_log(&p), "");
-        p.pointer_up(x, y, 2.).unwrap();
-        assert_eq!(p.focus, Some(editor));
-        assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
-        assert_eq!(p.field_selection(id), FieldSelection::caret(3));
-        assert_eq!(contact_log(&p), "press ");
+            ));
+            let k = p.host.kernel();
+            let editor = k.node_by_key(k.find_by_test_id("editor")[0]).unwrap().id;
+            p.set_focus(Some(editor), 0.);
+            p.mark_field(editor, "other", FieldSelection::caret(2), false);
+            p.mark_field(id, "abcd", FieldSelection::caret(3), false);
+            let (x, y) = second_character(&mut p, id, false);
+            assert_eq!(p.hit(x, y), Some(id));
+            assert!(p.pointerdown_prevents_focus(id));
+            p.pointer_down(x, y, 1.).unwrap();
+            let dismissed = matches!(down, "preview = false" | "panelPosition = \"static\"");
+            let focus = if dismissed {
+                assert!(!p.pointerdown_prevents_focus(id));
+                Some(id)
+            } else if down == "shown = false" {
+                None
+            } else {
+                Some(editor)
+            };
+            assert_eq!(p.focus, focus, "{down} {feedback}: down");
+            assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
+            let caret = p.field_selection(id);
+            if dismissed {
+                assert_ne!(caret, FieldSelection::caret(3), "{down} {feedback}");
+            } else if down != "shown = false" {
+                assert_eq!(caret, FieldSelection::caret(3), "{down} {feedback}");
+            }
+            assert_eq!(contact_log(&p), if dismissed { "focus " } else { "" });
+            p.pointer_up(x, y, 2.).unwrap();
+            assert_eq!(p.focus, focus, "{down} {feedback}: up");
+            assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
+            if down != "shown = false" {
+                assert_eq!(p.field_selection(id), caret, "{down} {feedback}");
+            }
+            if down == "shown = shown" {
+                assert_eq!(contact_log(&p), "press ");
+            }
+        }
     }
 }
 

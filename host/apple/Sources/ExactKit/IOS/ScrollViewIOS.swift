@@ -12,6 +12,10 @@ package final class PlainView: UIView {
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         return NodeView.hitChildren(in: self, at: point, with: event)
     }
+    package override var accessibilityElements: [Any]? {
+        get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
+        set { super.accessibilityElements = newValue }
+    }
 }
 
 /// A scroll container — the viewport over the document, and a node whose
@@ -21,6 +25,10 @@ package final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 package class ScrollView: UIScrollView {
+    package override var accessibilityElements: [Any]? {
+        get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
+        set { super.accessibilityElements = newValue }
+    }
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event) else { return nil }
         return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
@@ -279,7 +287,9 @@ extension NodeView {
                     // the captured reading position, counting the row shift once.
                     let top = (beforeLayoutScroll?.offset.y ?? sv.contentOffset.y) + shift
                     let y = sv.isTracking || sv.isDecelerating ? top : min(max(top, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-                    if y != sv.contentOffset.y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+                    // An element reveal heads for where its target now is instead (`IntoView.swift`).
+                    if presenter?.elementScrolls.revealing(sv) != nil { presenter?.elementScrolls.retarget(sv) }
+                    else if y != sv.contentOffset.y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
                 } else if !groupedOwner { restoreScrollAnchor(sv) }
             }
             return
@@ -319,7 +329,10 @@ extension NodeView {
             anchoredScrollTop = sv.contentOffset.y
             return
         }
-        if sv.contentOffset.y != y {
+        if presenter?.elementScrolls.revealing(sv) != nil {
+            // An element reveal heads for where its target now is instead (`IntoView.swift`).
+            presenter?.elementScrolls.retarget(sv)
+        } else if sv.contentOffset.y != y {
             // `scroll-behavior: smooth`: an end that moved down (a message
             // appended) is followed with UIKit's scroll animation, as a
             // smooth `scrollTop` write is; a shrink or a jump up lands at once.
@@ -340,6 +353,8 @@ extension NodeView {
         if (pendingScrollTop != nil || pendingScrollLeft != nil), presenter?.collections.animating.contains(id) == true {
             presenter?.collections.stopAnimation(id)
         }
+        // It replaces an element reveal, as on the Mac (LLP 1070.000 §14).
+        if pendingScrollTop != nil || pendingScrollLeft != nil { presenter?.elementScrolls.cutReveal(sv) }
         if pendingScrollTop != nil { retainedScrollTop = nil }
         guard hasScrollLayoutBox else {
             if hiddenScroll == nil {

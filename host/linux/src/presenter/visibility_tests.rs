@@ -86,3 +86,62 @@ fn a_visible_descendant_of_a_hidden_box_paints_and_is_hit() {
     assert!(p.focusable(shown), "a visible tabindex box takes the focus");
     assert!(!p.focusable(kept), "a hidden box is not focusable");
 }
+
+#[test]
+fn a_visible_descendant_presses_its_hidden_ancestor_with_feedback() {
+    for child in ["box tabindex=0", "input value=\"abcd\""] {
+        for hidden_on_down in [false, true] {
+            for feedback in ["", "-exact-press-scale=0.9"] {
+                let source = format!(
+                    r#"component App
+  state hidden = {initially_hidden}
+  state presses = 0
+  action down
+    hidden = true
+  action pressed
+    presses = presses + 1
+  view
+    column width=300 height=300
+      input testId="other" value="other" width=180 height=40
+      box visibility=(hidden ? "hidden" : "visible") width=200 height=150 press=pressed pointerdown=down {feedback}
+        column
+          {child} testId="child" visibility="visible" width=180 height=120
+      text presses.toString() testId="presses"
+"#,
+                    initially_hidden = !hidden_on_down
+                );
+                let (mut p, error) = Presenter::boot_with(
+                    &crate::test_plan(&source),
+                    (),
+                    (300., 300.),
+                    1.,
+                    PathBuf::new(),
+                    PainterChoice::Cpu,
+                )
+                .unwrap();
+                assert!(error.is_none(), "{error:?}");
+                let child_id = id(&p, "child");
+                p.set_focus(Some(id(&p, "other")), 0.);
+                let (x, y, _, _) = p.rect_of(child_id).unwrap();
+                assert_eq!(p.hit(x + 20., y + 20.), Some(child_id));
+                p.pointer_down(x + 20., y + 20., 1.).unwrap();
+                p.pointer_up(x + 20., y + 20., 2.).unwrap();
+                assert_eq!(
+                    p.focus(),
+                    Some(child_id),
+                    "{child} {hidden_on_down} {feedback}"
+                );
+                assert_eq!(
+                    p.host
+                        .kernel()
+                        .node(id(&p, "presses"))
+                        .unwrap()
+                        .props
+                        .str(PropId::Text),
+                    Some("1"),
+                    "{child} {hidden_on_down} {feedback}"
+                );
+            }
+        }
+    }
+}
