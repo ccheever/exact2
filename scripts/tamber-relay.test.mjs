@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { connect as connectTLS, createServer as createTLS } from 'node:tls';
 import { pairing } from './tamber-pairing.mjs';
 import { connectRelay, POOL, relayArgs } from './tamber-relay.mjs';
-import { openRemote, selfSignedCertificate } from './tamber-remote.mjs';
+import { openRemote, remoteHandler, selfSignedCertificate } from './tamber-remote.mjs';
 import { tamberServer } from './tamber-server.mjs';
 
 const TOKEN = 'relay-token-0123456789abcdef';
@@ -470,4 +470,16 @@ test('round 3: a line trickled a byte at a time is cut at its deadline from its 
   await until(() => sly.idle.length === POOL);
   expect(await ask(sly.pub, TOOL)).toContain('{"ok":true}');
   expect(w.got.map(g => g.access.reported)).toEqual(['unknown']);
+});
+
+test('theme2\'s R1 condition: no direct door\'s peer can begin relay: (a socket\'s address, an address or none)', async () => {
+  const w = wire();
+  const handler = remoteHandler(w, { tunnel: false, scheme: 'https', admits: () => true });
+  for (const remoteAddress of ['relay:s1-tool.acct.relay.test', '203.0.113.5']) {
+    const req = Object.assign(new PassThrough(), { method: 'POST', url: '/__tamber', headers: { host: 'x.test' }, rawHeaders: ['Host', 'x.test'], socket: { remoteAddress } });
+    const res = { setHeader() {}, writeHead() {}, end() {}, headersSent: false };
+    queueMicrotask(() => req.end('{}'));
+    await handler(req, res);
+  }
+  expect(w.got.map(g => g.access.peer)).toEqual([null, '203.0.113.5']);
 });

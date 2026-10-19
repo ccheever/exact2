@@ -172,7 +172,7 @@ function targetOf(req, scheme, host) {
   } catch { return null; }
 }
 
-export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false, peerOf = req => req.socket?.remoteAddress ?? null }) {
+export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false, peerOf = req => (isIP(req.socket?.remoteAddress ?? '') ? req.socket.remoteAddress : null) }) {
   return async (req, res) => {
     // A connection 8 MiB behind on what it was sent asks nothing more, the
     // tool's files included: answers queue only while they are read.
