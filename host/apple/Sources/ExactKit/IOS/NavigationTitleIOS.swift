@@ -531,6 +531,31 @@ extension NavigationHost {
         }
     }
 
+    /// iPadOS 18's floating tab bar (a regular width) does not take
+    /// `hidesBottomBarWhenPushed`, so a pushed route whose tablist is hidden
+    /// would keep it: as the transition to a pushed route starts, the bar
+    /// takes that route's wish with `setTabBarHidden`, hidden if it or a
+    /// route below it (the root aside) hides it, as UIKit reads the flag on
+    /// a phone, and shown again only if Exact hid it (`tablistHidBar`). The
+    /// root on top is `followTablistAtRoot`'s, after the transition (the
+    /// lead's ruling, 2026-10-19). An interactive pop that is cancelled shows
+    /// its source again, and so its wish.
+    func followFloatingBar(_ nav: UINavigationController, for c: UIViewController, animated: Bool) {
+        #if os(iOS)
+        guard #available(iOS 18.0, *), !ExactEnv.authoredChrome, tabBarShows, let tabs = tabController, nav.tabBarController === tabs,
+              tabs.traitCollection.userInterfaceIdiom == .pad, tabs.traitCollection.horizontalSizeClass == .regular,
+              let at = nav.viewControllers.firstIndex(where: { $0 === c }), at > 0 else { return }
+        let hidden = nav.viewControllers[1...at].contains { $0.hidesBottomBarWhenPushed }
+        if hidden, !tabs.isTabBarHidden {
+            tabs.setTabBarHidden(true, animated: animated)
+            tablistHidBar = true
+        } else if !hidden, tablistHidBar {
+            if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }
+            tablistHidBar = false
+        }
+        #endif
+    }
+
     /// A transition settled (`didShow`): the root, if it is on top now,
     /// reconciles the bar with its tablist.
     func settleTablist(_ nav: UINavigationController) {

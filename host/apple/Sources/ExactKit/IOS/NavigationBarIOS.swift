@@ -328,6 +328,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // The bar as the route coming into view wants it, alongside UIKit's
         // transition: a cancelled pop calls this again for the source (§9.10).
         host?.showBar(nav, for: controller as? RouteController, animated: animated)
+        host?.followFloatingBar(nav, for: controller, animated: animated)
         host?.navigationController(nav, willShow: controller, animated: animated)
         app?.navigationController?(nav, willShow: controller, animated: animated)
     }

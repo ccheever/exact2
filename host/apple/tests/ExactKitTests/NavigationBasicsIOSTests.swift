@@ -347,11 +347,9 @@ final class NavigationBasicsIOSTests: XCTestCase {
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
-        // (iPadOS 27's floating bar does not take `hidesBottomBarWhenPushed`:
-        // it stays over Chat. Whether Exact should hide it there is a QUEUE
-        // question; this test says what each bar does today.)
-        if insets { until("the tab bar left") { !barShows(tabs) && chat.view.safeAreaInsets.bottom < shown - 20 } }
-        else { XCTAssertTrue(barShows(tabs), "iPadOS's floating bar stays over Chat (QUEUE)") }
+        // (On an iPad the floating bar, which does not take
+        // `hidesBottomBarWhenPushed`, is hidden by `setTabBarHidden`.)
+        until("the tab bar left") { !barShows(tabs) && (!insets || chat.view.safeAreaInsets.bottom < shown - 20) }
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         until("the tab bar came back") { barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
