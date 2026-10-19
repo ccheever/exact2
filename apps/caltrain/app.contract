@@ -331,6 +331,7 @@ component Content
                     text "Delay train"
                   button press=endTracking testId="end-activity"
                     text "End activity"
+                  // The system-surface smoke starts both kinds through the app's controls.
                   if alertFollowing
                     button press=endAlert testId="end-alert"
                       text "End alert"
