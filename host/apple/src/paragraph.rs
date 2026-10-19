@@ -314,11 +314,11 @@ impl<D: DataSource> Host<D> {
         style.shrink_to_fit();
         self.mirror.insert(
             id,
-            Mirror {
+            Box::new(Mirror {
                 props,
                 style,
                 ..Mirror::default()
-            },
+            }),
         );
         self.keys.insert(key, id);
     }
