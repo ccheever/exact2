@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 import { iosTriple } from './build.mjs';
 import { claimLive } from '../../scripts/app.mjs';
 import { phoneBridge } from './devices.mjs';
+import { watchCloak } from './cloak.mjs';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 const RUNNER_ID = 'com.exact.touches.xctrunner';
@@ -211,18 +212,21 @@ async function keptRunner(udid, appId, key) {
  * for (its hello, 30 s; xcodebuild's start is most of 5 s). A runner outlives
  * the drive that started it: closing hangs up and the runner waits
  * KEPT_IDLE for the next session. Returns `{ ask(req), close(), pid, started,
- * kept }`: `ask` sends one line and resolves with its reply, or with an error
+ * kept, cloak }`: `ask` sends one line and resolves with its reply, or with an error
  * at `RUNNER_MS`, which also ends the runner (a stalled runner never hangs a
- * drive).
+ * drive). On a `foldable` simulator (the iPhone Duo) `cloak` follows
+ * SpringBoard's fold cloak (cloak.mjs), which a real touch waits out.
  */
-export async function openTouches({ udid, appId }) {
+export async function openTouches({ udid, appId, foldable }) {
   const release = lock(udid);
   const started = Date.now();
+  const cloak = foldable ? watchCloak(udid) : null;
   let socket = null, talk = null, kept = null, child = null, bridge = null, exited = null, reused = false;
   // Ends the runner: hang up, then end xcodebuild by its recorded PID — this
   // process's child is waited for (3 s, then SIGKILL) and the lock kept if it
   // will not exit.
   const teardown = async () => {
+    cloak?.close();
     try { socket?.destroy(); } catch {}
     bridge?.close();
     if (child && child.exitCode == null && child.signalCode == null) {
@@ -285,14 +289,17 @@ export async function openTouches({ udid, appId }) {
         return { error: why };
       });
     };
+    // Wait until the stream is reading, before the app's launch can bring a cloak
+    await cloak?.ready();
     return {
-      ask, pid: kept.pid, started: Date.now() - started, kept: reused,
+      ask, pid: kept.pid, started: Date.now() - started, kept: reused, cloak,
       end,
       // A session that ends well hangs up and leaves the runner for the next.
       async close() {
         if (closing) { const failed = await closing; if (failed) throw failed; return; }
         if (talk.broken()) { const failed = await end(); if (failed) throw failed; return; }
         closing = Promise.resolve(null);
+        cloak?.close();
         socket.end();
         release();
       },
@@ -354,6 +361,8 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // A plain tap aims at the target's own press (LLP 1012 §1: never a control inside it its middle reaches);
   // `rel` is a point in the target (`tap <target> at <x> <y>`), whatever a finger there reaches; a drag starts at the middle.
   const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : rel ? { at: rel } : drag ? true : { press: true } };
+  // Wait out a fold cloak before aiming: it would take the touch (cloak.mjs)
+  const cloaked = await touches.cloak?.clear() ?? 0;
   const first = await ask(aimReq);
   if (first.error) throw new Error(first.error);
   const fg = await touches.ask({ op: 'foreground' });
@@ -530,7 +539,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         ...(a.avoided ? { avoided: a.avoided } : {}), ...(a.native ? { native: a.native } : {}),
       };
     }
-    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)}); ${SETTLE_FIRST}`);
+    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)}); ${SETTLE_FIRST}${cloaked ? ` (after waiting ${cloaked} ms for SpringBoard's fold cloak, cloak.mjs)` : ''}`);
     await new Promise((r) => setTimeout(r, 16));
   }
 }
