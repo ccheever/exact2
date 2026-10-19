@@ -189,10 +189,11 @@ pub(crate) struct Taken<'a> {
     pub(crate) rounds: u32,
 }
 
-/// The proposal judged whole, in at most four rounds: each pending token's
-/// lines applied together on `current` and checked once ([`judged`]); a
-/// refused token is reported with its own reason, and each other is asked
-/// (`again`) what the folding makes of its lines, until no token adds a pin.
+/// The proposal judged whole, in rounds: each pending token's lines applied
+/// together on `current` and checked once ([`judged`]); a refused token is
+/// reported with its own reason, and each other is asked (`again`) what the
+/// folding makes of its lines, until a round adds no pin, refuses nothing
+/// and clears no token's lines (`settle`).
 /// A token that may be a dial's change (D14) is judged on its own, as its
 /// literal lines are only a fallback for when the dial cannot take it, which
 /// is known after (`export_dials::dials`): beside the others they would stand

@@ -496,12 +496,14 @@ fn a_token_settled_beside_a_dropped_change_is_asked_again() {
     });
     let reported: Vec<&str> = import.unmapped.iter().map(|u| u.name.as_str()).collect();
     assert_eq!(reported, ["a", "c"], "{:?}", import.unmapped);
-    assert!(
-        import
-            .ops
-            .iter()
-            .all(|o| matches!(o, Op::SetToken { name, .. } if name == "b")),
-        "{:?}",
-        import.ops
+    assert_eq!(
+        import.ops,
+        [Op::SetToken {
+            name: "b".into(),
+            when: Vec::new(),
+            value: "#000000".into(),
+            at: None,
+            comment: None
+        }]
     );
 }
