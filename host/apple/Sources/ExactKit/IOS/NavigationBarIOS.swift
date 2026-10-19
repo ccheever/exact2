@@ -958,12 +958,15 @@ extension NavigationHost {
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
     /// scroll edge appearance follows it; its inset does not change. A
     /// scroller with something above it in the route keeps its place and the
-    /// title keeps still: what is above it would sit under the bar.
+    /// title keeps still: what is above it would sit under the bar. A route
+    /// with no bar in containers that take the whole view puts its first
+    /// scroller under the status bar the same way (LLP 1130 D3).
     private func collapse(_ c: RouteController, shape: HeaderShape?, shows: Bool, scroller: NodeView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
         let flowing = { (v: NodeView) in !v.isHidden && Self.inFlow(v) }
+        let whole = wantsWholeView && presenter.viewportFit != "cover"
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
-            ?? (shows ? kids.first(where: flowing) : nil)
+            ?? (shows || whole ? kids.first(where: flowing) : nil)
         let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let physical = target?.scrollView
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
@@ -1291,13 +1294,16 @@ extension NavigationHost {
             // UIKit's own does, but a title's insets are not sampled.
             let search = searching(c)
             let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
-            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 {
+            // A route showing no bar has no title: its inset is the status bar's, none in landscape (LLP 1130 D3).
+            let barless = !routeShowsBar(c, in: nav)
+            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
                 let inset = sv.adjustedContentInset.top
+                if c.insetsBarless != barless { c.insetsBarless = barless; node.scrollCollapsed = 0 }
                 // tvOS has no large titles: every title is inline.
                 #if os(tvOS)
                 let inline = true
                 #else
-                let inline = c.navigationItem.largeTitleDisplayMode != .always
+                let inline = c.navigationItem.largeTitleDisplayMode != .always || barless
                 #endif
                 if inline {
                     // An inline title does not collapse: its inset is the one it has.

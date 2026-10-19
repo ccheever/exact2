@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+import ExactGroupedLists
 
 /// LLP 1130: a page with no native container keeps the area it is laid out
 /// in, the view less its safe area, and is drawn in a viewport that takes
@@ -30,8 +31,8 @@ final class PageEdgesIOSTests: XCTestCase {
 
     /// `scripts/fixtures/page-edges.contract` in a window of the test host's
     /// scene, the screen's size, so its safe area is the device's.
-    private func fixture() throws -> (ExactSession, ExactView) {
-        let plan = try fixturePlan("PAGE_EDGES")
+    private func fixture(_ key: String = "PAGE_EDGES") throws -> (ExactSession, ExactView) {
+        let plan = try fixturePlan(key)
         let session = ExactApp.shared.makeSession(label: "page-edges")
         sessions.append(session)
         let view = ExactView(session: session)
@@ -46,7 +47,7 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        until("the page is laid out") { (try? node(session, "list"))?.scroll != nil }
+        until("the page is laid out") { (try? node(session, "list"))?.scrollView != nil }
         view.fit()
         return (session, view)
     }
@@ -83,6 +84,47 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(top.convert(top.bounds, to: nil).minY, safe.top, accuracy: 0.5, "its content shows where it did")
         // The CSS port is the box: the band is neither port nor content.
         XCTAssertEqual(sv.bounds.height - list.scrollPortInsets(sv).top - list.scrollPortInsets(sv).bottom, list.bounds.height, accuracy: 0.5)
+    }
+
+    func testATouchInABandReachesTheScrollerThere() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        let (session, view) = try fixture()
+        let list = try node(session, "list"), sv = try XCTUnwrap(list.scroll), window = try XCTUnwrap(view.window)
+        // A finger under the status bar or on the home indicator's band, as on a hand-built table view.
+        for y in [view.safeAreaInsets.top / 2, view.bounds.maxY - view.safeAreaInsets.bottom / 2] {
+            let hit = try XCTUnwrap(window.hitTest(CGPoint(x: view.bounds.midX + 60, y: y), with: nil), "nothing at y \(y)")
+            XCTAssertTrue(hit.isDescendant(of: sv), "y \(y) reaches the scroller, not \(type(of: hit))")
+        }
+    }
+
+    func testARouteWithNoBarRunsItsScrollerUnderTheStatusBar() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        let (session, view) = try fixture("BARLESS_ROUTE")
+        let list = try node(session, "list"), route = try node(session, "route"), top = try node(session, "list-top")
+        until("the route's scroller is UIKit's to inset") { list.scrollView?.adjustedContentInset.top ?? 0 > 0 }
+        let sv = try XCTUnwrap(list.scrollView), safe = view.safeAreaInsets
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).minY, 0, accuracy: 0.5, "its scroll view starts at the screen's top")
+        XCTAssertEqual(route.convert(route.bounds, to: nil).minY, 0, accuracy: 0.5)
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, safe.top, accuracy: 0.5, "its content starts below the status bar")
+        XCTAssertEqual(sv.contentOffset.y + list.scrollTopInset(sv), 0, accuracy: 0.5, "at scrollTop 0")
+    }
+
+    func testAGroupedListAtTheEdgesReachesIntoTheBands() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        ExactGroupedLists.install()
+        let (session, view) = try fixture("PAGE_EDGES_GROUPED")
+        let list = try node(session, "list"), safe = view.safeAreaInsets
+        until("UIKit draws the list") { list.scrollView is UICollectionView && list.pageBand.top > 0 }
+        let cv = try XCTUnwrap(list.scrollView as? UICollectionView)
+        XCTAssertEqual(list.pageBand, UIEdgeInsets(top: safe.top, left: 0, bottom: safe.bottom, right: 0))
+        XCTAssertEqual(cv.convert(cv.bounds, to: nil).minY, 0, accuracy: 0.5, "its collection view starts at the screen's top")
+        XCTAssertEqual(cv.convert(cv.bounds, to: nil).maxY, view.bounds.maxY, accuracy: 0.5, "and ends at its foot")
+        XCTAssertEqual(cv.contentOffset.y + list.scrollTopInset(cv), 0, accuracy: 0.5, "scrollTop 0 is the rest under the band")
+        cv.layoutIfNeeded()
+        let first = try XCTUnwrap(cv.visibleCells.min { $0.frame.minY < $1.frame.minY })
+        XCTAssertGreaterThanOrEqual(first.convert(first.bounds, to: nil).minY, safe.top - 0.5, "its first card starts below the status bar")
+        let hit = try XCTUnwrap(view.window?.hitTest(CGPoint(x: view.bounds.midX, y: safe.top / 2), with: nil))
+        XCTAssertTrue(hit.isDescendant(of: cv), "a finger under the status bar reaches the list, not \(type(of: hit))")
     }
 
     func testScrollTopIsKeptWhenTheBandGoes() throws {

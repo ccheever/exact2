@@ -51,13 +51,13 @@ extension Presenter {
         }
     }
 
-    /// The band `v`'s scroll view takes: an Exact scroller that scrolls down
-    /// the page, laid out in the document with nothing between them that
-    /// clips, transforms, scrolls or hides, whose box starts at the area's
-    /// top (the top band) or ends at its foot in a document no taller than
-    /// the area (the bottom band). A list UIKit draws is not one yet.
+    /// The band `v`'s scroll view takes: a scroller that scrolls down the
+    /// page (an Exact one, or a list UIKit draws), laid out in the document
+    /// with nothing between them that clips, transforms, scrolls or hides,
+    /// whose box starts at the area's top (the top band) or ends at its foot
+    /// in a document no taller than the area (the bottom band).
     private func pageBand(of v: NodeView, margins m: UIEdgeInsets, area: CGSize) -> UIEdgeInsets {
-        guard let sv = v.scroll, v.scrollView === sv, sv.scrollsY, v.window != nil else { return .zero }
+        guard let sv = v.scrollView, (sv as? ScrollView)?.scrollsY ?? true, v.window != nil else { return .zero }
         var at: UIView? = v
         while let c = at, c !== root {
             if c.isHidden || !c.transform.isIdentity || c.clipsToBounds || (c !== v && c is UIScrollView) { return .zero }
@@ -76,7 +76,7 @@ extension NodeView {
     /// and its inset by as much, so the content stays where it was, and the
     /// logical `scrollTop` (`scrollTopInset`) is kept across the change.
     func setPageBand(_ band: UIEdgeInsets) {
-        guard let sv = scroll else { return }
+        guard let sv = scrollView else { return }
         let old = pageBand, top = sv.contentOffset.y + scrollTopInset(sv)
         more.pageBand = band
         sv.frame = scrollFrame

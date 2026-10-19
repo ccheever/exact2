@@ -406,8 +406,7 @@ package final class Presenter {
     /// Size the document to its roots and what overflows one that does not clip (`content`), never smaller
     /// than the page's area, at the area's origin inside the viewport's page margins.
     func fitDocument() {
-        let m = pageMargins
-        var size = viewportSize
+        let m = pageMargins; var size = viewportSize
         for r in root.subviews {
             let v = r as? NodeView, extent = v.flatMap { $0.scrollView == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
             let reach = extent.map { r.convert(CGRect(origin: .zero, size: $0), to: root) } ?? .zero // through the root's transform
@@ -1007,7 +1006,7 @@ package final class Presenter {
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
         geometryApplied = []
         swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
-        groupedLists?.sync(changed: changed)
+        groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)
         menuKey.sync()
