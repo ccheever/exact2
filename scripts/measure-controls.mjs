@@ -133,7 +133,8 @@ function frontAgain(front) {
   if (!running()) return;
   const set = spawnSync('lsappinfo', ['setfront', front.asn], { encoding: 'utf8' });
   if (set.status === 0 && !/ERROR/.test(set.stdout + set.stderr)) return;
-  if (front.bundle && spawnSync('osascript', ['-e', `tell application id "${front.bundle}" to activate`], { encoding: 'utf8' }).status === 0) return;
+  // (Checked running in the same script, the moment before: an app that quits in between could be launched again.)
+  if (front.bundle && spawnSync('osascript', ['-e', `if application id "${front.bundle}" is running then tell application id "${front.bundle}" to activate`], { encoding: 'utf8' }).status === 0) return;
   console.error(`measure-controls: could not put ${front.bundle ?? front.asn} back in front`);
 }
 
