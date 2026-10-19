@@ -3,7 +3,7 @@
 //! edits, moves and `select` events, `setSelectionRange` on an unfocused
 //! field; a radio's exclusive check, its arrows and Space, a refused
 //! action's snap back, and an unbound group's own state.
-use super::field::{byte_at, delete, fit, moved, replace};
+use super::field::{byte_at, delete, fit, moved, replace, TextBoundary};
 use super::*;
 use exact_runner::{FieldSelection, SelectionDirection, Value};
 
@@ -107,43 +107,124 @@ fn a_selection_edits_moves_and_extends_as_htmls() {
     // UTF-16 offsets: the emoji is two units, one character.
     assert_eq!(byte_at("a😀b", 3), 5);
     assert_eq!(
-        delete("a😀b", caret(3), false),
+        delete("a😀b", caret(3), false, TextBoundary::Grapheme),
         Some(("ab".into(), caret(1)))
     );
-    assert_eq!(delete("ab", caret(0), false), None);
-    assert_eq!(delete("ab", caret(0), true), Some(("b".into(), caret(0))));
+    assert_eq!(delete("ab", caret(0), false, TextBoundary::Grapheme), None);
     assert_eq!(
-        delete("abcd", range(1, 3, SelectionDirection::None), false),
+        delete("ab", caret(0), true, TextBoundary::Grapheme),
+        Some(("b".into(), caret(0)))
+    );
+    assert_eq!(
+        delete(
+            "abcd",
+            range(1, 3, SelectionDirection::None),
+            false,
+            TextBoundary::Grapheme
+        ),
         Some(("ad".into(), caret(1)))
     );
     // A plain arrow collapses a range to its end, else moves a character.
     let r = range(1, 3, SelectionDirection::Forward);
-    assert_eq!(moved("abcd", r, "ArrowLeft", false, false), Some(caret(1)));
-    assert_eq!(moved("abcd", r, "ArrowRight", false, false), Some(caret(3)));
     assert_eq!(
-        moved("abcd", caret(0), "ArrowLeft", false, false),
-        Some(caret(0))
+        moved("abcd", r, "ArrowLeft", false, false, TextBoundary::Grapheme),
+        Some(caret(1))
     );
-    // Shift extends: left of the caret is backward, past it again forward.
-    let back = moved("abcd", caret(2), "ArrowLeft", true, false).unwrap();
-    assert_eq!(back, range(1, 2, SelectionDirection::Backward));
-    let more = moved("abcd", back, "ArrowLeft", true, false).unwrap();
-    assert_eq!(more, range(0, 2, SelectionDirection::Backward));
-    let shrunk = moved("abcd", more, "ArrowRight", true, false).unwrap();
-    assert_eq!(shrunk, range(1, 2, SelectionDirection::Backward));
-    let home = moved("abcd", caret(2), "Home", true, false).unwrap();
-    assert_eq!(home, range(0, 2, SelectionDirection::Backward));
-    // A textarea's Home and End are its line's.
     assert_eq!(
-        moved("ab\ncd", caret(4), "Home", false, true),
+        moved(
+            "abcd",
+            r,
+            "ArrowRight",
+            false,
+            false,
+            TextBoundary::Grapheme
+        ),
         Some(caret(3))
     );
     assert_eq!(
-        moved("ab\ncd", caret(1), "End", false, true),
+        moved(
+            "abcd",
+            caret(0),
+            "ArrowLeft",
+            false,
+            false,
+            TextBoundary::Grapheme
+        ),
+        Some(caret(0))
+    );
+    // Shift extends: left of the caret is backward, past it again forward.
+    let back = moved(
+        "abcd",
+        caret(2),
+        "ArrowLeft",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(back, range(1, 2, SelectionDirection::Backward));
+    let more = moved(
+        "abcd",
+        back,
+        "ArrowLeft",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(more, range(0, 2, SelectionDirection::Backward));
+    let shrunk = moved(
+        "abcd",
+        more,
+        "ArrowRight",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(shrunk, range(1, 2, SelectionDirection::Backward));
+    let home = moved(
+        "abcd",
+        caret(2),
+        "Home",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(home, range(0, 2, SelectionDirection::Backward));
+    // A textarea's Home and End are its line's.
+    assert_eq!(
+        moved(
+            "ab\ncd",
+            caret(4),
+            "Home",
+            false,
+            true,
+            TextBoundary::Grapheme
+        ),
+        Some(caret(3))
+    );
+    assert_eq!(
+        moved(
+            "ab\ncd",
+            caret(1),
+            "End",
+            false,
+            true,
+            TextBoundary::Grapheme
+        ),
         Some(caret(2))
     );
     assert_eq!(
-        moved("ab\ncd", caret(1), "End", false, false),
+        moved(
+            "ab\ncd",
+            caret(1),
+            "End",
+            false,
+            false,
+            TextBoundary::Grapheme
+        ),
         Some(caret(5))
     );
 }
@@ -492,7 +573,7 @@ fn beforeinput_cancels_paste_and_selectionchange_hears_a_caret_move() {
     .unwrap();
     assert!(error.is_none());
     let editor = id(&p, "editor");
-    p.press_field(editor);
+    p.press_field(editor, 10000., 10000.);
     p.field_key(editor, "ArrowLeft", 0.);
     p.run_commands(<()>::default);
     assert_eq!(text(&p, "result"), "abc:2:");
@@ -1123,7 +1204,7 @@ fn unmarked_and_stale_marks_compare_against_the_reported_caret() {
     );
     p.fields.remove(&editor);
     assert_eq!(p.field_selection(editor), FieldSelection::caret(5));
-    p.press_field(editor);
+    p.press_field(editor, 10000., 10000.);
     assert!(
         p.field_change_tasks.is_empty(),
         "pressing at the end did not move it"
@@ -1149,7 +1230,7 @@ fn unmarked_and_stale_marks_compare_against_the_reported_caret() {
 
     p.note_field(editor, "old value", FieldSelection::caret(0));
     assert_eq!(p.field_selection(editor), FieldSelection::caret(5));
-    p.press_field(editor);
+    p.press_field(editor, 10000., 10000.);
     assert!(
         p.field_change_tasks.is_empty(),
         "the stale mark was not the reported caret"
@@ -1289,4 +1370,65 @@ fn field_sync_visits_only_fields_touched_by_commits() {
     p.tap(id(&p, "toggle")).unwrap();
     assert!(!p.fields.contains_key(&mounted));
     assert_eq!(p.host.values.pending_fields(), 0);
+}
+
+#[test]
+fn mouse_control_click_keeps_own_and_ancestor_press_handlers() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for kind in ["radio", "checkbox"] {
+        for own in [true, false] {
+            for feedback in ["", "-exact-press-opacity=0.5"] {
+                let own_handler = if own { "press=record(\"own \")" } else { "" };
+                let value_type = if kind == "radio" { "string" } else { "bool" };
+                let source = format!(
+                    r#"component App
+  state seen = ""
+  action record(name: string)
+    seen = `${{seen}}${{name}}`
+  action changed(value: {value_type})
+    seen = `${{seen}}change `
+  view
+    column width=300 height=200
+      box width=100 height=60 press=record("parent ") {feedback}
+        input type="{kind}" value="value" testId="control" width=40 height=40 change=changed {own_handler} {feedback}
+      text seen testId="log"
+"#
+                );
+                let (mut p, error) = Presenter::boot_with(
+                    &crate::test_plan(&source),
+                    (),
+                    (300., 200.),
+                    1.,
+                    PathBuf::new(),
+                    PainterChoice::Cpu,
+                )
+                .unwrap();
+                assert!(error.is_none(), "{error:?}");
+                let control = id(&p, "control");
+                let (x, y, w, h) = p.rect_of(control).unwrap();
+                for time in [1., 3.] {
+                    p.pointer_down(x + w / 2., y + h / 2., time).unwrap();
+                    p.pointer_up(x + w / 2., y + h / 2., time + 1.).unwrap();
+                }
+                let handler = if own { "own " } else { "parent " };
+                let changes = if kind == "radio" { "" } else { "change " };
+                actual.push((
+                    kind,
+                    own,
+                    feedback,
+                    text(&p, "log"),
+                    p.radio_checked(control),
+                ));
+                expected.push((
+                    kind,
+                    own,
+                    feedback,
+                    format!("{handler}change {handler}{changes}"),
+                    kind == "radio",
+                ));
+            }
+        }
+    }
+    assert_eq!(actual, expected);
 }

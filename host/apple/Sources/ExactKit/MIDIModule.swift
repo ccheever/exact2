@@ -153,9 +153,18 @@ final class MIDIHub {
         uids.withUnsafeBufferPointer { library.inputs(handle, $0.baseAddress, $0.count) }
     }
 
+    /// Tests: each message's stamp and when the hub heard it (the arm's thread).
+    static var observeHeard: ((_ at: Double, _ heard: Double) -> Void)? {
+        get { observeLock.withLock { observing } }
+        set { observeLock.withLock { observing = newValue } }
+    }
+    private static let observeLock = NSLock()
+    nonisolated(unsafe) private static var observing: ((_ at: Double, _ heard: Double) -> Void)?
+
     /// One message from the arm's thread. A tick no session follows goes no
     /// further.
     private func heard(_ message: Heard) {
+        if let observe = Self.observeHeard { observe(message.at, CACurrentMediaTime()) }
         let tick = message.bytes.first == 0xF8
         lock.lock()
         if tick && !clockUIDs.contains(message.uid) {
@@ -171,8 +180,14 @@ final class MIDIHub {
         if now {
             DispatchQueue.main.async { self.drain() }
         } else if later {
+            // Strict, as the arm's hold: a coalesced `asyncAfter` can come
+            // 150 ms late where the system coalesces timers (an occluded or
+            // App Napped app), and a batch was held past a second one.
             let wait = max(0, 0.05 - (CACurrentMediaTime() - message.at))
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { self.drain(armed: armed) }
+            let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+            timer.schedule(deadline: .now() + wait, leeway: .nanoseconds(0))
+            timer.setEventHandler { timer.cancel(); self.drain(armed: armed) }
+            timer.resume()
         }
     }
 

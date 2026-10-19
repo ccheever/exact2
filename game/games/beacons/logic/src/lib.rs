@@ -13,10 +13,16 @@ pub struct Options {
 pub struct Beacon {
     pub lit: bool,
 }
+#[derive(Default, Data)]
+pub struct Movement {
+    pub speed: asset::Curve,
+    pub jump: f32,
+}
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
     const HZ: u32 = 60;
+    const TABLES: &'static [asset::Table] = &[asset::Table::of::<Movement>("movement.json")];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -27,7 +33,7 @@ impl Game for Beacons {
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.insert_resource(Environment {
-            background: Some([0.49, 0.67, 0.64]),
+            background: Some(Color([0.49, 0.67, 0.64])),
             ..Environment::default()
         });
         w.spawn((
@@ -94,6 +100,22 @@ impl Game for Beacons {
                     Beacon::default(),
                 ),
             );
+            w.spawn_named(
+                format!("ring-{}", i + 1),
+                (
+                    Transform::at(x, 0.205, z),
+                    Mesh::ring(0.72, 0.9),
+                    Material::glow([0.12, 0.55, 0.6]),
+                ),
+            );
+            w.spawn_named(
+                format!("halo-{}", i + 1),
+                (
+                    Transform::at(x, 1.0, z),
+                    Mesh::sphere(0.7),
+                    Material::glow([0.12, 0.55, 0.6]).alpha(0.12),
+                ),
+            );
         }
         w.publish("lit", 0);
         w.publish("near", "");
@@ -102,15 +124,21 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
+        {
+            let tuning = w.table::<Movement>("movement.json").unwrap();
+            let mut player = w.require_mut::<Character>("player");
+            player.speed = tuning.speed.at(input.stick_xz("move").length());
+            player.jump = tuning.jump;
+        }
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let mut near = "";
-        if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+        if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
             if input.pressed("light") {
                 beacon.lit = true;
-                w.require_mut::<Glow>(entity).0.to(w.tick_end(), 1.0, 0.5);
+                beacon.glow_to(1.0, 0.5);
             } else {
-                near = w.name(entity).unwrap_or_default();
+                near = beacon.name().unwrap_or_default();
             }
         }
         w.publish("lit", w.count::<Beacon>(|b| b.lit));

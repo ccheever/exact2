@@ -15,7 +15,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   const start=async world=>{const s=await open({size:[1280,720],...world?{world}:{}});await s.tap('play');return s;};
   const s=await start(),w=s.world('world');
   const node=(tree,id)=>tree.nodes.find(n=>n.props?.testId===id);
-  const box=async id=>(await s.layout(id)).nodes.find(n=>n.testId===id);
+  const box=async id=>{const {node}=await s.layout(id);return {id:node.id,...node.space.viewport};};
   const covered=await box('hud'), pull=await box('pull');
   const overlap=[pull.x+pull.w/2,pull.y+pull.h-5];
   check('HUD overlaps Pull',overlap[0]>covered.x && overlap[0]<covered.x+covered.w && overlap[1]>covered.y && overlap[1]<covered.y+covered.h,{covered,pull});
@@ -39,7 +39,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   check('zero-sized child is explicitly hidden',(await s.state('world:sign')).entity.placed.hidden===true);
   const signId=node(await s.tree(),'sign')?.id ?? first.id;
   const hiddenLayout=await s.op({op:'layout',id:signId});
-  const hiddenBox=hiddenLayout.nodes.find(n=>n.id===signId) ?? hiddenLayout.node?.space?.viewport;
+  const hiddenBox=hiddenLayout.node?.space?.viewport;
   check('hidden placement reports a zero box',!!hiddenBox && ['x','y','w','h'].every(k=>hiddenBox[k]===0),hiddenLayout);
   await s.tap('hud');await s.clock('+0');
   check('restored child has a fresh visible capture',(await s.state('world:sign')).entity.placed.hidden===false);
@@ -86,7 +86,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   {
     check('fixed sign explicitly hidden from behind',(await s.state('world:sign')).entity.placed.hidden===true);
     const backLayout=await s.op({op:'layout',id:reorderedSign.id});
-    const backBox=backLayout.nodes.find(n=>n.id===reorderedSign.id) ?? backLayout.node?.space?.viewport;
+    const backBox=backLayout.node?.space?.viewport;
     check('back-face hidden child also reports a zero box',!!backBox && ['x','y','w','h'].every(k=>backBox[k]===0),backBox);
     if(host==='linux') check('hidden sign leaves the tree', !node(await s.tree(),'sign'));
     else check('layout reports hidden sign',(await s.layout('sign')).node.visible.hidden===true);

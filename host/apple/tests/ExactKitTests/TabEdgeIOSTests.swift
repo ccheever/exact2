@@ -111,5 +111,35 @@ final class TabEdgeIOSTests: XCTestCase {
             try assertClear(pushed, tabs)
         }
     }
+
+    /// The `scrolls` route holds a menu between its header and its scroller
+    /// and a `dialog` after it. Closed, neither is laid out, and the scroller
+    /// keeps both edges. A menu given back to layout to show in Exact's views
+    /// (a context preview, the agent's painted popover) takes its place in
+    /// the flow as the kernel lays it out, and counts there; closed again,
+    /// the scroller has its place and its edges back.
+    func testAClosedMenuAndDialogBesideTheScrollerLeaveItItsEdges() throws {
+        let session = try fixture()
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        try assertClear("scrolls", tabs)
+        let content = try node("content-scrolls")
+        let route = try XCTUnwrap(sequence(first: content.next, next: { $0?.next }).compactMap { $0 as? RouteController }.first)
+        XCTAssertTrue(route.edgeScroll === content, "the scroller reaches the bottom edge")
+        XCTAssertTrue(route.collapseScroll === content, "and goes under the bar")
+        let menu = try node("sort-menu")
+        XCTAssertFalse(NavigationHost.inFlow(menu), "a closed menu is not laid out")
+        XCTAssertFalse(NavigationHost.inFlow(try node("confirm")), "nor is a closed dialog")
+        let before = box(content)
+        session.presenter.menus.layOut(menu)
+        spin(0.2)
+        XCTAssertGreaterThan(menu.bounds.height, 0, "the menu is laid out")
+        XCTAssertTrue(NavigationHost.inFlow(menu), "in the flow, which the scroller's edges read")
+        XCTAssertGreaterThan(box(content).minY, before.minY, "the menu above it moves it, as the kernel lays it out")
+        session.presenter.menus.coverClosed()
+        spin(0.3)
+        XCTAssertFalse(NavigationHost.inFlow(menu))
+        XCTAssertEqual(box(content), before)
+        XCTAssertTrue(route.edgeScroll === content)
+    }
 }
 #endif

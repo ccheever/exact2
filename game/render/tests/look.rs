@@ -47,7 +47,7 @@ impl Game for Fade {
     type Args = FadeArgs;
     fn setup(w: &mut World, args: &FadeArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 1.,
             zenith: [1.; 3],
             horizon: [1.; 3],
@@ -194,7 +194,7 @@ fn sky_with(gpu: &Gpu, look: glam::Vec3, visible: bool, rotation: f32, resident:
     f.environment.fog = None;
     f.environment.bloom = None;
     f.environment.sun_disc = 0.;
-    f.environment.background = Some([0.; 3]);
+    f.environment.background = Some([0.; 3].into());
     r.draw(&texture.create_view(&Default::default()), (32, 32), &f);
     fixture::read(gpu, &texture).unwrap().at(16, 16)
 }
@@ -230,7 +230,7 @@ impl Game for Terrain {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 1.,
             zenith: [1.; 3],
             horizon: [1.; 3],
@@ -324,7 +324,7 @@ impl Game for Sparks {
     type Args = SparkArgs;
     fn setup(w: &mut World, args: &SparkArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             fog: None,
             bloom: None,
             ..Default::default()
@@ -656,7 +656,7 @@ impl Game for Lod {
     type Args = LodArgs;
     fn setup(w: &mut World, args: &LodArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 1.,
             zenith: [1.; 3],
             horizon: [1.; 3],
@@ -765,7 +765,7 @@ impl<const SINGLE: bool> Game for Soft<SINGLE> {
     type Args = SoftArgs;
     fn setup(w: &mut World, args: &SoftArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             fog: None,
             bloom: None,
             ..Default::default()
@@ -918,9 +918,9 @@ impl Game for FogQuads {
     type Args = FogArgs;
     fn setup(w: &mut World, args: &FogArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             fog: (args.mode != 0).then(|| Fog {
-                color: Some([0., 1., 0.]),
+                color: Some([0., 1., 0.].into()),
                 ..if args.mode == 1 {
                     Fog::linear(0., 10.)
                 } else {
@@ -935,7 +935,7 @@ impl Game for FogQuads {
         w.spawn((
             Transform::at(-1., 0., 0.),
             Sprite {
-                color: [1., 0., 0., 0.5],
+                color: [1., 0., 0., 0.5].into(),
                 ..Sprite::new("white.tex", [0.6, 0.6])
             },
         ));
@@ -1020,4 +1020,257 @@ fn sprites_and_textured_and_procedural_particles_take_both_fogs() {
             }
         }
     }
+}
+
+/// Dots, textured, soft dots and soft textured particles, each its own draw,
+/// at one sample a pixel or four.
+struct LookQuads<const MSAA: bool>;
+impl<const MSAA: bool> Game for LookQuads<MSAA> {
+    const ID: &'static str = "look-quads";
+    const ASSETS: &'static [&'static str] = &["white.tex"];
+    const SAMPLES: SceneSamples = if MSAA {
+        SceneSamples::Four
+    } else {
+        SceneSamples::One
+    };
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
+        // A back wall the soft particles fade against.
+        w.spawn((
+            Transform::at(0., 0., -1.),
+            Mesh::cuboid(Vec3::new(8., 8., 0.2)),
+            Material::hex("#404040"),
+        ));
+        for (i, (texture, soft)) in [("", 0.), ("white.tex", 0.), ("", 0.3), ("white.tex", 0.3)]
+            .into_iter()
+            .enumerate()
+        {
+            let e = w.spawn((
+                Transform::at(i as f32 - 1.5, 0., 0.),
+                Emitter {
+                    rate: 0.,
+                    lifetime: 10.,
+                    speed: 0.,
+                    spread: 0.,
+                    gravity: Vec3::ZERO,
+                    size: [0.6, 0.6],
+                    color: [[1., 0.5, 0., 0.8]; 2],
+                    additive: false,
+                    ..Default::default()
+                }
+                .burst(1),
+            ));
+            w.insert(
+                e,
+                ParticleLook {
+                    texture: texture.into(),
+                    soft,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        emitter::step(w);
+    }
+}
+
+#[test]
+fn every_particle_pipeline_counts_through_its_probe_variant() {
+    counts_every_particle_pipeline::<false>();
+    counts_every_particle_pipeline::<true>();
+}
+fn counts_every_particle_pipeline<const MSAA: bool>() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<LookQuads<MSAA>, ModelExecutor, true>::default();
+    s.bind(&[], None).unwrap();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.asset(
+        "white.tex",
+        Ok(&bin::to_vec(&asset::TextureData {
+            width: 1,
+            height: 1,
+            mips: vec![vec![255; 4]],
+            ..Default::default()
+        })),
+    );
+    for now_ms in [0., 100.] {
+        fixture::render(&gpu, &mut s, &Frame { now_ms, ..frame() }).unwrap();
+    }
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let reply = s.agent(r#"{"op":"state","look":true}"#).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let draws = value["look"]["particles"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{reply}"));
+    let batches: Vec<_> = draws.iter().map(|d| d["batch"].as_str().unwrap()).collect();
+    assert_eq!(draws.len(), 4, "{batches:?}");
+    for draw in draws {
+        assert!(draw["covered"].as_u64() > Some(0), "{reply}");
+    }
+    assert!(
+        batches
+            .iter()
+            .any(|b| b.contains("white.tex") && b.ends_with("soft")),
+        "{batches:?}"
+    );
+}
+
+/// Particles at the limits of what counts (count.wgsl): `edge`, a white square
+/// visible only through half of one pixel column, the right half or the
+/// `left`, at four samples (two boxes in front leave the half open); else a
+/// dot whose alpha is 0.002, added over black.
+///
+/// The standard 4-sample pattern (WebGPU's, which Metal's and D3D's defaults
+/// and Vulkan's `standardSampleLocations` share) puts samples 0 to 3 at x
+/// offsets 0.375, 0.875, 0.125 and 0.625: the right half holds samples 1 and
+/// 3, the left samples 0 and 2. Whatever a device's pattern, while each half
+/// holds a sample, one of the two runs shows the square only through samples
+/// that sample 0 misses, so a counter that tests one sample fails one of them.
+#[derive(Default, Args)]
+struct LimitArgs {
+    edge: bool,
+    left: bool,
+}
+struct Limits;
+impl Game for Limits {
+    const ID: &'static str = "look-limits";
+    const ASSETS: &'static [&'static str] = &["white.tex"];
+    type Args = LimitArgs;
+    fn setup(w: &mut World, args: &LimitArgs) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3].into()),
+            bloom: None,
+            fog: None,
+            tone_mapping: ToneMapping::None,
+            ..Default::default()
+        });
+        // 128 px across 4 m: a pixel is 1/32 m, and x = 0 is a column's edge.
+        w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
+        let emitter = |size, color, additive| {
+            Emitter {
+                rate: 0.,
+                lifetime: 10.,
+                speed: 0.,
+                spread: 0.,
+                gravity: Vec3::ZERO,
+                size: [size, size],
+                color: [color; 2],
+                additive,
+                ..Default::default()
+            }
+            .burst(1)
+        };
+        if args.edge {
+            let px = 1. / 32.;
+            let sparks = w.spawn((Transform::default(), emitter(2., [1.; 4], false)));
+            w.insert(
+                sparks,
+                ParticleLook {
+                    texture: "white.tex".into(),
+                    ..Default::default()
+                },
+            );
+            // In front of all but column [-px, 0)'s open half.
+            let (open, shut) = if args.left {
+                (-px, -px / 2.)
+            } else {
+                (-px / 2., 0.)
+            };
+            for (lo, hi) in [(-3., open), (shut, 3.)] {
+                w.spawn((
+                    Transform::at((lo + hi) / 2., 0., 1.),
+                    Mesh::cuboid(Vec3::new(hi - lo, 6., 0.2)),
+                    Material::hex("#808080"),
+                ));
+            }
+        } else {
+            w.spawn((Transform::default(), emitter(2., [1., 1., 1., 0.002], true)));
+        }
+    }
+    fn tick(w: &mut World, _: &Input, _: &LimitArgs) {
+        emitter::step(w);
+    }
+}
+
+#[test]
+fn a_particle_counts_where_any_covered_sample_shows_it_and_any_contribution_counts() {
+    let Some(gpu) = gpu() else { return };
+    for (edge, left) in [(true, false), (true, true), (false, false)] {
+        let mut s = WorldSurface::<Limits, ModelExecutor, true>::default();
+        s.bind(&[Value::Bool(edge), Value::Bool(left)], None)
+            .unwrap();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.asset(
+            "white.tex",
+            Ok(&bin::to_vec(&asset::TextureData {
+                width: 1,
+                height: 1,
+                mips: vec![vec![255; 4]],
+                ..Default::default()
+            })),
+        );
+        for now_ms in [0., 100.] {
+            fixture::render(&gpu, &mut s, &Frame { now_ms, ..frame() }).unwrap();
+        }
+        assert!(s.error().is_none(), "{:?}", s.error());
+        let reply = s.agent(r#"{"op":"screenshot","form":"look"}"#).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        let look = &value["look"];
+        let draw = &look["particles"][0];
+        assert!(
+            draw["covered"].as_u64() > Some(0),
+            "edge {edge}, left {left}: {look}"
+        );
+        // The dot over black is near black, as it should be; neither is uncovered.
+        let tells = look["tells"].as_array().unwrap();
+        assert!(
+            tells.iter().all(|t| t["name"] != "particles-uncovered"),
+            "edge {edge}, left {left}: {look}"
+        );
+        // And it shows: some pixel the particle lights is not black.
+        let pixels = base64(value["data"].as_str().unwrap());
+        let brightest = pixels.chunks(4).map(|p| p[0].max(p[1]).max(p[2])).max();
+        if edge {
+            // The open half column is brighter than the boxes either side of it.
+            let width = value["width"].as_u64().unwrap() as usize;
+            let at = |x: usize| pixels[(64 * width + x) * 4];
+            assert!(
+                at(63) > at(40) && at(63) > at(90),
+                "column 63 {} beside {} and {}",
+                at(63),
+                at(40),
+                at(90)
+            );
+        } else {
+            assert!(
+                brightest > Some(0),
+                "a 0.002 alpha dot over black: brightest {brightest:?}"
+            );
+        }
+    }
+}
+
+/// RFC 4648 base64, decoded (a look picture's `data`).
+fn base64(text: &str) -> Vec<u8> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        _ => 63,
+    };
+    let bytes: Vec<u8> = text.bytes().filter(|&c| c != b'=').map(value).collect();
+    bytes
+        .chunks(4)
+        .flat_map(|c| {
+            let n = c
+                .iter()
+                .enumerate()
+                .fold(0u32, |n, (i, &v)| n | u32::from(v) << (18 - 6 * i));
+            let out = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+            out.into_iter().take(c.len() - 1)
+        })
+        .collect()
 }

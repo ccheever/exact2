@@ -100,6 +100,7 @@ public final class HeadlessSession {
     }
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
+        public init(description: String) { self.description = description }
     }
 
     package let core: SessionCore
@@ -166,8 +167,10 @@ public final class HeadlessSession {
     }
 
     /// Typed source refresh; the render boot itself never opens the store.
-    public func timeline(at date: Date) throws -> Data {
-        let bytes = core.runtime.entryTimeline(at: date.timeIntervalSince1970 * 1000)
+    public func timeline(at date: Date, moduleRoot: URL? = nil, deadline: DispatchTime = .now() + .milliseconds(900)) throws -> Data {
+        let receipt = try moduleRoot.map { try Data(contentsOf: $0.appendingPathComponent("typescript/app.module.json")) } ?? Data()
+        let module = try moduleRoot.map { try Data(contentsOf: $0.appendingPathComponent("typescript/app.hbc"), options: .mappedIfSafe) } ?? Data()
+        let bytes = core.runtime.entryTimeline(at: date.timeIntervalSince1970 * 1000, deadline: deadline, receipt: receipt, module: module)
         if let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any], let error = object["error"] as? String {
             throw Failure(description: error)
         }
@@ -195,6 +198,22 @@ public final class HeadlessSession {
         try turn(size: size) { core.runtime.resize(width: size.width, height: size.height) }
     }
 
+    /// The margins the last layout resolved around a node's border box, and
+    /// whether its width is the author's (`width` or `min-width`) rather than
+    /// its content's (`Kernel::placement_box`, LLP 1126.001 WP10). A read of
+    /// the layout the tree holds; nothing is laid out again.
+    public struct PlacementBox {
+        /// The resolved margins: left, top, right, bottom.
+        public let margins: (left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat)
+        public let authoredWidth: Bool
+    }
+    public func placementBox(_ node: UInt32) -> PlacementBox? {
+        Owner.shared.sync {
+            guard !core.runtime.destroyed, let v = core.runtime.placementBox(node) else { return nil }
+            return PlacementBox(margins: (v[0], v[1], v[2], v[3]), authoredWidth: v[4] > 0.5)
+        }
+    }
+
     /// Activate deferred data, drain ready replies and lay out their store changes.
     /// `now` is the runner clock in milliseconds; this session starts no timers.
     @discardableResult
@@ -207,6 +226,23 @@ public final class HeadlessSession {
     @discardableResult
     public func press(_ node: UInt32, at now: Double = 0) throws -> Snapshot {
         try turn { core.runtime.press(node, now: now) }
+    }
+
+    /// Gallery refresh never opens the app's storage or executes requests.
+    package func previewTimeline(at date: Date) throws -> [String: Any] {
+        let bytes = core.runtime.previewTimeline(at: date.timeIntervalSince1970 * 1000)
+        let result = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] ?? [:]
+        if let error = result["error"] as? String { throw Failure(description: error) }
+        return result
+    }
+    /// Advance a pure snapshot without activating the host's deferred I/O.
+    @discardableResult
+    package func advance(to now: Double) throws -> Snapshot {
+        try turn { core.runtime.advance(now: now) }
+    }
+    package func agentFacts() -> [String: Any] {
+        let bytes = Data(core.runtime.agent("{\"op\":\"tags\"}").utf8)
+        return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
     }
 
     private func turn(size: CGSize? = nil, _ body: () throws -> Batch) throws -> Snapshot {

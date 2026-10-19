@@ -1,13 +1,21 @@
 # Recipe: driving iOS
 
-Edit and check on the web (`verify`: seconds); run `verify ios` once, at the end: the tests with
-UIKit's bars, `check` light and dark, and a relaunch ([tests](tests.md#before-you-call-it-done)).
-A clean `verify ios` is done. Drives build first when the build is stale (log
-`.exact/ios-build.log`); `--prebuild` starts the first early.
+**Check a screen against a reference** (the original's screenshot) with compare,
+not by eye: `bun exact.mjs agent ios --touch platform … "clock settle" "screenshot
+.exact/x.png compare ref/x.png"` captures as a device does, the keyboard too on a simulator it
+booted (status bar: `xcrun simctl status_bar <udid> override --time 9:41`), and says where they
+differ: each region by node, where its content moved, a box measured in both (`x.diff.png`:
+reference, screen, differences). Each tap is a real touch, reaching a pull-down menu's
+rows, tabs and a native module's controls. A context menu, a row scrolled out of its
+menu and an alert's buttons take a drive without the flag.
 
-An edit to only `.contract` files or what `app.ts` imports reaches iOS in seconds: the drive bakes
-the new plan and runs it on the build you have (a bake error fails it, log `.exact/ios-plan.log`).
-`app.json`, assets, fonts and new grants rebuild. Before done: `bun exact.mjs ios`, then `verify ios`.
+Edit and check on the web (`verify`); run `verify ios` once, at the end: the tests with
+UIKit's bars, `check` light and dark, and a relaunch ([tests](tests.md#before-you-call-it-done)).
+Drives build first when stale (log `.exact/ios-build.log`); `--prebuild` starts the first
+early. With an `app.ts` data module, an edit to `.contract` files, `app.ts` or what it imports
+reaches iOS in seconds as a baked plan (log `.exact/ios-plan.log`); `app.json`,
+assets, fonts, `app.ts`'s grants, `appId` or canvas surfaces and, with a Rust data crate, a file
+the build reads rebuild. Before done: `bun exact.mjs ios`, then `verify ios`.
 
 ```sh
 bun exact.mjs ios --prebuild
@@ -15,14 +23,6 @@ bun exact.mjs verify ios
 bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
   "type add-title Milk" "tap add-save" "clock data" "clock settle" "screenshot .exact/ios-saved.png window"
 ```
-
-**Matching a port's screens to the original's screenshots**: `bun
-exact.mjs agent ios --touch platform … "clock settle" "screenshot .exact/x.png compare ref/x.png"`
-captures as a device does, the keyboard too on a simulator it booted (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
-says where they differ: each region by node, where its content moved, a box measured in both
-(in `x.diff.png`, left to right: reference, screen, differences). Each tap is a real touch: it picks from a pull-down menu,
-switches tabs, reaches a native module's controls. A context menu, a row scrolled out of its
-menu and an alert's buttons take a drive without the flag.
 
 | Flag or op | What it does |
 | --- | --- |

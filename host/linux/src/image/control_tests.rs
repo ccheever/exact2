@@ -90,7 +90,12 @@ fn symbols_clear_rasters_without_loading_and_follow_font_size() {
     images.sync(&k, &k.roots());
     images.wait(SETTLED);
     assert!(images.bitmaps.contains_key(&1));
-    for name in ["symbol:sf/airpodsmax", "symbol:sf/", "symbol:unknown"] {
+    for name in [
+        "symbol:sf/airpodsmax",
+        "symbol:sf/",
+        "symbol:",
+        "symbol:unknown",
+    ] {
         source(&mut k, 1, name);
         assert_eq!(images.sync(&k, &k.roots()), vec![(1, Some((16., 16.)))]);
         assert!(!images.bitmaps.contains_key(&1));

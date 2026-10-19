@@ -136,24 +136,7 @@ pub fn laid(design: &Design, params: &Params) -> Design {
             false => out.tokens.push(token),
         }
     }
-    // An icon naming another icon takes its sources.
-    for _ in 0..out.icons.len() {
-        let mut changed = false;
-        for i in 0..out.icons.len() {
-            let name = out.icons[i].value.value.trim().to_string();
-            if name.contains('(') {
-                continue;
-            }
-            if let Some(src) = out.icons.iter().find(|t| t.name.value == name) {
-                let value = src.value.value.clone();
-                out.icons[i].value.value = value;
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
+    crate::icon::aliased(&mut out.icons);
     out
 }
 

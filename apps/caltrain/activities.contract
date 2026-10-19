@@ -1,0 +1,79 @@
+// @ref LLP 1126.001 WP8 — one state and eight independently sized placements.
+// Each placement says `data-privacy="public"`: a train's departure or a service
+// alert is not account content, so a locked phone shows it (LLP 1126 D8; WP10).
+shape DepartureState
+  station: string
+  headsign: string
+  train: number
+  at: number
+  status: string
+
+shape ActivityViewport
+  width: number
+  height: number
+
+component DepartureActivity
+  props
+    station: string
+    headsign: string
+    train: number
+    at: number
+    status: string
+  inject
+    snapshot_viewport: ActivityViewport
+  view
+    view slot="lockScreen" data-privacy="public"
+      column gap=8
+        text `${station} to ${headsign}` font-weight=600 line-clamp=1
+        text `Train ${train} · ${status}` font-variant-numeric="tabular-nums"
+        time datetime=at format="countdown" font-variant-numeric="tabular-nums"
+    view slot="compactLeading" data-privacy="public"
+      text train.toString() font-variant-numeric="tabular-nums"
+    view slot="compactTrailing" data-privacy="public"
+      time datetime=at format="countdown" font-variant-numeric="tabular-nums"
+    view slot="minimal" data-privacy="public"
+      image "symbol:sf/tram.fill"
+    view slot="expanded"
+      view slot="leading" data-privacy="public"
+        text station line-clamp=1
+      view slot="trailing" data-privacy="public"
+        text train.toString() font-variant-numeric="tabular-nums"
+      view slot="center" data-privacy="public"
+        time datetime=at format="countdown" font-variant-numeric="tabular-nums"
+      view slot="bottom" data-privacy="public"
+        column gap=4
+          text headsign font-weight=600 line-clamp=1
+          if snapshot_viewport.width > 160
+            text status line-clamp=1
+
+shape ServiceAlertState
+  title: string
+  message: string
+  updatedAt: number
+
+component ServiceAlertActivity
+  props
+    title: string
+    message: string
+    updatedAt: number
+  view
+    view slot="lockScreen" data-privacy="public"
+      column gap=8
+        text title font-weight=600
+        text message line-clamp=2
+        time datetime=updatedAt format="relative" font-variant-numeric="tabular-nums"
+    view slot="compactLeading" data-privacy="public"
+      image "symbol:sf/exclamationmark.triangle"
+    view slot="compactTrailing" data-privacy="public"
+      text "Delay"
+    view slot="minimal" data-privacy="public"
+      image "symbol:sf/exclamationmark.triangle"
+    view slot="expanded"
+      view slot="leading" data-privacy="public"
+        image "symbol:sf/exclamationmark.triangle"
+      view slot="trailing" data-privacy="public"
+        time datetime=updatedAt format="relative" font-variant-numeric="tabular-nums"
+      view slot="center" data-privacy="public"
+        text title font-weight=600 line-clamp=1
+      view slot="bottom" data-privacy="public"
+        text message line-clamp=3

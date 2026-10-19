@@ -358,22 +358,202 @@ with `contract::snapshot::entries(app)`, then pass that map to `source_plan`,
 data instances for the app and refresh, so refresh state cannot affect the app
 first frame. The TypeScript and replaceable Rust producers use the same check.
 
+On iOS, a TypeScript refresh runs under Hermes from the module bytes in the
+app's pinned App Group generation (or the extension's embedded cohort before
+the app first publishes it). The receipt admits both the entry plan and bytecode.
+It can return immediately or await `fetch`
+and `storage.fs` reads from `app:/`. File writes, SQLite, document handles and
+native modules are unavailable in stage 1; `secret.keep` values are read from
+the shared Keychain only during refresh. The extension never persists store
+writes. The app reloads widget timelines after a successful write readable by a refresh.
+Refresh has a 900 ms deadline starting when it begins, including boot. Each JS
+turn gets the time remaining to that deadline, rather than the app's 100 ms
+per-call budget. This leaves 100 ms below LLP 1126 D8's one-second
+line for completion and teardown. Failure or timeout uses the last good timeline
+cached in the App Group for this kind and generation, only while the app's store
+has not changed since it was cached (a store write, such as an account switch,
+expires it), or else an “Open app” placeholder,
+and schedules a retry no sooner than 15 minutes later. Rendering and gallery
+previews do not load Hermes or read the store.
+
+Live Activity entries are top-level `live_activities` rows, each with a `kind`
+(LLP 1126 D9). The packaging reads two flags: `push: true` for an activity the
+app's own server advances, which signs `aps-environment` into the app (never
+the extension, which reads no token), and `frequent: true` for one that needs
+the frequent-update budget (`NSSupportsLiveActivitiesFrequentUpdates`). An
+entry of either kind, a widget or an activity, gives the iOS build its WidgetKit
+extension, the shared `ExactCore` framework, the App Group and the Keychain
+group; an activity entry alone adds `NSSupportsLiveActivities` to the app's
+`Info.plist` (a widget-only app has no such key). An app with activities alone
+ships the extension with an empty widget bundle until its activity
+configuration lands (LLP 1126.001 WP10). The entry's root, state shape and
+preview are stage 2's bake (WP8).
+
+A device build of an app with entries embeds two profiles, the app's and the
+extension's (`<id>.widgets`), of one team, App ID prefix and distribution
+method (development, Ad Hoc, enterprise or App Store), each granting the App
+Group `group.<id>` and the Keychain group `<prefix>.<id>` (Keychain Sharing;
+the team wildcard `<prefix>.*` grants it), the app's also `aps-environment`
+(`development` on a development profile, `production` on the others) when an
+activity takes pushes. A team wildcard profile grants no App Group, so each is
+a profile for its exact App ID; `build.mjs --device` refuses before building
+anything, naming for each App ID the profile that was close and the condition
+it failed (expired, not this phone, another team or prefix, the other method),
+and the capabilities to register and profiles to install. `EXACT_PROFILE` names
+the app's, under the same conditions; the extension's is found among the
+installed profiles by its id. An archive (`--archive`) matches the extension's
+profile to the named one's method, and an Ad Hoc pair must cover the same
+devices.
+
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
 map indexes these authenticated assets in the app's compatibility cohort.
 Kinds, families and gallery labels are binary compatibility inputs; views and preview props
 are plan contents. A running host refuses a snapshot plan at decode, and a
-snapshot reader requires its exact kind and refresh signature.
+snapshot reader requires its exact kind. A widget also requires a refresh
+signature; an activity has named placements and no refresh source.
+
+Live Activities are top-level `app.json` `live_activities` rows:
+
+```json
+{"kind":"departure","component":"DepartureActivity","state":"DepartureState",
+ "preview":{"station":"Mountain View","at":1787915700000},"push":true}
+```
+
+The root's props match every field of `state`. Optional `title` and `description`
+follow the widget label rule; `push` and `frequent` are Booleans, defaulting to
+false. Kinds are unique across both entry lists, ignoring case. Unknown keys fail
+the bake with an edit. Capability flags and labels require a new binary; state
+shapes, previews and views ride the bundle.
+
+Declare the placements in that one component's view with `view slot="lockScreen"`,
+`view slot="compactLeading"`, `view slot="compactTrailing"`, `view slot="minimal"`
+and `view slot="expanded"`. Under `expanded`, declare four `view` children with
+`slot="leading"`, `slot="trailing"`, `slot="center"` and `slot="bottom"`. Each slot
+is required once. Put its layout attributes and content on that slot's view;
+`expanded` only groups its regions. See `apps/caltrain/activities.contract`.
+
+The activity plan has one `snapshot_state` slot and an `activity_slots` table
+mapping each placement name to a node site under a synthetic container. One
+session serves the activity. For each slot, the driver sets the session's viewport
+to the region's proposed content size, lays out, takes that slot's subtree and
+measures its `fit_content_height`. `snapshot_viewport` thus reads the current
+region's size; no app-visible slot selector is injected. The other slots' frames
+are not a shared surface layout. Rendering remains read-only, with the same
+clock, request, input and handler refusals as widgets. `time` and `progress`
+remain platform live views.
+
+The extension renders every activity through one `ActivityConfiguration` for
+the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10), a
+thin adapter over `ExactSnapshot`'s `ActivityResolver`: the attributes' `kind`
+names the plan, `plans/<kind>.plan` in the generation the attributes name,
+which is the one published under that name in the installed cohort or the
+bundle's embedded plans when their identity (`ExactWidgetGeneration`) makes
+that generation; any other generation is refused, the activity shows "Open
+<app>" until the app publishes again, and nothing is rendered in its place.
+The state is the envelope's when its shape digest is the registry's and the
+plan decodes it (then kept as the activity's last good state), else the last
+decodable state kept for the activity id (shown dimmed, the driver's outdated
+presentation; the system's `isStale` is the system's own), else the preview,
+redacted as a placeholder. A render is keyed by the activity, its generation,
+the state's bytes and every fact the session reads (the text size, Bold Text,
+contrast, transparency, the scheme, the display scale, the locale and time
+zone); the eight placements of one push share it. A placement's view answers
+the system's size proposals from the kernel (`ActivityRender`): the bake
+positions each placement's root absolutely at its region's top left, so in
+the region's viewport CSS 2.1 §10.3.7 gives a `width: auto` root the
+shrink-to-fit width (an authored `width` or `min-width` is kept, past the
+region too; a percentage resolves against the region; `margin: auto` is
+nothing; `flex-basis` does not apply, the root being no flex item), and the
+Lock Screen and expanded bottom roots, which the system sizes, take the
+region through `right: 0`. That one layout is measured and drawn: the region
+reports the root's margin box, a paragraph the region wrapped settles to its
+widest ink line, a content the region cannot hold is cut at the region, and
+each view draws the layout its size was measured from, whatever region's
+proposal last laid the session out. The Lock Screen placement sits inside the
+system's content margins or, where the system gives none, the standard
+layout margin for Live Activities on the Lock Screen, 14 points (Human
+Interface Guidelines, Live Activities: "The standard layout margin for Live
+Activities on the Lock Screen is 14 points"); its root's `background-color`
+is the `activityBackgroundTint`, its `background-image`'s gradient layers
+paint full bleed behind the margins over that tint, and both unsaid leave the
+system's material. A Live Activity's content is account content as a
+widget's is (D8): private on a locked phone but for a node that says
+`data-privacy="public"`, which Caltrain's placements do, a train's departure
+being nobody's account. A link in the Lock Screen or an expanded region is a
+`Link`; the first link of any placement is its URL. The development gallery
+shows the eight placements with the Island's geometry of one device (the
+iPhone 17 Pro's, `IslandGeometry`), its expanded regions allocated together
+as ActivityKit arranges them.
+The sends that start, update and end an activity are LLP 1126.001 WP9.
+
+The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
+`activities/<kind>.d.ts` (exporting `State`, `Attributes` and `ContentState`). The
+state uses JSON Schema 2020-12 with required fields and no additional properties.
+The shape digest hashes its canonical schema, including each record's field
+order. The universal envelope's attributes are `{kind, generation, shape}`;
+its content state is `{shape, state}`, where `state` is a JSON value, not an
+encoded JSON string. `generation` names the immutable publication digest. The
+preview and sends share a conservative 4096-byte JSON budget, including both
+shape digests. Numbers reserve the longer of serde_json's and Foundation's
+shortest Double spellings, capped at 24 bytes; the bake also covers a preview's
+original integer spelling before Double decoding. Both reserve two bytes for
+`\b`, `\t`, `\n`, `\f`, `\r` and slashes, and six for the other U+0000–U+001F
+characters and U+2028/U+2029. Other characters and JSON punctuation use their
+compact UTF-8 size. A refusal reports the budgeted bytes and asks for shorter
+state. Shared Rust/Swift fixtures pin encoder spellings, escape counts, admission
+of a 60-point route and 150 small integers, and refusal at 4097 bytes.
+
+An activity pins its named generation within the installed compatibility cohort,
+even after `current` moves. Publications currently keep every generation. The
+cache has one file per activity id. The caller supplies the pinned plan's decoder:
+a state it cannot decode falls back to its last decodable state with the driver's
+outdated flag. Without a decodable kept state the placeholder has no outdated
+flag. A failed write returns an error to the caller. ActivityKit's `isStale` is a separate system
+fact. Rendering across a compatibility-changing binary update remains subject
+to LLP 1126.001 §5 Q6's pending ruling.
+
+`bun host/apple/build.mjs --watchos --no-install` builds a watch simulator
+companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
+--watch-sim <watch udid>` installs it on an existing, booted pair and opens its
+placeholder gallery. Add a complication through the watch face's editor.
+The watch extension keeps the accessory families (`accessoryCircular`,
+`accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
+`accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
+families; `families` still names its iOS families. An app with `app.ts` has all
+watch entries omitted with a message, including its Rust refreshes, until the
+watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
+refresh against the watch's own App Group and store. No account transfer is
+performed. The watch app is a placeholder gallery until the live driver lands.
+For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
+optional image. Only that leaf and image survive the inline archive; a
+container's background and layout do not. The bake evaluates the preview at
+225 × 26, 168 × 11.5 and 13.5 × 13.5 pt; at runtime the driver checks the actual
+size and props.
+A violation refuses the bake with an edit, or logs the entry name and renders
+“Open <app>” at runtime, including in the gallery (LLP 1126 D4). See
+Apple's [inline family](https://developer.apple.com/documentation/widgetkit/widgetfamily/accessoryinline).
 
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers
-fail with an edit. A `performanceNow()` call is refused everywhere, including
+fail with an edit. The author declares no resource; the bake synthesizes the
+`exactViewport` resource for the size inject. The one fact a render reads
+is the family's size, through the reserved inject `snapshot_viewport`: write
+`inject` with `snapshot_viewport: <shape>` on the entry's component (or one it
+uses; every injecting component names one shape), and the entry's plan
+declares `exactViewport()` for it and provides it. `width` and `height` are the
+family's content size in points, inside the system margins, given at boot and
+again when the family's size changes; the preference fields are a still page's.
+Choose a layout by them as `docs/recipes/responsive-columns.md` does for a page
+(a Lock Screen row is under 100 pt tall; a medium widget is over 250 wide), so
+one entry serves every family it declares. The app's own plan is untouched: an
+unused component's inject is not demanded by the app's view. A `performanceNow()` call is refused everywhere, including
 inside `time` and `progress`; pass instants from refresh for platform time
 presentation. A variable's name imposes no restriction. A class is a style name
 or `class=(condition ? A : B)`. Only literal font families reached through the
 entry are bundled; a dynamic font string selects installed or generic families.
-Images use a bundle-relative path, an `app:/` path written by refresh, or a
+Images use a bundle-relative path, an `app:/` path written by the app, or a
 `symbol:` source. Computed paths need a fixed local prefix; refresh downloads
 remote images. A live `time` (`relative`, `timer`, `countdown`) must own its
 text paragraph, so the widget can reserve its width; calendar formats may be
@@ -531,6 +711,10 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
+A Mac agent drive never takes the focus: the app is an accessory, never activated (a `type` makes its window key
+without activating it), so AppKit draws its controls as in an inactive app. `EXACT_AGENT_ACTIVATE=1`, which only
+`scripts/measure-controls.mjs` sets (never a default), activates that one run, and the app that was in front is put
+back when it exits, however it exits (LLP 1121 stage 9 F2).
 Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
@@ -703,7 +887,8 @@ the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
 one in flight: the module's storage queue is full, LLP 1097), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
-A drive's app storage is a scratch store it names (`--storage <name>`) or none.
+A drive's app storage is a scratch store it names (`--storage <name>`), on a
+native host `default` when it names none, or none (a web drive naming none).
 A native one is kept between drives until a drive passes `--reset-storage`, which
 empties all of it (`app:/` files, SQLite, kept state, secrets) at the app's boot
 and refuses a store reached through a symbolic link; one drive holds a native store
@@ -713,7 +898,7 @@ one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary
 roots across launches. A fresh drive clears them; the picker's temporary documents
-alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
+alone are cleared on each launch. A web drive with no `--storage` refuses app storage (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`; a file
 read rejects `ENOENT` instead, as an empty store's) and keeps
 no secrets. The driver's `state.storage` says
@@ -1287,7 +1472,7 @@ on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
 picker panel (a drive's held pickers still answer), so outside a drive only
 `open-file` delivers one there. The handles end with the
-session: nothing about a document is remembered across launches.
+session, unless the app keeps what the person chose (below).
 
 **A change on disk asks the answer again** (LLP 1069.010.000 D1). An answer
 that calls `storage.fs.watch(path)` is asked again when the file, a folder's
@@ -1316,6 +1501,34 @@ is refused with code `ECHANGED` and nothing is written (a file that is gone
 refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
+
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS). An
+app granted `doc.keep` keeps exactly what the person chose — a file or folder
+from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
+typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
+reads again after a relaunch, in any of the app's windows, with no panel.
+The kept set is File ▸ Open Recent's: Clear Menu, or an entry falling off
+the end of the list, ends its reopening (a window that has it open keeps it
+until the app quits).
+
+```ts
+export const grants = ['fs.read doc:/', 'doc.keep'].join('\n');
+storage.fs.watch('doc:/');                       // asked again when the list changes
+const recent = await storage.fs.recentDocuments();
+// [{ path: 'doc:/12/notes', name: 'notes', kind: 'directory', mode: 'readwrite', opened: 1760572800000 }, …]
+await storage.fs.forgetDocument(recent[0].path); // off the list and Open Recent; ENOENT if not kept
+```
+
+A Rust source sends `fs.recentDocuments` and `fs.forgetDocument` storage
+requests (`apps/markdown/data`). A kept item is the object chosen: a move
+or rename is followed and keeps its path (`<name>` is the name it was
+chosen by); a file another program replaced at its name is not the
+document, and the app's own `atomicWriteFile` carries the entry to the file
+it wrote (from Rust; not yet from TypeScript). A path whose entry is gone
+refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
+both calls are refused. Under the agent the kept set is the drive's scratch
+store (`--storage`), never the person's. Linux and iOS keep nothing yet and
+list nothing; the web has neither call yet.
 
 ### Bake and deliver a TypeScript module
 
@@ -1359,7 +1572,9 @@ For a module client's `build.rs`, depend on `exact-js-bake` and call
 `exact_js_bake::build(Path::new(".."), "web")` (or `"macos"` / `"ios"`). This writes the
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
 `REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
-names. With a store (`"A"`), a signed update carries the module pair under
+names, which includes `baked.rs`: `exact_plan()` and `exact_compat()`. An Apple build
+(`host/apple/build.mjs`) bakes before Cargo and links the plan and `compat.json` into
+the executable, so an edit that changes only the plan compiles no Rust. With a store (`"A"`), a signed update carries the module pair under
 `typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
 and exactly its grants. An app with both a TypeScript and a Rust module still sets its
 `deploy.store` entries to `"0"`: signed delivery of both is not implemented.
@@ -1940,3 +2155,24 @@ clamps outside it. Supply both instants with `end` after `start`, without
 `value` or `max`. The existing forms remain: `progress value=0.4 max=1` is
 a determinate bar, and `progress` is the platform activity indicator. A
 progress control takes no children; `aria-label` names it.
+
+### Widget development gallery
+
+A development Apple build with `widgets`, made with `--widget-gallery` or
+`EXACT_WIDGET_GALLERY=1`, has **Widgets…** in its dev menu (Develop on macOS). It shows every declared family in full colour, accented and
+vibrant modes, light and dark, at large and XXXL text sizes. It uses the entry's
+headless plan and the extension's snapshot driver. In-process containers and
+mode presentation are stand-ins; archive fidelity needs the real extension.
+
+| Agent address | Reads |
+|---|---|
+| `bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot target/widget.png" state` | Snapshot tree, the entry alone, and its props |
+| `bun scripts/agent.mjs macos widget next-trains tree state` | First declared family, full colour, light, large text |
+| `bun scripts/agent.mjs ios widget next-trains --epoch 2026-08-28T09:05:00Z "clock +600000" tree state` | Refresh and render at the app’s advanced clock |
+
+An immediate refresh answer supplies its first timeline entry. Pending, empty
+or unavailable data keeps the preview; `state` reports which. `--props <json>`
+replaces the preview props for this read and takes precedence over refresh. Widget
+reads accept only `tree`, `screenshot <png>`, `state` and the app’s `clock`; film,
+window, compare and `--scale` options are refused. Ordinary builds name the
+`--widget-gallery` rebuild. Production builds include no gallery code.

@@ -207,7 +207,7 @@ struct TextRasterJob {
                 let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
                 if width > 0 { painted = painted.union(CGRect(x: position.x, y: position.y - ascent, width: width, height: ascent + descent)) }
             }
-            for (fill, _) in TextLinePaint.backgrounds(line, at: position) { painted = painted.union(fill) }
+            for fill in TextLinePaint.backgrounds(line, at: position) { painted = painted.union(fill.rect) }
         }
         func aligned(_ r: CGRect) -> TextRasterExtent {
             Self.alignedExtent(r, bounds: bounds, limit: limit, clip: clip, scale: scale)

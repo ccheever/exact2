@@ -7,6 +7,8 @@ use std::path::Path;
 
 mod widgets;
 pub use widgets::Widget;
+mod activities;
+pub use activities::Activity;
 
 /// The app manifest (`app.json`, LLP 1030 D2; 1030.000 D7) as the bake
 /// reads it — the JSON, and the identity every platform derives from it.
@@ -176,6 +178,7 @@ impl Manifest {
             declared: true,
         };
         manifest.widgets()?;
+        manifest.live_activities()?;
         Ok(manifest)
     }
 

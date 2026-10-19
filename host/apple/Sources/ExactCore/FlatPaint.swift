@@ -12,14 +12,23 @@ package struct FlatPaint: Equatable {
     /// Top-left, top-right, bottom-right, bottom-left, each at least 0.
     package let radii: [CGFloat]
     package let hidden: Bool
+    /// Its outer `box-shadow` list, each colour fixed or a `light-dark()` pair.
+    package let shadow: BatchValue?
+    /// Positioned (`relative` or `absolute`): it paints at its rank among
+    /// its siblings, which only a flat parent orders for it.
+    package let positioned: Bool
+    /// It clips its overflow, which a layer holding children would have to.
+    package let clips: Bool
 
     package static let space = CGColorSpace(name: CGColorSpace.extendedSRGB)!
 
-    package static func == (a: FlatPaint, b: FlatPaint) -> Bool { a.light == b.light && a.dark == b.dark && a.radii == b.radii && a.hidden == b.hidden }
+    package static func == (a: FlatPaint, b: FlatPaint) -> Bool { a.light == b.light && a.dark == b.dark && a.radii == b.radii && a.hidden == b.hidden
+        && a.shadow == b.shadow && a.positioned == b.positioned && a.clips == b.clips }
 
     /// A `light-dark()` pair: it resolves in the appearance of the view the
     /// leaf is drawn in, as the pair on a view resolves in the view's.
-    package var followsScheme: Bool { light != dark }
+    package var followsScheme: Bool { light != dark || shadowPaired }
+    private let shadowPaired: Bool
     package func rgba(dark: Bool) -> [Double]? { dark ? self.dark : light }
     package func fill(dark: Bool) -> CGColor? { dark ? darkFill : lightFill }
 
@@ -51,7 +60,14 @@ package struct FlatPaint: Equatable {
             if Self.inert.contains(key) { continue }
             switch key {
             case "position_type":
-                guard value.string == "static" else { return nil }
+                guard ["static", "relative", "absolute"].contains(value.string ?? "") else { return nil }
+            case "box_shadow":
+                // Outer shadows of fixed colours: an inset one paints over
+                // the fill, and a platform colour follows contrast.
+                guard let list = value.array, list.allSatisfy({ item in
+                    guard case .object(let o) = item, o["i"] == nil, let c = o["c"] else { return false }
+                    return c.numbers?.count == 4 || (c.array != nil && c.isSchemeColor)
+                }) else { return nil }
             case "background_color":
                 // A fixed colour or a `light-dark()` pair of them. A platform
                 // colour also follows contrast and elevation, and a colour in
@@ -70,8 +86,14 @@ package struct FlatPaint: Equatable {
         let value = style["background_color"]
         light = value.flatMap { colorChannels($0, false) }
         dark = value.flatMap { colorChannels($0, true) }
-        // Its own `color-scheme` would resolve the pair apart from its parent.
-        if light != dark, ["light", "dark"].contains(style["color_scheme"]?.string ?? "") { return nil }
+        let shadows = style["box_shadow"]?.array ?? []
+        shadow = shadows.isEmpty ? nil : style["box_shadow"]
+        shadowPaired = shadows.contains { item in
+            guard case .object(let o) = item, let c = o["c"] else { return false }
+            return colorChannels(c, false) != colorChannels(c, true)
+        }
+        // Its own `color-scheme` would resolve a pair apart from its parent.
+        if light != dark || shadowPaired, ["light", "dark"].contains(style["color_scheme"]?.string ?? "") { return nil }
         // UIKit's colours are extended sRGB; a view's fill is one.
         func color(_ c: [Double]?) -> CGColor? {
             c.flatMap { CGColor(colorSpace: FlatPaint.space, components: [$0[0] / 255, $0[1] / 255, $0[2] / 255, $0[3] / 255]) }
@@ -83,5 +105,7 @@ package struct FlatPaint: Equatable {
                  style["border_radius_bottom_right"], style["border_radius_bottom_left"]]
             .map { CGFloat(max(0, $0?.number ?? 0)) }
         hidden = style["display"]?.string == "none"
+        positioned = ["relative", "absolute"].contains(style["position_type"]?.string ?? "")
+        clips = [style["overflow_x"], style["overflow_y"]].contains { ($0?.string ?? "visible") != "visible" }
     }
 }

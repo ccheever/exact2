@@ -2,7 +2,7 @@
 //! source (the palette), and inline backgrounds (LLP 1053 §0).
 use super::rgba;
 use crate::text::markup::QUIET;
-use crate::text::{Paragraph, RunPaint};
+use crate::text::{backgrounds::InlineBackground, Paragraph, RunPaint};
 use exact_kernel::{Kernel, NodeRef, NodeType, PropId, StyleId};
 
 /// Mirror the canonical run ownership (own text suppresses descendants),
@@ -43,11 +43,31 @@ pub(crate) fn text_palette(
 pub(super) fn text_backgrounds(
     kernel: &Kernel,
     node: &NodeRef<'_>,
-    inherited: Option<[u8; 4]>,
     dark: bool,
     reveal: Option<exact_kernel::ViewId>,
-    out: &mut Vec<Option<[u8; 4]>>,
-) {
+) -> Vec<Option<InlineBackground>> {
+    let mut out = Vec::new();
+    let mut nested = std::collections::HashSet::new();
+    collect_backgrounds(kernel, node, None, dark, reveal, &mut out, &mut nested);
+    // One background per leaf cannot paint an ancestor under a descendant's
+    // own background. Keep both square so their seam never exposes the page.
+    for background in out.iter_mut().flatten() {
+        if nested.contains(&background.id) {
+            background.radii = [exact_kernel::Dimension::Points(0.0); 4];
+        }
+    }
+    out
+}
+
+fn collect_backgrounds(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    inherited: Option<InlineBackground>,
+    dark: bool,
+    reveal: Option<exact_kernel::ViewId>,
+    out: &mut Vec<Option<InlineBackground>>,
+    nested: &mut std::collections::HashSet<exact_kernel::ViewId>,
+) -> bool {
     let own = |n: &NodeRef<'_>| {
         let _accent = super::accent_scope(n);
         n.style
@@ -63,23 +83,40 @@ pub(super) fn text_backgrounds(
                 )
             })
             .filter(|c| c[3] != 0)
+            .map(|color| InlineBackground {
+                color,
+                id: n.id,
+                radii: [
+                    n.style.border_radius_top_left,
+                    n.style.border_radius_top_right,
+                    n.style.border_radius_bottom_right,
+                    n.style.border_radius_bottom_left,
+                ]
+                .map(|d| d.resolve(&kernel.env())),
+            })
     };
-    if node.props.str(PropId::Text).is_some() {
+    if let Some(text) = node.props.str(PropId::Text) {
         out.push(inherited);
+        !text.is_empty()
     } else {
+        let mut emitted = false;
         for child in node.children() {
             if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
-                // A hidden box paints no background of its own, and does not
-                // pass that background to a descendant. A visible ancestor's
-                // background still covers the run.
-                let background = if super::paints(kernel, child.id, reveal) {
-                    own(&child).or(inherited)
-                } else {
-                    inherited
-                };
-                text_backgrounds(kernel, &child, background, dark, reveal, out);
+                // A hidden box contributes no background; a visible ancestor
+                // still covers its characters.
+                let own = super::paints(kernel, child.id, reveal)
+                    .then(|| own(&child))
+                    .flatten();
+                if collect_backgrounds(kernel, &child, own.or(inherited), dark, reveal, out, nested)
+                {
+                    emitted = true;
+                    if let (Some(parent), Some(child)) = (inherited, own) {
+                        nested.extend([parent.id, child.id]);
+                    }
+                }
             }
         }
+        emitted
     }
 }
 
@@ -99,6 +136,23 @@ pub(super) fn presented_color(
         }
         None => moving,
     }
+}
+
+/// [`presented_color`] where the node's `color` stops at it (a platform
+/// field's start, LLP 1104 D4): only its own motion and its own press.
+pub(super) fn own_presented_color(
+    walk: &super::Walk<'_, '_>,
+    node: &NodeRef<'_>,
+    dark: bool,
+) -> Option<[u8; 4]> {
+    let presented = (walk.scene.presented)(node.id);
+    let moving = presented.colors.color(exact_motion::Property::Color);
+    if node.style.mask.has(StyleId::PressColor) && presented.press_paint > 0.0 {
+        let own = moving.unwrap_or_else(|| rgba(node.text_color().resolve(dark)));
+        let ink = rgba(node.style.press_color.resolve(dark));
+        return Some(super::presented::press_mix(own, ink, presented.press_paint));
+    }
+    moving
 }
 
 fn moving_color(walk: &super::Walk<'_, '_>, node: &NodeRef<'_>) -> Option<[u8; 4]> {

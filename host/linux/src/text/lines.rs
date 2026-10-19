@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// A laid-out glyph.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayoutGlyph {
-    /// Start of its cluster in the hard line's text, bytes.
+    /// Start of its cluster in [`super::LayoutRun::text`], bytes.
     pub start: u32,
     /// End of its cluster (a ligature's covers every component).
     pub end: u32,
@@ -43,7 +43,7 @@ impl LayoutGlyph {
     pub fn run(&self) -> usize {
         self.metadata as usize
     }
-    /// The cluster's byte range in its hard line's text.
+    /// The cluster's byte range in [`super::LayoutRun::text`].
     pub fn range(&self) -> std::ops::Range<usize> {
         self.start as usize..self.end as usize
     }

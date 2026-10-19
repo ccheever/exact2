@@ -321,6 +321,16 @@ struct SnapshotPaint {
         }
     }
 
+    /// The gradient layers alone, over whatever holds the colour (a Live
+    /// Activity's tint, LLP 1126.001 WP10), positioned on `rect`.
+    @ViewBuilder
+    func gradients(in rect: CGRect) -> some View {
+        let layers = style.gradients("background_image")
+        if !layers.isEmpty {
+            SnapshotGradients(layers: layers, box: rect, dark: dark).frame(width: rect.width, height: rect.height)
+        }
+    }
+
     /// The one border: a ring of its width inside the outline, stroked in
     /// its colour and style (solid, dashed, dotted) on the inset centre line.
     @ViewBuilder

@@ -64,6 +64,8 @@ pub(crate) struct DefaultContext {
     pub native_tab: bool,
     /// [`NodeArena::said_style_rows`].
     pub said_style: StyleMask,
+    /// [`NodeArena::ink_said`]: a move can change it with the colour equal.
+    pub ink_said: bool,
 }
 
 impl NodeArena {
@@ -135,6 +137,7 @@ impl NodeArena {
             tab: self.is_neutral_tab(slot),
             native_tab: self.neutral_tab_root(slot).is_some(),
             said_style: self.said_style_rows(slot),
+            ink_said: self.ink_said(slot),
         }
     }
 

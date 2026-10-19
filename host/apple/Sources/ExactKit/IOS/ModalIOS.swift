@@ -255,12 +255,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// LLP 1080.001 D3: every presentation's controller view, live and
     /// retiring, with what the presenter put in it: its probes and the mount
     /// its navigation is in.
-    var inspectionRoots: [(view: UIView, label: String, owned: [UIView])] {
+    func surfaces(includingRetiring: Bool) -> [SessionSurface] {
         var seen = Set<ObjectIdentifier>()
-        return (layers.map { ($0, false) } + retiring.map { ($0, true) }).compactMap { layer, retiring in
+        return (layers.map { ($0, false) } + (includingRetiring ? retiring.map { ($0, true) } : [])).compactMap { layer, retiring in
             guard let view = layer.controller.viewIfLoaded, seen.insert(ObjectIdentifier(view)).inserted else { return nil }
             let owned = [layer.controller.probe, layer.controller.pixels, layer.controller.mount].compactMap { $0 }
-            return (view, "modal #\(layer.route.id)\(retiring ? " (retiring)" : "")", owned)
+            return SessionSurface(view: view, label: "modal #\(layer.route.id)\(retiring ? " (retiring)" : "")", kind: .route, owned: owned)
         }
     }
     /// The removed routes and navigations a dismissal keeps on screen until
@@ -280,15 +280,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         return !view.isDescendant(of: top) && !presenter.menus.sheets.shows(view)
     }
     var owner: UIViewController? { layers.last?.controller }
-    /// The presentations' controller views, live and retiring, bottom to
-    /// top: where the session mounts beside its viewport (LLP 1123 D2).
-    var mountRoots: [UIView] { (layers + retiring).compactMap { $0.controller.viewIfLoaded } }
     /// The presentations' navigations, live and retiring, bottom to top.
     var navigations: [UINavigationController] { (layers + retiring).compactMap { $0.navigation as? UINavigationController } }
     /// The top live presentation's navigation, the one nothing is dismissing:
     /// UIKit's presentation makes what is under it inert.
     var topNavigation: UINavigationController? { layers.last?.navigation as? UINavigationController }
-    func mounts(_ view: UIView) -> Bool { mountRoots.contains { view.isDescendant(of: $0) } }
+    func mounts(_ view: UIView) -> Bool { surfaces(includingRetiring: true).contains { view.isDescendant(of: $0.view) } }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
     /// Each live presentation UIKit draws at another size than it lays it
     /// out, and the factor. A page sheet resting below `large` on an iOS 26
@@ -316,15 +313,15 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// their pushes, not the app's root nodes that ride along with the
     /// viewport); nil when the bar is over the primary screen. Every
     /// presentation's navigation view, which the primary screen's scope
-    /// leaves out; and every presentation's whole view, where a node may sit.
-    var statusBarScope: (covering: UIView?, presented: [UIView], views: [UIView]) {
+    /// leaves out.
+    var statusBarScope: (covering: UIView?, presented: [UIView]) {
         let covering = layers.last { layer in
             let c = layer.controller
             if c.modalPresentationStyle == .overFullScreen { return true }
             guard let sheet = c.sheetPresentationController, c.traitCollection.horizontalSizeClass == .compact else { return false }
             return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) == .large
         }
-        return (covering?.navigation.viewIfLoaded, layers.compactMap { $0.navigation.viewIfLoaded }, layers.compactMap { $0.controller.viewIfLoaded })
+        return (covering?.navigation.viewIfLoaded, layers.compactMap { $0.navigation.viewIfLoaded })
     }
     /// Every presented controller re-reads the style with the root (D6):
     /// UIKit asks the topmost one that covers, which a sheet over it may hide.

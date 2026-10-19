@@ -24,6 +24,8 @@ export const commands = say => ({
     let to = null;
     try { const url = new URL(u); if (["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) to = url.href; } catch {}
     if (to) open(to, "_blank", "noopener,noreferrer");
+    // The app's own settings page (LLP 1133.002 D11): a browser has none to open.
+    else if (u === "app-settings:") say("openURL refused: app-settings: has no page on the web; a site's permissions are the browser's own (its address bar, its settings)");
     else say(`openURL refused: ${JSON.stringify(String(u).slice(0, 80))} is not an absolute http, https, mailto or tel URL`);
   },
   // The inverse of `message=`: text into the named surface, every post in

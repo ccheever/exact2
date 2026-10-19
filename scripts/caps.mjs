@@ -224,7 +224,7 @@ function harnesses(root, files) {
   const metadata = JSON.parse(result.stdout);
   const members = new Set(metadata.workspace_members);
   const packages = metadata.packages.filter((p) => members.has(p.id))
-    .map((p) => ({ ...p, dir: p.manifest_path.slice(metadata.workspace_root.length + 1, -'Cargo.toml'.length) }))
+    .map((p) => ({ ...p, dir: p.manifest_path.slice(metadata.workspace_root.length + 1, -'Cargo.toml'.length).replaceAll('\\', '/') }))
     .filter((p) => !VENDORED.test(p.dir));
   // A source file belongs to the package whose directory holds it most closely
   const deepestFirst = [...packages].sort((a, b) => b.dir.length - a.dir.length);

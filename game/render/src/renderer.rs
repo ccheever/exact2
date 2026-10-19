@@ -4,6 +4,7 @@ mod local;
 mod passes;
 pub(crate) use passes::Bound;
 mod prepass;
+pub(crate) mod probe;
 pub(crate) mod shadow_cache;
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
@@ -91,6 +92,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     shadow_sample_stale: bool,
     shadow_placeholder: wgpu::TextureView,
     shadow_comparison: wgpu::Sampler,
+    /// Nearest, clamped to the edge: `textureGather` of four cascade texels.
+    shadow_gather: wgpu::Sampler,
     pub(crate) vertices: Buffer,
     pub(crate) indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
@@ -106,8 +109,11 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     // This frame's visible environment map is resident.
     pub(crate) sky_ready: bool,
     pub(crate) targets: Targets,
-    // A direct frame's attachments (`encode_hooked`), made at its target's size.
+    // A direct frame's attachments (`encode_hooked`), made at its target's size;
+    // a look frame that counts particles keeps its own, retained between passes.
     pub(crate) direct_targets: Option<crate::buffers::DirectTargets>,
+    look_direct: Option<crate::buffers::DirectTargets>,
+    direct_retained: bool,
     // Frames may draw direct: at one sample everywhere, where the picture is the
     // tone pass's; at four on phones and tablets, whose tiling GPUs it is for.
     // Elsewhere four would move MSAA edges (each sample is tonemapped before the
@@ -124,6 +130,14 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     custom_bindings: Option<crate::hooks::MaterialBindings>,
     hook_targets: Option<crate::hooks::HookTargets>,
     pub(crate) hook_metrics: Option<Box<crate::hooks::metrics::Metrics>>,
+    /// A look frame's instruments, armed for one encode (`probe.rs`).
+    pub(crate) probe: Option<probe::Probe>,
+    /// Records the probe has built: an unarmed frame builds none (tests).
+    pub(crate) probe_built: std::cell::Cell<u64>,
+    // The live frames' levels of detail, kept while a look frame selects its own.
+    look_levels: Option<Vec<(u32, Option<u8>)>>,
+    // The look frames' shadow-texel pipeline, its layout and its counter.
+    shadow_texels: Option<(wgpu::ComputePipeline, wgpu::BindGroupLayout, wgpu::Buffer)>,
 }
 
 // Use the uploaded affine records and the same presence test as transform.wgsl.
@@ -311,6 +325,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let shadow_gather = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game shadow gather"),
+            ..Default::default()
+        });
         let shadow_sample = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game shadow sample"),
             layout: &pipelines.shadow_layout,
@@ -326,6 +344,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&shadow_gather),
                 },
             ],
         });
@@ -380,6 +402,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             shadow_sample_stale: false,
             shadow_placeholder,
             shadow_comparison,
+            shadow_gather,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
@@ -392,6 +415,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             sky_ready: false,
             targets,
             direct_targets: None,
+            look_direct: None,
+            direct_retained: false,
             allow_direct: samples == 1 || cfg!(any(target_os = "android", target_os = "ios")),
             direct_frames: 0,
             shadows: None,
@@ -402,6 +427,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             custom_bindings: None,
             hook_targets: None,
             hook_metrics: None,
+            probe: None,
+            probe_built: Default::default(),
+            look_levels: None,
+            shadow_texels: None,
             counts: Stats {
                 draws: 1,
                 triangles: 1,
@@ -1091,7 +1120,7 @@ mod e10_tests {
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.insert_resource(Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 fog: None,
                 ..Default::default()
             });

@@ -370,8 +370,9 @@ fn a_platform_colour_in_a_branch_not_yet_taken_is_reported_from_boot() {
         "component A\n  state on = false\n  view\n    column\n      box width=20 height=20 background-image=(on ? \"linear-gradient(-exact-platform-color(ios colorsTestLateSeedColor, macos colorsTestLateSeedColor, #010203), #ffffff)\" : \"none\")\n",
     )
     .unwrap();
-    for s in &mut plan.strings {
-        *s = s.replace("colorsTestLateSeed", "colorsTestLateBoot");
+    for i in 0..plan.strings.len() {
+        let moved = plan.strings[i].replace("colorsTestLateSeed", "colorsTestLateBoot");
+        plan.strings.set(i, moved);
     }
     let named = || {
         roles::references(cfg!(target_os = "macos"))

@@ -32,6 +32,14 @@ final class NavigationTabsIOSTests: XCTestCase {
 
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
+    /// Whether the tab bar is hidden as the host hides it: `setTabBarHidden`
+    /// on iOS 18, which on an iPad hides the floating bar and leaves
+    /// `tabBar.isHidden` alone.
+    private func tabBarHidden(_ tabs: UITabBarController) -> Bool {
+        if #available(iOS 18.0, *) { return tabs.isTabBarHidden }
+        return tabs.tabBar.isHidden
+    }
+
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
@@ -107,7 +115,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, true)
         XCTAssertFalse(navigation.adopts(tablist: list))
         XCTAssertFalse(list.isHidden)
-        XCTAssertTrue(tabs.tabBar.isHidden)
+        XCTAssertTrue(tabBarHidden(tabs))
         navigation.reportCovers()
         until("the shown authored tablist has safe-area protection") { navigation.covers[list.id] != nil }
         XCTAssertFalse(list.subviews.contains { $0 is UITabBar || $0 is UISegmentedControl })
@@ -118,7 +126,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, false)
         XCTAssertTrue(navigation.adopts(tablist: list))
         XCTAssertTrue(list.isHidden)
-        XCTAssertFalse(tabs.tabBar.isHidden)
+        XCTAssertFalse(tabBarHidden(tabs))
         XCTAssertEqual(tabs.selectedIndex, 1)
         XCTAssertTrue(tabs.viewControllers?[0] === stacks[0])
     }
@@ -230,6 +238,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, true)
         try tapNode(session, "tabs-at-top")
         let window = try XCTUnwrap(self.window)
+        guard window.safeAreaInsets.top > 0 else {
+            throw XCTSkip("no status bar above the content to protect it from: the iPhone Duo's is in a side column")
+        }
         until("headerless top tab content clears the status bar") {
             abs(list.convert(list.bounds, to: window).minY) < 0.5 &&
                 tab.convert(tab.bounds, to: window).minY >= window.safeAreaInsets.top - 0.5

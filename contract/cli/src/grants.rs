@@ -115,7 +115,8 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         .iter()
         .filter_map(|d| Some((d, first_use(file, d)?)))
         .collect();
-    if uses.is_empty() {
+    let modules = module_uses(file);
+    if uses.is_empty() && modules.is_empty() {
         return Vec::new();
     }
     let mut files = Vec::new();
@@ -183,6 +184,79 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
                 "{call} needs `{line} {key}`'s purpose, and strings/{base}.json has no \"{key}\": add `{entry}`, the text the person is shown when asked (the build refuses the grant without it)"
             ))),
             Some(_) => {}
+        }
+    }
+    // A native module that asks permission (LLP 1133.002 D6, D13): the app
+    // writes one of its interface's grant lines.
+    for (grants, span, call) in modules {
+        let Some(found) = grants
+            .iter()
+            .map(|g| literals::keys(&lits, g.trim_start_matches("device.")))
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        if found.iter().any(|keys| !keys.is_empty()) {
+            continue;
+        }
+        let lines: Vec<String> = grants.iter().map(|g| format!("`{g}`")).collect();
+        let last = grants.last().cloned().unwrap_or_default();
+        let key = format!("purpose.{}", last.trim_start_matches("device."));
+        out.push(CompileError {
+            id: "grant-missing".into(),
+            ..warn(span, format!(
+                "{call} answers only under one of {}, and no file of the app's data module names one: add `{last} {key}` to the app's grants, with its purpose in strings/{base}.json",
+                lines.join(" or ")
+            ))
+        });
+    }
+    out
+}
+
+/// Each native module interface the app reads or sends, once, by its first
+/// use: its grant lines, where, and the call.
+fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
+    let mut out: Vec<(Vec<String>, Span, String)> = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    for m in &file.modules {
+        if seen.contains(&m.extension.as_str()) {
+            continue;
+        }
+        let grants: Vec<String> = serde_json::from_str::<serde_json::Value>(&m.substitute)
+            .ok()
+            .and_then(|s| s["grants"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|g| g.as_str().map(str::to_owned))
+            .collect();
+        if grants.is_empty() {
+            continue;
+        }
+        fn sends(stmts: &[Stmt], name: &str) -> Option<Span> {
+            stmts.iter().find_map(|s| match s {
+                Stmt::Send { source, span, .. } if source == name => Some(*span),
+                Stmt::If {
+                    then, otherwise, ..
+                } => sends(then, name).or_else(|| sends(otherwise, name)),
+                Stmt::Match { some, none, .. } => {
+                    sends(&some.1, name).or_else(|| sends(none, name))
+                }
+                Stmt::Call { body, .. } => sends(body, name),
+                _ => None,
+            })
+        }
+        let used = (file.components.iter())
+            .flat_map(|c| &c.resources)
+            .find(|r| r.source == m.name)
+            .map(|r| r.span)
+            .or_else(|| {
+                (file.components.iter())
+                    .flat_map(|c| &c.actions)
+                    .find_map(|a| sends(&a.body, &m.name))
+            });
+        if let Some(span) = used {
+            seen.push(&m.extension);
+            out.push((grants, span, format!("`{}`", m.declared)));
         }
     }
     out

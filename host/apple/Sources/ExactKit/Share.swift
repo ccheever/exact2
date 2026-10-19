@@ -68,7 +68,7 @@ extension ExactSession {
                     guard let node = presenter.views[view], let picture = ShareSheet.picture(of: node) else {
                         discard(); outcome("share: refused: #\(id) is not drawn"); return
                     }
-                    let url = try ShareSheet.scratchFile(dir, index, ShareSheet.pictureName(id))
+                    let url = try ShareSheet.scratchFile(dir, index, ShareSheet.pictureName(id, title: request["title"] as? String))
                     try picture.png.write(to: url)
                     items.append(url)
                     log("share: picture of #\(id): \(picture.width)×\(picture.height) px, \(picture.png.count) bytes")
@@ -105,7 +105,7 @@ extension Presenter {
             }
         }
         #if canImport(UIKit)
-        let content = views.values.first(where: { $0.window != nil })?.window?.rootViewController?.view
+        let content = ViewPresentation.presenter(for: root)?.viewIfLoaded
         #else
         let content = views.values.first(where: { $0.window != nil })?.window?.contentView
         #endif
@@ -177,9 +177,30 @@ enum ShareSheet {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appendingPathComponent(name)
     }
-    /// A picture's file name: the id's letters, digits, `-` and `_`, others as `-`.
-    static func pictureName(_ id: String) -> String {
-        String(id.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? Character($0) : "-" }) + ".png"
+    /// A picture's file name, which the share sheet's header and whoever
+    /// receives it show: the share's title, as a person names a file they
+    /// save (`/` and `:`, which a file name cannot hold, and control
+    /// characters as `-`); with no title, the id's letters, digits, `-` and
+    /// `_`, others as `-`. Either is cut at a character to at most 251 bytes
+    /// of UTF-8, so that it and `.png` fit APFS's 255.
+    static func pictureName(_ id: String, title: String? = nil) -> String {
+        func fit(_ text: String, _ keep: (Unicode.Scalar) -> Bool) -> String {
+            var scalars = String.UnicodeScalarView()
+            for s in text.unicodeScalars { scalars.append(keep(s) ? s : "-") }
+            var name = ""
+            for c in String(scalars) {
+                guard name.utf8.count + c.utf8.count <= 251 else { break }
+                name.append(c)
+            }
+            return name
+        }
+        // Control characters only: `CharacterSet.controlCharacters` also
+        // holds the format characters, the joiner of an emoji sequence.
+        let named = fit((title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) {
+            $0 != "/" && $0 != ":" && $0.properties.generalCategory != .control
+        }
+        if !named.isEmpty { return named + ".png" }
+        return fit(id) { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" } + ".png"
     }
     /// A PNG of `view` and its subviews as they are drawn now, at the
     /// display's scale, and its size in pixels; nil for a view with no area.
@@ -218,11 +239,7 @@ enum ShareSheet {
         // tvOS has no share sheet.
         return nil
         #elseif canImport(UIKit)
-        var responder: UIResponder? = view
-        while responder != nil && !(responder is UIViewController) { responder = responder?.next }
-        var controller = (responder as? UIViewController) ?? view.window?.rootViewController
-        while let presented = controller?.presentedViewController, !presented.isBeingDismissed { controller = presented }
-        guard let controller else { return nil }
+        guard let controller = ViewPresentation.presenter(for: view) else { return nil }
         let sheet = UIActivityViewController(activityItems: items.map { ShareItem($0, title: title) }, applicationActivities: nil)
         sheet.popoverPresentationController?.sourceView = view
         sheet.popoverPresentationController?.sourceRect = rect

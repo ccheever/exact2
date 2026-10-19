@@ -343,8 +343,8 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   if (aim.error) throw new Error(aim.error);
   if (!sameAim(first.aim, aim.aim)) throw new Error(`${what}: the screen rotated or moved since aim`);
   const a = aim.aim;
-  // `screen`: where XCTest's synthesizer presses a tap (touches.swift).
-  let request = { op: 'tap', point: a.point, ...(a.fixed ? { screen: a.fixed } : {}) }, moves = false, ms = 0;
+  // `screen`: where XCTest's synthesizer presses a tap, on the display whose size is `display` (touches.swift).
+  let request = { op: 'tap', point: a.point, ...(a.fixed ? { screen: a.fixed, display: a.display } : {}) }, moves = false, ms = 0;
   if (drag) {
     // The end, from the start the host resolved just now, in the viewport it reported with it.
     const end = [a.at[0] + drag.dx, a.at[1] + drag.dy], [vw, vh] = a.viewport;

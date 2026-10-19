@@ -21,6 +21,7 @@ import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/ag
 import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
+import { openRemote } from '../../scripts/tamber-remote.mjs';
 import { mapCard, pullMap } from '../../scripts/tamber-inspect.mjs';
 import { serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
@@ -32,6 +33,18 @@ const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
 
 let building = null; // the build in flight, stopped with the server
+/** Stop the build in flight and what it runs (its own process group). */
+const stopBuild = (signal = 'SIGTERM') => {
+  if (!building) return;
+  const pid = building.pid;
+  try { process.kill(-pid, signal); } catch { building.kill(signal); }
+  // One that does not stop is killed in 5 s, its group with it (not once
+  // it is gone: its group id could be another's by then).
+  if (signal !== 'SIGKILL') building.escalate ??= setTimeout(() => { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } }, 5000).unref();
+};
+// The sources the last build read that were there as the next began (one
+// absent when consulted is no source gone).
+let lastSources = [];
 
 /** The Contract packages a build read (LLP 1091 D10), outside the app and
  * its skipped `node_modules`: the dev loop watches them too. */
@@ -61,33 +74,77 @@ function mapDesignSource(app, dir) {
  * target/ (as the wasm build stages); resolves to null or the build's
  * errors (what the JS target refused, or a compile error). `keep(design,
  * logic)`, when it says so, keeps the build in `dist` (a value-only design
- * edit, LLP 1121 stage 4: the page takes a batch instead). */
-function build(app, dist, keep = () => false, compiler = null) {
+ * edit, LLP 1121 stage 4: the page takes a batch instead). `superseded()`,
+ * when it says so as the build ends (an input moved since it began, or it
+ * was stopped for one), or a source it read moved since, leaves `dist` as
+ * it was and resolves `{superseded}`: what it read is older than the files.
+ * With none, it is published whatever moved. */
+function build(app, dist, keep = () => false, compiler = null, superseded = null) {
   const stage = resolve(app.target, 'web-js-dev-stage');
   rmSync(stage, { recursive: true, force: true });
+  const began = Date.now();
+  // The app's own inputs beside its Contract sources, and which were there.
+  const own = [designPath(app.dir) ?? resolve(app.dir, 'app.tamber'), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json'), resolve(app.dir, '.exact/backend-origin')];
+  const there = new Set(own.filter((path) => existsSync(path)));
+  const known = new Set(lastSources.filter((path) => existsSync(path)));
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
     const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none', '--dev'],
-      { cwd: root, env: compiler ? { ...process.env, EXACT_WEB_COMPILER: compiler } : process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      { cwd: root, env: compiler ? { ...process.env, EXACT_WEB_COMPILER: compiler } : process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let log = '';
     child.stdout.on('data', (d) => { log += d; });
     child.stderr.on('data', (d) => { log += d; });
-    child.on('exit', (code) => {
+    // EXACT_DEV_BUILD_HOLD_MS (a test's): the build's end taken that much later, as a slow one ends.
+    const hold = Number(process.env.EXACT_DEV_BUILD_HOLD_MS) || 0;
+    // Its end is its whole group's (cargo and the compilers it ran, which
+    // outlive a stopped leader for a moment, holding Cargo's lock): waited
+    // for, 5 s at most before they are killed.
+    const groupGone = (then, until = Date.now() + 5000) => {
+      try { process.kill(-child.pid, 0); } catch (e) { if (e.code === 'ESRCH') { clearTimeout(child.escalate); return then(); } }
+      if (Date.now() > until) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }
+      setTimeout(() => groupGone(then, until), 20);
+    };
+    child.on('exit', (code) => groupGone(() => setTimeout(() => {
       building = null;
       const packages = devPackages(stage);
+      // Or a source it read moved since it began (a watcher's event can come
+      // after the build ends): its Contract sources (one gone is moved), and
+      // the design, app.ts, app.json and the backend's origin (one come or
+      // gone is moved), by their times. Asked again just before it is
+      // published or kept, after the work before that.
+      // A time past now is a file dated ahead (an archive's, a clock's),
+      // which this build read as it is: only one since it began and by now
+      // is a change.
+      const since = (path) => { const s = lstatSync(path), now = Date.now() + 1; return [s.mtimeMs, s.ctimeMs].some((t) => t >= began && t <= now); };
+      lastSources = packages.sources;
+      const newer = () => packages.sources.some((path) => { try { return since(path); } catch { return known.has(path); } })
+        || own.some((path) => { try { lstatSync(path); } catch { return there.has(path); } return !there.has(path) || since(path); });
+      const setAside = () => { rmSync(stage, { recursive: true, force: true }); done({ superseded: true, packages }); };
+      const moved = () => superseded && (superseded() || newer());
+      // A failed one too: its errors may be of files since edited.
+      if (moved()) return setAside();
       // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
       const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
       if (types) console.log(types);
       if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       const design = devDesign(stage), designSource = mapDesignSource(app, stage);
-      if (keep(design, logic)) { rmSync(stage, { recursive: true, force: true }); return done({ error: null, logic, packages, design, designSource, kept: true, warnings: compilerWarnings(log) }); }
+      if (keep(design, logic)) {
+        return setImmediate(() => {
+          if (moved()) return setAside();
+          rmSync(stage, { recursive: true, force: true }); done({ error: null, logic, packages, design, designSource, kept: true, warnings: compilerWarnings(log) });
+        });
+      }
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
-      replaceBuild(stage, dist);
-      done({ error: null, logic, packages, design, designSource, warnings: compilerWarnings(log) });
-    });
+      // Once more after the watchers' events queued meanwhile are taken.
+      setImmediate(() => {
+        if (moved()) return setAside();
+        replaceBuild(stage, dist);
+        done({ error: null, logic, packages, design, designSource, warnings: compilerWarnings(log) });
+      });
+    }, hold)));
   });
 }
 
@@ -112,12 +169,26 @@ function copyCompiler(path, copy, built) {
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
-export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], residentPort = 0 }) {
+export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], remoteAsked = { remote: null, tunnel: null }, residentPort = 0, pairTtlMs }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
-  // errors in the page and builds again at the next edit.
-  let built = await build(app, dist), error = built.error, logicRevision = built.logic ?? '';
+  // errors in the page and builds again at the next edit. One an app source
+  // moved during (the watchers come after it) is built again before the
+  // loop serves anything.
+  // At most three times: a build that writes one of its own inputs (a
+  // build script's generated file) is served after that, and built again
+  // once the watchers are on.
+  let built, startMoved = false;
+  for (let moved = false, tries = 1; ; moved = false, tries++) {
+    const input = (name) => name && ((!skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') || /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)));
+    const early = [watch(app.dir, { recursive: true }, (_, name) => { if (input(name)) moved = true; }), watch(resolve(root, 'host/web-js'), { recursive: true }, (_, name) => { if (name && !skipped.test(String(name))) moved = true; })];
+    try { built = await build(app, dist, () => false, null, tries < 3 ? () => moved : null); } finally { for (const w of early) w.close(); }
+    startMoved = moved;
+    if (!built.superseded) break;
+    console.log('a source moved while the first build ran: building again');
+  }
+  let error = built.error, logicRevision = built.logic ?? '';
   // The page's own plan's source map (LLP 1122 T2b, the JS target), kept
   // after each build by that plan's digest (the SHA-256 of dist's app.plan,
   // which the page says as `planDigest` and the map must name), the 8 last:
@@ -153,7 +224,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   warn(built.warnings);
   console.log('plan ready');
   // The design server's wire, once made below (a rebuild may come first).
-  let tamber = null;
+  let tamber = null, doors = null;
   const clients = new Set();
   // A batch to a page behind waits, then the latest design's notice goes instead (tamber-builds.mjs).
   const push = (m) => { for (const res of clients) if (m.kind === 'tamber-batch') streamFrame(res, JSON.stringify(m), () => snapshot && notice(snapshot)); else res.write(`data: ${JSON.stringify(m)}\n\n`); };
@@ -281,6 +352,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     buildTool();
     return false;
   };
+  // The same, starting nothing: for what a request below write scope reaches
+  // (`propose`'s class, stage 10 A1), which may not start a build.
+  const toolReady = () => tool.ready && fresh(tool.path, `${tool.path}.d`);
   buildTool();
   // The page's inspect table (LLP 1122 T2b, inspect.rs), made for dist's
   // plan when the page first asks (seconds for a large app, so no build
@@ -308,8 +382,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
     return tables.get(digest);
   };
-  const designOf = (text) => new Promise((done) => {
-    const compiler = toolFresh() ? { cmd: tool.path, pre: [] } : webCompiler();
+  // `readOnly` (what a request below write scope reaches): the built reader
+  // only, as it is, never a build or the `cargo run` fallback.
+  const designOf = (text, { readOnly = false } = {}) => new Promise((done) => {
+    if (readOnly && !toolReady()) return done({ error: 'the design reader is not built' });
+    const compiler = readOnly ? { cmd: tool.path, pre: [] } : toolFresh() ? { cmd: tool.path, pre: [] } : webCompiler();
     // A group: the debug fallback is a `cargo run`, stopped with its compilers.
     const child = tool.reading = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     child.on('error', (e) => done({ error: e.message }));
@@ -330,10 +407,25 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // LLP 1121 stage 6) builds when its value moves.
   const sameShape = (from, next) => from && next && from.shape === next.shape && from.structure === next.structure && from.tokens.length === next.tokens.length
     && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent) && (!t.inline || same(t, from.tokens[i])));
-  // A fast batch is checked by the full build after it (`verifying`): the
+  // A fast batch is checked by the full build after it (its verifying build): the
   // design's module inputs and its compile; a value-only edit during that
-  // build is sent at once and checked again after (`fastSeq`).
-  let designing = false, verifying = false, fastSeq = 0, stopping = false;
+  // build is sent at once and checked after it.
+  let designing = false, stopping = false;
+  // Input changes seen, counted: a build that began before the last one
+  // read older files, and is set aside (`superseded`), never published.
+  // An edit stops the build in flight, once in a burst and only while it
+  // is young (under 2 s, and under half the last build's time): one past
+  // that finishes, set aside, so sustained edits never starve a build.
+  // Builds set aside in a row past three are said: an input that moves in
+  // every build (a build that writes one of its own) is never published.
+  let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false, asideRun = 0;
+  const stopYoungBuild = () => {
+    const age = Date.now() - buildBegan;
+    if (!building || building.exitCode !== null || building.signalCode !== null || stopped || age >= 2000 || (lastBuildMs && age >= lastBuildMs / 2)) return;
+    stopped = true;
+    console.log(`edit → the build in flight stopped after ${age} ms (aborted): an input moved`);
+    stopBuild();
+  };
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
@@ -359,7 +451,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // any build's input.
     const file = designPath(app.dir);
     const fast = designOnly && design && designs.every((path) => path === file);
-    if (designing || (building && !(verifying && fast))) { again = true; return; }
+    // A value-only edit reads its design and sends its batch whatever builds
+    // meanwhile (that build is set aside); any other waits for it.
+    if (designing || (building && !fast)) { again = true; return; }
     // Kept until a build lands: a failed one's edits are the next build's too.
     const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
@@ -367,9 +461,22 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       designing = true;
       let next;
       let text = null;
+      const readAt = inputs;
       try { next = existsSync(file) ? await designOf(text = readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
       // The loop stopped while it read: no build follows.
       if (stopping) return;
+      // An edit came while it read (its event, or the file's bytes, which an
+      // event can trail): this read is behind it, and the next one, with
+      // that edit's, runs now (not after a build in flight).
+      let still = false;
+      try { still = text === null ? !existsSync(file) : readFileSync(file, 'utf8') === text; } catch { /* gone */ }
+      if (inputs !== readAt || !still) {
+        edited.add(file);
+        for (const p of pendingEdits) edited.add(p);
+        for (const p of pendingAppeared) appeared.add(p);
+        again = false;
+        return rebuild();
+      }
       if (!next.error && sameShape(design, next)) {
         const from = scrubbed ?? design;
         design = next;
@@ -384,12 +491,19 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
           push(batch);
           tamber?.channel.broadcast(batch);
         }
-        fastSeq++;
-        // A check already under way is done again after it.
-        if (building) { again = true; return; }
+        // A check already under way is set aside, and done again after it.
+        if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
       }
     }
     if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
+    // An edit (or a set-aside build's edits) came while its design read:
+    // the next pass takes them all, and starts the one build.
+    if (again || edited.size) {
+      for (const p of pendingEdits) edited.add(p);
+      for (const p of pendingAppeared) appeared.add(p);
+      again = false;
+      return rebuild();
+    }
     // The design reader's compiler is this build's too: a copy (Cargo
     // replaces even a fresh binary), taken while it is done and fresh, then
     // kept while it is fresh, so a build while the reader builds again (as
@@ -405,28 +519,24 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // What a full build reads from disk is what changed since it began.
     since = t;
     backendSeen = backendOf();
-    verifying = fast;
-    const seqAtStart = fastSeq, hadError = error;
+    const hadError = error, began = inputs;
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
-    built = await build(app, dist, keep, compiler);
-    verifying = false;
-    // A value-only edit was sent while this built: what it built is behind
-    // the pages, so it changes nothing and builds again.
-    if (fast && fastSeq !== seqAtStart) {
+    buildBegan = Date.now();
+    built = await build(app, dist, keep, compiler, () => inputs !== began);
+    if (built.superseded && ++asideRun === 3) console.log('edit → three builds in a row set aside: an input moves during every build (does one write its own input?)');
+    if (!built.superseded) { stopped = false; lastBuildMs = Date.now() - buildBegan; asideRun = 0; }
+    // An input moved while it built (a value-only edit's batch included):
+    // what it read is behind the files, and nothing of it is published (not
+    // dist, which a fresh page loads, nor the design or a reload). The
+    // edits it took are the next build's, with those since.
+    if (built.superseded) {
+      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: an input moved while it built`);
       watchPackages(built.packages);
-      // What it put in dist is published, though: new module code reloads
-      // the pages, which take the design from the snapshot.
-      if (!built.error && !built.kept) {
-        keepPageMap();
-        logicRevision = built.logic;
-        pending.set(++seq, at);
-        push({ reload: seq, revision: logicRevision });
-      }
-      edited.add(file);
-      again = false;
-      rebuild();
+      for (const p of pendingEdits) edited.add(p);
+      for (const p of pendingAppeared) appeared.add(p);
+      if (!timer) { again = false; rebuild(); }
       return;
     }
     error = built.error;
@@ -533,6 +643,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (!timer) saved = Date.now();
     const path = resolve(base, String(name ?? ''));
     edited.add(path);
+    // A build in flight read older files: set aside, and stopped while young.
+    inputs++;
+    stopYoungBuild();
     // Made since the last build began (a temporary), not an input it had:
     // only such a file gone again edited nothing.
     try { if (statSync(path).birthtimeMs >= since) appeared.add(path); } catch { /* gone */ }
@@ -568,6 +681,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
   };
   watchPackages(built.packages);
+  // The first build was served though a source moved during its last try:
+  // built again now, its edits seen by the watchers from here.
+  if (startMoved) { edited.add(resolve(app.dir, 'app.contract')); rebuild(); }
   // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).
   watchers.push(watch(resolve(root, 'js/bake/src/typescript.mjs'), changed(resolve(root, 'js/bake/src'))));
   // The page's side: reload on a new build, the errors of a failed one in an
@@ -575,6 +691,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // channel (as host/web/dev.js's): a pin's scheme is the system's, a rule
   // beneath the app's `setScheme`; its status is what paints, sent again
   // once a turn when the app's own commands move it.
+  // A checkpoint the server refuses (403: a canvas below `write`, LLP 1121
+  // stage 10 C) reloads afresh, so a reader still sees the new build.
   const client = (n, revision) => `<script>(()=>{const seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('/__dev/page');let o,reloading=false;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
@@ -583,14 +701,14 @@ const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.cl
 const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
-let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}if(x?.designDigest!==was&&ch.nonce)status()}).catch(e=>console.error('exact dev:',e))};
+let liveQ=Promise.resolve(),liveStatus=null;const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;let sc=m.scrub;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200){const f=await r.json();sc=f.scrub;x.design(f)}}if(x?.designDigest!==was&&ch.nonce){clearTimeout(liveStatus);if(sc)liveStatus=setTimeout(status,150);else status()}}).catch(e=>console.error('exact dev:',e))};
 const ch={nonce:null,registered:null,revision:null,before:null,told:null},bid=(async()=>{const fresh=()=>'web-js-'+crypto.getRandomValues(new Uint32Array(2)).join('');let i;try{i=sessionStorage.getItem('exact.dev.build')}catch{return fresh()}const t=typeof BroadcastChannel==='function'?new BroadcastChannel('exact.dev.build'):null;if(i&&t){const mine=i;if(await new Promise(done=>{t.onmessage=e=>{if(e.data==='taken:'+mine)done(true)};t.postMessage('who:'+mine);setTimeout(()=>done(false),60)}))i=null}i??=fresh();if(t){const own=i;t.onmessage=e=>{if(e.data==='who:'+own)t.postMessage('taken:'+own)}}try{sessionStorage.setItem('exact.dev.build',i)}catch{}return i})(),post=(n,b,ms)=>fetch('/__dev/report',{method:'POST',body:JSON.stringify({nonce:n,...b}),...(ms?{signal:AbortSignal.timeout(ms)}:{})}),rep=b=>{const{nonce:n,registered:r}=ch;if(!n)return Promise.resolve();if(ch.queue?.n!==n)ch.queue={n,tail:Promise.resolve()};const q=ch.queue;return q.tail=q.tail.then(async()=>{if(!(await r)||ch.nonce!==n||ch.registered!==r)return;await post(n,b,10000).catch(()=>{})})};
-const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,planDigest:x?.plan??null,design:x?.designDigest??null,revision:ch.revision}},status=()=>{const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
+const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,planDigest:x?.plan??null,design:x?.designDigest??null,revision:ch.revision}},status=()=>{clearTimeout(liveStatus);liveStatus=null;const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
 let gate=null,held=(()=>{try{return sessionStorage.getItem('exact.dev.inspect')!=null}catch{return false}})();const early=()=>{for(const id of['exact-inspect-early','exact-inspect-early-shield'])document.getElementById(id)?.remove()},letGo=exit=>{held=false;early();try{const k=sessionStorage.getItem('exact.dev.inspect');if(exit&&k)sessionStorage.setItem('exact.dev.inspect.left',k);sessionStorage.removeItem('exact.dev.inspect')}catch{}};if(held){const sh=document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-inspect-early-shield',textContent:'iframe, frame, embed, object { pointer-events: none !important; }'}));const c=Object.assign(document.createElement('div'),{id:'exact-inspect-early'});c.style.cssText='position:fixed;inset:0;z-index:2147483644;background:transparent;touch-action:none';(document.body??document.documentElement).append(c)}for(const ty of ${JSON.stringify([...INSPECT_EVENTS, 'pointermove', 'focusin'])})addEventListener(ty,e=>{if(gate)return gate(e);if(!held)return;if(ty==='keydown'&&e.key==='Escape')letGo(true);if((ty==='focusin'||ty==='blur')&&document.activeElement?.tagName==='IFRAME')document.activeElement.blur();e.preventDefault();e.stopImmediatePropagation()},{capture:true,passive:false});
-const inspector=import('/__dev/inspect.js').then(m=>{m.install({report:rep,status:async()=>status(),facts:()=>({plan:null,design:globalThis.exact?.designDigest??null,revision:ch.revision})});gate=m.gate;return m}).catch(e=>{letGo(false);throw e});
+const inspector=ready().then(()=>import('/__dev/inspect.js')).then(m=>{m.install({report:rep,status:async()=>status(),facts:()=>({plan:null,design:globalThis.exact?.designDigest??null,revision:ch.revision}),nonce:()=>ch.nonce});gate=m.gate;return m}).catch(e=>{letGo(false);throw e});
 let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why,revision:m.revision});x.modes.set(Object.entries(ch.before.mode))}dispatchEvent(new Event('resize'))}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast",revision:m.revision});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'){inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin','inspect'],plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin','inspect','hold'],plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
@@ -688,8 +806,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
    * compile; with none, the session's class stands and the release rebuilds. */
   async function inlineWhy(texts) {
     const file = relative(app.dir, designPath(app.dir));
-    if (!(file in texts) || !toolFresh()) return null;
-    const next = await scrubDesign(texts[file]);
+    if (!(file in texts) || !toolReady()) return null;
+    const next = await scrubDesign(texts[file], { readOnly: true });
     // The design the pages run once it is read (a build may land meanwhile).
     const from = scrubbed ?? design;
     if (next.error || !from || next.tokens.length !== from.tokens.length) return null;
@@ -741,7 +859,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, pairTtlMs, remote: () => doors?.list() ?? [], live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
@@ -899,22 +1017,23 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   };
   const stop = async () => {
     stopping = true;
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); stopGroup(patcher.child); residentChild?.kill('SIGTERM'); server.close();
+    for (const w of watchers) w.close(); stopBuild('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); stopGroup(patcher.child); residentChild?.kill('SIGTERM'); server.close(); server.closeAllConnections?.();
     // The design server lets go of its lock before this exits.
-    await tamber?.close();
+    await Promise.all([tamber?.close(), doors?.close()]);
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
     const install = installer.child;
     if (install && install.exitCode === null && install.signalCode === null) { const exit = new Promise((ok) => install.once('exit', ok)); install.kill('SIGTERM'); await exit; }
-    process.exit(0);
+    process.exit(process.exitCode ?? 0);
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   process.on('SIGHUP', stop);
   watchLauncher(stop);
   // (and on [::1], for a localhost URL: the design tool's canvas)
-  await alsoOnIPv6Loopback(server, port).catch((e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); process.exit(1); });
+  const six = await alsoOnIPv6Loopback(server, port).catch(async (e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); await tamber?.close(); process.exit(1); });
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
-    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); process.exit(1); });
+    .catch(async (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); six?.close(); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); await tamber?.close(); process.exit(1); });
+  doors = tamber ? await openRemote(tamber, remoteAsked).catch(async (e) => { console.error(`cannot listen: ${e.message}`); process.exitCode = 1; await stop(); }) : null;
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));

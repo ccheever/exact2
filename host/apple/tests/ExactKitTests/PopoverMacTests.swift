@@ -191,7 +191,7 @@ final class PopoverMacTests: XCTestCase {
         p.menus.layout()
         XCTAssertEqual(pop.frame.origin, CGPoint(x: 8, y: 40), "the open popover follows its invoker")
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["position_area": "top span-left", "position_try_fallbacks": "none"]]]))
-        XCTAssertEqual(pop.frame.origin, CGPoint(x: -234, y: -114), "none keeps the overflowing base")
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: 0, y: 0), "none keeps the base, shifted inside the top and left edges as Chrome shifts it")
     }
 
     private var windows: [NSWindow] = []

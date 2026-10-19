@@ -1,0 +1,26 @@
+# Code review: LLP 1122 T4 step 2, the state rung, round 2, 2026-10-18 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via the Codex CLI, reasoning effort max, read-only sandbox, a throwaway worktree at `025317cbf9`.
+- **Method:** one brief (sha256 `63a9ad47f085842a8c6c3d1613e21e1f9cab8611df6b3795617b7843f3c43766`), shared by both reviewers, blind to the other review; commits 0c44ecbba5 ab3c809bed. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** request changes (1 high, 3 medium).
+- **Disposition:** taken in `5d876785e2` (the text: found by the gate preview before this round reported it, read from the span's start; the test's span now names the attribute only) and `d736c267b4`: the state editor starts from the value as written or empty, never the host's resolved paint; a state draft is bound to the copy and the files as they were when it was opened, so any write since, or a read-only copy, leaves it stale until opened again (a fresh report does not revive it); the held node's part files count toward `readOnly`; a package is a file the server does not count among the app's own Contract sources (`ownContracts`, from `tamber_contract.rs`'s rules), vendored and linked ones included. Not taken: `:hover`, `:focus-visible`, `:disabled` and `:checked` parts carry no place in the map (the compiler's; the recorded limit, in the protocol doc and §10); the Apply → rebuild → replay line is the T4 gate's, which found the replay bug fixed in `d058feff01`.
+
+**Request changes. Four correctness issues remain.**
+
+1. **[P1] The authored-value fix fails with compiler-generated spans.** [tamber-inspect.mjs:205](/tmp/rv-dt-t4r2/scripts/tamber-inspect.mjs:205) expects `at` to include `=value`, but [parser.rs:657](/tmp/rv-dt-t4r2/contract/syntax/src/parser.rs:657) records only the attribute name’s span. For `background-color="accent.fill"`, the slice is just `background-color`, so `text` is absent. The editor’s fallback still initializes from the resolved colour; opening and applying without typing replaces the token with that literal. I reproduced this in memory. The new test masks it by inventing a whole-attribute span at [tamber-inspect.test.mjs:178](/tmp/rv-dt-t4r2/scripts/tamber-inspect.test.mjs:178). Round 1’s token-loss bug remains.
+
+2. **[P2] A fresh selection report revives an obsolete state draft.** [app.contract:680](/tmp/rv-dt-t4r2/apps/design-tool/app.contract:680) compares a key containing only build/node/site/instance, with no source or build revision. Open opacity `0.8`, draft `0.7`, then let another client write `0.5` and rebuild. Reselecting the same node clears `inspected.stale` while preserving the key, re-enabling the old draft. A mocked client run submitted `0.7` against the **new** file digest. Even a replacement selection marked `readOnly` leaves this guard false. Bind the draft to its originating revision and invalidate it permanently until reopened.
+
+3. **[P2] Held-owner source files bypass freshness checks.** [tamber-inspect.mjs:261](/tmp/rv-dt-t4r2/scripts/tamber-inspect.mjs:261) checks files referenced by the selected node, then separately reads the held owner’s bindings. Select a child in `app.contract` whose pressed ancestor uses a style from `styles.contract`. Insert another style before that declaration while the old build remains running: the old span now points into the inserted style. The join still returns `readOnly: null` and offers editing that other style. I reproduced this with the original style still present. Include the held owner’s source files in the checked set.
+
+4. **[P2] Vendored and locally linked packages remain advertised as writable.** [tamber-inspect.mjs:197](/tmp/rv-dt-t4r2/scripts/tamber-inspect.mjs:197) excludes only paths outside the app or containing `/node_modules/`. A package at `vendor/ui`, identified by its `package.json`, passes—even when reached through a canonicalized `node_modules` symlink. The server’s ownership rules explicitly exclude it at [tamber_contract.rs:67](/tmp/rv-dt-t4r2/contract/cli/src/tamber_contract.rs:67). The inspector therefore offers an edit that `set-state` refuses. Use the server’s writable-file membership.
+
+The other round 1 fixes look right within their stated inputs: state is now the default; token alternatives survive on held rows carrying token metadata and `held.site`; unchanged held-owner bindings target the owner; compiler-renamed styles recover their authored names; opening a state edit closes the token cell; exponent notation becomes a number; replay wording is conditional and clearing diagnostics remain visible while stale.
+
+Two points remain unresolved:
+
+- Hover, focus-visible, disabled and checked still have no state rung. [The protocol now documents that limitation](/tmp/rv-dt-t4r2/docs/tamber-protocol.md:1022); it does not fix the round 1 finding. The supplied rulings do not explicitly waive that D8 functionality.
+- The requested Apply → rebuild → hold replay integration test is still absent. The UI test uses an accepting stub; the existing channel test proves replay separately.
+
+Validation: two existing read-only Bun tests passed, plus in-memory join/client probes. No builds or filesystem-writing suites were run. The checkout is unchanged.

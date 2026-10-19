@@ -736,13 +736,14 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, or `mediasession`, found {}",
                                 describe(&other)
                             ),
                         )
                     }
                 };
                 match what.as_str() {
+                    "refusal" => Step::ExpectRefusal { target: self.str_lit("a mutation name")?, span },
                     "tree" => {
                         let present = if self.at_ident("has") {
                             self.next();
@@ -872,7 +873,7 @@ impl Parser {
                         };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, not `{other}`{hint}"),
+                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, or `mediasession`, not `{other}`{hint}"),
                         );
                     }
                 }

@@ -198,6 +198,33 @@ final class SnapshotDriverTests: XCTestCase {
 
     // MARK: Caltrain's countdown entry
 
+    func testInlineGuardChecksTheResizedTreeAndEmptyDepartures() throws {
+        let bytes = try Self.plan("SNAPSHOT_TRAINS")
+        for size in [CGSize(width: 225, height: 26), CGSize(width: 168, height: 11.5), CGSize(width: 13.5, height: 13.5)] {
+            let session = try HeadlessSession(plan: bytes, entry: "next-trains", size: CGSize(width: 184, height: 69.5), assetRoot: Self.out)
+            defer { session.close() }
+            XCTAssertFalse(SnapshotDriver.admitsInline(try session.snapshot()), "the rectangular layout has multiple leaves")
+            XCTAssertTrue(SnapshotDriver.admitsInline(try session.resize(to: size)))
+            let empty = try HeadlessSession(plan: bytes, entry: "next-trains", props: Data(#"{"station":"Mountain View","departures":[]}"#.utf8), size: size, assetRoot: Self.out)
+            defer { empty.close() }
+            let snapshot = try empty.snapshot()
+            XCTAssertTrue(SnapshotDriver.admitsInline(snapshot))
+            XCTAssertTrue(snapshot.nodes.values.contains { $0.props["text"] == "No departures" })
+        }
+    }
+
+    func testInlineGuardRejectsEveryNonContainerLeaf() {
+        let text = HeadlessSession.Node(id: 2, kind: "text", props: ["text":"Countdown"])
+        for leaf in [HeadlessSession.Node(id: 3, kind: "view", props: ["semanticTag":"hr"]),
+                     HeadlessSession.Node(id: 3, kind: "control", props: ["type":"progress"]),
+                     HeadlessSession.Node(id: 3, kind: "future-leaf")] {
+            let container = HeadlessSession.Node(id: 1, kind: "view", children: [2,3])
+            XCTAssertFalse(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:container,2:text,3:leaf])))
+        }
+        let container = HeadlessSession.Node(id: 1, kind: "view", props: ["semanticTag":"section"], children: [2])
+        XCTAssertTrue(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:container,2:text])))
+    }
+
     func testCaltrainEntryRendersEveryFamilyModeAppearanceAndSize() throws {
         let plan = try Self.plan("SNAPSHOT_TRAINS")
         for family in Family.all {
@@ -212,6 +239,48 @@ final class SnapshotDriverTests: XCTestCase {
             XCTAssertTrue(texts.contains { $0.hasPrefix("San") }, "\(texts)")
             XCTAssertEqual(texts.filter { $0.contains(":") }.count, 2, "two departure times: \(texts)")
         }
+    }
+
+    /// D3: the family's content size is the entry's viewport fact, given at
+    /// boot and again at a resize, so one entry lays out per family by width
+    /// and height as a page does.
+    func testTheViewportFactChoosesTheLayoutByFamily() throws {
+        let plan = try Self.plan("SNAPSHOT_QUESTION_ADAPTIVE")
+        func layout(_ snapshot: HeadlessSession.Snapshot) -> [String] {
+            snapshot.nodes.values.compactMap { $0.props["testId"] }.filter { $0.hasPrefix("layout-") }.sorted()
+        }
+        for family in Family.all {
+            let session = try HeadlessSession(plan: plan, entry: "question-adaptive", size: family.content.size)
+            defer { session.close() }
+            XCTAssertEqual(layout(try session.snapshot()), ["layout-\(family.name)"], family.name)
+            let (image, snapshot) = try plain(session, family: family, environment: environment(family))
+            try assertTextDrew(image, snapshot, family: family, "adaptive \(family.name)")
+        }
+        let session = try HeadlessSession(plan: plan, entry: "question-adaptive", size: Family.all[0].content.size)
+        defer { session.close() }
+        XCTAssertEqual(layout(try session.resize(to: Family.all[1].content.size)), ["layout-medium"])
+        XCTAssertEqual(layout(try session.resize(to: Family.all[2].content.size)), ["layout-rectangular"])
+        XCTAssertEqual(layout(try session.resize(to: Family.all[0].content.size)), ["layout-small"])
+    }
+
+    /// A rendered session leaves nothing behind: once the driver's view and
+    /// the session are dropped, the session and its runtime (the Rust
+    /// runner, kernel and text engine behind it) are deallocated. The
+    /// extension renders every family, mode and size this way, so a retained
+    /// session would be a leak per render.
+    func testADroppedRenderedSessionIsReleased() throws {
+        let plan = try Self.plan("SNAPSHOT_QUESTION_MEDIUM"), family = Family.all[1]
+        weak var session: HeadlessSession?
+        weak var runtime: Runtime?
+        try autoreleasepool {
+            let live = try HeadlessSession(plan: plan, entry: "question-medium", size: family.content.size)
+            session = live; runtime = live.core.runtime
+            let view = SnapshotDriver.view(session: live, displaySize: family.size, environment: environment(family, type: .xxxLarge))
+            XCTAssertNotNil(render(StandIn(family: family, mode: .accented, scheme: .dark, type: .large, content: .answered, inner: view), size: family.size))
+            XCTAssertNotNil(session)
+        }
+        XCTAssertNil(session, "the session is retained after its view and owner are gone")
+        XCTAssertNil(runtime, "the runtime is retained after its session is gone")
     }
 
     /// A running host's boot refuses an entry plan, and the entry boots by

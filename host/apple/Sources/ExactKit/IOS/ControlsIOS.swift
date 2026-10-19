@@ -284,8 +284,19 @@ final class ControlHost: NSObject {
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
                 assign(control, \.accessibilityIdentifier, owner.props["testId"])
             }
-            let natural = naturalSize(control, owner)
+            var natural = naturalSize(control, owner)
             let box = control is NativeButtonIOS ? owner.bounds : owner.contentBox()
+            #if os(iOS)
+            // A select its box holds narrower than its widest option wraps its
+            // title and grows taller, as a pop-up button does under Auto Layout,
+            // rather than running past its box (unit-converter at the largest
+            // text size, round 22). Its width stays the widest option's (D3).
+            var narrowed: CGFloat?
+            if owner.props["type"] == "select", let button = control as? UIButton, box.width > 0, box.width < natural.width - 0.5 {
+                narrowed = box.width
+                natural.height = max(natural.height, selectHeight(button, width: box.width))
+            }
+            #endif
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
             // others keep their own size. A select aligns its closed value
@@ -298,7 +309,7 @@ final class ControlHost: NSObject {
                 #if os(tvOS)
                 let width = natural.width
                 #else
-                let width = control is UISlider ? box.width : natural.width
+                let width = control is UISlider ? box.width : narrowed ?? natural.width
                 #endif
                 var x = box.midX - width / 2
                 #if os(iOS)

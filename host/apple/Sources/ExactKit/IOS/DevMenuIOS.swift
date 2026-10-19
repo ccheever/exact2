@@ -11,6 +11,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
+import ExactCore
 
 /// A four-finger gesture that fails as soon as its touches are not a
 /// four-finger landing: one that travels with fewer than four down, or fewer
@@ -225,6 +226,9 @@ public enum DevMenu {
         let a = UIAlertController(title: "Exact", message: text, preferredStyle: .actionSheet)
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
         a.addAction(UIAlertAction(title: "Open Project…", style: .default) { _ in openProject() })
+        #if EXACT_WIDGET_GALLERY && os(iOS)
+        if WidgetGallery.available { a.addAction(UIAlertAction(title: "Widgets…", style: .default) { _ in WidgetGallery.show() }) }
+        #endif
         #if !os(tvOS)
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
         #endif
@@ -316,6 +320,7 @@ public enum DevMenu {
             lines.append("plan: baked")
         }
         lines.append("app dir: \(ExactApp.shared.assetRoot.path)")
+        if let failure = WidgetContainer.publicationFailure { lines.append("widget generation: \(failure)") }
         if let s = ExactEnv.environment["EXACT_AGENT_SOCKET"] { lines.append("agent: \(s)") }
         if let session {
             let size = session.presenter.viewportSize

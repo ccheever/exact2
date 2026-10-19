@@ -37,6 +37,7 @@
 
 pub mod abi;
 pub mod app_module;
+pub mod baked;
 pub mod batch;
 mod button;
 pub mod calc;
@@ -50,10 +51,12 @@ pub mod decorations;
 mod defaults;
 pub mod delivery;
 mod doc_watch;
+pub mod documents;
 pub mod executor;
 pub mod geometry;
 pub mod gradient;
 pub mod host;
+mod icon_path;
 pub mod link;
 mod looks;
 pub mod markup;

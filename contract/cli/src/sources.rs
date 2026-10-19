@@ -1,7 +1,10 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod refused;
 mod uses;
+
+pub(crate) use refused::Refused;
 
 use crate::resolve::{resolve, Origin};
 use crate::CompileError;
@@ -27,6 +30,9 @@ pub(crate) struct Sources {
     /// source map says them, so a reader knows a file has not moved since
     /// (LLP 1122 D5, D6's fail-closed rule).
     pub(crate) digests: Vec<String>,
+    /// Each source's text as compiled, by source id: the source map checks
+    /// a row's written place against it (LLP 1122 D6), never the disk.
+    pub(crate) texts: Vec<std::sync::Arc<str>>,
     /// The literals a motion token was written into, or that a component's
     /// argument names one in (LLP 1121 D3): what `uses` reports for one.
     pub(crate) motion: Vec<contract_lower::motion::Site>,
@@ -114,6 +120,20 @@ pub(crate) fn load(
     src: &str,
     app_root: &Path,
 ) -> Result<(File, Sources), Vec<CompileError>> {
+    let mut refused = Refused::default();
+    let loaded = load_partial(path, src, app_root, &mut refused);
+    refused.join(loaded)
+}
+
+/// [`load`], going on past a file's syntax refusals to check what parsed:
+/// those refusals and what they hid are in `refused`, and the program is
+/// returned only to be checked, never to be compiled into a plan.
+pub(crate) fn load_partial(
+    path: &Path,
+    src: &str,
+    app_root: &Path,
+    refused: &mut Refused,
+) -> Result<(File, Sources), Vec<CompileError>> {
     let root_key = path.canonicalize().unwrap_or_else(|_| {
         path.file_name()
             .map(|name| app_root.join(name))
@@ -125,6 +145,7 @@ pub(crate) fn load(
             paths: vec![path.to_path_buf()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -137,76 +158,92 @@ pub(crate) fn load(
         proposed: Vec::new(),
         declared: Vec::new(),
         motion: Vec::new(),
+        refused: Refused::default(),
     };
-    let resolve = |sources: &Sources, all: Vec<CompileError>| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    };
-    if let Err(all) = loader.load_source(&root_key, src, 0) {
-        return Err(resolve(&loader.sources, all));
-    }
-    // Each component's `param.` names, as their tokens (LLP 1121 D15),
-    // before anything reads a row.
-    let mut refused: Vec<CompileError> = Vec::new();
-    for unit in &mut loader.units {
-        refused.extend(
-            contract_lower::params::rewrite(&mut unit.file)
+    let loaded = loader.load_all(path, src, root_key);
+    *refused = std::mem::take(&mut loader.refused);
+    loaded.map(|file| (file, loader.sources))
+}
+
+impl Loader<'_> {
+    /// The program rooted at `path` (canonically `root_key`), loaded and scoped.
+    fn load_all(
+        &mut self,
+        path: &Path,
+        src: &str,
+        root_key: PathBuf,
+    ) -> Result<File, Vec<CompileError>> {
+        let resolve = |sources: &Sources, all: Vec<CompileError>| {
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>()
+        };
+        if let Err(all) = self.load_source(&root_key, src, 0) {
+            return Err(resolve(&self.sources, all));
+        }
+        // Each component's `param.` names, as their tokens (LLP 1121 D15),
+        // before anything reads a row.
+        let mut params_refused: Vec<CompileError> = Vec::new();
+        for unit in &mut self.units {
+            params_refused.extend(
+                contract_lower::params::rewrite(&mut unit.file)
+                    .into_iter()
+                    .map(CompileError::from),
+            );
+            // Read by a row, before a motion param is written into it.
+            params_refused.extend(
+                contract_lower::params::unused(&unit.file)
+                    .into_iter()
+                    .map(CompileError::from),
+            );
+        }
+        let params: Vec<_> = self
+            .units
+            .iter()
+            .flat_map(|u| contract_lower::params::tokens(&u.file))
+            .collect();
+        params_refused.extend(
+            contract_lower::params::collisions(&params)
                 .into_iter()
                 .map(CompileError::from),
         );
-        // Read by a row, before a motion param is written into it.
-        refused.extend(
-            contract_lower::params::unused(&unit.file)
-                .into_iter()
-                .map(CompileError::from),
+        if !params_refused.is_empty() {
+            return Err(resolve(&self.sources, params_refused));
+        }
+        // The design, read before scoping: its motion tokens, and the params of
+        // those kinds, are written into the views first (`contract_lower::motion`).
+        let design = design(path, &mut self.sources).map_err(|e| vec![e])?;
+        // The design's components that aren't Contract, named and checked as
+        // Contract params are (D15).
+        if let Some(d) = &design {
+            let (designed, mut refused) = contract_lower::params::design_tokens(d);
+            let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
+            refused.extend(contract_lower::params::collisions(&all));
+            if !refused.is_empty() {
+                return Err(resolve(
+                    &self.sources,
+                    refused.into_iter().map(CompileError::from).collect(),
+                ));
+            }
+        }
+        let identities: Vec<String> = self
+            .units
+            .iter()
+            .flat_map(|u| contract_lower::params::identities(&u.file))
+            .collect();
+        self.motion = contract_lower::motion::tokens(
+            design.as_ref().map(|d| d.text.as_str()),
+            &params,
+            &identities,
         );
-    }
-    let params: Vec<_> = loader
-        .units
-        .iter()
-        .flat_map(|u| contract_lower::params::tokens(&u.file))
-        .collect();
-    refused.extend(
-        contract_lower::params::collisions(&params)
-            .into_iter()
-            .map(CompileError::from),
-    );
-    if !refused.is_empty() {
-        return Err(resolve(&loader.sources, refused));
-    }
-    // The design, read before scoping: its motion tokens, and the params of
-    // those kinds, are written into the views first (`contract_lower::motion`).
-    let design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
-    // The design's components that aren't Contract, named and checked as
-    // Contract params are (D15).
-    if let Some(d) = &design {
-        let (designed, mut refused) = contract_lower::params::design_tokens(d);
-        let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
-        refused.extend(contract_lower::params::collisions(&all));
-        if !refused.is_empty() {
-            return Err(resolve(
-                &loader.sources,
-                refused.into_iter().map(CompileError::from).collect(),
-            ));
+        match self.scope() {
+            Ok(mut file) => {
+                file.design = design;
+                crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
+                Ok(file)
+            }
+            Err(all) => Err(resolve(&self.sources, all)),
         }
-    }
-    let identities: Vec<String> = loader
-        .units
-        .iter()
-        .flat_map(|u| contract_lower::params::identities(&u.file))
-        .collect();
-    loader.motion = contract_lower::motion::tokens(
-        design.as_ref().map(|d| d.text.as_str()),
-        &params,
-        &identities,
-    );
-    match loader.scope() {
-        Ok(mut file) => {
-            file.design = design;
-            Ok((file, loader.sources))
-        }
-        Err(all) => Err(resolve(&loader.sources, all)),
     }
 }
 
@@ -362,6 +399,7 @@ fn design(
     sources.paths.push(path.clone());
     sources.origins.push(Origin::App);
     sources.digests.push(digest(&text));
+    sources.texts.push(text.as_str().into());
     let home = root
         .parent()
         .and_then(|dir| path.strip_prefix(dir).ok())
@@ -419,6 +457,7 @@ pub(crate) fn use_fixes(
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -431,13 +470,18 @@ pub(crate) fn use_fixes(
         proposed: Vec::new(),
         declared: Vec::new(),
         motion: Vec::new(),
+        refused: Refused::default(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     };
-    if let Err(all) = loader.load_source(&root_key, src, 0) {
+    let loaded = loader.load_source(&root_key, src, 0);
+    if !loader.refused.errors.is_empty() {
+        return Err(std::mem::take(&mut loader.refused.errors));
+    }
+    if let Err(all) = loaded {
         return Err(resolve(&loader.sources, all));
     }
     match loader.scope() {
@@ -501,6 +545,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -513,6 +558,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         proposed: Vec::new(),
         declared: Vec::new(),
         motion: Vec::new(),
+        refused: Refused::default(),
     };
     let loaded = loader.load_source(&root_key, src, 0);
     // The components' params (LLP 1121 D15), named as the build names them
@@ -527,11 +573,12 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .collect();
     let errors = match loaded {
         Err(all) => all,
-        Ok(()) => loader.scope().err().unwrap_or_default(),
+        Ok(()) if loader.refused.errors.is_empty() => loader.scope().err().unwrap_or_default(),
+        Ok(()) => Vec::new(),
     };
-    let errors = errors
+    let errors = std::mem::take(&mut loader.refused.errors)
         .into_iter()
-        .map(|e| loader.sources.resolve(e))
+        .chain(errors.into_iter().map(|e| loader.sources.resolve(e)))
         .collect();
     let mut sources: Vec<Source> = loader
         .sources
@@ -624,6 +671,8 @@ struct Loader<'a> {
     /// The app's duration and easing tokens (LLP 1121 D3), written into the
     /// motion rows before scoping.
     motion: Vec<(String, String)>,
+    /// The syntax refusals of the files read so far, resolved.
+    refused: Refused,
 }
 impl Loader<'_> {
     /// Parse `src` as unit `source_id`, then every file its uses name, depth
@@ -634,9 +683,25 @@ impl Loader<'_> {
         src: &str,
         source_id: u32,
     ) -> Result<(), Vec<CompileError>> {
-        // Every syntax refusal in this file, not only its first.
-        let mut file = contract_syntax::parse_source_all(src, source_id)
-            .map_err(|all| all.into_iter().map(CompileError::from).collect::<Vec<_>>())?;
+        // Every syntax refusal in this file, not only its first; what parsed
+        // is still loaded and checked, unless the file's declarations
+        // cannot be told apart.
+        let mut file = match contract_syntax::parse_source_partial(src, source_id) {
+            Ok(file) => file,
+            Err(partial) => {
+                let sources = &self.sources;
+                let errors = partial.errors.into_iter();
+                (self.refused.errors).extend(errors.map(|e| sources.resolve(e.into())));
+                self.refused.hidden.extend(partial.hidden);
+                match partial.file {
+                    Some(file) => *file,
+                    None => {
+                        self.refused.whole = true;
+                        return Err(Vec::new());
+                    }
+                }
+            }
+        };
         // Each component's identity, its file relative to its root and its
         // name (LLP 1121 D15): what its params are named by.
         let home = home(
@@ -649,12 +714,16 @@ impl Loader<'_> {
         }
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
-        let uses = file.uses.clone();
-        let index = source_id as usize;
         self.units.push(Unit {
             file,
             targets: Vec::new(),
         });
+        self.link(path, source_id as usize)
+    }
+
+    /// Load each file unit `index`'s `use` lines name, depth first.
+    fn link(&mut self, path: &Path, index: usize) -> Result<(), Vec<CompileError>> {
+        let uses = self.units[index].file.uses.clone();
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let from = self.sources.origins[index].clone();
         for u in &uses {
@@ -712,8 +781,24 @@ impl Loader<'_> {
                     self.sources.paths.push(key.clone());
                     self.sources.origins.push(resolved.origin);
                     self.sources.digests.push(digest(&used_src));
+                    self.sources.texts.push(used_src.as_str().into());
                     self.active.push(key.clone());
-                    self.load_source(&key, &used_src, used as u32)?;
+                    if key.file_name().is_some_and(|f| f == "exact.json") {
+                        // A package's module declaration (LLP 1133.001), whose
+                        // `use`s name its implementations' files.
+                        let file = crate::declaration::read(&key, &used_src, used as u32).map_err(
+                            |(id, message)| {
+                                vec![use_error(id, format!("{}: {message}", described(u)), u)]
+                            },
+                        )?;
+                        self.units.push(Unit {
+                            file,
+                            targets: Vec::new(),
+                        });
+                        self.link(&key, used)?;
+                    } else {
+                        self.load_source(&key, &used_src, used as u32)?;
+                    }
                     self.active.pop();
                     self.cache.insert(key, used);
                     used
@@ -1077,6 +1162,18 @@ impl Loader<'_> {
                 })
                 .cloned()
                 .collect(),
+            modules: self
+                .units
+                .iter()
+                .enumerate()
+                .flat_map(|(u, unit)| {
+                    unit.file
+                        .modules
+                        .iter()
+                        .filter_map(move |m| unique[u].get(&(Kind::Call, m.name.clone())))
+                })
+                .cloned()
+                .collect(),
             ..Scope::default()
         });
         Ok(())
@@ -1193,6 +1290,7 @@ impl Loader<'_> {
             // The design is the app's, read beside its root (`design`).
             design: None,
             fns: all!(fns),
+            modules: all!(modules),
             components: all!(components),
         }
     }
@@ -1218,6 +1316,7 @@ fn declarations(file: &File) -> impl Iterator<Item = (Kind, &str)> {
     (file.components.iter().map(|c| (Kind::Component, &*c.name)))
         .chain(file.shapes.iter().map(|s| (Kind::Call, &*s.name)))
         .chain(file.fns.iter().map(|f| (Kind::Call, &*f.name)))
+        .chain(file.modules.iter().map(|m| (Kind::Call, &*m.name)))
         .chain(file.styles.iter().map(|s| (Kind::Style, &*s.name)))
         .chain(
             file.decorations

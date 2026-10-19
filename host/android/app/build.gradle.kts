@@ -59,8 +59,10 @@ android {
     sourceSets["main"].jniLibs.directories.add("build/$app/rust/jniLibs")
     sourceSets["main"].assets.directories.add("build/$app/rust/assets")
     sourceSets["main"].kotlin.directories.add(if (compose) "src/compose/java" else "src/nocompose/java")
-    // The app's Kotlin hatches (LLP 1115.001.000 D4): `class exact.app.Hatches` in its `modules/android`.
-    appDir.resolve("modules/android").takeIf { it.isDirectory }?.let { sourceSets["main"].kotlin.directories.add(it.path) }
+    // The app's Kotlin hatches and module roster (LLP 1115.001.000 D4) in its `modules/android`; -PmodulesDir lets a
+    // component fixture compile the app's actual provider without copying its Kotlin.
+    val modulesDir = providers.gradleProperty("modulesDir").orNull?.let { file(it) } ?: appDir.resolve("modules/android")
+    modulesDir.takeIf { it.isDirectory }?.let { sourceSets["main"].kotlin.directories.add(it.path) }
     // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).
     appDir.resolve(".exact/tamber/TamberTokens.kt").takeIf { it.isFile }?.let { sourceSets["main"].kotlin.directories.add(it.parent) }
     if (compose) buildFeatures { this.compose = true }

@@ -481,12 +481,12 @@ Then the warning channel:
   2. The repair is `"28px"`.
 
 **D7. Headings take the emphasized weight of their text style.** `heading_style`
-(`contract/lower/src/tags.rs:1278`) writes weight 700 for `title1`–`title3`, and keeps 600 for
-`headline`.
+(`contract/lower/src/headings.rs`) writes weight 700 for `title1` and `title2`, 600 for `title3`
+(Apple's emphasized Title 3 is Semibold; Charlie, 2026-10-19), and keeps 600 for `headline`.
 
 - On iOS, a navigation bar's large title is UIKit's and does not read this row.
-- Content headings get the weight apps actually use: Apple's emphasized text styles, which
-  are bold.
+- Content headings get the weight apps actually use: Apple's emphasized text styles (bold
+  Titles 1 and 2, semibold Title 3).
 - On the web, a bold heading is the web's own default.
 - A written `font-weight` still wins.
 

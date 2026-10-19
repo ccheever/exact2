@@ -51,6 +51,10 @@ final class Adapter: ExactSessionDelegate {
             case "light": window?.overrideUserInterfaceStyle = .light
             default: window?.overrideUserInterfaceStyle = .unspecified
             }
+        // The app's page in Settings (LLP 1133.002 D11); under the agent, journaled only.
+        case "openURL" where args.first as? String == UIApplication.openSettingsURLString:
+            session.log("openURL app-settings: opens the app's page in Settings\(agentMode ? " (not under the agent)" : "")")
+            if !agentMode, let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         case "openURL":
             guard args.count == 1, let value = args.first as? String,
                   let url = URL(string: value),

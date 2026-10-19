@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+mod grouped;
+
 /// A painted frame: the grid, and the boxes a press can hit, in paint order.
 pub struct Painted {
     /// The screen.
@@ -196,6 +198,7 @@ fn node(
             out.grid.fill(rect, clip, bg);
         }
         border(scene, out, &n, rect, clip, current);
+        grouped::separator(scene, out, &n, clip, dx, dy);
     }
     let [bt, br, bb, bl] = n.style.border_widths_in(&scene.env);
     let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();

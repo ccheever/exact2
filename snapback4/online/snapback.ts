@@ -170,7 +170,7 @@ export class Snapback {
   }
   signup(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/signup', { email, password })); }
   login(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/login', { email, password })); }
-  /** Bare `use identity` enables guest sessions; keep one before reading or writing. */
+  /** Bare `use identity` enables guest sessions; logout before signup or login. */
   guest(): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/guest', {})); }
   /** Public discovery, available before sign-in. Never changes the stored session. */
   async authConfig(): Promise<AuthConfig> {

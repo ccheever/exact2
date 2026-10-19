@@ -1,0 +1,16 @@
+// A press through a disabled box does nothing: not the box's own, not a
+// pressable ancestor's (PointerIOS.swift `activationTarget`). Once enabled,
+// it presses.
+component DisabledBox
+  state off = true
+  state last = "-"
+  action note(name: string)
+    last = name
+  action enable
+    off = false
+  view
+    column testId="root" width=520 height=200 padding=24 gap=12 press=note("outer")
+      text `last press: ${last}` testId="out"
+      column press=note("box") disabled=off testId="box" padding=12
+        text "A box" testId="inside"
+      button "Enable" press=enable testId="enable"

@@ -277,6 +277,11 @@ fn a_confirmation_or_chooser_shape_compiles() {
         "dialog id=\"c\" role=\"dialog\" aria-modal=true closedby=\"any\"\n  column gap=12\n    text \"Delete account?\"\n    row\n      button commandfor=\"c\" command=\"close\"\n        text \"Cancel\"\n      button press=go commandfor=\"c\" command=\"close\"\n        text \"Delete\"".into(),
         // Not an alertdialog: a menu takes any rows, `hr` among them.
         format!("column id=\"c\" popover=\"auto\" role=\"menu\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\"\n  hr\n{CANCEL}"),
+        // Text and one closing button: the platform's one-button alert,
+        // which tells ("Couldn't save.") and has nothing to choose
+        // (Charlie, 2026-10-18), as a `dialog` and as a popover.
+        "dialog id=\"c\" role=\"alertdialog\" aria-label=\"Couldn't save\"\n  text \"The disk is full.\"\n  button commandfor=\"c\" command=\"close\"\n    text \"OK\"".into(),
+        format!("column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  text \"Saved.\"\n{CANCEL}"),
     ] {
         if let Err(e) = contract::compile(&app(&body)) {
             panic!("{body}\n{e}");
@@ -315,7 +320,10 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
             format!("{open}\n{action}\n  for s in items key=s\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text s"),
             "inside `for`",
         ),
-        (format!("{open}\n  text \"Sure?\"\n{CANCEL}"), "has no action"),
+        // With no action and not an alert, there is nothing to present.
+        (format!("{open}\n{CANCEL}"), "has no action"),
+        (format!("{open}\n  text \"Sure?\""), "has no action"),
+        (format!("{open}\n  input placeholder=\"Name\"\n{CANCEL}"), "has no action"),
         (
             "dialog id=\"c\" role=\"alertdialog\" closedby=\"none\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Go\"".into(),
             "closedby=\"any\"",
@@ -353,6 +361,11 @@ fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
             vec![text, &delete, &keep, cancel],
             "closerequest",
             "three buttons are still an alert's",
+        ),
+        (
+            vec![text, cancel],
+            "closerequest",
+            "text and its one button",
         ),
         (vec![&delete, cancel], "any", "no text: a chooser"),
         (vec![text, &delete], "any", "no cancel"),
@@ -661,5 +674,84 @@ fn popover_commands_check_their_id_and_source() {
     ] {
         let e = contract::compile(&format!("component App\n  action go\n    {command}\n  view\n    button press=go\n      text \"Menu\"\n")).unwrap_err();
         assert_eq!(e.id, "type-popover-command", "{command}: {e}");
+    }
+}
+
+/// HTML honours `popovertarget` and `commandfor` on a button only; on any
+/// other node (a composite `row` the euxy port tried) they are refused,
+/// naming `button appearance="none"`.
+#[test]
+fn an_invoker_off_a_button_is_refused_naming_the_button() {
+    const MENU: &str = "\ncolumn id=\"m\" popover=\"auto\"\n  button press=go\n    text \"New\"";
+    const DIALOG: &str =
+        "\ndialog id=\"d\"\n  button commandfor=\"d\" command=\"close\"\n    text \"Close\"";
+    for (body, attr) in [
+        (
+            format!("row popovertarget=\"m\" role=\"button\"\n  text \"Name\"{MENU}"),
+            "popovertarget",
+        ),
+        (
+            format!("text \"Name\" popovertarget=\"m\"{MENU}"),
+            "popovertarget",
+        ),
+        (
+            format!("row commandfor=\"d\" command=\"show-modal\"\n  text \"Open\"{DIALOG}"),
+            "commandfor",
+        ),
+    ] {
+        let (id, message) = refused(&body);
+        assert_eq!(id, "lower-invoker-tag", "{body}: {message}");
+        assert!(
+            message.contains(&format!("`{attr}`"))
+                && message.contains("button appearance=\"none\""),
+            "{message}"
+        );
+    }
+    boot(&app(&format!(
+        "button appearance=\"none\" popovertarget=\"m\"\n  row\n    text \"Name\"{MENU}"
+    )));
+    boot(&app(&format!(
+        "button commandfor=\"d\" command=\"show-modal\"\n  text \"Open\"{DIALOG}"
+    )));
+}
+
+#[test]
+fn optional_popover_preserves_the_node_and_clears_without_a_journal_refusal() {
+    let mut r = boot(
+        r#"component App
+  state full = false
+  action flip
+    full = not full
+  view
+    column
+      button testId="flip" press=flip
+        text "Flip"
+      column testId="resident" popover=(full ? some("manual") : none)
+        iframe testId="guest" src="about:blank" width=200 height=100
+"#,
+    );
+    let resident = node(&r, "resident").id;
+    let guest = node(&r, "guest").id;
+    let flip = node(&r, "flip").id;
+    assert_eq!(node(&r, "resident").props.str(PropId::Popover), None);
+    for expected in [Some("manual"), None, Some("manual"), None] {
+        r.dispatch(flip, exact_runner::Event::Press).unwrap();
+        assert_eq!(node(&r, "resident").id, resident);
+        assert_eq!(node(&r, "guest").id, guest);
+        assert_eq!(node(&r, "resident").props.str(PropId::Popover), expected);
+    }
+    assert!(!r.journal().any(|line| line.contains("invalid")));
+    for value in ["true", "5", "some(true)", "some(5)"] {
+        let source =
+            format!("component App\n  view\n    column popover={value}\n      text \"x\"\n");
+        assert_eq!(
+            contract::compile(&source).unwrap_err().id,
+            "lower-attr-type"
+        );
+    }
+    for value in ["\"manual\"", "\"auto\"", "none", "some(\"manual\")"] {
+        let source =
+            format!("component App\n  view\n    column popover={value}\n      text \"x\"\n");
+        assert!(contract::compile(&source).is_ok(), "{source}");
     }
 }
